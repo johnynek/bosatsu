@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Bosatsu/Example/Json/Github/Workflows/Util · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../../../../../../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../../../../../../../js/page.js"></script>
+<script type="text/javascript" src="../../../../../../../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../../../../../../../js/groups.js"></script>
+<script type="text/javascript" src="../../../../../../../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../../../../../../../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../../../../../../../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../../../../../../../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../../../../../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-fa60524e*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../../../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../../../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../../../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../../../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../../../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../../../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../../../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="active page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../../../../../../../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../../../../../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-fa60524e*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../../../../../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../../../../../../../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../../../../../../../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+  </ul></li>
+  <li><a href="../../../../../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../../../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../../../../../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../../../../../../../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="active page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../../../../../../../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../../../../../../../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../../../../../../../generated/core_alpha/index.html">Core Alpha API</a></li>
+  <li><code>Bosatsu/Example/Json/Github/Workflows/Util</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#bosatsu-example-json-github-workflows-util" name="bosatsu-example-json-github-workflows-util" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Example/Json/Github/Workflows/Util</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-fetchjavawith"><code>FetchJavaWith</code></a>, <a href="#type-javastrategy"><code>JavaStrategy</code></a>, <a href="#type-javastrategymatrix"><code>JavaStrategyMatrix</code></a>, <a href="#type-javawith"><code>JavaWith</code></a>, <a href="#type-onpush"><code>OnPush</code></a>, <a href="#type-onpushbranches"><code>OnPushBranches</code></a>, <a href="#type-step"><code>Step</code></a>, <a href="#type-stepenv"><code>StepEnv</code></a></li>
+  <li>Values: <a href="#value-action-cache"><code>action_cache</code></a>, <a href="#value-action-checkout-v2"><code>action_checkout_v2</code></a>, <a href="#value-action-checkout-v4"><code>action_checkout_v4</code></a>, <a href="#value-action-codecov"><code>action_codecov</code></a>, <a href="#value-action-setup-java"><code>action_setup_java</code></a>, <a href="#value-action-setup-python"><code>action_setup_python</code></a>, <a href="#value-action-setup-sbt"><code>action_setup_sbt</code></a>, <a href="#value-action-upload-artifact"><code>action_upload_artifact</code></a>, <a href="#value-cat-lines"><code>cat_lines</code></a>, <a href="#value-codecov-token-secret"><code>codecov_token_secret</code></a>, <a href="#value-github-token-secret"><code>github_token_secret</code></a>, <a href="#value-install-sbt-step-name"><code>install_sbt_step_name</code></a>, <a href="#value-install-sbt-step-name-title"><code>install_sbt_step_name_title</code></a>, <a href="#value-java-17-setup-name"><code>java_17_setup_name</code></a>, <a href="#value-java-17-setup-name-title"><code>java_17_setup_name_title</code></a>, <a href="#value-java-distribution-temurin"><code>java_distribution_temurin</code></a>, <a href="#value-java-matrix-setup-name"><code>java_matrix_setup_name</code></a>, <a href="#value-java-strategy-17"><code>java_strategy_17</code></a>, <a href="#value-java-version-17"><code>java_version_17</code></a>, <a href="#value-java-version-matrix"><code>java_version_matrix</code></a>, <a href="#value-main-branch"><code>main_branch</code></a>, <a href="#value-named-step-item-env"><code>named_step_item_env</code></a>, <a href="#value-named-step-item-env-run"><code>named_step_item_env_run</code></a>, <a href="#value-named-step-item-with-id"><code>named_step_item_with_id</code></a>, <a href="#value-needs-prepare"><code>needs_prepare</code></a>, <a href="#value-needs-test"><code>needs_test</code></a>, <a href="#value-needs-test-c"><code>needs_test_c</code></a>, <a href="#value-permission-write"><code>permission_write</code></a>, <a href="#value-python-version-3-9"><code>python_version_3_9</code></a>, <a href="#value-python-version-matrix"><code>python_version_matrix</code></a>, <a href="#value-run-c-runtime-ci"><code>run_c_runtime_ci</code></a>, <a href="#value-run-lib-build-c"><code>run_lib_build_c</code></a>, <a href="#value-run-lib-test-c"><code>run_lib_test_c</code></a>, <a href="#value-run-publish-bosatsu-libs"><code>run_publish_bosatsu_libs</code></a>, <a href="#value-run-python-tests-cmd"><code>run_python_tests_cmd</code></a>, <a href="#value-runner-macos-14"><code>runner_macos_14</code></a>, <a href="#value-runner-macos-latest"><code>runner_macos_latest</code></a>, <a href="#value-runner-ubuntu-latest"><code>runner_ubuntu_latest</code></a>, <a href="#value-step-item"><code>step_item</code></a>, <a href="#value-step-item-env"><code>step_item_env</code></a>, <a href="#value-step-item-uses-with"><code>step_item_uses_with</code></a>, <a href="#value-timeout-minutes-default"><code>timeout_minutes_default</code></a>, <a href="#value-tool-test-workspace-cmd"><code>tool_test_workspace_cmd</code></a>, <a href="#value-tool-test-workspace-node-cmd"><code>tool_test_workspace_node_cmd</code></a>, <a href="#value-transpile-c-cmd"><code>transpile_c_cmd</code></a>, <a href="#value-transpile-python-cmd"><code>transpile_python_cmd</code></a></li>
+</ul>
+<h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-fetchjavawith"></a>
+<h3><a href="#fetchjavawith" name="fetchjavawith" class="anchor"><span class="anchor-link"></span></a><code>FetchJavaWith</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type FetchJavaWith
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>FetchJavaWith(  <code>fetch-depth</code>: Option[Int],  distribution: Option[String],  <code>java-version</code>: Option[String],  token: Option[String],  override_branch: Option[String],  name: Option[String],  path: Option[String]  )</li>
+</ul>
+<a id="type-javastrategy"></a>
+<h3><a href="#javastrategy" name="javastrategy" class="anchor"><span class="anchor-link"></span></a><code>JavaStrategy</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type JavaStrategy
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>JavaStrategy(matrix: JavaStrategyMatrix)</code></li>
+</ul>
+<a id="type-javastrategymatrix"></a>
+<h3><a href="#javastrategymatrix" name="javastrategymatrix" class="anchor"><span class="anchor-link"></span></a><code>JavaStrategyMatrix</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type JavaStrategyMatrix
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>JavaStrategyMatrix(java: List[String])</code></li>
+</ul>
+<a id="type-javawith"></a>
+<h3><a href="#javawith" name="javawith" class="anchor"><span class="anchor-link"></span></a><code>JavaWith</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type JavaWith
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>JavaWith(distribution: String, \</code>java-version`: String)`</li>
+</ul>
+<a id="type-onpush"></a>
+<h3><a href="#onpush" name="onpush" class="anchor"><span class="anchor-link"></span></a><code>OnPush</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type OnPush
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>OnPush(push: OnPushBranches)</code></li>
+</ul>
+<a id="type-onpushbranches"></a>
+<h3><a href="#onpushbranches" name="onpushbranches" class="anchor"><span class="anchor-link"></span></a><code>OnPushBranches</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type OnPushBranches
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li><code>OnPushBranches(branches: List[String])</code></li>
+</ul>
+<a id="type-step"></a>
+<h3><a href="#step-with-t-" name="step-with-t-" class="anchor"><span class="anchor-link"></span></a><code>Step[with_t]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Step[with_t: +*]
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>Step(  uses: Option[String],  name: Option[String],  with: Option[with_t],  run: Option[String],  env: Option[StepEnv],  id: Option[String]  )</li>
+</ul>
+<a id="type-stepenv"></a>
+<h3><a href="#stepenv" name="stepenv" class="anchor"><span class="anchor-link"></span></a><code>StepEnv</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type StepEnv
+</code></pre>
+<h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
+<ul>
+  <li>StepEnv(  <code>TAG_NAME</code>: Option[String],  <code>BOSATSU_C_RUNTIME_HASH</code>: Option[String],  <code>BOSATSU_STATIC_NATIVE_IMAGE</code>: Option[String],  <code>BOSATSU_NATIVE_IMAGE_LIBC</code>: Option[String],  <code>BOSATSU_NATIVE_IMAGE_CLIB_PATH</code>: Option[String],  <code>CC</code>: Option[String],  <code>PGP_PASSPHRASE</code>: Option[String],  <code>PGP_SECRET</code>: Option[String],  <code>SONATYPE_PASSWORD</code>: Option[String],  <code>SONATYPE_USERNAME</code>: Option[String],  <code>REPO_ROOT</code>: Option[String],  <code>OUTDIR</code>: Option[String],  <code>GIT_SHA</code>: Option[String],  <code>URI_BASE</code>: Option[String],  <code>C_RUNTIME_ARCHIVE</code>: Option[String],  <code>GITHUB_TOKEN</code>: Option[String],  <code>GITHUB_REF_NAME</code>: Option[String],  <code>GH_TOKEN</code>: Option[String]  )</li>
+</ul>
+<h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-action-cache"></a>
+<h3><a href="#action-cache" name="action-cache" class="anchor"><span class="anchor-link"></span></a><code>action_cache</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_cache: String
+</code></pre>
+<a id="value-action-checkout-v2"></a>
+<h3><a href="#action-checkout-v2" name="action-checkout-v2" class="anchor"><span class="anchor-link"></span></a><code>action_checkout_v2</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_checkout_v2: String
+</code></pre>
+<a id="value-action-checkout-v4"></a>
+<h3><a href="#action-checkout-v4" name="action-checkout-v4" class="anchor"><span class="anchor-link"></span></a><code>action_checkout_v4</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_checkout_v4: String
+</code></pre>
+<a id="value-action-codecov"></a>
+<h3><a href="#action-codecov" name="action-codecov" class="anchor"><span class="anchor-link"></span></a><code>action_codecov</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_codecov: String
+</code></pre>
+<a id="value-action-setup-java"></a>
+<h3><a href="#action-setup-java" name="action-setup-java" class="anchor"><span class="anchor-link"></span></a><code>action_setup_java</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_setup_java: String
+</code></pre>
+<a id="value-action-setup-python"></a>
+<h3><a href="#action-setup-python" name="action-setup-python" class="anchor"><span class="anchor-link"></span></a><code>action_setup_python</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_setup_python: String
+</code></pre>
+<a id="value-action-setup-sbt"></a>
+<h3><a href="#action-setup-sbt" name="action-setup-sbt" class="anchor"><span class="anchor-link"></span></a><code>action_setup_sbt</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_setup_sbt: String
+</code></pre>
+<a id="value-action-upload-artifact"></a>
+<h3><a href="#action-upload-artifact" name="action-upload-artifact" class="anchor"><span class="anchor-link"></span></a><code>action_upload_artifact</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">action_upload_artifact: String
+</code></pre>
+<a id="value-cat-lines"></a>
+<h3><a href="#cat-lines" name="cat-lines" class="anchor"><span class="anchor-link"></span></a><code>cat_lines</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def cat_lines(lines: List[String]) -&gt; String
+</code></pre>
+<a id="value-codecov-token-secret"></a>
+<h3><a href="#codecov-token-secret" name="codecov-token-secret" class="anchor"><span class="anchor-link"></span></a><code>codecov_token_secret</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">codecov_token_secret: String
+</code></pre>
+<a id="value-github-token-secret"></a>
+<h3><a href="#github-token-secret" name="github-token-secret" class="anchor"><span class="anchor-link"></span></a><code>github_token_secret</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">github_token_secret: String
+</code></pre>
+<a id="value-install-sbt-step-name"></a>
+<h3><a href="#install-sbt-step-name" name="install-sbt-step-name" class="anchor"><span class="anchor-link"></span></a><code>install_sbt_step_name</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">install_sbt_step_name: String
+</code></pre>
+<a id="value-install-sbt-step-name-title"></a>
+<h3><a href="#install-sbt-step-name-title" name="install-sbt-step-name-title" class="anchor"><span class="anchor-link"></span></a><code>install_sbt_step_name_title</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">install_sbt_step_name_title: String
+</code></pre>
+<a id="value-java-17-setup-name"></a>
+<h3><a href="#java-17-setup-name" name="java-17-setup-name" class="anchor"><span class="anchor-link"></span></a><code>java_17_setup_name</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_17_setup_name: String
+</code></pre>
+<a id="value-java-17-setup-name-title"></a>
+<h3><a href="#java-17-setup-name-title" name="java-17-setup-name-title" class="anchor"><span class="anchor-link"></span></a><code>java_17_setup_name_title</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_17_setup_name_title: String
+</code></pre>
+<a id="value-java-distribution-temurin"></a>
+<h3><a href="#java-distribution-temurin" name="java-distribution-temurin" class="anchor"><span class="anchor-link"></span></a><code>java_distribution_temurin</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_distribution_temurin: String
+</code></pre>
+<a id="value-java-matrix-setup-name"></a>
+<h3><a href="#java-matrix-setup-name" name="java-matrix-setup-name" class="anchor"><span class="anchor-link"></span></a><code>java_matrix_setup_name</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_matrix_setup_name: String
+</code></pre>
+<a id="value-java-strategy-17"></a>
+<h3><a href="#java-strategy-17" name="java-strategy-17" class="anchor"><span class="anchor-link"></span></a><code>java_strategy_17</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_strategy_17: JavaStrategy
+</code></pre>
+<a id="value-java-version-17"></a>
+<h3><a href="#java-version-17" name="java-version-17" class="anchor"><span class="anchor-link"></span></a><code>java_version_17</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_version_17: String
+</code></pre>
+<a id="value-java-version-matrix"></a>
+<h3><a href="#java-version-matrix" name="java-version-matrix" class="anchor"><span class="anchor-link"></span></a><code>java_version_matrix</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">java_version_matrix: String
+</code></pre>
+<a id="value-main-branch"></a>
+<h3><a href="#main-branch" name="main-branch" class="anchor"><span class="anchor-link"></span></a><code>main_branch</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">main_branch: String
+</code></pre>
+<a id="value-named-step-item-env"></a>
+<h3><a href="#named-step-item-env" name="named-step-item-env" class="anchor"><span class="anchor-link"></span></a><code>named_step_item_env</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def named_step_item_env[a](
+    name: Option[String],
+    uses: Option[String],
+    with: Option[a],
+    run: Option[String],
+    env: Option[StepEnv]
+) -&gt; Step[a]
+</code></pre>
+<a id="value-named-step-item-env-run"></a>
+<h3><a href="#named-step-item-env-run" name="named-step-item-env-run" class="anchor"><span class="anchor-link"></span></a><code>named_step_item_env_run</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def named_step_item_env_run[a](
+    name: Option[String],
+    uses: Option[String],
+    with: Option[a],
+    env: Option[StepEnv],
+    run: Option[String]
+) -&gt; Step[a]
+</code></pre>
+<a id="value-named-step-item-with-id"></a>
+<h3><a href="#named-step-item-with-id" name="named-step-item-with-id" class="anchor"><span class="anchor-link"></span></a><code>named_step_item_with_id</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def named_step_item_with_id[a
+](name: String, uses: Option[String], with: Option[a], run: Option[String], id: Option[String]) -&gt; Step[a]
+</code></pre>
+<a id="value-needs-prepare"></a>
+<h3><a href="#needs-prepare" name="needs-prepare" class="anchor"><span class="anchor-link"></span></a><code>needs_prepare</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">needs_prepare: String
+</code></pre>
+<a id="value-needs-test"></a>
+<h3><a href="#needs-test" name="needs-test" class="anchor"><span class="anchor-link"></span></a><code>needs_test</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">needs_test: String
+</code></pre>
+<a id="value-needs-test-c"></a>
+<h3><a href="#needs-test-c" name="needs-test-c" class="anchor"><span class="anchor-link"></span></a><code>needs_test_c</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">needs_test_c: String
+</code></pre>
+<a id="value-permission-write"></a>
+<h3><a href="#permission-write" name="permission-write" class="anchor"><span class="anchor-link"></span></a><code>permission_write</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">permission_write: String
+</code></pre>
+<a id="value-python-version-3-9"></a>
+<h3><a href="#python-version-3-9" name="python-version-3-9" class="anchor"><span class="anchor-link"></span></a><code>python_version_3_9</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">python_version_3_9: String
+</code></pre>
+<a id="value-python-version-matrix"></a>
+<h3><a href="#python-version-matrix" name="python-version-matrix" class="anchor"><span class="anchor-link"></span></a><code>python_version_matrix</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">python_version_matrix: String
+</code></pre>
+<a id="value-run-c-runtime-ci"></a>
+<h3><a href="#run-c-runtime-ci" name="run-c-runtime-ci" class="anchor"><span class="anchor-link"></span></a><code>run_c_runtime_ci</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">run_c_runtime_ci: String
+</code></pre>
+<a id="value-run-lib-build-c"></a>
+<h3><a href="#run-lib-build-c" name="run-lib-build-c" class="anchor"><span class="anchor-link"></span></a><code>run_lib_build_c</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">run_lib_build_c: String
+</code></pre>
+<a id="value-run-lib-test-c"></a>
+<h3><a href="#run-lib-test-c" name="run-lib-test-c" class="anchor"><span class="anchor-link"></span></a><code>run_lib_test_c</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">run_lib_test_c: String
+</code></pre>
+<a id="value-run-publish-bosatsu-libs"></a>
+<h3><a href="#run-publish-bosatsu-libs" name="run-publish-bosatsu-libs" class="anchor"><span class="anchor-link"></span></a><code>run_publish_bosatsu_libs</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">run_publish_bosatsu_libs: String
+</code></pre>
+<a id="value-run-python-tests-cmd"></a>
+<h3><a href="#run-python-tests-cmd" name="run-python-tests-cmd" class="anchor"><span class="anchor-link"></span></a><code>run_python_tests_cmd</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">run_python_tests_cmd: String
+</code></pre>
+<a id="value-runner-macos-14"></a>
+<h3><a href="#runner-macos-14" name="runner-macos-14" class="anchor"><span class="anchor-link"></span></a><code>runner_macos_14</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">runner_macos_14: String
+</code></pre>
+<a id="value-runner-macos-latest"></a>
+<h3><a href="#runner-macos-latest" name="runner-macos-latest" class="anchor"><span class="anchor-link"></span></a><code>runner_macos_latest</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">runner_macos_latest: String
+</code></pre>
+<a id="value-runner-ubuntu-latest"></a>
+<h3><a href="#runner-ubuntu-latest" name="runner-ubuntu-latest" class="anchor"><span class="anchor-link"></span></a><code>runner_ubuntu_latest</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">runner_ubuntu_latest: String
+</code></pre>
+<a id="value-step-item"></a>
+<h3><a href="#step-item" name="step-item" class="anchor"><span class="anchor-link"></span></a><code>step_item</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def step_item[a
+](uses: Option[String], name: Option[String], with: Option[a], run: Option[String]) -&gt; Step[a]
+</code></pre>
+<a id="value-step-item-env"></a>
+<h3><a href="#step-item-env" name="step-item-env" class="anchor"><span class="anchor-link"></span></a><code>step_item_env</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def step_item_env[a](
+    uses: Option[String],
+    name: Option[String],
+    with: Option[a],
+    run: Option[String],
+    env: Option[StepEnv]
+) -&gt; Step[a]
+</code></pre>
+<a id="value-step-item-uses-with"></a>
+<h3><a href="#step-item-uses-with" name="step-item-uses-with" class="anchor"><span class="anchor-link"></span></a><code>step_item_uses_with</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def step_item_uses_with[a
+](uses: Option[String], with: Option[a], name: Option[String], run: Option[String]) -&gt; Step[a]
+</code></pre>
+<a id="value-timeout-minutes-default"></a>
+<h3><a href="#timeout-minutes-default" name="timeout-minutes-default" class="anchor"><span class="anchor-link"></span></a><code>timeout_minutes_default</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">timeout_minutes_default: Int
+</code></pre>
+<a id="value-tool-test-workspace-cmd"></a>
+<h3><a href="#tool-test-workspace-cmd" name="tool-test-workspace-cmd" class="anchor"><span class="anchor-link"></span></a><code>tool_test_workspace_cmd</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">tool_test_workspace_cmd: String
+</code></pre>
+<a id="value-tool-test-workspace-node-cmd"></a>
+<h3><a href="#tool-test-workspace-node-cmd" name="tool-test-workspace-node-cmd" class="anchor"><span class="anchor-link"></span></a><code>tool_test_workspace_node_cmd</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">tool_test_workspace_node_cmd: String
+</code></pre>
+<a id="value-transpile-c-cmd"></a>
+<h3><a href="#transpile-c-cmd" name="transpile-c-cmd" class="anchor"><span class="anchor-link"></span></a><code>transpile_c_cmd</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">transpile_c_cmd: String
+</code></pre>
+<a id="value-transpile-python-cmd"></a>
+<h3><a href="#transpile-python-cmd" name="transpile-python-cmd" class="anchor"><span class="anchor-link"></span></a><code>transpile_python_cmd</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">transpile_python_cmd: String
+</code></pre>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../../../../../../../generated/core_alpha/Bosatsu/FibBench.html"><code>Bosatsu/FibBench</code></a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html#bosatsu-example-json-github-workflows-util" class="header"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a>
+  <ul>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html#index" class="header">Index</a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html#types" class="header">Types</a></li>
+    <li><a href="../../../../../../../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html#values" class="header">Values</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../../../../../../../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../../../../../../../js/magellan.js"></script>
+
+<style type="text/css">@import "../../../../../../../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../../../../../../../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../../../../../../../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-fa60524e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>

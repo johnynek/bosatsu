@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-23007f09*
+0.0.0+1-fa60524e*
 </div>
 </div>
 <div class="nav-toc">
@@ -62,6 +62,11 @@
     <li><a href="generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
@@ -133,7 +138,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-23007f09*
+0.0.0+1-fa60524e*
 </div>
 </div>
 <div class="nav-toc">
@@ -163,6 +168,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
     <li><a href="generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
     <li><a href="generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
@@ -228,50 +238,80 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#generating-json-from-bosatsu-values" name="generating-json-from-bosatsu-values" class="anchor"><span class="anchor-link"></span></a>Generating JSON from Bosatsu Values</h1>
-<p>Like <a href="https://dhall-lang.org/">Dhall</a> Bosatsu can be used as a configuration language. This assumes you have installed the Bosatsu CLI; see <a href="getting_started.html">Getting started</a>.</p>
-<p>As an example, in the project repo try the following:</p>
-<pre><code>./bosatsu tool json write --main_file test_workspace/Foo.bosatsu --package_root test_workspace/
+<p>Bosatsu can be used as a typed configuration language and then rendered to JSON with <code>lib json</code>.</p>
+<p>This page focuses on <code>lib json</code> (not <code>tool json</code>).</p>
+<h2><a href="#quick-start" name="quick-start" class="anchor"><span class="anchor-link"></span></a>Quick start</h2>
+<ol>
+  <li>Typecheck as you iterate:</li>
+</ol>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib check --name core_alpha
 </code></pre>
-<p>you should see: <code>&quot;this is Foo&quot;</code>. The <code>tool json</code> subcommand gives you the ability to render values as JSON.</p>
-<p>For a more interesting example see:</p>
-<pre><code>./bosatsu tool json write --main_file test_workspace/gen_deps.bosatsu --input_dir test_workspace/ --package_root test_workspace/ | head -30
+<ol>
+  <li>Generate JSON for a value:</li>
+</ol>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
 </code></pre>
-<p>which should render:</p>
-<pre><code>{
-  &quot;options&quot;: {
-      &quot;buildHeader&quot;: [
-          &quot;load(\&quot;@io_bazel_rules_scala//scala:scala_import.bzl\&quot;, \&quot;scala_import\&quot;)&quot; ],
-      &quot;languages&quot;: [ &quot;java&quot;, &quot;scala:2.11.11&quot; ],
-      &quot;resolvers&quot;: [
-          {
-            &quot;id&quot;: &quot;mavencentral&quot;,
-            &quot;type&quot;: &quot;default&quot;,
-            &quot;url&quot;: &quot;https://repo.maven.apache.org/maven2/&quot;
-          } ],
-      &quot;transitivity&quot;: &quot;runtime_deps&quot;,
-      &quot;resolverType&quot;: &quot;coursier&quot;,
-      &quot;versionConflictPolicy&quot;: &quot;highest&quot;
-    },
-  &quot;dependencies&quot;: {
-      &quot;com.lihaoyi&quot;: {
-          &quot;fastparse&quot;: {
-              &quot;modules&quot;: [ &quot;&quot;, &quot;utils&quot; ],
-              &quot;lang&quot;: &quot;scala&quot;,
-              &quot;version&quot;: &quot;1.0.0&quot;,
-              &quot;exports&quot;: [ &quot;com.lihaoyi:sourcecode&quot; ]
-            },
-          &quot;sourcecode&quot;: {
-              &quot;modules&quot;: [ ],
-              &quot;lang&quot;: &quot;scala&quot;,
-              &quot;version&quot;: &quot;0.1.4&quot;,
-              &quot;exports&quot;: [ ]
-            }
-        },
-          ...
-    }
-  }
-  ...
-}
+<h2><a href="#command-reference" name="command-reference" class="anchor"><span class="anchor-link"></span></a>Command reference</h2>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--output &lt;path&gt;]
+</code></pre>
+<p>Common flags:</p>
+<ul>
+  <li><code>--name</code>: library name from your <code>bosatsu_libs.json</code></li>
+  <li><code>--main</code>: package/value to evaluate and encode</li>
+  <li><code>--output</code>: write JSON to a file instead of stdout</li>
+</ul>
+<h2><a href="#encoding-shape" name="encoding-shape" class="anchor"><span class="anchor-link"></span></a>Encoding shape</h2>
+<p><code>lib json</code> uses type-directed encoding:</p>
+<ul>
+  <li><code>Int</code> -&gt; JSON number</li>
+  <li><code>Float64</code> -&gt; JSON number</li>
+  <li><code>String</code> -&gt; JSON string</li>
+  <li><code>Bool</code> -&gt; JSON boolean</li>
+  <li><code>List[a]</code> -&gt; JSON array</li>
+  <li><code>Dict[String, a]</code> -&gt; JSON object</li>
+  <li><code>struct</code> -&gt; JSON object</li>
+  <li><code>enum</code> -&gt; JSON object (constructors must remain distinguishable after encoding)</li>
+</ul>
+<h2><a href="#option-behavior" name="option-behavior" class="anchor"><span class="anchor-link"></span></a><code>Option</code> behavior</h2>
+<p><code>Option</code> is especially useful for configuration records:</p>
+<ul>
+  <li><code>None</code> encodes as <code>null</code> when that is unambiguous</li>
+  <li><code>Some(x)</code> encodes as <code>x</code></li>
+  <li>Nested options (<code>Option[Option[a]]</code>) use array encoding to avoid ambiguity:</li>
+  <li>outer <code>None</code> -&gt; <code>[]</code></li>
+  <li>outer <code>Some(None)</code> -&gt; <code>[null]</code></li>
+  <li>outer <code>Some(Some(x))</code> -&gt; <code>[x]</code></li>
+</ul>
+<p>For record fields, <code>Option</code> lets you model shape variation directly:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Step(
+  uses: Option[String],
+  run: Option[String],
+  with: Option[WithConfig],
+)
+</code></pre>
+<p>This usually replaces many near-duplicate structs.</p>
+<h2><a href="#patterns-that-worked-well-for-github-workflow-modeling" name="patterns-that-worked-well-for-github-workflow-modeling" class="anchor"><span class="anchor-link"></span></a>Patterns that worked well for GitHub workflow modeling</h2>
+<ul>
+  <li>Put shared types/constants/helpers in a common module (for example <code>Util.bosatsu</code>)</li>
+  <li>Use constants for repeated literals (runner names, action versions, <code>17</code>, step labels)</li>
+  <li>Use helper functions for multi-line shell scripts (for example <code>cat_lines</code>)</li>
+  <li>Prefer one record with <code>Option[...]</code> fields over many one-off variants</li>
+  <li>Use backticks only when a field is not a valid bindable name, such as <code>`runs-on`</code> and <code>`timeout-minutes`</code></li>
+</ul>
+<h2><a href="#practical-gotchas" name="practical-gotchas" class="anchor"><span class="anchor-link"></span></a>Practical gotchas</h2>
+<ul>
+  <li>Keep running <code>lib check</code> while editing models; it catches most mistakes before JSON generation.</li>
+  <li>JSON field names come from your Bosatsu field names exactly.</li>
+  <li><code>Float64</code> JSON encoding requires finite values; <code>.NaN</code>, <code>∞</code>, and <code>-∞</code> are not valid JSON numbers.</li>
+  <li>If your consumer treats absent and <code>null</code> differently, model that intentionally and test it.</li>
+  <li><code>lib json write</code> requires a serializable value. Function-typed mains are rejected.</li>
+</ul>
+<h2><a href="#full-commands-used-in-this-workflow-example" name="full-commands-used-in-this-workflow-example" class="anchor"><span class="anchor-link"></span></a>Full commands used in this workflow example</h2>
+<p>These are the exact commands used to generate the four workflow values modeled in this example:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
+./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
+./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generating_json.md">here</a>.
@@ -282,6 +322,25 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="generating_json.html#generating-json-from-bosatsu-values" class="header">Generating JSON from Bosatsu Values</a>
+  <ul>
+    <li><a href="generating_json.html#quick-start" class="header">Quick start</a></li>
+    <li><a href="generating_json.html#command-reference" class="header">Command reference</a></li>
+    <li><a href="generating_json.html#encoding-shape" class="header">Encoding shape</a></li>
+    <li><a href="generating_json.html#option-behavior" class="header"><code>Option</code> behavior</a></li>
+    <li><a href="generating_json.html#patterns-that-worked-well-for-github-workflow-modeling" class="header">Patterns that worked well for GitHub workflow modeling</a></li>
+    <li><a href="generating_json.html#practical-gotchas" class="header">Practical gotchas</a></li>
+    <li><a href="generating_json.html#full-commands-used-in-this-workflow-example" class="header">Full commands used in this workflow example</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
 </div>
 </div>
 
@@ -344,7 +403,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-23007f09-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-fa60524e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
