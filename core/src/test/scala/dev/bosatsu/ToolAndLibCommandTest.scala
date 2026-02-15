@@ -242,6 +242,26 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("lib show invalid package name parse error includes package hint") {
+    val src =
+      """main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "euler1")
+    ) match {
+      case Left(err) =>
+        val msg = err.getMessage
+        assert(msg.contains("could not parse euler1 as a package name"), msg)
+        assert(msg.contains("parser error:"), msg)
+        assert(msg.contains("use the package declaration name"), msg)
+        assert(msg.contains("Euler/One"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
   test("lib eval missing value reports CliException without stack trace") {
     val src =
       """main = 42

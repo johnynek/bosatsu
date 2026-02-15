@@ -44,12 +44,20 @@ object PackageName {
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
 
   implicit val argPack: Argument[PackageName] =
-    Parser.argFromParser(
-      parser,
-      "packageName",
-      "package name",
-      "Must be capitalized strings separated by /"
-    )
+    new Argument[PackageName] {
+      def defaultMetavar: String = "packageName"
+      def read(string: String): cats.data.ValidatedNel[String, PackageName] =
+        parser.parseAll(string) match {
+          case Right(pn) => cats.data.Validated.valid(pn)
+          case Left(err) =>
+            val parserErr = err.toString
+            cats.data.Validated.invalidNel(
+              s"""could not parse $string as a package name. Must be capitalized strings separated by /.
+                 |parser error: $parserErr
+                 |hint: use the package declaration name (example: Euler/One), not the filename stem (e.g. euler1).""".stripMargin
+            )
+        }
+    }
 
   implicit val showPackageName: Show[PackageName] =
     Show.show(_.asString)
