@@ -1591,7 +1591,7 @@ main = depBox
 
   test("lib json write rejects unsupported function output") {
     val src =
-      """main = (x) -> x
+      """main = (x: Int) -> x
 """
     val files = baseLibFiles(src)
 
@@ -1611,6 +1611,86 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("cannot convert type to Json"), msg)
+        assert(msg.contains("function types are not serializable to Json"), msg)
+    }
+  }
+
+  test("lib json write reports unknown package clearly") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "Nope/Foo"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected package lookup error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("package not found: Nope/Foo"), msg)
+        assert(!msg.contains("unknown error"), msg)
+    }
+  }
+
+  test("lib json write reports missing value in a known package") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::does_not_exist"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected missing-value error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("value not found: MyLib/Foo::does_not_exist"), msg)
+        assert(msg.contains("valid json values: [main]"), msg)
+        assert(!msg.contains("unknown error"), msg)
+    }
+  }
+
+  test("lib json write missing-value suggestions are filtered and sorted") {
+    val src =
+      """export alpha, zeta, fn, main
+
+alpha = 1
+zeta = "z"
+fn = (x: Int) -> x
+main = 0
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::nope"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected missing-value error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("value not found: MyLib/Foo::nope"), msg)
+        assert(msg.contains("valid json values: [alpha, main, zeta]"), msg)
+        assert(!msg.contains("fn"), msg)
     }
   }
 

@@ -26,6 +26,7 @@ import dev.bosatsu.{
   PackageName,
   PackageMap,
   PlatformIO,
+  ValueToJson,
   Predef => BosatsuPredef
 }
 import dev.bosatsu.rankn.Type
@@ -1439,33 +1440,98 @@ object Command {
               }
             }
 
+          def evalLookupError(
+              err: LibraryEvaluation.LookupError
+          ): Exception & CliException =
+            err match {
+              case LibraryEvaluation.LookupError.UnknownPackage(pn) =>
+                CliException.Basic(show"package not found: ${pn.asString}")
+              case LibraryEvaluation.LookupError.AmbiguousPackage(
+                    pn,
+                    candidates
+                  ) =>
+                CliException.Basic(
+                  show"package ${pn.asString} is ambiguous in dependency tree: ${candidates.mkString(", ")}"
+                )
+              case LibraryEvaluation.LookupError.MainNotFound(pn) =>
+                CliException.Basic(
+                  show"package ${pn.asString} has no main value; pass --main ${pn.asString}::<value>"
+                )
+              case LibraryEvaluation.LookupError.ValueNotFound(
+                    pn,
+                    name,
+                    validJsonValues
+                  ) =>
+                val validValuesMsg =
+                  if (validJsonValues.isEmpty) ""
+                  else
+                    show"\nvalid json values: [${validJsonValues.mkString(", ")}]"
+
+                CliException.Basic(
+                  show"value not found: ${pn.asString}::${name.asString}${validValuesMsg}"
+                )
+              case LibraryEvaluation.LookupError.ValueNotEvaluatable(
+                    pn,
+                    name
+                  ) =>
+                CliException.Basic(
+                  show"value exists but could not be evaluated: ${pn.asString}::${name.asString}"
+                )
+              case LibraryEvaluation.LookupError.PackageUnavailableInScope(
+                    pn,
+                    scope
+                  ) =>
+                CliException.Basic(
+                  show"package ${pn.asString} was selected but not available in scope $scope"
+                )
+            }
+
           def unsupported[A](
+              v2j: ValueToJson,
+              tpe: Type,
               j: JsonEncodingError.UnsupportedType
           ): F[A] = {
             def typeDoc(t: Type) =
               Type.fullyResolvedDocument.document(t)
-            val path = j.path.init
-            val badType = j.path.last
-            val pathMsg = path match {
-              case Nil  => Doc.empty
-              case nonE =>
-                val sep =
-                  Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
-                val pd =
-                  (Doc.intercalate(sep, nonE.map(typeDoc(_))) + sep + typeDoc(
+            val issues = v2j.unsupportedIssues(tpe)
+            val msg =
+              if (issues.nonEmpty) {
+                val details =
+                  issues.zipWithIndex.map { case ((path, reason), idx) =>
+                    val badType = path.toList.last
+                    val pathStr =
+                      path.toList.map(t => typeDoc(t).render(80)).mkString(" -> ")
+                    show"${idx + 1}. ${typeDoc(badType).render(80)}\n   reason: $reason\n   path: $pathStr"
+                  }
+                show"cannot convert type to Json:\n\n${details.mkString("\n\n")}"
+              } else {
+                val path = j.path.init
+                val badType = j.path.last
+                val pathMsg = path match {
+                  case Nil  => Doc.empty
+                  case nonE =>
+                    val sep =
+                      Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
+                    val pd =
+                      (Doc.intercalate(
+                        sep,
+                        nonE.map(typeDoc(_))
+                      ) + sep + typeDoc(
+                        badType
+                      )).nested(4)
+                    pd + Doc.hardLine + Doc.hardLine + Doc.text(
+                      "but"
+                    ) + Doc.hardLine + Doc.hardLine
+                }
+                val fallbackMsg =
+                  pathMsg + Doc.text("the type") + Doc.space + typeDoc(
                     badType
-                  )).nested(4)
-                pd + Doc.hardLine + Doc.hardLine + Doc.text(
-                  "but"
-                ) + Doc.hardLine + Doc.hardLine
-            }
-            val msg = pathMsg + Doc.text("the type") + Doc.space + typeDoc(
-              badType
-            ) + Doc.space + Doc.text("isn't supported")
-            val tpeStr = msg.render(80)
+                  ) + Doc.space + Doc.text("isn't supported")
+                show"cannot convert type to Json: ${fallbackMsg.render(80)}"
+              }
 
             moduleIOMonad.raiseError(
-              CliException.Basic(show"cannot convert type to Json: $tpeStr")
+              CliException.Basic(msg)
             )
           }
 
@@ -1477,8 +1543,10 @@ object Command {
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
-                    case (pack, None)        => ev.evaluateMain(pack)
-                    case (pack, Some(ident)) => ev.evaluateName(pack, ident)
+                    case (pack, None)        =>
+                      ev.evaluateMainEither(pack).leftMap(evalLookupError)
+                    case (pack, Some(ident)) =>
+                      ev.evaluateNameEither(pack, ident).leftMap(evalLookupError)
                   }
                 }
                 (scope, value, tpe) = evaluated
@@ -1486,7 +1554,7 @@ object Command {
                 out <- mode match {
                   case JsonMode.Write =>
                     v2j.toJson(tpe) match {
-                      case Left(unsup) => unsupported(unsup)
+                      case Left(unsup) => unsupported(v2j, tpe, unsup)
                       case Right(fn)   =>
                         fn(value.value) match {
                           case Left(valueError) =>
@@ -1504,7 +1572,7 @@ object Command {
 
                   case JsonMode.Apply(in) =>
                     v2j.valueFnToJsonFn(tpe) match {
-                      case Left(unsup)           => unsupported(unsup)
+                      case Left(unsup)           => unsupported(v2j, tpe, unsup)
                       case Right((arity, fnGen)) =>
                         fnGen(value.value) match {
                           case Left(valueError) =>
@@ -1541,7 +1609,7 @@ object Command {
 
                   case JsonMode.Traverse(in) =>
                     v2j.valueFnToJsonFn(tpe) match {
-                      case Left(unsup)           => unsupported(unsup)
+                      case Left(unsup)           => unsupported(v2j, tpe, unsup)
                       case Right((arity, fnGen)) =>
                         fnGen(value.value) match {
                           case Left(valueError) =>
