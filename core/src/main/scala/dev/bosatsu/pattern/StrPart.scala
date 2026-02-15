@@ -2,7 +2,6 @@ package dev.bosatsu.pattern
 
 import cats.{Monoid, Order}
 import dev.bosatsu.{Identifier, Lit, Nullable, Pattern}
-import dev.bosatsu.Nullable.*
 
 sealed abstract class StrPart derives CanEqual
 object StrPart {
