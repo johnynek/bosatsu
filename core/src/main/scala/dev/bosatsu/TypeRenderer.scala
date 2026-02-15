@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import dev.bosatsu.NonNullFold.*
+import dev.bosatsu.Nullable.*
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 
@@ -18,7 +18,7 @@ object TypeRenderer {
   )
 
   private def nonNull(s: String | Null): String =
-    s.foldNN("")(x => x)
+    Nullable(s).fold("")(x => x)
 
   def render(typeValue: Type, ctx: Context, width: Int): String =
     abbreviate(

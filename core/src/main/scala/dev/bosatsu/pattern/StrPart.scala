@@ -1,8 +1,8 @@
 package dev.bosatsu.pattern
 
 import cats.{Monoid, Order}
-import dev.bosatsu.{Pattern, Lit, Identifier}
-import dev.bosatsu.NonNullFold.*
+import dev.bosatsu.{Identifier, Lit, Nullable, Pattern}
+import dev.bosatsu.Nullable.*
 
 sealed abstract class StrPart derives CanEqual
 object StrPart {
@@ -271,7 +271,7 @@ object StrPart {
       case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
     }
 
-    StrPart.matchString(str, pat, sbinds.length).foldNN(None) { result =>
+    Nullable(StrPart.matchString(str, pat, sbinds.length)).fold(None) { result =>
       // we match:
       Some(
         result.iterator
