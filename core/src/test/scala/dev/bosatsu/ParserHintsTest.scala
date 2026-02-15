@@ -143,4 +143,46 @@ class ParserHintsTest extends munit.FunSuite {
       hints.mkString("\n")
     )
   }
+
+  test("literal github actions expression in string suggests escaping '${'") {
+    val source =
+      """package Foo
+        |
+        |s = "${{ matrix.java }}"
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("parse failed after '${'")),
+      hints.mkString("\n")
+    )
+    assert(
+      hints.exists(_.contains("""which starts string interpolation (`${x}`)""")),
+      hints.mkString("\n")
+    )
+    assert(
+      hints.exists(_.contains("""write `\${`""")),
+      hints.mkString("\n")
+    )
+  }
+
+  test("invalid interpolation expression suggests maybe literal '${'") {
+    val source =
+      """package Foo
+        |
+        |s = "${foo.bar}"
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("parse failed after '${'")),
+      hints.mkString("\n")
+    )
+    assert(
+      hints.exists(_.contains("""write `\${`""")),
+      hints.mkString("\n")
+    )
+  }
 }

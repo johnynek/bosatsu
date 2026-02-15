@@ -11,6 +11,7 @@ object ParserHints {
   type Rule = (String, LocationMap, ParseFailure) => Option[Doc]
 
   private val rules: List[Rule] =
+    interpolationStartInStringRule ::
     elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
@@ -53,6 +54,56 @@ object ParserHints {
         )
 
       maybeHint
+    }
+  }
+
+  private def interpolationStartInStringRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (pos < 0 || pos > source.length || locations.toLineCol(pos).isEmpty) {
+      None
+    } else {
+      unescapedInterpolationStartBefore(source, pos).map { _ =>
+        Doc.text(
+          """hint: parse failed after '${', which starts string interpolation (`${x}`). If you intended a literal '${', write `\${`."""
+        )
+      }
+    }
+  }
+
+  private def unescapedInterpolationStartBefore(
+      source: String,
+      pos: Int
+  ): Option[Int] = {
+    if (source.isEmpty) {
+      None
+    } else {
+      val searchFrom = if (pos >= source.length) source.length - 1 else pos
+
+      @annotation.tailrec
+      def loop(from: Int): Option[Int] =
+        if (from < 0) {
+          None
+        } else {
+          val start = source.lastIndexOf("${", from)
+          if (start < 0) {
+            None
+          } else if (start > 0 && source.charAt(start - 1) == '\\') {
+            loop(start - 1)
+          } else {
+            val close = source.indexOf('}', start + 2)
+            if (close >= 0 && close < pos) {
+              loop(start - 1)
+            } else {
+              Some(start)
+            }
+          }
+        }
+
+      loop(searchFrom)
     }
   }
 
