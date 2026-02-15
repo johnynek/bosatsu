@@ -300,12 +300,20 @@ object Statement {
               EnumBranch(n, targs, args.toList, region)
           }
 
-      val sep = (Indy
-        .lift(P.char(',') <* maybeSpace))
-        .combineK(Indy.toEOLIndentWithComments)
-        .void
+      val variants = Indy { indent =>
+        val constructor = constructorP <* maybeSpace
 
-      val variants = Indy.lift(constructorP <* maybeSpace).nonEmptyList(sep)
+        // commas can separate variants either inline or across lines
+        val commaSep =
+          (P.char(',') *> maybeSpace *> Indy.toEOLIndentWithComments(indent).?)
+            .void
+        val sep = commaSep.orElse(Indy.toEOLIndentWithComments(indent)).backtrack
+        val rest = (sep *> constructor).backtrack.rep0
+
+        (constructor ~ rest <* (P.char(',') <* maybeSpace).?.void).map {
+          case (head, tail) => NonEmptyList(head, tail)
+        }
+      }
 
       val nameVars =
         OptIndent

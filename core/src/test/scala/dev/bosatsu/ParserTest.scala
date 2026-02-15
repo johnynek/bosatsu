@@ -1810,6 +1810,13 @@ def foo(
   None, Some(a)"""
     )
 
+    roundTrip(
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
+      """enum Foo:
+  A(x: Int),
+  B(y: Int),"""
+    )
+
     roundTripExact(
       Statement.parser,
       """def run(z):
