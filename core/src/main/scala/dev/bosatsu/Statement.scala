@@ -307,7 +307,8 @@ object Statement {
         val commaSep =
           (P.char(',') *> maybeSpace *> Indy.toEOLIndentWithComments(indent).?)
             .void
-        val sep = commaSep.orElse(Indy.toEOLIndentWithComments(indent))
+        val lineSep = Indy.toEOLIndentWithComments(indent).backtrack
+        val sep = commaSep.orElse(lineSep)
         val rest = (sep.soft *> constructor).rep0
         val trailingComment = (maybeSpace *> Parser.lineComment).?.void
 

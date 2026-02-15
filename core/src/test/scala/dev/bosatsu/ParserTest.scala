@@ -1831,6 +1831,14 @@ def foo(
   B(y: Int) # trailing"""
     )
 
+    roundTrip(
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
+      """enum Bool:
+  False, True
+
+"""
+    )
+
     roundTripExact(
       Statement.parser,
       """def run(z):
