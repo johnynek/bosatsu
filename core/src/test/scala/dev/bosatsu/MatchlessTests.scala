@@ -129,6 +129,110 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       }
     }
 
+  private val issue1688Package = PackageName.parts("Issue1688")
+  private val issue1688Struct = Constructor("Foo")
+  private val issue1688EnumType = Constructor("E")
+  private val issue1688Enum0 = Constructor("E0")
+  private val issue1688Enum1 = Constructor("E1")
+  private val issue1688StructType: rankn.Type = rankn.Type.TyConst(
+    rankn.Type.Const.Defined(issue1688Package, TypeName(issue1688Struct))
+  )
+  private val issue1688EnumTypeValue: rankn.Type = rankn.Type.TyConst(
+    rankn.Type.Const.Defined(issue1688Package, TypeName(issue1688EnumType))
+  )
+  private val issue1688Fn: Fn = {
+    val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+    {
+      case (`issue1688Package`, `issue1688Struct`) =>
+        Some(DataRepr.Struct(3))
+      case (`issue1688Package`, `issue1688Enum0`)  =>
+        Some(DataRepr.Enum(0, 3, 3 :: 0 :: Nil))
+      case (`issue1688Package`, `issue1688Enum1`)  =>
+        Some(DataRepr.Enum(1, 0, 3 :: 0 :: Nil))
+      case (pn, cons) =>
+        base(pn, cons)
+    }
+  }
+
+  private def collectProjectionIndices(
+      expr: Matchless.Expr[Unit]
+  )(
+      select: PartialFunction[Matchless.CheapExpr[Unit], Int]
+  ): Set[Int] = {
+    val indices = scala.collection.mutable.Set.empty[Int]
+
+    def loopCheap(c: Matchless.CheapExpr[Unit]): Unit = {
+      select.lift(c).foreach(indices.addOne)
+      c match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopCheap(arg)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopCheap(arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+          ()
+      }
+    }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): Unit =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopCheap(e)
+        case Matchless.EqualsNat(e, _) =>
+          loopCheap(e)
+        case Matchless.And(l, r) =>
+          loopBool(l)
+          loopBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e)
+        case Matchless.TrueConst =>
+          ()
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value)
+          loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+      }
+
+    def loopExpr(e: Matchless.Expr[Unit]): Unit =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.foreach(loopExpr)
+          loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond)
+          loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn)
+          args.toList.foreach(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value)
+          loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond)
+          loopExpr(thenExpr)
+          loopExpr(elseExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond)
+          loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case c: Matchless.CheapExpr[Unit] =>
+          loopCheap(c)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          ()
+      }
+
+    loopExpr(expr)
+    indices.toSet
+  }
+
   test("Matchless.Expr order is lawful") {
     forAll(genMatchlessExpr, genMatchlessExpr, genMatchlessExpr) { (a, b, c) =>
       OrderingLaws.forOrder(a, b, c)
@@ -885,6 +989,100 @@ def matches_five(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("matches_five"))
       assertEquals(hasNestedProjectionExpr(expr), false)
+    }
+  }
+
+  test(
+    "matrix match on hand-written TypedExpr only projects required struct fields"
+  ) {
+    val arg = Identifier.Name("arg")
+    val out = Identifier.Name("pick_struct")
+
+    forAll(Gen.option(Gen.choose(0, 2))) { usedIdx =>
+      val fieldName = usedIdx.map(i => Identifier.Name(s"field$i"))
+      val params = (0 until 3).toList.map { i =>
+        if (usedIdx.contains(i)) Pattern.Var(Identifier.Name(s"field$i"))
+        else Pattern.WildCard
+      }
+      val rhs: TypedExpr[Unit] =
+        fieldName match {
+          case Some(nm) =>
+            TypedExpr.Local(nm, rankn.Type.IntType, ())
+          case None =>
+            TypedExpr.Literal(Lit.fromInt(0), rankn.Type.IntType, ())
+        }
+
+      val expr = TypedExpr.Match(
+        TypedExpr.Local(arg, issue1688StructType, ()),
+        NonEmptyList.one(
+          TypedExpr.Branch(
+            Pattern.PositionalStruct((issue1688Package, issue1688Struct), params),
+            None,
+            rhs
+          )
+        ),
+        ()
+      )
+
+      val lowered =
+        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1688Fn)
+
+      val projected =
+        collectProjectionIndices(lowered) {
+          case Matchless.GetStructElement(_, idx, 3) => idx
+        }
+
+      assertEquals(projected, usedIdx.toSet)
+    }
+  }
+
+  test(
+    "matrix match on hand-written TypedExpr only projects required enum fields"
+  ) {
+    val arg = Identifier.Name("arg")
+    val out = Identifier.Name("pick_enum")
+
+    forAll(Gen.option(Gen.choose(0, 2))) { usedIdx =>
+      val fieldName = usedIdx.map(i => Identifier.Name(s"variant_field$i"))
+      val params = (0 until 3).toList.map { i =>
+        if (usedIdx.contains(i))
+          Pattern.Var(Identifier.Name(s"variant_field$i"))
+        else Pattern.WildCard
+      }
+      val e0Rhs: TypedExpr[Unit] =
+        fieldName match {
+          case Some(nm) =>
+            TypedExpr.Local(nm, rankn.Type.IntType, ())
+          case None =>
+            TypedExpr.Literal(Lit.fromInt(0), rankn.Type.IntType, ())
+        }
+
+      val expr = TypedExpr.Match(
+        TypedExpr.Local(arg, issue1688EnumTypeValue, ()),
+        NonEmptyList.of(
+          TypedExpr.Branch(
+            Pattern.PositionalStruct((issue1688Package, issue1688Enum0), params),
+            None,
+            e0Rhs
+          ),
+          TypedExpr.Branch(
+            Pattern.PositionalStruct((issue1688Package, issue1688Enum1), Nil),
+            None,
+            TypedExpr.Literal(Lit.fromInt(1), rankn.Type.IntType, ())
+          )
+        ),
+        ()
+      )
+
+      val lowered =
+        Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1688Fn)
+
+      val projected =
+        collectProjectionIndices(lowered) {
+          case Matchless.GetEnumElement(_, 0, idx, 3) => idx
+        }
+
+      assertEquals(projected, usedIdx.toSet)
     }
   }
 
