@@ -1989,6 +1989,35 @@ main = 0
     }
   }
 
+  test("lib fetch reports total fetched objects by default") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(List("lib", "fetch", "--repo_root", "repo")) match {
+      case Right(Output.Basic(doc, None)) =>
+        val rendered = doc.render(120)
+        assert(rendered.contains("fetched 0 objects."), rendered)
+      case Right(other) =>
+        fail(s"expected basic output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib fetch --quiet suppresses successful output") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(
+      List("lib", "fetch", "--repo_root", "repo", "--quiet")
+    ) match {
+      case Right(Output.Basic(doc, None)) =>
+        assertEquals(doc.render(120), "")
+      case Right(other) =>
+        fail(s"expected basic output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("lib fetch fails on dependency download issues and reports details") {
     val files = baseLibFiles("main = 1\n")
 
