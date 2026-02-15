@@ -166,7 +166,7 @@ object JsonCommand {
                             }
                         case Left(valueError) =>
                           moduleIOMonad.raiseError(
-                            new Exception(
+                            CliException.Basic(
                               show"unexpected value error: $valueError"
                             )
                           )
@@ -181,7 +181,7 @@ object JsonCommand {
                         fn(res.value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(
+                              CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )

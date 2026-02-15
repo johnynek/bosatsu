@@ -6,6 +6,7 @@ import dev.bosatsu.LocationMap
 import dev.bosatsu.Predef
 import dev.bosatsu.library.LibraryEvaluation
 import dev.bosatsu.tool.{
+  CliException,
   CommonOpts,
   MainIdentifier,
   Output,
@@ -45,9 +46,11 @@ object EvalCommand {
       (mainPackageName, value) <- mainPackage.getMain(names)(platformIO)
       ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
       (eval, tpe) <- moduleIOMonad.fromEither {
-        value match {
+        (value match {
           case None        => ev.evaluateMainValue(mainPackageName)
           case Some(ident) => ev.evaluateNameValue(mainPackageName, ident)
+        }).leftMap { ex =>
+          CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
         }
       }
       memoizedEval = eval.memoize
@@ -55,10 +58,9 @@ object EvalCommand {
       evalDoc = memoizedEval.map { v =>
         toDocFn(v) match {
           case Right(d) => d
-          // $COVERAGE-OFF$ unreachable due to being well typed
-          case Left(err) =>
-            sys.error(show"got illtyped error: $err")
-          // $COVERAGE-ON$
+          case Left(err) => org.typelevel.paiges.Doc.text(
+              show"<unable to render value: $err>"
+            )
         }
       }
     } yield (ev, Output.EvaluationResult(eval, tpe, evalDoc))

@@ -2,7 +2,7 @@ package dev.bosatsu.library
 
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
-import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList}
+import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, Validated, ValidatedNel}
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
@@ -1265,12 +1265,27 @@ object Command {
       }
 
     implicit val argValue: Argument[(PackageName, Option[Bindable])] =
-      Parser.argFromParser(
-        (PackageName.parser ~ (CP.string("::") *> Identifier.bindableParser).?),
-        "valueIdent",
-        "package or package::name",
-        "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
-      )
+      new Argument[(PackageName, Option[Bindable])] {
+        def defaultMetavar: String = "valueIdent"
+        def read(
+            string: String
+        ): ValidatedNel[String, (PackageName, Option[Bindable])] =
+          (PackageName.parser ~ (CP.string("::") *> Identifier.parser).?)
+            .parseAll(string) match {
+            case Right((pack, None)) =>
+              Validated.valid((pack, None))
+            case Right((pack, Some(bindable: Bindable))) =>
+              Validated.valid((pack, Some(bindable)))
+            case Right((pack, Some(cons: Identifier.Constructor))) =>
+              Validated.invalidNel(
+                show"${pack.asString}::${cons.asString} is a constructor or type name, not a value. A top-level value is required."
+              )
+            case _ =>
+              Validated.invalidNel(
+                s"could not parse $string as a package or package::name. Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz."
+              )
+          }
+      }
 
     val evalCommand =
       Opts.subcommand(
@@ -1286,6 +1301,9 @@ object Command {
           ),
           Colorize.optsConsoleDefault
         ).mapN { (fcc, target, colorize) =>
+          def toCliException(ex: Throwable): Throwable =
+            CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
+
           for {
             cc <- fcc
             out <- platformIO.withEC {
@@ -1293,10 +1311,10 @@ object Command {
                 dec <- cc.decodedWithDeps(colorize)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
-                  target match {
+                  (target match {
                     case (pack, None)        => ev.evaluateMain(pack)
                     case (pack, Some(ident)) => ev.evaluateName(pack, ident)
-                  }
+                  }).leftMap(toCliException)
                 }
                 memoE = value.memoize
                 fn = ev.valueToDocFor(scope).toDoc(tpe)
@@ -1304,9 +1322,7 @@ object Command {
                   fn(v) match {
                     case Right(d)  => d
                     case Left(err) =>
-                      // $COVERAGE-OFF$ unreachable due to being well typed
-                      sys.error(show"got illtyped error: $err")
-                    // $COVERAGE-ON$
+                      Doc.text(show"<unable to render value: $err>")
                   }
                 }
               } yield (Output.EvaluationResult(value, tpe, edoc): Output[P])
@@ -1559,7 +1575,7 @@ object Command {
                         fn(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(
+                              CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
@@ -1577,7 +1593,7 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(
+                              CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )
@@ -1614,7 +1630,7 @@ object Command {
                         fnGen(value.value) match {
                           case Left(valueError) =>
                             moduleIOMonad.raiseError(
-                              new Exception(
+                              CliException.Basic(
                                 show"unexpected value error: $valueError"
                               )
                             )

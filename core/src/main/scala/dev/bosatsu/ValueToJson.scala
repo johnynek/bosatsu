@@ -13,6 +13,21 @@ import Value._
 import JsonEncodingError._
 
 case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
+  private val arrayTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "Collection", "Array"),
+      TypeName("Array")
+    )
+
+  private def isSingleUnicodeScalar(v: String): Boolean =
+    if (v.isEmpty) false
+    else {
+      val cp = v.codePointAt(0)
+      val isSurrogateCodePoint = cp >= 0xd800 && cp <= 0xdfff
+      !isSurrogateCodePoint &&
+      v.length == Character.charCount(cp) &&
+      v.codePointCount(0, v.length) == 1
+    }
 
   def canEncodeToNull(t: Type): Boolean =
     t match {
@@ -49,9 +64,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     def loop(t: Type, revPath: List[Type], working: List[Type]): Unit =
       t match {
         case _ if working.contains(t)                                    => ()
-        case Type.IntType | Type.Float64Type | Type.StrType | Type.BoolType |
-            Type.UnitType =>
+        case Type.IntType | Type.Float64Type | Type.StrType | Type.CharType |
+            Type.BoolType | Type.UnitType =>
           ()
+        case Type.TyApply(Type.TyConst(`arrayTypeConst`), inner) =>
+          loop(inner, t :: revPath, t :: working)
         case Type.OptionT(inner) =>
           loop(inner, t :: revPath, t :: working)
         case Type.ListT(inner) =>
@@ -187,6 +204,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 Left(IllTyped(revPath.reverse, tpe, other))
               // $COVERAGE-ON$
             }
+            case Type.CharType => {
+              case ExternalValue(v: String) if isSingleUnicodeScalar(v) =>
+                Right(Json.JString(v))
+              case other =>
+                Left(IllTyped(revPath.reverse, tpe, other))
+            }
             case Type.BoolType => {
               case True  => Right(Json.JBool(true))
               case False => Right(Json.JBool(false))
@@ -273,6 +296,19 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
                 // $COVERAGE-ON$
+              }
+            case Type.TyApply(Type.TyConst(`arrayTypeConst`), itemType) =>
+              lazy val inner = loop(itemType, tpe :: revPath).value
+
+              {
+                case ExternalValue(arr: PredefImpl.ArrayValue) =>
+                  val values =
+                    arr.data.iterator
+                      .slice(arr.offset, arr.offset + arr.len)
+                      .toList
+                  values.traverse(inner).map(items => Json.JArray(items.toVector))
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
               }
 
             case Type.ForAll(_, inner) =>
@@ -443,6 +479,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   Left(IllTypedJson(revPath.reverse, tpe, other))
                 // $COVERAGE-ON$
               }
+              case Type.CharType => {
+                case Json.JString(v) if isSingleUnicodeScalar(v) =>
+                  Right(ExternalValue(v))
+                case other =>
+                  Left(IllTypedJson(revPath.reverse, tpe, other))
+              }
               case Type.BoolType => {
                 case Json.JBool(value) =>
                   Right(if (value) True else False)
@@ -531,6 +573,18 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     // $COVERAGE-OFF$this should be unreachable
                     Left(IllTypedJson(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
+                }
+              case Type.TyApply(Type.TyConst(`arrayTypeConst`), itemType) =>
+                lazy val inner = loop(itemType, tpe :: revPath).value
+
+                {
+                  case Json.JArray(items) =>
+                    items.toVector.traverse(inner).map { values =>
+                      val data = values.toArray
+                      ExternalValue(PredefImpl.ArrayValue(data, 0, data.length))
+                    }
+                  case other =>
+                    Left(IllTypedJson(revPath.reverse, tpe, other))
                 }
 
               case Type.ForAll(_, inner) =>

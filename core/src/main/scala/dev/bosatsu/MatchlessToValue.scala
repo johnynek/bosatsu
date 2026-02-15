@@ -414,15 +414,18 @@ object MatchlessToValue {
             Static(Value.fromLit(lit))
           case If(cond, thenExpr, elseExpr) =>
             val condF = boolExpr(cond)
-            val thenF = loop(thenExpr)
-            val elseF = loop(elseExpr)
+            // compile each branch at most once, and only if needed
+            lazy val thenF = loop(thenExpr)
+            lazy val elseF = loop(elseExpr)
 
-            // conditions are (basically) never static
-            // or a previous optimization/normalization
-            // has failed
-            Dynamic { (scope: Scope) =>
-              if (condF(scope)) thenF(scope)
-              else elseF(scope)
+            condF match {
+              case Static(true)  => thenF
+              case Static(false) => elseF
+              case _             =>
+                Dynamic { (scope: Scope) =>
+                  if (condF(scope)) thenF(scope)
+                  else elseF(scope)
+                }
             }
           case Always.SetChain(muts, expr) =>
             val values = muts.map { case (m, e) => (m, loop(e)) }

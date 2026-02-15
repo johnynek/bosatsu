@@ -13,6 +13,16 @@ import Identifier.Constructor
 import JsonEncodingError.IllTyped
 
 case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
+  private val arrayTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "Collection", "Array"),
+      TypeName("Array")
+    )
+  private val progTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "Prog"),
+      TypeName("Prog")
+    )
 
   /** Convert a typechecked value to a Document representation
     *
@@ -58,6 +68,15 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.StrType => {
               case ExternalValue(v: String) =>
                 Right(Document[Lit].document(Lit.Str(v)))
+              case other =>
+                // $COVERAGE-OFF$this should be unreachable
+                Left(IllTyped(revPath.reverse, tpe, other))
+              // $COVERAGE-ON$
+            }
+            case Type.CharType => {
+              case ExternalValue(v: String)
+                  if v.codePointCount(0, v.length) == 1 =>
+                Right(Document[Lit].document(Lit.Chr(v)))
               case other =>
                 // $COVERAGE-OFF$this should be unreachable
                 Left(IllTyped(revPath.reverse, tpe, other))
@@ -145,6 +164,30 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.Exists(_, inner) =>
               // we assume the generic positions don't matter and to continue
               loop(inner, tpe :: revPath).value
+            case Type.TyApply(Type.TyConst(`arrayTypeConst`), itemType) =>
+              lazy val inner = loop(itemType, tpe :: revPath).value
+
+              {
+                case ExternalValue(arr: PredefImpl.ArrayValue) =>
+                  val values =
+                    arr.data.iterator
+                      .slice(arr.offset, arr.offset + arr.len)
+                      .toList
+                  values.traverse(inner).map { inners =>
+                    Doc.char('[') + (Doc.lineOrEmpty + commaBlock(
+                      inners
+                    ) + Doc.lineOrEmpty).aligned + Doc.char(']')
+                  }
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
+            case _ if Type.rootConst(tpe).contains(Type.TyConst(progTypeConst)) =>
+              {
+                case _: SumValue =>
+                  Right(Doc.text("Prog(...)"))
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
             case Type.TyVar(_) =>
               // we don't really know what to do with
               { _ => Right(Doc.text("<unknown>")) }
