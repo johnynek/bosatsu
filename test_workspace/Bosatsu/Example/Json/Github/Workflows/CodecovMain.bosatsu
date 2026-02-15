@@ -1,0 +1,111 @@
+package Bosatsu/Example/Json/Github/Workflows/CodecovMain
+
+from Bosatsu/Example/Json/Github/Workflows/Util import (
+  action_cache,
+  action_codecov,
+  action_checkout_v2,
+  action_setup_java,
+  action_setup_sbt,
+  cat_lines,
+  codecov_token_secret,
+  install_sbt_step_name,
+  java_distribution_temurin,
+  java_matrix_setup_name,
+  java_strategy_17,
+  java_version_matrix,
+  main_branch,
+  OnPush,
+  OnPushBranches,
+  runner_ubuntu_latest,
+  StepItemUsesWith,
+  FetchJavaWith,
+  JavaStrategy,
+  timeout_minutes_default,
+)
+
+struct WorkflowJobsTestWithCoverageReport(
+  `runs-on`: String,
+  steps: List[StepItemUsesWith[FetchJavaWith]],
+  strategy: JavaStrategy,
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobs(testWithCoverageReport: WorkflowJobsTestWithCoverageReport)
+
+struct Workflow(name: String, on: OnPush, jobs: WorkflowJobs)
+
+workflow =
+  Workflow(
+    "Codecov on main",
+    OnPush(OnPushBranches([ main_branch ])),
+    WorkflowJobs(
+      WorkflowJobsTestWithCoverageReport(
+        runner_ubuntu_latest,
+        [
+          StepItemUsesWith(
+            Some(action_checkout_v2),
+            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            None,
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_cache),
+            None,
+            None,
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_setup_java),
+            Some(
+              FetchJavaWith(
+                None,
+                Some(java_distribution_temurin),
+                Some(java_version_matrix),
+                None,
+                None,
+                None,
+                None,
+              ),
+            ),
+            Some(java_matrix_setup_name),
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_setup_sbt),
+            None,
+            Some(install_sbt_step_name),
+            None,
+          ),
+          StepItemUsesWith(
+            None,
+            None,
+            Some("run tests with coverage"),
+            Some(
+              cat_lines([
+                "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
+                "",
+              ]),
+            ),
+          ),
+          StepItemUsesWith(
+            Some(action_codecov),
+            Some(
+              FetchJavaWith(
+                None,
+                None,
+                None,
+                Some(codecov_token_secret),
+                Some(main_branch),
+                None,
+                None,
+              ),
+            ),
+            Some("Upload to Codecov"),
+            None,
+          ),
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+    ),
+  )

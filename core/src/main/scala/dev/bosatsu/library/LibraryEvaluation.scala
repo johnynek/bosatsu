@@ -25,6 +25,7 @@ import scala.collection.immutable.SortedMap
 import scala.collection.mutable.{Map => MMap}
 
 import Identifier.Bindable
+import LibraryEvaluation.LookupError
 
 case class LibraryEvaluation[K] private (
     rootScope: K,
@@ -128,12 +129,12 @@ case class LibraryEvaluation[K] private (
       .toList
       .groupMap(_._1)(_._2)
 
-  private def selectScopeFor(
+  private def selectScopeForEither(
       pn: PackageName
-  ): Either[Throwable, K] =
+  ): Either[LookupError, K] =
     packageCandidates.get(pn) match {
       case None | Some(Nil) =>
-        Left(new Exception(s"package ${pn.asString} not found"))
+        Left(LookupError.UnknownPackage(pn))
       case Some((scope, _) :: Nil) =>
         Right(scope)
       case Some(scoped) =>
@@ -142,34 +143,41 @@ case class LibraryEvaluation[K] private (
         } match {
           case Some((scope, _)) => Right(scope)
           case None             =>
-            val scopeStrings = scoped.map(_._1).distinct.map(renderScope(_))
-            Left(
-              new Exception(
-                s"package ${pn.asString} is ambiguous in dependency tree: ${scopeStrings.mkString(", ")}"
-              )
-            )
+            val scopeStrings =
+              scoped.iterator.map(_._1).map(renderScope).toSet.toList.sorted
+            Left(LookupError.AmbiguousPackage(pn, scopeStrings))
         }
     }
 
-  def evaluateMain(
+  private def selectScopeFor(
       pn: PackageName
-  ): Either[Throwable, (K, Eval[Value], Type)] =
+  ): Either[Throwable, K] =
+    selectScopeForEither(pn).leftMap(_.toException)
+
+  def evaluateMainEither(
+      pn: PackageName
+  ): Either[LookupError, (K, Eval[Value], Type)] =
     for {
-      scope <- selectScopeFor(pn)
+      scope <- selectScopeForEither(pn)
       pack <- packageInScope(scope, pn).toRight(
-        new Exception(s"package ${pn.asString} not found in scope")
+        LookupError.PackageUnavailableInScope(pn, renderScope(scope))
       )
       (name, _, te) <- Package
         .mainValue(pack)
         .toRight(
-          new Exception(s"found no main expression in package ${pn.asString}")
+          LookupError.MainNotFound(pn)
         )
       value <- evaluate(scope, pn)
         .get(name)
         .toRight(
-          new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
+          LookupError.ValueNotEvaluatable(pn, name)
         )
     } yield (scope, value, te.getType)
+
+  def evaluateMain(
+      pn: PackageName
+  ): Either[Throwable, (K, Eval[Value], Type)] =
+    evaluateMainEither(pn).leftMap(_.toException)
 
   def evaluateMainValue(
       pn: PackageName
@@ -178,26 +186,36 @@ case class LibraryEvaluation[K] private (
       (value, tpe)
     }
 
-  def evaluateName(
+  def evaluateNameEither(
       pn: PackageName,
       name: Bindable
-  ): Either[Throwable, (K, Eval[Value], Type)] =
+  ): Either[LookupError, (K, Eval[Value], Type)] =
     for {
-      scope <- selectScopeFor(pn)
+      scope <- selectScopeForEither(pn)
       pack <- packageInScope(scope, pn).toRight(
-        new Exception(s"package ${pn.asString} not found in scope")
+        LookupError.PackageUnavailableInScope(pn, renderScope(scope))
       )
       (_, _, te) <- pack.lets
         .findLast(_._1 == name)
         .toRight(
-          new Exception(s"value ${pn.asString}::${name.asString} not found")
+          LookupError.ValueNotFound(
+            pn,
+            name,
+            validJsonValueNames(scope, pack)
+          )
         )
       value <- evaluate(scope, pn)
         .get(name)
         .toRight(
-          new Exception(s"could not evaluate ${pn.asString}::${name.asString}")
+          LookupError.ValueNotEvaluatable(pn, name)
         )
     } yield (scope, value, te.getType)
+
+  def evaluateName(
+      pn: PackageName,
+      name: Bindable
+  ): Either[Throwable, (K, Eval[Value], Type)] =
+    evaluateNameEither(pn, name).leftMap(_.toException)
 
   def evaluateNameValue(
       pn: PackageName,
@@ -233,6 +251,20 @@ case class LibraryEvaluation[K] private (
         }
     }
 
+  private def validJsonValueNames(
+      scope: K,
+      pack: Package.Typed[Any]
+  ): List[String] = {
+    val v2j = valueToJsonFor(scope)
+    pack.lets.iterator
+      .collect { case (bindable, _, te) if v2j.supported(te.getType).isRight =>
+        bindable.asString
+      }
+      .toSet
+      .toList
+      .sorted
+  }
+
   def valueToJsonFor(scope: K): ValueToJson =
     ValueToJson(resolveDefinedType(scope, _))
 
@@ -265,6 +297,50 @@ case class LibraryEvaluation[K] private (
 }
 
 object LibraryEvaluation {
+  sealed trait LookupError {
+    def message: String
+    final def toException: Exception =
+      new Exception(message)
+  }
+  object LookupError {
+    final case class UnknownPackage(pn: PackageName) extends LookupError {
+      def message: String = s"package ${pn.asString} not found"
+    }
+    final case class AmbiguousPackage(
+        pn: PackageName,
+        candidates: List[String]
+    ) extends LookupError {
+      def message: String =
+        s"package ${pn.asString} is ambiguous in dependency tree: ${candidates.mkString(", ")}"
+    }
+    final case class MainNotFound(pn: PackageName) extends LookupError {
+      def message: String =
+        s"found no main expression in package ${pn.asString}"
+    }
+    final case class ValueNotFound(
+        pn: PackageName,
+        name: Bindable,
+        validJsonValues: List[String]
+    ) extends LookupError {
+      def message: String =
+        s"value ${pn.asString}::${name.asString} not found"
+    }
+    final case class ValueNotEvaluatable(
+        pn: PackageName,
+        name: Bindable
+    ) extends LookupError {
+      def message: String =
+        s"could not evaluate ${pn.asString}::${name.asString}"
+    }
+    final case class PackageUnavailableInScope(
+        pn: PackageName,
+        scope: String
+    ) extends LookupError {
+      def message: String =
+        s"package ${pn.asString} not found in scope $scope"
+    }
+  }
+
   final case class ScopeData[K](
       packages: PackageMap.Typed[Any],
       depForPackage: PackageName => Option[K]

@@ -6,7 +6,7 @@ import cats.data.NonEmptyList
 import cats.implicits._
 import java.math.BigInteger
 import dev.bosatsu.rankn.{DefinedType, Type, DataFamily}
-import scala.collection.mutable.{Map => MMap}
+import scala.collection.mutable.{Map => MMap, LinkedHashSet}
 
 import Value._
 
@@ -26,54 +26,111 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       case _                     => false
     }
 
-  /** Is a given type supported for Json conversion
+  /** Return all unsupported json conversion issues for this type.
+    *
+    * The list is deduplicated by unsupported leaf type and reason.
     */
-  def supported(t: Type): Either[UnsupportedType, Unit] = {
-    // if we are currently working on a Type
-    // we assume it is supported, and it isn't
-    // if some other constituent type isn't
-    val good = Right(())
-    def loop(t: Type, working: List[Type]): Either[UnsupportedType, Unit] = {
+  def unsupportedIssues(
+      tpe: Type
+  ): List[(NonEmptyList[Type], String)] = {
+    val seen = LinkedHashSet.empty[(Type, String)]
+    val issues = List.newBuilder[(NonEmptyList[Type], String)]
 
-      def bad: Either[UnsupportedType, Unit] =
-        Left(UnsupportedType(NonEmptyList(t, working).reverse))
+    def addIssue(
+        t: Type,
+        revPath: List[Type],
+        reason: String
+    ): Unit =
+      if (seen.add((t, reason))) {
+        val path = NonEmptyList(t, revPath).reverse
+        issues += ((path, reason))
+      }
 
+    def loop(t: Type, revPath: List[Type], working: List[Type]): Unit =
       t match {
-        case _ if working.contains(t)                                    => good
-        case Type.IntType | Type.StrType | Type.BoolType | Type.UnitType => good
-        case Type.OptionT(inner)             => loop(inner, t :: working)
-        case Type.ListT(inner)               => loop(inner, t :: working)
-        case Type.DictT(Type.StrType, inner) => loop(inner, t :: working)
-        case Type.ForAll(_, _)               => bad
-        case Type.Exists(_, _)               => bad
-        case Type.TyVar(_) | Type.TyMeta(_)  => bad
-        case Type.Tuple(ts)                  =>
+        case _ if working.contains(t)                                    => ()
+        case Type.IntType | Type.Float64Type | Type.StrType | Type.BoolType |
+            Type.UnitType =>
+          ()
+        case Type.OptionT(inner) =>
+          loop(inner, t :: revPath, t :: working)
+        case Type.ListT(inner) =>
+          loop(inner, t :: revPath, t :: working)
+        case Type.DictT(Type.StrType, inner) =>
+          loop(inner, t :: revPath, t :: working)
+        case Type.Fun(_)                     =>
+          addIssue(t, revPath, "function types are not serializable to Json")
+        case Type.DictT(_, _)                =>
+          addIssue(
+            t,
+            revPath,
+            "only Dict[String, a] can be encoded as a Json object"
+          )
+        case Type.ForAll(_, _)               =>
+          addIssue(
+            t,
+            revPath,
+            "forall (polymorphic) types are not serializable to Json"
+          )
+        case Type.Exists(_, _)               =>
+          addIssue(
+            t,
+            revPath,
+            "existential types are not serializable to Json"
+          )
+        case Type.TyVar(_) =>
+          addIssue(t, revPath, "unresolved type variables are not serializable")
+        case Type.TyMeta(_) =>
+          addIssue(t, revPath, "unsolved type metavariables are not serializable")
+        case Type.Tuple(ts) =>
           val w1 = t :: working
-          ts.traverse_(loop(_, w1))
+          val p1 = t :: revPath
+          ts.foreach(loop(_, p1, w1))
         case consOrApply =>
           val w1 = consOrApply :: working
+          val p1 = consOrApply :: revPath
           Type.rootConst(consOrApply) match {
-            case None                      => bad
+            case None =>
+              addIssue(
+                consOrApply,
+                revPath,
+                "type root constructor could not be resolved"
+              )
             case Some(Type.TyConst(const)) =>
               getDefinedType(const) match {
-                case None     => bad
+                case None =>
+                  addIssue(
+                    consOrApply,
+                    revPath,
+                    "defined type metadata could not be resolved"
+                  )
                 case Some(dt) =>
-                  val cons = dt.constructors
                   val (_, targs) = Type.unapplyAll(consOrApply)
                   val replaceMap =
                     dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
-                  cons.traverse_ { cf =>
-                    cf.args.traverse_ { case (_, t) =>
-                      loop(Type.substituteVar(t, replaceMap), w1)
+                  dt.constructors.foreach { cf =>
+                    cf.args.foreach { case (_, ctorArgTpe) =>
+                      val substituted =
+                        Type.substituteVar(ctorArgTpe, replaceMap)
+                      loop(substituted, p1, w1)
                     }
                   }
               }
           }
       }
-    }
-    loop(t, Nil)
+
+    loop(tpe, Nil, Nil)
+    issues.result()
   }
+
+  /** Is a given type supported for Json conversion
+    */
+  def supported(t: Type): Either[UnsupportedType, Unit] =
+    unsupportedIssues(t).headOption match {
+      case None            => Right(())
+      case Some((path, _)) => Left(UnsupportedType(path))
+    }
 
   // used only after we have checked that types are supported
   private def get[A](e: Either[UnsupportedType, A]): A =
@@ -115,6 +172,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               case other =>
                 Left(IllTyped(revPath.reverse, tpe, other))
               // $COVERAGE-ON$
+            }
+            case Type.Float64Type => {
+              case VFloat(v) if java.lang.Double.isFinite(v) =>
+                Right(Json.JNumberStr(java.lang.Double.toString(v)))
+              case other =>
+                Left(IllTyped(revPath.reverse, tpe, other))
             }
             case Type.StrType => {
               case ExternalValue(v: String) =>
@@ -264,9 +327,15 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
                   notNat match {
                     case DataFamily.NewType =>
-                      lazy val inner = resInner.value.head._2.head._2
+                      lazy val fieldAndInner = resInner.value.head._2.head
+                      lazy val fieldName = fieldAndInner._1
+                      lazy val inner = fieldAndInner._2
 
-                      { v => inner(v) }
+                      { v =>
+                        inner(v).map { json =>
+                          Json.JObject(fieldName -> json :: Nil)
+                        }
+                      }
                     case DataFamily.Struct =>
                       lazy val productsInner = resInner.value.head._2
                       lazy val size = productsInner.size
@@ -350,6 +419,19 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               case Type.IntType => {
                 case Json.JBigInteger(b) =>
                   Right(ExternalValue(b))
+                case other =>
+                  Left(IllTypedJson(revPath.reverse, tpe, other))
+              }
+              case Type.Float64Type => {
+                case num @ Json.JNumberStr(str) =>
+                  try {
+                    val d = java.lang.Double.parseDouble(str)
+                    if (java.lang.Double.isFinite(d)) Right(VFloat(d))
+                    else Left(IllTypedJson(revPath.reverse, tpe, num))
+                  } catch {
+                    case _: NumberFormatException =>
+                      Left(IllTypedJson(revPath.reverse, tpe, num))
+                  }
                 case other =>
                   Left(IllTypedJson(revPath.reverse, tpe, other))
               }
@@ -498,10 +580,21 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
                 dt.dataFamily match {
                   case DataFamily.NewType =>
-                    // there is one single arg constructor
-                    lazy val inner = resInner.value.head._2.head._2
+                    // there is one single arg constructor.
+                    // The runtime value is still unboxed, but for JSON we keep
+                    // the source-level field/object shape.
+                    lazy val fieldAndInner = resInner.value.head._2.head
+                    lazy val fieldName = fieldAndInner._1
+                    lazy val inner = fieldAndInner._2
 
-                    { j => inner(j) }
+                    {
+                      case obj @ Json.JObject(_) =>
+                        val itemMap = obj.toMap
+                        if (itemMap.keySet == Set(fieldName)) inner(itemMap(fieldName))
+                        else Left(IllTypedJson(revPath.reverse, tpe, obj))
+                      case other =>
+                        Left(IllTypedJson(revPath.reverse, tpe, other))
+                    }
                   case DataFamily.Struct | DataFamily.Enum =>
                     // This is lazy because we don't want to run
                     // the Evals until we have the first value

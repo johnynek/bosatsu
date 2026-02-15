@@ -1,0 +1,627 @@
+package Bosatsu/Example/Json/Github/Workflows/Ci
+
+from Bosatsu/Example/Json/Github/Workflows/Util import (
+  action_cache,
+  action_codecov,
+  action_checkout_v2,
+  action_setup_java,
+  action_setup_python,
+  action_setup_sbt,
+  cat_lines,
+  codecov_token_secret,
+  StepItem,
+  StepItemUsesWith,
+  StepItemEnv,
+  JavaWith,
+  FetchJavaWith,
+  JavaStrategy,
+  StepEnv,
+  install_sbt_step_name,
+  java_distribution_temurin,
+  java_matrix_setup_name,
+  java_strategy_17,
+  java_version_17,
+  java_version_matrix,
+  needs_test,
+  needs_test_c,
+  python_version_matrix,
+  python_version_3_9,
+  runner_macos_latest,
+  runner_ubuntu_latest,
+  run_python_tests_cmd,
+  run_publish_bosatsu_libs,
+  run_c_runtime_ci,
+  run_lib_test_c,
+  run_lib_build_c,
+  tool_test_workspace_cmd,
+  tool_test_workspace_node_cmd,
+  transpile_c_cmd,
+  transpile_python_cmd,
+  timeout_minutes_default,
+)
+
+struct WorkflowJobsTest(
+  `runs-on`: String,
+  steps: List[StepItem[JavaWith]],
+  strategy: JavaStrategy,
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobsTestPYStepsItemWith(
+  distribution: Option[String],
+  `java-version`: Option[String],
+  `python-version`: Option[String],
+)
+
+struct WorkflowJobsTestPYStrategyMatrix(java: List[String], python: List[String])
+
+struct WorkflowJobsTestPYStrategy(matrix: WorkflowJobsTestPYStrategyMatrix)
+
+struct WorkflowJobsTestPY(
+  needs: String,
+  `runs-on`: String,
+  steps: List[StepItem[WorkflowJobsTestPYStepsItemWith]],
+  strategy: WorkflowJobsTestPYStrategy,
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobsTestJS(
+  needs: String,
+  `runs-on`: String,
+  steps: List[StepItem[JavaWith]],
+  strategy: JavaStrategy,
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobsTestWithCoverageReport(
+  needs: String,
+  `runs-on`: String,
+  steps: List[StepItemUsesWith[FetchJavaWith]],
+  strategy: JavaStrategy,
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobsNeedsRunStepsStrategy(
+  needs: String,
+  `runs-on`: String,
+  steps: List[StepItem[JavaWith]],
+  strategy: JavaStrategy,
+)
+
+struct WorkflowJobsNeedsRunStrategyStepsTimeout(
+  needs: String,
+  `runs-on`: String,
+  strategy: JavaStrategy,
+  steps: List[StepItem[JavaWith]],
+  `timeout-minutes`: Int,
+)
+
+struct WorkflowJobsLibPublishDryRun(
+  needs: String,
+  `runs-on`: String,
+  steps: List[StepItemEnv[JavaWith, StepEnv]],
+  strategy: JavaStrategy,
+)
+
+struct WorkflowJobs(
+  test: WorkflowJobsTest,
+  testPY: WorkflowJobsTestPY,
+  testJS: WorkflowJobsTestJS,
+  testWithCoverageReport: WorkflowJobsTestWithCoverageReport,
+  buildWithGraal: WorkflowJobsNeedsRunStepsStrategy,
+  testWithNode: WorkflowJobsNeedsRunStepsStrategy,
+  testC: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  testCMacOS: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  libPublishDryRun: WorkflowJobsLibPublishDryRun,
+)
+
+struct WorkflowOnPullRequest
+
+struct WorkflowOn(pull_request: WorkflowOnPullRequest)
+
+struct Workflow(jobs: WorkflowJobs, name: String, on: WorkflowOn)
+
+workflow =
+  Workflow(
+    WorkflowJobs(
+      WorkflowJobsTest(
+        runner_ubuntu_latest,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(Some(action_cache), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
+          StepItem(
+            None,
+            Some("run JVM tests"),
+            None,
+            Some(cat_lines([
+              "sbt \"coreJVM/test; cli/test; doc; paradox\"",
+              "./test_cli.sh",
+              "",
+            ])),
+          ),
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsTestPY(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(Some(action_cache), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(
+              WorkflowJobsTestPYStepsItemWith(
+                Some(java_distribution_temurin),
+                Some(java_version_matrix),
+                None,
+              ),
+            ),
+            None,
+          ),
+          StepItem(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
+          StepItem(
+            Some(action_setup_python),
+            Some("python setup"),
+            Some(
+              WorkflowJobsTestPYStepsItemWith(
+                None,
+                None,
+                Some(python_version_matrix),
+              ),
+            ),
+            None,
+          ),
+          StepItem(
+            None,
+            Some("build assembly"),
+            None,
+            Some("sbt \"cli/assembly\""),
+          ),
+          StepItem(
+            None,
+            Some("generate python code"),
+            None,
+            Some(transpile_python_cmd),
+          ),
+          StepItem(
+            None,
+            Some("run python tests"),
+            None,
+            Some(run_python_tests_cmd),
+          ),
+        ],
+        WorkflowJobsTestPYStrategy(
+          WorkflowJobsTestPYStrategyMatrix(
+            [ java_version_17 ],
+            [ python_version_3_9 ],
+          ),
+        ),
+        timeout_minutes_default,
+      ),
+      WorkflowJobsTestJS(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(Some(action_cache), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
+          StepItem(
+            None,
+            Some("run coreJS tests"),
+            None,
+            Some(cat_lines([
+              "sbt \"coreJS/test; jsapiJS/compile\"",
+              "sbt \"jsuiJS/test\"",
+              "",
+            ])),
+          ),
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsTestWithCoverageReport(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          StepItemUsesWith(
+            Some(action_checkout_v2),
+            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            None,
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_cache),
+            None,
+            None,
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_setup_java),
+            Some(
+              FetchJavaWith(
+                None,
+                Some(java_distribution_temurin),
+                Some(java_version_matrix),
+                None,
+                None,
+                None,
+                None,
+              ),
+            ),
+            Some(java_matrix_setup_name),
+            None,
+          ),
+          StepItemUsesWith(
+            Some(action_setup_sbt),
+            None,
+            Some(install_sbt_step_name),
+            None,
+          ),
+          StepItemUsesWith(
+            None,
+            None,
+            Some("run tests with coverage"),
+            Some(cat_lines([
+              "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
+              "",
+            ])),
+          ),
+          StepItemUsesWith(
+            Some(action_codecov),
+            Some(
+              FetchJavaWith(
+                None,
+                None,
+                None,
+                Some(codecov_token_secret),
+                None,
+                None,
+                None,
+              ),
+            ),
+            Some("Upload to Codecov"),
+            None,
+          ),
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStepsStrategy(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(Some(action_cache), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(
+            Some(action_setup_sbt),
+            Some(install_sbt_step_name),
+            None,
+            None,
+          ),
+          StepItem(
+            None,
+            Some("build native image"),
+            None,
+            Some(cat_lines([
+              "sbt \"cli/nativeImage\"",
+              "cp cli/target/native-image/bosatsu-cli bosatsu",
+              "",
+            ])),
+          ),
+          StepItem(
+            None,
+            Some("run bosatsu tests"),
+            None,
+            Some(
+              cat_lines([
+                tool_test_workspace_cmd,
+                "",
+              ]),
+            ),
+          ),
+        ],
+        java_strategy_17,
+      ),
+      WorkflowJobsNeedsRunStepsStrategy(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(Some(action_cache), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(
+            Some(action_setup_sbt),
+            Some(install_sbt_step_name),
+            None,
+            None,
+          ),
+          StepItem(
+            None,
+            Some("build node"),
+            None,
+            Some(cat_lines([
+              "sbt \"cliJSJS/fullOptJS\"",
+              "",
+            ])),
+          ),
+          StepItem(
+            None,
+            Some("run bosatsu tests"),
+            None,
+            Some(
+              cat_lines([
+                tool_test_workspace_node_cmd,
+                "",
+              ]),
+            ),
+          ),
+          StepItem(
+            None,
+            Some("install boehm"),
+            None,
+            Some("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
+          ),
+          StepItem(
+            None,
+            Some("install c runtime"),
+            None,
+            Some(cat_lines([
+              "make -C c_runtime install VERSION=$(git rev-parse HEAD)",
+              "",
+            ])),
+          ),
+          StepItem(
+            None,
+            Some("run lib test"),
+            None,
+            Some(
+              cat_lines([
+                "./bosatsu_node lib fetch",
+                "mkdir node_out_lib",
+                "./bosatsu_node lib test --outdir node_out_lib",
+                "echo \"now test without a given outdir\"",
+                "./bosatsu_node lib test",
+                "",
+              ]),
+            ),
+          ),
+        ],
+        java_strategy_17,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        java_strategy_17,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
+          StepItem(
+            None,
+            Some("build assembly"),
+            None,
+            Some("sbt \"cli/assembly\""),
+          ),
+          StepItem(
+            None,
+            Some("install boehm"),
+            None,
+            Some("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+          ),
+          StepItem(
+            None,
+            Some("test runtime code"),
+            None,
+            Some(run_c_runtime_ci),
+          ),
+          StepItem(
+            None,
+            Some("generate and compile c code"),
+            None,
+            Some(transpile_c_cmd),
+          ),
+          StepItem(
+            None,
+            Some("run generated c code"),
+            None,
+            Some("./c_out/test_exe"),
+          ),
+          StepItem(
+            None,
+            Some("check single assertion test output"),
+            None,
+            Some(
+              cat_lines([
+                "rm -rf issue1642_repro",
+                "mkdir issue1642_repro",
+                "cat > issue1642_repro/Foo.bosatsu <<'EOF'",
+                "package Foo",
+                "test = Assertion(True, \"foo\")",
+                "EOF",
+                "./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm",
+                "issue1642_repro/out/test_exe | tee issue1642_repro/output.txt",
+                "grep -Eq '^Foo:$' issue1642_repro/output.txt",
+                "grep -Eq '^    passed: .*1' issue1642_repro/output.txt",
+                "",
+              ]),
+            ),
+          ),
+          StepItem(
+            None,
+            Some("run lib test"),
+            None,
+            Some(run_lib_test_c),
+          ),
+          StepItem(
+            None,
+            Some("run lib build"),
+            None,
+            Some(run_lib_build_c),
+          ),
+        ],
+        timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_macos_latest,
+        java_strategy_17,
+        [
+          StepItem(Some(action_checkout_v2), None, None, None),
+          StepItem(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+          ),
+          StepItem(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
+          StepItem(
+            None,
+            Some("build assembly"),
+            None,
+            Some("sbt \"cli/assembly\""),
+          ),
+          StepItem(
+            None,
+            Some("install boehm"),
+            None,
+            Some("brew install bdw-gc pkg-config"),
+          ),
+          StepItem(
+            None,
+            Some("test runtime code"),
+            None,
+            Some(run_c_runtime_ci),
+          ),
+          StepItem(
+            None,
+            Some("generate and compile c code"),
+            None,
+            Some(transpile_c_cmd),
+          ),
+          StepItem(
+            None,
+            Some("run generated c code"),
+            None,
+            Some("./c_out/test_exe"),
+          ),
+          StepItem(
+            None,
+            Some("run lib test"),
+            None,
+            Some(run_lib_test_c),
+          ),
+          StepItem(
+            None,
+            Some("run lib build"),
+            None,
+            Some(run_lib_build_c),
+          ),
+        ],
+        timeout_minutes_default,
+      ),
+      WorkflowJobsLibPublishDryRun(
+        needs_test_c,
+        runner_ubuntu_latest,
+        [
+          StepItemEnv(
+            Some(action_checkout_v2),
+            None,
+            None,
+            None,
+            None,
+          ),
+          StepItemEnv(
+            Some(action_cache),
+            None,
+            None,
+            None,
+            None,
+          ),
+          StepItemEnv(
+            Some(action_setup_java),
+            Some(java_matrix_setup_name),
+            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            None,
+            None,
+          ),
+          StepItemEnv(
+            Some(action_setup_sbt),
+            Some(install_sbt_step_name),
+            None,
+            None,
+            None,
+          ),
+          StepItemEnv(
+            None,
+            Some("build assembly"),
+            None,
+            Some("sbt \"++3.8.1; cli/assembly\""),
+            None,
+          ),
+          StepItemEnv(
+            None,
+            Some("dry run bosatsu lib publish"),
+            None,
+            Some(run_publish_bosatsu_libs),
+            Some(
+              StepEnv(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("\${{ github.workspace }}"),
+                Some("\${{ runner.temp }}/bosatsu_lib_publish"),
+                Some("\${{ github.sha }}"),
+                Some("https://example.invalid/"),
+                None,
+                None,
+                None,
+                None,
+              ),
+            ),
+          ),
+        ],
+        java_strategy_17,
+      ),
+    ),
+    "ci",
+    WorkflowOn(WorkflowOnPullRequest),
+  )
