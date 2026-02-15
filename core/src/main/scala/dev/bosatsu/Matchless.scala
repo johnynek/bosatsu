@@ -3189,6 +3189,44 @@ object Matchless {
       }
     }
 
+    def specializedKeepOffsets(
+        rows: List[MatchRow],
+        colIdx: Int,
+        arity: Int
+    ): List[Int] =
+      (0 until arity).iterator
+        .filter(i => rows.exists(_.pats(colIdx + i) != Pattern.WildCard))
+        .toList
+
+    def trimSpecializedPats(
+        pats: List[Pattern[(PackageName, Constructor), Type]],
+        colIdx: Int,
+        arity: Int,
+        keepOffsets: List[Int]
+    ): List[Pattern[(PackageName, Constructor), Type]] = {
+      val prefix = pats.take(colIdx)
+      val kept = keepOffsets.map(i => pats(colIdx + i))
+      val suffix = pats.drop(colIdx + arity)
+      prefix ::: kept ::: suffix
+    }
+
+    def minimizeSpecializedRows(
+        rows: List[MatchRow],
+        colIdx: Int,
+        arity: Int
+    ): (List[MatchRow], List[Int]) = {
+      val keepOffsets = specializedKeepOffsets(rows, colIdx, arity)
+      if (keepOffsets.length == arity) (rows, keepOffsets)
+      else {
+        val trimmedRows = rows.map { row =>
+          row.copy(
+            pats = trimSpecializedPats(row.pats, colIdx, arity, keepOffsets)
+          )
+        }
+        (trimmedRows, keepOffsets)
+      }
+    }
+
     def guardToBoolExpr(guardExpr: Expr[B]): F[BoolExpr[B]] =
       guardExpr match {
         case cheap: CheapExpr[B] =>
@@ -3416,11 +3454,13 @@ object Matchless {
                 ] =
                   sig match {
                     case EnumSig(_, v, s, f) =>
-                      val newRows = specializeRows(sig, rows, colIdx, s)
-                      val fields =
-                        (0 until s).toList.map(i =>
-                          GetEnumElement(occ, v, i, s)
-                        )
+                      val specializedRows =
+                        specializeRows(sig, rows, colIdx, s)
+                      val (newRows, keepOffsets) =
+                        minimizeSpecializedRows(specializedRows, colIdx, s)
+                      val fields = keepOffsets.map(i =>
+                        GetEnumElement(occ, v, i, s)
+                      )
                       val newOccs = occs.patch(colIdx, fields, 1)
                       val cond =
                         if (caseMustMatch) TrueConst
@@ -3434,11 +3474,13 @@ object Matchless {
                         )
                       )
                     case StructSig(_, s) =>
-                      val newRows = specializeRows(sig, rows, colIdx, s)
-                      val fields =
-                        (0 until s).iterator
-                          .map(i => GetStructElement(occ, i, s))
-                          .toList
+                      val specializedRows =
+                        specializeRows(sig, rows, colIdx, s)
+                      val (newRows, keepOffsets) =
+                        minimizeSpecializedRows(specializedRows, colIdx, s)
+                      val fields = keepOffsets.map(i =>
+                        GetStructElement(occ, i, s)
+                      )
                       val newOccs = occs.patch(colIdx, fields, 1)
                       Monad[F].pure((TrueConst, Nil, newRows, newOccs))
                     case LitSig(lit) =>
@@ -3640,36 +3682,58 @@ object Matchless {
             .map(r => TaggedRow(r, tr.isFallback))
         }
 
-      def arityOfSig(sig: HeadSig): Int =
-        sig match {
-          case EnumSig(_, _, s, _) => s
-          case StructSig(_, s)     => s
-          case LitSig(_)           => 0
-          case ZeroSig             => 0
-          case SuccSig             => 1
-        }
-
       val dummyMut: LocalAnonMut = LocalAnonMut(Long.MinValue)
 
-      def newOccsForSig(
+      def minimizeSpecializedTaggedRows(
+          rows: List[TaggedRow],
+          colIdx: Int,
+          arity: Int
+      ): (List[TaggedRow], List[Int]) = {
+        val keepOffsets = specializedKeepOffsets(rows.map(_.row), colIdx, arity)
+        if (keepOffsets.length == arity) (rows, keepOffsets)
+        else {
+          val trimmedRows = rows.map { tr =>
+            tr.copy(
+              row = tr.row.copy(
+                pats = trimSpecializedPats(
+                  tr.row.pats,
+                  colIdx,
+                  arity,
+                  keepOffsets
+                )
+              )
+            )
+          }
+          (trimmedRows, keepOffsets)
+        }
+      }
+
+      def specializeTaggedCase(
           sig: HeadSig,
+          rows: List[TaggedRow],
           occ: CheapExpr[B],
           occs: List[CheapExpr[B]],
           colIdx: Int
-      ): List[CheapExpr[B]] =
+      ): (List[TaggedRow], List[CheapExpr[B]]) =
         sig match {
           case EnumSig(_, v, s, _) =>
-            val fields =
-              (0 until s).toList.map(i => GetEnumElement(occ, v, i, s))
-            occs.patch(colIdx, fields, 1)
+            val specializedRows = specializeTaggedRows(sig, rows, colIdx, s)
+            val (newRows, keepOffsets) =
+              minimizeSpecializedTaggedRows(specializedRows, colIdx, s)
+            val fields = keepOffsets.map(i => GetEnumElement(occ, v, i, s))
+            (newRows, occs.patch(colIdx, fields, 1))
           case StructSig(_, s) =>
-            val fields =
-              (0 until s).toList.map(i => GetStructElement(occ, i, s))
-            occs.patch(colIdx, fields, 1)
+            val specializedRows = specializeTaggedRows(sig, rows, colIdx, s)
+            val (newRows, keepOffsets) =
+              minimizeSpecializedTaggedRows(specializedRows, colIdx, s)
+            val fields = keepOffsets.map(i => GetStructElement(occ, i, s))
+            (newRows, occs.patch(colIdx, fields, 1))
           case LitSig(_) | ZeroSig =>
-            occs.patch(colIdx, Nil, 1)
+            val newRows = specializeTaggedRows(sig, rows, colIdx, 0)
+            (newRows, occs.patch(colIdx, Nil, 1))
           case SuccSig =>
-            occs.patch(colIdx, dummyMut :: Nil, 1)
+            val newRows = specializeTaggedRows(sig, rows, colIdx, 1)
+            (newRows, occs.patch(colIdx, dummyMut :: Nil, 1))
         }
 
       def compileRowsCount(
@@ -3720,11 +3784,10 @@ object Matchless {
                     compileRowsCount(defaultRows, defaultOccs, mustMatch)
                   else 0
                 case sig :: rest =>
-                  val arity = arityOfSig(sig)
-                  val newRows = specializeTaggedRows(sig, rows, colIdx, arity)
+                  val (newRows, newOccs) =
+                    specializeTaggedCase(sig, rows, occ, occs, colIdx)
                   if (newRows.isEmpty) compileCasesCount(rest, mustMatch)
                   else {
-                    val newOccs = newOccsForSig(sig, occ, occs, colIdx)
                     val subMustMatch =
                       mustMatch && newRows.forall(_.row.guard.isEmpty)
                     val thenCount =
