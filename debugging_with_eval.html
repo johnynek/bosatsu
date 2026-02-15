@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Generating JSON from Bosatsu Values · Bosatsu Documentation</title>
+<title>Debugging with lib eval · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsugenerating_json.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudebugging_with_eval.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="js/page.js"></script>
@@ -46,8 +46,8 @@
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
-  <li><a href="generating_json.html" class="active page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>lib eval</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a>
   <ul>
@@ -153,8 +153,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
-  <li><a href="generating_json.html" class="active page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>lib eval</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a>
   <ul>
@@ -231,7 +231,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Generating JSON from Bosatsu Values</li>
+  <li>Debugging with <code>lib eval</code></li>
 </ul>
 </div>
 </div>
@@ -239,88 +239,102 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#generating-json-from-bosatsu-values" name="generating-json-from-bosatsu-values" class="anchor"><span class="anchor-link"></span></a>Generating JSON from Bosatsu Values</h1>
-<p>Bosatsu can be used as a typed configuration language and then rendered to JSON with <code>lib json</code>.</p>
-<p>This page focuses on <code>lib json</code> (not <code>tool json</code>).</p>
+<h1><a href="#debugging-with-lib-eval" name="debugging-with-lib-eval" class="anchor"><span class="anchor-link"></span></a>Debugging with <code>lib eval</code></h1>
+<p><code>lib eval</code> is for inspecting values while iterating on Bosatsu code.</p>
+<p>It is intended for debugging and exploration (and future REPL-like workflows), not for machine parsing or stable serialization.</p>
 <h2><a href="#quick-start" name="quick-start" class="anchor"><span class="anchor-link"></span></a>Quick start</h2>
 <ol>
-  <li>Typecheck as you iterate:</li>
+  <li>Typecheck while iterating:</li>
 </ol>
 <pre class="prettyprint"><code class="language-bash">./bosatsuj lib check --name core_alpha
 </code></pre>
 <ol>
-  <li>Generate JSON for a value:</li>
+  <li>Evaluate a value:</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --main Bosatsu/Char::delete_char
 </code></pre>
 <h2><a href="#command-reference" name="command-reference" class="anchor"><span class="anchor-link"></span></a>Command reference</h2>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--output &lt;path&gt;]
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] [--cas_dir &lt;path&gt;] --main &lt;valueIdent&gt; [--color &lt;color&gt;]
 </code></pre>
 <p>Common flags:</p>
 <ul>
-  <li><code>--name</code>: library name from your <code>bosatsu_libs.json</code></li>
-  <li><code>--main</code>: package/value to evaluate and encode</li>
-  <li><code>--output</code>: write JSON to a file instead of stdout</li>
+  <li><code>--name</code>: library name from <code>bosatsu_libs.json</code></li>
+  <li><code>--main</code>: package or <code>package::value</code> to evaluate</li>
+  <li><code>--color</code>: output mode (<code>none</code>, <code>ansi</code>, <code>html</code>)</li>
 </ul>
-<h2><a href="#encoding-shape" name="encoding-shape" class="anchor"><span class="anchor-link"></span></a>Encoding shape</h2>
-<p><code>lib json</code> uses type-directed encoding:</p>
-<ul>
-  <li><code>Int</code> -&gt; JSON number</li>
-  <li><code>Float64</code> -&gt; JSON number</li>
-  <li><code>String</code> -&gt; JSON string</li>
-  <li><code>Bool</code> -&gt; JSON boolean</li>
-  <li><code>List[a]</code> -&gt; JSON array</li>
-  <li><code>Dict[String, a]</code> -&gt; JSON object</li>
-  <li><code>struct</code> -&gt; JSON object</li>
-  <li><code>enum</code> -&gt; JSON object (constructors must remain distinguishable after encoding)</li>
-</ul>
-<h2><a href="#option-behavior" name="option-behavior" class="anchor"><span class="anchor-link"></span></a><code>Option</code> behavior</h2>
-<p><code>Option</code> is especially useful for configuration records:</p>
-<ul>
-  <li><code>None</code> encodes as <code>null</code> when that is unambiguous</li>
-  <li><code>Some(x)</code> encodes as <code>x</code></li>
-  <li>Nested options (<code>Option[Option[a]]</code>) use array encoding to avoid ambiguity:</li>
-  <li>outer <code>None</code> -&gt; <code>[]</code></li>
-  <li>outer <code>Some(None)</code> -&gt; <code>[null]</code></li>
-  <li>outer <code>Some(Some(x))</code> -&gt; <code>[x]</code></li>
-</ul>
-<p>For record fields, <code>Option</code> lets you model shape variation directly:</p>
-<pre class="prettyprint"><code class="language-bosatsu">struct Step(
-  uses: Option[String],
-  run: Option[String],
-  with: Option[WithConfig],
-)
+<h2><a href="#finding-values-to-inspect" name="finding-values-to-inspect" class="anchor"><span class="anchor-link"></span></a>Finding values to inspect</h2>
+<p>Use <code>lib show</code> to discover exported values in a package:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/Collection/Array --color none
 </code></pre>
-<p>This usually replaces many near-duplicate structs.</p>
-<h2><a href="#patterns-that-worked-well-for-github-workflow-modeling" name="patterns-that-worked-well-for-github-workflow-modeling" class="anchor"><span class="anchor-link"></span></a>Patterns that worked well for GitHub workflow modeling</h2>
+<p>Then pass a package or package value to <code>--main</code>.</p>
+<h2><a href="#examples-from-this-repo" name="examples-from-this-repo" class="anchor"><span class="anchor-link"></span></a>Examples from this repo</h2>
+<p>All examples below were run from this repository root.</p>
+<h3><a href="#1-small-scalar-like-value-char-" name="1-small-scalar-like-value-char-" class="anchor"><span class="anchor-link"></span></a>1) Small scalar-like value (<code>Char</code>)</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::delete_char --color none
+</code></pre>
+<pre class="prettyprint"><code class="nocode">.&#39;&#39;: Bosatsu/Predef::Char
+</code></pre>
+<h3><a href="#2-function-values" name="2-function-values" class="anchor"><span class="anchor-link"></span></a>2) Function values</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::char_to_Int --color none
+</code></pre>
+<pre class="prettyprint"><code class="nocode">&lt;fn arity=1&gt;: Bosatsu/Predef::Char -&gt; Bosatsu/Predef::Int
+</code></pre>
+<p><code>lib eval</code> shows function arity and type, not function body.</p>
+<h3><a href="#3-external-array-values" name="3-external-array-values" class="anchor"><span class="anchor-link"></span></a>3) External <code>Array</code> values</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array::a5 --color none
+</code></pre>
+<pre class="prettyprint"><code class="nocode">[0, 1, 2, 3, 4]: Bosatsu/Collection/Array::Array[Bosatsu/Predef::Int]
+</code></pre>
+<h3><a href="#4-prog-values-opaque-" name="4-prog-values-opaque-" class="anchor"><span class="anchor-link"></span></a>4) <code>Prog</code> values (opaque)</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Prog::unit --color none
+</code></pre>
+<pre class="prettyprint"><code class="nocode">Prog(...): forall a: *, b: *. Bosatsu/Prog::Prog[a, b, ()]
+</code></pre>
+<p><code>Prog</code> is an external effectful representation, so eval prints an opaque form.</p>
+<h3><a href="#5-larger-structured-values" name="5-larger-structured-values" class="anchor"><span class="anchor-link"></span></a>5) Larger structured values</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --color none
+</code></pre>
+<p>Excerpt:</p>
+<pre class="prettyprint"><code class="nocode">Workflow {
+    jobs: WorkflowJobs {
+            test: WorkflowJobsTest {
+                    runs-on: &#39;ubuntu-latest&#39;,
+                    steps: [Step { ... }, Step { ... }, ...],
+                    ...
+</code></pre>
+<p>You can also evaluate package mains that are large test structures:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array --color none
+</code></pre>
+<h2><a href="#common-gotchas" name="common-gotchas" class="anchor"><span class="anchor-link"></span></a>Common gotchas</h2>
+<h3><a href="#constructors-are-not-valid-main-values" name="constructors-are-not-valid-main-values" class="anchor"><span class="anchor-link"></span></a>Constructors are not valid <code>--main</code> values</h3>
+<p>This fails:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Bool::True --color none
+</code></pre>
+<p>With:</p>
+<pre class="prettyprint"><code class="nocode">Bosatsu/Bool::True is a constructor or type name, not a value. A top-level value is required.
+</code></pre>
+<h3><a href="#missing-values-are-reported-directly" name="missing-values-are-reported-directly" class="anchor"><span class="anchor-link"></span></a>Missing values are reported directly</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::missing --color none
+</code></pre>
+<pre class="prettyprint"><code class="nocode">value Bosatsu/Char::missing not found
+</code></pre>
+<h3><a href="#output-format-is-for-humans" name="output-format-is-for-humans" class="anchor"><span class="anchor-link"></span></a>Output format is for humans</h3>
 <ul>
-  <li>Put shared types/constants/helpers in a common module (for example <code>Util.bosatsu</code>)</li>
-  <li>Use constants for repeated literals (runner names, action versions, <code>17</code>, step labels)</li>
-  <li>Use helper functions for multi-line shell scripts (for example <code>cat_lines</code>)</li>
-  <li>Prefer one record with <code>Option[...]</code> fields over many one-off variants</li>
-  <li>Use backticks only when a field is not a valid bindable name, such as <code>`runs-on`</code> and <code>`timeout-minutes`</code></li>
+  <li>It is intended for debugging readability.</li>
+  <li>It is not a stable parse/serialization format.</li>
+  <li>If you need JSON output for tooling, use <code>lib json</code>.</li>
 </ul>
-<h2><a href="#practical-gotchas" name="practical-gotchas" class="anchor"><span class="anchor-link"></span></a>Practical gotchas</h2>
-<ul>
-  <li>Keep running <code>lib check</code> while editing models; it catches most mistakes before JSON generation.</li>
-  <li>JSON field names come from your Bosatsu field names exactly.</li>
-  <li><code>Float64</code> JSON encoding requires finite values; <code>.NaN</code>, <code>∞</code>, and <code>-∞</code> are not valid JSON numbers.</li>
-  <li>If your consumer treats absent and <code>null</code> differently, model that intentionally and test it.</li>
-  <li><code>lib json write</code> requires a serializable value. Function-typed mains are rejected.</li>
-</ul>
-<h2><a href="#full-commands-used-in-this-workflow-example" name="full-commands-used-in-this-workflow-example" class="anchor"><span class="anchor-link"></span></a>Full commands used in this workflow example</h2>
-<p>These are the exact commands used to generate the four workflow values modeled in this example:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
+<h3><a href="#large-values-can-be-noisy" name="large-values-can-be-noisy" class="anchor"><span class="anchor-link"></span></a>Large values can be noisy</h3>
+<p>Use shell tools for workflow:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval ... --color none | less
+./bosatsuj lib eval ... --color none &gt; /tmp/eval.txt
 </code></pre>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generating_json.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/debugging_with_eval.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="debugging_with_eval.html">Debugging with <code>lib eval</code></a></p>
+<p><strong>Next:</strong> <a href="transpile_python.html">Compiling to Python</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -329,15 +343,13 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="generating_json.html#generating-json-from-bosatsu-values" class="header">Generating JSON from Bosatsu Values</a>
+  <li><a href="debugging_with_eval.html#debugging-with-lib-eval" class="header">Debugging with <code>lib eval</code></a>
   <ul>
-    <li><a href="generating_json.html#quick-start" class="header">Quick start</a></li>
-    <li><a href="generating_json.html#command-reference" class="header">Command reference</a></li>
-    <li><a href="generating_json.html#encoding-shape" class="header">Encoding shape</a></li>
-    <li><a href="generating_json.html#option-behavior" class="header"><code>Option</code> behavior</a></li>
-    <li><a href="generating_json.html#patterns-that-worked-well-for-github-workflow-modeling" class="header">Patterns that worked well for GitHub workflow modeling</a></li>
-    <li><a href="generating_json.html#practical-gotchas" class="header">Practical gotchas</a></li>
-    <li><a href="generating_json.html#full-commands-used-in-this-workflow-example" class="header">Full commands used in this workflow example</a></li>
+    <li><a href="debugging_with_eval.html#quick-start" class="header">Quick start</a></li>
+    <li><a href="debugging_with_eval.html#command-reference" class="header">Command reference</a></li>
+    <li><a href="debugging_with_eval.html#finding-values-to-inspect" class="header">Finding values to inspect</a></li>
+    <li><a href="debugging_with_eval.html#examples-from-this-repo" class="header">Examples from this repo</a></li>
+    <li><a href="debugging_with_eval.html#common-gotchas" class="header">Common gotchas</a></li>
   </ul></li>
 </ul>
 </div>
