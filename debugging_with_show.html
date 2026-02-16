@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Getting started (new repo) · Bosatsu Documentation</title>
+<title>Inspecting Compiled Output with lib show · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsugetting_started.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudebugging_with_show.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="js/page.js"></script>
@@ -44,12 +44,12 @@
     <li><a href="design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
   </ul></li>
-  <li><a href="getting_started.html" class="active page">Getting started (new repo)</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>lib show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a>
   <ul>
@@ -153,12 +153,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
     <li><a href="design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
   </ul></li>
-  <li><a href="getting_started.html" class="active page">Getting started (new repo)</a></li>
+  <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>lib show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a>
   <ul>
@@ -235,7 +235,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Getting started (new repo)</li>
+  <li>Inspecting Compiled Output with <code>lib show</code></li>
 </ul>
 </div>
 </div>
@@ -243,110 +243,44 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#getting-started-new-repo-" name="getting-started-new-repo-" class="anchor"><span class="anchor-link"></span></a>Getting started (new repo)</h1>
-<p>This guide shows how to start a brand new Bosatsu repository using the <code>bosatsu</code> launcher script and a pinned CLI release. It assumes you have <code>git</code> and <code>curl</code> installed. For the CLI runtime, pick one of:</p>
-<ul>
-  <li><code>native</code> (recommended on macOS/Linux)</li>
-  <li><code>java</code> (requires a JVM)</li>
-  <li><code>node</code> (requires Node.js)</li>
-</ul>
-<h2><a href="#1-create-a-new-git-repo" name="1-create-a-new-git-repo" class="anchor"><span class="anchor-link"></span></a>1) Create a new git repo</h2>
-<pre class="prettyprint"><code class="language-sh">mkdir my-bosatsu-project
-cd my-bosatsu-project
-git init
+<h1><a href="#inspecting-compiled-output-with-lib-show" name="inspecting-compiled-output-with-lib-show" class="anchor"><span class="anchor-link"></span></a>Inspecting Compiled Output with <code>lib show</code></h1>
+<p><code>lib show</code> prints fully typechecked package data as EDN. It is useful when you want to inspect what Bosatsu inferred and what the compiler is lowering.</p>
+<h2><a href="#quick-examples" name="quick-examples" class="anchor"><span class="anchor-link"></span></a>Quick examples</h2>
+<p>All commands below assume running from this repository root.</p>
+<h3><a href="#show-a-whole-package" name="show-a-whole-package" class="anchor"><span class="anchor-link"></span></a>Show a whole package</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/Char --color none
 </code></pre>
-<h2><a href="#2-add-the-bosatsu-launcher" name="2-add-the-bosatsu-launcher" class="anchor"><span class="anchor-link"></span></a>2) Add the <code>bosatsu</code> launcher</h2>
-<p>Download the launcher script and make it executable:</p>
-<pre class="prettyprint"><code class="language-sh">curl -L -o bosatsu https://raw.githubusercontent.com/johnynek/bosatsu/main/bosatsu
-chmod +x bosatsu
+<p>This prints one <code>(package ...)</code> form with sections like <code>:imports</code>, <code>:types</code>, <code>:externals</code>, and <code>:defs</code>.</p>
+<h3><a href="#show-a-single-type" name="show-a-single-type" class="anchor"><span class="anchor-link"></span></a>Show a single type</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --type Bosatsu/Option::Option --color none
 </code></pre>
-<h2><a href="#3-find-the-latest-release-version" name="3-find-the-latest-release-version" class="anchor"><span class="anchor-link"></span></a>3) Find the latest release version</h2>
-<p>Open the latest release page and note the version:</p>
-<pre><code>https://github.com/johnynek/bosatsu/releases/latest/
+<p>Use <code>--type &lt;package::Type&gt;</code> when you only want one type definition instead of the full package.</p>
+<h3><a href="#show-a-single-value" name="show-a-single-value" class="anchor"><span class="anchor-link"></span></a>Show a single value</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --value Bosatsu/Num/Binary::not --color none
 </code></pre>
-<p>Example of a direct asset URL from a release:</p>
-<pre><code>https://github.com/johnynek/bosatsu/releases/download/v0.0.25/bosatsu
+<p>Use <code>--value &lt;package::value&gt;</code> to focus on one top-level value. This selects values that exist in compiled package output. If a helper value is fully inlined or otherwise eliminated, it will not be available by name.</p>
+<p>You can mix selectors:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha \
+  --package Bosatsu/Char \
+  --type Bosatsu/Option::Option \
+  --value Bosatsu/Num/Binary::not \
+  --color none
 </code></pre>
-<p>(The exact asset filename varies by platform; the launcher handles this for you.)</p>
-<h2><a href="#4-pin-the-bosatsu-release-version" name="4-pin-the-bosatsu-release-version" class="anchor"><span class="anchor-link"></span></a>4) Pin the Bosatsu release version</h2>
-<p>Create <code>.bosatsu_version</code> with the latest Bosatsu release tag (without the leading <code>v</code>). For example, if the latest release is <code>v0.0.25</code>, write <code>0.0.25</code>:</p>
-<pre class="prettyprint"><code class="language-sh">echo &#39;0.0.25&#39; &gt; .bosatsu_version
+<p>If no <code>--package</code>, <code>--type</code>, or <code>--value</code> is given, <code>lib show</code> shows all local library packages (the existing default behavior).</p>
+<h2><a href="#why-this-helps" name="why-this-helps" class="anchor"><span class="anchor-link"></span></a>Why this helps</h2>
+<h3><a href="#see-inferred-types-on-values" name="see-inferred-types-on-values" class="anchor"><span class="anchor-link"></span></a>See inferred types on values</h3>
+<p>Entries in <code>:defs</code> include typed expressions, so you can inspect the inferred type information attached to each value.</p>
+<h3><a href="#see-tail-recursive-lowering-shape" name="see-tail-recursive-lowering-shape" class="anchor"><span class="anchor-link"></span></a>See tail-recursive lowering shape</h3>
+<p>When tail recursion is optimized, <code>lib show</code> exposes loop-like forms such as <code>loop</code>/<code>recur</code> in the typed expression. For example:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/FibBench --color none
 </code></pre>
-<h2><a href="#5-choose-a-platform-per-machine-" name="5-choose-a-platform-per-machine-" class="anchor"><span class="anchor-link"></span></a>5) Choose a platform (per-machine)</h2>
-<p>Create <code>.bosatsu_platform</code> with one of <code>native</code>, <code>java</code>, or <code>node</code>. Start with <code>native</code> on macOS/Linux.</p>
-<pre class="prettyprint"><code class="language-sh">echo &#39;native&#39; &gt; .bosatsu_platform
-</code></pre>
-<p>If you are on Windows, use <code>java</code> or <code>node</code> instead of <code>native</code>.</p>
-<h2><a href="#6-ignore-per-machine-cache-files" name="6-ignore-per-machine-cache-files" class="anchor"><span class="anchor-link"></span></a>6) Ignore per-machine/cache files</h2>
-<p>You generally want <code>.bosatsu_platform</code> to be per-machine, and the download cache should stay out of git. Add both to <code>.gitignore</code>:</p>
-<pre class="prettyprint"><code class="language-sh">cat &gt;&gt; .gitignore &lt;&lt;&#39;EOF&#39;
-.bosatsu_platform
-.bosatsuc/
-EOF
-</code></pre>
-<p>Commit <code>.bosatsu_version</code> so everyone uses the same CLI release.</p>
-<h2><a href="#7-fetch-the-cli" name="7-fetch-the-cli" class="anchor"><span class="anchor-link"></span></a>7) Fetch the CLI</h2>
-<p>Download the release artifact for your platform:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu --fetch
-</code></pre>
-<p>This will download into <code>.bosatsuc/cli/&lt;version&gt;/</code> based on the value in <code>.bosatsu_version</code> and your chosen platform.</p>
-<h2><a href="#8-install-the-c-runtime" name="8-install-the-c-runtime" class="anchor"><span class="anchor-link"></span></a>8) Install the C runtime</h2>
-<pre class="prettyprint"><code class="language-sh">./bosatsu c-runtime install
-</code></pre>
-<p>The runtime install picks up your compiler toolchain and flags from standard variables:</p>
-<ul>
-  <li><code>CC</code></li>
-  <li><code>CFLAGS</code></li>
-  <li><code>CPPFLAGS</code></li>
-  <li><code>LDFLAGS</code></li>
-  <li><code>LIBS</code></li>
-</ul>
-<p>On Linux/macOS, Boehm GC flags are discovered with <code>pkg-config bdw-gc</code> when available, with common-path fallbacks.</p>
-<p>Use <code>--profile debug</code> for debug-friendly runtime builds (<code>release</code> is the default profile):</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu c-runtime install --profile debug
-</code></pre>
-<h2><a href="#9-initialize-a-library-config" name="9-initialize-a-library-config" class="anchor"><span class="anchor-link"></span></a>9) Initialize a library config</h2>
-<p>Pick a source root for your Bosatsu packages (e.g. <code>src</code>) and initialize the library config:</p>
-<pre class="prettyprint"><code class="language-sh">mkdir -p src
-./bosatsu lib init \
-  --name mylib \
-  --repo_uri &lt;your repo URL&gt; \
-  --src_root src \
-  --version 0.1.0
-</code></pre>
-<p>Notes:</p>
-<ul>
-  <li><code>lib init</code> searches for <code>.git</code> to find the repo root. If you need to override  that, add <code>--repo_root &lt;path&gt;</code>.</li>
-  <li>It writes <code>bosatsu_libs.json</code> in the repo root and <code>src/mylib_conf.json</code> in the  source root you selected.</li>
-</ul>
-<h2><a href="#10-add-code" name="10-add-code" class="anchor"><span class="anchor-link"></span></a>10) Add code</h2>
-<p>Put your <code>.bosatsu</code> files under <code>src/</code>. For example, create <code>src/MyLib/Hello.bosatsu</code> with a type, a function, and a test:</p>
-<pre class="prettyprint"><code class="language-bosatsu">package MyLib/Hello
-
-enum Mood: Happy, Sad
-
-def greet(m: Mood) -&gt; String:
-  match m:
-    case Happy: &quot;hello&quot;
-    case Sad: &quot;cheer up&quot;
-
-test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet Happy&quot;)
-</code></pre>
-<p>Use <code>./bosatsu --help</code> to explore the available commands (<code>lib</code>, <code>tool</code>, <code>c-runtime</code>, etc.). Most language-level operations now live under <code>tool</code>, for example: <code>./bosatsu tool check</code>, <code>./bosatsu tool eval</code>, and <code>./bosatsu tool transpile</code>.</p>
-<h2><a href="#11-run-tests" name="11-run-tests" class="anchor"><span class="anchor-link"></span></a>11) Run tests</h2>
-<p>From the repo root:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
-</code></pre>
-<p>To override compile/link flags for a single invocation, use repeatable flags:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test --cc_flag=-O0 --cc_lib=-lm
-./bosatsu lib build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
-</code></pre>
+<p>In that package, the source helper <code>list_len</code> is inlined into another compiled definition, and you can still see the loop-like lowered shape there. This is a practical way to confirm code that should compile to loops in backends.</p>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/getting_started.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/debugging_with_show.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="language_guide.html">Language Guide</a></p>
+<p><strong>Next:</strong> <a href="transpile_python.html">Compiling to Python</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -355,19 +289,10 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="getting_started.html#getting-started-new-repo-" class="header">Getting started (new repo)</a>
+  <li><a href="debugging_with_show.html#inspecting-compiled-output-with-lib-show" class="header">Inspecting Compiled Output with <code>lib show</code></a>
   <ul>
-    <li><a href="getting_started.html#1-create-a-new-git-repo" class="header">1) Create a new git repo</a></li>
-    <li><a href="getting_started.html#2-add-the-bosatsu-launcher" class="header">2) Add the <code>bosatsu</code> launcher</a></li>
-    <li><a href="getting_started.html#3-find-the-latest-release-version" class="header">3) Find the latest release version</a></li>
-    <li><a href="getting_started.html#4-pin-the-bosatsu-release-version" class="header">4) Pin the Bosatsu release version</a></li>
-    <li><a href="getting_started.html#5-choose-a-platform-per-machine-" class="header">5) Choose a platform (per-machine)</a></li>
-    <li><a href="getting_started.html#6-ignore-per-machine-cache-files" class="header">6) Ignore per-machine/cache files</a></li>
-    <li><a href="getting_started.html#7-fetch-the-cli" class="header">7) Fetch the CLI</a></li>
-    <li><a href="getting_started.html#8-install-the-c-runtime" class="header">8) Install the C runtime</a></li>
-    <li><a href="getting_started.html#9-initialize-a-library-config" class="header">9) Initialize a library config</a></li>
-    <li><a href="getting_started.html#10-add-code" class="header">10) Add code</a></li>
-    <li><a href="getting_started.html#11-run-tests" class="header">11) Run tests</a></li>
+    <li><a href="debugging_with_show.html#quick-examples" class="header">Quick examples</a></li>
+    <li><a href="debugging_with_show.html#why-this-helps" class="header">Why this helps</a></li>
   </ul></li>
 </ul>
 </div>
