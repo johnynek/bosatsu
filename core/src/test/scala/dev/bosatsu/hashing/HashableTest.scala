@@ -159,10 +159,6 @@ class HashableTest extends munit.FunSuite {
   }
 
   test("foldable fallback provides Hashable for NonEmptyList") {
-    val lowPriority = new LowPriorityHashableInstances {}
-    given Hashable[NonEmptyList[Int]] =
-      lowPriority.foldableHashable[NonEmptyList, Int]
-
     val nelHashable: Hashable[NonEmptyList[Int]] = summon[Hashable[NonEmptyList[Int]]]
     val foldableNel: Foldable[NonEmptyList] = summon[Foldable[NonEmptyList]]
 
