@@ -17,10 +17,28 @@ struct Record(
   run: Option[String] = None,
 )
 
-r = Record { name = Some("foo") }
+r = Record { name: Some("foo") }
 ```
 
 This should typecheck as if missing fields were filled by compiler-provided default expressions.
+
+## Explicit V1 Constraints
+1. Defaults are applied only for record constructor syntax: `C { field: expr }`.
+2. Positional constructor calls are unchanged: `C(expr1, expr2, ...)` gets no default filling.
+3. Defaults cannot reference constructor parameters.
+
+Rejected example:
+
+```bosatsu
+struct S(a: Int, b: Int = a) # rejected
+```
+
+Allowed default dependencies are only:
+1. imported values,
+2. values defined earlier in the same file,
+3. earlier default helpers by source order.
+
+If positional constructor defaults are added in the future, that should be designed together with function default arguments in a separate proposal; that is explicitly out of scope for this doc.
 
 ## Non-goals
 1. Changing tuple/positional constructor calls (`Record(...)`).
@@ -47,7 +65,7 @@ enum E:
 ```
 
 ### Construction semantics (record syntax only)
-For `C { field1 = e1, ... }`:
+For `C { field1: e1, ... }`:
 1. Unknown field names still error.
 2. Duplicate/extra field behavior remains as today (no new behavior change in this feature).
 3. For each constructor field in declared order:
@@ -171,6 +189,12 @@ To keep evaluation acyclic and predictable, a default expression may reference:
 3. Earlier generated default helpers.
 
 It may not reference constructor parameters (no dependent defaults in v1).
+
+Rejected example:
+
+```bosatsu
+struct S(a: Int, b: Int = a) # rejected
+```
 
 This matches a DAG-friendly ordering and avoids introducing implicit call-site scope.
 
@@ -296,10 +320,15 @@ This avoids introducing named-argument-like implicit imports at constructor call
 ## Imports, Exports, and Customs
 
 ### Export/import behavior
-1. Exporting a constructor exports its default metadata as part of constructor metadata (`ConstructorFn` params).
-2. Importing that constructor brings this metadata along automatically.
-3. Default helper names are not a new user-facing import surface; they are an implementation detail attached to constructor semantics.
-4. Other packages can use defaults indirectly by constructing with omitted record fields.
+Bosatsu reminder:
+1. `export T` exports only the type name.
+2. `export T()` exports the type name plus all constructors.
+
+Defaults follow constructor visibility:
+1. Exporting `T` only does not expose constructor defaults.
+2. Exporting `T()` includes constructor default metadata and the associated synthetic helper values needed to realize those defaults.
+3. Importing constructor names via `T()` automatically links the default behavior for record construction in downstream packages.
+4. Default helper names are not a user-facing import surface; they are synthetic implementation details attached to constructor export/linking.
 
 ### Customs (`PackageCustoms.allImportsAreUsed`)
 No new user-visible import item is introduced for defaults.
@@ -308,6 +337,15 @@ Consequences:
 1. Unused-import checks remain keyed to the explicit imported constructor/type/value names.
 2. Using record construction that relies on defaults still counts as using the constructor import (same as any constructor use).
 3. There should be no new false-positive unused-import errors caused solely by default helpers.
+
+### Unused-value reachability (`PackageCustoms.noUselessBinds`)
+Bosatsu normally reports unused top-level values unless they are reachable from roots (exports/main/tests/non-binding uses).
+
+For defaults:
+1. helper lets are synthetic (`Identifier.synthetic(...)`),
+2. they are treated as synthetic exports reachable from exported constructors (`T()` path),
+3. thus they are on the export-reachability path under the normal rule,
+4. and because they are synthetic, they are excluded from user-facing unused-let diagnostics (`Identifier.isSynthetic`) so implementation details do not surface as lint noise.
 
 ## Implementation Plan
 1. AST/parser:
@@ -322,13 +360,16 @@ Consequences:
    2. Allocate helper names from `DefaultNameV1` API fingerprint (no freshness fallback).
    3. Enforce default-expression scope rule.
    4. Update record-constructor expansion to fill omitted defaulted fields.
-4. Inference/typing:
+4. Export/linking/customs:
+   1. Mark default helpers as synthetic constructor-linked exports when constructors are exported (`T()`).
+   2. Ensure reachability roots include these synthetic constructor-linked defaults.
+5. Inference/typing:
    1. Typecheck helper bindings against declared field types.
    2. Preserve existing constructor-function typing.
-5. API diff:
+6. API diff:
    1. Add default-added/default-removed diff cases.
    2. Wire semver validity as above.
-6. Proto:
+7. Proto:
    1. Add `int32 defaultBindingName` to `FnParam` (`0` => absent).
    2. Update encode/decode.
 
@@ -357,3 +398,7 @@ Consequences:
 7. Naming collisions:
    1. Assert generated helper names are unique for all defaulted params in a package.
    2. Document invariant: synthetic helper names are not user-definable in Bosatsu source.
+8. Visibility and reachability:
+   1. `export T` does not permit external default-backed construction.
+   2. `export T()` does permit external default-backed construction.
+   3. No user-visible unused-let errors are produced for synthetic default helpers.
