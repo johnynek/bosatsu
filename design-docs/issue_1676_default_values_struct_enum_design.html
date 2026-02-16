@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Issue 1676: Default Values in Struct and Enum Constructors · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_1676_default_values_struct_enum_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-c189da48*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="active page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-c189da48*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="active page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Issue 1676: Default Values in Struct and Enum Constructors</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#issue-1676-default-values-in-struct-and-enum-constructors" name="issue-1676-default-values-in-struct-and-enum-constructors" class="anchor"><span class="anchor-link"></span></a>Issue 1676: Default Values in Struct and Enum Constructors</h1>
+<p>Status: proposed<br/>Date: 2026-02-16<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/1676">https://github.com/johnynek/bosatsu/issues/1676</a></p>
+<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
+<p>Add default values for constructor fields so record-style construction can omit fields that have defaults, while preserving current language behavior.</p>
+<p>Example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Record(
+  name: Option[String],
+  uses: Option[String] = None,
+  with: Option[Record] = None,
+  run: Option[String] = None,
+)
+
+r = Record { name: Some(&quot;foo&quot;) }
+</code></pre>
+<p>This should typecheck as if missing fields were filled by compiler-provided default expressions.</p>
+<h2><a href="#explicit-v1-constraints" name="explicit-v1-constraints" class="anchor"><span class="anchor-link"></span></a>Explicit V1 Constraints</h2>
+<ol>
+  <li>Defaults are applied only for record constructor syntax: <code>C { field: expr }</code>.</li>
+  <li>Positional constructor calls are unchanged: <code>C(expr1, expr2, ...)</code> gets no default filling.</li>
+  <li>Defaults cannot reference constructor parameters.</li>
+</ol>
+<p>Rejected example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct S(a: Int, b: Int = a) # rejected
+</code></pre>
+<p>Allowed default dependencies are only: 1. imported values, 2. values defined earlier in the same file, 3. earlier default helpers by source order.</p>
+<p>If positional constructor defaults are added in the future, that should be designed together with function default arguments in a separate proposal; that is explicitly out of scope for this doc.</p>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>Changing tuple/positional constructor calls (<code>Record(...)</code>).</li>
+  <li>Adding named arguments for general function calls.</li>
+  <li>Changing pattern matching semantics.</li>
+  <li>Making constructor shape changes non-breaking for semver.</li>
+</ol>
+<h2><a href="#current-state" name="current-state" class="anchor"><span class="anchor-link"></span></a>Current State</h2>
+<ol>
+  <li>Type definitions (<code>Statement.Struct</code>, <code>Statement.EnumBranch</code>) only store <code>(fieldName, optionalType)</code>; no default expression slot.</li>
+  <li>Record construction (<code>Declaration.RecordConstructor</code> in <code>SourceConverter.fromDecl</code>) requires every constructor field; missing fields produce <code>SourceConverter.MissingArg</code>.</li>
+  <li>Constructor metadata in <code>rankn.ConstructorFn</code>/<code>TypedAst.proto</code> contains field names and types only.</li>
+  <li>API compatibility (<code>library/ApiDiff.scala</code> via <code>LibConfig.validNextVersion</code>) checks constructor shape/name/type/index changes, but has no default-value diff model.</li>
+</ol>
+<h2><a href="#proposed-semantics" name="proposed-semantics" class="anchor"><span class="anchor-link"></span></a>Proposed Semantics</h2>
+<h3><a href="#definition-site-syntax" name="definition-site-syntax" class="anchor"><span class="anchor-link"></span></a>Definition-site syntax</h3>
+<p>Allow defaults on constructor parameters in both <code>struct</code> and <code>enum</code> constructors:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct S(a: Int, b: Int = 0)
+
+enum E:
+  C(x: Int, y: Int = 1)
+</code></pre>
+<h3><a href="#construction-semantics-record-syntax-only-" name="construction-semantics-record-syntax-only-" class="anchor"><span class="anchor-link"></span></a>Construction semantics (record syntax only)</h3>
+<p>For <code>C { field1: e1, ... }</code>: 1. Unknown field names still error. 2. Duplicate/extra field behavior remains as today (no new behavior change in this feature). 3. For each constructor field in declared order:  1. Use provided value if present.  2. Else use the field default if one exists.  3. Else emit existing <code>MissingArg</code> error. 4. The result still elaborates to ordinary constructor application with all arguments present. 5. <code>C {}</code> is valid syntax. It typechecks iff all required fields are defaulted; otherwise existing missing-field errors are reported.</p>
+<h3><a href="#constructor-function-calls-unchanged" name="constructor-function-calls-unchanged" class="anchor"><span class="anchor-link"></span></a>Constructor-function calls unchanged</h3>
+<p><code>C(...)</code> and first-class constructor values keep current arity/type behavior. Missing positional arguments remain errors.</p>
+<h3><a href="#pattern-matching-unchanged" name="pattern-matching-unchanged" class="anchor"><span class="anchor-link"></span></a>Pattern matching unchanged</h3>
+<p>No default filling occurs in patterns. Pattern conversion/totality/match lowering behavior is unchanged.</p>
+<h2><a href="#elaboration-model" name="elaboration-model" class="anchor"><span class="anchor-link"></span></a>Elaboration Model</h2>
+<h3><a href="#1-extend-constructor-metadata" name="1-extend-constructor-metadata" class="anchor"><span class="anchor-link"></span></a>1. Extend constructor metadata</h3>
+<p>Replace raw <code>(Bindable, Type)</code> argument pairs with a param model carrying optional default metadata.</p>
+<p>Suggested shape:</p>
+<pre class="prettyprint"><code class="language-scala">final case class ConstructorParam(
+  name: Bindable,
+  tpe: Type,
+  defaultBinding: Option[Bindable]
+)
+
+final case class ConstructorFn[+A](
+  name: Constructor,
+  args: List[ConstructorParam],
+  exists: List[(Type.Var.Bound, A)] = Nil
+)
+</code></pre>
+<p><code>defaultBinding</code> names a compiler-generated helper binding in the defining package.</p>
+<h3><a href="#2-generation-point-and-scope-boundary" name="2-generation-point-and-scope-boundary" class="anchor"><span class="anchor-link"></span></a>2. Generation point and scope boundary</h3>
+<p>Defaults are generated during source-to-core conversion as a conceptual desugaring of the statement stream.</p>
+<p>Semantics are: 1. Process top-level statements in source order. 2. When a <code>struct</code>/<code>enum</code> definition is seen, keep the type definition unchanged. 3. Immediately after that type definition, insert synthetic non-recursive helper bindings for its defaulted fields.</p>
+<p>So yes: semantically these names exist immediately after the defining <code>struct</code>/<code>enum</code> statement.</p>
+<p>Consequences: 1. Later top-level statements can see/use those helpers (through constructor metadata), earlier ones cannot. 2. Default expressions can reference earlier top-level values. 3. Defaults may reference earlier defaults from the same type definition under a deterministic order:  1. <code>struct</code>: parameter order.  2. <code>enum</code>: constructor declaration order, then parameter order within each constructor. 4. Self-recursive default helpers are not allowed in v1.</p>
+<h3><a href="#3-generate-one-helper-binding-per-defaulted-field" name="3-generate-one-helper-binding-per-defaulted-field" class="anchor"><span class="anchor-link"></span></a>3. Generate one helper binding per defaulted field</h3>
+<p>For each defaulted field, generate a synthetic top-level binding in the defining package using the deterministic API-fingerprint naming rule below.</p>
+<p>The helper expression is the parsed default expression and is typechecked against the field type.</p>
+<p>This gives: 1. Single evaluation/sharing (not re-elaborated per construction site). 2. A concrete symbol that downstream packages can reference after import of constructor metadata. 3. Normal error reporting at the default expression source region.</p>
+<h3><a href="#4-helper-name-allocation-and-uniqueness" name="4-helper-name-allocation-and-uniqueness" class="anchor"><span class="anchor-link"></span></a>4. Helper name allocation and uniqueness</h3>
+<p>Name allocation happens in <code>SourceConverter</code> (whole-file context available), before defaults are lowered into helper lets.</p>
+<h4><a href="#api-fingerprint-naming-rule" name="api-fingerprint-naming-rule" class="anchor"><span class="anchor-link"></span></a>API-fingerprint naming rule</h4>
+<p>Each helper name is a deterministic hash of constructor parameter API identity, not of local file context.</p>
+<p>Fingerprint input (<code>DefaultNameV1</code>): 1. package name, 2. type name, 3. constructor name, 4. parameter index, 5. canonical parameter type digest.</p>
+<p>Canonical type digest should be computed from a normalized, alpha-stable encoding of the field type (for example de-Bruijn-style bound-variable numbering) so harmless binder renaming does not perturb helper names.</p>
+<p>Suggested emitted bindable: 1. create <code>Identifier.synthetic(&quot;default$&quot; + &lt;digest&gt;)</code>, 2. where <code>&lt;digest&gt;</code> is base32/hex <code>Blake3(DefaultNameV1 input)</code>.</p>
+<p>Example shape:</p>
+<pre class="prettyprint"><code class="nocode">_default$8f3c1a7d9b42...
+</code></pre>
+<h4><a href="#why-this-satisfies-semver-stable-naming" name="why-this-satisfies-semver-stable-naming" class="anchor"><span class="anchor-link"></span></a>Why this satisfies semver-stable naming</h4>
+<p>Under current <code>ApiDiff</code> policy, changing any of (type/constructor identity, parameter position, parameter type) is already major-only.</p>
+<p>So: 1. patch/minor changes that keep constructor parameter API identity unchanged keep helper names unchanged, 2. helper-name changes imply a major-allowed API change.</p>
+<p>Default expression body changes are excluded from the fingerprint, so implementation-only default rewrites do not rename helpers.</p>
+<h4><a href="#collision-and-shadowing-policy" name="collision-and-shadowing-policy" class="anchor"><span class="anchor-link"></span></a>Collision and shadowing policy</h4>
+<p>Assumption: <code>Identifier.synthetic(...)</code> names are not definable by users in Bosatsu source.</p>
+<p>Under that assumption: 1. user-vs-helper collisions cannot occur, 2. user shadowing of helper names cannot occur.</p>
+<p>For generated helpers: 1. we generate at most one helper per constructor parameter slot, 2. emitted name is a pure function of <code>DefaultNameV1</code> key for that slot, 3. assuming no Blake3 collisions, two different keys cannot produce the same emitted name.</p>
+<p>So helper-helper collisions cannot occur under the no-Blake3-collision assumption.</p>
+<p>To avoid non-deterministic behavior, we still do <strong>not</strong> fall back to <code>unusedNames</code>; any observed duplicate generated helper name should be treated as an internal invariant failure.</p>
+<h3><a href="#5-scope-rule-for-default-expressions-v1-" name="5-scope-rule-for-default-expressions-v1-" class="anchor"><span class="anchor-link"></span></a>5. Scope rule for default expressions (v1)</h3>
+<p>To keep evaluation acyclic and predictable, a default expression may reference: 1. Imported names. 2. Top-level values defined earlier in source order. 3. Earlier generated default helpers.</p>
+<p>It may not reference constructor parameters (no dependent defaults in v1).</p>
+<p>Rejected example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct S(a: Int, b: Int = a) # rejected
+</code></pre>
+<p>This matches a DAG-friendly ordering and avoids introducing implicit call-site scope.</p>
+<h3><a href="#6-record-constructor-conversion" name="6-record-constructor-conversion" class="anchor"><span class="anchor-link"></span></a>6. Record-constructor conversion</h3>
+<p>In <code>SourceConverter</code> record-constructor handling: 1. Look up constructor params with default metadata. 2. Build full positional arg list by field name:  1. explicit arg  2. default helper global  3. <code>MissingArg</code>. 3. Emit existing <code>Expr.buildApp(cons, fullArgs, ...)</code>.</p>
+<p>Because this remains an ordinary application after elaboration, the rest of inference/normalization/codegen stays stable.</p>
+<h2><a href="#type-errors-and-regions" name="type-errors-and-regions" class="anchor"><span class="anchor-link"></span></a>Type Errors and Regions</h2>
+<h3><a href="#why-region-capture-needs-parser-data-model-changes" name="why-region-capture-needs-parser-data-model-changes" class="anchor"><span class="anchor-link"></span></a>Why region capture needs parser/data-model changes</h3>
+<p>Current constructor args in <code>Statement.Struct</code>/<code>Statement.EnumBranch</code> are just <code>(Bindable, Option[TypeRef])</code>, so there is no per-default region.</p>
+<p>To surface precise errors for defaults, we should change parsed arg shape to carry: 1. field name, 2. optional declared type, 3. optional default expression, 4. default-clause region (recommended: region covering <code>= &lt;expr&gt;</code>), 5. arg region.</p>
+<p>The parser change is to parse default clauses with <code>.region</code> and keep that region on the arg node.</p>
+<h3><a href="#how-this-plugs-into-the-current-typechecker-pipeline" name="how-this-plugs-into-the-current-typechecker-pipeline" class="anchor"><span class="anchor-link"></span></a>How this plugs into the current typechecker pipeline</h3>
+<p>Current flow already has good region plumbing: 1. <code>SourceConverter.toProgram</code> builds <code>Expr[Declaration]</code>. 2. <code>Infer.typeCheckLets</code> uses <code>HasRegion[Declaration]</code> when creating <code>Infer.Error</code>. 3. <code>PackageError.TypeErrorIn</code> renders source snippets from those regions via <code>LocationMap</code>.</p>
+<p>Defaults should use this same path by generating helper lets with region-aware tags.</p>
+<h3><a href="#default-helper-typing-strategy" name="default-helper-typing-strategy" class="anchor"><span class="anchor-link"></span></a>Default helper typing strategy</h3>
+<p>For each defaulted field, generate helper RHS as a typed annotation against the field type:</p>
+<pre class="prettyprint"><code class="language-bosatsu">__bosatsu_default_Foo_a = (&lt;default-expr&gt; : &lt;field-type&gt;)
+</code></pre>
+<p>Region policy: 1. The annotation tag region is the stored default-clause region (<code>= &lt;expr&gt;</code>). 2. The inner default expression keeps its own parsed subregions.</p>
+<p>Effect with current <code>Infer</code> behavior: 1. <code>checkAnnotated</code> reports expected-type region from the annotation tag. 2. Found-type region comes from the inner expression. 3. <code>PackageError.TypeErrorIn</code> therefore highlights the original default source location, not an invented synthetic location.</p>
+<p>Example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Foo(a: Int = &quot;foo&quot;)
+</code></pre>
+<p>reports a normal type mismatch at the default clause (expected <code>Int</code>, found <code>String</code>).</p>
+<h3><a href="#non-type-errors-for-defaults" name="non-type-errors-for-defaults" class="anchor"><span class="anchor-link"></span></a>Non-type errors for defaults</h3>
+<p>Default-scope policy violations (for example, forbidden forward/default dependency shape) should be emitted as <code>SourceConverter</code> errors at the stored default-clause region.</p>
+<p>This keeps: 1. parse/scope errors in <code>SourceConverterErrorsIn</code>, 2. type mismatches in <code>TypeErrorIn</code>, with both pointing to the same user-visible source location.</p>
+<h2><a href="#api-compatibility-rules" name="api-compatibility-rules" class="anchor"><span class="anchor-link"></span></a>API Compatibility Rules</h2>
+<p>Compatibility checks live in <code>library/ApiDiff.scala</code> and are enforced from <code>LibConfig.validNextVersion</code>.</p>
+<h3><a href="#existing-constructor-shape-rules-remain" name="existing-constructor-shape-rules-remain" class="anchor"><span class="anchor-link"></span></a>Existing constructor-shape rules remain</h3>
+<p>These remain <code>major</code>-only: 1. Constructor add/remove. 2. Constructor index change. 3. Param add/remove. 4. Param rename. 5. Param type change.</p>
+<p>Reason: positional constructor calls are intentionally unchanged and remain part of API surface.</p>
+<h3><a href="#new-default-specific-diffs" name="new-default-specific-diffs" class="anchor"><span class="anchor-link"></span></a>New default-specific diffs</h3>
+<p>Add constructor-param default diffs: 1. <code>ConstructorParamDefaultAdded</code> (<code>None -&gt; Some</code>) : allowed in <code>minor</code> and <code>major</code>, disallowed in <code>patch</code>. 2. <code>ConstructorParamDefaultRemoved</code> (<code>Some -&gt; None</code>) : <code>major</code> only.</p>
+<p>If default exists in both versions, expression/body changes are treated like ordinary value-body changes (not type-shape diffs). Adding a default stays minor-only even if no constructor type/arity changes are made, because patch requires exactly unchanged API.</p>
+<h2><a href="#protobuf-and-serialization" name="protobuf-and-serialization" class="anchor"><span class="anchor-link"></span></a>Protobuf and Serialization</h2>
+<h3><a href="#schema-change" name="schema-change" class="anchor"><span class="anchor-link"></span></a>Schema change</h3>
+<p>Extend <code>FnParam</code> in <code>proto/src/main/protobuf/bosatsu/TypedAst.proto</code> with a proto3 <code>int32</code> pointer to the helper binding name.</p>
+<p>Example:</p>
+<pre class="prettyprint"><code class="language-proto">message FnParam {
+  int32 name = 1;
+  int32 typeOf = 2;
+  int32 defaultBindingName = 3; // 1-based string-table index; 0 means no default
+}
+</code></pre>
+<h3><a href="#backward-compatibility" name="backward-compatibility" class="anchor"><span class="anchor-link"></span></a>Backward compatibility</h3>
+<ol>
+  <li>Old serialized artifacts have no field <code>3</code>; proto3 default is <code>0</code>, interpreted as <code>None</code>.</li>
+  <li>New decoder therefore treats all existing libraries/packages as constructors with no defaults.</li>
+  <li>Unknown-field behavior keeps forward-read tolerance for older decoders.</li>
+</ol>
+<h3><a href="#converter-changes" name="converter-changes" class="anchor"><span class="anchor-link"></span></a>Converter changes</h3>
+<p>In <code>ProtoConverter</code>: 1. Encode/decode <code>defaultBindingName</code> on constructor params. 2. Continue serializing generated helper lets as ordinary package lets.</p>
+<p>No change is required to match/pattern protobuf encoding.</p>
+<h2><a href="#dependency-visibility" name="dependency-visibility" class="anchor"><span class="anchor-link"></span></a>Dependency Visibility</h2>
+<p>Default expressions may reference imported packages, but those references are contained in generated helper bindings in the defining package. Consumers of the constructor depend only on the defining package’s constructor metadata/helpers, not on direct visibility of the helper’s internal expression dependencies.</p>
+<p>This avoids introducing named-argument-like implicit imports at constructor call sites.</p>
+<h2><a href="#imports-exports-and-customs" name="imports-exports-and-customs" class="anchor"><span class="anchor-link"></span></a>Imports, Exports, and Customs</h2>
+<h3><a href="#export-import-behavior" name="export-import-behavior" class="anchor"><span class="anchor-link"></span></a>Export/import behavior</h3>
+<p>Bosatsu reminder: 1. <code>export T</code> exports only the type name. 2. <code>export T()</code> exports the type name plus all constructors.</p>
+<p>Defaults follow constructor visibility: 1. Exporting <code>T</code> only does not expose constructor defaults. 2. Exporting <code>T()</code> includes constructor default metadata and the associated synthetic helper values needed to realize those defaults. 3. Importing constructor names via <code>T()</code> automatically links the default behavior for record construction in downstream packages. 4. Default helper names are not a user-facing import surface; they are synthetic implementation details attached to constructor export/linking.</p>
+<h3><a href="#customs-packagecustoms-allimportsareused-" name="customs-packagecustoms-allimportsareused-" class="anchor"><span class="anchor-link"></span></a>Customs (<code>PackageCustoms.allImportsAreUsed</code>)</h3>
+<p>No new user-visible import item is introduced for defaults.</p>
+<p>Consequences: 1. Unused-import checks remain keyed to the explicit imported constructor/type/value names. 2. Using record construction that relies on defaults still counts as using the constructor import (same as any constructor use). 3. There should be no new false-positive unused-import errors caused solely by default helpers.</p>
+<h3><a href="#unused-value-reachability-packagecustoms-nouselessbinds-" name="unused-value-reachability-packagecustoms-nouselessbinds-" class="anchor"><span class="anchor-link"></span></a>Unused-value reachability (<code>PackageCustoms.noUselessBinds</code>)</h3>
+<p>Bosatsu normally reports unused top-level values unless they are reachable from roots (exports/main/tests/non-binding uses).</p>
+<p>For defaults: 1. helper lets are synthetic (<code>Identifier.synthetic(...)</code>), 2. they are treated as synthetic exports reachable from exported constructors (<code>T()</code> path), 3. thus they are on the export-reachability path under the normal rule, 4. and because they are synthetic, they are excluded from user-facing unused-let diagnostics (<code>Identifier.isSynthetic</code>) so implementation details do not surface as lint noise.</p>
+<h2><a href="#implementation-plan" name="implementation-plan" class="anchor"><span class="anchor-link"></span></a>Implementation Plan</h2>
+<ol>
+  <li>AST/parser:</li>
+  <li>Extend <code>Statement.Struct</code>/<code>Statement.EnumBranch</code> arg model to carry optional default expression.</li>
+  <li>Update parser/printer for <code>arg [: Type] [= expr]</code>.</li>
+  <li>Allow empty record-construction braces (<code>C {}</code>) in parser; rely on existing missing-field checks in conversion.</li>
+  <li>rankn/type metadata:</li>
+  <li>Extend <code>ConstructorFn</code> arg representation with optional <code>defaultBinding</code>.</li>
+  <li>Update <code>TypeEnv</code> helpers (<code>getConstructorParams</code>, etc.) to expose default metadata.</li>
+  <li>Source conversion:</li>
+  <li>Generate default helper bindings.</li>
+  <li>Allocate helper names from <code>DefaultNameV1</code> API fingerprint (no freshness fallback).</li>
+  <li>Enforce default-expression scope rule.</li>
+  <li>Update record-constructor expansion to fill omitted defaulted fields.</li>
+  <li>Export/linking/customs:</li>
+  <li>Mark default helpers as synthetic constructor-linked exports when constructors are exported (<code>T()</code>).</li>
+  <li>Ensure reachability roots include these synthetic constructor-linked defaults.</li>
+  <li>Inference/typing:</li>
+  <li>Typecheck helper bindings against declared field types.</li>
+  <li>Preserve existing constructor-function typing.</li>
+  <li>API diff:</li>
+  <li>Add default-added/default-removed diff cases.</li>
+  <li>Wire semver validity as above.</li>
+  <li>Proto:</li>
+  <li>Add <code>int32 defaultBindingName</code> to <code>FnParam</code> (<code>0</code> =&gt; absent).</li>
+  <li>Update encode/decode.</li>
+</ol>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
+<ol>
+  <li>Parsing/printing:</li>
+  <li>Struct and enum defaults roundtrip.</li>
+  <li>Record-constructor syntax accepts <code>C {}</code>.</li>
+  <li>Typing/elaboration:</li>
+  <li>Record construction succeeds with subset fields when defaults exist.</li>
+  <li><code>C {}</code> succeeds when all fields have defaults.</li>
+  <li>Missing non-defaulted field still errors.</li>
+  <li>Positional constructor call arity behavior unchanged.</li>
+  <li>Pattern matching:</li>
+  <li>Existing pattern behavior unchanged.</li>
+  <li>Scope restrictions:</li>
+  <li>Default references to constructor params rejected.</li>
+  <li>Forward-reference defaults rejected (or reported) per ordering rule.</li>
+  <li>API diff/semver:</li>
+  <li>Add default =&gt; minor-valid, patch-invalid.</li>
+  <li>Remove default =&gt; major-only.</li>
+  <li>Param add/remove still major-only even if default exists.</li>
+  <li>Add golden test: unchanged constructor API identity =&gt; unchanged generated default-helper names.</li>
+  <li>Protobuf compatibility:</li>
+  <li>Decode old proto (without field) as no defaults.</li>
+  <li>Roundtrip new proto with defaults preserved.</li>
+  <li>Naming collisions:</li>
+  <li>Assert generated helper names are unique for all defaulted params in a package.</li>
+  <li>Document invariant: synthetic helper names are not user-definable in Bosatsu source.</li>
+  <li>Visibility and reachability:</li>
+  <li><code>export T</code> does not permit external default-backed construction.</li>
+  <li><code>export T()</code> does permit external default-backed construction.</li>
+  <li>No user-visible unused-let errors are produced for synthetic default helpers.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_1676_default_values_struct_enum_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../getting_started.html">Getting started (new repo)</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#issue-1676-default-values-in-struct-and-enum-constructors" class="header">Issue 1676: Default Values in Struct and Enum Constructors</a>
+  <ul>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#goal" class="header">Goal</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#explicit-v1-constraints" class="header">Explicit V1 Constraints</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#non-goals" class="header">Non-goals</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#current-state" class="header">Current State</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#proposed-semantics" class="header">Proposed Semantics</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#elaboration-model" class="header">Elaboration Model</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#type-errors-and-regions" class="header">Type Errors and Regions</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#api-compatibility-rules" class="header">API Compatibility Rules</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#protobuf-and-serialization" class="header">Protobuf and Serialization</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#dependency-visibility" class="header">Dependency Visibility</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#imports-exports-and-customs" class="header">Imports, Exports, and Customs</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#implementation-plan" class="header">Implementation Plan</a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html#test-plan" class="header">Test Plan</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-c189da48-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
