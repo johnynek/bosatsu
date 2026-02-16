@@ -1307,6 +1307,53 @@ object Command {
           }
       }
 
+    def evalLookupError(
+        err: LibraryEvaluation.LookupError
+    ): Exception & CliException =
+      err match {
+        case LibraryEvaluation.LookupError.UnknownPackage(pn) =>
+          CliException.Basic(show"package not found: ${pn.asString}")
+        case LibraryEvaluation.LookupError.AmbiguousPackage(
+              pn,
+              candidates
+            ) =>
+          CliException.Basic(
+            show"package ${pn.asString} is ambiguous in dependency tree: ${candidates.mkString(", ")}"
+          )
+        case LibraryEvaluation.LookupError.MainNotFound(pn) =>
+          CliException.Basic(
+            show"package ${pn.asString} has no main value; pass --main ${pn.asString}::<value>"
+          )
+        case LibraryEvaluation.LookupError.ValueNotFound(
+              pn,
+              name,
+              validJsonValues
+            ) =>
+          val validValuesMsg =
+            if (validJsonValues.isEmpty) ""
+            else show"\nvalid json values: [${validJsonValues.mkString(", ")}]"
+
+          CliException.Basic(
+            show"value not found: ${pn.asString}::${name.asString}${validValuesMsg}"
+          )
+        case LibraryEvaluation.LookupError.ValueNotEvaluatable(
+              pn,
+              name
+            ) =>
+          CliException.Basic(
+            show"value exists but could not be evaluated: ${pn.asString}::${name.asString}"
+          )
+        case LibraryEvaluation.LookupError.PackageUnavailableInScope(
+              pn,
+              scope
+            ) =>
+          CliException.Basic(
+            show"package ${pn.asString} was selected but not available in scope $scope"
+          )
+        case LibraryEvaluation.LookupError.Internal(msg) =>
+          CliException.Basic(msg)
+      }
+
     val evalCommand =
       Opts.subcommand(
         "eval",
@@ -1356,7 +1403,7 @@ object Command {
     val showCommand =
       Opts.subcommand(
         "show",
-        "show typed packages from this library or dependency tree"
+        "show fully type-checked packages from this library or dependency tree as valid EDN"
       ) {
         (
           ConfigConf.opts,
@@ -1376,7 +1423,9 @@ object Command {
               for {
                 dec <- cc.decodedWithDeps(colorize)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
-                packs <- moduleIOMonad.fromEither(ev.packagesForShow(packages))
+                packs <- moduleIOMonad.fromEither(
+                  ev.packagesForShowEither(packages).leftMap(evalLookupError)
+                )
               } yield (Output.ShowOutput(packs, Nil, output): Output[P])
             }
           } yield out
@@ -1476,52 +1525,6 @@ object Command {
                   val idx = err.failedAtOffset
                   showError("could not parse a JSON record", jsonString, idx)
               }
-            }
-
-          def evalLookupError(
-              err: LibraryEvaluation.LookupError
-          ): Exception & CliException =
-            err match {
-              case LibraryEvaluation.LookupError.UnknownPackage(pn) =>
-                CliException.Basic(show"package not found: ${pn.asString}")
-              case LibraryEvaluation.LookupError.AmbiguousPackage(
-                    pn,
-                    candidates
-                  ) =>
-                CliException.Basic(
-                  show"package ${pn.asString} is ambiguous in dependency tree: ${candidates.mkString(", ")}"
-                )
-              case LibraryEvaluation.LookupError.MainNotFound(pn) =>
-                CliException.Basic(
-                  show"package ${pn.asString} has no main value; pass --main ${pn.asString}::<value>"
-                )
-              case LibraryEvaluation.LookupError.ValueNotFound(
-                    pn,
-                    name,
-                    validJsonValues
-                  ) =>
-                val validValuesMsg =
-                  if (validJsonValues.isEmpty) ""
-                  else
-                    show"\nvalid json values: [${validJsonValues.mkString(", ")}]"
-
-                CliException.Basic(
-                  show"value not found: ${pn.asString}::${name.asString}${validValuesMsg}"
-                )
-              case LibraryEvaluation.LookupError.ValueNotEvaluatable(
-                    pn,
-                    name
-                  ) =>
-                CliException.Basic(
-                  show"value exists but could not be evaluated: ${pn.asString}::${name.asString}"
-                )
-              case LibraryEvaluation.LookupError.PackageUnavailableInScope(
-                    pn,
-                    scope
-                  ) =>
-                CliException.Basic(
-                  show"package ${pn.asString} was selected but not available in scope $scope"
-                )
             }
 
           def unsupported[A](

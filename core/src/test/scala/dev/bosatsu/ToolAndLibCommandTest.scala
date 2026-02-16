@@ -4,10 +4,11 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.Eval
 import cats.data.Chain
 import cats.implicits._
+import dev.bosatsu.edn.Edn
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{ExitCode, GraphOutput, Output}
+import dev.bosatsu.tool.{ExitCode, GraphOutput, Output, ShowEdn}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
@@ -92,6 +93,71 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
       Chain("repo", "src", "MyLib", "Foo.bosatsu") -> mainSrc
     )
+  }
+
+  private def packageKeywordFields(
+      pack: Package.Typed[Any]
+  ): Map[String, Edn] = {
+    import Edn._
+
+    ShowEdn.packageCodec.encode(pack.void) match {
+      case EList(ESymbol("package") :: args) =>
+        args.grouped(2).collect { case EKeyword(k) :: value :: Nil =>
+          k -> value
+        }.toMap
+      case other =>
+        fail(s"expected package edn, found: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  private def vectorStrings(edn: Edn): List[String] = {
+    import Edn._
+
+    edn match {
+      case EVector(items) =>
+        items.map {
+          case EString(s) => s
+          case ESymbol(s) => s
+          case other =>
+            fail(
+              s"expected string/symbol atom, found: ${Edn.toDoc(other).render(120)}"
+            )
+        }
+      case other =>
+        fail(s"expected vector, found: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  private def importItems(
+      pack: Package.Typed[Any]
+  ): List[(String, List[(String, String)])] = {
+    import Edn._
+
+    packageKeywordFields(pack).get("imports") match {
+      case Some(EVector(imports)) =>
+        imports.map {
+          case EList(
+                ESymbol("import") :: EString(pkgName) :: EVector(items) :: Nil
+              ) =>
+            val parsedItems = items.map {
+              case EList(
+                    ESymbol("item") :: EString(original) :: EString(local) :: _ :: _
+                  ) =>
+                (original, local)
+              case other =>
+                fail(
+                  s"unexpected import item: ${Edn.toDoc(other).render(120)}"
+                )
+            }
+            (pkgName, parsedItems)
+          case other =>
+            fail(s"unexpected import entry: ${Edn.toDoc(other).render(120)}")
+        }
+      case Some(other) =>
+        fail(s"expected :imports vector, found: ${Edn.toDoc(other).render(120)}")
+      case None =>
+        fail("missing :imports field")
+    }
   }
 
   private def withInjectedPublicDep(
@@ -239,6 +305,91 @@ class ToolAndLibCommandTest extends FunSuite {
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
       case Right(other) => fail(s"unexpected output: $other")
       case Left(err)    => fail(err.getMessage)
+    }
+  }
+
+  test("lib show invalid package name parse error includes package hint") {
+    val src =
+      """main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "euler1")
+    ) match {
+      case Left(err) =>
+        val msg = err.getMessage
+        assert(msg.contains("could not parse euler1 as a package name"), msg)
+        assert(msg.contains("parser error:"), msg)
+        assert(msg.contains("use the package declaration name"), msg)
+        assert(msg.contains("Euler/One"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("lib show includes original and local import names") {
+    val src =
+      """from Bosatsu/Predef import add as operator +, mul as operator *
+|
+|main = 1 + (2 * 3)
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val imports = importItems(pack)
+        val predefImport = imports.find(_._1 == "Bosatsu/Predef")
+        assert(predefImport.nonEmpty, imports.toString)
+        val names = predefImport.get._2
+        assert(names.contains(("add", "operator +")), names.toString)
+        assert(names.contains(("mul", "operator *")), names.toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib show separates exported types and values to avoid name collisions") {
+    val src =
+      """export Opt(), Pair(), main
+|
+|enum Opt[a]:
+|  N,
+|  S(value: a)
+|
+|struct Pair[a](left: a, right: a)
+|
+|main = 1
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val fields = packageKeywordFields(pack)
+
+        val typeNames = fields.get("exported-types").toList.flatMap(vectorStrings)
+        val valueNames = fields.get("exported-values").toList.flatMap(vectorStrings)
+
+        assert(typeNames.contains("Opt"), typeNames.toString)
+        assert(typeNames.contains("Pair"), typeNames.toString)
+        assert(!typeNames.contains("main"), typeNames.toString)
+
+        assert(valueNames.contains("N"), valueNames.toString)
+        assert(valueNames.contains("S"), valueNames.toString)
+        assert(valueNames.contains("Pair"), valueNames.toString)
+        assert(valueNames.contains("main"), valueNames.toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
     }
   }
 
@@ -1908,6 +2059,29 @@ external def size_Array[a](ary: Array[a]) -> Int
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("package not found: Nope/Foo"), msg)
         assert(!msg.contains("unknown error"), msg)
+    }
+  }
+
+  test("lib show reports unknown package clearly") {
+    val files = baseLibFiles("main = 1\n")
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "Nope/Foo"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected package lookup error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("package not found: Nope/Foo"), msg)
+        assert(!msg.contains("unknown error"), msg)
+        assert(!msg.contains("java.lang.Exception"), msg)
     }
   }
 

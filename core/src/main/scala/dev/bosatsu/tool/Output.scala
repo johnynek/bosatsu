@@ -6,7 +6,7 @@ import cats.data.{Chain, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 import dev.bosatsu.{Json, Package, PackageName, PlatformIO, Test, Value, rankn}
-import org.typelevel.paiges.{Doc, Document}
+import org.typelevel.paiges.Doc
 import dev.bosatsu.LocationMap.Colorize
 
 sealed abstract class Output[+Path] {
@@ -29,12 +29,12 @@ sealed abstract class Output[+Path] {
         val testReport = Test.outputFor(evalTest, color)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
-        println(testReport.doc.render(80)).as(code)
+        writeStdout(testReport.doc).as(code)
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
         val doc =
           resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
-        println(doc.render(100)).as(ExitCode.Success)
+        writeStdout(doc).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
@@ -60,14 +60,7 @@ sealed abstract class Output[+Path] {
         (ifres *> out).as(ExitCode.Success)
 
       case Output.ShowOutput(packs, ifaces, output) =>
-        val pdocs = packs.map { pack =>
-          Document[Package.Typed[Any]].document(pack)
-        }
-        val idocs = ifaces.map { iface =>
-          Document[Package.Interface].document(iface)
-        }
-
-        val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
+        val doc = ShowEdn.showDoc(packs, ifaces)
         writeOut(doc, output).as(ExitCode.Success)
 
       case Output.DepsOutput(depinfo, output, style) =>

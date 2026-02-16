@@ -224,6 +224,7 @@ lazy val cli = (project in file("cli"))
         slf4jNop.value,
         jawnParser.value % Test,
         jawnAst.value % Test,
+        "us.bpsm" % "edn-java" % "0.7.1" % Test,
         jacksonYaml.value % Test,
         jython.value % Test,
         munit.value % Test,
