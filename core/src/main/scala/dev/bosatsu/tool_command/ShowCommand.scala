@@ -5,12 +5,14 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
 import dev.bosatsu.tool.{
+  CliException,
   CommandSupport,
   CommonOpts,
   CompilerApi,
   Output,
   PackageResolver,
-  PathGen
+  PathGen,
+  ShowSelection
 }
 import dev.bosatsu.{Package, PackageMap, PackageName, Par, PlatformIO}
 
@@ -93,6 +95,7 @@ object ShowCommand {
   ): Opts[F[Output[Path]]] = {
     import platformIO.moduleIOMonad
     import LocationMap.Colorize
+    import ShowSelection.{typeArgument, valueArgument}
 
     val showOpt = (
       commonOpts.sourcePathOpts,
@@ -101,6 +104,24 @@ object ShowCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      Opts
+        .options[PackageName](
+          "package",
+          help = "package names to show in full"
+        )
+        .orEmpty,
+      Opts
+        .options[ShowSelection.TypeSelector](
+          "type",
+          help = "type names to show (package::Type)"
+        )
+        .orEmpty,
+      Opts
+        .options[ShowSelection.ValueSelector](
+          "value",
+          help = "value names to show (package::value)"
+        )
+        .orEmpty,
       commonOpts.outputPathOpt.orNone,
       Colorize.optsConsoleDefault
     ).mapN {
@@ -111,9 +132,13 @@ object ShowCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          packages,
+          types,
+          values,
           output,
           errColor
       ) =>
+        val request = ShowSelection.Request(packages, types, values)
         platformIO.withEC {
           for {
             (interfaces, packs0) <- loadAndCompile(
@@ -126,8 +151,18 @@ object ShowCommand {
               privateDependencies,
               errColor
             )
-            packs = packs0.filterNot(_.name == PackageName.PredefName)
-          } yield (Output.ShowOutput(packs, interfaces, output): Output[Path])
+            packs1 = packs0.filterNot(_.name == PackageName.PredefName)
+            packs <- moduleIOMonad.fromEither(
+              ShowSelection
+                .selectPackages(packs1, request)
+                .leftMap(CliException.Basic(_))
+            )
+            selectedInterfaces = ShowSelection.selectInterfaces(interfaces, request)
+          } yield (Output.ShowOutput(
+            packs,
+            selectedInterfaces,
+            output
+          ): Output[Path])
         }
     }
 

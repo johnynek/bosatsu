@@ -1400,12 +1400,15 @@ object ShowEdn {
 
     val attrs =
       List(
-        Some(kw("imports") -> EVector(normalized.imports.map(encodeImportForShow))),
+        if (normalized.imports.isEmpty) None
+        else Some(kw("imports") -> EVector(normalized.imports.map(encodeImportForShow))),
         exportsMap.map(kw("exports") -> _),
-        Some(kw("types") -> EVector(localTypes.map(encodeDefinedType))),
+        if (localTypes.isEmpty) None
+        else Some(kw("types") -> EVector(localTypes.map(encodeDefinedType))),
         if (externals.isEmpty) None
         else Some(kw("externals") -> EVector(externals.map(encodeExternal))),
-        Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet)))
+        if (prog.lets.isEmpty) None
+        else Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet)))
       ).flatten
 
     EList(

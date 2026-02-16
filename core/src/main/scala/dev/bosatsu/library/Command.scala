@@ -10,7 +10,8 @@ import dev.bosatsu.tool.{
   MarkdownDoc,
   Output,
   PathGen,
-  PackageResolver
+  PackageResolver,
+  ShowSelection
 }
 import dev.bosatsu.codegen.Transpiler
 import dev.bosatsu.codegen.clang.ClangTranspiler
@@ -1405,26 +1406,50 @@ object Command {
         "show",
         "show fully type-checked packages from this library or dependency tree as valid EDN"
       ) {
+        import ShowSelection.{typeArgument, valueArgument}
+
         (
           ConfigConf.opts,
           Opts
             .options[PackageName](
               "package",
               help =
-                "package names to show (defaults to local library packages)"
+                "package names to show in full (defaults to local library packages when no selectors are provided)"
+            )
+            .orEmpty,
+          Opts
+            .options[ShowSelection.TypeSelector](
+              "type",
+              help = "type names to show (package::Type)"
+            )
+            .orEmpty,
+          Opts
+            .options[ShowSelection.ValueSelector](
+              "value",
+              help = "value names to show (package::value)"
             )
             .orEmpty,
           Opts.option[P]("output", help = "output path").orNone,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, packages, output, colorize) =>
+        ).mapN { (fcc, packages, types, values, output, colorize) =>
+          val request = ShowSelection.Request(packages, types, values)
           for {
             cc <- fcc
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDeps(colorize)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
+                requestedPackages =
+                  if (request.isEmpty) Nil else request.requestedPackages
+                packs0 <- moduleIOMonad.fromEither(
+                  ev
+                    .packagesForShowEither(requestedPackages)
+                    .leftMap(evalLookupError)
+                )
                 packs <- moduleIOMonad.fromEither(
-                  ev.packagesForShowEither(packages).leftMap(evalLookupError)
+                  ShowSelection
+                    .selectPackages(packs0, request)
+                    .leftMap(CliException.Basic(_))
                 )
               } yield (Output.ShowOutput(packs, Nil, output): Output[P])
             }

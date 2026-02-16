@@ -8,6 +8,7 @@
 * [Recursion In Bosatsu](recursion.md)
 * [Bosatsu for JSON Generation](generating_json.md)
 * [Debugging with lib eval](debugging_with_eval.md)
+* [Inspecting compiled output with lib show](debugging_with_show.md)
 * [Compiling to Python](transpile_python.md)
 * [Core Alpha API](generated/core_alpha/index.md)
 @@@
