@@ -19,7 +19,7 @@ trait Hashable[A] {
 }
 
 private[hashing] trait LowPriorityHashableInstances {
-  given [F[_], A](using
+  given foldableHashable[F[_], A](using
       foldable: Foldable[F],
       hashA: Hashable[A]
   ): Hashable[F[A]] with {
@@ -82,10 +82,12 @@ object Hashable extends LowPriorityHashableInstances {
 
   private inline def typeNameOf[A]: String = ${ typeNameOfImpl[A] }
 
+  // $COVERAGE-OFF$
   private def typeNameOfImpl[A: Type](using quotes: Quotes): Expr[String] = {
     import quotes.reflect.*
     Expr(TypeRepr.of[A].dealias.show)
   }
+  // $COVERAGE-ON$
 
   private def addBytes[B](
       bytes: Array[Byte],
@@ -208,6 +210,7 @@ object Hashable extends LowPriorityHashableInstances {
       }
     }
 
+  // $COVERAGE-OFF$
   private def tupleHashableImpl[T <: Tuple: Type](using
       q: Quotes
   ): Expr[Hashable[T]] = {
@@ -252,6 +255,7 @@ object Hashable extends LowPriorityHashableInstances {
       derivedProduct[T]($tupleLabelExpr, $labelsExpr, $hashablesExpr)
     }
   }
+  // $COVERAGE-ON$
 
   inline given [T <: Tuple]: Hashable[T] = ${ tupleHashableImpl[T] }
 

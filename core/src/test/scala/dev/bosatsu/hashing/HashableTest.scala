@@ -1,5 +1,6 @@
 package dev.bosatsu.hashing
 
+import cats.Foldable
 import cats.data.NonEmptyList
 
 class HashableTest extends munit.FunSuite {
@@ -158,8 +159,12 @@ class HashableTest extends munit.FunSuite {
   }
 
   test("foldable fallback provides Hashable for NonEmptyList") {
-    val nelHashable: Hashable[NonEmptyList[Int]] =
-      summon[Hashable[NonEmptyList[Int]]]
+    val lowPriority = new LowPriorityHashableInstances {}
+    given Hashable[NonEmptyList[Int]] =
+      lowPriority.foldableHashable[NonEmptyList, Int]
+
+    val nelHashable: Hashable[NonEmptyList[Int]] = summon[Hashable[NonEmptyList[Int]]]
+    val foldableNel: Foldable[NonEmptyList] = summon[Foldable[NonEmptyList]]
 
     val a = NonEmptyList.of(1, 2, 3)
     val b = NonEmptyList.of(1, 2, 4)
@@ -167,6 +172,46 @@ class HashableTest extends munit.FunSuite {
     val ha = nelHashable.hash(a)(using Algo.blake3Algo)
     val hb = Hashable.hash[Algo.Blake3](b)
 
+    assertNotEquals(foldableNel.foldLeft(a, 0)(_ + _), foldableNel.foldLeft(b, 0)(_ + _))
     assertNotEquals(ha.hash, hb.hash)
+  }
+
+  test("companion apply and primitive/array instances are exercised") {
+    val algo = Algo.blake3Algo
+
+    assertEquals(Hashable[Int], summon[Hashable[Int]])
+
+    val boolT = Hashable.hash[Algo.Blake3](true).hash
+    val boolF = Hashable.hash[Algo.Blake3](false).hash
+    assertNotEquals(boolT, boolF)
+
+    val primitiveHashes = List(
+      Hashable.hash[Algo.Blake3](()).hash,
+      Hashable.hash[Algo.Blake3](123.toByte).hash,
+      Hashable.hash[Algo.Blake3](4567.toShort).hash,
+      Hashable.hash[Algo.Blake3]('z').hash,
+      Hashable.hash[Algo.Blake3](1234567890123L).hash,
+      Hashable.hash[Algo.Blake3](1.25f).hash,
+      Hashable.hash[Algo.Blake3](2.5d).hash
+    )
+    assert(primitiveHashes.forall(_.hex.length == 64))
+
+    val bytes = Array[Byte](1, 2, 3, 4)
+    val bytesHash = Hashable.hash[Algo.Blake3](bytes).hash
+    val directHash = algo.hashBytes(bytes)
+    assertEquals(bytesHash, directHash)
+
+    val hashedBytes = Hashable[Array[Byte]]
+    val emptyBase = algo.newHasher()
+    val emptyApplied = hashedBytes.addHash(Array.emptyByteArray, algo)(algo.newHasher())
+    val bytesApplied = hashedBytes.addHash(bytes, algo)(algo.newHasher())
+    assertEquals(algo.finishHash(emptyApplied), algo.finishHash(emptyBase))
+    assertNotEquals(algo.finishHash(bytesApplied), algo.finishHash(emptyBase))
+  }
+
+  test("option none branch is hashed distinctly") {
+    val someHash = Hashable.hash[Algo.Blake3](Option(1)).hash
+    val noneHash = Hashable.hash[Algo.Blake3](Option.empty[Int]).hash
+    assertNotEquals(someHash, noneHash)
   }
 }
