@@ -128,6 +128,53 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  private def atomString(edn: Edn): String = {
+    import Edn._
+
+    edn match {
+      case EString(s) => s
+      case ESymbol(s) => s
+      case other =>
+        fail(s"expected atom, found: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  private def packageTypeNames(pack: Package.Typed[Any]): List[String] = {
+    import Edn._
+
+    packageKeywordFields(pack).get("types") match {
+      case Some(EVector(items)) =>
+        items.map {
+          case EList(ESymbol("defined-type") :: _ :: nameEdn :: _) =>
+            atomString(nameEdn)
+          case other =>
+            fail(s"unexpected type entry: ${Edn.toDoc(other).render(120)}")
+        }
+      case Some(other) =>
+        fail(s"expected :types vector, found: ${Edn.toDoc(other).render(120)}")
+      case None =>
+        Nil
+    }
+  }
+
+  private def packageDefNames(pack: Package.Typed[Any]): List[String] = {
+    import Edn._
+
+    packageKeywordFields(pack).get("defs") match {
+      case Some(EVector(items)) =>
+        items.map {
+          case EList((ESymbol("def") | ESymbol("defrec")) :: nameEdn :: _ :: Nil) =>
+            atomString(nameEdn)
+          case other =>
+            fail(s"unexpected def entry: ${Edn.toDoc(other).render(120)}")
+        }
+      case Some(other) =>
+        fail(s"expected :defs vector, found: ${Edn.toDoc(other).render(120)}")
+      case None =>
+        Nil
+    }
+  }
+
   private def importItems(
       pack: Package.Typed[Any]
   ): List[(String, List[(String, String)])] = {
@@ -157,6 +204,38 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected :imports vector, found: ${Edn.toDoc(other).render(120)}")
       case None =>
         fail("missing :imports field")
+    }
+  }
+
+  private def showPackageFields(
+      packs: List[Package.Typed[Any]]
+  ): Map[String, Edn] = {
+    import Edn._
+
+    val rendered = ShowEdn.showDoc(packs, Nil).render(120)
+    val parsed = Edn.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse show output: $err")
+    }
+
+    val packageEdn = parsed match {
+      case EList(
+            ESymbol("show") :: EKeyword("interfaces") :: _ :: EKeyword(
+              "packages"
+            ) :: EVector(packages) :: Nil
+          ) =>
+        packages.headOption.getOrElse(fail("expected one package"))
+      case other =>
+        fail(s"unexpected show output: ${Edn.toDoc(other).render(120)}")
+    }
+
+    packageEdn match {
+      case EList(ESymbol("package") :: _ :: _ :: args) =>
+        args.grouped(2).collect { case EKeyword(k) :: value :: Nil =>
+          k -> value
+        }.toMap
+      case other =>
+        fail(s"expected package form, found: ${Edn.toDoc(other).render(120)}")
     }
   }
 
@@ -390,6 +469,224 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"unexpected output: $other")
       case Left(err) =>
         fail(err.getMessage)
+    }
+  }
+
+  test("lib show supports --type and --value selectors") {
+    val src =
+      """export Box(), helper, other, main
+|
+|struct Box(value: Int)
+|
+|helper = 42
+|other = 99
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--type",
+        "MyLib/Foo::Box",
+        "--value",
+        "MyLib/Foo::helper"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        assertEquals(packageTypeNames(pack), List("Box"))
+        assertEquals(packageDefNames(pack), List("helper"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib show --value validates that the selected value exists") {
+    val src =
+      """main = 42
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::missing"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = err.getMessage
+        assert(msg.contains("value not found: MyLib/Foo::missing"), msg)
+        assert(
+          msg.contains(
+            "fully inlined values may be absent from compiled code"
+          ),
+          msg
+        )
+        assert(msg.contains("compiled top-level values: [main]"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("lib show --value includes local value dependencies and only needed imports") {
+    val src =
+      """from Bosatsu/Predef import add, mul
+|
+|def main(x):
+|  add(x, 2)
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::main"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        assert(packageDefNames(pack).contains("main"), packageDefNames(pack).toString)
+        val imports = importItems(pack)
+        val predefItems =
+          imports.find(_._1 == "Bosatsu/Predef").map(_._2).getOrElse(Nil)
+        assert(predefItems.contains(("add", "add")), predefItems.toString)
+        assert(!predefItems.contains(("mul", "mul")), predefItems.toString)
+        val showFields = showPackageFields(List(pack))
+        assert(!showFields.contains("types"), showFields.toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib show --value includes local types required by constructor usage") {
+    val src =
+      """struct Box(value: Int)
+|
+|helper = Box(1)
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::main"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        assert(packageTypeNames(pack).contains("Box"), packageTypeNames(pack).toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show supports mixed package/type/value selectors") {
+    val fooSrc =
+      """package App/Foo
+|
+|struct Pair(left: Int, right: Int)
+|
+|keep = 1
+|main = keep
+|""".stripMargin
+    val barSrc =
+      """package App/Bar
+|
+|bar = 7
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Foo.bosatsu") -> fooSrc,
+      Chain("src", "App", "Bar.bosatsu") -> barSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Foo.bosatsu",
+        "--input",
+        "src/App/Bar.bosatsu",
+        "--type",
+        "App/Foo::Pair",
+        "--value",
+        "App/Foo::main",
+        "--value",
+        "App/Bar::bar"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        assertEquals(packs.map(_.name.asString), List("App/Foo", "App/Bar"))
+        val byName = packs.map(pack => pack.name.asString -> pack).toMap
+        val foo = byName.getOrElse("App/Foo", fail("missing App/Foo package"))
+        val bar = byName.getOrElse("App/Bar", fail("missing App/Bar package"))
+        assertEquals(packageTypeNames(foo), List("Pair"))
+        assertEquals(packageDefNames(foo), List("main"))
+        assertEquals(packageTypeNames(bar), Nil)
+        assertEquals(packageDefNames(bar), List("bar"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show --value missing includes inlining hint and candidates") {
+    val src =
+      """package App/Foo
+|
+|main = 1
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Foo.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Foo.bosatsu",
+        "--value",
+        "App/Foo::missing"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("value not found: App/Foo::missing"), msg)
+        assert(
+          msg.contains(
+            "fully inlined values may be absent from compiled code"
+          ),
+          msg
+        )
+        assert(msg.contains("compiled top-level values: [main]"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
     }
   }
 
