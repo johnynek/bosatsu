@@ -849,7 +849,7 @@ object Type {
         case None    => false
       }
 
-    foreach(ts.reverseIterator)(check.prepend(_))
+    foreach(ts.iterator)(check.append(_))
 
     while (check.nonEmpty) {
       check.removeHead() match {
@@ -1490,9 +1490,9 @@ object Type {
     val metas = scala.collection.mutable.HashSet.empty[Meta]
     val check = scala.collection.mutable.ArrayDeque.empty[Type]
 
-    val initIter = s.reverseIterator
+    val initIter = s.iterator
     while (initIter.hasNext) {
-      check.prepend(initIter.next())
+      check.append(initIter.next())
     }
 
     while (check.nonEmpty) {
