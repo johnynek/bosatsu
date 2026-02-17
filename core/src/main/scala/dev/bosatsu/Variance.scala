@@ -1,8 +1,9 @@
 package dev.bosatsu
 
 import cats.kernel.{BoundedSemilattice, Order}
+import dev.bosatsu.hashing.Hashable
 
-sealed abstract class Variance derives CanEqual {
+sealed abstract class Variance derives CanEqual, Hashable {
   import Variance._
 
   def unary_- : Variance =

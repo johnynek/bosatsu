@@ -1,8 +1,11 @@
 # Issue 1676: Default Values in Struct and Enum Constructors
 
-Status: proposed  
+Status: implemented  
 Date: 2026-02-16  
+Implemented: 2026-02-17 (PR #1699)  
 Issue: <https://github.com/johnynek/bosatsu/issues/1676>
+
+Implementation status: all items in this design were implemented and merged in PR #1699.
 
 ## Goal
 Add default values for constructor fields so record-style construction can omit fields that have defaults, while preserving current language behavior.

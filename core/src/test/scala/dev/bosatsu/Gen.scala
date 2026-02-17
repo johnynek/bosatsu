@@ -864,10 +864,8 @@ object Generators {
   def genRecordDeclaration(
       dgen: Gen[NonBinding]
   ): Gen[Declaration.RecordConstructor] = {
-    val args = for {
-      tailSize <- Gen.choose(0, 4)
-      args <- nonEmptyN(genRecordArg(dgen), tailSize)
-    } yield args
+    val args =
+      Gen.choose(0, 4).flatMap(Gen.listOfN(_, genRecordArg(dgen)))
 
     Gen.zip(consIdentGen, args).map { case (c, a) =>
       Declaration.RecordConstructor(c, a)(using emptyRegion)
@@ -1017,30 +1015,21 @@ object Generators {
         case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
           (a.key :: a.value :: c :: d.toList).to(LazyList)
         case RecordConstructor(n, args) =>
-          def head: LazyList[Declaration] =
-            args.head match {
-              case RecordArg.Pair(n, d) =>
-                LazyList(Var(n)(using emptyRegion), d)
-              case RecordArg.Simple(n) =>
-                LazyList(Var(n)(using emptyRegion))
+          def fromArg(arg: RecordArg): LazyList[Declaration] =
+            arg match {
+              case RecordArg.Pair(name, d) =>
+                LazyList(Var(name)(using emptyRegion), d)
+              case RecordArg.Simple(name)  =>
+                LazyList(Var(name)(using emptyRegion))
             }
 
-          def tailStream(
-              of: NonEmptyList[RecordArg]
-          ): LazyList[NonEmptyList[RecordArg]] =
-            NonEmptyList.fromList(of.tail) match {
-              case None           => LazyList.empty
-              case Some(tailArgs) =>
-                tailArgs #:: tailStream(tailArgs) #::: tailStream(
-                  NonEmptyList(of.head, tailArgs.tail)
-                )
-            }
+          val dropOne = dropItemList(args).map(
+            RecordConstructor(n, _)(using emptyRegion): Declaration
+          )
 
           Var(n)(using emptyRegion) #::
-            head #:::
-            tailStream(args).map(
-              RecordConstructor(n, _)(using emptyRegion): Declaration
-            ) // type annotation for scala 2.11
+            args.to(LazyList).flatMap(fromArg) #:::
+            dropOne
       }
     }
 
@@ -1173,11 +1162,21 @@ object Generators {
     }
 
   val constructorGen: Gen[
-    (Identifier.Constructor, List[(Identifier.Bindable, Option[TypeRef])])
+    (Identifier.Constructor, List[Statement.ConstructorArg])
   ] =
     for {
       name <- consIdentGen
-      args <- smallList(argGen)
+      args <- smallList(
+        for {
+          arg <- bindIdentGen
+          t <- Gen.option(typeRefGen)
+        } yield Statement.ConstructorArg(
+          name = arg,
+          tpe = t,
+          default = None,
+          region = emptyRegion
+        )
+      )
     } yield (name, args)
 
   val genTypeArgs: Gen[List[(TypeRef.TypeVar, Option[Kind.Arg])]] =
@@ -1360,7 +1359,10 @@ object Generators {
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-        } yield rankn.ConstructorFn[A](cons, ps)
+        } yield rankn.ConstructorFn[A](
+          cons,
+          ps.map { case (name, tpe) => rankn.ConstructorParam(name, tpe, None) }
+        )
       cons0 <- smallList(genCons)
       cons = cons0.map(cf => (cf.name, cf)).toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)

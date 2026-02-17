@@ -7,7 +7,7 @@ import scala.deriving.Mirror
 import scala.quoted.{Expr, Quotes, Type}
 
 trait Hashable[A] {
-  def hash[B](a: A)(using algo: Algo[B]): Hashed[B, A] = {
+  final def hash[B](a: A)(using algo: Algo[B]): Hashed[B, A] = {
     val hasher = algo.newHasher()
     Hashed(algo.finishHash(addHash(a, algo)(hasher)), a)
   }
@@ -16,6 +16,20 @@ trait Hashable[A] {
 
   final def hashValue[B](a: A)(using algo: Algo[B]): HashValue[B] =
     hash(a).hash
+
+  final def by[B](fn: B => A): Hashable[B] = {
+    val self = this
+    new Hashable[B] {
+      def addHash[C](b: B, algo: Algo[C])(
+          hasher: algo.Hasher
+      ): algo.Hasher =
+        self.addHash(fn(b), algo)(hasher)
+    }
+  }
+
+  final def narrow[B <: A]: Hashable[B] =
+    // we could just use `fn = identity` but that just adds indirection, this cast is safe
+    this.asInstanceOf[Hashable[B]]
 }
 
 private[hashing] trait LowPriorityHashableInstances {
@@ -33,6 +47,9 @@ private[hashing] trait LowPriorityHashableInstances {
 object Hashable extends LowPriorityHashableInstances {
   def apply[A](using hashable: Hashable[A]): Hashable[A] =
     hashable
+
+  def by[A: Hashable, B](fn: B => A): Hashable[B] =
+    summon[Hashable[A]].by(fn)
 
   final class HashPartiallyApplied[B](private val u: Unit) extends AnyVal {
     def apply[A: Hashable](a: A)(using algo: Algo[B]): Hashed[B, A] =
@@ -331,11 +348,6 @@ object Hashable extends LowPriorityHashableInstances {
   }
 
   given Hashable[Array[Byte]] with {
-    override def hash[B](a: Array[Byte])(using
-        algo: Algo[B]
-    ): Hashed[B, Array[Byte]] =
-      Hashed[B, Array[Byte]](algo.hashBytes(a), a)
-
     def addHash[B](a: Array[Byte], algo: Algo[B])(
         hasher: algo.Hasher
     ): algo.Hasher =

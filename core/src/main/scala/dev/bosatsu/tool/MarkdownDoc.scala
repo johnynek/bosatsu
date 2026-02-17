@@ -18,7 +18,7 @@ import dev.bosatsu.{
   TypeDefinitionStatement,
   TypeName
 }
-import dev.bosatsu.rankn.{DefinedType, Type}
+import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type}
 import org.typelevel.paiges.Doc
 import java.util.Locale
 
@@ -256,7 +256,7 @@ object MarkdownDoc {
 
   final private case class ConstructorDoc(
       name: Identifier.Constructor,
-      fields: List[(Identifier.Bindable, Type)],
+      fields: List[ConstructorParam],
       exists: List[Type.Var.Bound],
       tpe: Type
   )
@@ -474,9 +474,9 @@ object MarkdownDoc {
         case nonEmpty =>
           val fields =
             nonEmpty
-              .map { case (fieldName, fieldTpe) =>
+              .map { field =>
                 Doc.text(
-                  show"${fieldName.sourceCodeRepr}: ${renderType(fieldTpe, ctx)}"
+                  show"${field.name.sourceCodeRepr}: ${renderType(field.tpe, ctx)}"
                 )
               }
           ctorName + groupedParamList(fields)

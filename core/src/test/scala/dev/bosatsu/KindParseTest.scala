@@ -1,11 +1,16 @@
 package dev.bosatsu
 
+import cats.kernel.Eq
+import cats.syntax.eq._
+import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
 import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
 
 class KindParseTest extends ParserTestBase {
+  given Eq[Kind] = Eq.fromUniversalEquals
+
   override protected def minSuccessfulTests: Int =
     if (Platform.isScalaJvm) 500 else 10
 
@@ -13,6 +18,19 @@ class KindParseTest extends ParserTestBase {
 
   test("we can parse everything we generate") {
     forAll(genKind)(law(Kind.parser))
+  }
+
+  test("equal Blake3 hashes imply kind equality") {
+    forAll(genKind, genKind) { (a, b) =>
+      val ah = Hashable.hash(Algo.blake3Algo, a).hash
+      val bh = Hashable.hash(Algo.blake3Algo, b).hash
+      if (ah.hex == bh.hex) {
+        assert(
+          a === b,
+          s"expected equal kinds for equal hashes: ${show(a)} and ${show(b)}"
+        )
+      }
+    }
   }
 
   test("test some examples") {

@@ -14,6 +14,7 @@ import dev.bosatsu.{
   TypeParser,
   Require
 }
+import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.{SortedSet, SortedMap}
 
@@ -304,10 +305,21 @@ object Type {
       case a :: as => applyAllRho(TyApply(rho, a), as)
     }
 
-  def apply1(fn: Type, arg: Type): Type =
+  def apply1Rho(fn: Rho, arg: Type): Rho =
     fn match {
       case rho: (Leaf | TyApply) => TyApply(rho, arg)
-      case q                     => applyAll(q, arg :: Nil)
+      case ex: Exists            =>
+        applyAll(ex, arg :: Nil) match {
+          case rho: Rho   => rho
+          case _: ForAll =>
+            sys.error(s"internal error: applyAll on Rho produced ForAll: $fn")
+        }
+    }
+
+  def apply1(fn: Type, arg: Type): Type =
+    fn match {
+      case rho: Rho => apply1Rho(rho, arg)
+      case q        => applyAll(q, arg :: Nil)
     }
 
   def applyAll(fn: Type, args: List[Type]): Type =
@@ -1336,6 +1348,82 @@ object Type {
             else 1
           }
       }
+  }
+
+  given Hashable[Type] with {
+    private def loopVar[B](
+        v: Type.Var,
+        bound: List[Type.Var.Bound],
+        algo: Algo[B]
+    )(hasher: algo.Hasher): algo.Hasher =
+      v match {
+        case b: Type.Var.Bound =>
+          val idx = bound.indexOf(b)
+          if (idx >= 0) {
+            val withTag = Hashable[Int].addHash(0, algo)(hasher)
+            Hashable[Int].addHash(idx, algo)(withTag)
+          } else {
+            val withTag = Hashable[Int].addHash(1, algo)(hasher)
+            Hashable[Type.Var.Bound].addHash(b, algo)(withTag)
+          }
+        case s: Type.Var.Skolem =>
+          val withTag = Hashable[Int].addHash(2, algo)(hasher)
+          Hashable[Type.Var.Skolem].addHash(s, algo)(withTag)
+      }
+
+    private def loopType[B](
+        t: Type,
+        bound: List[Type.Var.Bound],
+        algo: Algo[B]
+    )(hasher: algo.Hasher): algo.Hasher =
+      t match {
+        case Type.TyConst(Type.Const.Predef(cons)) =>
+          val withTag = Hashable[Int].addHash(3, algo)(hasher)
+          val withCons =
+            Hashable[Identifier.Constructor].addHash(cons, algo)(withTag)
+          withCons
+        case Type.TyConst(Type.Const.Defined(pack, name)) =>
+          val withTag = Hashable[Int].addHash(4, algo)(hasher)
+          val withPack = Hashable[PackageName].addHash(pack, algo)(withTag)
+          Hashable[TypeName].addHash(name, algo)(withPack)
+        case Type.TyVar(v) =>
+          loopVar(v, bound, algo)(hasher)
+        case Type.TyMeta(meta) =>
+          val withTag = Hashable[Int].addHash(5, algo)(hasher)
+          val withId = Hashable[Long].addHash(meta.id, algo)(withTag)
+          val withExistential =
+            Hashable[Boolean].addHash(meta.existential, algo)(withId)
+          val withKind =
+            Hashable[Kind].addHash(meta.kind, algo)(withExistential)
+          withKind
+        case Type.TyApply(on, arg) =>
+          val withTag = Hashable[Int].addHash(6, algo)(hasher)
+          val withOn = loopType(on, bound, algo)(withTag)
+          loopType(arg, bound, algo)(withOn)
+        case Type.ForAll(vars, in) =>
+          val varsList = vars.toList
+          val withTag = Hashable[Int].addHash(7, algo)(hasher)
+          val withSize = Hashable[Int].addHash(varsList.size, algo)(withTag)
+          val withKinds = varsList.foldLeft(withSize) { case (h, (_, kind)) =>
+            Hashable[Kind].addHash(kind, algo)(h)
+          }
+          val bound1 = varsList.reverse.map(_._1) ::: bound
+          loopType(in, bound1, algo)(withKinds)
+        case Type.Exists(vars, in) =>
+          val varsList = vars.toList
+          val withTag = Hashable[Int].addHash(8, algo)(hasher)
+          val withSize = Hashable[Int].addHash(varsList.size, algo)(withTag)
+          val withKinds = varsList.foldLeft(withSize) { case (h, (_, kind)) =>
+            Hashable[Kind].addHash(kind, algo)(h)
+          }
+          val bound1 = varsList.reverse.map(_._1) ::: bound
+          loopType(in, bound1, algo)(withKinds)
+      }
+
+    def addHash[B](tpe: Type, algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher =
+      loopType(tpe.normalize, Nil, algo)(hasher)
   }
 
   /** Final the set of all of Metas inside the list of given types

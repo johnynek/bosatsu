@@ -69,6 +69,37 @@ object TypeRef {
       case (s, Some(tr)) => Document[A].document(s) + colonSpace + (tr.toDoc)
     }
 
+  def freeTypeRefVars(tpe: TypeRef): List[TypeVar] = {
+    def loop(in: TypeRef, bound: Set[String]): List[TypeVar] =
+      in match {
+        case tv @ TypeVar(name) =>
+          if (bound(name)) Nil else tv :: Nil
+        case TypeName(_) =>
+          Nil
+        case TypeArrow(from, to) =>
+          from.toList.flatMap(loop(_, bound)) ::: loop(to, bound)
+        case TypeApply(of, args) =>
+          loop(of, bound) ::: args.toList.flatMap(loop(_, bound))
+        case TypeForAll(params, inner) =>
+          val bound1 = bound ++ params.toList.map(_._1.asString)
+          loop(inner, bound1)
+        case TypeExists(params, inner) =>
+          val bound1 = bound ++ params.toList.map(_._1.asString)
+          loop(inner, bound1)
+        case TypeTuple(items) =>
+          items.flatMap(loop(_, bound))
+      }
+
+    val (_, reversed) = loop(tpe, Set.empty)
+      .foldLeft((Set.empty[String], List.empty[TypeVar])) {
+        case ((seen, acc), tv) =>
+          if (seen(tv.asString)) (seen, acc)
+          else (seen + tv.asString, tv :: acc)
+      }
+
+    reversed.reverse
+  }
+
   case class TypeVar(asString: String) extends TypeRef {
     def toBoundVar: Type.Var.Bound = Type.Var.Bound(asString)
   }

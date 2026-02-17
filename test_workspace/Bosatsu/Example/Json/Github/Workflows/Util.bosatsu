@@ -34,12 +34,6 @@ export (
   runner_macos_latest,
   runner_ubuntu_latest,
   Step(),
-  step_item,
-  step_item_uses_with,
-  step_item_env,
-  named_step_item_env,
-  named_step_item_env_run,
-  named_step_item_with_id,
   JavaWith(),
   FetchJavaWith(),
   JavaStrategyMatrix(),
@@ -62,97 +56,45 @@ struct OnPushBranches(branches: List[String])
 struct OnPush(push: OnPushBranches)
 
 struct StepEnv(
-  `TAG_NAME`: Option[String],
-  `BOSATSU_C_RUNTIME_HASH`: Option[String],
-  `BOSATSU_STATIC_NATIVE_IMAGE`: Option[String],
-  `BOSATSU_NATIVE_IMAGE_LIBC`: Option[String],
-  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Option[String],
-  `CC`: Option[String],
-  `PGP_PASSPHRASE`: Option[String],
-  `PGP_SECRET`: Option[String],
-  `SONATYPE_PASSWORD`: Option[String],
-  `SONATYPE_USERNAME`: Option[String],
-  `REPO_ROOT`: Option[String],
-  `OUTDIR`: Option[String],
-  `GIT_SHA`: Option[String],
-  `URI_BASE`: Option[String],
-  `C_RUNTIME_ARCHIVE`: Option[String],
-  `GITHUB_TOKEN`: Option[String],
-  `GITHUB_REF_NAME`: Option[String],
-  `GH_TOKEN`: Option[String],
+  `TAG_NAME`: Option[String] = None,
+  `BOSATSU_C_RUNTIME_HASH`: Option[String] = None,
+  `BOSATSU_STATIC_NATIVE_IMAGE`: Option[String] = None,
+  `BOSATSU_NATIVE_IMAGE_LIBC`: Option[String] = None,
+  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Option[String] = None,
+  `CC`: Option[String] = None,
+  `PGP_PASSPHRASE`: Option[String] = None,
+  `PGP_SECRET`: Option[String] = None,
+  `SONATYPE_PASSWORD`: Option[String] = None,
+  `SONATYPE_USERNAME`: Option[String] = None,
+  `REPO_ROOT`: Option[String] = None,
+  `OUTDIR`: Option[String] = None,
+  `GIT_SHA`: Option[String] = None,
+  `URI_BASE`: Option[String] = None,
+  `C_RUNTIME_ARCHIVE`: Option[String] = None,
+  `GITHUB_TOKEN`: Option[String] = None,
+  `GITHUB_REF_NAME`: Option[String] = None,
+  `GH_TOKEN`: Option[String] = None,
 )
 
 struct Step[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[StepEnv],
-  id: Option[String],
+  uses: Option[String] = None,
+  name: Option[String] = None,
+  with: Option[with_t] = None,
+  run: Option[String] = None,
+  env: Option[StepEnv] = None,
+  id: Option[String] = None,
 )
-
-def step_item[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-) -> Step[with_t]:
-  Step(uses, name, with, run, None, None)
-
-def step_item_uses_with[with_t](
-  uses: Option[String],
-  with: Option[with_t],
-  name: Option[String],
-  run: Option[String],
-) -> Step[with_t]:
-  Step(uses, name, with, run, None, None)
-
-def step_item_env[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[StepEnv],
-) -> Step[with_t]:
-  Step(uses, name, with, run, env, None)
-
-def named_step_item_env[with_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[StepEnv],
-) -> Step[with_t]:
-  Step(uses, name, with, run, env, None)
-
-def named_step_item_env_run[with_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  env: Option[StepEnv],
-  run: Option[String],
-) -> Step[with_t]:
-  Step(uses, name, with, run, env, None)
-
-def named_step_item_with_id[with_t](
-  name: String,
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  id: Option[String],
-) -> Step[with_t]:
-  Step(uses, Some(name), with, run, None, id)
 
 struct JavaWith(distribution: String, `java-version`: String)
 
 struct FetchJavaWith(
-  `fetch-depth`: Option[Int],
-  distribution: Option[String],
-  `java-version`: Option[String],
-  token: Option[String],
-  override_branch: Option[String],
-  name: Option[String],
-  path: Option[String],
+  `fetch-depth`: Option[Int] = None,
+  distribution: Option[String] = None,
+  `java-version`: Option[String] = None,
+  token: Option[String] = None,
+  override_branch: Option[String] = None,
+  name: Option[String] = None,
+  path: Option[String] = None,
 )
 
 struct JavaStrategyMatrix(java: List[String])

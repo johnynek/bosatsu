@@ -890,7 +890,7 @@ object KindFormula {
           cfn: ConstructorFn[?],
           kinds: Map[rankn.Type.Var.Bound, BoundState]
       ): RefSpace[Unit] =
-        cfn.args.zipWithIndex.traverse_ { case ((_, tpe), idx) =>
+        cfn.args.zipWithIndex.traverse_ { case (param, idx) =>
           for {
             v <- nextVar(Direction.PhantomUp)
             _ <- addCons(v, Constraint.Accessor(cfn, idx))
@@ -900,7 +900,7 @@ object KindFormula {
               cfn,
               idx,
               v,
-              tpe,
+              param.tpe,
               Type,
               kinds
             )

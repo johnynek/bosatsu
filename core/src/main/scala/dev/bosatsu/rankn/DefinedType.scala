@@ -37,8 +37,8 @@ final case class DefinedType[+A](
     Type.allConsts(
       for {
         cfn <- constructors
-        (_, t) <- cfn.args
-      } yield t
+        arg <- cfn.args
+      } yield arg.tpe
     )
 
   /** A type with exactly one constructor is a struct
@@ -108,7 +108,7 @@ final case class DefinedType[+A](
     val res = typeParams.foldLeft(tc) { (res, v) =>
       Type.TyApply(res, Type.TyVar(v))
     }
-    val resT = NonEmptyList.fromList(cf.args.map(_._2)) match {
+    val resT = NonEmptyList.fromList(cf.args.map(_.tpe)) match {
       case Some(nel) => Type.Fun(nel, res)
       case None      => res
     }

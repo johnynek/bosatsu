@@ -246,6 +246,38 @@ object ApiDiff {
       Type.fullyResolvedDocument.document(tpe)
   }
 
+  case class ConstructorParamDefaultAdded(
+      pack: PackageName,
+      cons: Identifier.Constructor,
+      tycons: Type.TyConst,
+      paramIndex: Int,
+      name: Identifier.Bindable
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMinor | dk.isMajor
+    def toDoc = Doc.text(
+      show"constructor named $cons of "
+    ) + Type.fullyResolvedDocument.document(tycons) +
+      Doc.text(
+        show" at parameter index $paramIndex added default value to parameter $name"
+      )
+  }
+
+  case class ConstructorParamDefaultRemoved(
+      pack: PackageName,
+      cons: Identifier.Constructor,
+      tycons: Type.TyConst,
+      paramIndex: Int,
+      name: Identifier.Bindable
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMajor
+    def toDoc = Doc.text(
+      show"constructor named $cons of "
+    ) + Type.fullyResolvedDocument.document(tycons) +
+      Doc.text(
+        show" at parameter index $paramIndex removed default value from parameter $name"
+      )
+  }
+
   case class Diffs(toMap: SortedMap[PackageName, NonEmptyList[Diff]]) {
     def isValidWhen(dk: Version.DiffKind): Boolean =
       toMap.forall(_._2.forall(_.isValidWhen(dk)))
@@ -403,11 +435,8 @@ object ApiDiff {
                     .zipWithIndex
                     .toList
                     .traverse {
-                      case (
-                            Ior.Both((oldName, oldType), (newName, newType)),
-                            idx
-                          ) =>
-                        diffType(oldType, newType).map { tpeDiffs =>
+                      case (Ior.Both(oldParam, newParam), idx) =>
+                        diffType(oldParam.tpe, newParam.tpe).map { tpeDiffs =>
                           val tpeDiff = tpeDiffs.map(
                             ConstructorParamChange(
                               cons,
@@ -417,34 +446,59 @@ object ApiDiff {
                             )
                           )
 
-                          if (oldName == newName) tpeDiff
-                          else
-                            (ConstructorParamNameChange(
-                              pn,
-                              cons,
-                              oldDt.toTypeTyConst,
-                              idx,
-                              oldName,
-                              newName
-                            ) :: tpeDiff)
+                          val nameDiff =
+                            if (oldParam.name == newParam.name) Nil
+                            else
+                              ConstructorParamNameChange(
+                                pn,
+                                cons,
+                                oldDt.toTypeTyConst,
+                                idx,
+                                oldParam.name,
+                                newParam.name
+                              ) :: Nil
+
+                          val defaultDiff =
+                            (oldParam.defaultBinding, newParam.defaultBinding) match {
+                              case (None, Some(_)) =>
+                                ConstructorParamDefaultAdded(
+                                  pn,
+                                  cons,
+                                  oldDt.toTypeTyConst,
+                                  idx,
+                                  newParam.name
+                                ) :: Nil
+                              case (Some(_), None) =>
+                                ConstructorParamDefaultRemoved(
+                                  pn,
+                                  cons,
+                                  oldDt.toTypeTyConst,
+                                  idx,
+                                  oldParam.name
+                                ) :: Nil
+                              case _ =>
+                                Nil
+                            }
+
+                          nameDiff ::: defaultDiff ::: tpeDiff
                         }
-                      case (Ior.Right((newName, newType)), idx) =>
+                      case (Ior.Right(newParam), idx) =>
                         (ConstructorParamAdded(
                           pn,
                           cons,
                           newDt.toTypeTyConst,
                           idx,
-                          newName,
-                          newType
+                          newParam.name,
+                          newParam.tpe
                         ) :: Nil).validNec
-                      case (Ior.Left((oldName, oldType)), idx) =>
+                      case (Ior.Left(oldParam), idx) =>
                         (ConstructorParamRemoved(
                           pn,
                           cons,
                           newDt.toTypeTyConst,
                           idx,
-                          oldName,
-                          oldType
+                          oldParam.name,
+                          oldParam.tpe
                         ) :: Nil).validNec
                     }
                     .map(_.flatten)

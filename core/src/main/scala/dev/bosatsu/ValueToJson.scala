@@ -127,9 +127,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
                   dt.constructors.foreach { cf =>
-                    cf.args.foreach { case (_, ctorArgTpe) =>
+                    cf.args.foreach { param =>
                       val substituted =
-                        Type.substituteVar(ctorArgTpe, replaceMap)
+                        Type.substituteVar(param.tpe, replaceMap)
                       loop(substituted, p1, w1)
                     }
                   }
@@ -352,10 +352,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   val resInner: Eval[Map[Int, List[(String, Fn)]]] =
                     cons.zipWithIndex
                       .traverse { case (cf, idx) =>
-                        val rec = cf.args.traverse { case (field, t) =>
-                          val subsT = Type.substituteVar(t, replaceMap)
+                        val rec = cf.args.traverse { param =>
+                          val subsT = Type.substituteVar(param.tpe, replaceMap)
                           val next = loop(subsT, fullPath)
-                          next.map(fn => (field.asString, fn))
+                          next.map(fn => (param.name.asString, fn))
                         }
                         rec.map(fields => (idx, fields))
                       }
@@ -623,10 +623,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   cons.zipWithIndex
                     .traverse { case (cf, idx) =>
                       cf.args
-                        .traverse { case (pn, t) =>
-                          val subsT = Type.substituteVar(t, replaceMap)
+                        .traverse { param =>
+                          val subsT = Type.substituteVar(param.tpe, replaceMap)
                           loop(subsT, fullPath)
-                            .map((pn.asString, _))
+                            .map((param.name.asString, _))
                         }
                         .map(pair => (idx, pair))
                     }

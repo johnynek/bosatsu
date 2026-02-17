@@ -87,9 +87,21 @@ object Referant {
       item.items.toList.iterator.flatMap { i =>
         val orig = i.originalName
         val key = (pn, orig)
-        i.tag.toList.iterator.collect {
-          case Referant.Value(t)            => (key, t)
-          case Referant.Constructor(dt, fn) => (key, dt.fnTypeOf(fn))
+        i.tag.toList.iterator.flatMap {
+          case Referant.Value(t) =>
+            Iterator.single((key, t))
+          case Referant.Constructor(dt, fn) =>
+            Iterator.single((key, dt.fnTypeOf(fn))) ++
+              (for {
+                param <- fn.args.iterator
+                defaultName <- param.defaultBinding
+              } yield
+                (
+                  (pn, defaultName: Identifier),
+                  param.defaultType.getOrElse(param.tpe)
+                ))
+          case Referant.DefinedT(_) =>
+            Iterator.empty
         }
       }
     }.toMap
@@ -110,7 +122,12 @@ object Referant {
     refs.collect { case Constructor(dt, fn) =>
       (
         (dt.packageName, fn.name),
-        (dt.annotatedTypeParams, fn.exists, fn.args.map(_._2), dt.toTypeConst)
+        (
+          dt.annotatedTypeParams,
+          fn.exists,
+          fn.args.map(_.tpe),
+          dt.toTypeConst
+        )
       )
     }.toMap
   }
@@ -128,7 +145,19 @@ object Referant {
           case (te1, Referant.Value(t)) =>
             te1.addExternalValue(pack, nm, t)
           case (te1, Referant.Constructor(dt, cf)) =>
-            te1.addConstructor(pack, dt, cf)
+            val te2 = te1.addConstructor(pack, dt, cf)
+              cf.args.foldLeft(te2) { (te3, param) =>
+                param.defaultBinding match {
+                  case Some(defaultName) =>
+                    te3.addExternalValue(
+                      pack,
+                      defaultName,
+                      param.defaultType.getOrElse(param.tpe)
+                    )
+                  case None =>
+                    te3
+                }
+              }
           case (te1, Referant.DefinedT(dt)) =>
             te1.addDefinedType(dt)
         }

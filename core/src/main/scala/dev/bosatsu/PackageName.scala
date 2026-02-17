@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser => P}
 import com.monovore.decline.Argument
+import dev.bosatsu.hashing.Hashable
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
@@ -61,4 +62,7 @@ object PackageName {
 
   implicit val showPackageName: Show[PackageName] =
     Show.show(_.asString)
+
+  given Hashable[PackageName] =
+    Hashable.by(_.asString)
 }

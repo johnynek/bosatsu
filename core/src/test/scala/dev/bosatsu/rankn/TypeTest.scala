@@ -3,6 +3,7 @@ package dev.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Kind, TypedExpr}
+import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -50,6 +51,15 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(genTau, genTau) { (fn, arg) =>
       val app = Type.apply1(fn, arg)
       assert(Type.Tau.isTau(app), s"apply1($fn, $arg) == $app is not Tau")
+    }
+  }
+
+  test("Type.apply1Rho agrees with Type.apply1 on rho inputs") {
+    val genRho =
+      Gen.choose(0, 3).flatMap(d => NTypeGen.genTypeRho(d, Some(NTypeGen.genConst)))
+
+    forAll(genRho, NTypeGen.genDepth03) { (fn, arg) =>
+      assertEquals(Type.apply1Rho(fn, arg), Type.apply1(fn, arg))
     }
   }
 
@@ -214,6 +224,43 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(g, g) { (a, b) =>
       assertEquals(a.sameAs(b), (Type.normalize(a) == Type.normalize(b)))
     }
+  }
+
+  test("sameAs if and only if Blake3 hashes are equal") {
+    val g = NTypeGen.genDepth03
+    forAll(g, g) { (a, b) =>
+      val ah = Hashable.hash(Algo.blake3Algo, a).hash
+      val bh = Hashable.hash(Algo.blake3Algo, b).hash
+      assertEquals(
+        a.sameAs(b),
+        ah.hex == bh.hex,
+        s"sameAs/hash mismatch for ${Type.typeParser.render(a)} and ${Type.typeParser.render(b)} with hashes ${ah.hex} / ${bh.hex}"
+      )
+    }
+  }
+
+  test("Blake3 hash for exists type is stable (simple golden)") {
+    val t = parse("exists a. a -> a")
+    val tRenamed = parse("exists x. x -> x")
+    val expected =
+      "de88397010f29295c2c7a3adb9200b709a08aea28f853dab0359c6132925bec0"
+    val hashT = Hashable.hash(Algo.blake3Algo, t).hash.hex
+    val hashTRenamed = Hashable.hash(Algo.blake3Algo, tRenamed).hash.hex
+
+    assertEquals(hashT, expected)
+    assertEquals(hashTRenamed, expected)
+  }
+
+  test("Blake3 hash for exists type is stable (nested quantifier golden)") {
+    val t = parse("forall z. exists a, b. (a -> z) -> (b -> z)")
+    val tRenamed = parse("forall q. exists y, x. (y -> q) -> (x -> q)")
+    val expected =
+      "40c1750a4f97e5d050f510e7d6aef4a1187c43ae331c62fad9e938f831e52d22"
+    val hashT = Hashable.hash(Algo.blake3Algo, t).hash.hex
+    val hashTRenamed = Hashable.hash(Algo.blake3Algo, tRenamed).hash.hex
+
+    assertEquals(hashT, expected)
+    assertEquals(hashTRenamed, expected)
   }
 
   test("same as doesn't care about quant var order") {
@@ -731,6 +778,80 @@ class TypeTest extends munit.ScalaCheckSuite {
         TypedExpr.Quantification.fromLists(q.forallList, q.existList),
         Some(q)
       )
+    }
+  }
+
+  test("genQuantifiers is non-empty and distinct") {
+    forAll(NTypeGen.genQuantifiers(NTypeGen.genBound)) { qs =>
+      val vars = qs.toList.map(_._1)
+      assert(vars.nonEmpty)
+      assertEquals(vars.distinct, vars)
+    }
+  }
+
+  test("genForAll and genExists always use generated binders") {
+    val genForAll =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+    val genExists =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+
+    forAll(genForAll) { fa =>
+      val free = Type.freeBoundTyVars(fa.in :: Nil).toSet
+      assert(
+        fa.vars.toList.forall { case (b, _) => free(b) },
+        s"forall binders should all be free in body: $fa"
+      )
+    }
+
+    forAll(genExists) { ex =>
+      val free = Type.freeBoundTyVars(ex.in :: Nil).toSet
+      assert(
+        ex.vars.toList.forall { case (b, _) => free(b) },
+        s"exists binders should all be free in body: $ex"
+      )
+    }
+  }
+
+  test("Type.forAll and Type.exists bind vars selected from free vars") {
+    val genTypeWithFreeVars = NTypeGen.genDepth03.map { t =>
+      NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
+        case Some(free) => (t, free)
+        case None       =>
+          val b = Type.Var.Bound("_forced_free")
+          (Type.apply1(t, Type.TyVar(b)), NonEmptyList.one(b))
+      }
+    }
+
+    val gen = for {
+      (t, free) <- genTypeWithFreeVars
+      qs <- NTypeGen.genQuantifiers(Gen.oneOf(free.toList))
+    } yield (t, qs)
+
+    forAll(gen) { case (t, qs) =>
+      val qset = qs.toList.iterator.map(_._1).toSet
+      val free0 = Type.freeBoundTyVars(t :: Nil).toSet
+      val expected = free0 -- qset
+
+      val f1 = Type.freeBoundTyVars(Type.forAll(qs.toList, t) :: Nil).toSet
+      val e1 = Type.freeBoundTyVars(Type.exists(qs.toList, t) :: Nil).toSet
+
+      assertEquals(f1, expected)
+      assertEquals(e1, expected)
+    }
+  }
+
+  test("Type.forAll and Type.exists can be no-ops with independent quantifiers") {
+    val unused = Type.Var.Bound("_unused_quantifier")
+    val genUnused = NTypeGen.genQuantifiers(Gen.const(unused))
+
+    forAll(NTypeGen.genDepth03, genUnused) { (t, qs) =>
+      val free0 = Type.freeBoundTyVars(t :: Nil).toSet
+
+      val f1 = Type.freeBoundTyVars(Type.forAll(qs.toList, t) :: Nil).toSet
+      val e1 = Type.freeBoundTyVars(Type.exists(qs.toList, t) :: Nil).toSet
+
+      assertEquals(f1, free0)
+      assertEquals(e1, free0)
     }
   }
 
