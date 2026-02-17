@@ -9,7 +9,14 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathGen
 }
-import dev.bosatsu.{Package, PackageMap, PackageName, Par, PlatformIO}
+import dev.bosatsu.{
+  CompileOptions,
+  Package,
+  PackageMap,
+  PackageName,
+  Par,
+  PlatformIO
+}
 import dev.bosatsu.tool.CompilerApi
 
 object RuntimeCommandSupport {
@@ -62,7 +69,8 @@ object RuntimeCommandSupport {
                   srcNel,
                   baseIfaces,
                   errColor,
-                  packageResolver
+                  packageResolver,
+                  CompileOptions.Default
                 )
                 .map { case (pm, names) =>
                   (PackageMap.toAnyTyped(pm), names.toList)

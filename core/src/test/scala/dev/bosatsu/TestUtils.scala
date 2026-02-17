@@ -172,7 +172,8 @@ object TestUtils {
           (("", LocationMap(str)), pack)
         }
 
-    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
+    val res =
+      PackageMap.typeCheckParsed(packNEL, Nil, "", CompileOptions.Default)
     res.left match {
       case Some(err) => sys.error(err.toString)
       case None      => ()
@@ -310,7 +311,7 @@ object TestUtils {
         .map { case ((path, _), p) => (path, p) }
 
     PackageMap
-      .resolveThenInfer(fullParsed, Nil)
+      .resolveThenInfer(fullParsed, Nil, CompileOptions.Default)
       .strictToValidated match {
       case Validated.Valid(packMap) =>
         inferredHandler(packMap, mainPack)
@@ -346,7 +347,9 @@ object TestUtils {
       PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
 
     val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
-    PackageMap.resolveThenInfer(withPrePaths, Nil).left match {
+    PackageMap
+      .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+      .left match {
       case None =>
         fail("expected to fail type checking")
 

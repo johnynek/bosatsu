@@ -8,13 +8,19 @@ import IorMethods.IorExtension
 class PackageTest extends munit.FunSuite with ParTest {
 
   def resolveThenInfer(
-      ps: Iterable[Package.Parsed]
+      ps: Iterable[Package.Parsed],
+      compileOptions: CompileOptions
   ): ValidatedNel[PackageError, PackageMap.Inferred] = {
     implicit val showInt: Show[Int] = Show.fromToString
     PackageMap
-      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil)
+      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, compileOptions)
       .strictToValidated
   }
+
+  def resolveThenInfer(
+      ps: Iterable[Package.Parsed]
+  ): ValidatedNel[PackageError, PackageMap.Inferred] =
+    resolveThenInfer(ps, CompileOptions.Default)
 
   def parse(s: String): Package.Parsed =
     Parser.unsafeParse(Package.parser(None), s)
@@ -293,5 +299,35 @@ main = Rec {}
 """)
 
     invalid(resolveThenInfer(List(pack)))
+  }
+
+  test("compile options can disable optimization passes") {
+    val pack = parse("""
+package Foo
+
+helper = 1
+main = helper
+""")
+
+    val optimized = resolveThenInfer(List(pack))
+    val noOpt = resolveThenInfer(List(pack), CompileOptions.NoOptimize)
+
+    def defsOf(
+        inferred: ValidatedNel[PackageError, PackageMap.Inferred]
+    ): List[String] =
+      inferred match {
+        case Validated.Invalid(errs) =>
+          fail(errs.toString)
+        case Validated.Valid(pmap)   =>
+          pmap
+            .toMap(PackageName.parts("Foo"))
+            .program
+            ._1
+            .lets
+            .map(_._1.asString)
+      }
+
+    assert(!defsOf(optimized).contains("helper"), defsOf(optimized).toString)
+    assert(defsOf(noOpt).contains("helper"), defsOf(noOpt).toString)
   }
 }

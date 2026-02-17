@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.Generators.genValidUtf
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.{
+  CompileOptions,
   Generators,
   Identifier,
   LocationMap,
@@ -30,7 +31,7 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap
-        .typeCheckParsed(nel, Nil, "<predef>")
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }

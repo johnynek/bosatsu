@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
+  CompileOptions,
   Kind,
   LocationMap,
   Package,
@@ -49,7 +50,7 @@ class LibConfigTest extends munit.FunSuite {
       val nel =
         cats.data.NonEmptyList.one((("test", LocationMap(src)), pack))
       PackageMap
-        .typeCheckParsed(nel, Nil, "<predef>")
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(
           errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),

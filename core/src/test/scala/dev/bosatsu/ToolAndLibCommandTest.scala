@@ -539,6 +539,51 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("lib show --no-opt retains values removed by optimization") {
+    val src =
+      """helper = 1
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::helper"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("value not found: MyLib/Foo::helper"), msg)
+      case Right(other) =>
+        fail(s"expected optimized show to omit helper, found: $other")
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::helper",
+        "--no-opt"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        assert(packageDefNames(pack).contains("helper"), packageDefNames(pack).toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("lib show --value includes local value dependencies and only needed imports") {
     val src =
       """from Bosatsu/Predef import add, mul
