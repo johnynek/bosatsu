@@ -34,7 +34,12 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
       case Ior.Left(errs) =>
         val msg = errs.toList.mkString("\n")
         fail(s"source conversion failed for:\n$source\n\n$msg")
-      case Ior.Right(_) | Ior.Both(_, _) =>
+      case Ior.Both(errs, _) =>
+        val msg = errs.toList.mkString("\n")
+        fail(
+          s"source conversion produced partial errors (Ior.Both) for:\n$source\n\n$msg"
+        )
+      case Ior.Right(_) =>
         ()
     }
 
@@ -52,8 +57,19 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
     )
 
     checked match {
-      case Ior.Right(_) | Ior.Both(_, _) =>
+      case Ior.Right(_) =>
         ()
+      case Ior.Both(errs, _) =>
+        val sourceMap = Map(
+          packageName -> (LocationMap(source), "<generated>"),
+          PackageName.PredefName -> (LocationMap(Predef.predefString), "<predef>")
+        )
+        val msg = errs.toList
+          .map(_.message(sourceMap, LocationMap.Colorize.None))
+          .mkString("\n-----\n")
+        fail(
+          s"typecheck produced partial errors (Ior.Both) for:\n$source\n\n$msg"
+        )
       case Ior.Left(errs)                =>
         val sourceMap = Map(
           packageName -> (LocationMap(source), "<generated>"),
@@ -93,4 +109,3 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
     assertPipeline(WellTypedGen.Config.phase4)
   }
 }
-

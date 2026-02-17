@@ -119,6 +119,7 @@ object WellTypedGen {
 
   private val predefTrue = Identifier.Constructor("True")
   private val predefFalse = Identifier.Constructor("False")
+  private val quantVarPool: Vector[String] = ('a' to 'h').map(_.toString).toVector
 
   private val baseTypes: Vector[Type.TyConst] =
     Vector(
@@ -195,6 +196,13 @@ object WellTypedGen {
   private def isFunctionType(tpe: Type): Boolean =
     Type.Fun.unapply(tpe).isDefined
 
+  @annotation.tailrec
+  private def dropForAll(tpe: Type): Type =
+    tpe match {
+      case Type.ForAll(_, in) => dropForAll(in)
+      case other              => other
+    }
+
   private def freshValueName(
       ctx: Ctx,
       prefix: String = "wtv"
@@ -234,23 +242,25 @@ object WellTypedGen {
   }
 
   private def typeRefOf(tpe: Type): TypeRef =
-    tpe match {
-      case Type.TyConst(Type.Const.Predef(cons)) =>
-        TypeRef.TypeName(TypeName(cons))
-      case Type.TyConst(Type.Const.Defined(_, name)) =>
-        TypeRef.TypeName(name)
-      case Type.Fun(args, res) =>
-        TypeRef.TypeArrow(args.map(typeRefOf(_)), typeRefOf(res))
-      case other =>
-        throw new IllegalArgumentException(s"unsupported TypeRef conversion: $other")
-    }
+    TypeRefConverter
+      .fromTypeA[Option](
+        tpe,
+        _ => None,
+        _ => None,
+        defined => Some(TypeRef.TypeName(defined.name))
+      )
+      .getOrElse(
+        throw new IllegalArgumentException(
+          s"unsupported TypeRef conversion: $tpe"
+        )
+      )
 
   private def genFieldType(ctx: Ctx): Gen[Type.TyConst] = {
     val all = (baseTypes ++ ctx.localTypeConsts).distinct
     Gen.oneOf(all)
   }
 
-  private def genType(ctx: Ctx, depth: Int): Gen[Type] = {
+  private def genGoalType(ctx: Ctx, depth: Int): Gen[Type] = {
     val atoms = (baseTypes ++ ctx.localTypeConsts).distinct
 
     if (depth <= 0) Gen.oneOf(atoms)
@@ -258,8 +268,8 @@ object WellTypedGen {
       val fnType =
         for {
           arity <- Gen.choose(1, 2)
-          args <- Gen.listOfN(arity, Gen.lzy(genType(ctx, depth - 1)))
-          res <- Gen.lzy(genType(ctx, depth - 1))
+          args <- Gen.listOfN(arity, Gen.lzy(genGoalType(ctx, depth - 1)))
+          res <- Gen.lzy(genGoalType(ctx, depth - 1))
           nel = NonEmptyList.fromListUnsafe(args)
         } yield Type.Fun(nel, res)
 
@@ -269,6 +279,77 @@ object WellTypedGen {
       )
     }
   }
+
+  private def genSourceMonoType(
+      ctx: Ctx,
+      depth: Int,
+      extraAtoms: Vector[Type] = Vector.empty
+  ): Gen[Type] = {
+    val atoms = ((baseTypes ++ ctx.localTypeConsts).map(identity[Type]) ++ extraAtoms).distinct
+    if (depth <= 0) Gen.oneOf(atoms)
+    else {
+      val recurse = Gen.lzy(genSourceMonoType(ctx, depth - 1, extraAtoms))
+      val fnType =
+        for {
+          arity <- Gen.choose(1, 2)
+          args <- Gen.listOfN(arity, recurse)
+          res <- recurse
+          nel = NonEmptyList.fromListUnsafe(args)
+        } yield Type.Fun(nel, res)
+
+      val optionType = recurse.map(t => Type.TyApply(Type.OptionType, t))
+      val listType = recurse.map(t => Type.TyApply(Type.ListType, t))
+      val tupleType =
+        for {
+          arity <- Gen.choose(0, 3)
+          parts <- Gen.listOfN(arity, recurse)
+        } yield Type.Tuple(parts)
+      val dictType =
+        for {
+          k <- recurse
+          v <- recurse
+        } yield Type.TyApply(Type.TyApply(Type.DictType, k), v)
+
+      Gen.frequency(
+        (5, Gen.oneOf(atoms)),
+        (2, fnType),
+        (2, optionType),
+        (2, listType),
+        (1, tupleType),
+        (1, dictType)
+      )
+    }
+  }
+
+  // This is intentionally richer than `genGoalType`: it includes applied and
+  // quantified types for source-level type syntax coverage.
+  private def genType(ctx: Ctx, depth: Int): Gen[Type] = {
+    val mono = Gen.lzy(genSourceMonoType(ctx, depth))
+    if (depth <= 0) mono
+    else {
+      val quantified =
+        for {
+          inner <- Gen.lzy(genSourceMonoType(ctx, depth - 1))
+          cnt <- Gen.choose(1, 2)
+          names <- Gen.pick(cnt, quantVarPool)
+          vars = NonEmptyList.fromListUnsafe(
+            names.toList.distinct.sorted.map(n => (Type.Var.Bound(n), Kind.Type))
+          )
+        } yield Type.forAll(vars, inner)
+
+      Gen.frequency(
+        (6, mono),
+        (2, quantified)
+      )
+    }
+  }
+
+  private def genTypeWithVars(
+      ctx: Ctx,
+      depth: Int,
+      vars: Vector[Type.TyVar]
+  ): Gen[Type] =
+    genSourceMonoType(ctx, depth, vars.map(identity[Type]))
 
   private def genLiteralFor(goal: Type.TyConst): Gen[Declaration.NonBinding] =
     if (goal.sameAs(Type.IntType)) {
@@ -440,7 +521,7 @@ object WellTypedGen {
   private def genBindStep(ctx: Ctx, cfg: Config): Gen[Step] = {
     val (name, ctx1) = freshValueName(ctx)
     for {
-      goal <- genType(ctx1, cfg.maxTypeDepth)
+      goal <- genGoalType(ctx1, cfg.maxTypeDepth)
       expr <- genExpr(ctx1, goal, cfg.maxExprDepth, cfg)
       stmt = Statement.Bind(
         BindingStatement(Pattern.Var(name), expr, ())
@@ -453,8 +534,8 @@ object WellTypedGen {
     val (name, ctx1) = freshValueName(ctx, "wtf")
     for {
       argc <- Gen.choose(1, 2)
-      args <- Gen.listOfN(argc, genType(ctx1, (cfg.maxTypeDepth - 1).max(0)))
-      result <- genType(ctx1, cfg.maxTypeDepth)
+      args <- Gen.listOfN(argc, genGoalType(ctx1, (cfg.maxTypeDepth - 1).max(0)))
+      result <- genGoalType(ctx1, cfg.maxTypeDepth)
       argNames = args.zipWithIndex.map { case (_, idx) =>
         Identifier.Name(s"${name.asString}_arg$idx")
       }
@@ -477,6 +558,50 @@ object WellTypedGen {
       fnType = Type.Fun(NonEmptyList.fromListUnsafe(args), result)
       next = ctx1.copy(vals = ctx1.vals :+ ValSig(name, fnType))
     } yield Step(stmt, next, Some((name, fnType)))
+  }
+
+  private def genExternalDefStep(ctx: Ctx, cfg: Config): Gen[Step] = {
+    val (name, ctx1) = freshValueName(ctx, "wte")
+    for {
+      varCount <- Gen.choose(1, 2)
+      rawNames <- Gen.pick(varCount, quantVarPool).map(_.toList.distinct.sorted)
+      bounds = NonEmptyList.fromListUnsafe(
+        rawNames.map(n => (Type.Var.Bound(n), Kind.Type))
+      )
+      tvs = bounds.map { case (b, _) => Type.TyVar(b) }.toList.toVector
+      extraArgCount <- Gen.choose(0, 2)
+      extraArgs <- Gen.listOfN(
+        extraArgCount,
+        genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs)
+      )
+      firstArg: Type = tvs.head
+      args = firstArg :: extraArgs
+      resultBase <- Gen.oneOf(
+        Gen.const(firstArg),
+        Gen.lzy(genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs))
+      )
+      extraSourceType <- genType(ctx1, cfg.maxTypeDepth).map(dropForAll)
+      result <- Gen.oneOf(
+        Gen.const(resultBase),
+        Gen.const(Type.TyApply(Type.OptionType, resultBase)),
+        Gen.const(Type.TyApply(Type.ListType, resultBase)),
+        Gen.const(extraSourceType)
+      )
+      argRefs = args.zipWithIndex.map { case (tpe, idx) =>
+        (Identifier.Name(s"arg$idx"): Identifier.Bindable, typeRefOf(tpe))
+      }
+      typeArgsRef = Some(bounds.map { case (b, _) =>
+        (TypeRef.TypeVar(b.name), None: Option[Kind])
+      })
+      stmt = Statement.ExternalDef(
+        name = name,
+        typeArgs = typeArgsRef,
+        params = argRefs,
+        result = typeRefOf(result)
+      )(emptyRegion)
+      sigma = Type.forAll(bounds, Type.Fun(NonEmptyList.fromListUnsafe(args), result))
+      next = ctx1.copy(vals = ctx1.vals :+ ValSig(name, sigma))
+    } yield Step(stmt, next, None)
   }
 
   private def genStructStep(ctx: Ctx): Gen[Step] = {
@@ -571,6 +696,7 @@ object WellTypedGen {
       steps += ((6, genBindStep(ctx, cfg)))
       if (cfg.allowDefs) {
         steps += ((2, genDefStep(ctx, cfg)))
+        steps += ((2, genExternalDefStep(ctx, cfg)))
       }
       if (cfg.allowTypeDefs) {
         steps += ((2, genTypeDefStep(ctx)))
@@ -586,7 +712,13 @@ object WellTypedGen {
     if (statementCount <= 0) Gen.const(init)
     else {
       val forceValue = init.expected.isEmpty
-      genNextStep(init.ctx, cfg, forceValue).flatMap { step =>
+      val forceQuantified =
+        cfg.allowDefs && init.statementsRev.isEmpty
+      val nextStepGen =
+        if (forceQuantified) genExternalDefStep(init.ctx, cfg)
+        else genNextStep(init.ctx, cfg, forceValue)
+
+      nextStepGen.flatMap { step =>
         val nextExpected = step.expected match {
           case None         => init.expected
           case Some((n, t)) => init.expected.updated(n, t)
@@ -604,7 +736,11 @@ object WellTypedGen {
     for {
       suffix <- Gen.choose(0, Int.MaxValue)
       packageName = PackageName.parts("WellTypedGenerated", s"P$suffix")
-      statementCount <- Gen.choose(1, cfg.maxStatements.max(1))
+      minStatements = if (cfg.allowDefs) 2 else 1
+      statementCount <- Gen.choose(
+        minStatements,
+        cfg.maxStatements.max(minStatements)
+      )
       init = Build(
         ctx = initialCtx(packageName),
         statementsRev = Nil,
