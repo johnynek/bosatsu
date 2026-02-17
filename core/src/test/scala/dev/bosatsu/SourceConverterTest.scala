@@ -444,6 +444,8 @@ main = S {}
 
   test("default helper naming is stable across default body changes") {
     val ctor = Identifier.Constructor("S")
+    val expected =
+      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e"
     val d1 = defaultBindingAt(
       """#
 struct S(a: Int = 1)
@@ -462,6 +464,8 @@ main = S {}
     )
 
     assertEquals(d1, d2)
+    assertEquals(d1.asString, expected)
+    assertEquals(d2.asString, expected)
   }
 
   test("default helper names for struct params are golden") {
