@@ -305,10 +305,21 @@ object Type {
       case a :: as => applyAllRho(TyApply(rho, a), as)
     }
 
-  def apply1(fn: Type, arg: Type): Type =
+  def apply1Rho(fn: Rho, arg: Type): Rho =
     fn match {
       case rho: (Leaf | TyApply) => TyApply(rho, arg)
-      case q                     => applyAll(q, arg :: Nil)
+      case ex: Exists            =>
+        applyAll(ex, arg :: Nil) match {
+          case rho: Rho   => rho
+          case _: ForAll =>
+            sys.error(s"internal error: applyAll on Rho produced ForAll: $fn")
+        }
+    }
+
+  def apply1(fn: Type, arg: Type): Type =
+    fn match {
+      case rho: Rho => apply1Rho(rho, arg)
+      case q        => applyAll(q, arg :: Nil)
     }
 
   def applyAll(fn: Type, args: List[Type]): Type =
