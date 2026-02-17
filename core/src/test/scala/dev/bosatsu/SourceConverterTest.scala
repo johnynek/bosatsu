@@ -421,6 +421,47 @@ main = S {}
     )
   }
 
+  test(
+    "constructor defaults may reference earlier top-level values and earlier defaults"
+  ) {
+    val code = """#
+enum I:
+  I1
+seed = I1
+struct Foo(a: I = seed)
+struct Bar(f: Foo = Foo { })
+main = Bar { }
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val fooDefault = defaultBindingAt(code, Identifier.Constructor("Foo"), 0)
+    val barDefault = defaultBindingAt(code, Identifier.Constructor("Bar"), 0)
+    val program = convertProgram(code)
+
+    val fooHelperExpr = program
+      .getLet(fooDefault)
+      .getOrElse(fail(s"missing helper binding for ${fooDefault.sourceCodeRepr}"))
+      ._2
+    val barHelperExpr = program
+      .getLet(barDefault)
+      .getOrElse(fail(s"missing helper binding for ${barDefault.sourceCodeRepr}"))
+      ._2
+
+    assert(
+      fooHelperExpr.globals.exists(g =>
+        (g.pack == TestUtils.testPackage) && (g.name == Identifier.Name("seed"))
+      ),
+      s"expected helper ${fooDefault.sourceCodeRepr} to reference seed, got: $fooHelperExpr"
+    )
+    assert(
+      barHelperExpr.globals.exists(g =>
+        (g.pack == TestUtils.testPackage) && (g.name == (fooDefault: Identifier))
+      ),
+      s"expected helper ${barDefault.sourceCodeRepr} to reference helper ${fooDefault.sourceCodeRepr}, got: $barHelperExpr"
+    )
+  }
+
   test("constructor defaults require explicit type annotations") {
     val errs = conversionErrors("""#
 struct S(a = 1)
