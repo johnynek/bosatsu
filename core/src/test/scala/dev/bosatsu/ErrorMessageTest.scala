@@ -2174,6 +2174,61 @@ main = xxfoo
     assertEquals(message, "Unknown constructor `Nope`.")
   }
 
+  test("constructor default message for referencing a constructor parameter") {
+    evalFail(List("""
+package DefaultErr
+
+struct S(a: Int, b: Int = a)
+
+main = S { a: 1 }
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val message = sce.message(Map.empty, Colorize.None)
+      assert(
+        message.contains(
+          "default value for field b in S cannot reference constructor parameter a"
+        )
+      )
+      ()
+    }
+  }
+
+  test("constructor default message for out-of-scope references") {
+    evalFail(List("""
+package DefaultErr
+
+struct S(a: Int = later)
+later = 1
+
+main = S {}
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val message = sce.message(Map.empty, Colorize.None)
+      assert(
+        message.contains(
+          "default value for field a in S cannot reference later; only imports, earlier top-level values, and earlier defaults are allowed"
+        )
+      )
+      ()
+    }
+  }
+
+  test("constructor default message for missing explicit type annotation") {
+    evalFail(List("""
+package DefaultErr
+
+struct S(a = 1)
+
+main = S {}
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val message = sce.message(Map.empty, Colorize.None)
+      assert(
+        message.contains(
+          "default value for field a in S requires an explicit type annotation"
+        )
+      )
+      ()
+    }
+  }
+
   test(
     "name suggestion helper handles edge inputs and low-confidence candidates"
   ) {

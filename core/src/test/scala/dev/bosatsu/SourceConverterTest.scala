@@ -51,7 +51,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
   ): Bindable = {
     val params = rankn.TypeEnv
       .fromParsed(convertProgram(code).types._2)
-      .getConstructorParamsWithDefaults(
+      .getConstructorParams(
         TestUtils.testPackage,
         constructorName
       )
@@ -418,6 +418,27 @@ main = S {}
           false
       },
       s"missing ConstructorDefaultOutOfScope in errors: $errs"
+    )
+  }
+
+  test("constructor defaults require explicit type annotations") {
+    val errs = conversionErrors("""#
+struct S(a = 1)
+main = S {}
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
+              Identifier.Constructor("S"),
+              Identifier.Name("a"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultRequiresTypeAnnotation in errors: $errs"
     )
   }
 

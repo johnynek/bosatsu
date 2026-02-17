@@ -41,7 +41,6 @@ sealed abstract class Statement {
         val args1 = args.map { arg =>
           arg.copy(
             default = arg.default.map(_.replaceRegionsNB(r)),
-            defaultRegion = arg.defaultRegion.map(_ => r),
             region = r
           )
         }
@@ -51,7 +50,6 @@ sealed abstract class Statement {
           val args1 = branch.args.map { arg =>
             arg.copy(
               default = arg.default.map(_.replaceRegionsNB(r)),
-              defaultRegion = arg.defaultRegion.map(_ => r),
               region = r
             )
           }
@@ -167,7 +165,6 @@ object Statement {
       name: Bindable,
       tpe: Option[TypeRef],
       default: Option[Declaration.NonBinding],
-      defaultRegion: Option[Region],
       region: Region
   ) {
     def toDoc: Doc = {
@@ -260,17 +257,17 @@ object Statement {
           Def(DefStatement(nm, ta, args, ret, body))(region)
         }
 
-    val defaultArg: P[(Region, Declaration.NonBinding)] =
-      (Declaration.eqP *> maybeSpace *> Declaration.nonBindingParser.run("")).region
+    val defaultArg: P[Declaration.NonBinding] =
+      Declaration.eqP *> maybeSpace *> Declaration.nonBindingParser.run("")
 
     val argParser: P[ConstructorArg] =
       (Identifier.bindableParser ~ TypeRef.annotationParser.? ~
         (maybeSpace.soft.with1 *> defaultArg).?).region
         .map {
           case (region, ((name, tpe), None)) =>
-            ConstructorArg(name, tpe, None, None, region)
-          case (region, ((name, tpe), Some((dreg, dval)))) =>
-            ConstructorArg(name, tpe, Some(dval), Some(dreg), region)
+            ConstructorArg(name, tpe, None, region)
+          case (region, ((name, tpe), Some(dval))) =>
+            ConstructorArg(name, tpe, Some(dval), region)
         }
 
     val structKey = keySpace("struct")

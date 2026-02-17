@@ -25,10 +25,10 @@ struct WorkflowPermissions(contents: String)
 struct WorkflowJobsBuildAndDeployEnv(`BOSATSU_CI`: String, `GITHUB_TOKEN`: String)
 
 struct WorkflowJobsBuildAndDeployStepsItemWith(
-  distribution: Option[String],
-  `java-version`: Option[String],
-  github_token: Option[String],
-  publish_dir: Option[String],
+  distribution: Option[String] = None,
+  `java-version`: Option[String] = None,
+  github_token: Option[String] = None,
+  publish_dir: Option[String] = None,
 )
 
 struct WorkflowJobsBuildAndDeploy(
@@ -57,12 +57,10 @@ workflow =
             Some(action_setup_java),
             Some(java_17_setup_name),
             Some(
-              WorkflowJobsBuildAndDeployStepsItemWith(
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                None,
-                None,
-              ),
+              WorkflowJobsBuildAndDeployStepsItemWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+              },
             ),
             None,
           ),
@@ -94,12 +92,10 @@ workflow =
             Some("peaceiris/actions-gh-pages@v3"),
             Some("Deploy"),
             Some(
-              WorkflowJobsBuildAndDeployStepsItemWith(
-                None,
-                None,
-                Some(github_token_secret),
-                Some("./web_deploy"),
-              ),
+              WorkflowJobsBuildAndDeployStepsItemWith {
+                github_token: Some(github_token_secret),
+                publish_dir: Some("./web_deploy"),
+              },
             ),
             None,
           ),

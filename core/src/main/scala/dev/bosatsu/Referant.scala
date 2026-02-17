@@ -92,11 +92,10 @@ object Referant {
             Iterator.single((key, t))
           case Referant.Constructor(dt, fn) =>
             Iterator.single((key, dt.fnTypeOf(fn))) ++
-              fn.args.iterator.flatMap { param =>
-                param.defaultBinding.map { defaultName =>
-                  ((pn, defaultName: Identifier), param.tpe)
-                }
-              }
+              (for {
+                param <- fn.args.iterator
+                defaultName <- param.defaultBinding
+              } yield ((pn, defaultName: Identifier), param.tpe))
           case Referant.DefinedT(_) =>
             Iterator.empty
         }

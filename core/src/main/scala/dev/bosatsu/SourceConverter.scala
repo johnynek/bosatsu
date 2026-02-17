@@ -2,12 +2,11 @@ package dev.bosatsu
 
 import cats.{Applicative, Traverse}
 import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, State}
-import dev.bosatsu.hashing.Algo
+import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
 import org.typelevel.paiges.{Doc, Document}
-import java.nio.charset.StandardCharsets
 
 // this is used to make slightly nicer syntax on Error creation
 import scala.language.implicitConversions
@@ -714,7 +713,7 @@ final class SourceConverter(
         val (p, c) = nameToCons(name)
         val cons: Expr[Declaration] = Expr.Global(p, c, rc)
         localTypeEnv.flatMap { env =>
-          env.getConstructorParamsWithDefaults(p, c) match {
+          env.getConstructorParams(p, c) match {
             case Some(params) =>
               def argExpr(
                   arg: RecordArg
@@ -831,116 +830,14 @@ final class SourceConverter(
       paramIndex: Int,
       paramType: Type
   ): Bindable = {
-    val key = {
-      val digestInput = canonicalTypeDigestInput(paramType)
-      List(
-        "DefaultNameV1",
-        thisPackage.asString,
-        typeName.asString,
-        constructorName.asString,
-        paramIndex.toString,
-        digestInput
-      ).mkString("\u0000")
-    }
-    val digest =
-      Algo.blake3Algo.hashBytes(key.getBytes(StandardCharsets.UTF_8)).hex
+    val digest = Hashable
+      .hash(
+        Algo.blake3Algo,
+        ("DefaultNameV1", thisPackage, typeName, constructorName, paramIndex, paramType)
+      )
+      .hash
+      .hex
     Identifier.synthetic("default$" + digest)
-  }
-
-  private def canonicalKindDigestInput(kind: Kind): String =
-    kind match {
-      case Kind.Type => "T"
-      case Kind.Cons(Kind.Arg(variance, input), output) =>
-        val vchar =
-          variance match {
-            case Variance.Phantom       => "p"
-            case Variance.Covariant     => "c"
-            case Variance.Contravariant => "n"
-            case Variance.Invariant     => "i"
-          }
-        s"K($vchar${canonicalKindDigestInput(input)}${canonicalKindDigestInput(output)})"
-    }
-
-  private def canonicalTypeDigestInput(tpe: Type): String = {
-    import rankn.Type
-
-    type FreeMap = Map[Type.Var, Int]
-
-    def loopVar(
-        v: Type.Var,
-        bound: List[Type.Var.Bound],
-        freeMap: FreeMap,
-        nextFree: Int
-    ): (String, FreeMap, Int) =
-      v match {
-        case b: Type.Var.Bound =>
-          val idx = bound.indexOf(b)
-          if (idx >= 0) (s"b$idx", freeMap, nextFree)
-          else {
-            freeMap.get(b) match {
-              case Some(freeIdx) =>
-                (s"f$freeIdx", freeMap, nextFree)
-              case None =>
-                val freeMap1 = freeMap.updated(b, nextFree)
-                (s"f$nextFree", freeMap1, nextFree + 1)
-            }
-          }
-        case s: Type.Var.Skolem =>
-          freeMap.get(s) match {
-            case Some(freeIdx) =>
-              (s"s$freeIdx", freeMap, nextFree)
-            case None =>
-              val freeMap1 = freeMap.updated(s, nextFree)
-              (s"s$nextFree", freeMap1, nextFree + 1)
-          }
-      }
-
-    def loopType(
-        t: Type,
-        bound: List[Type.Var.Bound],
-        freeMap: FreeMap,
-        nextFree: Int
-    ): (String, FreeMap, Int) =
-      t match {
-        case Type.TyConst(Type.Const.Predef(cons)) =>
-          (s"cp:${cons.asString}", freeMap, nextFree)
-        case Type.TyConst(Type.Const.Defined(pack, name)) =>
-          (s"cd:${pack.asString}:${name.asString}", freeMap, nextFree)
-        case Type.TyVar(v) =>
-          loopVar(v, bound, freeMap, nextFree)
-        case Type.TyMeta(meta) =>
-          (
-            s"m:${meta.id}:${meta.existential}:${canonicalKindDigestInput(meta.kind)}",
-            freeMap,
-            nextFree
-          )
-        case Type.TyApply(on, arg) =>
-          val (onDigest, freeMap1, nextFree1) =
-            loopType(on, bound, freeMap, nextFree)
-          val (argDigest, freeMap2, nextFree2) =
-            loopType(arg, bound, freeMap1, nextFree1)
-          (s"ap($onDigest,$argDigest)", freeMap2, nextFree2)
-        case Type.ForAll(vars, in) =>
-          val kinds = vars.toList.map { case (_, kind) =>
-            canonicalKindDigestInput(kind)
-          }
-          val bound1 =
-            vars.toList.reverse.map(_._1) ::: bound
-          val (inDigest, freeMap1, nextFree1) =
-            loopType(in, bound1, freeMap, nextFree)
-          (s"fa(${kinds.mkString(",")}){$inDigest}", freeMap1, nextFree1)
-        case Type.Exists(vars, in) =>
-          val kinds = vars.toList.map { case (_, kind) =>
-            canonicalKindDigestInput(kind)
-          }
-          val bound1 =
-            vars.toList.reverse.map(_._1) ::: bound
-          val (inDigest, freeMap1, nextFree1) =
-            loopType(in, bound1, freeMap, nextFree)
-          (s"ex(${kinds.mkString(",")}){$inDigest}", freeMap1, nextFree1)
-      }
-
-    loopType(tpe.normalize, Nil, Map.empty, 0)._1
   }
 
   private def existingDefinitionVars[A](
@@ -1539,12 +1436,12 @@ final class SourceConverter(
                       }
                     val mapped =
                       params
-                        .traverse { case (b, _) => get(b) }(using
+                        .traverse(param => get(param.name))(using
                           SourceConverter.parallelIor
                         )
                         .map(Pattern.PositionalStruct(pc, _))
 
-                    val paramNamesList = params.map(_._1)
+                    val paramNamesList = params.map(_.name)
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
@@ -1599,12 +1496,12 @@ final class SourceConverter(
                         case Some(pat) => pat
                         case None      => Pattern.WildCard
                       }
-                    val derefArgs = params.map { case (b, _) => get(b) }
+                    val derefArgs = params.map(param => get(param.name))
                     val res0 = SourceConverter.success(
                       Pattern.PositionalStruct(pc, derefArgs)
                     )
 
-                    val paramNamesList = params.map(_._1)
+                    val paramNamesList = params.map(_.name)
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
@@ -1856,45 +1753,16 @@ final class SourceConverter(
     }.toSet
 
   private def toTypeRef(tpe: Type): TypeRef = {
-    import rankn.Type
-
-    tpe match {
-      case Type.TyConst(const) =>
-        TypeRef.TypeName(TypeName(const.toDefined.name.ident))
-      case Type.TyVar(v) =>
-        val vname =
-          v match {
-            case Type.Var.Bound(name)                 => name
-            case Type.Var.Skolem(name, _, _, skolem) => s"${name}_$skolem"
-          }
-        TypeRef.TypeVar(vname)
-      case Type.TyMeta(meta) =>
-        TypeRef.TypeVar(s"meta_${meta.id}")
-      case Type.TyApply(_, _) =>
-        val (root, args) = Type.unapplyAll(tpe)
-        NonEmptyList.fromList(args.map(toTypeRef)) match {
-          case Some(nel) =>
-            TypeRef.TypeApply(toTypeRef(root), nel)
-          case None =>
-            toTypeRef(root)
-        }
-      case Type.ForAll(vars, in) =>
-        TypeRef.TypeForAll(
-          vars.map { case (tv, kind) =>
-            val k = if (kind == Kind.Type) None else Some(kind)
-            (TypeRef.TypeVar(tv.name), k)
-          },
-          toTypeRef(in)
-        )
-      case Type.Exists(vars, in) =>
-        TypeRef.TypeExists(
-          vars.map { case (tv, kind) =>
-            val k = if (kind == Kind.Type) None else Some(kind)
-            (TypeRef.TypeVar(tv.name), k)
-          },
-          toTypeRef(in)
-        )
-    }
+    // This is only used to keep source-conversion progressing after reporting
+    // invalid default syntax (default without explicit type). Skolems/metas
+    // never escape final inferred types, but may exist in intermediate types.
+    // We map them to synthetic names so conversion remains deterministic.
+    TypeRefConverter.fromTypeA[cats.Id](
+      tpe,
+      sk => TypeRef.TypeVar(s"${sk.name}_${sk.id}"),
+      metaId => TypeRef.TypeVar(s"meta_$metaId"),
+      defined => TypeRef.TypeName(defined.name)
+    )
   }
 
   private def closeTypeRef(
@@ -1993,7 +1861,7 @@ final class SourceConverter(
       Acc
     ]) { (racc, ctor) =>
       racc.flatMap { case (scope, statements, newNames) =>
-        env.getConstructorParamsWithDefaults(thisPackage, ctor.constructor) match {
+        env.getConstructorParams(thisPackage, ctor.constructor) match {
           case None =>
             SourceConverter.failure(
               SourceConverter.UnknownConstructor(
@@ -2039,12 +1907,15 @@ final class SourceConverter(
                             )
 
                           if (scope0(helperName)) {
+                            // Helper names are synthetic and generated once per
+                            // constructor slot. Hitting this means an internal
+                            // compiler invariant bug or hash collision.
                             throw new IllegalStateException(
                               s"invariant violation: duplicate generated default helper: ${helperName.sourceCodeRepr}"
                             )
                           }
 
-                          val region = arg.defaultRegion.getOrElse(arg.region)
+                          val region = defaultExpr.region
                           val scopeCheck =
                             defaultScopeCheck(
                               ctor.constructor,
@@ -2055,19 +1926,37 @@ final class SourceConverter(
                               constructorParamNames
                             )
 
-                          val baseTypeRef = arg.tpe.getOrElse(toTypeRef(param.tpe))
-                          val annType =
-                            closeTypeRef(baseTypeRef, param.tpe, ctor.kindHints)
-                          val rhs =
-                            Declaration.Annotation(defaultExpr, annType)(using
-                              region
-                            )
-                          val stmt: Statement.ValueStatement =
-                            Statement.Bind(
-                              BindingStatement(Pattern.Var(helperName), rhs, ())
-                            )(region)
+                          val baseTypeRef: Result[TypeRef] =
+                            arg.tpe match {
+                              case Some(explicitType) =>
+                                SourceConverter.success(explicitType)
+                              case None =>
+                                SourceConverter.partial(
+                                  SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
+                                    ctor.constructor,
+                                    arg.name,
+                                    region
+                                  ),
+                                  toTypeRef(param.tpe)
+                                )
+                            }
 
-                          scopeCheck.map { _ =>
+                          (scopeCheck, baseTypeRef).parMapN { (_, baseType) =>
+                            val annType =
+                              closeTypeRef(baseType, param.tpe, ctor.kindHints)
+                            val rhs =
+                              Declaration.Annotation(defaultExpr, annType)(using
+                                region
+                              )
+                            val stmt: Statement.ValueStatement =
+                              Statement.Bind(
+                                BindingStatement(
+                                  Pattern.Var(helperName),
+                                  rhs,
+                                  ()
+                                )
+                              )(region)
+
                             (
                               scope0 + helperName,
                               statements0 :+ stmt,
@@ -2352,9 +2241,11 @@ final class SourceConverter(
         }
         for {
           stmts <- valueStatementsWithDefaultHelpers(ss)
-          _ <- checkExternalDefShadowing(stmts)
-          binds <- toLets(stmts)
-          parsedTypeEnv <- pte1
+          (_, binds, parsedTypeEnv) <- (
+            checkExternalDefShadowing(stmts),
+            toLets(stmts),
+            pte1
+          ).parTupled
         } yield Program(
           (importedTypeEnv, parsedTypeEnv),
           binds,
@@ -2692,6 +2583,15 @@ object SourceConverter {
   ) extends Error {
     def message =
       s"default value for field ${fieldName.sourceCodeRepr} in ${constructorName.sourceCodeRepr} cannot reference ${referencedName.sourceCodeRepr}; only imports, earlier top-level values, and earlier defaults are allowed"
+  }
+
+  final case class ConstructorDefaultRequiresTypeAnnotation(
+      constructorName: Constructor,
+      fieldName: Bindable,
+      region: Region
+  ) extends Error {
+    def message =
+      s"default value for field ${fieldName.sourceCodeRepr} in ${constructorName.sourceCodeRepr} requires an explicit type annotation"
   }
 
   final case class InvalidTypeParameters(

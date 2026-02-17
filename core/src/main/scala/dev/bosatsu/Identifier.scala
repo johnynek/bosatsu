@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.Order
 import cats.parse.{Parser0 => P0, Parser => P}
+import dev.bosatsu.hashing.Hashable
 import org.typelevel.paiges.{Doc, Document}
 import scala.quoted.{Expr, Quotes}
 
@@ -48,6 +49,11 @@ object Identifier {
   final case class Name(asString: String) extends Bindable
   final case class Backticked(asString: String) extends Bindable
   final case class Operator(asString: String) extends Bindable
+
+  object Constructor {
+    given Hashable[Constructor] =
+      Hashable.by(_.asString)
+  }
 
   private val opPrefix = Doc.text("operator ")
 

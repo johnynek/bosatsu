@@ -45,7 +45,7 @@ workflow =
         [
           step_item_uses_with(
             Some(action_checkout_v2),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -58,15 +58,10 @@ workflow =
           step_item_uses_with(
             Some(action_setup_java),
             Some(
-              FetchJavaWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_matrix),
-                None,
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_matrix),
+              },
             ),
             Some(java_matrix_setup_name),
             None,
@@ -91,15 +86,10 @@ workflow =
           step_item_uses_with(
             Some(action_codecov),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                Some(codecov_token_secret),
-                Some(main_branch),
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                token: Some(codecov_token_secret),
+                override_branch: Some(main_branch),
+              },
             ),
             Some("Upload to Codecov"),
             None,

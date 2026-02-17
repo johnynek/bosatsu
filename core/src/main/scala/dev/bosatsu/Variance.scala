@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.kernel.{BoundedSemilattice, Order}
+import dev.bosatsu.hashing.Hashable
 
 sealed abstract class Variance derives CanEqual {
   import Variance._
@@ -81,4 +82,7 @@ object Variance {
           case Invariant => if (right == Invariant) 0 else 1
         }
     }
+
+  given Hashable[Variance] =
+    Hashable.derived
 }

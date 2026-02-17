@@ -1174,7 +1174,6 @@ object Generators {
           name = arg,
           tpe = t,
           default = None,
-          defaultRegion = None,
           region = emptyRegion
         )
       )
@@ -1362,7 +1361,7 @@ object Generators {
           ps <- smallList(Gen.zip(bindIdentGen, genType))
         } yield rankn.ConstructorFn[A](
           cons,
-          ps.map { case (name, tpe) => rankn.ConstructorParam(name, tpe) }
+          ps.map { case (name, tpe) => rankn.ConstructorParam(name, tpe, None) }
         )
       cons0 <- smallList(genCons)
       cons = cons0.map(cf => (cf.name, cf)).toMap.values.toList

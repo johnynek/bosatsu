@@ -1269,7 +1269,7 @@ object Declaration {
     val kvs = Parser.nonEmptyListToList(kv.nonEmptyListOfWs(ws))
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs: P0[List[RecordArg]] =
+    val recArgs: P[List[RecordArg]] =
       (maybeSpace.with1.soft *> P.char('{') *> ws *> kvs) <* (ws ~ P.char('}'))
 
     // here is tuple style: Foo(a, b)

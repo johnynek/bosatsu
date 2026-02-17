@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.Order
 import cats.implicits._
+import dev.bosatsu.hashing.Hashable
 
 case class TypeName(ident: Identifier.Constructor) {
   def asString: String = ident.asString
@@ -19,4 +20,7 @@ object TypeName {
       case Right(c) => TypeName(c)
       case Left(e)  => sys.error(s"invalid TypeName: $e")
     }
+
+  given Hashable[TypeName] =
+    Hashable.by(_.ident)
 }

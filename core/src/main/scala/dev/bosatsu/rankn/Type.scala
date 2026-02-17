@@ -14,6 +14,7 @@ import dev.bosatsu.{
   TypeParser,
   Require
 }
+import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.{SortedSet, SortedMap}
 
@@ -1232,6 +1233,12 @@ object Type {
       }
 
     implicit val orderingTyConst: Ordering[Const] = orderTyConst.toOrdering
+
+    given Hashable[Const.Defined] =
+      Hashable.by(c => (c.packageName, c.name))
+
+    given Hashable[Const] =
+      Hashable.by(_.toDefined)
   }
 
   sealed abstract class Var {
@@ -1282,6 +1289,26 @@ object Type {
 
     implicit val orderVar: Order[Var] =
       Order.fromOrdering(using varOrdering)
+
+    given Hashable[Var.Bound] =
+      Hashable.by(_.name)
+
+    given Hashable[Var.Skolem] =
+      Hashable.by(sk => (sk.name, sk.kind, sk.existential, sk.id))
+
+    given Hashable[Var] with {
+      def addHash[B](v: Var, algo: Algo[B])(
+          hasher: algo.Hasher
+      ): algo.Hasher =
+        v match {
+          case b: Var.Bound =>
+            val withTag = Hashable[Int].addHash(0, algo)(hasher)
+            Hashable[Var.Bound].addHash(b, algo)(withTag)
+          case s: Var.Skolem =>
+            val withTag = Hashable[Int].addHash(1, algo)(hasher)
+            Hashable[Var.Skolem].addHash(s, algo)(withTag)
+        }
+    }
   }
 
   val allBinders: LazyList[Var.Bound] = {
@@ -1336,6 +1363,112 @@ object Type {
             else 1
           }
       }
+
+    given Hashable[Meta] =
+      Hashable.by(meta => (meta.kind, meta.id, meta.existential))
+  }
+
+  given Hashable[Type] with {
+    private type FreeMap = Map[Type.Var, Int]
+
+    private def loopVar[B](
+        v: Type.Var,
+        bound: List[Type.Var.Bound],
+        freeMap: FreeMap,
+        nextFree: Int,
+        algo: Algo[B]
+    )(hasher: algo.Hasher): (algo.Hasher, FreeMap, Int) =
+      v match {
+        case b: Type.Var.Bound =>
+          val idx = bound.indexOf(b)
+          if (idx >= 0) {
+            val withTag = Hashable[Int].addHash(0, algo)(hasher)
+            val withIdx = Hashable[Int].addHash(idx, algo)(withTag)
+            (withIdx, freeMap, nextFree)
+          } else {
+            freeMap.get(b) match {
+              case Some(freeIdx) =>
+                val withTag = Hashable[Int].addHash(1, algo)(hasher)
+                val withIdx = Hashable[Int].addHash(freeIdx, algo)(withTag)
+                (withIdx, freeMap, nextFree)
+              case None =>
+                val freeMap1 = freeMap.updated(b, nextFree)
+                val withTag = Hashable[Int].addHash(1, algo)(hasher)
+                val withIdx = Hashable[Int].addHash(nextFree, algo)(withTag)
+                (withIdx, freeMap1, nextFree + 1)
+            }
+          }
+        case s: Type.Var.Skolem =>
+          freeMap.get(s) match {
+            case Some(freeIdx) =>
+              val withTag = Hashable[Int].addHash(2, algo)(hasher)
+              val withIdx = Hashable[Int].addHash(freeIdx, algo)(withTag)
+              (withIdx, freeMap, nextFree)
+            case None =>
+              val freeMap1 = freeMap.updated(s, nextFree)
+              val withTag = Hashable[Int].addHash(2, algo)(hasher)
+              val withIdx = Hashable[Int].addHash(nextFree, algo)(withTag)
+              (withIdx, freeMap1, nextFree + 1)
+          }
+      }
+
+    private def loopType[B](
+        t: Type,
+        bound: List[Type.Var.Bound],
+        freeMap: FreeMap,
+        nextFree: Int,
+        algo: Algo[B]
+    )(hasher: algo.Hasher): (algo.Hasher, FreeMap, Int) =
+      t match {
+        case Type.TyConst(Type.Const.Predef(cons)) =>
+          val withTag = Hashable[Int].addHash(3, algo)(hasher)
+          val withCons =
+            Hashable[Identifier.Constructor].addHash(cons, algo)(withTag)
+          (withCons, freeMap, nextFree)
+        case Type.TyConst(Type.Const.Defined(pack, name)) =>
+          val withTag = Hashable[Int].addHash(4, algo)(hasher)
+          val withPack = Hashable[PackageName].addHash(pack, algo)(withTag)
+          val withName = Hashable[TypeName].addHash(name, algo)(withPack)
+          (withName, freeMap, nextFree)
+        case Type.TyVar(v) =>
+          loopVar(v, bound, freeMap, nextFree, algo)(hasher)
+        case Type.TyMeta(meta) =>
+          val withTag = Hashable[Int].addHash(5, algo)(hasher)
+          val withId = Hashable[Long].addHash(meta.id, algo)(withTag)
+          val withExistential =
+            Hashable[Boolean].addHash(meta.existential, algo)(withId)
+          val withKind =
+            Hashable[Kind].addHash(meta.kind, algo)(withExistential)
+          (withKind, freeMap, nextFree)
+        case Type.TyApply(on, arg) =>
+          val withTag = Hashable[Int].addHash(6, algo)(hasher)
+          val (withOn, freeMap1, nextFree1) =
+            loopType(on, bound, freeMap, nextFree, algo)(withTag)
+          loopType(arg, bound, freeMap1, nextFree1, algo)(withOn)
+        case Type.ForAll(vars, in) =>
+          val varsList = vars.toList
+          val withTag = Hashable[Int].addHash(7, algo)(hasher)
+          val withSize = Hashable[Int].addHash(varsList.size, algo)(withTag)
+          val withKinds = varsList.foldLeft(withSize) { case (h, (_, kind)) =>
+            Hashable[Kind].addHash(kind, algo)(h)
+          }
+          val bound1 = varsList.reverse.map(_._1) ::: bound
+          loopType(in, bound1, freeMap, nextFree, algo)(withKinds)
+        case Type.Exists(vars, in) =>
+          val varsList = vars.toList
+          val withTag = Hashable[Int].addHash(8, algo)(hasher)
+          val withSize = Hashable[Int].addHash(varsList.size, algo)(withTag)
+          val withKinds = varsList.foldLeft(withSize) { case (h, (_, kind)) =>
+            Hashable[Kind].addHash(kind, algo)(h)
+          }
+          val bound1 = varsList.reverse.map(_._1) ::: bound
+          loopType(in, bound1, freeMap, nextFree, algo)(withKinds)
+      }
+
+    def addHash[B](tpe: Type, algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher =
+      loopType(tpe.normalize, Nil, Map.empty, 0, algo)(hasher)._1
   }
 
   /** Final the set of all of Metas inside the list of given types

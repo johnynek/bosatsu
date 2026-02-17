@@ -67,12 +67,38 @@ struct Step(
 
 This usually replaces many near-duplicate structs.
 
+You can combine this with constructor defaults to remove repetitive `None` noise
+when building large JSON objects:
+
+```bosatsu
+struct Step(
+  uses: Option[String] = None,
+  name: Option[String] = None,
+  run: Option[String] = None,
+  env: Option[StepEnv] = None,
+)
+
+checkout = Step { uses: Some("actions/checkout@v4") }
+run_tests = Step { name: Some("run tests"), run: Some("sbt test") }
+```
+
+This is the default-arguments pattern for JSON records with many optional fields:
+define one struct with optional fields defaulted to `None`, then construct values
+with record syntax and set only the fields you need.
+
+This pattern is especially useful for JSON-heavy models (like CI workflows)
+where many fields are optional most of the time. It keeps definitions compact,
+reduces copy/paste variants, and makes it safer to add new optional fields later
+without rewriting every call site.
+
 ## Patterns that worked well for GitHub workflow modeling
 
 - Put shared types/constants/helpers in a common module (for example `Util.bosatsu`)
 - Use constants for repeated literals (runner names, action versions, `17`, step labels)
 - Use helper functions for multi-line shell scripts (for example `cat_lines`)
 - Prefer one record with `Option[...]` fields over many one-off variants
+- Add `= None` defaults on frequently-optional fields, then construct with
+  record syntax (`Struct { field: Some(x) }`) to keep values concise
 - Use backticks only when a field is not a valid bindable name, such as `` `runs-on` `` and `` `timeout-minutes` ``
 
 ## Practical gotchas

@@ -3067,20 +3067,23 @@ main = Main(
     )
   }
 
-  test("default-backed constructor calls work across package boundaries") {
+  test(
+    "default-backed constructor calls work across package boundaries with partial fields and stable record-field order"
+  ) {
     evalTest(
       List(
         """package Provider
-export Rec()
+export (Rec(), AllDefault())
 
-struct Marker
-struct Rec(a: Marker = Marker)
+struct Rec(a: Int, b: Int = 7, c: Int = 9)
+struct AllDefault(x: Int = 11, y: Int = 22)
 """,
         """package Consumer
-from Provider import Rec
+from Provider import Rec, AllDefault
 
-main = match Rec {}:
-  case Rec(_): 1
+main = match (Rec { a: 1 }, Rec { c: 4, a: 2 }, Rec { a: 3, c: 5 }, AllDefault {}):
+  case (Rec(1, 7, 9), Rec(2, 7, 4), Rec(3, 7, 5), AllDefault(11, 22)): 1
+  case _: 0
 """
       ),
       "Consumer",

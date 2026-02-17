@@ -49,9 +49,9 @@ struct WorkflowJobsTest(
 )
 
 struct WorkflowJobsTestPYStepsItemWith(
-  distribution: Option[String],
-  `java-version`: Option[String],
-  `python-version`: Option[String],
+  distribution: Option[String] = None,
+  `java-version`: Option[String] = None,
+  `python-version`: Option[String] = None,
 )
 
 struct WorkflowJobsTestPYStrategyMatrix(java: List[String], python: List[String])
@@ -161,11 +161,10 @@ workflow =
             Some(action_setup_java),
             Some(java_matrix_setup_name),
             Some(
-              WorkflowJobsTestPYStepsItemWith(
-                Some(java_distribution_temurin),
-                Some(java_version_matrix),
-                None,
-              ),
+              WorkflowJobsTestPYStepsItemWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_matrix),
+              },
             ),
             None,
           ),
@@ -174,11 +173,9 @@ workflow =
             Some(action_setup_python),
             Some("python setup"),
             Some(
-              WorkflowJobsTestPYStepsItemWith(
-                None,
-                None,
-                Some(python_version_matrix),
-              ),
+              WorkflowJobsTestPYStepsItemWith {
+                `python-version`: Some(python_version_matrix),
+              },
             ),
             None,
           ),
@@ -242,7 +239,7 @@ workflow =
         [
           step_item_uses_with(
             Some(action_checkout_v2),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -255,15 +252,10 @@ workflow =
           step_item_uses_with(
             Some(action_setup_java),
             Some(
-              FetchJavaWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_matrix),
-                None,
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_matrix),
+              },
             ),
             Some(java_matrix_setup_name),
             None,
@@ -286,15 +278,7 @@ workflow =
           step_item_uses_with(
             Some(action_codecov),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                Some(codecov_token_secret),
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith { token: Some(codecov_token_secret) },
             ),
             Some("Upload to Codecov"),
             None,
@@ -597,26 +581,12 @@ workflow =
             None,
             Some(run_publish_bosatsu_libs),
             Some(
-              StepEnv(
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("\${{ github.workspace }}"),
-                Some("\${{ runner.temp }}/bosatsu_lib_publish"),
-                Some("\${{ github.sha }}"),
-                Some("https://example.invalid/"),
-                None,
-                None,
-                None,
-                None,
-              ),
+              StepEnv {
+                `REPO_ROOT`: Some("\${{ github.workspace }}"),
+                `OUTDIR`: Some("\${{ runner.temp }}/bosatsu_lib_publish"),
+                `GIT_SHA`: Some("\${{ github.sha }}"),
+                `URI_BASE`: Some("https://example.invalid/"),
+              },
             ),
           ),
         ],

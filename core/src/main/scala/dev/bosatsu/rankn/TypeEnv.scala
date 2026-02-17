@@ -1,7 +1,7 @@
 package dev.bosatsu.rankn
 
 import dev.bosatsu.{TypeName, PackageName, Identifier, Kind, Variance}
-import dev.bosatsu.Identifier.{Bindable, Constructor}
+import dev.bosatsu.Identifier.Constructor
 import scala.collection.immutable.SortedMap
 import org.typelevel.paiges.{Doc, Document}
 
@@ -46,14 +46,6 @@ class TypeEnv[+A] private (
     constructors.get((p, c))
 
   def getConstructorParams(
-      p: PackageName,
-      c: Constructor
-  ): Option[List[(Bindable, Type)]] =
-    constructors
-      .get((p, c))
-      .map(_._2.args.map(param => (param.name, param.tpe)))
-
-  def getConstructorParamsWithDefaults(
       p: PackageName,
       c: Constructor
   ): Option[List[ConstructorParam]] =

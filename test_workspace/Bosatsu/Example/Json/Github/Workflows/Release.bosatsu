@@ -62,12 +62,12 @@ struct WorkflowJobsNativeLinux(
 )
 
 struct WorkflowJobsNativeMacosStepsItemWith(
-  `fetch-depth`: Option[Int],
-  distribution: Option[String],
-  `java-version`: Option[String],
-  architecture: Option[String],
-  name: Option[String],
-  path: Option[String],
+  `fetch-depth`: Option[Int] = None,
+  distribution: Option[String] = None,
+  `java-version`: Option[String] = None,
+  architecture: Option[String] = None,
+  name: Option[String] = None,
+  path: Option[String] = None,
 )
 
 struct WorkflowJobsNativeMacos(
@@ -77,15 +77,15 @@ struct WorkflowJobsNativeMacos(
 )
 
 struct WorkflowJobsReleaseStepsItemWith(
-  `fetch-depth`: Option[Int],
-  path: Option[String],
-  `merge-multiple`: Option[Bool],
-  distribution: Option[String],
-  `java-version`: Option[String],
-  name: Option[String],
-  tag_name: Option[String],
-  generate_release_notes: Option[Bool],
-  files: Option[String],
+  `fetch-depth`: Option[Int] = None,
+  path: Option[String] = None,
+  `merge-multiple`: Option[Bool] = None,
+  distribution: Option[String] = None,
+  `java-version`: Option[String] = None,
+  name: Option[String] = None,
+  tag_name: Option[String] = None,
+  generate_release_notes: Option[Bool] = None,
+  files: Option[String] = None,
 )
 
 struct WorkflowJobsRelease(
@@ -106,48 +106,10 @@ struct WorkflowJobs(
 struct Workflow(name: String, on: WorkflowOn, permissions: WorkflowPermissions, jobs: WorkflowJobs)
 
 def tag_env(tag_name: String) -> StepEnv:
-  StepEnv(
-    Some(tag_name),
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-  )
+  StepEnv { `TAG_NAME`: Some(tag_name) }
 
 def runtime_hash_env(hash: String) -> StepEnv:
-  StepEnv(
-    None,
-    Some(hash),
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-  )
+  StepEnv { `BOSATSU_C_RUNTIME_HASH`: Some(hash) }
 
 def native_linux_env(
   hash: String,
@@ -156,26 +118,13 @@ def native_linux_env(
   clib_path: String,
   cc: String,
 ) -> StepEnv:
-  StepEnv(
-    None,
-    Some(hash),
-    Some(static_native),
-    Some(libc),
-    Some(clib_path),
-    Some(cc),
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-  )
+  StepEnv {
+    `BOSATSU_C_RUNTIME_HASH`: Some(hash),
+    `BOSATSU_STATIC_NATIVE_IMAGE`: Some(static_native),
+    `BOSATSU_NATIVE_IMAGE_LIBC`: Some(libc),
+    `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Some(clib_path),
+    `CC`: Some(cc),
+  }
 
 def release_env(
   `BOSATSU_C_RUNTIME_HASH`: Option[String],
@@ -192,13 +141,8 @@ def release_env(
   `GITHUB_REF_NAME`: Option[String],
   `GH_TOKEN`: Option[String],
 ) -> StepEnv:
-  StepEnv(
-    None,
+  StepEnv {
     `BOSATSU_C_RUNTIME_HASH`,
-    None,
-    None,
-    None,
-    None,
     `PGP_PASSPHRASE`,
     `PGP_SECRET`,
     `SONATYPE_PASSWORD`,
@@ -211,7 +155,7 @@ def release_env(
     `GITHUB_TOKEN`,
     `GITHUB_REF_NAME`,
     `GH_TOKEN`,
-  )
+  }
 
 workflow =
   Workflow(
@@ -225,7 +169,7 @@ workflow =
           named_step_item_env(
             Some("Check out code"),
             Some(action_checkout_v4),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -234,15 +178,10 @@ workflow =
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
-              FetchJavaWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                None,
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+              },
             ),
             None,
             None,
@@ -286,7 +225,7 @@ workflow =
           named_step_item_with_id(
             "Check out code",
             Some(action_checkout_v4),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -320,15 +259,10 @@ workflow =
             "Upload c_runtime archive",
             Some(action_upload_artifact),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("bosatsu-c-runtime"),
-                Some("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
-              ),
+              FetchJavaWith {
+                name: Some("bosatsu-c-runtime"),
+                path: Some("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
+              },
             ),
             None,
             None,
@@ -342,7 +276,7 @@ workflow =
           named_step_item_env_run(
             Some("Check out code"),
             Some(action_checkout_v4),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -351,15 +285,10 @@ workflow =
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
-              FetchJavaWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                None,
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+              },
             ),
             None,
             None,
@@ -410,15 +339,10 @@ workflow =
             Some("Upload jar"),
             Some(action_upload_artifact),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("bosatsu-jar"),
-                Some("bosatsu.jar"),
-              ),
+              FetchJavaWith {
+                name: Some("bosatsu-jar"),
+                path: Some("bosatsu.jar"),
+              },
             ),
             None,
             None,
@@ -427,15 +351,10 @@ workflow =
             Some("Upload node JS"),
             Some(action_upload_artifact),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("bosatsu-node"),
-                Some("bosatsu_node.js"),
-              ),
+              FetchJavaWith {
+                name: Some("bosatsu-node"),
+                path: Some("bosatsu_node.js"),
+              },
             ),
             None,
             None,
@@ -449,7 +368,7 @@ workflow =
           named_step_item_env(
             Some("Check out code"),
             Some(action_checkout_v4),
-            Some(FetchJavaWith(Some(0), None, None, None, None, None, None)),
+            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -458,15 +377,10 @@ workflow =
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
-              FetchJavaWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                None,
-                None,
-                None,
-                None,
-              ),
+              FetchJavaWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+              },
             ),
             None,
             None,
@@ -534,15 +448,10 @@ workflow =
             Some("Upload linux native image"),
             Some(action_upload_artifact),
             Some(
-              FetchJavaWith(
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("bosatsu-native-linux"),
-                Some("bosatsu-linux"),
-              ),
+              FetchJavaWith {
+                name: Some("bosatsu-native-linux"),
+                path: Some("bosatsu-linux"),
+              },
             ),
             None,
             None,
@@ -556,7 +465,7 @@ workflow =
           named_step_item_env_run(
             Some("Check out code"),
             Some(action_checkout_v4),
-            Some(WorkflowJobsNativeMacosStepsItemWith(Some(0), None, None, None, None, None)),
+            Some(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Some(0) }),
             None,
             None,
           ),
@@ -565,14 +474,11 @@ workflow =
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
-              WorkflowJobsNativeMacosStepsItemWith(
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                Some("aarch64"),
-                None,
-                None,
-              ),
+              WorkflowJobsNativeMacosStepsItemWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+                architecture: Some("aarch64"),
+              },
             ),
             None,
             None,
@@ -606,14 +512,10 @@ workflow =
             Some("Upload macos native image"),
             Some(action_upload_artifact),
             Some(
-              WorkflowJobsNativeMacosStepsItemWith(
-                None,
-                None,
-                None,
-                None,
-                Some("bosatsu-native-macos"),
-                Some("bosatsu-macos"),
-              ),
+              WorkflowJobsNativeMacosStepsItemWith {
+                name: Some("bosatsu-native-macos"),
+                path: Some("bosatsu-macos"),
+              },
             ),
             None,
             None,
@@ -628,17 +530,7 @@ workflow =
             Some("Check out code"),
             Some(action_checkout_v4),
             Some(
-              WorkflowJobsReleaseStepsItemWith(
-                Some(0),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-              ),
+              WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Some(0) },
             ),
             None,
             None,
@@ -648,17 +540,10 @@ workflow =
             Some("Download artifacts"),
             Some("actions/download-artifact@v4"),
             Some(
-              WorkflowJobsReleaseStepsItemWith(
-                None,
-                Some("release_assets"),
-                Some(True),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-              ),
+              WorkflowJobsReleaseStepsItemWith {
+                path: Some("release_assets"),
+                `merge-multiple`: Some(True),
+              },
             ),
             None,
             None,
@@ -667,17 +552,10 @@ workflow =
             Some(java_17_setup_name_title),
             Some(action_setup_java),
             Some(
-              WorkflowJobsReleaseStepsItemWith(
-                None,
-                None,
-                None,
-                Some(java_distribution_temurin),
-                Some(java_version_17),
-                None,
-                None,
-                None,
-                None,
-              ),
+              WorkflowJobsReleaseStepsItemWith {
+                distribution: Some(java_distribution_temurin),
+                `java-version`: Some(java_version_17),
+              },
             ),
             None,
             None,
@@ -883,20 +761,15 @@ workflow =
             Some("Create GitHub release"),
             Some("softprops/action-gh-release@v2"),
             Some(
-              WorkflowJobsReleaseStepsItemWith(
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("Release \${{ github.ref_name }}"),
-                Some("\${{ github.ref_name }}"),
-                Some(True),
-                Some(cat_lines([
+              WorkflowJobsReleaseStepsItemWith {
+                name: Some("Release \${{ github.ref_name }}"),
+                tag_name: Some("\${{ github.ref_name }}"),
+                generate_release_notes: Some(True),
+                files: Some(cat_lines([
                   "release_assets/*",
                   "",
                 ])),
-              ),
+              },
             ),
             None,
             Some(
