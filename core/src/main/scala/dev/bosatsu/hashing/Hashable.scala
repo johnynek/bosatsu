@@ -7,7 +7,7 @@ import scala.deriving.Mirror
 import scala.quoted.{Expr, Quotes, Type}
 
 trait Hashable[A] {
-  def hash[B](a: A)(using algo: Algo[B]): Hashed[B, A] = {
+  final def hash[B](a: A)(using algo: Algo[B]): Hashed[B, A] = {
     val hasher = algo.newHasher()
     Hashed(algo.finishHash(addHash(a, algo)(hasher)), a)
   }
@@ -26,6 +26,10 @@ trait Hashable[A] {
         self.addHash(fn(b), algo)(hasher)
     }
   }
+
+  final def narrow[B <: A]: Hashable[B] =
+    // we could just use `fn = identity` but that just adds indirection, this cast is safe
+    this.asInstanceOf[Hashable[B]]
 }
 
 private[hashing] trait LowPriorityHashableInstances {
@@ -344,11 +348,6 @@ object Hashable extends LowPriorityHashableInstances {
   }
 
   given Hashable[Array[Byte]] with {
-    override def hash[B](a: Array[Byte])(using
-        algo: Algo[B]
-    ): Hashed[B, Array[Byte]] =
-      Hashed[B, Array[Byte]](algo.hashBytes(a), a)
-
     def addHash[B](a: Array[Byte], algo: Algo[B])(
         hasher: algo.Hasher
     ): algo.Hasher =

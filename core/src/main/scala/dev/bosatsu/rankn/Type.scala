@@ -1233,12 +1233,6 @@ object Type {
       }
 
     implicit val orderingTyConst: Ordering[Const] = orderTyConst.toOrdering
-
-    given Hashable[Const.Defined] =
-      Hashable.by(c => (c.packageName, c.name))
-
-    given Hashable[Const] =
-      Hashable.by(_.toDefined)
   }
 
   sealed abstract class Var {
@@ -1289,26 +1283,6 @@ object Type {
 
     implicit val orderVar: Order[Var] =
       Order.fromOrdering(using varOrdering)
-
-    given Hashable[Var.Bound] =
-      Hashable.by(_.name)
-
-    given Hashable[Var.Skolem] =
-      Hashable.by(sk => (sk.name, sk.kind, sk.existential, sk.id))
-
-    given Hashable[Var] with {
-      def addHash[B](v: Var, algo: Algo[B])(
-          hasher: algo.Hasher
-      ): algo.Hasher =
-        v match {
-          case b: Var.Bound =>
-            val withTag = Hashable[Int].addHash(0, algo)(hasher)
-            Hashable[Var.Bound].addHash(b, algo)(withTag)
-          case s: Var.Skolem =>
-            val withTag = Hashable[Int].addHash(1, algo)(hasher)
-            Hashable[Var.Skolem].addHash(s, algo)(withTag)
-        }
-    }
   }
 
   val allBinders: LazyList[Var.Bound] = {
@@ -1363,9 +1337,6 @@ object Type {
             else 1
           }
       }
-
-    given Hashable[Meta] =
-      Hashable.by(meta => (meta.kind, meta.id, meta.existential))
   }
 
   given Hashable[Type] with {
