@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Quantifier Evidence on TypedExpr.Annotation · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/quantifier-evidence-design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-5c8107ff*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+    <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html" class="active page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-5c8107ff*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+    <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html" class="active page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Quantifier Evidence on <code>TypedExpr.Annotation</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#quantifier-evidence-on-typedexpr-annotation" name="quantifier-evidence-on-typedexpr-annotation" class="anchor"><span class="anchor-link"></span></a>Quantifier Evidence on <code>TypedExpr.Annotation</code></h1>
+<h2><a href="#status" name="status" class="anchor"><span class="anchor-link"></span></a>Status</h2>
+<p>This document records the current converged direction after exploring multiple alternatives (new <code>Instantiate</code> node, DB-index-only approaches, stricter quantifier ordering).</p>
+<h3><a href="#final-direction-in-this-document" name="final-direction-in-this-document" class="anchor"><span class="anchor-link"></span></a>Final direction in this document</h3>
+<ol>
+  <li>Keep <code>TypedExpr.Annotation</code> as the existing coercion node.</li>
+  <li>Add an <strong>optional quantifier-evidence field</strong> to <code>Annotation</code>.</li>
+  <li>Use that evidence to persist solved quantifier substitutions/hidings when inference has already proven them.</li>
+  <li>Preserve current fallback behavior for true widening/coercion cases where no quantifier evidence exists.</li>
+</ol>
+<p>This is an incremental change with lower churn than splitting the AST immediately.</p>
+<h2><a href="#problem-statement" name="problem-statement" class="anchor"><span class="anchor-link"></span></a>Problem statement</h2>
+<p><code>Annotation</code> currently conflates two cases:</p>
+<ol>
+  <li><strong>Quantifier solving</strong> (very common):</li>
+</ol>
+<ul>
+  <li>instantiate <code>forall</code> variables, and/or</li>
+  <li>hide concrete types behind <code>exists</code> variables.</li>
+</ul>
+<ol>
+  <li><strong>General widening</strong> (rare):</li>
+</ol>
+<ul>
+  <li>subtype relation that is not just outer quantifier solving.</li>
+</ul>
+<p>Recent scan numbers from <code>test_workspace</code>:</p>
+<ul>
+  <li>command: <code>./bosatsuj lib show --name core_alpha --color none</code></li>
+  <li>total <code>(ann ...)</code> nodes: <code>2011</code></li>
+  <li><code>2009 / 2011</code> (<code>99.90%</code>) had annotated term types with top-level quantification (<code>forall</code>/<code>exists</code>) and are quantifier-solving candidates</li>
+  <li><code>2 / 2011</code> (<code>0.10%</code>) were non-quantifier cases (both in <code>TypeConstraint</code> proof terms), i.e. widening-like outliers</li>
+</ul>
+<p>So, in the observed corpus, quantifier-solving is overwhelmingly dominant (&gt;99%).</p>
+<h3><a href="#core-loss-of-information" name="core-loss-of-information" class="anchor"><span class="anchor-link"></span></a>Core loss of information</h3>
+<p>Inference often proves quantifier solving is valid, then stores only:</p>
+<ul>
+  <li><code>Annotation(term, coerce)</code></li>
+</ul>
+<p>which erases:</p>
+<ul>
+  <li>exact substitutions,</li>
+  <li>which quantifiers were solved,</li>
+  <li>partial-solve details,</li>
+  <li>witness types used to hide behind existentials.</li>
+</ul>
+<h2><a href="#evidence-from-code" name="evidence-from-code" class="anchor"><span class="anchor-link"></span></a>Evidence from code</h2>
+<ul>
+  <li><code>Annotation</code> currently only carries <code>(term, coerce)</code>:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala:571</code></li>
+  <li>Inference already solves instantiate relations but emits <code>Annotation</code>:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/rankn/Infer.scala:1412</code></li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/rankn/Infer.scala:1426</code></li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/rankn/Infer.scala:1436</code></li>
+  <li>Normalization later re-derives this by pattern matching and calling <code>instantiateTo</code>:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala:1043</code></li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala:1668</code></li>
+</ul>
+<h2><a href="#key-difficulty-metavariables-and-hidden-dependencies" name="key-difficulty-metavariables-and-hidden-dependencies" class="anchor"><span class="anchor-link"></span></a>Key difficulty: metavariables and hidden dependencies</h2>
+<h3><a href="#what-we-know" name="what-we-know" class="anchor"><span class="anchor-link"></span></a>What we know</h3>
+<p>Metavariables can be assigned to <code>Var.Bound</code> in current inference:</p>
+<ul>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/rankn/Infer.scala:2899</code></li>
+</ul>
+<p>So unresolved metas can hide future dependencies on bound variables.</p>
+<h3><a href="#consequence" name="consequence" class="anchor"><span class="anchor-link"></span></a>Consequence</h3>
+<p>Any optimization that drops quantifier binders from <code>freeBoundTyVars</code> alone is unsafe while metas remain unresolved.</p>
+<p>Pruning is only safe in meta-free situations (or after zonk).</p>
+<h2><a href="#requirements-and-invariants" name="requirements-and-invariants" class="anchor"><span class="anchor-link"></span></a>Requirements and invariants</h2>
+<ol>
+  <li><strong>Semantic correctness</strong>:</li>
+</ol>
+<ul>
+  <li><code>Annotation</code> must remain a coercion proof; evidence must never change typing behavior.</li>
+</ul>
+<ol>
+  <li><strong>Alpha-robustness</strong>:</li>
+</ol>
+<ul>
+  <li>Evidence must survive binder renaming/normalization.</li>
+</ul>
+<ol>
+  <li><strong>Partial solve support</strong>:</li>
+</ol>
+<ul>
+  <li>Evidence can solve only subset of quantifiers.</li>
+</ul>
+<ol>
+  <li><strong>Meta safety</strong>:</li>
+</ol>
+<ul>
+  <li>If unresolved metas are present, evidence is optional and may be absent.</li>
+</ul>
+<ol>
+  <li><strong>Replay-checkable</strong>:</li>
+</ol>
+<ul>
+  <li>If evidence is present, we can validate/replay it against current types (up to <code>sameAs</code>).</li>
+</ul>
+<ol>
+  <li><strong>Backwards compatibility</strong>:</li>
+</ol>
+<ul>
+  <li>Existing serialized trees without evidence must still decode.</li>
+</ul>
+<h2><a href="#proposed-model" name="proposed-model" class="anchor"><span class="anchor-link"></span></a>Proposed model</h2>
+<p>Add optional quantifier-evidence to <code>Annotation</code>.</p>
+<h3><a href="#scala-sketch" name="scala-sketch" class="anchor"><span class="anchor-link"></span></a>Scala sketch</h3>
+<pre class="prettyprint"><code class="language-scala">object TypedExpr {
+  final case class QuantifierEvidence(
+    sourceAtSolve: Type, // should be sameAs(term.getType)
+    targetAtSolve: Type, // should be sameAs(annotation.coerce)
+
+    // substitutions for universally-quantified vars solved on the source side
+    forallSolved: SortedMap[Type.Var.Bound, (Kind, Type)],
+
+    // witness types hidden under existentials on the target side
+    existsHidden: SortedMap[Type.Var.Bound, (Kind, Type)]
+  )
+}
+
+case class Annotation[T](
+  term: TypedExpr[T],
+  coerce: Type,
+  quantifierEvidence: Option[TypedExpr.QuantifierEvidence]
+) extends TypedExpr[T]
+</code></pre>
+<p>Callers must pass <code>None</code> or <code>Some(evidence)</code> explicitly (no default argument).</p>
+<h3><a href="#why-include-sourceatsolve-targetatsolve" name="why-include-sourceatsolve-targetatsolve" class="anchor"><span class="anchor-link"></span></a>Why include <code>sourceAtSolve</code> / <code>targetAtSolve</code></h3>
+<p>This addresses binder-renaming concerns:</p>
+<ul>
+  <li>Evidence is interpreted in snapshot-space where it was proven.</li>
+  <li>At use-sites we check <code>sameAs</code> with current <code>term.getType</code> / <code>coerce</code>.</li>
+  <li>If snapshots do not align, ignore evidence and fallback.</li>
+</ul>
+<p>This avoids coupling evidence to current binder names.</p>
+<h2><a href="#where-replay-validation-runs" name="where-replay-validation-runs" class="anchor"><span class="anchor-link"></span></a>Where Replay/validation runs</h2>
+<p>This is not intended as a standalone public API. It is a private helper used at the exact points where we currently try to re-solve from plain <code>Annotation</code> shape.</p>
+<p>Primary call sites to wire:</p>
+<ol>
+  <li>Annotation normalization path:</li>
+</ol>
+<ul>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala:1034</code></li>
+  <li>currently calls <code>instantiateTo</code> at:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala:1043</code></li>
+</ul>
+<ol>
+  <li>Lambda-resolution normalization path:</li>
+</ol>
+<ul>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala:1655</code></li>
+  <li>currently calls <code>instantiateTo</code> at:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala:1663</code></li>
+</ul>
+<ol>
+  <li>Coercion fallback in <code>TypedExpr.coerceRho</code> for <code>Generic</code>:</li>
+</ol>
+<ul>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala:1886</code></li>
+</ul>
+<ol>
+  <li>Coercion fallback in <code>TypedExpr.coerceFn1</code> for <code>Generic</code>:</li>
+</ol>
+<ul>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala:2404</code></li>
+</ul>
+<p>At each site, the flow is: try evidence replay first, fallback to existing solver when evidence is absent/invalid.</p>
+<h2><a href="#replay-validation-sketch" name="replay-validation-sketch" class="anchor"><span class="anchor-link"></span></a>Replay/validation sketch</h2>
+<pre class="prettyprint"><code class="language-scala">def normalizeAnnotation(ann: Annotation[A]): TypedExpr[A] = ann.quantifierEvidence match {
+  case None =&gt; fallback(ann)
+  case Some(ev) =&gt;
+    val srcNow = ann.term.getType
+    val dstNow = ann.coerce
+
+    if (!srcNow.sameAs(ev.sourceAtSolve) || !dstNow.sameAs(ev.targetAtSolve))
+      fallback(ann)
+    else {
+      // alpha-align snapshots to current forms if needed
+      val aligned = alignEvidenceToCurrent(ev, srcNow, dstNow)
+
+      aligned match {
+        case None =&gt; fallback(ann)
+        case Some(aev) =&gt;
+          // reconstruct/check coercion path from quantifier evidence
+          if (replayQuantifierEvidence(aev, srcNow).exists(_.sameAs(dstNow)))
+            useReplayedResult(...)
+          else
+            fallback(ann)
+      }
+    }
+}
+
+// call site sketch in normalization:
+// case Annotation(term, tpe, ev) =&gt; normalizeAnnotation(Annotation(term, tpe, ev))
+</code></pre>
+<h2><a href="#expected-behavior-by-case" name="expected-behavior-by-case" class="anchor"><span class="anchor-link"></span></a>Expected behavior by case</h2>
+<ol>
+  <li><strong>Instantiation-like coercion</strong> (common):</li>
+</ol>
+<ul>
+  <li><code>quantifierEvidence = Some(...)</code></li>
+</ul>
+<ol>
+  <li><strong>General widening</strong> (rare):</li>
+</ol>
+<ul>
+  <li><code>quantifierEvidence = None</code></li>
+</ul>
+<ol>
+  <li><strong>Meta-heavy/unstable stage</strong>:</li>
+</ol>
+<ul>
+  <li>may choose <code>None</code> until after zonk</li>
+</ul>
+<h2><a href="#code-changes-needed" name="code-changes-needed" class="anchor"><span class="anchor-link"></span></a>Code changes needed</h2>
+<h2><a href="#1-typedexpr-ast-and-helpers" name="1-typedexpr-ast-and-helpers" class="anchor"><span class="anchor-link"></span></a>1) TypedExpr AST and helpers</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala</code></li>
+  <li>Changes:</li>
+  <li>add <code>QuantifierEvidence</code> model,</li>
+  <li>extend <code>Annotation</code> with optional evidence,</li>
+  <li>update <code>Eq[TypedExpr]</code>, traversals, and constructors/utils.</li>
+</ul>
+<h2><a href="#2-inference-emission" name="2-inference-emission" class="anchor"><span class="anchor-link"></span></a>2) Inference emission</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/rankn/Infer.scala</code></li>
+  <li>Changes:</li>
+  <li>in <code>subsInstantiate</code>, when <code>Type.instantiate</code> succeeds, attach evidence instead of dropping it,</li>
+  <li>include both source/target snapshots and solved maps.</li>
+</ul>
+<p>Pseudo:</p>
+<pre class="prettyprint"><code class="language-scala">Type.instantiate(...).map { case (frees, subs) =&gt;
+  val ev = QuantifierEvidence(
+    sourceAtSolve = inferred,
+    targetAtSolve = declared,
+    forallSolved = ...,
+    existsHidden = ...
+  )
+  dom.Annotation(te, declared, Some(ev))
+}
+</code></pre>
+<h2><a href="#3-normalization-coercion-consumption" name="3-normalization-coercion-consumption" class="anchor"><span class="anchor-link"></span></a>3) Normalization/coercion consumption</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala</code></li>
+  <li>Changes:</li>
+  <li>in annotation-normalization path, prefer evidence-driven replay,</li>
+  <li>fallback to existing <code>instantiateTo</code> behavior if evidence missing/invalid.</li>
+</ul>
+<h2><a href="#4-domain-interface-updates" name="4-domain-interface-updates" class="anchor"><span class="anchor-link"></span></a>4) Domain interface updates</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/TypedExpr.scala</code></li>
+  <li><code>TypedExpr.Domain.Annotation</code> currently takes <code>(term, coerce)</code>.</li>
+  <li>Update to include optional evidence, or provide overload/helper.</li>
+</ul>
+<h2><a href="#5-proto-schema" name="5-proto-schema" class="anchor"><span class="anchor-link"></span></a>5) Proto schema</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/proto/src/main/protobuf/bosatsu/TypedAst.proto</code></li>
+  <li>Current: <code>AnnotationExpr { int32 expr; int32 typeOf; }</code></li>
+  <li>Add evidence message and optional field.</li>
+</ul>
+<p>Proto sketch:</p>
+<pre class="prettyprint"><code class="language-proto">message QuantAssignment {
+  int32 varName = 1;
+  int32 kind = 2;
+  int32 typeOf = 3;
+}
+
+message QuantifierEvidence {
+  int32 sourceType = 1;
+  int32 targetType = 2;
+  repeated QuantAssignment forallSolved = 3;
+  repeated QuantAssignment existsHidden = 4;
+}
+
+message AnnotationExpr {
+  int32 expr = 1;
+  int32 typeOf = 2;
+  QuantifierEvidence quantifierEvidence = 3; // optional presence
+}
+</code></pre>
+<h2><a href="#6-proto-converter" name="6-proto-converter" class="anchor"><span class="anchor-link"></span></a>6) Proto converter</h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/ProtoConverter.scala</code></li>
+  <li>Decode path around:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/ProtoConverter.scala:527</code></li>
+  <li>Encode path around:</li>
+  <li><code>/Users/oscar/code/bosatsu/core/src/main/scala/dev/bosatsu/ProtoConverter.scala:944</code></li>
+  <li>Changes:</li>
+  <li>map proto evidence &lt;-&gt; Scala <code>QuantifierEvidence</code>,</li>
+  <li>keep backward compatibility when field absent.</li>
+</ul>
+<h2><a href="#7-test-only-invariant-gate-in-testutils" name="7-test-only-invariant-gate-in-testutils" class="anchor"><span class="anchor-link"></span></a>7) Test-only invariant gate in <code>TestUtils</code></h2>
+<ul>
+  <li>File: <code>/Users/oscar/code/bosatsu/core/src/test/scala/dev/bosatsu/TestUtils.scala</code></li>
+  <li>Goal:</li>
+  <li>enforce post-inference <code>Annotation</code> invariants in tests without adding production runtime cost.</li>
+</ul>
+<h3><a href="#what-to-change" name="what-to-change" class="anchor"><span class="anchor-link"></span></a>What to change</h3>
+<ol>
+  <li>Add a test helper that walks <code>TypedExpr</code> and validates every <code>Annotation</code>.</li>
+  <li>Wire that helper into existing validation entry points:</li>
+</ol>
+<ul>
+  <li><code>assertValid(te)</code> (central hook),</li>
+  <li>codepaths that already call <code>assertValid</code> (<code>checkLast</code>, <code>checkPackageMap</code>),</li>
+  <li><code>compileFile</code> to validate all compiled let bodies from typed packages.</li>
+</ul>
+<ol>
+  <li>Return simple stats (<code>total</code>, <code>quantifierSolving</code>, <code>widening</code>) so tests can assert distribution if desired.</li>
+</ol>
+<h3><a href="#properties-we-can-enforce-now" name="properties-we-can-enforce-now" class="anchor"><span class="anchor-link"></span></a>Properties we can enforce now</h3>
+<ol>
+  <li><strong>No redundant annotation</strong>:</li>
+</ol>
+<ul>
+  <li>fail if <code>annotation.term.getType.sameAs(annotation.coerce)</code>.</li>
+</ul>
+<ol>
+  <li><strong>Canonical annotation type</strong>:</li>
+</ol>
+<ul>
+  <li>fail if <code>annotation.coerce != Type.normalize(annotation.coerce)</code>.</li>
+</ul>
+<ol>
+  <li><strong>Classification is explicit</strong>:</li>
+</ol>
+<ul>
+  <li>mark annotation as quantifier-solving if either:</li>
+  <li>source is <code>ForAll(...)</code> that can instantiate to target, or</li>
+  <li>target is <code>Exists(...)</code> that can instantiate from source.</li>
+  <li>otherwise classify as widening.</li>
+</ul>
+<ol>
+  <li><strong>No escaping metas/skolems</strong>:</li>
+</ol>
+<ul>
+  <li>already enforced by existing <code>assertValid</code>; keep as a prerequisite for annotation checks.</li>
+</ul>
+<h3><a href="#properties-to-enforce-after-evidence-lands" name="properties-to-enforce-after-evidence-lands" class="anchor"><span class="anchor-link"></span></a>Properties to enforce after evidence lands</h3>
+<ol>
+  <li>If quantifier-solving is possible in a finalized/meta-free tree, require <code>quantifierEvidence = Some(...)</code>.</li>
+  <li>If <code>quantifierEvidence</code> is present:</li>
+</ol>
+<ul>
+  <li><code>sourceAtSolve</code> is <code>sameAs</code> current source type,</li>
+  <li><code>targetAtSolve</code> is <code>sameAs</code> current target type,</li>
+  <li>replay/validation succeeds and yields current <code>coerce</code> up to <code>sameAs</code>.</li>
+</ul>
+<ol>
+  <li>Allow <code>None</code> for true widening cases.</li>
+</ol>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test plan</h2>
+<ol>
+  <li>Unit tests for encode/decode round-trip of evidence.</li>
+  <li>Property tests:</li>
+</ol>
+<ul>
+  <li>replay evidence yields <code>coerce</code> (up to <code>sameAs</code>),</li>
+  <li>alpha-renaming of binders does not break replay,</li>
+  <li>evidence absent still follows legacy path.</li>
+</ul>
+<ol>
+  <li>Regression tests for rare widening cases where evidence is <code>None</code>.</li>
+</ol>
+<h2><a href="#migration-plan" name="migration-plan" class="anchor"><span class="anchor-link"></span></a>Migration plan</h2>
+<ol>
+  <li>Add field and plumbing with explicit <code>Option</code> arguments at all call-sites.</li>
+  <li>Emit evidence in <code>subsInstantiate</code> only.</li>
+  <li>Consume evidence in normalization with fallback.</li>
+  <li>Expand to more inference sites if beneficial.</li>
+  <li>Optionally later split into dedicated <code>Instantiate</code> node if experience shows value.</li>
+</ol>
+<h2><a href="#open-questions" name="open-questions" class="anchor"><span class="anchor-link"></span></a>Open questions</h2>
+<ol>
+  <li>Should evidence store binder names, indices, or both?</li>
+  <li>Should we require evidence to be fully replayable in all phases, or best-effort with fallback?</li>
+  <li>Should we disallow non-existential metas from resolving to <code>Var.Bound</code> via stronger typing (<code>TauNoBound</code>), and keep a separate explicit existential-realization API?</li>
+  <li>At what phase do we guarantee enough zonking to safely perform binder-pruning/canonicalization aggressively?</li>
+</ol>
+<h2><a href="#non-goal-for-this-change-" name="non-goal-for-this-change-" class="anchor"><span class="anchor-link"></span></a>Non-goal (for this change)</h2>
+<p>This proposal does not require immediate replacement of <code>Annotation</code> with a new AST node. It aims to preserve solved information first, with minimal structural disruption.</p>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/quantifier-evidence-design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../getting_started.html">Getting started (new repo)</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/quantifier-evidence-design.html#quantifier-evidence-on-typedexpr-annotation" class="header">Quantifier Evidence on <code>TypedExpr.Annotation</code></a>
+  <ul>
+    <li><a href="../design-docs/quantifier-evidence-design.html#status" class="header">Status</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#problem-statement" class="header">Problem statement</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#evidence-from-code" class="header">Evidence from code</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#key-difficulty-metavariables-and-hidden-dependencies" class="header">Key difficulty: metavariables and hidden dependencies</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#requirements-and-invariants" class="header">Requirements and invariants</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#proposed-model" class="header">Proposed model</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#where-replay-validation-runs" class="header">Where Replay/validation runs</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#replay-validation-sketch" class="header">Replay/validation sketch</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#expected-behavior-by-case" class="header">Expected behavior by case</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#code-changes-needed" class="header">Code changes needed</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#1-typedexpr-ast-and-helpers" class="header">1) TypedExpr AST and helpers</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#2-inference-emission" class="header">2) Inference emission</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#3-normalization-coercion-consumption" class="header">3) Normalization/coercion consumption</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#4-domain-interface-updates" class="header">4) Domain interface updates</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#5-proto-schema" class="header">5) Proto schema</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#6-proto-converter" class="header">6) Proto converter</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#7-test-only-invariant-gate-in-testutils" class="header">7) Test-only invariant gate in <code>TestUtils</code></a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#test-plan" class="header">Test plan</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#migration-plan" class="header">Migration plan</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#open-questions" class="header">Open questions</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html#non-goal-for-this-change-" class="header">Non-goal (for this change)</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5c8107ff-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
