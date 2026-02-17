@@ -610,9 +610,11 @@ object WellTypedGen {
     for {
       argc <- Gen.choose(0, 2)
       args <- Gen.listOfN(argc, genFieldType(ctx1))
-      stmtArgs = args.zipWithIndex.map { case (tpe, idx) =>
-        (Identifier.Name(s"f$idx"): Identifier.Bindable, Some(typeRefOf(tpe)))
-      }
+      stmtArgs: List[(Identifier.Bindable, Option[TypeRef])] =
+        args.zipWithIndex.map {
+          case (tpe, idx) =>
+            (Identifier.Name(s"f$idx"): Identifier.Bindable, Option(typeRefOf(tpe)))
+        }
       stmt = Statement.Struct(cons, None, stmtArgs)(emptyRegion)
       ctor = CtorSig(ctx.packageName, cons, args, resultType)
       next = ctx1.copy(
@@ -661,7 +663,7 @@ object WellTypedGen {
           name = cons,
           typeArgs = None,
           args = args.zipWithIndex.map { case (tpe, idx) =>
-            (Identifier.Name(s"a$idx"): Identifier.Bindable, Some(typeRefOf(tpe)))
+            (Identifier.Name(s"a$idx"): Identifier.Bindable, Option(typeRefOf(tpe)))
           },
           region = emptyRegion
         )
