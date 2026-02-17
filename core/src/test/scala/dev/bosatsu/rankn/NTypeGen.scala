@@ -178,12 +178,61 @@ object NTypeGen {
     )
   }
 
-  val genQuantArgs: Gen[List[(Type.Var.Bound, Kind)]] =
+  def genQuantifiers(
+      genB: Gen[Type.Var.Bound]
+  ): Gen[NonEmptyList[(Type.Var.Bound, Kind)]] =
     for {
-      c <- Gen.choose(0, 5)
-      ks = NTypeGen.genKind
-      as <- Gen.listOfN(c, Gen.zip(genBound, ks))
-    } yield as
+      c <- Gen.choose(1, 5)
+      bs0 <- Gen.listOfN(c, genB)
+      bs = bs0.distinct
+      ks <- Gen.listOfN(bs.length, genKind)
+    } yield NonEmptyList.fromListUnsafe(bs.zip(ks))
+
+  val genQuantArgs: Gen[List[(Type.Var.Bound, Kind)]] =
+    Gen.frequency(
+      (1, Gen.const(Nil)),
+      (4, genQuantifiers(genBound).map(_.toList))
+    )
+
+  private def genQuantifiersFromFree(
+      free: NonEmptyList[Type.Var.Bound]
+  ): Gen[NonEmptyList[(Type.Var.Bound, Kind)]] =
+    for {
+      c <- Gen.choose(1, free.length)
+      bs <- Gen.pick(c, free.toList).map(_.toList)
+      ks <- Gen.listOfN(bs.length, genKind)
+    } yield NonEmptyList.fromListUnsafe(bs.zip(ks))
+
+  private def genRhoWithFreeBound(
+      genT: Gen[Type.Rho]
+  ): Gen[(Type.Rho, NonEmptyList[Type.Var.Bound])] =
+    genT.flatMap { t =>
+      NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
+        case Some(free) => Gen.const((t, free))
+        case None       =>
+          genBound.map { b =>
+            (Type.TyVar(b): Type.Rho, NonEmptyList.one(b))
+          }
+      }
+    }
+
+  def genForAll(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type.ForAll] = {
+    val recurse = Gen.lzy(genTypeRho(d - 1, genC))
+
+    for {
+      (in, free) <- genRhoWithFreeBound(recurse)
+      qs <- genQuantifiersFromFree(free)
+    } yield Type.forAll(qs.toList, in).asInstanceOf[Type.ForAll]
+  }
+
+  def genExists(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type.Exists] = {
+    val recurse = Gen.lzy(genTypeRho(d - 1, genC))
+
+    for {
+      (in, free) <- genRhoWithFreeBound(recurse)
+      qs <- genQuantifiersFromFree(free)
+    } yield Type.existsRho(qs, in)
+  }
 
   lazy val genQuant: Gen[TypedExpr.Quantification] =
     Gen
@@ -204,12 +253,11 @@ object NTypeGen {
       val recurse = Gen.lzy(genTypeRho(d - 1, genC))
       val genApply = Gen
         .zip(recurse, genDepth(d - 1, genC))
-        .map {
-          case (a: (Type.Leaf | Type.TyApply), b) => Type.TyApply(a, b)
-          case (exists, _)                        => exists
+        .map { case (a, b) =>
+          Type.apply1(a, b).asInstanceOf[Type.Rho]
         }
 
-      Gen.frequency((3, root), (1, genApply))
+      Gen.frequency((3, root), (2, genApply), (1, genExists(d, genC)))
     }
   }
 
@@ -217,21 +265,6 @@ object NTypeGen {
     if (d <= 0) genRootType(genC)
     else {
       val recurse = Gen.lzy(genDepth(d - 1, genC))
-      val genForAll =
-        for {
-          c <- Gen.choose(1, 5)
-          ks = NTypeGen.genKind
-          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
-          in <- recurse
-        } yield Type.forAll(as, in)
-
-      val genExists =
-        for {
-          c <- Gen.choose(1, 5)
-          ks = NTypeGen.genKind
-          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
-          in <- recurse
-        } yield Type.exists(as, in)
 
       val genQ =
         Gen.zip(genQuantArgs, genQuantArgs, recurse).map { case (fa, ex0, t) =>
@@ -247,7 +280,7 @@ object NTypeGen {
       Gen.frequency(
         (2, recurse),
         (1, genApply),
-        (1, Gen.oneOf(genForAll, genExists, genQ))
+        (1, Gen.oneOf(genForAll(d, genC), genExists(d, genC), genQ))
       )
     }
 

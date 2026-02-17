@@ -772,6 +772,80 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("genQuantifiers is non-empty and distinct") {
+    forAll(NTypeGen.genQuantifiers(NTypeGen.genBound)) { qs =>
+      val vars = qs.toList.map(_._1)
+      assert(vars.nonEmpty)
+      assertEquals(vars.distinct, vars)
+    }
+  }
+
+  test("genForAll and genExists always use generated binders") {
+    val genForAll =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+    val genExists =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+
+    forAll(genForAll) { fa =>
+      val free = Type.freeBoundTyVars(fa.in :: Nil).toSet
+      assert(
+        fa.vars.toList.forall { case (b, _) => free(b) },
+        s"forall binders should all be free in body: $fa"
+      )
+    }
+
+    forAll(genExists) { ex =>
+      val free = Type.freeBoundTyVars(ex.in :: Nil).toSet
+      assert(
+        ex.vars.toList.forall { case (b, _) => free(b) },
+        s"exists binders should all be free in body: $ex"
+      )
+    }
+  }
+
+  test("Type.forAll and Type.exists bind vars selected from free vars") {
+    val genTypeWithFreeVars = NTypeGen.genDepth03.map { t =>
+      NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
+        case Some(free) => (t, free)
+        case None       =>
+          val b = Type.Var.Bound("_forced_free")
+          (Type.apply1(t, Type.TyVar(b)), NonEmptyList.one(b))
+      }
+    }
+
+    val gen = for {
+      (t, free) <- genTypeWithFreeVars
+      qs <- NTypeGen.genQuantifiers(Gen.oneOf(free.toList))
+    } yield (t, qs)
+
+    forAll(gen) { case (t, qs) =>
+      val qset = qs.toList.iterator.map(_._1).toSet
+      val free0 = Type.freeBoundTyVars(t :: Nil).toSet
+      val expected = free0 -- qset
+
+      val f1 = Type.freeBoundTyVars(Type.forAll(qs.toList, t) :: Nil).toSet
+      val e1 = Type.freeBoundTyVars(Type.exists(qs.toList, t) :: Nil).toSet
+
+      assertEquals(f1, expected)
+      assertEquals(e1, expected)
+    }
+  }
+
+  test("Type.forAll and Type.exists can be no-ops with independent quantifiers") {
+    val unused = Type.Var.Bound("_unused_quantifier")
+    val genUnused = NTypeGen.genQuantifiers(Gen.const(unused))
+
+    forAll(NTypeGen.genDepth03, genUnused) { (t, qs) =>
+      val free0 = Type.freeBoundTyVars(t :: Nil).toSet
+
+      val f1 = Type.freeBoundTyVars(Type.forAll(qs.toList, t) :: Nil).toSet
+      val e1 = Type.freeBoundTyVars(Type.exists(qs.toList, t) :: Nil).toSet
+
+      assertEquals(f1, free0)
+      assertEquals(e1, free0)
+    }
+  }
+
   test("unexists/exists | unforall/forall iso") {
     forAll(NTypeGen.genDepth03) {
       case t @ Type.Exists(ps, in) =>
