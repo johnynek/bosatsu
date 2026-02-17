@@ -89,8 +89,9 @@ object WellTypedGen {
   final case class CtorSig(
       pack: PackageName,
       cons: Identifier.Constructor,
+      typeParams: List[(Type.Var.Bound, Kind)],
       args: List[Type],
-      result: Type.TyConst
+      result: Type
   )
   final case class Ctx(
       packageName: PackageName,
@@ -135,19 +136,17 @@ object WellTypedGen {
   private def boolCtor(
       cons: Identifier.Constructor
   ): CtorSig =
-    CtorSig(PackageName.PredefName, cons, Nil, Type.BoolType)
+    CtorSig(PackageName.PredefName, cons, Nil, Nil, Type.BoolType)
 
   private def ctorType(c: CtorSig): Type =
-    NonEmptyList.fromList(c.args) match {
+    val res = NonEmptyList.fromList(c.args) match {
       case None      => c.result
       case Some(args) => Type.Fun(args, c.result)
     }
-
-  private def constructorPattern(cons: Identifier.Constructor): Pattern.Parsed =
-    Pattern.PositionalStruct(
-      Pattern.StructKind.Named(cons, Pattern.StructKind.Style.TupleLike),
-      Nil
-    )
+    NonEmptyList.fromList(c.typeParams) match {
+      case None         => res
+      case Some(bounds) => Type.forAll(bounds, res)
+    }
 
   private def initialCtx(pn: PackageName): Ctx = {
     val boolCtors = Vector(boolCtor(predefTrue), boolCtor(predefFalse))
@@ -255,6 +254,165 @@ object WellTypedGen {
           s"unsupported TypeRef conversion: $tpe"
         )
       )
+
+  private def requireSome[A](label: String, opt: Option[A]): A =
+    opt.getOrElse {
+      throw new IllegalStateException(s"expected value for: $label")
+    }
+
+  private def typeParamKindRef(kind: Kind): Option[Kind.Arg] =
+    if (kind == Kind.Type) None else Some(Kind.Arg(Variance.in, kind))
+
+  private def typeParamRefs(
+      params: List[(Type.Var.Bound, Kind)]
+  ): Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]] =
+    NonEmptyList.fromList(
+      params.map { case (b, k) =>
+        (TypeRef.TypeVar(b.name), typeParamKindRef(k))
+      }
+    )
+
+  private def kindFromParams(params: List[(Type.Var.Bound, Kind)]): Kind =
+    params.foldRight(Kind.Type: Kind) { case ((_, k), acc) =>
+      Kind.Cons(Kind.Arg(Variance.in, k), acc)
+    }
+
+  private def resultTypeFor(
+      root: Type.TyConst,
+      typeParams: List[(Type.Var.Bound, Kind)]
+  ): Type =
+    Type.applyAll(root, typeParams.map { case (b, _) => (Type.TyVar(b): Type) })
+
+  private def mapTemplateVars(
+      vars: Set[Type.Var.Bound],
+      template: Type,
+      actual: Type
+  ): Option[Map[Type.Var.Bound, Type]] = {
+    def loop(
+        t: Type,
+        a: Type,
+        acc: Map[Type.Var.Bound, Type]
+    ): Option[Map[Type.Var.Bound, Type]] =
+      (t, a) match {
+        case (Type.TyVar(b: Type.Var.Bound), _) if vars(b) =>
+          acc.get(b) match {
+            case None          => Some(acc.updated(b, a))
+            case Some(prev)    =>
+              if (prev.sameAs(a)) Some(acc)
+              else None
+          }
+        case (Type.TyApply(tOn, tArg), Type.TyApply(aOn, aArg)) =>
+          loop(tOn, aOn, acc).flatMap(loop(tArg, aArg, _))
+        case _ =>
+          if (t.sameAs(a)) Some(acc)
+          else None
+      }
+
+    loop(template, actual, Map.empty)
+  }
+
+  @annotation.tailrec
+  private def unfoldForAll(
+      t: Type,
+      accRev: List[(Type.Var.Bound, Kind)] = Nil
+  ): (List[(Type.Var.Bound, Kind)], Type) =
+    t match {
+      case Type.ForAll(vs, in) =>
+        unfoldForAll(in, vs.toList.reverse_:::(accRev))
+      case other =>
+        (accRev.reverse, other)
+    }
+
+  private def instantiatedFnArgsForGoal(
+      sigma: Type,
+      goal: Type
+  ): Option[List[Type]] = {
+    val (bounds, body) = unfoldForAll(sigma)
+    body match {
+      case Type.Fun(args, res) =>
+        if (bounds.isEmpty) {
+          if (res.sameAs(goal)) Some(args.toList) else None
+        } else {
+          val vars = bounds.iterator.map(_._1).toSet
+          mapTemplateVars(vars, res, goal).flatMap { sub =>
+            if (sub.size != bounds.size) None
+            else {
+              val env: Map[Type.Var, Type] =
+                sub.iterator.map { case (b, tpe) =>
+                  (b: Type.Var) -> tpe
+                }.toMap
+              Some(args.toList.map(t => Type.substituteVar(t, env)))
+            }
+          }
+        }
+      case _ =>
+        None
+    }
+  }
+
+  private def instantiatedCtorArgsForGoal(
+      ctor: CtorSig,
+      goal: Type
+  ): Option[List[Type]] = {
+    val (goalRoot, goalArgs) = Type.unapplyAll(goal)
+    val (ctorRoot, ctorResArgs) = Type.unapplyAll(ctor.result)
+    val paramVars = ctor.typeParams.map(_._1)
+    val shapeOk =
+      ctorResArgs.length == paramVars.length &&
+        ctorResArgs.zip(paramVars).forall { case (arg, v) =>
+          arg.sameAs(Type.TyVar(v))
+        }
+    if (!ctorRoot.sameAs(goalRoot) || !shapeOk || goalArgs.length != paramVars.length) {
+      None
+    } else {
+      val env: Map[Type.Var, Type] =
+        paramVars.iterator.zip(goalArgs.iterator).map { case (b, t) =>
+          (b: Type.Var) -> t
+        }.toMap
+      Some(ctor.args.map(arg => Type.substituteVar(arg, env)))
+    }
+  }
+
+  private def instantiatedCtorsForGoal(
+      ctx: Ctx,
+      goal: Type
+  ): Vector[(CtorSig, List[Type])] =
+    ctx.ctors.flatMap { ctor =>
+      instantiatedCtorArgsForGoal(ctor, goal).map(args => (ctor, args))
+    }
+
+  private def constructorFamilies(
+      ctx: Ctx
+  ): Map[Type.TyConst, Vector[CtorSig]] =
+    ctx.ctors.foldLeft(Map.empty[Type.TyConst, Vector[CtorSig]]) { (acc, ctor) =>
+      Type.rootConst(ctor.result) match {
+        case Some(root) =>
+          val prev = acc.getOrElse(root, Vector.empty)
+          acc.updated(root, prev :+ ctor)
+        case None =>
+          acc
+      }
+    }
+
+  private def genAppliedTypeFromCtor(
+      sig: TypeCtorSig,
+      ctx: Ctx,
+      depth: Int
+  ): Option[Gen[Type]] =
+    requiredArgKinds(sig.kind, Kind.Type).flatMap {
+      case Nil =>
+        Some(Gen.const(sig.tpe))
+      case needed =>
+        if (depth <= 0) None
+        else
+          needed
+            .traverse(k => genTypeOfKind(k, ctx, depth - 1))
+            .map { argGens =>
+              argGens.map(Gen.lzy(_)).sequence.map(args =>
+                Type.applyAll(sig.tpe, args)
+              )
+            }
+    }
 
   private final case class KindedTypeVar(tpe: Type.TyVar, kind: Kind)
 
@@ -384,29 +542,30 @@ object WellTypedGen {
     oneOfGenerators(candidates)
   }
 
-  private def genFieldType(ctx: Ctx): Gen[Type.TyConst] = {
-    val all = allTypeCtors(ctx).collect { case TypeCtorSig(tc, Kind.Type) => tc }
-    oneOfVector(all).getOrElse(Gen.const(Type.IntType))
-  }
+  private def genFieldType(
+      ctx: Ctx,
+      depth: Int,
+      vars: Vector[KindedTypeVar]
+  ): Gen[Type] =
+    genTypeFromVarsOfKind(Kind.Type, ctx, depth, vars)
+      .orElse(genTypeWithVars(ctx, depth, vars))
+      .getOrElse(Gen.const(Type.IntType))
 
   private def genGoalType(ctx: Ctx, depth: Int): Gen[Type] = {
-    val localMonotypes = ctx.localTypeCtors.collect {
-      case TypeCtorSig(tc, Kind.Type) => tc
-    }
-    val atoms = (baseTypes ++ localMonotypes).distinct
-    val atomGen = oneOfVector(atoms).getOrElse(Gen.const(Type.IntType))
-
-    if (depth <= 0) atomGen
+    val atom = oneOfVector(baseTypes).map(_.map(tc => (tc: Type)))
+      .getOrElse(Gen.const(Type.IntType))
+    val mono = genTypeOfKind(Kind.Type, ctx, depth).getOrElse(atom)
+    if (depth <= 0) mono
     else {
+      val subDepth = (depth - 1).max(0)
       val fnType =
         for {
-          arity <- Gen.choose(1, 2)
-          args <- Gen.listOfN(arity, Gen.lzy(genGoalType(ctx, depth - 1)))
-          res <- Gen.lzy(genGoalType(ctx, depth - 1))
+          arity <- Gen.frequency((4, Gen.const(1)), (2, Gen.const(2)))
+          args <- Gen.listOfN(arity, Gen.lzy(genGoalType(ctx, subDepth)))
+          res <- Gen.lzy(genGoalType(ctx, subDepth))
           nel = NonEmptyList.fromListUnsafe(args)
         } yield Type.Fun(nel, res)
-
-      Gen.frequency((7, atomGen), (3, fnType))
+      weightedOneOf(Vector((5, mono), (3, fnType))).getOrElse(mono)
     }
   }
 
@@ -447,6 +606,33 @@ object WellTypedGen {
   ): Option[Gen[Type]] =
     genTypeOfKind(Kind.Type, ctx, depth, vars)
 
+  private def genTypeParams(
+      ctx: Ctx,
+      maxCount: Int
+  ): Gen[List[(Type.Var.Bound, Kind)]] =
+    if (maxCount <= 0) Gen.const(Nil)
+    else {
+      val kindGen =
+        oneOfVector(kindsIn(ctx).toList.toVector).getOrElse(Gen.const(Kind.Type))
+      val countGen =
+        if (maxCount == 1)
+          Gen.frequency((2, Gen.const(0)), (4, Gen.const(1)))
+        else
+          Gen.frequency((2, Gen.const(0)), (4, Gen.const(1)), (2, Gen.const(2)))
+
+      for {
+        count0 <- countGen
+        count = count0.min(maxCount).max(0)
+        names <- Gen.pick(count, quantVarPool).map(_.toList.sorted)
+        kinds <- Gen.listOfN(
+          count,
+          Gen.frequency((6, Gen.const(Kind.Type)), (2, kindGen))
+        )
+      } yield names.zip(kinds).map { case (n, k) =>
+        (Type.Var.Bound(n), k)
+      }
+    }
+
   private def genLiteralFor(goal: Type.TyConst): Option[Gen[Declaration.NonBinding]] =
     if (goal.sameAs(Type.IntType)) {
       Some(Gen.choose(-20, 20).map(n => Declaration.Literal(Lit.Integer(n.toLong))))
@@ -479,17 +665,19 @@ object WellTypedGen {
 
   private def genCtorIntro(
       ctx: Ctx,
-      goal: Type.TyConst,
+      goal: Type,
       depth: Int,
       cfg: Config
   ): Option[Gen[Declaration.NonBinding]] = {
-    val candidates = ctx.ctors.filter(_.result.sameAs(goal)).toVector
+    val argDepth = (depth - 1).max(0)
+    val candidates = instantiatedCtorsForGoal(ctx, goal)
     val ctorExprs = candidates.flatMap { ctor =>
-      ctor.args
-        .traverse(arg => genExpr(ctx, arg, depth - 1, cfg))
+      val (sig, args) = ctor
+      args
+        .traverse(arg => genExpr(ctx, arg, argDepth, cfg))
         .map { argExprGens =>
           argExprGens.map(Gen.lzy(_)).sequence.map { args =>
-            val fn = Declaration.Var(ctor.cons)
+            val fn = Declaration.Var(sig.cons)
             NonEmptyList.fromList(args) match {
               case None      => fn
               case Some(nel) =>
@@ -524,48 +712,119 @@ object WellTypedGen {
     }
   }
 
-  private def genBoolMatch(
+  private def genLambdaApply(
       ctx: Ctx,
       goal: Type,
       depth: Int,
       cfg: Config
   ): Option[Gen[Declaration.NonBinding]] =
-    for {
-      scrutineeGen <- genExpr(ctx, Type.BoolType, depth - 1, cfg)
-      onTrueGen <- genExpr(ctx, goal, depth - 1, cfg)
-      onFalseGen <- genExpr(ctx, goal, depth - 1, cfg)
-    } yield {
-      for {
-        scrutinee <- Gen.lzy(scrutineeGen)
-        onTrue <- Gen.lzy(onTrueGen)
-        onFalse <- Gen.lzy(onFalseGen)
-        useGuard <- Gen.oneOf(true, false)
-        guard <- {
-          val guardExpr =
-            if (useGuard && cfg.allowGuards)
-              genExpr(ctx, Type.BoolType, depth - 1, cfg.copy(allowMatch = false))
-            else None
-          guardExpr match {
-            case Some(g) => Gen.lzy(g).map(Some(_))
-            case None    => Gen.const(None)
+    if (depth <= 1) None
+    else {
+      val bodyDepth = (depth - 1).max(0)
+      val argDepth = (depth - 2).max(0)
+      Some {
+        for {
+          argType <- genGoalType(ctx, argDepth)
+          argName = Identifier.Name(s"lam_arg_d${depth.max(0)}")
+          withArg = ctx.copy(vals = ctx.vals :+ ValSig(argName, argType))
+          body <- Gen.lzy(
+            requireGen(
+              s"lambda-apply body for goal: $goal",
+              genExpr(withArg, goal, bodyDepth, cfg.copy(allowMatch = false))
+            )
+          )
+          arg <- Gen.lzy(
+            requireGen(
+              s"lambda-apply arg for type: $argType",
+              genExpr(ctx, argType, argDepth, cfg.copy(allowMatch = false))
+            )
+          )
+          lambda = Declaration.Lambda(NonEmptyList.one(Pattern.Var(argName)), body)
+        } yield Declaration.Apply(
+          lambda,
+          NonEmptyList.one(arg),
+          Declaration.ApplyKind.Parens
+        )
+      }
+    }
+
+  private def genTotalMatch(
+      ctx: Ctx,
+      goal: Type,
+      depth: Int,
+      cfg: Config
+  ): Option[Gen[Declaration.NonBinding]] =
+    if (depth <= 1) None
+    else {
+      val scrutDepth = (depth - 1).max(0)
+      val branchDepth = (depth - 2).max(0)
+      val innerCfg = cfg.copy(allowMatch = false, allowGuards = false)
+      val families0 = constructorFamilies(ctx).valuesIterator.toVector
+      val families =
+        families0.filter(_.lengthCompare(1) > 0) match {
+          case nonEmpty if nonEmpty.nonEmpty => nonEmpty
+          case _                             => families0
+        }
+
+      val candidates = families.flatMap { family =>
+        family.headOption.flatMap(h => Type.rootConst(h.result)).toVector.flatMap { root =>
+          allTypeCtors(ctx).find(_.tpe.sameAs(root)).toVector.flatMap { sig =>
+            genAppliedTypeFromCtor(sig, ctx, scrutDepth).toVector.map {
+              _.flatMap { scrutineeType =>
+                val instantiated = family.map { ctor =>
+                  (
+                    ctor,
+                    requireSome(
+                      s"constructor args for ${ctor.cons} at $scrutineeType",
+                      instantiatedCtorArgsForGoal(ctor, scrutineeType)
+                    )
+                  )
+                }
+                val branches = instantiated.toList.map { case (ctor, argTypes) =>
+                  val argNames = argTypes.zipWithIndex.map { case (_, idx) =>
+                    Identifier.Name(
+                      s"m_${ctor.cons.asString.toLowerCase}_${idx}_d${depth.max(0)}"
+                    )
+                  }
+                  val pattern = Pattern.PositionalStruct(
+                    Pattern.StructKind.Named(
+                      ctor.cons,
+                      Pattern.StructKind.Style.TupleLike
+                    ),
+                    argNames.map(Pattern.Var(_))
+                  )
+                  val branchCtx = ctx.copy(vals =
+                    ctx.vals ++ argNames.zip(argTypes).map { case (n, tpe) =>
+                      ValSig(n, tpe)
+                    }
+                  )
+                  Gen.lzy(
+                    requireGen(
+                      s"match branch for ${ctor.cons} => $goal",
+                      genExpr(branchCtx, goal, branchDepth, innerCfg)
+                    )
+                  ).map(body => Declaration.MatchBranch(pattern, None, OptIndent.SameLine(body)))
+                }
+                for {
+                  scrutinee <- Gen.lzy(
+                    requireGen(
+                      s"match scrutinee for $scrutineeType",
+                      genExpr(ctx, scrutineeType, scrutDepth, innerCfg)
+                    )
+                  )
+                  branchList <- branches.sequence
+                  cases = NonEmptyList.fromListUnsafe(branchList)
+                } yield Declaration.Match(
+                  RecursionKind.NonRecursive,
+                  scrutinee,
+                  OptIndent.SameLine(cases)
+                )
+              }
+            }
           }
         }
-        case1 = Declaration.MatchBranch(
-          constructorPattern(predefTrue),
-          guard,
-          OptIndent.SameLine(onTrue)
-        )
-        case2 = Declaration.MatchBranch(
-          guard.fold(constructorPattern(predefFalse))(_ => Pattern.WildCard),
-          None,
-          OptIndent.SameLine(onFalse)
-        )
-        cases = NonEmptyList(case1, case2 :: Nil)
-      } yield Declaration.Match(
-        RecursionKind.NonRecursive,
-        scrutinee,
-        OptIndent.SameLine(cases)
-      )
+      }
+      oneOfGenerators(candidates)
     }
 
   private def genIntro(
@@ -574,14 +833,15 @@ object WellTypedGen {
       depth: Int,
       cfg: Config
   ): Option[Gen[Declaration.NonBinding]] =
+    val exact = ctx.vals.filter(v => v.sigma.sameAs(goal)).toVector
+    val byExact = oneOfVector(exact).map(_.map(v => Declaration.Var(v.name)))
     goal match {
       case Type.Fun(args, res) =>
         genLambda(ctx, args, res, depth, cfg)
       case tc: Type.TyConst =>
-        genLiteralFor(tc).orElse(genCtorIntro(ctx, tc, depth, cfg))
+        genLiteralFor(tc).orElse(genCtorIntro(ctx, goal, depth, cfg)).orElse(byExact)
       case _ =>
-        val exact = ctx.vals.filter(v => v.sigma.sameAs(goal)).toVector
-        oneOfVector(exact).map(_.map(v => Declaration.Var(v.name)))
+        genCtorIntro(ctx, goal, depth, cfg).orElse(byExact)
     }
 
   private def genExpr(
@@ -593,36 +853,45 @@ object WellTypedGen {
     val intro = genIntro(ctx, goal, depth, cfg)
     val byVar = oneOfVector(ctx.vals.filter(_.sigma.sameAs(goal)).toVector)
       .map(_.map(v => Declaration.Var(v.name)))
-    val byApplyCandidates = ctx.vals.collect {
-      case v @ ValSig(_, Type.Fun(args, res)) if res.sameAs(goal) =>
-        (v, args)
-    }.toVector.flatMap { case (fn, args) =>
-      args.toList
-        .traverse(t => genExpr(ctx, t, depth - 1, cfg))
-        .map { argExprGens =>
-          argExprGens.map(Gen.lzy(_)).sequence.map(argv =>
-            Declaration.Apply(
-              Declaration.Var(fn.name),
-              NonEmptyList.fromListUnsafe(argv),
-              Declaration.ApplyKind.Parens
+    val applyArgDepth = (depth - 2).max(0)
+    val byApplyCandidates = ctx.vals.toVector.flatMap { fn =>
+      instantiatedFnArgsForGoal(fn.sigma, goal).toVector.flatMap { args =>
+        args
+          .traverse(t => genExpr(ctx, t, applyArgDepth, cfg))
+          .map { argExprGens =>
+            argExprGens.map(Gen.lzy(_)).sequence.map(argv =>
+              Declaration.Apply(
+                Declaration.Var(fn.name),
+                NonEmptyList.fromListUnsafe(argv),
+                Declaration.ApplyKind.Parens
+              )
             )
-          )
-        }
+          }
+      }
     }
     val byApply = oneOfGenerators(byApplyCandidates)
+    val byLambdaApply =
+      if (depth > 1) genLambdaApply(ctx, goal, depth, cfg)
+      else None
     val byMatch =
       if (cfg.allowMatch && !isFunctionType(goal) && depth > 1)
-        genBoolMatch(ctx, goal, depth - 1, cfg)
+        genTotalMatch(ctx, goal, depth - 1, cfg)
       else None
 
     if (depth <= 0) {
       oneOfGenerators(intro.toVector ++ byVar.toVector)
     } else {
+      val introW = if (depth >= 3) 3 else 5
+      val varW = if (depth >= 3) 1 else 3
+      val applyW = if (depth >= 3) 4 else 2
+      val lambdaApplyW = if (depth >= 3) 3 else 1
+      val matchW = if (depth >= 4) 2 else 1
       val choices = Vector.newBuilder[(Int, Gen[Declaration.NonBinding])]
-      intro.foreach(g => choices += ((4, Gen.lzy(g))))
-      byVar.foreach(g => choices += ((2, g)))
-      byApply.foreach(g => choices += ((2, g)))
-      byMatch.foreach(g => choices += ((1, g)))
+      intro.foreach(g => choices += ((introW, Gen.lzy(g))))
+      byVar.foreach(g => choices += ((varW, g)))
+      byApply.foreach(g => choices += ((applyW, g)))
+      byLambdaApply.foreach(g => choices += ((lambdaApplyW, g)))
+      byMatch.foreach(g => choices += ((matchW, g)))
       weightedOneOf(choices.result())
     }
   }
@@ -737,12 +1006,16 @@ object WellTypedGen {
     } yield Step(stmt, next, None)
   }
 
-  private def genStructStep(ctx: Ctx): Gen[Step] = {
+  private def genStructStep(ctx: Ctx, cfg: Config): Gen[Step] = {
     val (cons, ctx1) = freshConstructor(ctx, "WtStruct")
-    val resultType = Type.TyConst(Type.Const.Defined(ctx.packageName, TypeName(cons)))
+    val root = Type.TyConst(Type.Const.Defined(ctx.packageName, TypeName(cons)))
     for {
+      typeParams <- genTypeParams(ctx1, 2)
+      localVars = typeParams.map { case (b, k) =>
+        KindedTypeVar(Type.TyVar(b), k)
+      }.toVector
       argc <- Gen.choose(0, 2)
-      args <- Gen.listOfN(argc, genFieldType(ctx1))
+      args <- Gen.listOfN(argc, genFieldType(ctx1, cfg.maxTypeDepth, localVars))
       stmtArgs: List[Statement.ConstructorArg] =
         args.zipWithIndex.map {
           case (tpe, idx) =>
@@ -753,13 +1026,16 @@ object WellTypedGen {
               region = emptyRegion
             )
         }
-      stmt = Statement.Struct(cons, None, stmtArgs)(emptyRegion)
-      ctor = CtorSig(ctx.packageName, cons, args, resultType)
+      stmt = Statement.Struct(cons, typeParamRefs(typeParams), stmtArgs)(emptyRegion)
+      resultType = resultTypeFor(root, typeParams)
+      ctor = CtorSig(ctx.packageName, cons, typeParams, args, resultType)
       next = ctx1.copy(
         ctors = ctx1.ctors :+ ctor,
         vals = ctx1.vals :+ ValSig(cons, ctorType(ctor)),
         localTypeCtors =
-          dedupeTypeCtors(ctx1.localTypeCtors :+ TypeCtorSig(resultType, Kind.Type))
+          dedupeTypeCtors(
+            ctx1.localTypeCtors :+ TypeCtorSig(root, kindFromParams(typeParams))
+          )
       )
     } yield Step(stmt, next, None)
   }
@@ -784,17 +1060,21 @@ object WellTypedGen {
     loop(count, Nil, ctx)
   }
 
-  private def genEnumStep(ctx: Ctx): Gen[Step] = {
+  private def genEnumStep(ctx: Ctx, cfg: Config): Gen[Step] = {
     val (enumName, ctx1) = freshConstructor(ctx, "WtEnum")
-    val resultType = Type.TyConst(Type.Const.Defined(ctx.packageName, TypeName(enumName)))
+    val root = Type.TyConst(Type.Const.Defined(ctx.packageName, TypeName(enumName)))
     for {
+      typeParams <- genTypeParams(ctx1, 2)
+      localVars = typeParams.map { case (b, k) =>
+        KindedTypeVar(Type.TyVar(b), k)
+      }.toVector
       branchCount <- Gen.choose(2, 3)
       allocated = allocateConstructors(ctx1, branchCount, s"${enumName.asString}C")
       (constructors, ctx2) = allocated
       branchArgs <- constructors.traverse { _ =>
         for {
           argc <- Gen.choose(0, 1)
-          args <- Gen.listOfN(argc, genFieldType(ctx2))
+          args <- Gen.listOfN(argc, genFieldType(ctx2, cfg.maxTypeDepth, localVars))
         } yield args
       }
       branches = constructors.zip(branchArgs).map { case (cons, args) =>
@@ -814,23 +1094,26 @@ object WellTypedGen {
       }
       stmt = Statement.Enum(
         name = enumName,
-        typeArgs = None,
+        typeArgs = typeParamRefs(typeParams),
         items = OptIndent.SameLine(NonEmptyList.fromListUnsafe(branches))
       )(emptyRegion)
+      resultType = resultTypeFor(root, typeParams)
       sigs = constructors.zip(branchArgs).map { case (cons, args) =>
-        CtorSig(ctx.packageName, cons, args, resultType)
+        CtorSig(ctx.packageName, cons, typeParams, args, resultType)
       }
       next = ctx2.copy(
         ctors = ctx2.ctors ++ sigs,
         vals = ctx2.vals ++ sigs.map(s => ValSig(s.cons, ctorType(s))),
         localTypeCtors =
-          dedupeTypeCtors(ctx2.localTypeCtors :+ TypeCtorSig(resultType, Kind.Type))
+          dedupeTypeCtors(
+            ctx2.localTypeCtors :+ TypeCtorSig(root, kindFromParams(typeParams))
+          )
       )
     } yield Step(stmt, next, None)
   }
 
-  private def genTypeDefStep(ctx: Ctx): Gen[Step] =
-    Gen.oneOf(genStructStep(ctx), genEnumStep(ctx))
+  private def genTypeDefStep(ctx: Ctx, cfg: Config): Gen[Step] =
+    Gen.oneOf(genStructStep(ctx, cfg), genEnumStep(ctx, cfg))
 
   private def genNextStep(
       ctx: Ctx,
@@ -846,7 +1129,7 @@ object WellTypedGen {
         steps += ((2, genExternalDefStep(ctx, cfg)))
       }
       if (cfg.allowTypeDefs) {
-        steps += ((2, genTypeDefStep(ctx)))
+        steps += ((2, genTypeDefStep(ctx, cfg)))
       }
       Gen.frequency(steps.result()*)
     }
