@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5c8107ff*
+0.0.0+1-1ee00fba*
 </div>
 </div>
 <div class="nav-toc">
@@ -143,7 +143,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5c8107ff*
+0.0.0+1-1ee00fba*
 </div>
 </div>
 <div class="nav-toc">
@@ -300,12 +300,26 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 )
 </code></pre>
 <p>This usually replaces many near-duplicate structs.</p>
+<p>You can combine this with constructor defaults to remove repetitive <code>None</code> noise when building large JSON objects:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Step(
+  uses: Option[String] = None,
+  name: Option[String] = None,
+  run: Option[String] = None,
+  env: Option[StepEnv] = None,
+)
+
+checkout = Step { uses: Some(&quot;actions/checkout@v4&quot;) }
+run_tests = Step { name: Some(&quot;run tests&quot;), run: Some(&quot;sbt test&quot;) }
+</code></pre>
+<p>This is the default-arguments pattern for JSON records with many optional fields: define one struct with optional fields defaulted to <code>None</code>, then construct values with record syntax and set only the fields you need.</p>
+<p>This pattern is especially useful for JSON-heavy models (like CI workflows) where many fields are optional most of the time. It keeps definitions compact, reduces copy/paste variants, and makes it safer to add new optional fields later without rewriting every call site.</p>
 <h2><a href="#patterns-that-worked-well-for-github-workflow-modeling" name="patterns-that-worked-well-for-github-workflow-modeling" class="anchor"><span class="anchor-link"></span></a>Patterns that worked well for GitHub workflow modeling</h2>
 <ul>
   <li>Put shared types/constants/helpers in a common module (for example <code>Util.bosatsu</code>)</li>
   <li>Use constants for repeated literals (runner names, action versions, <code>17</code>, step labels)</li>
   <li>Use helper functions for multi-line shell scripts (for example <code>cat_lines</code>)</li>
   <li>Prefer one record with <code>Option[...]</code> fields over many one-off variants</li>
+  <li>Add <code>= None</code> defaults on frequently-optional fields, then construct with  record syntax (<code>Struct { field: Some(x) }</code>) to keep values concise</li>
   <li>Use backticks only when a field is not a valid bindable name, such as <code>`runs-on`</code> and <code>`timeout-minutes`</code></li>
 </ul>
 <h2><a href="#practical-gotchas" name="practical-gotchas" class="anchor"><span class="anchor-link"></span></a>Practical gotchas</h2>
@@ -413,7 +427,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5c8107ff-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-1ee00fba-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

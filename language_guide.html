@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5c8107ff*
+0.0.0+1-1ee00fba*
 </div>
 </div>
 <div class="nav-toc">
@@ -143,7 +143,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5c8107ff*
+0.0.0+1-1ee00fba*
 </div>
 </div>
 <div class="nav-toc">
@@ -550,6 +550,12 @@ my_file_rec = File {
 }
 </code></pre>
 <p>You can only use one syntax: all unnamed tuple-like, or all names dict-like.</p>
+<p>Struct and enum constructors may declare default values on fields:</p>
+<pre><code>struct Rec(a: Int, b: Int = 10)
+</code></pre>
+<p>Defaults are only applied when using record syntax (<code>Rec { ... }</code>), and only for omitted fields. Positional constructor calls (<code>Rec(...)</code>) do not fill defaults.</p>
+<p>Two rules apply to constructor defaults: 1. A field with a default must have an explicit type annotation. 1. A default expression may only reference imports, or top-level values defined earlier in the same file (including earlier defaults). It may not reference constructor parameters, including earlier parameters.</p>
+<p>If all required fields are defaulted, <code>Rec {}</code> is valid and means &ldquo;construct using defaults.&rdquo; This is different from <code>Rec</code> by itself: bare <code>Rec</code> refers to the constructor value (and only behaves like a zero-argument construction for truly zero-argument constructors).</p>
 <p>Like Rust, if a value is already in scope matching a field name, we can omit the colon:</p>
 <pre><code>name = &quot;readme.txt&quot;
 size = 10240
@@ -911,7 +917,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5c8107ff-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-1ee00fba-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
