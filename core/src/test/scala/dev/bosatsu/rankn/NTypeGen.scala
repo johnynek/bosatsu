@@ -254,7 +254,7 @@ object NTypeGen {
       val genApply = Gen
         .zip(recurse, genDepth(d - 1, genC))
         .map { case (a, b) =>
-          Type.apply1(a, b).asInstanceOf[Type.Rho]
+          Type.apply1Rho(a, b)
         }
 
       Gen.frequency((3, root), (2, genApply), (1, genExists(d, genC)))

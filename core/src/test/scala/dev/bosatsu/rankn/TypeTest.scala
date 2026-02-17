@@ -54,6 +54,15 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("Type.apply1Rho agrees with Type.apply1 on rho inputs") {
+    val genRho =
+      Gen.choose(0, 3).flatMap(d => NTypeGen.genTypeRho(d, Some(NTypeGen.genConst)))
+
+    forAll(genRho, NTypeGen.genDepth03) { (fn, arg) =>
+      assertEquals(Type.apply1Rho(fn, arg), Type.apply1(fn, arg))
+    }
+  }
+
   private val genTauLeafOrApply: Gen[Type] =
     genTau.suchThat {
       case _: (Type.Leaf | Type.TyApply) => true
