@@ -217,17 +217,16 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("equal Blake3 hashes imply sameAs") {
+  test("sameAs if and only if Blake3 hashes are equal") {
     val g = NTypeGen.genDepth03
     forAll(g, g) { (a, b) =>
       val ah = Hashable.hash(Algo.blake3Algo, a).hash
       val bh = Hashable.hash(Algo.blake3Algo, b).hash
-      if (ah.hex == bh.hex) {
-        assert(
-          a.sameAs(b),
-          s"expected sameAs for equal hashes: ${Type.typeParser.render(a)} and ${Type.typeParser.render(b)}"
-        )
-      }
+      assertEquals(
+        a.sameAs(b),
+        ah.hex == bh.hex,
+        s"sameAs/hash mismatch for ${Type.typeParser.render(a)} and ${Type.typeParser.render(b)} with hashes ${ah.hex} / ${bh.hex}"
+      )
     }
   }
 

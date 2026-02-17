@@ -68,6 +68,24 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def defaultBindingNameAt(
+      code: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): String =
+    defaultBindingAt(code, constructorName, paramIndex).asString
+
+  private def assertSameDefaultBindingName(
+      leftCode: String,
+      rightCode: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): Unit = {
+    val left = defaultBindingNameAt(leftCode, constructorName, paramIndex)
+    val right = defaultBindingNameAt(rightCode, constructorName, paramIndex)
+    assertEquals(left, right)
+  }
+
   private def stripWrapperExpr(
       expr: Expr[Declaration]
   ): Expr[Declaration] =
@@ -564,12 +582,141 @@ struct Foo[a](opt: Option[a] = None)
 struct Foo[b](opt: Option[b] = None)
 """
 
-    val fromA =
-      defaultBindingAt(codeA, Identifier.Constructor("Foo"), 0).asString
-    val fromB =
-      defaultBindingAt(codeB, Identifier.Constructor("Foo"), 0).asString
+    assertSameDefaultBindingName(codeA, codeB, Identifier.Constructor("Foo"), 0)
+  }
 
-    assertEquals(fromA, fromB)
+  test("generic default helper naming is stable across many alpha renames") {
+    val names = List("a", "b", "with_t", "x", "value", "qq")
+    val ctor = Identifier.Constructor("Foo")
+    val mkCode = (tv: String) => s"""#
+struct Foo[$tv](opt: Option[$tv] = None)
+"""
+
+    val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
+    names.foreach { tv =>
+      val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
+      assertEquals(next, base, s"type parameter rename changed default hash: $tv")
+    }
+  }
+
+  test("generic default helper naming is stable for multiple type parameters") {
+    val codeAB = """#
+struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
+"""
+    val codeXY = """#
+struct Foo[x, y](pair: (Option[x], Option[y]) = (None, None))
+"""
+
+    assertSameDefaultBindingName(codeAB, codeXY, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable in nested function types") {
+    val codeA = """#
+struct Foo[a](fn: a -> Option[a] = x -> None)
+"""
+    val codeT = """#
+struct Foo[t](fn: t -> Option[t] = y -> None)
+"""
+
+    assertSameDefaultBindingName(codeA, codeT, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming ignores explicit vs implicit * kind") {
+    val codeImplicit = """#
+struct Foo[a](opt: Option[a] = None)
+"""
+    val codeExplicit = """#
+struct Foo[a: *](opt: Option[a] = None)
+"""
+
+    assertSameDefaultBindingName(
+      codeImplicit,
+      codeExplicit,
+      Identifier.Constructor("Foo"),
+      0
+    )
+  }
+
+  test("generic default helper naming is stable for equivalent type-arg parenthesization") {
+    val codeFlat = """#
+struct Foo[a](opt: Option[Option[a]] = None)
+"""
+    val codeParen = """#
+struct Foo[a](opt: Option[(Option[a])] = None)
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable for equivalent function parenthesization") {
+    val codeFlat = """#
+struct Foo[a](fn: a -> Option[a] -> Option[a] = x -> y -> None)
+"""
+    val codeParen = """#
+struct Foo[a](fn: a -> (Option[a] -> Option[a]) = x -> y -> None)
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable for equivalent tuple parenthesization") {
+    val codeFlat = """#
+struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
+"""
+    val codeParen = """#
+struct Foo[a, b](pair: ((Option[a]), (Option[b])) = (None, None))
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable under forall binder renaming") {
+    val codeA = """#
+struct Foo[a](fn: forall t. t -> Option[a] = x -> None)
+"""
+    val codeB = """#
+struct Foo[a](fn: forall z. z -> Option[a] = y -> None)
+"""
+
+    assertSameDefaultBindingName(codeA, codeB, Identifier.Constructor("Foo"), 0)
+  }
+
+  test(
+    "enum branch existential default helper naming is stable across branch type-parameter renaming"
+  ) {
+    val codeB = """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](opt: Option[b] = None, fn: b -> a)
+"""
+    val codeZ = """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[z](opt: Option[z] = None, fn: z -> a)
+"""
+
+    assertSameDefaultBindingName(
+      codeB,
+      codeZ,
+      Identifier.Constructor("Mapped"),
+      0
+    )
+  }
+
+  test("enum branch existential default helper naming is stable across many renames") {
+    val names = List("b", "x", "with_t", "inner", "elem")
+    val ctor = Identifier.Constructor("Mapped")
+    def mkCode(tv: String): String = s"""#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[$tv](opt: Option[$tv] = None, fn: $tv -> a)
+"""
+
+    val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
+    names.foreach { tv =>
+      val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
+      assertEquals(next, base, s"branch type parameter rename changed default hash: $tv")
+    }
   }
 
   test("generic struct defaults close non-canonical type variable names") {
