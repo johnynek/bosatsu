@@ -85,6 +85,7 @@ object WellTypedGen {
   )
 
   final case class ValSig(name: Identifier, sigma: Type)
+  final case class TypeCtorSig(tpe: Type.TyConst, kind: Kind)
   final case class CtorSig(
       pack: PackageName,
       cons: Identifier.Constructor,
@@ -95,7 +96,7 @@ object WellTypedGen {
       packageName: PackageName,
       vals: Vector[ValSig],
       ctors: Vector[CtorSig],
-      localTypeConsts: Vector[Type.TyConst],
+      localTypeCtors: Vector[TypeCtorSig],
       usedValueNames: Set[Identifier.Bindable],
       usedConstructors: Set[Identifier.Constructor],
       nextValueId: Int,
@@ -155,7 +156,7 @@ object WellTypedGen {
       packageName = pn,
       vals = ctorVals,
       ctors = boolCtors,
-      localTypeConsts = Vector.empty,
+      localTypeCtors = Vector.empty,
       usedValueNames = Set.empty,
       usedConstructors = Set(predefTrue, predefFalse),
       nextValueId = 0,
@@ -255,15 +256,147 @@ object WellTypedGen {
         )
       )
 
+  private final case class KindedTypeVar(tpe: Type.TyVar, kind: Kind)
+
+  private def dedupeTypeCtors(items: Vector[TypeCtorSig]): Vector[TypeCtorSig] =
+    items
+      .foldLeft((Set.empty[Type.TyConst], Vector.empty[TypeCtorSig])) {
+        case ((seen, acc), item) =>
+          if (seen(item.tpe)) (seen, acc)
+          else (seen + item.tpe, acc :+ item)
+      }
+      ._2
+
+  private val builtInTypeCtors: Vector[TypeCtorSig] = {
+    val scalars = baseTypes.map(TypeCtorSig(_, Kind.Type))
+    val containers = Vector(
+      TypeCtorSig(Type.OptionType, Kind(Kind.Type.co)),
+      TypeCtorSig(Type.ListType, Kind(Kind.Type.co)),
+      TypeCtorSig(Type.DictType, Kind(Kind.Type.in, Kind.Type.co))
+    )
+    val fnKinds = Type.FnType.FnKinds.iterator.take(2).map { case (tpe, kind) =>
+      TypeCtorSig(tpe, kind)
+    }.toVector
+    val tupleKinds = Type.Tuple.Kinds.iterator.take(3).map { case (tpe, kind) =>
+      TypeCtorSig(tpe, kind)
+    }.toVector
+    dedupeTypeCtors(scalars ++ containers ++ fnKinds ++ tupleKinds)
+  }
+
+  private def allTypeCtors(ctx: Ctx): Vector[TypeCtorSig] =
+    dedupeTypeCtors(builtInTypeCtors ++ ctx.localTypeCtors)
+
+  private def kindsIn(ctx: Ctx): NonEmptyList[Kind] = {
+    val allKinds = (Kind.Type +: allTypeCtors(ctx).map(_.kind)).distinct
+    NonEmptyList.fromListUnsafe(allKinds.toList)
+  }
+
+  private def oneOfVector[A](values: Vector[A]): Option[Gen[A]] =
+    NonEmptyList
+      .fromList(values.toList)
+      .map(nel => Gen.oneOf(nel.toList))
+
+  private def oneOfGenerators[A](values: Vector[Gen[A]]): Option[Gen[A]] =
+    oneOfVector(values).map(_.flatMap(identity))
+
+  private def weightedOneOf[A](values: Vector[(Int, Gen[A])]): Option[Gen[A]] =
+    NonEmptyList
+      .fromList(values.toList)
+      .map(nel => Gen.frequency(nel.toList*))
+
+  @annotation.tailrec
+  private def requiredArgKinds(
+      from: Kind,
+      to: Kind,
+      accRev: List[Kind] = Nil
+  ): Option[List[Kind]] =
+    if (from == to) Some(accRev.reverse)
+    else {
+      from match {
+        case Kind.Cons(Kind.Arg(_, argKind), next) =>
+          requiredArgKinds(next, to, argKind :: accRev)
+        case Kind.Type =>
+          None
+      }
+    }
+
+  private def typeAtoms(
+      ctx: Ctx,
+      localVars: Vector[KindedTypeVar]
+  ): Vector[(Type, Kind)] = {
+    val varAtoms = localVars.map(v => ((v.tpe: Type), v.kind))
+    val constAtoms = allTypeCtors(ctx).map(c => ((c.tpe: Type), c.kind))
+    (varAtoms ++ constAtoms).distinct
+  }
+
+  private def genTypeFromVarsOfKind(
+      kind: Kind,
+      ctx: Ctx,
+      depth: Int,
+      localVars: Vector[KindedTypeVar]
+  ): Option[Gen[Type]] = {
+    val candidates = localVars.flatMap { v =>
+      requiredArgKinds(v.kind, kind).flatMap { needed =>
+        if (needed.isEmpty) Some(Gen.const(v.tpe))
+        else if (depth <= 0) None
+        else {
+          needed
+            .traverse(k => genTypeOfKind(k, ctx, depth - 1, localVars))
+            .map { argGens =>
+              argGens.map(Gen.lzy(_)).sequence.map(args =>
+                Type.applyAll(v.tpe, args)
+              )
+            }
+        }
+      }
+    }
+    oneOfGenerators(candidates)
+  }
+
+  private def genTypeOfKind(
+      kind: Kind,
+      ctx: Ctx,
+      depth: Int
+  ): Option[Gen[Type]] =
+    genTypeOfKind(kind, ctx, depth, Vector.empty)
+
+  private def genTypeOfKind(
+      kind: Kind,
+      ctx: Ctx,
+      depth: Int,
+      localVars: Vector[KindedTypeVar]
+  ): Option[Gen[Type]] = {
+    val candidates = typeAtoms(ctx, localVars).flatMap { case (head, headKind) =>
+      requiredArgKinds(headKind, kind).flatMap { needed =>
+        if (needed.isEmpty) Some(Gen.const(head))
+        else if (depth <= 0) None
+        else {
+          needed
+            .traverse(k => genTypeOfKind(k, ctx, depth - 1, localVars))
+            .map { argGens =>
+              argGens.map(Gen.lzy(_)).sequence.map(args =>
+                Type.applyAll(head, args)
+              )
+            }
+        }
+      }
+    }
+    oneOfGenerators(candidates)
+  }
+
   private def genFieldType(ctx: Ctx): Gen[Type.TyConst] = {
-    val all = (baseTypes ++ ctx.localTypeConsts).distinct
-    Gen.oneOf(all)
+    val all = allTypeCtors(ctx).collect { case TypeCtorSig(tc, Kind.Type) => tc }
+    oneOfVector(all).getOrElse(Gen.const(Type.IntType))
   }
 
   private def genGoalType(ctx: Ctx, depth: Int): Gen[Type] = {
-    val atoms = (baseTypes ++ ctx.localTypeConsts).distinct
+    val localMonotypes = ctx.localTypeCtors.collect {
+      case TypeCtorSig(tc, Kind.Type) => tc
+    }
+    val atoms = (baseTypes ++ localMonotypes).distinct
+    val atomGen = oneOfVector(atoms).getOrElse(Gen.const(Type.IntType))
 
-    if (depth <= 0) Gen.oneOf(atoms)
+    if (depth <= 0) atomGen
     else {
       val fnType =
         for {
@@ -273,106 +406,75 @@ object WellTypedGen {
           nel = NonEmptyList.fromListUnsafe(args)
         } yield Type.Fun(nel, res)
 
-      Gen.frequency(
-        (7, Gen.oneOf(atoms)),
-        (3, fnType)
-      )
-    }
-  }
-
-  private def genSourceMonoType(
-      ctx: Ctx,
-      depth: Int,
-      extraAtoms: Vector[Type] = Vector.empty
-  ): Gen[Type] = {
-    val atoms = ((baseTypes ++ ctx.localTypeConsts).map(identity[Type]) ++ extraAtoms).distinct
-    if (depth <= 0) Gen.oneOf(atoms)
-    else {
-      val recurse = Gen.lzy(genSourceMonoType(ctx, depth - 1, extraAtoms))
-      val fnType =
-        for {
-          arity <- Gen.choose(1, 2)
-          args <- Gen.listOfN(arity, recurse)
-          res <- recurse
-          nel = NonEmptyList.fromListUnsafe(args)
-        } yield Type.Fun(nel, res)
-
-      val optionType = recurse.map(t => Type.TyApply(Type.OptionType, t))
-      val listType = recurse.map(t => Type.TyApply(Type.ListType, t))
-      val tupleType =
-        for {
-          arity <- Gen.choose(0, 3)
-          parts <- Gen.listOfN(arity, recurse)
-        } yield Type.Tuple(parts)
-      val dictType =
-        for {
-          k <- recurse
-          v <- recurse
-        } yield Type.TyApply(Type.TyApply(Type.DictType, k), v)
-
-      Gen.frequency(
-        (5, Gen.oneOf(atoms)),
-        (2, fnType),
-        (2, optionType),
-        (2, listType),
-        (1, tupleType),
-        (1, dictType)
-      )
+      Gen.frequency((7, atomGen), (3, fnType))
     }
   }
 
   // This is intentionally richer than `genGoalType`: it includes applied and
   // quantified types for source-level type syntax coverage.
   private def genType(ctx: Ctx, depth: Int): Gen[Type] = {
-    val mono = Gen.lzy(genSourceMonoType(ctx, depth))
+    val mono = genTypeOfKind(Kind.Type, ctx, depth).getOrElse(Gen.const(Type.IntType))
     if (depth <= 0) mono
     else {
+      val kindGen =
+        oneOfVector(kindsIn(ctx).toList.toVector).getOrElse(Gen.const(Kind.Type))
       val quantified =
         for {
-          inner <- Gen.lzy(genSourceMonoType(ctx, depth - 1))
           cnt <- Gen.choose(1, 2)
-          names <- Gen.pick(cnt, quantVarPool)
-          vars = NonEmptyList.fromListUnsafe(
-            names.toList.distinct.sorted.map(n => (Type.Var.Bound(n), Kind.Type))
+          names <- Gen.pick(cnt, quantVarPool).map(_.toList.distinct.sorted)
+          tailKinds <- Gen.listOfN((names.length - 1).max(0), kindGen)
+          bounds = NonEmptyList.fromListUnsafe(
+            names.zip(Kind.Type :: tailKinds).map { case (n, k) =>
+              (Type.Var.Bound(n), k)
+            }
           )
-        } yield Type.forAll(vars, inner)
+          localVars = bounds.toList.map { case (b, k) =>
+            KindedTypeVar(Type.TyVar(b), k)
+          }.toVector
+          inner <- genTypeFromVarsOfKind(Kind.Type, ctx, depth - 1, localVars)
+            .orElse(genTypeOfKind(Kind.Type, ctx, depth - 1, localVars))
+            .getOrElse(Gen.const(Type.IntType))
+        } yield Type.forAll(bounds, inner)
 
-      Gen.frequency(
-        (6, mono),
-        (2, quantified)
-      )
+      Gen.frequency((6, mono), (2, quantified))
     }
   }
 
   private def genTypeWithVars(
       ctx: Ctx,
       depth: Int,
-      vars: Vector[Type.TyVar]
-  ): Gen[Type] =
-    genSourceMonoType(ctx, depth, vars.map(identity[Type]))
+      vars: Vector[KindedTypeVar]
+  ): Option[Gen[Type]] =
+    genTypeOfKind(Kind.Type, ctx, depth, vars)
 
-  private def genLiteralFor(goal: Type.TyConst): Gen[Declaration.NonBinding] =
+  private def genLiteralFor(goal: Type.TyConst): Option[Gen[Declaration.NonBinding]] =
     if (goal.sameAs(Type.IntType)) {
-      Gen.choose(-20, 20).map(n => Declaration.Literal(Lit.Integer(n.toLong)))
+      Some(Gen.choose(-20, 20).map(n => Declaration.Literal(Lit.Integer(n.toLong))))
     } else if (goal.sameAs(Type.StrType)) {
-      Gen.alphaStr.map(s => Declaration.Literal(Lit.Str(s.take(8))))
+      Some(Gen.alphaStr.map(s => Declaration.Literal(Lit.Str(s.take(8)))))
     } else if (goal.sameAs(Type.CharType)) {
-      Gen
-        .oneOf(('a' to 'z').toVector)
-        .map(ch => Declaration.Literal(Lit.Chr.fromCodePoint(ch.toInt)))
+      Some(
+        Gen
+          .oneOf(('a' to 'z').toVector)
+          .map(ch => Declaration.Literal(Lit.Chr.fromCodePoint(ch.toInt)))
+      )
     } else if (goal.sameAs(Type.Float64Type)) {
-      Gen
-        .chooseNum(-10.0, 10.0)
-        .map(d => Declaration.Literal(Lit.Float64.fromDouble(d)))
+      Some(
+        Gen
+          .chooseNum(-10.0, 10.0)
+          .map(d => Declaration.Literal(Lit.Float64.fromDouble(d)))
+      )
     } else if (goal.sameAs(Type.UnitType)) {
-      Gen.const(Declaration.TupleCons(Nil))
+      Some(Gen.const(Declaration.TupleCons(Nil)))
     } else if (goal.sameAs(Type.BoolType)) {
-      Gen.oneOf(
-        Declaration.Var(predefTrue),
-        Declaration.Var(predefFalse)
+      Some(
+        Gen.oneOf(
+          Declaration.Var(predefTrue),
+          Declaration.Var(predefFalse)
+        )
       )
     } else {
-      Gen.fail
+      None
     }
 
   private def genCtorIntro(
@@ -380,23 +482,23 @@ object WellTypedGen {
       goal: Type.TyConst,
       depth: Int,
       cfg: Config
-  ): Gen[Declaration.NonBinding] = {
-    val candidates = ctx.ctors.filter(_.result.sameAs(goal))
-    if (candidates.isEmpty) Gen.fail
-    else {
-      Gen.oneOf(candidates).flatMap { ctor =>
-        ctor.args.traverse { arg =>
-          Gen.lzy(genExpr(ctx, arg, depth - 1, cfg))
-        }.map { args =>
-          val fn = Declaration.Var(ctor.cons)
-          NonEmptyList.fromList(args) match {
-            case None      => fn
-            case Some(nel) =>
-              Declaration.Apply(fn, nel, Declaration.ApplyKind.Parens)
+  ): Option[Gen[Declaration.NonBinding]] = {
+    val candidates = ctx.ctors.filter(_.result.sameAs(goal)).toVector
+    val ctorExprs = candidates.flatMap { ctor =>
+      ctor.args
+        .traverse(arg => genExpr(ctx, arg, depth - 1, cfg))
+        .map { argExprGens =>
+          argExprGens.map(Gen.lzy(_)).sequence.map { args =>
+            val fn = Declaration.Var(ctor.cons)
+            NonEmptyList.fromList(args) match {
+              case None      => fn
+              case Some(nel) =>
+                Declaration.Apply(fn, nel, Declaration.ApplyKind.Parens)
+            }
           }
         }
-      }
     }
+    oneOfGenerators(ctorExprs)
   }
 
   private def genLambda(
@@ -405,7 +507,7 @@ object WellTypedGen {
       res: Type,
       depth: Int,
       cfg: Config
-  ): Gen[Declaration.NonBinding] = {
+  ): Option[Gen[Declaration.NonBinding]] = {
     val params: List[(Identifier.Name, Type)] =
       args.toList.zipWithIndex.map { case (tpe, idx) =>
         (Identifier.Name(s"arg_${idx}_d${depth.max(0)}"), tpe)
@@ -417,8 +519,8 @@ object WellTypedGen {
       ctx.vals ++ params.map { case (name, tpe) => ValSig(name, tpe) }
     )
 
-    Gen.lzy(genExpr(withArgs, res, depth - 1, cfg)).map { body =>
-      Declaration.Lambda(argPatterns, body)
+    genExpr(withArgs, res, depth - 1, cfg).map { bodyGen =>
+      Gen.lzy(bodyGen).map(body => Declaration.Lambda(argPatterns, body))
     }
   }
 
@@ -427,50 +529,59 @@ object WellTypedGen {
       goal: Type,
       depth: Int,
       cfg: Config
-  ): Gen[Declaration.NonBinding] =
+  ): Option[Gen[Declaration.NonBinding]] =
     for {
-      scrutinee <- Gen.lzy(genExpr(ctx, Type.BoolType, depth - 1, cfg))
-      onTrue <- Gen.lzy(genExpr(ctx, goal, depth - 1, cfg))
-      onFalse <- Gen.lzy(genExpr(ctx, goal, depth - 1, cfg))
-      useGuard <- Gen.oneOf(true, false)
-      guard <- if (useGuard && cfg.allowGuards)
-        Gen
-          .lzy(genExpr(ctx, Type.BoolType, depth - 1, cfg.copy(allowMatch = false)))
-          .map(Some(_))
-      else Gen.const(None)
-      case1 = Declaration.MatchBranch(
-        constructorPattern(predefTrue),
-        guard,
-        OptIndent.SameLine(onTrue)
+      scrutineeGen <- genExpr(ctx, Type.BoolType, depth - 1, cfg)
+      onTrueGen <- genExpr(ctx, goal, depth - 1, cfg)
+      onFalseGen <- genExpr(ctx, goal, depth - 1, cfg)
+    } yield {
+      for {
+        scrutinee <- Gen.lzy(scrutineeGen)
+        onTrue <- Gen.lzy(onTrueGen)
+        onFalse <- Gen.lzy(onFalseGen)
+        useGuard <- Gen.oneOf(true, false)
+        guard <- {
+          val guardExpr =
+            if (useGuard && cfg.allowGuards)
+              genExpr(ctx, Type.BoolType, depth - 1, cfg.copy(allowMatch = false))
+            else None
+          guardExpr match {
+            case Some(g) => Gen.lzy(g).map(Some(_))
+            case None    => Gen.const(None)
+          }
+        }
+        case1 = Declaration.MatchBranch(
+          constructorPattern(predefTrue),
+          guard,
+          OptIndent.SameLine(onTrue)
+        )
+        case2 = Declaration.MatchBranch(
+          guard.fold(constructorPattern(predefFalse))(_ => Pattern.WildCard),
+          None,
+          OptIndent.SameLine(onFalse)
+        )
+        cases = NonEmptyList(case1, case2 :: Nil)
+      } yield Declaration.Match(
+        RecursionKind.NonRecursive,
+        scrutinee,
+        OptIndent.SameLine(cases)
       )
-      case2 = Declaration.MatchBranch(
-        guard.fold(constructorPattern(predefFalse))(_ => Pattern.WildCard),
-        None,
-        OptIndent.SameLine(onFalse)
-      )
-      cases = NonEmptyList(case1, case2 :: Nil)
-    } yield Declaration.Match(
-      RecursionKind.NonRecursive,
-      scrutinee,
-      OptIndent.SameLine(cases)
-    )
+    }
 
   private def genIntro(
       ctx: Ctx,
       goal: Type,
       depth: Int,
       cfg: Config
-  ): Gen[Declaration.NonBinding] =
+  ): Option[Gen[Declaration.NonBinding]] =
     goal match {
       case Type.Fun(args, res) =>
         genLambda(ctx, args, res, depth, cfg)
       case tc: Type.TyConst =>
-        if (baseTypes.exists(_.sameAs(tc))) genLiteralFor(tc)
-        else genCtorIntro(ctx, tc, depth, cfg)
+        genLiteralFor(tc).orElse(genCtorIntro(ctx, tc, depth, cfg))
       case _ =>
-        val exact = ctx.vals.filter(v => v.sigma.sameAs(goal))
-        if (exact.isEmpty) Gen.fail
-        else Gen.oneOf(exact).map(v => Declaration.Var(v.name))
+        val exact = ctx.vals.filter(v => v.sigma.sameAs(goal)).toVector
+        oneOfVector(exact).map(_.map(v => Declaration.Var(v.name)))
     }
 
   private def genExpr(
@@ -478,51 +589,59 @@ object WellTypedGen {
       goal: Type,
       depth: Int,
       cfg: Config
-  ): Gen[Declaration.NonBinding] = {
-    val intro = Gen.lzy(genIntro(ctx, goal, depth, cfg))
-
-    if (depth <= 0) intro
-    else {
-      val byVar = ctx.vals.filter(_.sigma.sameAs(goal))
-      val byApply = ctx.vals.collect {
-        case v @ ValSig(_, Type.Fun(args, res)) if res.sameAs(goal) =>
-          (v, args)
-      }
-
-      val choices = List.newBuilder[(Int, Gen[Declaration.NonBinding])]
-      choices += ((4, intro))
-
-      if (byVar.nonEmpty) {
-        choices += ((2, Gen.oneOf(byVar).map(v => Declaration.Var(v.name))))
-      }
-
-      if (byApply.nonEmpty) {
-        val appGen = for {
-          (fn, args) <- Gen.oneOf(byApply)
-          argv <- args.traverse(t =>
-            Gen.lzy(genExpr(ctx, t, depth - 1, cfg))
+  ): Option[Gen[Declaration.NonBinding]] = {
+    val intro = genIntro(ctx, goal, depth, cfg)
+    val byVar = oneOfVector(ctx.vals.filter(_.sigma.sameAs(goal)).toVector)
+      .map(_.map(v => Declaration.Var(v.name)))
+    val byApplyCandidates = ctx.vals.collect {
+      case v @ ValSig(_, Type.Fun(args, res)) if res.sameAs(goal) =>
+        (v, args)
+    }.toVector.flatMap { case (fn, args) =>
+      args.toList
+        .traverse(t => genExpr(ctx, t, depth - 1, cfg))
+        .map { argExprGens =>
+          argExprGens.map(Gen.lzy(_)).sequence.map(argv =>
+            Declaration.Apply(
+              Declaration.Var(fn.name),
+              NonEmptyList.fromListUnsafe(argv),
+              Declaration.ApplyKind.Parens
+            )
           )
-        } yield Declaration.Apply(
-          Declaration.Var(fn.name),
-          argv,
-          Declaration.ApplyKind.Parens
-        )
-        choices += ((2, appGen))
-      }
+        }
+    }
+    val byApply = oneOfGenerators(byApplyCandidates)
+    val byMatch =
+      if (cfg.allowMatch && !isFunctionType(goal) && depth > 1)
+        genBoolMatch(ctx, goal, depth - 1, cfg)
+      else None
 
-      if (cfg.allowMatch && !isFunctionType(goal) && depth > 1) {
-        choices += ((1, genBoolMatch(ctx, goal, depth - 1, cfg)))
-      }
-
-      Gen.frequency(choices.result()*)
+    if (depth <= 0) {
+      oneOfGenerators(intro.toVector ++ byVar.toVector)
+    } else {
+      val choices = Vector.newBuilder[(Int, Gen[Declaration.NonBinding])]
+      intro.foreach(g => choices += ((4, Gen.lzy(g))))
+      byVar.foreach(g => choices += ((2, g)))
+      byApply.foreach(g => choices += ((2, g)))
+      byMatch.foreach(g => choices += ((1, g)))
+      weightedOneOf(choices.result())
     }
   }
+
+  private def requireGen[A](label: String, gen: Option[Gen[A]]): Gen[A] =
+    gen.getOrElse {
+      throw new IllegalStateException(s"expected generator for: $label")
+    }
 
   private def genBindStep(ctx: Ctx, cfg: Config): Gen[Step] = {
     val (name, ctx1) = freshValueName(ctx)
     for {
       goal <- genGoalType(ctx1, cfg.maxTypeDepth)
-      expr <- genExpr(ctx1, goal, cfg.maxExprDepth, cfg)
+      expr <- Gen.lzy(
+        requireGen(
+          s"bind expression for goal: $goal",
+          genExpr(ctx1, goal, cfg.maxExprDepth, cfg)
+        )
+      )
       stmt = Statement.Bind(
         BindingStatement(Pattern.Var(name), expr, ())
       )(emptyRegion)
@@ -545,7 +664,12 @@ object WellTypedGen {
           ValSig(n, tpe)
         }
       )
-      body <- genExpr(localCtx, result, cfg.maxExprDepth, cfg)
+      body <- Gen.lzy(
+        requireGen(
+          s"def body for result type: $result",
+          genExpr(localCtx, result, cfg.maxExprDepth, cfg)
+        )
+      )
       stmt = Statement.Def(
         DefStatement(
           name = name,
@@ -563,22 +687,31 @@ object WellTypedGen {
   private def genExternalDefStep(ctx: Ctx, cfg: Config): Gen[Step] = {
     val (name, ctx1) = freshValueName(ctx, "wte")
     for {
+      kindGen <- oneOfVector(kindsIn(ctx1).toList.toVector).getOrElse(Gen.const(Kind.Type))
       varCount <- Gen.choose(1, 2)
       rawNames <- Gen.pick(varCount, quantVarPool).map(_.toList.distinct.sorted)
+      tailKinds <- Gen.listOfN((rawNames.length - 1).max(0), kindGen)
       bounds = NonEmptyList.fromListUnsafe(
-        rawNames.map(n => (Type.Var.Bound(n), Kind.Type))
+        rawNames.zip(Kind.Type :: tailKinds).map { case (n, k) =>
+          (Type.Var.Bound(n), k)
+        }
       )
-      tvs = bounds.map { case (b, _) => Type.TyVar(b) }.toList.toVector
+      tvs = bounds.toList.map { case (b, k) =>
+        KindedTypeVar(Type.TyVar(b), k)
+      }.toVector
+      argTypeGen = genTypeFromVarsOfKind(Kind.Type, ctx1, cfg.maxTypeDepth, tvs)
+        .orElse(genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs))
+        .getOrElse(Gen.const(Type.IntType))
+      firstArg <- Gen.lzy(argTypeGen)
       extraArgCount <- Gen.choose(0, 2)
-      extraArgs <- Gen.listOfN(
-        extraArgCount,
-        genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs)
-      )
-      firstArg: Type = tvs.head
+      extraArgs <- Gen.listOfN(extraArgCount, Gen.lzy(argTypeGen))
       args = firstArg :: extraArgs
+      resultBaseGen = genTypeFromVarsOfKind(Kind.Type, ctx1, cfg.maxTypeDepth, tvs)
+        .orElse(genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs))
+        .getOrElse(Gen.const(firstArg))
       resultBase <- Gen.oneOf(
         Gen.const(firstArg),
-        Gen.lzy(genTypeWithVars(ctx1, cfg.maxTypeDepth, tvs))
+        Gen.lzy(resultBaseGen)
       )
       extraSourceType <- genType(ctx1, cfg.maxTypeDepth).map(dropForAll)
       result <- Gen.oneOf(
@@ -590,8 +723,8 @@ object WellTypedGen {
       argRefs = args.zipWithIndex.map { case (tpe, idx) =>
         (Identifier.Name(s"arg$idx"): Identifier.Bindable, typeRefOf(tpe))
       }
-      typeArgsRef = Some(bounds.map { case (b, _) =>
-        (TypeRef.TypeVar(b.name), None: Option[Kind])
+      typeArgsRef = Some(bounds.map { case (b, k) =>
+        (TypeRef.TypeVar(b.name), if (k.isType) None else Some(k))
       })
       stmt = Statement.ExternalDef(
         name = name,
@@ -620,7 +753,8 @@ object WellTypedGen {
       next = ctx1.copy(
         ctors = ctx1.ctors :+ ctor,
         vals = ctx1.vals :+ ValSig(cons, ctorType(ctor)),
-        localTypeConsts = (ctx1.localTypeConsts :+ resultType).distinct
+        localTypeCtors =
+          dedupeTypeCtors(ctx1.localTypeCtors :+ TypeCtorSig(resultType, Kind.Type))
       )
     } yield Step(stmt, next, None)
   }
@@ -679,7 +813,8 @@ object WellTypedGen {
       next = ctx2.copy(
         ctors = ctx2.ctors ++ sigs,
         vals = ctx2.vals ++ sigs.map(s => ValSig(s.cons, ctorType(s))),
-        localTypeConsts = (ctx2.localTypeConsts :+ resultType).distinct
+        localTypeCtors =
+          dedupeTypeCtors(ctx2.localTypeCtors :+ TypeCtorSig(resultType, Kind.Type))
       )
     } yield Step(stmt, next, None)
   }
