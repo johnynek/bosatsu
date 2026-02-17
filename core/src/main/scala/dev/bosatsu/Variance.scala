@@ -3,7 +3,7 @@ package dev.bosatsu
 import cats.kernel.{BoundedSemilattice, Order}
 import dev.bosatsu.hashing.Hashable
 
-sealed abstract class Variance derives CanEqual {
+sealed abstract class Variance derives CanEqual, Hashable {
   import Variance._
 
   def unary_- : Variance =
@@ -82,7 +82,4 @@ object Variance {
           case Invariant => if (right == Invariant) 0 else 1
         }
     }
-
-  given Hashable[Variance] =
-    Hashable.derived
 }

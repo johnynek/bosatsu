@@ -50,9 +50,11 @@ object Identifier {
   final case class Backticked(asString: String) extends Bindable
   final case class Operator(asString: String) extends Bindable
 
+  given Hashable[Identifier] = Hashable.by(_.sourceCodeRepr)
+
   object Constructor {
     given Hashable[Constructor] =
-      Hashable.by(_.asString)
+      Hashable[Identifier].narrow[Constructor]
   }
 
   private val opPrefix = Doc.text("operator ")
@@ -60,6 +62,9 @@ object Identifier {
   object Bindable {
     implicit def bindableOrder: Order[Bindable] =
       Identifier.order
+
+    given Hashable[Bindable] =
+      Hashable[Identifier].narrow[Bindable]
   }
 
   implicit def document[A <: Identifier]: Document[A] =
