@@ -41,6 +41,9 @@ sealed abstract class Infer[+A] {
 
   def run(env: Infer.Env): RefSpace[Either[Error, A]]
 
+  final def map[B](fn: A => B): Infer[B] =
+    Infer.Impl.Mapped(this, fn)
+
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
@@ -90,8 +93,29 @@ object Infer {
   implicit val inferMonad: Monad[Infer] =
     new Monad[Infer] {
       def pure[A](a: A) = Infer.pure(a)
+      override def map[A, B](fa: Infer[A])(fn: A => B): Infer[B] =
+        fa.map(fn)
       def flatMap[A, B](fa: Infer[A])(fn: A => Infer[B]): Infer[B] =
         fa.flatMap(fn)
+      override def map2[A, B, Z](fa: Infer[A], fb: Infer[B])(
+          fn: (A, B) => Z
+      ): Infer[Z] =
+        Map2(fa, fb, fn)
+      override def ap[A, B](ff: Infer[A => B])(fa: Infer[A]): Infer[B] =
+        Map2(ff, fa, (f, a) => f(a))
+      override def product[A, B](fa: Infer[A], fb: Infer[B]): Infer[(A, B)] =
+        Map2(fa, fb, (a, b) => (a, b))
+      override def ap2[A, B, Z](ff: Infer[(A, B) => Z])(
+          fa: Infer[A],
+          fb: Infer[B]
+      ): Infer[Z] =
+        Map2(
+          ff,
+          Map2(fa, fb, (a: A, b: B) => (a, b)),
+          (f, ab) => f(ab._1, ab._2)
+        )
+      override def productR[A, B](fa: Infer[A])(fb: Infer[B]): Infer[B] =
+        Map2(fa, fb, (_, b) => b)
       def tailRecM[A, B](a: A)(fn: A => Infer[Either[A, B]]): Infer[B] =
         TailRecM(a, fn)
     }
@@ -405,6 +429,28 @@ object Infer {
         fa.run(env).flatMap {
           case Right(a)       => fn(a).run(env)
           case left @ Left(_) => RefSpace.pure(left.rightCast)
+        }
+    }
+
+    case class Mapped[A, B](fa: Infer[A], fn: A => B) extends Infer[B] {
+      def run(env: Env) =
+        fa.run(env).map {
+          case Right(a)       => Right(fn(a))
+          case left @ Left(_) => left.rightCast
+        }
+    }
+
+    case class Map2[A, B, Z](fa: Infer[A], fb: Infer[B], fn: (A, B) => Z)
+        extends Infer[Z] {
+      def run(env: Env) =
+        fa.run(env).flatMap {
+          case Right(a) =>
+            fb.run(env).map {
+              case Right(b)       => Right(fn(a, b))
+              case left @ Left(_) => left.rightCast
+            }
+          case left @ Left(_) =>
+            RefSpace.pure(left.rightCast)
         }
     }
 
