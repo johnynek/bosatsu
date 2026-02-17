@@ -2,7 +2,7 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Kind, TypedExpr}
+import dev.bosatsu.{Kind, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -855,6 +855,81 @@ class TypeTest extends munit.ScalaCheckSuite {
           }
         case _ => ()
       }
+    }
+  }
+
+  test("instantiate regression: forall/exists sameAs round-trip from seed AdQaLIO...") {
+    val w = Type.Var.Bound("w")
+    val dvhi = Type.Var.Bound("dvhi")
+    val qhkmPwusm = Type.Var.Bound("qhkmPwusm")
+    val ntyjk4fo = Type.Var.Bound("ntyjk4fo")
+    val edz9w = Type.Var.Bound("edz9w")
+    val bfjhh = Type.Var.Bound("bfjhh")
+    val elm = Type.Var.Bound("elm")
+
+    val c = Variance.Covariant
+    val contra = Variance.Contravariant
+    val p = Variance.Phantom
+    val inv = Variance.Invariant
+    val tpe = Kind.Type
+    def arr(v: Variance, in: Kind, out: Kind): Kind =
+      Kind.Cons(Kind.Arg(v, in), out)
+
+    val kDvhi = arr(contra, tpe, arr(contra, tpe, tpe))
+    val kQhkmPwusm = arr(c, tpe, arr(p, tpe, tpe))
+    val kNtyjk4fo = arr(c, tpe, tpe)
+    val kEdz9wArg =
+      arr(
+        contra,
+        arr(contra, tpe, tpe),
+        arr(p, tpe, tpe)
+      )
+    val kEdz9w =
+      arr(
+        c,
+        kEdz9wArg,
+        arr(c, arr(c, tpe, tpe), arr(inv, tpe, tpe))
+      )
+    val kBfjhh = arr(c, arr(c, tpe, tpe), tpe)
+    val kElm = arr(p, tpe, arr(contra, tpe, tpe))
+
+    val existsVars = NonEmptyList.fromListUnsafe(
+      List(
+        dvhi -> kDvhi,
+        qhkmPwusm -> kQhkmPwusm,
+        ntyjk4fo -> kNtyjk4fo,
+        edz9w -> kEdz9w,
+        bfjhh -> kBfjhh,
+        elm -> kElm
+      )
+    )
+
+    val from =
+      Type.ForAll(
+        NonEmptyList.one(w -> Kind.Type),
+        Type.Exists(existsVars, Type.TyVar(w))
+      )
+    val to: Type = Type.TyVar(w)
+
+    val Type.ForAll(fas, in) = from
+    Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
+      case Some((frees, subs)) =>
+        val t3 = Type.substituteVar(
+          in,
+          subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+        )
+        val t4 = Type.substituteVar(
+          t3,
+          frees.iterator.map { case (v1, (_, v2)) => (v1, Type.TyVar(v2)) }.toMap
+        )
+        val t5 = Type.quantify(
+          forallList = frees.iterator.map { case (_, tup) => tup.swap }.toList,
+          existList = Nil,
+          t4
+        )
+        assert(t5.sameAs(to))
+      case None =>
+        ()
     }
   }
 

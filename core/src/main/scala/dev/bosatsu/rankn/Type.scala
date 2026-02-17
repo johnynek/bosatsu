@@ -780,9 +780,33 @@ object Type {
           }
         case _ =>
           // We can't use sameAt to compare Var.Bound since we know the variances
-          // there
-          if (from.sameAs(to)) Some(state)
-          else None
+          // there.
+          // If we only matched via sameAs, unresolved Unknown vars that are free
+          // in `from` would be unsound (they later round-trip as quantified frees).
+          if (from.sameAs(to)) {
+            var hasUnknown = false
+            val unknownIt = state.fixed.iterator
+            while (!hasUnknown && unknownIt.hasNext) {
+              unknownIt.next() match {
+                case (_, (_, Unknown)) => hasUnknown = true
+                case _                 => ()
+              }
+            }
+
+            if (!hasUnknown) Some(state)
+            else {
+              val free = freeBoundTyVars(from :: Nil).toSet
+              var bad = false
+              val fixedIt = state.fixed.iterator
+              while (!bad && fixedIt.hasNext) {
+                fixedIt.next() match {
+                  case (b, (_, Unknown)) if free(b) => bad = true
+                  case _                            => ()
+                }
+              }
+              if (bad) None else Some(state)
+            }
+          } else None
       }
 
     val initState = State(
