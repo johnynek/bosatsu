@@ -418,6 +418,8 @@ class ParserTest extends ParserTestBase {
 
     check("Foo { bar }")
     check("Foo{bar}")
+    check("Foo {}")
+    check("Foo{}")
     check("Foo(bar)")
     check("Foo(bar\n)")
     check("Foo {   bar   }")
@@ -1758,7 +1760,7 @@ struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]
 
     // we can put new-lines in structs
     roundTrip(
-      Statement.parser,
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
       """# MONADS!!!!
 struct Monad(
   pure: forall a. a -> f[a],
@@ -1766,9 +1768,19 @@ struct Monad(
 """
     )
 
+    roundTrip(
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
+      """#
+struct Defaults(
+  a: Int,
+  b: Int = 1,
+  c = 2)
+"""
+    )
+
     // we can put type params in
     roundTrip(
-      Statement.parser,
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
       """# MONADS!!!!
 struct Monad[f](
   pure: forall a. a -> f[a],
@@ -1795,6 +1807,13 @@ def foo(
       """enum Option:
   None
   Some(a)"""
+    )
+
+    roundTrip(
+      Statement.parser.map(_.map(_.replaceRegions(emptyRegion))),
+      """enum E:
+  A(a: Int = 1)
+  B(b = 2)"""
     )
 
     roundTrip(

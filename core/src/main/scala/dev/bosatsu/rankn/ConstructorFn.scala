@@ -5,9 +5,18 @@ import dev.bosatsu.PackageName
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 import cats.syntax.all._
 
+final case class ConstructorParam(
+    name: Bindable,
+    tpe: Type,
+    defaultBinding: Option[Bindable] = None
+) derives CanEqual {
+  def depPackages: List[PackageName] =
+    Type.packageNamesIn(tpe)
+}
+
 final case class ConstructorFn[+A](
     name: Constructor,
-    args: List[(Bindable, Type)],
+    args: List[ConstructorParam],
     exists: List[(Type.Var.Bound, A)] = Nil
 ) {
 
@@ -17,14 +26,14 @@ final case class ConstructorFn[+A](
 
   def hasSingleArgType(t: Type): Boolean =
     args match {
-      case (_, t0) :: Nil => t == t0
-      case _              => false
+      case arg :: Nil => t == arg.tpe
+      case _          => false
     }
 
   def arity: Int = args.length
 
   def depPackages: List[PackageName] =
-    args.flatMap { case (_, t) => Type.packageNamesIn(t) }.distinct
+    args.flatMap(_.depPackages).distinct
 }
 
 object ConstructorFn {

@@ -211,7 +211,7 @@ sealed abstract class Declaration derives CanEqual {
         val argDoc = Doc.char('{') +
           Doc.intercalate(
             Doc.char(',') + Doc.space,
-            args.toList.map(_.toDoc)
+            args.map(_.toDoc)
           ) + Doc.char('}')
 
         Declaration.identDoc.document(name) + Doc.space + argDoc
@@ -937,7 +937,7 @@ object Declaration {
 
   /** This represents code like: Foo { bar: 12 }
     */
-  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(
+  case class RecordConstructor(cons: Constructor, args: List[RecordArg])(
       implicit val region: Region
   ) extends NonBinding
 
@@ -1042,7 +1042,16 @@ object Declaration {
                 Right((k, vpat))
               }
           }
-          .map(Pattern.recordPat(cons, _)(Pattern.StructKind.Named(_, _)))
+          .flatMap {
+            case h :: tail =>
+              Some(
+                Pattern.recordPat(cons, NonEmptyList(h, tail))(
+                  Pattern.StructKind.Named(_, _)
+                )
+              )
+            case Nil =>
+              None
+          }
       case _ => None
     }
 
@@ -1257,11 +1266,11 @@ object Declaration {
   ): P[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv: P[RecordArg] = RecordArg.parser(indent, noAnn)
-    val kvs = kv.nonEmptyListOfWs(ws)
+    val kvs = Parser.nonEmptyListToList(kv.nonEmptyListOfWs(ws))
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs =
-      kvs.bracketed(maybeSpace.with1.soft ~ P.char('{') ~ ws, ws ~ P.char('}'))
+    val recArgs: P0[List[RecordArg]] =
+      (maybeSpace.with1.soft *> P.char('{') *> ws *> kvs) <* (ws ~ P.char('}'))
 
     // here is tuple style: Foo(a, b)
     val tupArgs = declP.parensLines1Cut.region

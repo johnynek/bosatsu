@@ -3067,4 +3067,25 @@ main = Main(
     )
   }
 
+  test("default-backed constructor calls work across package boundaries") {
+    evalTest(
+      List(
+        """package Provider
+export Rec()
+
+struct Marker
+struct Rec(a: Marker = Marker)
+""",
+        """package Consumer
+from Provider import Rec
+
+main = match Rec {}:
+  case Rec(_): 1
+"""
+      ),
+      "Consumer",
+      VInt(1)
+    )
+  }
+
 }

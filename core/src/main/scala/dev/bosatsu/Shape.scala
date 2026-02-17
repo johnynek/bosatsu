@@ -599,7 +599,7 @@ object Shape {
         }.toMap
 
       cfn.args
-        .traverse { case (_, tpe) => shapeOfType(cfn, scope, local, tpe) }
+        .traverse { param => shapeOfType(cfn, scope, local, param.tpe) }
         .flatMap {
           _.sequence match {
             case Validated.Valid(shapeList) =>

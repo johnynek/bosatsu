@@ -49,6 +49,14 @@ class TypeEnv[+A] private (
       p: PackageName,
       c: Constructor
   ): Option[List[(Bindable, Type)]] =
+    constructors
+      .get((p, c))
+      .map(_._2.args.map(param => (param.name, param.tpe)))
+
+  def getConstructorParamsWithDefaults(
+      p: PackageName,
+      c: Constructor
+  ): Option[List[ConstructorParam]] =
     constructors.get((p, c)).map(_._2.args)
 
   def getType(p: PackageName, t: TypeName): Option[DefinedType[A]] =
@@ -166,7 +174,12 @@ class TypeEnv[+A] private (
     constructors.map { case (pc, (dt, cf)) =>
       (
         pc,
-        (dt.annotatedTypeParams, cf.exists, cf.args.map(_._2), dt.toTypeConst)
+        (
+          dt.annotatedTypeParams,
+          cf.exists,
+          cf.args.map(_.tpe),
+          dt.toTypeConst
+        )
       )
     }
 
@@ -201,8 +214,9 @@ object TypeEnv {
   private def listDoc(items: List[Doc]): Doc =
     Doc.char('[') + block(Doc.intercalate(Doc.line, items)) + Doc.char(']')
 
-  private def bindableTypeDoc(field: (Bindable, Type)): Doc = {
-    val (name, tpe) = field
+  private def constructorParamDoc(field: ConstructorParam): Doc = {
+    val name = field.name
+    val tpe = field.tpe
     block(
       Doc.char('[') + Doc.text(name.sourceCodeRepr) + Doc.line + tyDoc
         .document(tpe) + Doc.char(']')
@@ -217,7 +231,7 @@ object TypeEnv {
 
   private def constructorDoc(cf: ConstructorFn[Kind.Arg]): Doc = {
     val exists = cf.exists.map(kindArgDoc)
-    val fields = cf.args.map(bindableTypeDoc)
+    val fields = cf.args.map(constructorParamDoc)
     val attrs =
       List(
         if (exists.isEmpty) None

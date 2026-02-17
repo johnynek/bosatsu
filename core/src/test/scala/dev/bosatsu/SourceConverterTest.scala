@@ -3,6 +3,7 @@ package dev.bosatsu
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
+import cats.data.Ior
 import cats.data.NonEmptyList
 import Identifier.Bindable
 
@@ -22,6 +23,50 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     List[Statement]
   ] =
     TestUtils.sourceConvertedProgramOf(TestUtils.testPackage, code)
+
+  private def convertProgramResult(
+      code: String
+  ): Ior[ cats.data.NonEmptyChain[SourceConverter.Error], Program[
+    (rankn.TypeEnv[Kind.Arg], rankn.ParsedTypeEnv[Option[Kind.Arg]]),
+    Expr[Declaration],
+    List[Statement]
+  ]] =
+    SourceConverter.toProgram(
+      TestUtils.testPackage,
+      Nil,
+      Parser.unsafeParse(Statement.parser, code)
+    )
+
+  private def conversionErrors(code: String): List[SourceConverter.Error] =
+    convertProgramResult(code) match {
+      case Ior.Left(errs)    => errs.toList
+      case Ior.Both(errs, _) => errs.toList
+      case Ior.Right(_)      => Nil
+    }
+
+  private def defaultBindingAt(
+      code: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): Bindable = {
+    val params = rankn.TypeEnv
+      .fromParsed(convertProgram(code).types._2)
+      .getConstructorParamsWithDefaults(
+        TestUtils.testPackage,
+        constructorName
+      )
+    val found = for {
+      ps <- params
+      p <- ps.lift(paramIndex)
+      b <- p.defaultBinding
+    } yield b
+
+    found.getOrElse {
+      fail(
+        s"expected default binding for ${constructorName.sourceCodeRepr} index $paramIndex"
+      )
+    }
+  }
 
   private def stripWrapperExpr(
       expr: Expr[Declaration]
@@ -273,5 +318,128 @@ main = match True:
     examples.foreach { case (actual, expected) =>
       assertMainDesugarsAs(actual, expected)
     }
+  }
+
+  test("record constructors fill omitted fields with default helpers") {
+    val expr = stripWrapperExpr(mainExpr("""#
+struct S(a: Int = 1, b: Int, c: Int = 3)
+main = S { b: 2 }
+"""))
+
+    expr match {
+      case Expr.App(
+            Expr.Global(pack, Identifier.Constructor("S"), _),
+            args,
+            _
+          ) =>
+        assertEquals(pack, TestUtils.testPackage)
+        val argList = args.toList
+        assertEquals(argList.length, 3)
+
+        def assertSyntheticGlobal(in: Expr[Declaration]): Unit =
+          stripWrapperExpr(in) match {
+            case Expr.Global(p, b: Identifier.Bindable, _) =>
+              assertEquals(p, TestUtils.testPackage)
+              assert(Identifier.isSynthetic(b), s"expected synthetic binding, got: $b")
+            case other =>
+              fail(s"expected synthetic global, got: $other")
+          }
+
+        assertSyntheticGlobal(argList(0))
+        stripWrapperExpr(argList(1)) match {
+          case Expr.Literal(lit, _) =>
+            assertEquals(lit, Lit.fromInt(2))
+          case other =>
+            fail(s"expected explicit literal argument, got: $other")
+        }
+        assertSyntheticGlobal(argList(2))
+      case other =>
+        fail(s"expected constructor application, got: $other")
+    }
+  }
+
+  test("positional constructor calls do not use default filling") {
+    val expr = stripWrapperExpr(mainExpr("""#
+struct S(a: Int = 1, b: Int = 2)
+main = S(9)
+"""))
+
+    expr match {
+      case Expr.App(
+            Expr.Global(_, Identifier.Constructor("S"), _),
+            args,
+            _
+          ) =>
+        assertEquals(args.length, 1)
+      case other =>
+        fail(s"expected constructor application, got: $other")
+    }
+  }
+
+  test("constructor defaults cannot reference constructor parameters") {
+    val errs = conversionErrors("""#
+struct S(a: Int, b: Int = a)
+main = S { a: 1 }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultReferencesParam(
+              Identifier.Constructor("S"),
+              Identifier.Name("b"),
+              Identifier.Name("a"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultReferencesParam in errors: $errs"
+    )
+  }
+
+  test("constructor defaults cannot reference later top-level bindings") {
+    val errs = conversionErrors("""#
+struct S(a: Int = later)
+later = 1
+main = S {}
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultOutOfScope(
+              Identifier.Constructor("S"),
+              Identifier.Name("a"),
+              Identifier.Name("later"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultOutOfScope in errors: $errs"
+    )
+  }
+
+  test("default helper naming is stable across default body changes") {
+    val ctor = Identifier.Constructor("S")
+    val d1 = defaultBindingAt(
+      """#
+struct S(a: Int = 1)
+main = S {}
+""",
+      ctor,
+      0
+    )
+    val d2 = defaultBindingAt(
+      """#
+struct S(a: Int = 2)
+main = S {}
+""",
+      ctor,
+      0
+    )
+
+    assertEquals(d1, d2)
   }
 }

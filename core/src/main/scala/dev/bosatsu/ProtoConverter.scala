@@ -6,7 +6,7 @@ import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
-import dev.bosatsu.rankn.{DefinedType, Type, TypeEnv}
+import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeEnv}
 import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
@@ -1154,11 +1154,29 @@ object ProtoConverter {
         d.constructors.traverse { cf =>
           (
             cf.args
-              .traverse { case (b, t) =>
-                typeToProto(t).flatMap { tidx =>
-                  getId(b.sourceCodeRepr)
-                    .map { n =>
-                      proto.FnParam(n, tidx)
+              .traverse { param =>
+                typeToProto(param.tpe).flatMap { tidx =>
+                  getId(param.name.sourceCodeRepr)
+                    .flatMap { n =>
+                      param.defaultBinding match {
+                        case Some(defaultName) =>
+                          getId(defaultName.sourceCodeRepr)
+                            .map { defaultNameIdx =>
+                              proto.FnParam(
+                                name = n,
+                                typeOf = tidx,
+                                defaultBindingName = defaultNameIdx
+                              )
+                            }
+                        case None =>
+                          tabPure(
+                            proto.FnParam(
+                              name = n,
+                              typeOf = tidx,
+                              defaultBindingName = 0
+                            )
+                          )
+                      }
                     }
                 }
               },
@@ -1194,12 +1212,23 @@ object ProtoConverter {
             .product(ReaderT.liftF(ka))
       }
 
-    def fnParamFromProto(p: proto.FnParam): DTab[(Bindable, Type)] =
+    def fnParamFromProto(p: proto.FnParam): DTab[ConstructorParam] =
       for {
         name <- lookup(p.name, p.toString)
         bn <- ReaderT.liftF(toBindable(name))
         tpe <- lookupType(p.typeOf, s"invalid type id: $p")
-      } yield (bn, tpe)
+        default <- {
+          val idx = p.defaultBindingName
+          if (idx == 0) ReaderT.pure[Try, DecodeState, Option[Bindable]](None)
+          else
+            lookup(idx, p.toString)
+              .flatMap { defaultName =>
+                ReaderT
+                  .liftF(toBindable(defaultName))
+                  .map(Some(_))
+              }
+        }
+      } yield ConstructorParam(bn, tpe, default)
 
     def consFromProto(
         c: proto.ConstructorFn
