@@ -21,9 +21,9 @@ class TypeEnvReprTest extends munit.FunSuite {
         ConstructorFn[Kind.Arg](
           name = Identifier.Constructor("MkPair"),
           args = List(
-            Identifier.Name("left") -> Type.TyVar(a),
-            Identifier.Name("right") -> Type.TyVar(b),
-            Identifier.Name("count") -> Type.IntType
+            ConstructorParam(Identifier.Name("left"), Type.TyVar(a), None),
+            ConstructorParam(Identifier.Name("right"), Type.TyVar(b), None),
+            ConstructorParam(Identifier.Name("count"), Type.IntType, None)
           ),
           exists = List((b, Kind.Type.in))
         )
@@ -54,7 +54,7 @@ class TypeEnvReprTest extends munit.FunSuite {
         ConstructorFn[Kind.Arg](name = Identifier.Constructor("N"), args = Nil),
         ConstructorFn[Kind.Arg](
           name = Identifier.Constructor("S"),
-          args = List(Identifier.Name("value") -> Type.TyVar(a))
+          args = List(ConstructorParam(Identifier.Name("value"), Type.TyVar(a), None))
         )
       )
     )

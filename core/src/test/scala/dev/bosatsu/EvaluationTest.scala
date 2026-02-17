@@ -3067,4 +3067,89 @@ main = Main(
     )
   }
 
+  test(
+    "default-backed constructor calls work across package boundaries with partial fields and stable record-field order"
+  ) {
+    evalTest(
+      List(
+        """package Provider
+export (Rec(), AllDefault())
+
+struct Rec(a: Int, b: Int = 7, c: Int = 9)
+struct AllDefault(x: Int = 11, y: Int = 22)
+""",
+        """package Consumer
+from Provider import Rec, AllDefault
+
+main = match (Rec { a: 1 }, Rec { c: 4, a: 2 }, Rec { a: 3, c: 5 }, AllDefault {}):
+  case (Rec(1, 7, 9), Rec(2, 7, 4), Rec(3, 7, 5), AllDefault(11, 22)): 1
+  case _: 0
+"""
+      ),
+      "Consumer",
+      VInt(1)
+    )
+  }
+
+  test(
+    "enum default field can reference an earlier constructor and typechecks polymorphically"
+  ) {
+    evalTest(
+      List(
+        """package Test
+enum MyList[a]:
+  MyEmpty
+  MyCons(head: a, tail: MyList[a] = MyEmpty)
+
+main = match MyCons { head: 1 }:
+  case MyCons(1, MyEmpty): 1
+  case _: 0
+"""
+      ),
+      "Test",
+      VInt(1)
+    )
+  }
+
+  test(
+    "generic constructor defaults close explicit type vars and evaluate at call sites"
+  ) {
+    evalTest(
+      List(
+        """package Test
+struct G[with_t](with: Option[with_t] = None)
+
+main = match (G {}, G { with: Some(1) }):
+  case (G(None), G(Some(1))): 1
+  case _: 0
+"""
+      ),
+      "Test",
+      VInt(1)
+    )
+  }
+
+  test(
+    "generic constructor defaults with non-canonical names work across package boundaries"
+  ) {
+    evalTest(
+      List(
+        """package Provider
+export (Step())
+
+struct Step[with_t](with: Option[with_t] = None, name: Option[String] = None)
+""",
+        """package Consumer
+from Provider import Step
+
+main = match (Step { name: Some("x") }, Step { with: Some(1) }):
+  case (Step(None, Some("x")), Step(Some(1), None)): 1
+  case _: 0
+"""
+      ),
+      "Consumer",
+      VInt(1)
+    )
+  }
+
 }

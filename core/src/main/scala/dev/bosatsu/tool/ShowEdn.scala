@@ -4,7 +4,14 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import cats.syntax.all._
 import dev.bosatsu.edn.{Edn, EdnCodec}
-import dev.bosatsu.rankn.{ConstructorFn, DefinedType, RefSpace, Type, TypeEnv}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  ConstructorParam,
+  DefinedType,
+  RefSpace,
+  Type,
+  TypeEnv
+}
 import dev.bosatsu.Pattern.{ListPart, StrPart}
 import dev.bosatsu.Identifier.{Bindable, Constructor}
 import dev.bosatsu.{
@@ -757,8 +764,19 @@ object ShowEdn {
         if (cf.args.isEmpty) None
         else
           Some(
-            kw("fields") -> EVector(cf.args.map { case (name, tpe) =>
-              EVector(List(nameAtom(name.sourceCodeRepr), encodeType(tpe)))
+            kw("fields") -> EVector(cf.args.map { param =>
+              val defaultPart =
+                param.defaultBinding match {
+                  case None =>
+                    Nil
+                  case Some(defaultName) =>
+                    nameAtom(defaultName.sourceCodeRepr) ::
+                      param.defaultType.toList.map(encodeType)
+                }
+              EVector(
+                List(nameAtom(param.name.sourceCodeRepr), encodeType(param.tpe)) ++
+                  defaultPart
+              )
             })
           ),
         if (cf.exists.isEmpty) None
@@ -783,9 +801,33 @@ object ShowEdn {
               asVector(value).flatMap(
                 _.traverse {
                   case EVector(List(nameEdn, typeEdn)) =>
-                    (decodeBindable(nameEdn), decodeType(typeEdn)).tupled
+                    (decodeBindable(nameEdn), decodeType(typeEdn)).mapN {
+                      ConstructorParam(_, _, None, None)
+                    }
+                  case EVector(List(nameEdn, typeEdn, defaultEdn)) =>
+                    (
+                      decodeBindable(nameEdn),
+                      decodeType(typeEdn),
+                      decodeBindable(defaultEdn)
+                    ).mapN { (name, tpe, defaultName) =>
+                      ConstructorParam(name, tpe, Some(defaultName), None)
+                    }
+                  case EVector(List(nameEdn, typeEdn, defaultEdn, defaultTypeEdn)) =>
+                    (
+                      decodeBindable(nameEdn),
+                      decodeType(typeEdn),
+                      decodeBindable(defaultEdn),
+                      decodeType(defaultTypeEdn)
+                    ).mapN { (name, tpe, defaultName, defaultType) =>
+                      ConstructorParam(
+                        name,
+                        tpe,
+                        Some(defaultName),
+                        Some(defaultType)
+                      )
+                    }
                   case other =>
-                    err[(Bindable, Type)](
+                    err[ConstructorParam](
                       s"invalid constructor field: ${rendered(other)}"
                     )
                 }

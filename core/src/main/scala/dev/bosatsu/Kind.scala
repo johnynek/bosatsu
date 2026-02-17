@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Order
 import cats.collections.Heap
 import cats.parse.{Parser => P, Parser0 => P0}
+import dev.bosatsu.hashing.{Algo, Hashable}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
 import cats.syntax.all._
@@ -74,6 +75,15 @@ object Kind {
       }
   }
 
+  given Hashable[Arg] with {
+    def addHash[B](arg: Arg, algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher = {
+      val withVariance = Hashable[Variance].addHash(arg.variance, algo)(hasher)
+      Hashable[Kind].addHash(arg.kind, algo)(withVariance)
+    }
+  }
+
   case object Type extends Kind
   // Int => *: Type
   // enum List[a: +*]=> + -> *: Cons(+Type, Type)
@@ -82,6 +92,20 @@ object Kind {
   // Map[k: *, v: *] => * -> * -> *: Cons(Type, Cons(Type, Type))
   // Function[-A, +B] => -* -> +* -> *
   case class Cons(arg: Arg, result: Kind) extends Kind
+
+  given Hashable[Kind] with {
+    def addHash[B](kind: Kind, algo: Algo[B])(
+        hasher: algo.Hasher
+    ): algo.Hasher =
+      kind match {
+        case Type =>
+          Hashable[Int].addHash(0, algo)(hasher)
+        case Cons(arg, result) =>
+          val withTag = Hashable[Int].addHash(1, algo)(hasher)
+          val withArg = Hashable[Arg].addHash(arg, algo)(withTag)
+          addHash(result, algo)(withArg)
+      }
+  }
 
   val invariantTypeArg: Arg = Arg(Variance.in, Type)
 

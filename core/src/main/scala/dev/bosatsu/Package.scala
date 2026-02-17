@@ -174,10 +174,23 @@ object Package {
     * This is used to remove private top levels that were inlined.
     */
   def discardUnused[A](tp: Typed[A]): Typed[A] = {
+    val constructorDefaultHelpers: Set[Identifier.Bindable] =
+      tp.exports.iterator
+        .collect {
+          case ExportedName.Constructor(
+                _,
+                Referant.Constructor(_, constructorFn)
+              ) =>
+            constructorFn.args.iterator.flatMap(_.defaultBinding)
+        }
+        .flatten
+        .toSet
+
     val pinned: Set[Identifier] =
       tp.exports.iterator.map(_.name).toSet ++
         tp.lets.lastOption.map(_._1) ++
-        testValue(tp).map(_._1)
+        testValue(tp).map(_._1) ++
+        constructorDefaultHelpers
 
     def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =
       s.collect { case (p, i) if p == tp.name => i }

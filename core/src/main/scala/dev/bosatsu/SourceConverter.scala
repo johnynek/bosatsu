@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.{Applicative, Traverse}
 import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, State}
+import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
@@ -735,24 +736,29 @@ final class SourceConverter(
                 mapping.get(b) match {
                   case Some(expr) => expr
                   case None       =>
-                    SourceConverter.failure(
-                      SourceConverter.MissingArg(
-                        name,
-                        rc,
-                        present,
-                        b,
-                        rc.region
-                      )
-                    )
+                    params.find(_.name == b).flatMap(_.defaultBinding) match {
+                      case Some(defaultName) =>
+                        SourceConverter.success(Expr.Global(p, defaultName, rc))
+                      case None =>
+                        SourceConverter.failure(
+                          SourceConverter.MissingArg(
+                            name,
+                            rc,
+                            present,
+                            b,
+                            rc.region
+                          )
+                        )
+                    }
                 }
-              val exprArgs = params.traverse { case (b, _) => get(b) }
+              val exprArgs = params.traverse(param => get(param.name))
 
               val res = exprArgs.map { args =>
                 Expr.buildApp(cons, args.toList, rc)
               }
               // we also need to check that there are no unused or duplicated
               // fields
-              val paramNamesList = params.map(_._1)
+              val paramNamesList = params.map(_.name)
               val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = mappingList.collect {
@@ -818,6 +824,33 @@ final class SourceConverter(
   ): DefinitionVarState[List[(Bindable, Type)]] =
     args.traverse(buildDefinitionParam)
 
+  private def defaultBindingForParam(
+      typeName: TypeName,
+      constructorName: Constructor,
+      paramIndex: Int,
+      paramType: Type
+  ): Bindable = {
+    val digest = Hashable
+      .hash(
+        Algo.blake3Algo,
+        ("DefaultNameV1", thisPackage, typeName, constructorName, paramIndex, paramType)
+      )
+      .hash
+      .hex
+    Identifier.synthetic("default$" + digest)
+  }
+
+  private def closeDefaultParamType(
+      paramType: Type,
+      kindHints: Map[Type.Var.Bound, Kind]
+  ): Type = {
+    val quantified =
+      Type.freeBoundTyVars(paramType :: Nil).map { tv =>
+        (tv, kindHints.getOrElse(tv, Kind.Type))
+      }
+    Type.forAll(quantified, paramType)
+  }
+
   private def existingDefinitionVars[A](
       ps: List[(A, Option[Type])]
   ): List[Type.TyVar] = {
@@ -870,20 +903,19 @@ final class SourceConverter(
   ): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
     import Statement._
 
-    type BindablePair[A] = (Bindable, A)
-
-    // This is a traverse on List[(Bindable, Option[A])]
-    val deep =
-      Traverse[List].compose[BindablePair].compose[Option]
-
     // TODO we have to make sure we don't have more than 8 arguments to a struct
     // or the constructor Fn won't be a valid function
     tds match {
       case Struct(nm, typeArgs, args) =>
         validateConstructorArgCount(nm, args.length, tds.region) *>
-          deep
-            .traverse(args)(toType(_, tds.region))
-            .flatMap { argsType =>
+          args
+            .traverse { arg =>
+              arg.tpe.traverse(toType(_, tds.region)).map(arg -> _)
+            }
+            .flatMap { argsWithType =>
+              val argsType = argsWithType.map { case (arg, optTpe) =>
+                (arg.name, optTpe)
+              }
               val declVars = typeArgs.iterator.flatMap(_.toList).map { p =>
                 Type.TyVar(p._1.toBoundVar)
               }
@@ -910,7 +942,29 @@ final class SourceConverter(
               updateInferredWithDeclaredTypeArgs(typeArgs, typeParams0, tds)
                 .map { typeParams =>
                   val tname = TypeName(nm)
-                  val consFn = rankn.ConstructorFn(nm, params)
+                  val kindHints: Map[Type.Var.Bound, Kind] =
+                    typeParams.iterator.map { case (tv, optKa) =>
+                      tv -> optKa.fold[Kind](Kind.Type)(_.kind)
+                    }.toMap
+                  val constructorParams = params.zipWithIndex.map {
+                    case ((name, tpe), idx) =>
+                      val maybeDefaultType =
+                        argsWithType(idx)._1.default.map(_ =>
+                          closeDefaultParamType(tpe, kindHints)
+                        )
+                      val defaultBinding =
+                        maybeDefaultType.map { defaultType =>
+                          defaultBindingForParam(
+                            tname,
+                            nm,
+                            idx,
+                            defaultType
+                          )
+                        }
+                      val defaultType = maybeDefaultType
+                      rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
+                  }
+                  val consFn = rankn.ConstructorFn(nm, constructorParams)
 
                   rankn.DefinedType(pname, tname, typeParams, consFn :: Nil)
                 }
@@ -943,13 +997,14 @@ final class SourceConverter(
       typeArgs.iterator.flatMap(_.toList).map(_._1.toBoundVar).toSet
 
     // Phase 1: validate constructor arity and convert constructor arg annotations.
-    val convertedCtorArgs
-        : Result[List[(Statement.EnumBranch, List[(Bindable, Option[Type])])]] =
+    val convertedCtorArgs: Result[
+      List[(Statement.EnumBranch, List[(Bindable, Option[Type])])]
+    ] =
       items.get.toList.traverse { item =>
         validateConstructorArgCount(item.name, item.args.length, item.region) *>
           item.args
-            .traverse { case (argName, optTyRef) =>
-              optTyRef.traverse(toType(_, item.region)).map((argName, _))
+            .traverse { arg =>
+              arg.tpe.traverse(toType(_, item.region)).map((arg.name, _))
             }
             .map(item -> _)
       }
@@ -1160,6 +1215,7 @@ final class SourceConverter(
 
       // Phase 5: assemble the final constructors (with branch existentials) and result type.
       branchesChecked.map { typeParams =>
+        val typeName = TypeName(nm)
         val finalCons = constructors.toList.map { case (item, params) =>
           val exists =
             item.typeArgs.iterator
@@ -1168,7 +1224,29 @@ final class SourceConverter(
                 (tv.toBoundVar, k)
               }
               .toList
-          rankn.ConstructorFn(item.name, params, exists)
+          val kindHints: Map[Type.Var.Bound, Kind] =
+            (typeParams.iterator ++ exists.iterator).map { case (tv, optKa) =>
+              tv -> optKa.fold[Kind](Kind.Type)(_.kind)
+            }.toMap
+          val constructorParams = params.zipWithIndex.map {
+            case ((name, tpe), idx) =>
+              val maybeDefaultType =
+                item.args(idx).default.map(_ =>
+                  closeDefaultParamType(tpe, kindHints)
+                )
+              val defaultBinding =
+                maybeDefaultType.map { defaultType =>
+                  defaultBindingForParam(
+                    typeName,
+                    item.name,
+                    idx,
+                    defaultType
+                  )
+                }
+              val defaultType = maybeDefaultType
+              rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
+          }
+          rankn.ConstructorFn(item.name, constructorParams, exists)
         }
         rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
       }
@@ -1387,12 +1465,12 @@ final class SourceConverter(
                       }
                     val mapped =
                       params
-                        .traverse { case (b, _) => get(b) }(using
+                        .traverse(param => get(param.name))(using
                           SourceConverter.parallelIor
                         )
                         .map(Pattern.PositionalStruct(pc, _))
 
-                    val paramNamesList = params.map(_._1)
+                    val paramNamesList = params.map(_.name)
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
@@ -1447,12 +1525,12 @@ final class SourceConverter(
                         case Some(pat) => pat
                         case None      => Pattern.WildCard
                       }
-                    val derefArgs = params.map { case (b, _) => get(b) }
+                    val derefArgs = params.map(param => get(param.name))
                     val res0 = SourceConverter.success(
                       Pattern.PositionalStruct(pc, derefArgs)
                     )
 
-                    val paramNamesList = params.map(_._1)
+                    val paramNamesList = params.map(_.name)
                     val paramNames = paramNamesList.toSet
                     // here are all the fields we don't understand
                     val extra =
@@ -1698,6 +1776,216 @@ final class SourceConverter(
     loop(0, avec.size, s0)._2.map(_.toList)
   }
 
+  private lazy val importedBindables: Set[Bindable] =
+    importedNames.keysIterator.collect { case b: Bindable =>
+      b
+    }.toSet
+
+  private def toTypeRef(tpe: Type): TypeRef = {
+    // This is only used to keep source-conversion progressing after reporting
+    // invalid default syntax (default without explicit type). Skolems/metas
+    // never escape final inferred types, but may exist in intermediate types.
+    // We map them to synthetic names so conversion remains deterministic.
+    TypeRefConverter.fromTypeA[cats.Id](
+      tpe,
+      sk => TypeRef.TypeVar(s"${sk.name}_${sk.id}"),
+      metaId => TypeRef.TypeVar(s"meta_$metaId"),
+      defined => TypeRef.TypeName(defined.name)
+    )
+  }
+
+  private def defaultScopeCheck(
+      constructorName: Constructor,
+      fieldName: Bindable,
+      defaultExpr: Declaration.NonBinding,
+      region: Region,
+      inScope: Set[Bindable],
+      constructorParams: Set[Bindable]
+  ): Result[Unit] =
+    defaultExpr.freeVars.foldLeft(SourceConverter.successUnit) { (acc, free) =>
+      if (inScope(free)) acc
+      else {
+        val err =
+          if (constructorParams(free))
+            SourceConverter.ConstructorDefaultReferencesParam(
+              constructorName,
+              fieldName,
+              free,
+              region
+            )
+          else
+            SourceConverter.ConstructorDefaultOutOfScope(
+              constructorName,
+              fieldName,
+              free,
+              region
+            )
+        SourceConverter.addError(acc, err)
+      }
+    }
+
+  private def defaultHelpersForTypeDefinition(
+      tds: TypeDefinitionStatement,
+      topBound: Set[Bindable],
+      env: TypeEnv[Any]
+  ): Result[(List[Statement.ValueStatement], Set[Bindable])] = {
+    import Statement._
+
+    final case class ConstructorData(
+        constructor: Constructor,
+        args: List[Statement.ConstructorArg]
+    )
+
+    val constructors: List[ConstructorData] =
+      tds match {
+        case Struct(name, _, args) =>
+          ConstructorData(name, args) :: Nil
+        case Enum(_, _, items)     =>
+          items.get.toList.map(item => ConstructorData(item.name, item.args))
+        case ExternalStruct(_, _) =>
+          Nil
+      }
+
+    type Acc = (Set[Bindable], List[Statement.ValueStatement], Set[Bindable])
+
+    constructors.foldLeft(success((topBound, Nil, Set.empty[Bindable])): Result[
+      Acc
+    ]) { (racc, ctor) =>
+      racc.flatMap { case (scope, statements, newNames) =>
+        env.getConstructorParams(thisPackage, ctor.constructor) match {
+          case None =>
+            SourceConverter.failure(
+              SourceConverter.UnknownConstructor(
+                ctor.constructor,
+                SourceConverter.ConstructorSyntax.Pat(
+                  Pattern.PositionalStruct(
+                    Pattern.StructKind.Named(
+                      ctor.constructor,
+                      Pattern.StructKind.Style.TupleLike
+                    ),
+                    Nil
+                  )
+                ),
+                env.typeConstructors.keysIterator.map(_._2).toList,
+                tds.region
+              )
+            )
+          case Some(params) =>
+            if (params.lengthCompare(ctor.args.length) != 0) {
+              success((scope, statements, newNames))
+            } else {
+              val constructorParamNames = ctor.args.iterator.map(_.name).toSet
+              val typeName = TypeName(tds.name)
+
+              ctor.args
+                .zip(params)
+                .zipWithIndex
+                .foldLeft(success((scope, statements, newNames)): Result[Acc]) {
+                  case (acc0, ((arg, param), idx)) =>
+                    acc0.flatMap { case (scope0, statements0, names0) =>
+                      arg.default match {
+                        case None =>
+                          success((scope0, statements0, names0))
+                        case Some(defaultExpr) =>
+                          val helperName =
+                            param.defaultBinding.getOrElse(
+                              defaultBindingForParam(
+                                typeName,
+                                ctor.constructor,
+                                idx,
+                                param.tpe
+                              )
+                            )
+
+                          if (scope0(helperName)) {
+                            // Helper names are synthetic and generated once per
+                            // constructor slot. Hitting this means an internal
+                            // compiler invariant bug or hash collision.
+                            throw new IllegalStateException(
+                              s"invariant violation: duplicate generated default helper: ${helperName.sourceCodeRepr}"
+                            )
+                          }
+
+                          val region = defaultExpr.region
+                          val scopeCheck =
+                            defaultScopeCheck(
+                              ctor.constructor,
+                              arg.name,
+                              defaultExpr,
+                              region,
+                              importedBindables ++ scope0,
+                              constructorParamNames
+                            )
+
+                          val typeAnnotationCheck: Result[Unit] =
+                            arg.tpe match {
+                              case Some(_) =>
+                                SourceConverter.successUnit
+                              case None =>
+                                SourceConverter.addError(
+                                  SourceConverter.successUnit,
+                                  SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
+                                    ctor.constructor,
+                                    arg.name,
+                                    region
+                                  )
+                                )
+                            }
+
+                          (scopeCheck, typeAnnotationCheck).parMapN { (_, _) =>
+                            val annType =
+                              toTypeRef(param.defaultType.getOrElse(param.tpe))
+                            val rhs =
+                              Declaration.Annotation(defaultExpr, annType)(using
+                                region
+                              )
+                            val stmt: Statement.ValueStatement =
+                              Statement.Bind(
+                                BindingStatement(
+                                  Pattern.Var(helperName),
+                                  rhs,
+                                  ()
+                                )
+                              )(region)
+
+                            (
+                              scope0 + helperName,
+                              statements0 :+ stmt,
+                              names0 + helperName
+                            )
+                          }
+                      }
+                    }
+                }
+            }
+        }
+      }
+    }.map { case (_, stmts, names) => (stmts, names) }
+  }
+
+  private def valueStatementsWithDefaultHelpers(
+      ss: List[Statement]
+  ): Result[List[Statement.ValueStatement]] =
+    localTypeEnv.flatMap { env =>
+      type Acc = (Set[Bindable], List[Statement.ValueStatement])
+      ss.foldLeft(success((Set.empty[Bindable], Nil)): Result[Acc]) {
+        case (racc, stmt) =>
+          racc.flatMap { case (scope, values) =>
+            stmt match {
+              case vs: Statement.ValueStatement =>
+                success((scope ++ vs.names, values :+ vs))
+              case tds: TypeDefinitionStatement =>
+                defaultHelpersForTypeDefinition(tds, scope, env).map {
+                  case (helpers, helperNames) =>
+                    (scope ++ helperNames, values ::: helpers)
+                }
+              case _ =>
+                success((scope, values))
+            }
+          }
+      }.map(_._2)
+    }
+
   /** Return the lets in order they appear
     */
   private def toLets(
@@ -1854,8 +2142,9 @@ final class SourceConverter(
   ): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]), Expr[
     Declaration
   ], List[Statement]]] = {
-    val stmts = Statement.valuesOf(ss).toList
-    stmts
+    Statement
+      .valuesOf(ss)
+      .toList
       .collect { case ed @ Statement.ExternalDef(name, ta, params, result) =>
         (
           params.traverse(p => toType(p._2, ed.region)),
@@ -1941,12 +2230,19 @@ final class SourceConverter(
             pte.addExternalValue(thisPackage, name, tpe)
           }
         }
-
-        implicit val parallel = SourceConverter.parallelIor
-        (checkExternalDefShadowing(stmts), toLets(stmts), pte1).mapN {
-          (_, binds, pte1) =>
-            Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, ss)
-        }
+        for {
+          stmts <- valueStatementsWithDefaultHelpers(ss)
+          (_, binds, parsedTypeEnv) <- (
+            checkExternalDefShadowing(stmts),
+            toLets(stmts),
+            pte1
+          ).parTupled
+        } yield Program(
+          (importedTypeEnv, parsedTypeEnv),
+          binds,
+          exts.map(_._1).toList,
+          ss
+        )
       }
   }
 }
@@ -2258,6 +2554,35 @@ object SourceConverter {
           s"in ${name.sourceCodeRepr}, expected: "
         ) + exDoc + Doc.lineOrSpace + syntax.toDoc).render(80)
     }
+  }
+
+  final case class ConstructorDefaultReferencesParam(
+      constructorName: Constructor,
+      fieldName: Bindable,
+      parameterName: Bindable,
+      region: Region
+  ) extends Error {
+    def message =
+      s"default value for field ${fieldName.sourceCodeRepr} in ${constructorName.sourceCodeRepr} cannot reference constructor parameter ${parameterName.sourceCodeRepr}"
+  }
+
+  final case class ConstructorDefaultOutOfScope(
+      constructorName: Constructor,
+      fieldName: Bindable,
+      referencedName: Bindable,
+      region: Region
+  ) extends Error {
+    def message =
+      s"default value for field ${fieldName.sourceCodeRepr} in ${constructorName.sourceCodeRepr} cannot reference ${referencedName.sourceCodeRepr}; only imports, earlier top-level values, and earlier defaults are allowed"
+  }
+
+  final case class ConstructorDefaultRequiresTypeAnnotation(
+      constructorName: Constructor,
+      fieldName: Bindable,
+      region: Region
+  ) extends Error {
+    def message =
+      s"default value for field ${fieldName.sourceCodeRepr} in ${constructorName.sourceCodeRepr} requires an explicit type annotation"
   }
 
   final case class InvalidTypeParameters(

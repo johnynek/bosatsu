@@ -76,6 +76,8 @@ message TypeParam {
 message FnParam {
   int32 name = 1;
   int32 typeOf = 2;
+  int32 defaultBindingName = 3; // 1-based string table index; 0 means no default
+  int32 defaultTypeOf = 4; // 1-based type table index; 0 means absent
 }
 
 message ConstructorFn {

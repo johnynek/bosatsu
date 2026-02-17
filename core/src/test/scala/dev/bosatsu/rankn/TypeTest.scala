@@ -3,6 +3,7 @@ package dev.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Kind, TypedExpr}
+import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -214,6 +215,43 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(g, g) { (a, b) =>
       assertEquals(a.sameAs(b), (Type.normalize(a) == Type.normalize(b)))
     }
+  }
+
+  test("sameAs if and only if Blake3 hashes are equal") {
+    val g = NTypeGen.genDepth03
+    forAll(g, g) { (a, b) =>
+      val ah = Hashable.hash(Algo.blake3Algo, a).hash
+      val bh = Hashable.hash(Algo.blake3Algo, b).hash
+      assertEquals(
+        a.sameAs(b),
+        ah.hex == bh.hex,
+        s"sameAs/hash mismatch for ${Type.typeParser.render(a)} and ${Type.typeParser.render(b)} with hashes ${ah.hex} / ${bh.hex}"
+      )
+    }
+  }
+
+  test("Blake3 hash for exists type is stable (simple golden)") {
+    val t = parse("exists a. a -> a")
+    val tRenamed = parse("exists x. x -> x")
+    val expected =
+      "de88397010f29295c2c7a3adb9200b709a08aea28f853dab0359c6132925bec0"
+    val hashT = Hashable.hash(Algo.blake3Algo, t).hash.hex
+    val hashTRenamed = Hashable.hash(Algo.blake3Algo, tRenamed).hash.hex
+
+    assertEquals(hashT, expected)
+    assertEquals(hashTRenamed, expected)
+  }
+
+  test("Blake3 hash for exists type is stable (nested quantifier golden)") {
+    val t = parse("forall z. exists a, b. (a -> z) -> (b -> z)")
+    val tRenamed = parse("forall q. exists y, x. (y -> q) -> (x -> q)")
+    val expected =
+      "40c1750a4f97e5d050f510e7d6aef4a1187c43ae331c62fad9e938f831e52d22"
+    val hashT = Hashable.hash(Algo.blake3Algo, t).hash.hex
+    val hashTRenamed = Hashable.hash(Algo.blake3Algo, tRenamed).hash.hex
+
+    assertEquals(hashT, expected)
+    assertEquals(hashTRenamed, expected)
   }
 
   test("same as doesn't care about quant var order") {

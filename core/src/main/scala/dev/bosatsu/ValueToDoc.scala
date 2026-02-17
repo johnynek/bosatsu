@@ -235,10 +235,10 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       : Map[Int, (Constructor, List[(String, Fn)])] =
                     cons.zipWithIndex
                       .traverse { case (cf, idx) =>
-                        val rec = cf.args.traverse { case (field, t) =>
-                          val subsT = Type.substituteVar(t, replaceMap)
+                        val rec = cf.args.traverse { param =>
+                          val subsT = Type.substituteVar(param.tpe, replaceMap)
                           val next = loop(subsT, fullPath)
-                          next.map(fn => (field.asString, fn))
+                          next.map(fn => (param.name.asString, fn))
                         }
                         rec.map(fields => (idx, (cf.name, fields)))
                       }

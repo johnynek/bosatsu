@@ -241,4 +241,57 @@ main = 2
 
     invalid(resolveThenInfer(List(p3, p4)))
   }
+
+  test("default-backed record construction requires constructor export") {
+    val typeOnly = parse("""
+package P1
+export Rec
+
+struct Marker
+struct Rec(a: Marker = Marker)
+""")
+
+    val consumer = parse("""
+package P2
+from P1 import Rec
+export main
+
+main = Rec {}
+""")
+
+    invalid(resolveThenInfer(List(typeOnly, consumer)))
+  }
+
+  test("default-backed record construction works when constructor is exported") {
+    val provider = parse("""
+package P1
+export Rec()
+
+struct Marker
+struct Rec(a: Marker = Marker)
+""")
+
+    val consumer = parse("""
+package P2
+from P1 import Rec
+export main
+
+main = Rec {}
+""")
+
+    valid(resolveThenInfer(List(provider, consumer)))
+  }
+
+  test("record constructor still requires non-defaulted fields") {
+    val pack = parse("""
+package P1
+
+struct Marker
+struct Rec(a, b: Marker = Marker)
+
+main = Rec {}
+""")
+
+    invalid(resolveThenInfer(List(pack)))
+  }
 }

@@ -3,6 +3,7 @@ package dev.bosatsu
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
+import cats.data.Ior
 import cats.data.NonEmptyList
 import Identifier.Bindable
 
@@ -22,6 +23,68 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     List[Statement]
   ] =
     TestUtils.sourceConvertedProgramOf(TestUtils.testPackage, code)
+
+  private def convertProgramResult(
+      code: String
+  ): Ior[ cats.data.NonEmptyChain[SourceConverter.Error], Program[
+    (rankn.TypeEnv[Kind.Arg], rankn.ParsedTypeEnv[Option[Kind.Arg]]),
+    Expr[Declaration],
+    List[Statement]
+  ]] =
+    SourceConverter.toProgram(
+      TestUtils.testPackage,
+      Nil,
+      Parser.unsafeParse(Statement.parser, code)
+    )
+
+  private def conversionErrors(code: String): List[SourceConverter.Error] =
+    convertProgramResult(code) match {
+      case Ior.Left(errs)    => errs.toList
+      case Ior.Both(errs, _) => errs.toList
+      case Ior.Right(_)      => Nil
+    }
+
+  private def defaultBindingAt(
+      code: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): Bindable = {
+    val params = rankn.TypeEnv
+      .fromParsed(convertProgram(code).types._2)
+      .getConstructorParams(
+        TestUtils.testPackage,
+        constructorName
+      )
+    val found = for {
+      ps <- params
+      p <- ps.lift(paramIndex)
+      b <- p.defaultBinding
+    } yield b
+
+    found.getOrElse {
+      fail(
+        s"expected default binding for ${constructorName.sourceCodeRepr} index $paramIndex"
+      )
+    }
+  }
+
+  private def defaultBindingNameAt(
+      code: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): String =
+    defaultBindingAt(code, constructorName, paramIndex).asString
+
+  private def assertSameDefaultBindingName(
+      leftCode: String,
+      rightCode: String,
+      constructorName: Identifier.Constructor,
+      paramIndex: Int
+  ): Unit = {
+    val left = defaultBindingNameAt(leftCode, constructorName, paramIndex)
+    val right = defaultBindingNameAt(rightCode, constructorName, paramIndex)
+    assertEquals(left, right)
+  }
 
   private def stripWrapperExpr(
       expr: Expr[Declaration]
@@ -273,5 +336,476 @@ main = match True:
     examples.foreach { case (actual, expected) =>
       assertMainDesugarsAs(actual, expected)
     }
+  }
+
+  test("record constructors fill omitted fields with default helpers") {
+    val expr = stripWrapperExpr(mainExpr("""#
+struct S(a: Int = 1, b: Int, c: Int = 3)
+main = S { b: 2 }
+"""))
+
+    expr match {
+      case Expr.App(
+            Expr.Global(pack, Identifier.Constructor("S"), _),
+            args,
+            _
+          ) =>
+        assertEquals(pack, TestUtils.testPackage)
+        val argList = args.toList
+        assertEquals(argList.length, 3)
+
+        def assertSyntheticGlobal(in: Expr[Declaration]): Unit =
+          stripWrapperExpr(in) match {
+            case Expr.Global(p, b: Identifier.Bindable, _) =>
+              assertEquals(p, TestUtils.testPackage)
+              assert(Identifier.isSynthetic(b), s"expected synthetic binding, got: $b")
+            case other =>
+              fail(s"expected synthetic global, got: $other")
+          }
+
+        assertSyntheticGlobal(argList(0))
+        stripWrapperExpr(argList(1)) match {
+          case Expr.Literal(lit, _) =>
+            assertEquals(lit, Lit.fromInt(2))
+          case other =>
+            fail(s"expected explicit literal argument, got: $other")
+        }
+        assertSyntheticGlobal(argList(2))
+      case other =>
+        fail(s"expected constructor application, got: $other")
+    }
+  }
+
+  test("positional constructor calls do not use default filling") {
+    val expr = stripWrapperExpr(mainExpr("""#
+struct S(a: Int = 1, b: Int = 2)
+main = S(9)
+"""))
+
+    expr match {
+      case Expr.App(
+            Expr.Global(_, Identifier.Constructor("S"), _),
+            args,
+            _
+          ) =>
+        assertEquals(args.length, 1)
+      case other =>
+        fail(s"expected constructor application, got: $other")
+    }
+  }
+
+  test("constructor defaults cannot reference constructor parameters") {
+    val errs = conversionErrors("""#
+struct S(a: Int, b: Int = a)
+main = S { a: 1 }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultReferencesParam(
+              Identifier.Constructor("S"),
+              Identifier.Name("b"),
+              Identifier.Name("a"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultReferencesParam in errors: $errs"
+    )
+  }
+
+  test("constructor defaults cannot reference later top-level bindings") {
+    val errs = conversionErrors("""#
+struct S(a: Int = later)
+later = 1
+main = S {}
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultOutOfScope(
+              Identifier.Constructor("S"),
+              Identifier.Name("a"),
+              Identifier.Name("later"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultOutOfScope in errors: $errs"
+    )
+  }
+
+  test(
+    "constructor defaults may reference earlier top-level values and earlier defaults"
+  ) {
+    val code = """#
+enum I:
+  I1
+seed = I1
+struct Foo(a: I = seed)
+struct Bar(f: Foo = Foo { })
+main = Bar { }
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val fooDefault = defaultBindingAt(code, Identifier.Constructor("Foo"), 0)
+    val barDefault = defaultBindingAt(code, Identifier.Constructor("Bar"), 0)
+    val program = convertProgram(code)
+
+    val fooHelperExpr = program
+      .getLet(fooDefault)
+      .getOrElse(fail(s"missing helper binding for ${fooDefault.sourceCodeRepr}"))
+      ._2
+    val barHelperExpr = program
+      .getLet(barDefault)
+      .getOrElse(fail(s"missing helper binding for ${barDefault.sourceCodeRepr}"))
+      ._2
+
+    assert(
+      fooHelperExpr.globals.exists(g =>
+        (g.pack == TestUtils.testPackage) && (g.name == Identifier.Name("seed"))
+      ),
+      s"expected helper ${fooDefault.sourceCodeRepr} to reference seed, got: $fooHelperExpr"
+    )
+    assert(
+      barHelperExpr.globals.exists(g =>
+        (g.pack == TestUtils.testPackage) && (g.name == (fooDefault: Identifier))
+      ),
+      s"expected helper ${barDefault.sourceCodeRepr} to reference helper ${fooDefault.sourceCodeRepr}, got: $barHelperExpr"
+    )
+  }
+
+  test("constructor defaults require explicit type annotations") {
+    val errs = conversionErrors("""#
+struct S(a = 1)
+main = S {}
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
+              Identifier.Constructor("S"),
+              Identifier.Name("a"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorDefaultRequiresTypeAnnotation in errors: $errs"
+    )
+  }
+
+  test("default helper naming is stable across default body changes") {
+    val ctor = Identifier.Constructor("S")
+    val expected =
+      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e"
+    val d1 = defaultBindingAt(
+      """#
+struct S(a: Int = 1)
+main = S {}
+""",
+      ctor,
+      0
+    )
+    val d2 = defaultBindingAt(
+      """#
+struct S(a: Int = 2)
+main = S {}
+""",
+      ctor,
+      0
+    )
+
+    assertEquals(d1, d2)
+    assertEquals(d1.asString, expected)
+    assertEquals(d2.asString, expected)
+  }
+
+  test("default helper names for struct params are golden") {
+    val code = """#
+struct S(a: Int = 1, b: Int = 2)
+main = S {}
+"""
+    val expected = List(
+      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e",
+      "_default$6c758775f4a15b41049ac536a8e9acbf6b0f23735edde50976ee815531afe650"
+    )
+    val actual = List(
+      defaultBindingAt(code, Identifier.Constructor("S"), 0).asString,
+      defaultBindingAt(code, Identifier.Constructor("S"), 1).asString
+    )
+
+    assertEquals(actual, expected)
+  }
+
+  test("default helper names for enum constructor params are golden") {
+    val code = """#
+enum E:
+  A(x: Int = 1)
+  B(y: String = "")
+main = A {}
+"""
+    val expected = List(
+      "_default$65c012a00b9f18e2b592cdca73543d7addbd8824c51ed8da36f0bd46f141424a",
+      "_default$c2d538919e2883cb892e2c9b039ab4bdb14f8d47543f7c8af96f5b698b5205e3"
+    )
+    val actual = List(
+      defaultBindingAt(code, Identifier.Constructor("A"), 0).asString,
+      defaultBindingAt(code, Identifier.Constructor("B"), 0).asString
+    )
+
+    assertEquals(actual, expected)
+  }
+
+  test("default helper names for generic default param are golden") {
+    val code = """#
+struct G[a](x: Option[a] = None)
+"""
+    val expected =
+      "_default$43205cc34d8d5b50a14c22ce333dd339473994c654f3d567f702deb279f65967"
+    val actual = defaultBindingAt(code, Identifier.Constructor("G"), 0).asString
+
+    assertEquals(actual, expected)
+  }
+
+  test("generic default helper naming is stable across type parameter renaming") {
+    val codeA = """#
+struct Foo[a](opt: Option[a] = None)
+"""
+    val codeB = """#
+struct Foo[b](opt: Option[b] = None)
+"""
+
+    assertSameDefaultBindingName(codeA, codeB, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable across many alpha renames") {
+    val names = List("a", "b", "with_t", "x", "value", "qq")
+    val ctor = Identifier.Constructor("Foo")
+    val mkCode = (tv: String) => s"""#
+struct Foo[$tv](opt: Option[$tv] = None)
+"""
+
+    val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
+    names.foreach { tv =>
+      val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
+      assertEquals(next, base, s"type parameter rename changed default hash: $tv")
+    }
+  }
+
+  test("generic default helper naming is stable for multiple type parameters") {
+    val codeAB = """#
+struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
+"""
+    val codeXY = """#
+struct Foo[x, y](pair: (Option[x], Option[y]) = (None, None))
+"""
+
+    assertSameDefaultBindingName(codeAB, codeXY, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable in nested function types") {
+    val codeA = """#
+struct Foo[a](fn: a -> Option[a] = x -> None)
+"""
+    val codeT = """#
+struct Foo[t](fn: t -> Option[t] = y -> None)
+"""
+
+    assertSameDefaultBindingName(codeA, codeT, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming ignores explicit vs implicit * kind") {
+    val codeImplicit = """#
+struct Foo[a](opt: Option[a] = None)
+"""
+    val codeExplicit = """#
+struct Foo[a: *](opt: Option[a] = None)
+"""
+
+    assertSameDefaultBindingName(
+      codeImplicit,
+      codeExplicit,
+      Identifier.Constructor("Foo"),
+      0
+    )
+  }
+
+  test("generic default helper naming is stable for equivalent type-arg parenthesization") {
+    val codeFlat = """#
+struct Foo[a](opt: Option[Option[a]] = None)
+"""
+    val codeParen = """#
+struct Foo[a](opt: Option[(Option[a])] = None)
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable for equivalent function parenthesization") {
+    val codeFlat = """#
+struct Foo[a](fn: a -> Option[a] -> Option[a] = x -> y -> None)
+"""
+    val codeParen = """#
+struct Foo[a](fn: a -> (Option[a] -> Option[a]) = x -> y -> None)
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable for equivalent tuple parenthesization") {
+    val codeFlat = """#
+struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
+"""
+    val codeParen = """#
+struct Foo[a, b](pair: ((Option[a]), (Option[b])) = (None, None))
+"""
+
+    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+  }
+
+  test("generic default helper naming is stable under forall binder renaming") {
+    val codeA = """#
+struct Foo[a](fn: forall t. t -> Option[a] = x -> None)
+"""
+    val codeB = """#
+struct Foo[a](fn: forall z. z -> Option[a] = y -> None)
+"""
+
+    assertSameDefaultBindingName(codeA, codeB, Identifier.Constructor("Foo"), 0)
+  }
+
+  test(
+    "enum branch existential default helper naming is stable across branch type-parameter renaming"
+  ) {
+    val codeB = """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[b](opt: Option[b] = None, fn: b -> a)
+"""
+    val codeZ = """#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[z](opt: Option[z] = None, fn: z -> a)
+"""
+
+    assertSameDefaultBindingName(
+      codeB,
+      codeZ,
+      Identifier.Constructor("Mapped"),
+      0
+    )
+  }
+
+  test("enum branch existential default helper naming is stable across many renames") {
+    val names = List("b", "x", "with_t", "inner", "elem")
+    val ctor = Identifier.Constructor("Mapped")
+    def mkCode(tv: String): String = s"""#
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped[$tv](opt: Option[$tv] = None, fn: $tv -> a)
+"""
+
+    val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
+    names.foreach { tv =>
+      val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
+      assertEquals(next, base, s"branch type parameter rename changed default hash: $tv")
+    }
+  }
+
+  test("generic struct defaults close non-canonical type variable names") {
+    val code = """#
+enum O[a]:
+  N
+  S(value: a)
+struct G[with_t](x: O[with_t] = N)
+main = G {}
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val helper = defaultBindingAt(code, Identifier.Constructor("G"), 0)
+    val helperExpr = convertProgram(code)
+      .getLet(helper)
+      .getOrElse(fail(s"missing helper binding for ${helper.sourceCodeRepr}"))
+      ._2
+
+    def annotatedTypeOf(expr: Expr[Declaration]): Option[rankn.Type] =
+      expr match {
+        case Expr.Annotation(_, tpe, _) => Some(tpe)
+        case Expr.Generic(_, in)        => annotatedTypeOf(in)
+        case _                          => None
+      }
+
+    val actualType = annotatedTypeOf(helperExpr)
+      .getOrElse(fail(s"missing annotation on helper expression: $helperExpr"))
+
+    val withT = rankn.Type.Var.Bound("with_t")
+    val oTy = rankn.Type.TyConst(
+      rankn.Type.Const.Defined(
+        TestUtils.testPackage,
+        TypeName(Identifier.Constructor("O"))
+      )
+    )
+    val expectedType = rankn.Type.forAll(
+      List((withT, Kind.Type)),
+      rankn.Type.TyApply(oTy, rankn.Type.TyVar(withT))
+    )
+
+    assert(
+      actualType.sameAs(expectedType),
+      s"expected helper type ${expectedType} but found ${actualType}"
+    )
+  }
+
+  test("enum defaults to earlier constructors with polymorphic helper type") {
+    val code = """#
+enum MyList[a]:
+  MyEmpty
+  MyCons(head: a, tail: MyList[a] = MyEmpty)
+
+main = MyCons { head: 1 }
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val helper = defaultBindingAt(code, Identifier.Constructor("MyCons"), 1)
+    val helperExpr = convertProgram(code)
+      .getLet(helper)
+      .getOrElse(fail(s"missing helper binding for ${helper.sourceCodeRepr}"))
+      ._2
+
+    def annotatedTypeOf(expr: Expr[Declaration]): Option[rankn.Type] =
+      expr match {
+        case Expr.Annotation(_, tpe, _) => Some(tpe)
+        case Expr.Generic(_, in)        => annotatedTypeOf(in)
+        case _                          => None
+      }
+
+    val actualType = annotatedTypeOf(helperExpr)
+      .getOrElse(fail(s"missing annotation on helper expression: $helperExpr"))
+
+    val a = rankn.Type.Var.Bound("a")
+    val myList = rankn.Type.TyConst(
+      rankn.Type.Const.Defined(
+        TestUtils.testPackage,
+        TypeName(Identifier.Constructor("MyList"))
+      )
+    )
+    val expectedType = rankn.Type.forAll(
+      List((a, Kind.Type)),
+      rankn.Type.TyApply(myList, rankn.Type.TyVar(a))
+    )
+
+    assert(
+      actualType.sameAs(expectedType),
+      s"expected helper type ${expectedType} but found ${actualType}"
+    )
   }
 }

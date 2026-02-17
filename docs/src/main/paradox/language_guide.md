@@ -495,6 +495,24 @@ my_file_rec = File {
 ```
 You can only use one syntax: all unnamed tuple-like, or all names dict-like.
 
+Struct and enum constructors may declare default values on fields:
+```
+struct Rec(a: Int, b: Int = 10)
+```
+Defaults are only applied when using record syntax (`Rec { ... }`), and only for
+omitted fields. Positional constructor calls (`Rec(...)`) do not fill defaults.
+
+Two rules apply to constructor defaults:
+1. A field with a default must have an explicit type annotation.
+1. A default expression may only reference imports, or top-level values defined
+earlier in the same file (including earlier defaults). It may not reference
+constructor parameters, including earlier parameters.
+
+If all required fields are defaulted, `Rec {}` is valid and means "construct
+using defaults." This is different from `Rec` by itself: bare `Rec` refers to
+the constructor value (and only behaves like a zero-argument construction for
+truly zero-argument constructors).
+
 Like Rust, if a value is already in scope matching a field name, we can omit
 the colon:
 ```

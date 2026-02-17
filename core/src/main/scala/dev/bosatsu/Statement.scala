@@ -38,12 +38,27 @@ sealed abstract class Statement {
         // this will just be some number of lines
         PaddingStatement(p)(r)
       case Struct(nm, typeArgs, args) =>
-        Struct(nm, typeArgs, args)(r)
+        val args1 = args.map { arg =>
+          arg.copy(
+            default = arg.default.map(_.replaceRegionsNB(r)),
+            region = r
+          )
+        }
+        Struct(nm, typeArgs, args1)(r)
       case Enum(nm, typeArgs, parts) =>
+        val parts1 = parts.map(_.map { branch =>
+          val args1 = branch.args.map { arg =>
+            arg.copy(
+              default = arg.default.map(_.replaceRegionsNB(r)),
+              region = r
+            )
+          }
+          branch.copy(args = args1, region = r)
+        })
         Enum(
           nm,
           typeArgs,
-          parts.map(_.map(_.copy(region = r)))
+          parts1
         )(r)
       case ExternalDef(name, ta, args, res) =>
         ExternalDef(name, ta, args, res)(r)
@@ -146,10 +161,32 @@ object Statement {
   //////
   // TypeDefinitionStatement types:
   //////
+  final case class ConstructorArg(
+      name: Bindable,
+      tpe: Option[TypeRef],
+      default: Option[Declaration.NonBinding],
+      region: Region
+  ) {
+    def toDoc: Doc = {
+      val nameDoc = Document[Identifier].document(name)
+      val typeDoc =
+        tpe match {
+          case None     => Doc.empty
+          case Some(tr) => colonSpace + tr.toDoc
+        }
+      val defaultDoc =
+        default match {
+          case None       => Doc.empty
+          case Some(expr) => Doc.text(" = ") + expr.toDoc
+        }
+      nameDoc + typeDoc + defaultDoc
+    }
+  }
+
   final case class EnumBranch(
       name: Constructor,
       typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
-      args: List[(Bindable, Option[TypeRef])],
+      args: List[ConstructorArg],
       region: Region
   )
 
@@ -167,7 +204,7 @@ object Statement {
   case class Struct(
       name: Constructor,
       typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
-      args: List[(Bindable, Option[TypeRef])]
+      args: List[ConstructorArg]
   )(val region: Region)
       extends TypeDefinitionStatement
 
@@ -220,8 +257,18 @@ object Statement {
           Def(DefStatement(nm, ta, args, ret, body))(region)
         }
 
-    val argParser: P[(Bindable, Option[TypeRef])] =
-      Identifier.bindableParser ~ TypeRef.annotationParser.?
+    val defaultArg: P[Declaration.NonBinding] =
+      Declaration.eqP *> maybeSpace *> Declaration.nonBindingParser.run("")
+
+    val argParser: P[ConstructorArg] =
+      (Identifier.bindableParser ~ TypeRef.annotationParser.? ~
+        (maybeSpace.soft.with1 *> defaultArg).?).region
+        .map {
+          case (region, ((name, tpe), None)) =>
+            ConstructorArg(name, tpe, None, region)
+          case (region, ((name, tpe), Some(dval))) =>
+            ConstructorArg(name, tpe, Some(dval), region)
+        }
 
     val structKey = keySpace("struct")
 
@@ -349,13 +396,13 @@ object Statement {
   private def constructor(
       name: Constructor,
       taDoc: Doc,
-      args: List[(Bindable, Option[TypeRef])]
+      args: List[ConstructorArg]
   ): Doc =
     Document[Identifier].document(name) + taDoc +
       (if (args.nonEmpty) {
          Doc.char('(') + Doc.intercalate(
            Doc.text(", "),
-           args.toList.map(TypeRef.argDoc[Bindable])
+           args.toList.map(_.toDoc)
          ) + Doc.char(')')
        } else Doc.empty)
 
