@@ -356,7 +356,8 @@ main = dep_value
   }
 
   private def interfaceWithConstructorDefault(
-      defaultBinding: Option[Identifier.Bindable]
+      defaultBinding: Option[Identifier.Bindable],
+      defaultType: Option[Type] = None
   ): Package.Interface = {
     val pack = PackageName.parts("Proto", "Defaults")
     val ctor = Identifier.Constructor("Rec")
@@ -371,7 +372,8 @@ main = dep_value
             ConstructorParam(
               name = Identifier.Name("a"),
               tpe = Type.IntType,
-              defaultBinding = defaultBinding
+              defaultBinding = defaultBinding,
+              defaultType = defaultType
             )
           )
         )
@@ -393,6 +395,15 @@ main = dep_value
       case ExportedName.Constructor(_, Referant.Constructor(_, cf))
           if cf.args.nonEmpty =>
         cf.args.head.defaultBinding
+    }.flatten
+
+  private def firstConstructorDefaultType(
+      iface: Package.Interface
+  ): Option[Type] =
+    iface.exports.collectFirst {
+      case ExportedName.Constructor(_, Referant.Constructor(_, cf))
+          if cf.args.nonEmpty =>
+        cf.args.head.defaultType
     }.flatten
 
   test("interface proto preserves constructor default bindings") {
@@ -436,6 +447,60 @@ main = dep_value
       case Failure(err) => fail(s"failed to decode legacy interface: $err")
     }
     assertEquals(firstConstructorDefault(decodedLegacy), None)
+  }
+
+  test("interface proto preserves constructor default helper types") {
+    val expectedType = Some(
+      Type.forAll(
+        List((Type.Var.Bound("a"), Kind.Type)),
+        Type.TyApply(Type.OptionType, Type.TyVar(Type.Var.Bound("a")))
+      )
+    )
+    val iface = interfaceWithConstructorDefault(
+      Some(Identifier.Name("default_value")),
+      expectedType
+    )
+    val protoIface = ProtoConverter.interfaceToProto(iface) match {
+      case Success(p)   => p
+      case Failure(err) => fail(s"failed to encode interface: $err")
+    }
+
+    val encodedDefaultTypeIdx =
+      protoIface.definedTypes.head.constructors.head.params.head.defaultTypeOf
+    assert(encodedDefaultTypeIdx > 0, s"expected non-zero proto default type index")
+
+    val decoded = ProtoConverter.interfaceFromProto(protoIface) match {
+      case Success(i)   => i
+      case Failure(err) => fail(s"failed to decode interface: $err")
+    }
+    assertEquals(firstConstructorDefaultType(decoded), expectedType)
+  }
+
+  test("interface proto decodes missing constructor default type field as None") {
+    val iface = interfaceWithConstructorDefault(
+      Some(Identifier.Name("default")),
+      Some(Type.IntType)
+    )
+    val protoIface = ProtoConverter.interfaceToProto(iface) match {
+      case Success(p)   => p
+      case Failure(err) => fail(s"failed to encode interface: $err")
+    }
+
+    val legacyProto = protoIface.copy(
+      definedTypes = protoIface.definedTypes.map { dt =>
+        dt.copy(
+          constructors = dt.constructors.map { cf =>
+            cf.copy(params = cf.params.map(_.copy(defaultTypeOf = 0)))
+          }
+        )
+      }
+    )
+
+    val decodedLegacy = ProtoConverter.interfaceFromProto(legacyProto) match {
+      case Success(i)   => i
+      case Failure(err) => fail(s"failed to decode legacy interface: $err")
+    }
+    assertEquals(firstConstructorDefaultType(decodedLegacy), None)
   }
 
 }
