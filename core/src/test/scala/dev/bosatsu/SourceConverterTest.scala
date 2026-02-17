@@ -463,4 +463,141 @@ main = S {}
 
     assertEquals(d1, d2)
   }
+
+  test("default helper names for struct params are golden") {
+    val code = """#
+struct S(a: Int = 1, b: Int = 2)
+main = S {}
+"""
+    val expected = List(
+      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e",
+      "_default$6c758775f4a15b41049ac536a8e9acbf6b0f23735edde50976ee815531afe650"
+    )
+    val actual = List(
+      defaultBindingAt(code, Identifier.Constructor("S"), 0).asString,
+      defaultBindingAt(code, Identifier.Constructor("S"), 1).asString
+    )
+
+    assertEquals(actual, expected)
+  }
+
+  test("default helper names for enum constructor params are golden") {
+    val code = """#
+enum E:
+  A(x: Int = 1)
+  B(y: String = "")
+main = A {}
+"""
+    val expected = List(
+      "_default$65c012a00b9f18e2b592cdca73543d7addbd8824c51ed8da36f0bd46f141424a",
+      "_default$c2d538919e2883cb892e2c9b039ab4bdb14f8d47543f7c8af96f5b698b5205e3"
+    )
+    val actual = List(
+      defaultBindingAt(code, Identifier.Constructor("A"), 0).asString,
+      defaultBindingAt(code, Identifier.Constructor("B"), 0).asString
+    )
+
+    assertEquals(actual, expected)
+  }
+
+  test("default helper names for generic default param are golden") {
+    val code = """#
+struct G[a](x: Option[a] = None)
+"""
+    val expected =
+      "_default$84f689fe3fe28be9ea01931afc62a63821a041dd5c2c98f5ef36eb99bb17ba5c"
+    val actual = defaultBindingAt(code, Identifier.Constructor("G"), 0).asString
+
+    assertEquals(actual, expected)
+  }
+
+  test("generic struct defaults close non-canonical type variable names") {
+    val code = """#
+enum O[a]:
+  N
+  S(value: a)
+struct G[with_t](x: O[with_t] = N)
+main = G {}
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val helper = defaultBindingAt(code, Identifier.Constructor("G"), 0)
+    val helperExpr = convertProgram(code)
+      .getLet(helper)
+      .getOrElse(fail(s"missing helper binding for ${helper.sourceCodeRepr}"))
+      ._2
+
+    def annotatedTypeOf(expr: Expr[Declaration]): Option[rankn.Type] =
+      expr match {
+        case Expr.Annotation(_, tpe, _) => Some(tpe)
+        case Expr.Generic(_, in)        => annotatedTypeOf(in)
+        case _                          => None
+      }
+
+    val actualType = annotatedTypeOf(helperExpr)
+      .getOrElse(fail(s"missing annotation on helper expression: $helperExpr"))
+
+    val withT = rankn.Type.Var.Bound("with_t")
+    val oTy = rankn.Type.TyConst(
+      rankn.Type.Const.Defined(
+        TestUtils.testPackage,
+        TypeName(Identifier.Constructor("O"))
+      )
+    )
+    val expectedType = rankn.Type.forAll(
+      List((withT, Kind.Type)),
+      rankn.Type.TyApply(oTy, rankn.Type.TyVar(withT))
+    )
+
+    assert(
+      actualType.sameAs(expectedType),
+      s"expected helper type ${expectedType} but found ${actualType}"
+    )
+  }
+
+  test("enum defaults to earlier constructors with polymorphic helper type") {
+    val code = """#
+enum MyList[a]:
+  MyEmpty
+  MyCons(head: a, tail: MyList[a] = MyEmpty)
+
+main = MyCons { head: 1 }
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    val helper = defaultBindingAt(code, Identifier.Constructor("MyCons"), 1)
+    val helperExpr = convertProgram(code)
+      .getLet(helper)
+      .getOrElse(fail(s"missing helper binding for ${helper.sourceCodeRepr}"))
+      ._2
+
+    def annotatedTypeOf(expr: Expr[Declaration]): Option[rankn.Type] =
+      expr match {
+        case Expr.Annotation(_, tpe, _) => Some(tpe)
+        case Expr.Generic(_, in)        => annotatedTypeOf(in)
+        case _                          => None
+      }
+
+    val actualType = annotatedTypeOf(helperExpr)
+      .getOrElse(fail(s"missing annotation on helper expression: $helperExpr"))
+
+    val a = rankn.Type.Var.Bound("a")
+    val myList = rankn.Type.TyConst(
+      rankn.Type.Const.Defined(
+        TestUtils.testPackage,
+        TypeName(Identifier.Constructor("MyList"))
+      )
+    )
+    val expectedType = rankn.Type.forAll(
+      List((a, Kind.Type)),
+      rankn.Type.TyApply(myList, rankn.Type.TyVar(a))
+    )
+
+    assert(
+      actualType.sameAs(expectedType),
+      s"expected helper type ${expectedType} but found ${actualType}"
+    )
+  }
 }

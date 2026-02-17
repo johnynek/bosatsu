@@ -1155,30 +1155,27 @@ object ProtoConverter {
           (
             cf.args
               .traverse { param =>
-                typeToProto(param.tpe).flatMap { tidx =>
-                  getId(param.name.sourceCodeRepr)
-                    .flatMap { n =>
-                      param.defaultBinding match {
-                        case Some(defaultName) =>
-                          getId(defaultName.sourceCodeRepr)
-                            .map { defaultNameIdx =>
-                              proto.FnParam(
-                                name = n,
-                                typeOf = tidx,
-                                defaultBindingName = defaultNameIdx
-                              )
-                            }
-                        case None =>
-                          tabPure(
-                            proto.FnParam(
-                              name = n,
-                              typeOf = tidx,
-                              defaultBindingName = 0
-                            )
-                          )
-                      }
-                    }
-                }
+                for {
+                  tidx <- typeToProto(param.tpe)
+                  nameIdx <- getId(param.name.sourceCodeRepr)
+                  defaultNameIdx <- param.defaultBinding match {
+                    case Some(defaultName) =>
+                      getId(defaultName.sourceCodeRepr)
+                    case None =>
+                      tabPure(0)
+                  }
+                  defaultTypeIdx <- param.defaultType match {
+                    case Some(defaultType) =>
+                      typeToProto(defaultType)
+                    case None =>
+                      tabPure(0)
+                  }
+                } yield proto.FnParam(
+                  name = nameIdx,
+                  typeOf = tidx,
+                  defaultBindingName = defaultNameIdx,
+                  defaultTypeOf = defaultTypeIdx
+                )
               },
             cf.exists.traverse(paramToProto)
           ).flatMapN { (params, exists) =>
@@ -1228,7 +1225,12 @@ object ProtoConverter {
                   .map(Some(_))
               }
         }
-      } yield ConstructorParam(bn, tpe, default)
+        defaultType <- {
+          val idx = p.defaultTypeOf
+          if (idx == 0) ReaderT.pure[Try, DecodeState, Option[Type]](None)
+          else lookupType(idx, s"invalid default type id: $p").map(Some(_))
+        }
+      } yield ConstructorParam(bn, tpe, default, defaultType)
 
     def consFromProto(
         c: proto.ConstructorFn

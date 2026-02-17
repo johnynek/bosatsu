@@ -18,7 +18,6 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   OnPushBranches,
   runner_ubuntu_latest,
   Step,
-  step_item_uses_with,
   FetchJavaWith,
   JavaStrategy,
   timeout_minutes_default,
@@ -43,57 +42,46 @@ workflow =
       WorkflowJobsTestWithCoverageReport(
         runner_ubuntu_latest,
         [
-          step_item_uses_with(
-            Some(action_checkout_v2),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_cache),
-            None,
-            None,
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(
               FetchJavaWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_matrix),
               },
             ),
-            Some(java_matrix_setup_name),
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_setup_sbt),
-            None,
-            Some(install_sbt_step_name),
-            None,
-          ),
-          step_item_uses_with(
-            None,
-            None,
-            Some("run tests with coverage"),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("run tests with coverage"),
+            run: Some(
               cat_lines([
                 "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
                 "",
               ]),
             ),
-          ),
-          step_item_uses_with(
-            Some(action_codecov),
-            Some(
+          },
+          Step {
+            uses: Some(action_codecov),
+            name: Some("Upload to Codecov"),
+            with: Some(
               FetchJavaWith {
                 token: Some(codecov_token_secret),
                 override_branch: Some(main_branch),
               },
             ),
-            Some("Upload to Codecov"),
-            None,
-          ),
+          },
         ],
         java_strategy_17,
         timeout_minutes_default,

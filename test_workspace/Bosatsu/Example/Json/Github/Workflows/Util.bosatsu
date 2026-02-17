@@ -34,12 +34,6 @@ export (
   runner_macos_latest,
   runner_ubuntu_latest,
   Step(),
-  step_item,
-  step_item_uses_with,
-  step_item_env,
-  named_step_item_env,
-  named_step_item_env_run,
-  named_step_item_with_id,
   JavaWith(),
   FetchJavaWith(),
   JavaStrategyMatrix(),
@@ -90,58 +84,6 @@ struct Step[with_t](
   env: Option[StepEnv] = None,
   id: Option[String] = None,
 )
-
-def step_item[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-) -> Step[with_t]:
-  Step { uses, name, with, run }
-
-def step_item_uses_with[with_t](
-  uses: Option[String],
-  with: Option[with_t],
-  name: Option[String],
-  run: Option[String],
-) -> Step[with_t]:
-  Step { uses, name, with, run }
-
-def step_item_env[with_t](
-  uses: Option[String],
-  name: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[StepEnv],
-) -> Step[with_t]:
-  Step { uses, name, with, run, env }
-
-def named_step_item_env[with_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  env: Option[StepEnv],
-) -> Step[with_t]:
-  Step { uses, name, with, run, env }
-
-def named_step_item_env_run[with_t](
-  name: Option[String],
-  uses: Option[String],
-  with: Option[with_t],
-  env: Option[StepEnv],
-  run: Option[String],
-) -> Step[with_t]:
-  Step { uses, name, with, run, env }
-
-def named_step_item_with_id[with_t](
-  name: String,
-  uses: Option[String],
-  with: Option[with_t],
-  run: Option[String],
-  id: Option[String],
-) -> Step[with_t]:
-  Step { uses, name: Some(name), with, run, id }
 
 struct JavaWith(distribution: String, `java-version`: String)
 

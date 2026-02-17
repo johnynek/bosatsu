@@ -8,7 +8,8 @@ import cats.syntax.all._
 final case class ConstructorParam(
     name: Bindable,
     tpe: Type,
-    defaultBinding: Option[Bindable]
+    defaultBinding: Option[Bindable],
+    defaultType: Option[Type] = None
 ) derives CanEqual {
   def depPackages: List[PackageName] =
     Type.packageNamesIn(tpe)

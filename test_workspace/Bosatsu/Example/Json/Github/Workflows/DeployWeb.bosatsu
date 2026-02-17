@@ -17,7 +17,6 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   permission_write,
   runner_ubuntu_latest,
   Step,
-  step_item,
 )
 
 struct WorkflowPermissions(contents: String)
@@ -51,30 +50,29 @@ workflow =
         runner_ubuntu_latest,
         WorkflowJobsBuildAndDeployEnv("true", github_token_secret),
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_17_setup_name),
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name),
+            with: Some(
               WorkflowJobsBuildAndDeployStepsItemWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
               },
             ),
-            None,
-          ),
-          step_item(
-            Some(action_setup_sbt),
-            Some(install_sbt_step_name),
-            None,
-            None,
-          ),
-          step_item(
-            None,
-            Some("build app"),
-            None,
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build app"),
+            run: Some(
               cat_lines([
                 "export NODE_OPTIONS=--openssl-legacy-provider",
                 "sbt \"jsuiJS/fullOptJS::webpack; docs/paradox\"",
@@ -87,18 +85,17 @@ workflow =
                 "",
               ]),
             ),
-          ),
-          step_item(
-            Some("peaceiris/actions-gh-pages@v3"),
-            Some("Deploy"),
-            Some(
+          },
+          Step {
+            uses: Some("peaceiris/actions-gh-pages@v3"),
+            name: Some("Deploy"),
+            with: Some(
               WorkflowJobsBuildAndDeployStepsItemWith {
                 github_token: Some(github_token_secret),
                 publish_dir: Some("./web_deploy"),
               },
             ),
-            None,
-          ),
+          },
         ],
       ),
     ),

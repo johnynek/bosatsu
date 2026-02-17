@@ -10,9 +10,6 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   cat_lines,
   codecov_token_secret,
   Step,
-  step_item,
-  step_item_uses_with,
-  step_item_env,
   JavaWith,
   FetchJavaWith,
   JavaStrategy,
@@ -128,25 +125,29 @@ workflow =
       WorkflowJobsTest(
         runner_ubuntu_latest,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
-          step_item(
-            None,
-            Some("run JVM tests"),
-            None,
-            Some(cat_lines([
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("run JVM tests"),
+            run: Some(cat_lines([
               "sbt \"coreJVM/test; cli/test; doc; paradox\"",
               "./test_cli.sh",
               "",
             ])),
-          ),
+          },
         ],
         java_strategy_17,
         timeout_minutes_default,
@@ -155,48 +156,47 @@ workflow =
         needs_test,
         runner_ubuntu_latest,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(
               WorkflowJobsTestPYStepsItemWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_matrix),
               },
             ),
-            None,
-          ),
-          step_item(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
-          step_item(
-            Some(action_setup_python),
-            Some("python setup"),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            uses: Some(action_setup_python),
+            name: Some("python setup"),
+            with: Some(
               WorkflowJobsTestPYStepsItemWith {
                 `python-version`: Some(python_version_matrix),
               },
             ),
-            None,
-          ),
-          step_item(
-            None,
-            Some("build assembly"),
-            None,
-            Some("sbt \"cli/assembly\""),
-          ),
-          step_item(
-            None,
-            Some("generate python code"),
-            None,
-            Some(transpile_python_cmd),
-          ),
-          step_item(
-            None,
-            Some("run python tests"),
-            None,
-            Some(run_python_tests_cmd),
-          ),
+          },
+          Step {
+            name: Some("build assembly"),
+            run: Some("sbt \"cli/assembly\""),
+          },
+          Step {
+            name: Some("generate python code"),
+            run: Some(transpile_python_cmd),
+          },
+          Step {
+            name: Some("run python tests"),
+            run: Some(run_python_tests_cmd),
+          },
         ],
         WorkflowJobsTestPYStrategy(
           WorkflowJobsTestPYStrategyMatrix(
@@ -210,25 +210,29 @@ workflow =
         needs_test,
         runner_ubuntu_latest,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
-          step_item(
-            None,
-            Some("run coreJS tests"),
-            None,
-            Some(cat_lines([
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("run coreJS tests"),
+            run: Some(cat_lines([
               "sbt \"coreJS/test; jsapiJS/compile\"",
               "sbt \"jsuiJS/test\"",
               "",
             ])),
-          ),
+          },
         ],
         java_strategy_17,
         timeout_minutes_default,
@@ -237,52 +241,41 @@ workflow =
         needs_test,
         runner_ubuntu_latest,
         [
-          step_item_uses_with(
-            Some(action_checkout_v2),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_cache),
-            None,
-            None,
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(
               FetchJavaWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_matrix),
               },
             ),
-            Some(java_matrix_setup_name),
-            None,
-          ),
-          step_item_uses_with(
-            Some(action_setup_sbt),
-            None,
-            Some(install_sbt_step_name),
-            None,
-          ),
-          step_item_uses_with(
-            None,
-            None,
-            Some("run tests with coverage"),
-            Some(cat_lines([
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("run tests with coverage"),
+            run: Some(cat_lines([
               "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
               "",
             ])),
-          ),
-          step_item_uses_with(
-            Some(action_codecov),
-            Some(
+          },
+          Step {
+            uses: Some(action_codecov),
+            name: Some("Upload to Codecov"),
+            with: Some(
               FetchJavaWith { token: Some(codecov_token_secret) },
             ),
-            Some("Upload to Codecov"),
-            None,
-          ),
+          },
         ],
         java_strategy_17,
         timeout_minutes_default,
@@ -291,41 +284,38 @@ workflow =
         needs_test,
         runner_ubuntu_latest,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(
-            Some(action_setup_sbt),
-            Some(install_sbt_step_name),
-            None,
-            None,
-          ),
-          step_item(
-            None,
-            Some("build native image"),
-            None,
-            Some(cat_lines([
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build native image"),
+            run: Some(cat_lines([
               "sbt \"cli/nativeImage\"",
               "cp cli/target/native-image/bosatsu-cli bosatsu",
               "",
             ])),
-          ),
-          step_item(
-            None,
-            Some("run bosatsu tests"),
-            None,
-            Some(
+          },
+          Step {
+            name: Some("run bosatsu tests"),
+            run: Some(
               cat_lines([
                 tool_test_workspace_cmd,
                 "",
               ]),
             ),
-          ),
+          },
         ],
         java_strategy_17,
       ),
@@ -333,60 +323,51 @@ workflow =
         needs_test,
         runner_ubuntu_latest,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(Some(action_cache), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(
-            Some(action_setup_sbt),
-            Some(install_sbt_step_name),
-            None,
-            None,
-          ),
-          step_item(
-            None,
-            Some("build node"),
-            None,
-            Some(cat_lines([
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build node"),
+            run: Some(cat_lines([
               "sbt \"cliJSJS/fullOptJS\"",
               "",
             ])),
-          ),
-          step_item(
-            None,
-            Some("run bosatsu tests"),
-            None,
-            Some(
+          },
+          Step {
+            name: Some("run bosatsu tests"),
+            run: Some(
               cat_lines([
                 tool_test_workspace_node_cmd,
                 "",
               ]),
             ),
-          ),
-          step_item(
-            None,
-            Some("install boehm"),
-            None,
-            Some("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
-          ),
-          step_item(
-            None,
-            Some("install c runtime"),
-            None,
-            Some(cat_lines([
+          },
+          Step {
+            name: Some("install boehm"),
+            run: Some("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
+          },
+          Step {
+            name: Some("install c runtime"),
+            run: Some(cat_lines([
               "make -C c_runtime install VERSION=$(git rev-parse HEAD)",
               "",
             ])),
-          ),
-          step_item(
-            None,
-            Some("run lib test"),
-            None,
-            Some(
+          },
+          Step {
+            name: Some("run lib test"),
+            run: Some(
               cat_lines([
                 "./bosatsu_node lib fetch",
                 "mkdir node_out_lib",
@@ -396,7 +377,7 @@ workflow =
                 "",
               ]),
             ),
-          ),
+          },
         ],
         java_strategy_17,
       ),
@@ -405,49 +386,41 @@ workflow =
         runner_ubuntu_latest,
         java_strategy_17,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
-          step_item(
-            None,
-            Some("build assembly"),
-            None,
-            Some("sbt \"cli/assembly\""),
-          ),
-          step_item(
-            None,
-            Some("install boehm"),
-            None,
-            Some("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
-          ),
-          step_item(
-            None,
-            Some("test runtime code"),
-            None,
-            Some(run_c_runtime_ci),
-          ),
-          step_item(
-            None,
-            Some("generate and compile c code"),
-            None,
-            Some(transpile_c_cmd),
-          ),
-          step_item(
-            None,
-            Some("run generated c code"),
-            None,
-            Some("./c_out/test_exe"),
-          ),
-          step_item(
-            None,
-            Some("check single assertion test output"),
-            None,
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build assembly"),
+            run: Some("sbt \"cli/assembly\""),
+          },
+          Step {
+            name: Some("install boehm"),
+            run: Some("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+          },
+          Step {
+            name: Some("test runtime code"),
+            run: Some(run_c_runtime_ci),
+          },
+          Step {
+            name: Some("generate and compile c code"),
+            run: Some(transpile_c_cmd),
+          },
+          Step {
+            name: Some("run generated c code"),
+            run: Some("./c_out/test_exe"),
+          },
+          Step {
+            name: Some("check single assertion test output"),
+            run: Some(
               cat_lines([
                 "rm -rf issue1642_repro",
                 "mkdir issue1642_repro",
@@ -462,19 +435,15 @@ workflow =
                 "",
               ]),
             ),
-          ),
-          step_item(
-            None,
-            Some("run lib test"),
-            None,
-            Some(run_lib_test_c),
-          ),
-          step_item(
-            None,
-            Some("run lib build"),
-            None,
-            Some(run_lib_build_c),
-          ),
+          },
+          Step {
+            name: Some("run lib test"),
+            run: Some(run_lib_test_c),
+          },
+          Step {
+            name: Some("run lib build"),
+            run: Some(run_lib_build_c),
+          },
         ],
         timeout_minutes_default,
       ),
@@ -483,56 +452,46 @@ workflow =
         runner_macos_latest,
         java_strategy_17,
         [
-          step_item(Some(action_checkout_v2), None, None, None),
-          step_item(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-          ),
-          step_item(Some(action_setup_sbt), Some(install_sbt_step_name), None, None),
-          step_item(
-            None,
-            Some("build assembly"),
-            None,
-            Some("sbt \"cli/assembly\""),
-          ),
-          step_item(
-            None,
-            Some("install boehm"),
-            None,
-            Some("brew install bdw-gc pkg-config"),
-          ),
-          step_item(
-            None,
-            Some("test runtime code"),
-            None,
-            Some(run_c_runtime_ci),
-          ),
-          step_item(
-            None,
-            Some("generate and compile c code"),
-            None,
-            Some(transpile_c_cmd),
-          ),
-          step_item(
-            None,
-            Some("run generated c code"),
-            None,
-            Some("./c_out/test_exe"),
-          ),
-          step_item(
-            None,
-            Some("run lib test"),
-            None,
-            Some(run_lib_test_c),
-          ),
-          step_item(
-            None,
-            Some("run lib build"),
-            None,
-            Some(run_lib_build_c),
-          ),
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build assembly"),
+            run: Some("sbt \"cli/assembly\""),
+          },
+          Step {
+            name: Some("install boehm"),
+            run: Some("brew install bdw-gc pkg-config"),
+          },
+          Step {
+            name: Some("test runtime code"),
+            run: Some(run_c_runtime_ci),
+          },
+          Step {
+            name: Some("generate and compile c code"),
+            run: Some(transpile_c_cmd),
+          },
+          Step {
+            name: Some("run generated c code"),
+            run: Some("./c_out/test_exe"),
+          },
+          Step {
+            name: Some("run lib test"),
+            run: Some(run_lib_test_c),
+          },
+          Step {
+            name: Some("run lib build"),
+            run: Some(run_lib_build_c),
+          },
         ],
         timeout_minutes_default,
       ),
@@ -540,47 +499,29 @@ workflow =
         needs_test_c,
         runner_ubuntu_latest,
         [
-          step_item_env(
-            Some(action_checkout_v2),
-            None,
-            None,
-            None,
-            None,
-          ),
-          step_item_env(
-            Some(action_cache),
-            None,
-            None,
-            None,
-            None,
-          ),
-          step_item_env(
-            Some(action_setup_java),
-            Some(java_matrix_setup_name),
-            Some(JavaWith(java_distribution_temurin, java_version_matrix)),
-            None,
-            None,
-          ),
-          step_item_env(
-            Some(action_setup_sbt),
-            Some(install_sbt_step_name),
-            None,
-            None,
-            None,
-          ),
-          step_item_env(
-            None,
-            Some("build assembly"),
-            None,
-            Some("sbt \"++3.8.1; cli/assembly\""),
-            None,
-          ),
-          step_item_env(
-            None,
-            Some("dry run bosatsu lib publish"),
-            None,
-            Some(run_publish_bosatsu_libs),
-            Some(
+          Step {
+            uses: Some(action_checkout_v2),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_matrix_setup_name),
+            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name),
+          },
+          Step {
+            name: Some("build assembly"),
+            run: Some("sbt \"++3.8.1; cli/assembly\""),
+          },
+          Step {
+            name: Some("dry run bosatsu lib publish"),
+            run: Some(run_publish_bosatsu_libs),
+            env: Some(
               StepEnv {
                 `REPO_ROOT`: Some("\${{ github.workspace }}"),
                 `OUTDIR`: Some("\${{ runner.temp }}/bosatsu_lib_publish"),
@@ -588,7 +529,7 @@ workflow =
                 `URI_BASE`: Some("https://example.invalid/"),
               },
             ),
-          ),
+          },
         ],
         java_strategy_17,
       ),

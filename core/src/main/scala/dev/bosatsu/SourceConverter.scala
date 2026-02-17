@@ -840,6 +840,17 @@ final class SourceConverter(
     Identifier.synthetic("default$" + digest)
   }
 
+  private def closeDefaultParamType(
+      paramType: Type,
+      kindHints: Map[Type.Var.Bound, Kind]
+  ): Type = {
+    val quantified =
+      Type.freeBoundTyVars(paramType :: Nil).map { tv =>
+        (tv, kindHints.getOrElse(tv, Kind.Type))
+      }
+    Type.forAll(quantified, paramType)
+  }
+
   private def existingDefinitionVars[A](
       ps: List[(A, Option[Type])]
   ): List[Type.TyVar] = {
@@ -931,6 +942,10 @@ final class SourceConverter(
               updateInferredWithDeclaredTypeArgs(typeArgs, typeParams0, tds)
                 .map { typeParams =>
                   val tname = TypeName(nm)
+                  val kindHints: Map[Type.Var.Bound, Kind] =
+                    typeParams.iterator.map { case (tv, optKa) =>
+                      tv -> optKa.fold[Kind](Kind.Type)(_.kind)
+                    }.toMap
                   val constructorParams = params.zipWithIndex.map {
                     case ((name, tpe), idx) =>
                       val defaultBinding =
@@ -942,7 +957,11 @@ final class SourceConverter(
                             tpe
                           )
                         )
-                      rankn.ConstructorParam(name, tpe, defaultBinding)
+                      val defaultType =
+                        defaultBinding.map(_ =>
+                          closeDefaultParamType(tpe, kindHints)
+                        )
+                      rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
                   }
                   val consFn = rankn.ConstructorFn(nm, constructorParams)
 
@@ -1197,6 +1216,17 @@ final class SourceConverter(
       branchesChecked.map { typeParams =>
         val typeName = TypeName(nm)
         val finalCons = constructors.toList.map { case (item, params) =>
+          val exists =
+            item.typeArgs.iterator
+              .flatMap(_.toList)
+              .map { case (tv, k) =>
+                (tv.toBoundVar, k)
+              }
+              .toList
+          val kindHints: Map[Type.Var.Bound, Kind] =
+            (typeParams.iterator ++ exists.iterator).map { case (tv, optKa) =>
+              tv -> optKa.fold[Kind](Kind.Type)(_.kind)
+            }.toMap
           val constructorParams = params.zipWithIndex.map {
             case ((name, tpe), idx) =>
               val defaultBinding =
@@ -1208,15 +1238,10 @@ final class SourceConverter(
                     tpe
                   )
                 )
-              rankn.ConstructorParam(name, tpe, defaultBinding)
+              val defaultType =
+                defaultBinding.map(_ => closeDefaultParamType(tpe, kindHints))
+              rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
           }
-          val exists =
-            item.typeArgs.iterator
-              .flatMap(_.toList)
-              .map { case (tv, k) =>
-                (tv.toBoundVar, k)
-              }
-              .toList
           rankn.ConstructorFn(item.name, constructorParams, exists)
         }
         rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
@@ -1765,36 +1790,6 @@ final class SourceConverter(
     )
   }
 
-  private def closeTypeRef(
-      base: TypeRef,
-      tpe: Type,
-      kindHints: Map[Type.Var.Bound, Kind]
-  ): TypeRef = {
-    val freeVars = Type.freeBoundTyVars(tpe :: Nil)
-    NonEmptyList.fromList(freeVars) match {
-      case None =>
-        base
-      case Some(freeNel) =>
-        val params = freeNel.map { b =>
-          val kind = kindHints.getOrElse(b, Kind.Type)
-          val kopt = if (kind == Kind.Type) None else Some(kind)
-          (TypeRef.TypeVar(b.name), kopt)
-        }
-        TypeRef.TypeForAll(params, base).normalizeForAll
-    }
-  }
-
-  private def kindHintsFrom(
-      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]]
-  ): Map[Type.Var.Bound, Kind] =
-    typeArgs.iterator.flatMap(_.toList).map { case (tv, optK) =>
-      val kind = optK match {
-        case Some(ka) => ka.kind
-        case None     => Kind.Type
-      }
-      tv.toBoundVar -> kind
-    }.toMap
-
   private def defaultScopeCheck(
       constructorName: Constructor,
       fieldName: Bindable,
@@ -1834,23 +1829,15 @@ final class SourceConverter(
 
     final case class ConstructorData(
         constructor: Constructor,
-        args: List[Statement.ConstructorArg],
-        kindHints: Map[Type.Var.Bound, Kind]
+        args: List[Statement.ConstructorArg]
     )
 
     val constructors: List[ConstructorData] =
       tds match {
-        case Struct(name, typeArgs, args) =>
-          ConstructorData(name, args, kindHintsFrom(typeArgs)) :: Nil
-        case Enum(_, typeArgs, items)     =>
-          val enumHints = kindHintsFrom(typeArgs)
-          items.get.toList.map { item =>
-            ConstructorData(
-              item.name,
-              item.args,
-              enumHints ++ kindHintsFrom(item.typeArgs)
-            )
-          }
+        case Struct(name, _, args) =>
+          ConstructorData(name, args) :: Nil
+        case Enum(_, _, items)     =>
+          items.get.toList.map(item => ConstructorData(item.name, item.args))
         case ExternalStruct(_, _) =>
           Nil
       }
@@ -1926,24 +1913,24 @@ final class SourceConverter(
                               constructorParamNames
                             )
 
-                          val baseTypeRef: Result[TypeRef] =
+                          val typeAnnotationCheck: Result[Unit] =
                             arg.tpe match {
-                              case Some(explicitType) =>
-                                SourceConverter.success(explicitType)
+                              case Some(_) =>
+                                SourceConverter.successUnit
                               case None =>
-                                SourceConverter.partial(
+                                SourceConverter.addError(
+                                  SourceConverter.successUnit,
                                   SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
                                     ctor.constructor,
                                     arg.name,
                                     region
-                                  ),
-                                  toTypeRef(param.tpe)
+                                  )
                                 )
                             }
 
-                          (scopeCheck, baseTypeRef).parMapN { (_, baseType) =>
+                          (scopeCheck, typeAnnotationCheck).parMapN { (_, _) =>
                             val annType =
-                              closeTypeRef(baseType, param.tpe, ctor.kindHints)
+                              toTypeRef(param.defaultType.getOrElse(param.tpe))
                             val rhs =
                               Declaration.Annotation(defaultExpr, annType)(using
                                 region

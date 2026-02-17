@@ -3,6 +3,7 @@ package dev.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.{Kind, TypedExpr}
+import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -213,6 +214,20 @@ class TypeTest extends munit.ScalaCheckSuite {
     val g = NTypeGen.genDepth03
     forAll(g, g) { (a, b) =>
       assertEquals(a.sameAs(b), (Type.normalize(a) == Type.normalize(b)))
+    }
+  }
+
+  test("equal Blake3 hashes imply sameAs") {
+    val g = NTypeGen.genDepth03
+    forAll(g, g) { (a, b) =>
+      val ah = Hashable.hash(Algo.blake3Algo, a).hash
+      val bh = Hashable.hash(Algo.blake3Algo, b).hash
+      if (ah.hex == bh.hex) {
+        assert(
+          a.sameAs(b),
+          s"expected sameAs for equal hashes: ${Type.typeParser.render(a)} and ${Type.typeParser.render(b)}"
+        )
+      }
     }
   }
 

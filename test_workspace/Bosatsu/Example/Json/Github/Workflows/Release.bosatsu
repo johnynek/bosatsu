@@ -15,9 +15,6 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   java_version_17,
   needs_prepare,
   Step,
-  named_step_item_env,
-  named_step_item_env_run,
-  named_step_item_with_id,
   permission_write,
   runner_macos_14,
   runner_ubuntu_latest,
@@ -166,51 +163,41 @@ workflow =
       WorkflowJobsVerifyTag(
         runner_ubuntu_latest,
         [
-          named_step_item_env(
-            Some("Check out code"),
-            Some(action_checkout_v4),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          named_step_item_env(None, Some(action_cache), None, None, None),
-          named_step_item_env(
-            Some(java_17_setup_name_title),
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name_title),
+            with: Some(
               FetchJavaWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some(install_sbt_step_name_title),
-            Some(action_setup_sbt),
-            None,
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some("Install b3sum"),
-            None,
-            None,
-            Some("sudo apt-get update && sudo apt-get install -y b3sum"),
-            None,
-          ),
-          named_step_item_env(
-            Some("Verify tag matches sbt version"),
-            None,
-            None,
-            Some(cat_lines([
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name_title),
+          },
+          Step {
+            name: Some("Install b3sum"),
+            run: Some("sudo apt-get update && sudo apt-get install -y b3sum"),
+          },
+          Step {
+            name: Some("Verify tag matches sbt version"),
+            run: Some(cat_lines([
               "set -euo pipefail",
               "python3 scripts/verify_release_tag.py",
               "",
             ])),
-            Some(tag_env("\${{ github.ref_name }}")),
-          ),
+            env: Some(tag_env("\${{ github.ref_name }}")),
+          },
         ],
       ),
       WorkflowJobsPrepare(
@@ -222,25 +209,18 @@ workflow =
           "\${{ steps.cruntime.outputs.git_sha }}",
         ),
         [
-          named_step_item_with_id(
-            "Check out code",
-            Some(action_checkout_v4),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          named_step_item_with_id(
-            "Install b3sum",
-            None,
-            None,
-            Some("sudo apt-get update && sudo apt-get install -y b3sum"),
-            None,
-          ),
-          named_step_item_with_id(
-            "Create c_runtime archive",
-            None,
-            None,
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            name: Some("Install b3sum"),
+            run: Some("sudo apt-get update && sudo apt-get install -y b3sum"),
+          },
+          Step {
+            name: Some("Create c_runtime archive"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "sha=\"$(git rev-parse HEAD)\"",
@@ -253,59 +233,49 @@ workflow =
                 "",
               ]),
             ),
-            Some("cruntime"),
-          ),
-          named_step_item_with_id(
-            "Upload c_runtime archive",
-            Some(action_upload_artifact),
-            Some(
+            id: Some("cruntime"),
+          },
+          Step {
+            uses: Some(action_upload_artifact),
+            name: Some("Upload c_runtime archive"),
+            with: Some(
               FetchJavaWith {
                 name: Some("bosatsu-c-runtime"),
                 path: Some("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
               },
             ),
-            None,
-            None,
-          ),
+          },
         ],
       ),
       WorkflowJobsBuildCli(
         runner_ubuntu_latest,
         needs_prepare,
         [
-          named_step_item_env_run(
-            Some("Check out code"),
-            Some(action_checkout_v4),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          named_step_item_env_run(None, Some(action_cache), None, None, None),
-          named_step_item_env_run(
-            Some(java_17_setup_name_title),
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name_title),
+            with: Some(
               FetchJavaWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env_run(
-            Some(install_sbt_step_name_title),
-            Some(action_setup_sbt),
-            None,
-            None,
-            None,
-          ),
-          named_step_item_env_run(
-            Some("Build jar and node JS"),
-            None,
-            None,
-            Some(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name_title),
+          },
+          Step {
+            name: Some("Build jar and node JS"),
+            run: Some(
               cat_lines([
                 "sbt \"++3.8.1; cli/assembly; cliJSJS/fullOptJS\"",
                 "cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar",
@@ -334,76 +304,63 @@ workflow =
                 "",
               ]),
             ),
-          ),
-          named_step_item_env_run(
-            Some("Upload jar"),
-            Some(action_upload_artifact),
-            Some(
+            env: Some(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
+          },
+          Step {
+            uses: Some(action_upload_artifact),
+            name: Some("Upload jar"),
+            with: Some(
               FetchJavaWith {
                 name: Some("bosatsu-jar"),
                 path: Some("bosatsu.jar"),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env_run(
-            Some("Upload node JS"),
-            Some(action_upload_artifact),
-            Some(
+          },
+          Step {
+            uses: Some(action_upload_artifact),
+            name: Some("Upload node JS"),
+            with: Some(
               FetchJavaWith {
                 name: Some("bosatsu-node"),
                 path: Some("bosatsu_node.js"),
               },
             ),
-            None,
-            None,
-          ),
+          },
         ],
       ),
       WorkflowJobsNativeLinux(
         runner_ubuntu_latest,
         needs_prepare,
         [
-          named_step_item_env(
-            Some("Check out code"),
-            Some(action_checkout_v4),
-            Some(FetchJavaWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          named_step_item_env(None, Some(action_cache), None, None, None),
-          named_step_item_env(
-            Some(java_17_setup_name_title),
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name_title),
+            with: Some(
               FetchJavaWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some(install_sbt_step_name_title),
-            Some(action_setup_sbt),
-            None,
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some("Install musl toolchain"),
-            None,
-            None,
-            Some("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
-            None,
-          ),
-          named_step_item_env(
-            Some("Build musl zlib"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name_title),
+          },
+          Step {
+            name: Some("Install musl toolchain"),
+            run: Some("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
+          },
+          Step {
+            name: Some("Build musl zlib"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "zlib_version=\"1.3.1\"",
@@ -421,20 +378,17 @@ workflow =
                 "",
               ]),
             ),
-            None,
-          ),
-          named_step_item_env(
-            Some("Build native image (linux static)"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            name: Some("Build native image (linux static)"),
+            run: Some(
               cat_lines([
                 "sbt \"++3.8.1; cli/nativeImage\"",
                 "cp cli/target/native-image/bosatsu-cli bosatsu-linux",
                 "",
               ]),
             ),
-            Some(
+            env: Some(
               native_linux_env(
                 "\${{ needs.prepare.outputs.c_runtime_hash }}",
                 "true",
@@ -443,61 +397,49 @@ workflow =
                 "musl-gcc",
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Upload linux native image"),
-            Some(action_upload_artifact),
-            Some(
+          },
+          Step {
+            uses: Some(action_upload_artifact),
+            name: Some("Upload linux native image"),
+            with: Some(
               FetchJavaWith {
                 name: Some("bosatsu-native-linux"),
                 path: Some("bosatsu-linux"),
               },
             ),
-            None,
-            None,
-          ),
+          },
         ],
       ),
       WorkflowJobsNativeMacos(
         runner_macos_14,
         needs_prepare,
         [
-          named_step_item_env_run(
-            Some("Check out code"),
-            Some(action_checkout_v4),
-            Some(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Some(0) }),
-            None,
-            None,
-          ),
-          named_step_item_env_run(None, Some(action_cache), None, None, None),
-          named_step_item_env_run(
-            Some(java_17_setup_name_title),
-            Some(action_setup_java),
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Some(0) }),
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name_title),
+            with: Some(
               WorkflowJobsNativeMacosStepsItemWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
                 architecture: Some("aarch64"),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env_run(
-            Some(install_sbt_step_name_title),
-            Some(action_setup_sbt),
-            None,
-            None,
-            None,
-          ),
-          named_step_item_env_run(
-            Some("Build native image (macos)"),
-            None,
-            None,
-            Some(
-              runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-            ),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name_title),
+          },
+          Step {
+            name: Some("Build native image (macos)"),
+            run: Some(
               cat_lines([
                 "sbt \"++3.8.1; cli/nativeImage\"",
                 "cp cli/target/native-image/bosatsu-cli bosatsu-macos",
@@ -507,79 +449,68 @@ workflow =
                 "",
               ]),
             ),
-          ),
-          named_step_item_env_run(
-            Some("Upload macos native image"),
-            Some(action_upload_artifact),
-            Some(
+            env: Some(
+              runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}"),
+            ),
+          },
+          Step {
+            uses: Some(action_upload_artifact),
+            name: Some("Upload macos native image"),
+            with: Some(
               WorkflowJobsNativeMacosStepsItemWith {
                 name: Some("bosatsu-native-macos"),
                 path: Some("bosatsu-macos"),
               },
             ),
-            None,
-            None,
-          ),
+          },
         ],
       ),
       WorkflowJobsRelease(
         runner_ubuntu_latest,
         [ needs_prepare, "build_cli", "native_linux", "native_macos" ],
         [
-          named_step_item_env(
-            Some("Check out code"),
-            Some(action_checkout_v4),
-            Some(
+          Step {
+            uses: Some(action_checkout_v4),
+            name: Some("Check out code"),
+            with: Some(
               WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Some(0) },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env(None, Some(action_cache), None, None, None),
-          named_step_item_env(
-            Some("Download artifacts"),
-            Some("actions/download-artifact@v4"),
-            Some(
+          },
+          Step {
+            uses: Some(action_cache),
+          },
+          Step {
+            uses: Some("actions/download-artifact@v4"),
+            name: Some("Download artifacts"),
+            with: Some(
               WorkflowJobsReleaseStepsItemWith {
                 path: Some("release_assets"),
                 `merge-multiple`: Some(True),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some(java_17_setup_name_title),
-            Some(action_setup_java),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_java),
+            name: Some(java_17_setup_name_title),
+            with: Some(
               WorkflowJobsReleaseStepsItemWith {
                 distribution: Some(java_distribution_temurin),
                 `java-version`: Some(java_version_17),
               },
             ),
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some(install_sbt_step_name_title),
-            Some(action_setup_sbt),
-            None,
-            None,
-            None,
-          ),
-          named_step_item_env(
-            Some("Install b3sum"),
-            None,
-            None,
-            Some("sudo apt-get update && sudo apt-get install -y b3sum"),
-            None,
-          ),
-          named_step_item_env(
-            Some("Publish JVM/JS artifacts to Sonatype"),
-            None,
-            None,
-            Some("sbt ci-release"),
-            Some(
+          },
+          Step {
+            uses: Some(action_setup_sbt),
+            name: Some(install_sbt_step_name_title),
+          },
+          Step {
+            name: Some("Install b3sum"),
+            run: Some("sudo apt-get update && sudo apt-get install -y b3sum"),
+          },
+          Step {
+            name: Some("Publish JVM/JS artifacts to Sonatype"),
+            run: Some("sbt ci-release"),
+            env: Some(
               release_env(
                 Some("\${{ needs.prepare.outputs.c_runtime_hash }}"),
                 Some("\${{ secrets.PGP_PASSPHRASE }}"),
@@ -596,13 +527,11 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Build assembly for lib publish"),
-            None,
-            None,
-            Some("sbt \"++3.8.1; cli/assembly\""),
-            Some(
+          },
+          Step {
+            name: Some("Build assembly for lib publish"),
+            run: Some("sbt \"++3.8.1; cli/assembly\""),
+            env: Some(
               release_env(
                 Some("\${{ needs.prepare.outputs.c_runtime_hash }}"),
                 None,
@@ -619,13 +548,11 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Publish Bosatsu libraries"),
-            None,
-            None,
-            Some(run_publish_bosatsu_libs),
-            Some(
+          },
+          Step {
+            name: Some("Publish Bosatsu libraries"),
+            run: Some(run_publish_bosatsu_libs),
+            env: Some(
               release_env(
                 None,
                 None,
@@ -644,12 +571,10 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Stage release assets"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            name: Some("Stage release assets"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "mkdir -p release_assets",
@@ -675,7 +600,7 @@ workflow =
                 "",
               ]),
             ),
-            Some(
+            env: Some(
               release_env(
                 None,
                 None,
@@ -692,12 +617,10 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Create SHA256SUMS"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            name: Some("Create SHA256SUMS"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "cd release_assets",
@@ -707,7 +630,7 @@ workflow =
                 "",
               ]),
             ),
-            Some(
+            env: Some(
               release_env(
                 None,
                 None,
@@ -724,12 +647,10 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Create B3SUMS"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            name: Some("Create B3SUMS"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "cd release_assets",
@@ -739,7 +660,7 @@ workflow =
                 "",
               ]),
             ),
-            Some(
+            env: Some(
               release_env(
                 None,
                 None,
@@ -756,11 +677,11 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Create GitHub release"),
-            Some("softprops/action-gh-release@v2"),
-            Some(
+          },
+          Step {
+            uses: Some("softprops/action-gh-release@v2"),
+            name: Some("Create GitHub release"),
+            with: Some(
               WorkflowJobsReleaseStepsItemWith {
                 name: Some("Release \${{ github.ref_name }}"),
                 tag_name: Some("\${{ github.ref_name }}"),
@@ -771,8 +692,7 @@ workflow =
                 ])),
               },
             ),
-            None,
-            Some(
+            env: Some(
               release_env(
                 None,
                 None,
@@ -789,12 +709,10 @@ workflow =
                 None,
               ),
             ),
-          ),
-          named_step_item_env(
-            Some("Create PR for core_conf.json changes"),
-            None,
-            None,
-            Some(
+          },
+          Step {
+            name: Some("Create PR for core_conf.json changes"),
+            run: Some(
               cat_lines([
                 "set -euo pipefail",
                 "echo \"Changes after bosatsu lib publish:\"",
@@ -829,7 +747,7 @@ workflow =
                 "",
               ]),
             ),
-            Some(
+            env: Some(
               release_env(
                 None,
                 None,
@@ -846,7 +764,7 @@ workflow =
                 Some(github_token_secret),
               ),
             ),
-          ),
+          },
         ],
       ),
     ),

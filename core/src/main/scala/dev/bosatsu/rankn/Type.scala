@@ -1369,69 +1369,43 @@ object Type {
   }
 
   given Hashable[Type] with {
-    private type FreeMap = Map[Type.Var, Int]
-
     private def loopVar[B](
         v: Type.Var,
         bound: List[Type.Var.Bound],
-        freeMap: FreeMap,
-        nextFree: Int,
         algo: Algo[B]
-    )(hasher: algo.Hasher): (algo.Hasher, FreeMap, Int) =
+    )(hasher: algo.Hasher): algo.Hasher =
       v match {
         case b: Type.Var.Bound =>
           val idx = bound.indexOf(b)
           if (idx >= 0) {
             val withTag = Hashable[Int].addHash(0, algo)(hasher)
-            val withIdx = Hashable[Int].addHash(idx, algo)(withTag)
-            (withIdx, freeMap, nextFree)
+            Hashable[Int].addHash(idx, algo)(withTag)
           } else {
-            freeMap.get(b) match {
-              case Some(freeIdx) =>
-                val withTag = Hashable[Int].addHash(1, algo)(hasher)
-                val withIdx = Hashable[Int].addHash(freeIdx, algo)(withTag)
-                (withIdx, freeMap, nextFree)
-              case None =>
-                val freeMap1 = freeMap.updated(b, nextFree)
-                val withTag = Hashable[Int].addHash(1, algo)(hasher)
-                val withIdx = Hashable[Int].addHash(nextFree, algo)(withTag)
-                (withIdx, freeMap1, nextFree + 1)
-            }
+            val withTag = Hashable[Int].addHash(1, algo)(hasher)
+            Hashable[Type.Var.Bound].addHash(b, algo)(withTag)
           }
         case s: Type.Var.Skolem =>
-          freeMap.get(s) match {
-            case Some(freeIdx) =>
-              val withTag = Hashable[Int].addHash(2, algo)(hasher)
-              val withIdx = Hashable[Int].addHash(freeIdx, algo)(withTag)
-              (withIdx, freeMap, nextFree)
-            case None =>
-              val freeMap1 = freeMap.updated(s, nextFree)
-              val withTag = Hashable[Int].addHash(2, algo)(hasher)
-              val withIdx = Hashable[Int].addHash(nextFree, algo)(withTag)
-              (withIdx, freeMap1, nextFree + 1)
-          }
+          val withTag = Hashable[Int].addHash(2, algo)(hasher)
+          Hashable[Type.Var.Skolem].addHash(s, algo)(withTag)
       }
 
     private def loopType[B](
         t: Type,
         bound: List[Type.Var.Bound],
-        freeMap: FreeMap,
-        nextFree: Int,
         algo: Algo[B]
-    )(hasher: algo.Hasher): (algo.Hasher, FreeMap, Int) =
+    )(hasher: algo.Hasher): algo.Hasher =
       t match {
         case Type.TyConst(Type.Const.Predef(cons)) =>
           val withTag = Hashable[Int].addHash(3, algo)(hasher)
           val withCons =
             Hashable[Identifier.Constructor].addHash(cons, algo)(withTag)
-          (withCons, freeMap, nextFree)
+          withCons
         case Type.TyConst(Type.Const.Defined(pack, name)) =>
           val withTag = Hashable[Int].addHash(4, algo)(hasher)
           val withPack = Hashable[PackageName].addHash(pack, algo)(withTag)
-          val withName = Hashable[TypeName].addHash(name, algo)(withPack)
-          (withName, freeMap, nextFree)
+          Hashable[TypeName].addHash(name, algo)(withPack)
         case Type.TyVar(v) =>
-          loopVar(v, bound, freeMap, nextFree, algo)(hasher)
+          loopVar(v, bound, algo)(hasher)
         case Type.TyMeta(meta) =>
           val withTag = Hashable[Int].addHash(5, algo)(hasher)
           val withId = Hashable[Long].addHash(meta.id, algo)(withTag)
@@ -1439,12 +1413,11 @@ object Type {
             Hashable[Boolean].addHash(meta.existential, algo)(withId)
           val withKind =
             Hashable[Kind].addHash(meta.kind, algo)(withExistential)
-          (withKind, freeMap, nextFree)
+          withKind
         case Type.TyApply(on, arg) =>
           val withTag = Hashable[Int].addHash(6, algo)(hasher)
-          val (withOn, freeMap1, nextFree1) =
-            loopType(on, bound, freeMap, nextFree, algo)(withTag)
-          loopType(arg, bound, freeMap1, nextFree1, algo)(withOn)
+          val withOn = loopType(on, bound, algo)(withTag)
+          loopType(arg, bound, algo)(withOn)
         case Type.ForAll(vars, in) =>
           val varsList = vars.toList
           val withTag = Hashable[Int].addHash(7, algo)(hasher)
@@ -1453,7 +1426,7 @@ object Type {
             Hashable[Kind].addHash(kind, algo)(h)
           }
           val bound1 = varsList.reverse.map(_._1) ::: bound
-          loopType(in, bound1, freeMap, nextFree, algo)(withKinds)
+          loopType(in, bound1, algo)(withKinds)
         case Type.Exists(vars, in) =>
           val varsList = vars.toList
           val withTag = Hashable[Int].addHash(8, algo)(hasher)
@@ -1462,13 +1435,13 @@ object Type {
             Hashable[Kind].addHash(kind, algo)(h)
           }
           val bound1 = varsList.reverse.map(_._1) ::: bound
-          loopType(in, bound1, freeMap, nextFree, algo)(withKinds)
+          loopType(in, bound1, algo)(withKinds)
       }
 
     def addHash[B](tpe: Type, algo: Algo[B])(
         hasher: algo.Hasher
     ): algo.Hasher =
-      loopType(tpe.normalize, Nil, Map.empty, 0, algo)(hasher)._1
+      loopType(tpe.normalize, Nil, algo)(hasher)
   }
 
   /** Final the set of all of Metas inside the list of given types

@@ -765,11 +765,17 @@ object ShowEdn {
         else
           Some(
             kw("fields") -> EVector(cf.args.map { param =>
+              val defaultPart =
+                param.defaultBinding match {
+                  case None =>
+                    Nil
+                  case Some(defaultName) =>
+                    nameAtom(defaultName.sourceCodeRepr) ::
+                      param.defaultType.toList.map(encodeType)
+                }
               EVector(
                 List(nameAtom(param.name.sourceCodeRepr), encodeType(param.tpe)) ++
-                  param.defaultBinding.toList.map(b =>
-                    nameAtom(b.sourceCodeRepr)
-                  )
+                  defaultPart
               )
             })
           ),
@@ -796,7 +802,7 @@ object ShowEdn {
                 _.traverse {
                   case EVector(List(nameEdn, typeEdn)) =>
                     (decodeBindable(nameEdn), decodeType(typeEdn)).mapN {
-                      ConstructorParam(_, _, None)
+                      ConstructorParam(_, _, None, None)
                     }
                   case EVector(List(nameEdn, typeEdn, defaultEdn)) =>
                     (
@@ -804,7 +810,21 @@ object ShowEdn {
                       decodeType(typeEdn),
                       decodeBindable(defaultEdn)
                     ).mapN { (name, tpe, defaultName) =>
-                      ConstructorParam(name, tpe, Some(defaultName))
+                      ConstructorParam(name, tpe, Some(defaultName), None)
+                    }
+                  case EVector(List(nameEdn, typeEdn, defaultEdn, defaultTypeEdn)) =>
+                    (
+                      decodeBindable(nameEdn),
+                      decodeType(typeEdn),
+                      decodeBindable(defaultEdn),
+                      decodeType(defaultTypeEdn)
+                    ).mapN { (name, tpe, defaultName, defaultType) =>
+                      ConstructorParam(
+                        name,
+                        tpe,
+                        Some(defaultName),
+                        Some(defaultType)
+                      )
                     }
                   case other =>
                     err[ConstructorParam](
