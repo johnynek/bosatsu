@@ -948,19 +948,20 @@ final class SourceConverter(
                     }.toMap
                   val constructorParams = params.zipWithIndex.map {
                     case ((name, tpe), idx) =>
-                      val defaultBinding =
+                      val maybeDefaultType =
                         argsWithType(idx)._1.default.map(_ =>
+                          closeDefaultParamType(tpe, kindHints)
+                        )
+                      val defaultBinding =
+                        maybeDefaultType.map { defaultType =>
                           defaultBindingForParam(
                             tname,
                             nm,
                             idx,
-                            tpe
+                            defaultType
                           )
-                        )
-                      val defaultType =
-                        defaultBinding.map(_ =>
-                          closeDefaultParamType(tpe, kindHints)
-                        )
+                        }
+                      val defaultType = maybeDefaultType
                       rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
                   }
                   val consFn = rankn.ConstructorFn(nm, constructorParams)
@@ -1229,17 +1230,20 @@ final class SourceConverter(
             }.toMap
           val constructorParams = params.zipWithIndex.map {
             case ((name, tpe), idx) =>
-              val defaultBinding =
+              val maybeDefaultType =
                 item.args(idx).default.map(_ =>
+                  closeDefaultParamType(tpe, kindHints)
+                )
+              val defaultBinding =
+                maybeDefaultType.map { defaultType =>
                   defaultBindingForParam(
                     typeName,
                     item.name,
                     idx,
-                    tpe
+                    defaultType
                   )
-                )
-              val defaultType =
-                defaultBinding.map(_ => closeDefaultParamType(tpe, kindHints))
+                }
+              val defaultType = maybeDefaultType
               rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
           }
           rankn.ConstructorFn(item.name, constructorParams, exists)

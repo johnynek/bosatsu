@@ -550,10 +550,26 @@ main = A {}
 struct G[a](x: Option[a] = None)
 """
     val expected =
-      "_default$84f689fe3fe28be9ea01931afc62a63821a041dd5c2c98f5ef36eb99bb17ba5c"
+      "_default$43205cc34d8d5b50a14c22ce333dd339473994c654f3d567f702deb279f65967"
     val actual = defaultBindingAt(code, Identifier.Constructor("G"), 0).asString
 
     assertEquals(actual, expected)
+  }
+
+  test("generic default helper naming is stable across type parameter renaming") {
+    val codeA = """#
+struct Foo[a](opt: Option[a] = None)
+"""
+    val codeB = """#
+struct Foo[b](opt: Option[b] = None)
+"""
+
+    val fromA =
+      defaultBindingAt(codeA, Identifier.Constructor("Foo"), 0).asString
+    val fromB =
+      defaultBindingAt(codeB, Identifier.Constructor("Foo"), 0).asString
+
+    assertEquals(fromA, fromB)
   }
 
   test("generic struct defaults close non-canonical type variable names") {
