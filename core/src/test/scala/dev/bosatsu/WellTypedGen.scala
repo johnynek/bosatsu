@@ -255,9 +255,11 @@ object WellTypedGen {
         )
       )
 
-  private def requireSome[A](label: String, opt: Option[A]): A =
-    opt.getOrElse {
-      throw new IllegalStateException(s"expected value for: $label")
+  private inline def requireSome[A](inline label: => String, opt: Option[A]): A =
+    opt match {
+      case Some(a) => a
+      case None => 
+        throw new IllegalStateException(s"expected value for: $label")
     }
 
   private def typeParamKindRef(kind: Kind): Option[Kind.Arg] =
@@ -896,9 +898,11 @@ object WellTypedGen {
     }
   }
 
-  private def requireGen[A](label: String, gen: Option[Gen[A]]): Gen[A] =
-    gen.getOrElse {
-      throw new IllegalStateException(s"expected generator for: $label")
+  private inline def requireGen[A](inline label: => String, gen: Option[Gen[A]]): Gen[A] =
+    gen match {
+      case Some(g) => g
+      case None =>
+        throw new IllegalStateException(s"expected generator for: $label")
     }
 
   private def genBindStep(ctx: Ctx, cfg: Config): Gen[Step] = {

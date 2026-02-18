@@ -9,7 +9,7 @@ import org.typelevel.paiges.Document
 class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 80 else 12
+      if (Platform.isScalaJvm) 100 else 12
     )
 
   private def renderStatements(statements: List[Statement]): String =
@@ -82,7 +82,7 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
     }
   }
 
-  private def assertPipeline(cfg: WellTypedGen.Config): Unit =
+  private def assertPipeline(cfg: WellTypedGen.Config) =
     forAll(WellTypedGen.wellTypedProgramGen(cfg)) { program =>
       val source = renderStatements(program.statements)
       // Step 1: parse generated source
@@ -93,19 +93,19 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
       assertTypecheckSuccess(program.packageName, parsedStatements, source)
     }
 
-  test("phase 1 generator: parse -> source-convert -> typecheck") {
+  property("phase 1 generator: parse -> source-convert -> typecheck") {
     assertPipeline(WellTypedGen.Config.phase1)
   }
 
-  test("phase 2 generator: parse -> source-convert -> typecheck") {
+  property("phase 2 generator: parse -> source-convert -> typecheck") {
     assertPipeline(WellTypedGen.Config.phase2)
   }
 
-  test("phase 3 generator: parse -> source-convert -> typecheck") {
+  property("phase 3 generator: parse -> source-convert -> typecheck") {
     assertPipeline(WellTypedGen.Config.phase3)
   }
 
-  test("phase 4 generator: parse -> source-convert -> typecheck") {
+  property("phase 4 generator: parse -> source-convert -> typecheck") {
     assertPipeline(WellTypedGen.Config.phase4)
   }
 }
