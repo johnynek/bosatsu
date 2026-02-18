@@ -1,6 +1,6 @@
 package Bosatsu/Example/Json/Github/Workflows/Release
 
-from Bosatsu/Json import Optional, Absent, Present
+from Bosatsu/Json import Optional, Missing, Set
 
 from Bosatsu/Example/Json/Github/Workflows/Util import (
   action_cache,
@@ -61,12 +61,12 @@ struct WorkflowJobsNativeLinux(
 )
 
 struct WorkflowJobsNativeMacosStepsItemWith(
-  `fetch-depth`: Optional[Int] = Absent,
-  distribution: Optional[String] = Absent,
-  `java-version`: Optional[String] = Absent,
-  architecture: Optional[String] = Absent,
-  name: Optional[String] = Absent,
-  path: Optional[String] = Absent,
+  `fetch-depth`: Optional[Int] = Missing,
+  distribution: Optional[String] = Missing,
+  `java-version`: Optional[String] = Missing,
+  architecture: Optional[String] = Missing,
+  name: Optional[String] = Missing,
+  path: Optional[String] = Missing,
 )
 
 struct WorkflowJobsNativeMacos(
@@ -76,15 +76,15 @@ struct WorkflowJobsNativeMacos(
 )
 
 struct WorkflowJobsReleaseStepsItemWith(
-  `fetch-depth`: Optional[Int] = Absent,
-  path: Optional[String] = Absent,
-  `merge-multiple`: Optional[Bool] = Absent,
-  distribution: Optional[String] = Absent,
-  `java-version`: Optional[String] = Absent,
-  name: Optional[String] = Absent,
-  tag_name: Optional[String] = Absent,
-  generate_release_notes: Optional[Bool] = Absent,
-  files: Optional[String] = Absent,
+  `fetch-depth`: Optional[Int] = Missing,
+  path: Optional[String] = Missing,
+  `merge-multiple`: Optional[Bool] = Missing,
+  distribution: Optional[String] = Missing,
+  `java-version`: Optional[String] = Missing,
+  name: Optional[String] = Missing,
+  tag_name: Optional[String] = Missing,
+  generate_release_notes: Optional[Bool] = Missing,
+  files: Optional[String] = Missing,
 )
 
 struct WorkflowJobsRelease(
@@ -105,10 +105,10 @@ struct WorkflowJobs(
 struct Workflow(name: String, on: WorkflowOn, permissions: WorkflowPermissions, jobs: WorkflowJobs)
 
 def tag_env(tag_name: String) -> StepEnv:
-  StepEnv { `TAG_NAME`: Present(tag_name) }
+  StepEnv { `TAG_NAME`: Set(tag_name) }
 
 def runtime_hash_env(hash: String) -> StepEnv:
-  StepEnv { `BOSATSU_C_RUNTIME_HASH`: Present(hash) }
+  StepEnv { `BOSATSU_C_RUNTIME_HASH`: Set(hash) }
 
 def native_linux_env(
   hash: String,
@@ -118,11 +118,11 @@ def native_linux_env(
   cc: String,
 ) -> StepEnv:
   StepEnv {
-    `BOSATSU_C_RUNTIME_HASH`: Present(hash),
-    `BOSATSU_STATIC_NATIVE_IMAGE`: Present(static_native),
-    `BOSATSU_NATIVE_IMAGE_LIBC`: Present(libc),
-    `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Present(clib_path),
-    `CC`: Present(cc),
+    `BOSATSU_C_RUNTIME_HASH`: Set(hash),
+    `BOSATSU_STATIC_NATIVE_IMAGE`: Set(static_native),
+    `BOSATSU_NATIVE_IMAGE_LIBC`: Set(libc),
+    `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Set(clib_path),
+    `CC`: Set(cc),
   }
 
 def release_env(
@@ -166,39 +166,39 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
           },
           Step {
-            uses: Present(action_cache),
+            uses: Set(action_cache),
           },
           Step {
-            uses: Present(action_setup_java),
-            name: Present(java_17_setup_name_title),
-            with: Present(
+            uses: Set(action_setup_java),
+            name: Set(java_17_setup_name_title),
+            with: Set(
               FetchJavaWith {
-                distribution: Present(java_distribution_temurin),
-                `java-version`: Present(java_version_17),
+                distribution: Set(java_distribution_temurin),
+                `java-version`: Set(java_version_17),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_sbt),
-            name: Present(install_sbt_step_name_title),
+            uses: Set(action_setup_sbt),
+            name: Set(install_sbt_step_name_title),
           },
           Step {
-            name: Present("Install b3sum"),
-            run: Present("sudo apt-get update && sudo apt-get install -y b3sum"),
+            name: Set("Install b3sum"),
+            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
           },
           Step {
-            name: Present("Verify tag matches sbt version"),
-            run: Present(cat_lines([
+            name: Set("Verify tag matches sbt version"),
+            run: Set(cat_lines([
               "set -euo pipefail",
               "python3 scripts/verify_release_tag.py",
               "",
             ])),
-            env: Present(tag_env("\${{ github.ref_name }}")),
+            env: Set(tag_env("\${{ github.ref_name }}")),
           },
         ],
       ),
@@ -212,17 +212,17 @@ workflow =
         ),
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
           },
           Step {
-            name: Present("Install b3sum"),
-            run: Present("sudo apt-get update && sudo apt-get install -y b3sum"),
+            name: Set("Install b3sum"),
+            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
           },
           Step {
-            name: Present("Create c_runtime archive"),
-            run: Present(
+            name: Set("Create c_runtime archive"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "sha=\"$(git rev-parse HEAD)\"",
@@ -235,15 +235,15 @@ workflow =
                 "",
               ]),
             ),
-            id: Present("cruntime"),
+            id: Set("cruntime"),
           },
           Step {
-            uses: Present(action_upload_artifact),
-            name: Present("Upload c_runtime archive"),
-            with: Present(
+            uses: Set(action_upload_artifact),
+            name: Set("Upload c_runtime archive"),
+            with: Set(
               FetchJavaWith {
-                name: Present("bosatsu-c-runtime"),
-                path: Present("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
+                name: Set("bosatsu-c-runtime"),
+                path: Set("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
               },
             ),
           },
@@ -254,30 +254,30 @@ workflow =
         needs_prepare,
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
           },
           Step {
-            uses: Present(action_cache),
+            uses: Set(action_cache),
           },
           Step {
-            uses: Present(action_setup_java),
-            name: Present(java_17_setup_name_title),
-            with: Present(
+            uses: Set(action_setup_java),
+            name: Set(java_17_setup_name_title),
+            with: Set(
               FetchJavaWith {
-                distribution: Present(java_distribution_temurin),
-                `java-version`: Present(java_version_17),
+                distribution: Set(java_distribution_temurin),
+                `java-version`: Set(java_version_17),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_sbt),
-            name: Present(install_sbt_step_name_title),
+            uses: Set(action_setup_sbt),
+            name: Set(install_sbt_step_name_title),
           },
           Step {
-            name: Present("Build jar and node JS"),
-            run: Present(
+            name: Set("Build jar and node JS"),
+            run: Set(
               cat_lines([
                 "sbt \"++3.8.1; cli/assembly; cliJSJS/fullOptJS\"",
                 "cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar",
@@ -306,25 +306,25 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
+            env: Set(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
           },
           Step {
-            uses: Present(action_upload_artifact),
-            name: Present("Upload jar"),
-            with: Present(
+            uses: Set(action_upload_artifact),
+            name: Set("Upload jar"),
+            with: Set(
               FetchJavaWith {
-                name: Present("bosatsu-jar"),
-                path: Present("bosatsu.jar"),
+                name: Set("bosatsu-jar"),
+                path: Set("bosatsu.jar"),
               },
             ),
           },
           Step {
-            uses: Present(action_upload_artifact),
-            name: Present("Upload node JS"),
-            with: Present(
+            uses: Set(action_upload_artifact),
+            name: Set("Upload node JS"),
+            with: Set(
               FetchJavaWith {
-                name: Present("bosatsu-node"),
-                path: Present("bosatsu_node.js"),
+                name: Set("bosatsu-node"),
+                path: Set("bosatsu_node.js"),
               },
             ),
           },
@@ -335,34 +335,34 @@ workflow =
         needs_prepare,
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
           },
           Step {
-            uses: Present(action_cache),
+            uses: Set(action_cache),
           },
           Step {
-            uses: Present(action_setup_java),
-            name: Present(java_17_setup_name_title),
-            with: Present(
+            uses: Set(action_setup_java),
+            name: Set(java_17_setup_name_title),
+            with: Set(
               FetchJavaWith {
-                distribution: Present(java_distribution_temurin),
-                `java-version`: Present(java_version_17),
+                distribution: Set(java_distribution_temurin),
+                `java-version`: Set(java_version_17),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_sbt),
-            name: Present(install_sbt_step_name_title),
+            uses: Set(action_setup_sbt),
+            name: Set(install_sbt_step_name_title),
           },
           Step {
-            name: Present("Install musl toolchain"),
-            run: Present("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
+            name: Set("Install musl toolchain"),
+            run: Set("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
           },
           Step {
-            name: Present("Build musl zlib"),
-            run: Present(
+            name: Set("Build musl zlib"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "zlib_version=\"1.3.1\"",
@@ -382,15 +382,15 @@ workflow =
             ),
           },
           Step {
-            name: Present("Build native image (linux static)"),
-            run: Present(
+            name: Set("Build native image (linux static)"),
+            run: Set(
               cat_lines([
                 "sbt \"++3.8.1; cli/nativeImage\"",
                 "cp cli/target/native-image/bosatsu-cli bosatsu-linux",
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               native_linux_env(
                 "\${{ needs.prepare.outputs.c_runtime_hash }}",
                 "true",
@@ -401,12 +401,12 @@ workflow =
             ),
           },
           Step {
-            uses: Present(action_upload_artifact),
-            name: Present("Upload linux native image"),
-            with: Present(
+            uses: Set(action_upload_artifact),
+            name: Set("Upload linux native image"),
+            with: Set(
               FetchJavaWith {
-                name: Present("bosatsu-native-linux"),
-                path: Present("bosatsu-linux"),
+                name: Set("bosatsu-native-linux"),
+                path: Set("bosatsu-linux"),
               },
             ),
           },
@@ -417,31 +417,31 @@ workflow =
         needs_prepare,
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Present(0) }),
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Set(0) }),
           },
           Step {
-            uses: Present(action_cache),
+            uses: Set(action_cache),
           },
           Step {
-            uses: Present(action_setup_java),
-            name: Present(java_17_setup_name_title),
-            with: Present(
+            uses: Set(action_setup_java),
+            name: Set(java_17_setup_name_title),
+            with: Set(
               WorkflowJobsNativeMacosStepsItemWith {
-                distribution: Present(java_distribution_temurin),
-                `java-version`: Present(java_version_17),
-                architecture: Present("aarch64"),
+                distribution: Set(java_distribution_temurin),
+                `java-version`: Set(java_version_17),
+                architecture: Set("aarch64"),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_sbt),
-            name: Present(install_sbt_step_name_title),
+            uses: Set(action_setup_sbt),
+            name: Set(install_sbt_step_name_title),
           },
           Step {
-            name: Present("Build native image (macos)"),
-            run: Present(
+            name: Set("Build native image (macos)"),
+            run: Set(
               cat_lines([
                 "sbt \"++3.8.1; cli/nativeImage\"",
                 "cp cli/target/native-image/bosatsu-cli bosatsu-macos",
@@ -451,17 +451,17 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}"),
             ),
           },
           Step {
-            uses: Present(action_upload_artifact),
-            name: Present("Upload macos native image"),
-            with: Present(
+            uses: Set(action_upload_artifact),
+            name: Set("Upload macos native image"),
+            with: Set(
               WorkflowJobsNativeMacosStepsItemWith {
-                name: Present("bosatsu-native-macos"),
-                path: Present("bosatsu-macos"),
+                name: Set("bosatsu-native-macos"),
+                path: Set("bosatsu-macos"),
               },
             ),
           },
@@ -472,111 +472,111 @@ workflow =
         [ needs_prepare, "build_cli", "native_linux", "native_macos" ],
         [
           Step {
-            uses: Present(action_checkout_v4),
-            name: Present("Check out code"),
-            with: Present(
-              WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Present(0) },
+            uses: Set(action_checkout_v4),
+            name: Set("Check out code"),
+            with: Set(
+              WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Set(0) },
             ),
           },
           Step {
-            uses: Present(action_cache),
+            uses: Set(action_cache),
           },
           Step {
-            uses: Present("actions/download-artifact@v4"),
-            name: Present("Download artifacts"),
-            with: Present(
+            uses: Set("actions/download-artifact@v4"),
+            name: Set("Download artifacts"),
+            with: Set(
               WorkflowJobsReleaseStepsItemWith {
-                path: Present("release_assets"),
-                `merge-multiple`: Present(True),
+                path: Set("release_assets"),
+                `merge-multiple`: Set(True),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_java),
-            name: Present(java_17_setup_name_title),
-            with: Present(
+            uses: Set(action_setup_java),
+            name: Set(java_17_setup_name_title),
+            with: Set(
               WorkflowJobsReleaseStepsItemWith {
-                distribution: Present(java_distribution_temurin),
-                `java-version`: Present(java_version_17),
+                distribution: Set(java_distribution_temurin),
+                `java-version`: Set(java_version_17),
               },
             ),
           },
           Step {
-            uses: Present(action_setup_sbt),
-            name: Present(install_sbt_step_name_title),
+            uses: Set(action_setup_sbt),
+            name: Set(install_sbt_step_name_title),
           },
           Step {
-            name: Present("Install b3sum"),
-            run: Present("sudo apt-get update && sudo apt-get install -y b3sum"),
+            name: Set("Install b3sum"),
+            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
           },
           Step {
-            name: Present("Publish JVM/JS artifacts to Sonatype"),
-            run: Present("sbt ci-release"),
-            env: Present(
+            name: Set("Publish JVM/JS artifacts to Sonatype"),
+            run: Set("sbt ci-release"),
+            env: Set(
               release_env(
-                Present("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-                Present("\${{ secrets.PGP_PASSPHRASE }}"),
-                Present("\${{ secrets.PGP_SECRET }}"),
-                Present("\${{ secrets.SONATYPE_PASSWORD }}"),
-                Present("\${{ secrets.SONATYPE_USERNAME }}"),
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
+                Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
+                Set("\${{ secrets.PGP_PASSPHRASE }}"),
+                Set("\${{ secrets.PGP_SECRET }}"),
+                Set("\${{ secrets.SONATYPE_PASSWORD }}"),
+                Set("\${{ secrets.SONATYPE_USERNAME }}"),
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Build assembly for lib publish"),
-            run: Present("sbt \"++3.8.1; cli/assembly\""),
-            env: Present(
+            name: Set("Build assembly for lib publish"),
+            run: Set("sbt \"++3.8.1; cli/assembly\""),
+            env: Set(
               release_env(
-                Present("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
+                Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Publish Bosatsu libraries"),
-            run: Present(run_publish_bosatsu_libs),
-            env: Present(
+            name: Set("Publish Bosatsu libraries"),
+            run: Set(run_publish_bosatsu_libs),
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present("\${{ github.workspace }}"),
-                Present("\${{ github.workspace }}/.bosatsu_lib_publish"),
-                Present("\${{ needs.prepare.outputs.git_sha }}"),
-                Present(
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set("\${{ github.workspace }}"),
+                Set("\${{ github.workspace }}/.bosatsu_lib_publish"),
+                Set("\${{ needs.prepare.outputs.git_sha }}"),
+                Set(
                   "https://github.com/\${{ github.repository }}/releases/download/\${{ github.ref_name }}/",
                 ),
-                Absent,
-                Absent,
-                Absent,
-                Absent,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Stage release assets"),
-            run: Present(
+            name: Set("Stage release assets"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "mkdir -p release_assets",
@@ -602,27 +602,27 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Absent,
-                Absent,
-                Absent,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Create SHA256SUMS"),
-            run: Present(
+            name: Set("Create SHA256SUMS"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "cd release_assets",
@@ -632,27 +632,27 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Absent,
-                Absent,
-                Absent,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Create B3SUMS"),
-            run: Present(
+            name: Set("Create B3SUMS"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "cd release_assets",
@@ -662,59 +662,59 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Absent,
-                Absent,
-                Absent,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+                Missing,
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            uses: Present("softprops/action-gh-release@v2"),
-            name: Present("Create GitHub release"),
-            with: Present(
+            uses: Set("softprops/action-gh-release@v2"),
+            name: Set("Create GitHub release"),
+            with: Set(
               WorkflowJobsReleaseStepsItemWith {
-                name: Present("Release \${{ github.ref_name }}"),
-                tag_name: Present("\${{ github.ref_name }}"),
-                generate_release_notes: Present(True),
-                files: Present(cat_lines([
+                name: Set("Release \${{ github.ref_name }}"),
+                tag_name: Set("\${{ github.ref_name }}"),
+                generate_release_notes: Set(True),
+                files: Set(cat_lines([
                   "release_assets/*",
                   "",
                 ])),
               },
             ),
-            env: Present(
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present(github_token_secret),
-                Absent,
-                Absent,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set(github_token_secret),
+                Missing,
+                Missing,
               ),
             ),
           },
           Step {
-            name: Present("Create PR for core_conf.json changes"),
-            run: Present(
+            name: Set("Create PR for core_conf.json changes"),
+            run: Set(
               cat_lines([
                 "set -euo pipefail",
                 "echo \"Changes after bosatsu lib publish:\"",
@@ -749,21 +749,21 @@ workflow =
                 "",
               ]),
             ),
-            env: Present(
+            env: Set(
               release_env(
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Absent,
-                Present("\${{ github.ref_name }}"),
-                Present(github_token_secret),
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Missing,
+                Set("\${{ github.ref_name }}"),
+                Set(github_token_secret),
               ),
             ),
           },

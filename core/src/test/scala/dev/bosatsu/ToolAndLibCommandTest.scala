@@ -110,8 +110,8 @@ class ToolAndLibCommandTest extends FunSuite {
 |  JObject(items: List[(String, Json)])
 |
 |enum Optional[a]:
-|  Absent
-|  Present(value: a)
+|  Missing
+|  Set(value: a)
 |
 |enum Nullable[a]:
 |  Null
@@ -2471,14 +2471,14 @@ external def size_Array[a](ary: Array[a]) -> Int
 
   test("lib json Optional fields omit absent keys and decode missing keys") {
     val src =
-      """from Bosatsu/Json import Optional, Absent, Present
+      """from Bosatsu/Json import Optional, Missing, Set
 |
 |export Payload(), absent_payload, present_payload, echo
 |
 |struct Payload(name: String, note: Optional[String])
 |
-|absent_payload = Payload("a", Absent)
-|present_payload = Payload("a", Present("x"))
+|absent_payload = Payload("a", Missing)
+|present_payload = Payload("a", Set("x"))
 |echo = (p: Payload) -> p
 |""".stripMargin
     val files = withBosatsuJsonModule(baseLibFiles(src))

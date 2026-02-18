@@ -34,8 +34,8 @@ enum Json:
   JObject(items: List[(String, Json)])
 
 enum Optional[a]:
-  Absent
-  Present(value: a)
+  Missing
+  Set(value: a)
 
 enum Nullable[a]:
   Null
