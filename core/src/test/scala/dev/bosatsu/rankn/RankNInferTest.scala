@@ -1564,13 +1564,20 @@ struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
 struct Nil
 
-# TODO: These variants don't work, but the one with a fully
-# ascribed type does. There is a problem here with using subsCheck
-# which can never substitute a metavariable for a sigma type (outer forall)
-#Wrap(_: ((forall x. Foo[x]) -> Nil)) = cra_fn
-#def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
-# Wrap(_: ((forall x. x) -> Nil)) = cra_fn
-#Nil
+def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
+  Wrap(_: ((forall x. x) -> Nil)) = cra_fn
+  Nil
+main = foo
+""",
+      "Wrap[(forall ssss. ssss) -> Nil] -> Nil"
+    )
+
+    parseProgram(
+      """#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+struct Nil
+
 def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   match cra_fn:
     case (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
