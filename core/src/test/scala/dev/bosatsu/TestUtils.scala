@@ -67,18 +67,18 @@ object TestUtils {
         case t @ Type.TyMeta(_)            =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
-          checkType(left, bound)
-          checkType(right, bound)
+          checkType(left, bound): Unit
+          checkType(right, bound): Unit
           t
         case Type.ForAll(vars, in) =>
-          checkType(in, bound ++ vars.toList.map(_._1))
+          checkType(in, bound ++ vars.toList.map(_._1)): Unit
           t
         case Type.Exists(vars, in) =>
-          checkType(in, bound ++ vars.toList.map(_._1))
+          checkType(in, bound ++ vars.toList.map(_._1)): Unit
           t
         case Type.TyConst(_) => t
       }
-    te.traverseType[cats.Id](checkType(_, Set.empty))
+    te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
     val tp = te.getType
     lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
     Require(

@@ -186,12 +186,12 @@ class ParserTest extends ParserTestBase {
     assert(Parser.unescape("\\u00").isLeft)
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
-    val propUnescape = forAll { (s: String) => Parser.unescape(s); () }
+    val propUnescape = forAll { (s: String) => Parser.unescape(s): Unit }
     // more brutal tests
     val propPrefixes = forAll { (s: String) =>
       val prefixes = List('x', 'o', 'u', 'U').map(c => s"\\$c")
       prefixes.foreach { p =>
-        Parser.unescape(s"$p$s")
+        Parser.unescape(s"$p$s"): Unit
         ()
       }
     }
@@ -1958,8 +1958,6 @@ foo = 1
     val pp = Package.parser(None).map { pack =>
       pack.copy(program = pack.program.map(_.replaceRegions(emptyRegion)))
     }
-    forAll(Generators.packageGen(4))(law(pp))
-
     roundTripExact(
       Package.parser(None),
       """package Foo
@@ -1975,6 +1973,8 @@ def run(z):
 main = run(x)
 """
     )
+
+    forAll(Generators.packageGen(4))(law(pp))
   }
 
   test("parse errors point near where they occur") {

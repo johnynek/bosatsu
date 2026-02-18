@@ -84,7 +84,7 @@ class LitTest extends munit.ScalaCheckSuite {
       Lit.Float64.fromRawLongBits(bits)
     }
 
-    forAll(genNaN, genNaN) { (a, b) =>
+    val nanProp = forAll(genNaN, genNaN) { (a, b) =>
       val cmp = Ordering[Lit].compare(a, b)
       assertEquals(cmp, 0)
       assert(Ordering[Lit].compare(a, Lit.Float64.fromDouble(0.0)) < 0)
@@ -97,6 +97,7 @@ class LitTest extends munit.ScalaCheckSuite {
       ),
       0
     )
+    nanProp
   }
 
   test(".NaN renders and parses") {

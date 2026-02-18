@@ -36,7 +36,7 @@ class TypedExprTest extends munit.ScalaCheckSuite {
       )
     }
 
-    forAll(genTypedExpr)(law)
+    val allVarsProp = forAll(genTypedExpr)(law)
 
     checkLast("""
 enum AB: A, B(x)
@@ -44,6 +44,7 @@ x = match B(100):
   case A: 10
   case B(b): b
 """)(law)
+    allVarsProp
   }
 
   test("allVars includes binders from lambdas, lets, and matches") {

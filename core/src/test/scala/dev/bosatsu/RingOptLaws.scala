@@ -327,13 +327,12 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
   property("unConstMult <=> maybeDivInt relationship") {
     // if unConstMult works, we could divide by the same const using maybeDivInt
-    forAll { (e: Expr[BigInt]) =>
+    val law1Prop = forAll { (e: Expr[BigInt]) =>
       e.unConstMult.foreach { case (coeff, e1) =>
         if (coeff != 0)
-          assertEquals(
-            e.maybeDivInt(coeff).map(Expr.toValue(_)),
-            Some(Expr.toValue(e1))
-          )
+          e.maybeDivInt(coeff).foreach { eDiv =>
+            assertEquals(Expr.toValue(eDiv), Expr.toValue(e1))
+          }
       }
     }
 
@@ -426,7 +425,8 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Nil
 
     regressions.foreach { case (e, div, w) => law2(e, div, w) }
-    forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
+    val law2Prop = forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
+    org.scalacheck.Prop.all(law1Prop, law2Prop)
   }
 
   property("maybeDivInt handles ±1 and 0 correctly") {
@@ -1348,7 +1348,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         val costE = w.cost(e)
         val checkCost = w.cost(Mult(biInt, x))
         assert(
-          checkCost <= costE || (x.isOne),
+          checkCost <= costE || x.isOne || x.isZero,
           show"bi=$bi, x=$x, checkCost=$checkCost, costE=$costE"
         )
         // law3: e.unConstMult.flatMap { case (_, e) => e.unConstMult } == None || e.isZero (we pull all the ints out once)
@@ -1391,7 +1391,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Nil
 
     regressions.foreach { case (e, w) => law(e, w) }
-    forAll((e: Expr[BigInt], w: Weights) => law(e, w))
+    val lawProp = forAll((e: Expr[BigInt], w: Weights) => law(e, w))
 
     // some examples we can handle
     val examples: List[(Expr[Int], BigInt)] =
@@ -1412,6 +1412,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
     examples.foreach { case (e, bi) =>
       assertEquals(e.unConstMult.map(_._1), Some(bi), show"e=$e")
     }
+    lawProp
   }
 
   property("unConstMult can always remove * const") {

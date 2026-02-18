@@ -43,6 +43,8 @@ lazy val commonSettings = Seq(
     "-Ycheck-all-patmat",
     "-explain",
     "-Wunused:all",
+    "-Wnonunit-statement",
+    "-Wvalue-discard",
     "-Werror"
   ),
   Test / testOptions += Tests.Argument("-oDF")
@@ -270,6 +272,9 @@ lazy val proto =
     .settings(
       name := "bosatsu-proto",
       moduleName := "compiler-proto",
+      // ScalaPB-generated sources currently trigger -Wvalue-discard on builder APIs.
+      // Keep strict warnings for handwritten code while silencing warnings in managed code.
+      Compile / scalacOptions += "-Wconf:src=.*[/\\\\]src_managed[/\\\\].*:s",
       Compile / unmanagedResourceDirectories +=
         (ThisBuild / baseDirectory).value / "proto" / "src" / "main" / "protobuf",
       Compile / PB.targets := Seq(

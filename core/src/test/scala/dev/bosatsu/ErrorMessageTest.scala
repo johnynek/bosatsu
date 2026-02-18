@@ -856,8 +856,8 @@ get = Pair(first, ...) -> first
 # missing second
 first = 1
 res = get(Pair { first })
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -871,8 +871,8 @@ get = Pair(first, ...) -> first
 first = 1
 second = 3
 res = get(Pair { first, second, third })
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -883,8 +883,8 @@ struct Pair(first, second)
 get = Pair { first } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -896,8 +896,8 @@ struct Pair(first, second)
 get = Pair(first) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -909,8 +909,8 @@ struct Pair(first, second)
 get = Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -922,8 +922,8 @@ struct Pair(first, second)
 get = Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -935,8 +935,8 @@ struct Pair(first, second)
 get = Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     evalFail(List("""
@@ -948,8 +948,8 @@ struct Pair(first, second)
 get = Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
-""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
-      s.message(Map.empty, Colorize.None); ()
+    """)) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      s.message(Map.empty, Colorize.None): Unit
     }
 
     runBosatsuTest(

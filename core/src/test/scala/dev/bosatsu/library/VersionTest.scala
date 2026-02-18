@@ -84,20 +84,20 @@ class VersionTest extends munit.ScalaCheckSuite {
     }
 
   test("parse spec examples") {
-    rt("1.0.0")
-    rt("1.11.0")
-    rt("2.0.0")
-    rt("3.1.0")
-    rt("4.0.0")
+    rt("1.0.0"): Unit
+    rt("1.11.0"): Unit
+    rt("2.0.0"): Unit
+    rt("3.1.0"): Unit
+    rt("4.0.0"): Unit
     // pre-release
-    rt("1.0.0-alpha")
-    rt("1.0.0-0.3.7")
-    rt("1.0.0-alpha.1")
-    rt("1.0.0-x.7.z.92")
+    rt("1.0.0-alpha"): Unit
+    rt("1.0.0-0.3.7"): Unit
+    rt("1.0.0-alpha.1"): Unit
+    rt("1.0.0-x.7.z.92"): Unit
     // with build identifiers
-    rt("1.0.0-alpha+001")
-    rt("1.0.0+20130313144700")
-    rt("1.0.0-beta+exp.sha.5114f85")
+    rt("1.0.0-alpha+001"): Unit
+    rt("1.0.0+20130313144700"): Unit
+    rt("1.0.0-beta+exp.sha.5114f85"): Unit
     assertEquals(
       rt("1.0.0+21AF26D3----117B344092BD").build,
       Some(Version.Build("21AF26D3----117B344092BD"))

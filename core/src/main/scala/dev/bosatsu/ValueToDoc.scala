@@ -309,7 +309,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           })
           // put the result in the cache before we compute it
           // so we can recurse
-          successCache.put(tpe, res)
+          successCache.put(tpe, res): Unit
           res
       }
 

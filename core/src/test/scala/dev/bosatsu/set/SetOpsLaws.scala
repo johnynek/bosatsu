@@ -285,12 +285,14 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
       }
     }
 
+    val props = List.newBuilder[org.scalacheck.Prop]
     top.foreach { t =>
       val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genItem))
-      forAll(pats)(law(t, _))
+      props += forAll(pats)(law(t, _))
 
       missingBranchesIfAddedRegressions.foreach(law(t, _))
     }
+    org.scalacheck.Prop.all(props.result()*)
   }
 
   test("missing branches are distinct") {

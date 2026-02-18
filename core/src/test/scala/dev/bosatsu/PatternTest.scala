@@ -81,13 +81,14 @@ class PatternTest extends munit.ScalaCheckSuite {
         case _ =>
       }
 
-    forAll(patGen)(p => law(p))
+    val patLawProp = forAll(patGen)(p => law(p))
     law(
       Pattern.Named(
         Identifier.Name("x"),
         Pattern.Named(Identifier.Name("x"), Pattern.WildCard)
       )
     )
+    patLawProp
   }
 
   test("test some examples for singly named") {

@@ -29,7 +29,7 @@ class MatchlessRegressionTest extends munit.FunSuite {
       expr: Matchless.Expr[Unit]
   ): Unit =
     try {
-      Matchless.reuseConstructors(expr)
+      Matchless.reuseConstructors(expr): Unit
       ()
     } catch {
       case _: StackOverflowError =>

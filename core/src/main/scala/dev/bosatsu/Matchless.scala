@@ -3100,7 +3100,7 @@ object Matchless {
       val bldr = scala.collection.mutable.ListBuffer.empty[A]
       as.foreach { a =>
         if (!seen(a)) {
-          seen.add(a)
+          seen.add(a): Unit
           bldr.append(a)
         }
       }

@@ -46,7 +46,7 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
     }
 
   override def beforeAll(): Unit = {
-    run("lib", "fetch", "--name", "core_alpha")
+    run("lib", "fetch", "--name", "core_alpha"): Unit
     ()
   }
 

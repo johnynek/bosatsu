@@ -53,7 +53,8 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
     val checked = PackageMap.typeCheckParsed(
       NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
       Nil,
-      "<predef>"
+      "<predef>",
+      CompileOptions.Default
     )
 
     checked match {

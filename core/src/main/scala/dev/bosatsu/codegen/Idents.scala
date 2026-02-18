@@ -69,7 +69,7 @@ object Idents {
     val len = str.length
     bldr.append(prefix)
     while (idx < len) {
-      toBase62(str.charAt(idx), bldr)
+      toBase62(str.charAt(idx), bldr): Unit
       idx += 1
     }
     bldr.toString()
@@ -125,7 +125,7 @@ object Idents {
           }
         } else {
           // this character is literally encoded
-          bldr.append(c)
+          bldr.append(c): Unit
         }
       }
 

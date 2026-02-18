@@ -192,7 +192,7 @@ class RankNInferTest extends munit.FunSuite {
           t
         case good =>
           good
-      }
+      }: Unit
       // make sure we can render repr:
       val rendered = te.repr
       val tp = te.getType

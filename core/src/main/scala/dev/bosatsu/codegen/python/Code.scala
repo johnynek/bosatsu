@@ -178,7 +178,7 @@ object Code {
         sb.append('0')
         pad += 1
       }
-      sb.append(hex)
+      sb.append(hex): Unit
     }
 
     val sb = new java.lang.StringBuilder(s.length + 8)

@@ -29,7 +29,7 @@ class ValueToDocTest extends munit.ScalaCheckSuite {
 
     forAll(withType, GenValue.genValue) { case ((te, t), v) =>
       val vd = ValueToDoc(te.toDefinedType(_))
-      vd.toDoc(t)(v)
+      vd.toDoc(t)(v): Unit
       ()
     }
   }

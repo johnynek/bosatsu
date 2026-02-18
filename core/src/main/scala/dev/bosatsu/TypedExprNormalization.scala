@@ -193,7 +193,7 @@ object TypedExprNormalization {
       def freshName(): Bindable = {
         var n = names.next()
         while (used(n)) n = names.next()
-        used.add(n)
+        used.add(n): Unit
         n
       }
 
@@ -2510,7 +2510,7 @@ object TypedExprNormalization {
               def nextName(): Bindable = {
                 var n = names.next()
                 while (used(n)) n = names.next()
-                used.add(n)
+                used.add(n): Unit
                 n
               }
 
