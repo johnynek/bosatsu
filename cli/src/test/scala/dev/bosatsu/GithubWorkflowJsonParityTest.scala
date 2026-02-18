@@ -5,7 +5,6 @@ import dev.bosatsu.tool.Output
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import java.nio.file.{Path, Paths}
-import scala.jdk.CollectionConverters._
 import scala.concurrent.duration._
 
 // allow us to unsafeRunSync
@@ -50,25 +49,6 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
     ()
   }
 
-  // For this exercise we treat absent object fields and explicit null fields
-  // as equivalent, which aligns with Option-backed JSON generation.
-  private def equivalentJson(lhs: com.fasterxml.jackson.databind.JsonNode, rhs: com.fasterxml.jackson.databind.JsonNode): Boolean =
-    if ((lhs eq null) || (rhs eq null)) (lhs eq rhs)
-    else if (lhs.isObject && rhs.isObject) {
-      val keys = lhs.fieldNames.asScala.toSet union rhs.fieldNames.asScala.toSet
-      keys.forall { k =>
-        val lv = lhs.get(k)
-        val rv = rhs.get(k)
-        if ((lv eq null) && (rv eq null)) true
-        else if (lv eq null) rv.isNull
-        else if (rv eq null) lv.isNull
-        else equivalentJson(lv, rv)
-      }
-    } else if (lhs.isArray && rhs.isArray) {
-      lhs.size == rhs.size &&
-        (0 until lhs.size).forall(idx => equivalentJson(lhs.get(idx), rhs.get(idx)))
-    } else lhs.equals(rhs)
-
   workflowCases.foreach { case (workflowFile, mainValue) =>
     test(s"lib json write matches .github/workflows/$workflowFile") {
       val out = run(
@@ -91,8 +71,9 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
       val workflowPath = Paths.get(".github", "workflows", workflowFile)
       val yamlJsonNode = yamlMapper.readTree(workflowPath.toFile)
 
-      assert(
-        equivalentJson(generatedJsonNode, yamlJsonNode),
+      assertEquals(
+        generatedJsonNode,
+        yamlJsonNode,
         clues(
           s"workflow: $workflowFile, main: $mainValue",
           s"generated: ${generatedJsonNode.toPrettyString}",

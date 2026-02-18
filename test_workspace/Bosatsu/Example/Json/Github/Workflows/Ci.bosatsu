@@ -1,5 +1,7 @@
 package Bosatsu/Example/Json/Github/Workflows/Ci
 
+from Bosatsu/Json import Optional, Absent, Present
+
 from Bosatsu/Example/Json/Github/Workflows/Util import (
   action_cache,
   action_codecov,
@@ -46,9 +48,9 @@ struct WorkflowJobsTest(
 )
 
 struct WorkflowJobsTestPYStepsItemWith(
-  distribution: Option[String] = None,
-  `java-version`: Option[String] = None,
-  `python-version`: Option[String] = None,
+  distribution: Optional[String] = Absent,
+  `java-version`: Optional[String] = Absent,
+  `python-version`: Optional[String] = Absent,
 )
 
 struct WorkflowJobsTestPYStrategyMatrix(java: List[String], python: List[String])
@@ -126,23 +128,23 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("run JVM tests"),
-            run: Some(cat_lines([
+            name: Present("run JVM tests"),
+            run: Present(cat_lines([
               "sbt \"coreJVM/test; cli/test; doc; paradox\"",
               "./test_cli.sh",
               "",
@@ -157,45 +159,45 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(
               WorkflowJobsTestPYStepsItemWith {
-                distribution: Some(java_distribution_temurin),
-                `java-version`: Some(java_version_matrix),
+                distribution: Present(java_distribution_temurin),
+                `java-version`: Present(java_version_matrix),
               },
             ),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            uses: Some(action_setup_python),
-            name: Some("python setup"),
-            with: Some(
+            uses: Present(action_setup_python),
+            name: Present("python setup"),
+            with: Present(
               WorkflowJobsTestPYStepsItemWith {
-                `python-version`: Some(python_version_matrix),
+                `python-version`: Present(python_version_matrix),
               },
             ),
           },
           Step {
-            name: Some("build assembly"),
-            run: Some("sbt \"cli/assembly\""),
+            name: Present("build assembly"),
+            run: Present("sbt \"cli/assembly\""),
           },
           Step {
-            name: Some("generate python code"),
-            run: Some(transpile_python_cmd),
+            name: Present("generate python code"),
+            run: Present(transpile_python_cmd),
           },
           Step {
-            name: Some("run python tests"),
-            run: Some(run_python_tests_cmd),
+            name: Present("run python tests"),
+            run: Present(run_python_tests_cmd),
           },
         ],
         WorkflowJobsTestPYStrategy(
@@ -211,23 +213,23 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("run coreJS tests"),
-            run: Some(cat_lines([
+            name: Present("run coreJS tests"),
+            run: Present(cat_lines([
               "sbt \"coreJS/test; jsapiJS/compile\"",
               "sbt \"jsuiJS/test\"",
               "",
@@ -242,38 +244,38 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
-            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+            uses: Present(action_checkout_v2),
+            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(
               FetchJavaWith {
-                distribution: Some(java_distribution_temurin),
-                `java-version`: Some(java_version_matrix),
+                distribution: Present(java_distribution_temurin),
+                `java-version`: Present(java_version_matrix),
               },
             ),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("run tests with coverage"),
-            run: Some(cat_lines([
+            name: Present("run tests with coverage"),
+            run: Present(cat_lines([
               "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
               "",
             ])),
           },
           Step {
-            uses: Some(action_codecov),
-            name: Some("Upload to Codecov"),
-            with: Some(
-              FetchJavaWith { token: Some(codecov_token_secret) },
+            uses: Present(action_codecov),
+            name: Present("Upload to Codecov"),
+            with: Present(
+              FetchJavaWith { token: Present(codecov_token_secret) },
             ),
           },
         ],
@@ -285,31 +287,31 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build native image"),
-            run: Some(cat_lines([
+            name: Present("build native image"),
+            run: Present(cat_lines([
               "sbt \"cli/nativeImage\"",
               "cp cli/target/native-image/bosatsu-cli bosatsu",
               "",
             ])),
           },
           Step {
-            name: Some("run bosatsu tests"),
-            run: Some(
+            name: Present("run bosatsu tests"),
+            run: Present(
               cat_lines([
                 tool_test_workspace_cmd,
                 "",
@@ -324,30 +326,30 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build node"),
-            run: Some(cat_lines([
+            name: Present("build node"),
+            run: Present(cat_lines([
               "sbt \"cliJSJS/fullOptJS\"",
               "",
             ])),
           },
           Step {
-            name: Some("run bosatsu tests"),
-            run: Some(
+            name: Present("run bosatsu tests"),
+            run: Present(
               cat_lines([
                 tool_test_workspace_node_cmd,
                 "",
@@ -355,19 +357,19 @@ workflow =
             ),
           },
           Step {
-            name: Some("install boehm"),
-            run: Some("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
+            name: Present("install boehm"),
+            run: Present("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
           },
           Step {
-            name: Some("install c runtime"),
-            run: Some(cat_lines([
+            name: Present("install c runtime"),
+            run: Present(cat_lines([
               "make -C c_runtime install VERSION=$(git rev-parse HEAD)",
               "",
             ])),
           },
           Step {
-            name: Some("run lib test"),
-            run: Some(
+            name: Present("run lib test"),
+            run: Present(
               cat_lines([
                 "./bosatsu_node lib fetch",
                 "mkdir node_out_lib",
@@ -387,40 +389,40 @@ workflow =
         java_strategy_17,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build assembly"),
-            run: Some("sbt \"cli/assembly\""),
+            name: Present("build assembly"),
+            run: Present("sbt \"cli/assembly\""),
           },
           Step {
-            name: Some("install boehm"),
-            run: Some("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+            name: Present("install boehm"),
+            run: Present("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
           },
           Step {
-            name: Some("test runtime code"),
-            run: Some(run_c_runtime_ci),
+            name: Present("test runtime code"),
+            run: Present(run_c_runtime_ci),
           },
           Step {
-            name: Some("generate and compile c code"),
-            run: Some(transpile_c_cmd),
+            name: Present("generate and compile c code"),
+            run: Present(transpile_c_cmd),
           },
           Step {
-            name: Some("run generated c code"),
-            run: Some("./c_out/test_exe"),
+            name: Present("run generated c code"),
+            run: Present("./c_out/test_exe"),
           },
           Step {
-            name: Some("check single assertion test output"),
-            run: Some(
+            name: Present("check single assertion test output"),
+            run: Present(
               cat_lines([
                 "rm -rf issue1642_repro",
                 "mkdir issue1642_repro",
@@ -437,12 +439,12 @@ workflow =
             ),
           },
           Step {
-            name: Some("run lib test"),
-            run: Some(run_lib_test_c),
+            name: Present("run lib test"),
+            run: Present(run_lib_test_c),
           },
           Step {
-            name: Some("run lib build"),
-            run: Some(run_lib_build_c),
+            name: Present("run lib build"),
+            run: Present(run_lib_build_c),
           },
         ],
         timeout_minutes_default,
@@ -453,44 +455,44 @@ workflow =
         java_strategy_17,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build assembly"),
-            run: Some("sbt \"cli/assembly\""),
+            name: Present("build assembly"),
+            run: Present("sbt \"cli/assembly\""),
           },
           Step {
-            name: Some("install boehm"),
-            run: Some("brew install bdw-gc pkg-config"),
+            name: Present("install boehm"),
+            run: Present("brew install bdw-gc pkg-config"),
           },
           Step {
-            name: Some("test runtime code"),
-            run: Some(run_c_runtime_ci),
+            name: Present("test runtime code"),
+            run: Present(run_c_runtime_ci),
           },
           Step {
-            name: Some("generate and compile c code"),
-            run: Some(transpile_c_cmd),
+            name: Present("generate and compile c code"),
+            run: Present(transpile_c_cmd),
           },
           Step {
-            name: Some("run generated c code"),
-            run: Some("./c_out/test_exe"),
+            name: Present("run generated c code"),
+            run: Present("./c_out/test_exe"),
           },
           Step {
-            name: Some("run lib test"),
-            run: Some(run_lib_test_c),
+            name: Present("run lib test"),
+            run: Present(run_lib_test_c),
           },
           Step {
-            name: Some("run lib build"),
-            run: Some(run_lib_build_c),
+            name: Present("run lib build"),
+            run: Present(run_lib_build_c),
           },
         ],
         timeout_minutes_default,
@@ -500,33 +502,33 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(JavaWith(java_distribution_temurin, java_version_matrix)),
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(JavaWith(java_distribution_temurin, java_version_matrix)),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build assembly"),
-            run: Some("sbt \"++3.8.1; cli/assembly\""),
+            name: Present("build assembly"),
+            run: Present("sbt \"++3.8.1; cli/assembly\""),
           },
           Step {
-            name: Some("dry run bosatsu lib publish"),
-            run: Some(run_publish_bosatsu_libs),
-            env: Some(
+            name: Present("dry run bosatsu lib publish"),
+            run: Present(run_publish_bosatsu_libs),
+            env: Present(
               StepEnv {
-                `REPO_ROOT`: Some("\${{ github.workspace }}"),
-                `OUTDIR`: Some("\${{ runner.temp }}/bosatsu_lib_publish"),
-                `GIT_SHA`: Some("\${{ github.sha }}"),
-                `URI_BASE`: Some("https://example.invalid/"),
+                `REPO_ROOT`: Present("\${{ github.workspace }}"),
+                `OUTDIR`: Present("\${{ runner.temp }}/bosatsu_lib_publish"),
+                `GIT_SHA`: Present("\${{ github.sha }}"),
+                `URI_BASE`: Present("https://example.invalid/"),
               },
             ),
           },

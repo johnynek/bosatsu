@@ -95,6 +95,36 @@ class ToolAndLibCommandTest extends FunSuite {
     )
   }
 
+  private val bosatsuJsonModuleSrc: String =
+    """package Bosatsu/Json
+|
+|export Json(), Optional(), Nullable()
+|
+|enum Json:
+|  JNull
+|  JBool(value: Bool)
+|  JString(value: String)
+|  JInt(value: Int)
+|  JFloat(value: Float64)
+|  JArray(items: List[Json])
+|  JObject(items: List[(String, Json)])
+|
+|enum Optional[a]:
+|  Absent
+|  Present(value: a)
+|
+|enum Nullable[a]:
+|  Null
+|  NonNull(value: a)
+|""".stripMargin
+
+  private def withBosatsuJsonModule(
+      files: List[(Chain[String], String)]
+  ): List[(Chain[String], String)] =
+    files :+ (
+      Chain("repo", "src", "Bosatsu", "Json.bosatsu") -> bosatsuJsonModuleSrc
+    )
+
   private def packageKeywordFields(
       pack: Package.Typed[Any]
   ): Map[String, Edn] = {
@@ -2205,7 +2235,7 @@ main = depBox
         "--repo_root",
         "repo",
         "--main",
-        "MyLib/Foo"
+        "MyLib/Foo::main"
       )
     ) match {
       case Right(out) =>
@@ -2286,6 +2316,303 @@ external def size_Array[a](ary: Array[a]) -> Int
         )
       case Right(other) =>
         fail(s"expected array json output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib json write/apply supports Bosatsu/Json::Json directly") {
+    val src =
+      """from Bosatsu/Json import (
+|  Json,
+|  JNull,
+|  JBool,
+|  JInt,
+|  JFloat,
+|  JArray,
+|  JObject,
+|)
+|
+|export main, id_json, nan_json
+|
+|id_json = (j: Json) -> j
+|nan_json = JFloat(.NaN)
+|
+|main = JObject([
+|  ("a", JInt(1)),
+|  ("b", JArray([JBool(True), JNull])),
+|])
+|""".stripMargin
+    val files = withBosatsuJsonModule(baseLibFiles(src))
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JObject(
+            List(
+              "a" -> Json.JNumberStr("1"),
+              "b" -> Json.JArray(Vector(Json.JBool(true), Json.JNull))
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected Json AST passthrough output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::id_json",
+        "--json_string",
+        "[{\"k\":[1,false]}]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JObject(
+            List(
+              "k" -> Json.JArray(Vector(Json.JNumberStr("1"), Json.JBool(false)))
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected Json AST identity output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::nan_json"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JString(value), _)) =>
+        assertEquals(value, "NaN")
+      case Right(other) =>
+        fail(s"expected non-finite float string encoding, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib json apply accepts Float64 encoded as strings") {
+    val src =
+      """main = (x: Float64) -> x
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[\"NaN\"]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JString(v), _)) =>
+        assertEquals(v, "NaN")
+      case Right(other) =>
+        fail(s"expected Float64 NaN string output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[\"Infinity\"]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JString(v), _)) =>
+        assertEquals(v, "Infinity")
+      case Right(other) =>
+        fail(s"expected Float64 Infinity string output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib json Optional fields omit absent keys and decode missing keys") {
+    val src =
+      """from Bosatsu/Json import Optional, Absent, Present
+|
+|export Payload(), absent_payload, present_payload, echo
+|
+|struct Payload(name: String, note: Optional[String])
+|
+|absent_payload = Payload("a", Absent)
+|present_payload = Payload("a", Present("x"))
+|echo = (p: Payload) -> p
+|""".stripMargin
+    val files = withBosatsuJsonModule(baseLibFiles(src))
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::absent_payload"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(json, Json.JObject(List("name" -> Json.JString("a"))))
+      case Right(other) =>
+        fail(s"expected Optional absent field omission, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::present_payload"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JObject(
+            List("name" -> Json.JString("a"), "note" -> Json.JString("x"))
+          )
+        )
+      case Right(other) =>
+        fail(s"expected Optional present field encoding, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::echo",
+        "--json_string",
+        "[{\"name\":\"a\"}]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(json, Json.JObject(List("name" -> Json.JString("a"))))
+      case Right(other) =>
+        fail(s"expected Optional missing key decode, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib json Nullable flattens nested nullability") {
+    val src =
+      """from Bosatsu/Json import Nullable, Null, NonNull
+|
+|export flat_null, echo
+|
+|flat_null: Nullable[Nullable[Int]] = NonNull(Null)
+|echo = (n: Nullable[Nullable[Int]]) -> n
+|""".stripMargin
+    val files = withBosatsuJsonModule(baseLibFiles(src))
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::flat_null"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JNull, _)) => ()
+      case Right(other) =>
+        fail(s"expected Nullable flatten-to-null output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::echo",
+        "--json_string",
+        "[null]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JNull, _)) => ()
+      case Right(other) =>
+        fail(s"expected Nullable null decode, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::echo",
+        "--json_string",
+        "[1]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JNumberStr("1"), _)) => ()
+      case Right(other) =>
+        fail(s"expected Nullable non-null decode, got: $other")
       case Left(err) =>
         fail(err.getMessage)
     }

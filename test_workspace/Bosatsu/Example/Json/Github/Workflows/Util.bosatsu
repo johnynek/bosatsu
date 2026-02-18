@@ -1,5 +1,7 @@
 package Bosatsu/Example/Json/Github/Workflows/Util
 
+from Bosatsu/Json import Optional, Absent
+
 export (
   action_cache,
   action_codecov,
@@ -56,45 +58,45 @@ struct OnPushBranches(branches: List[String])
 struct OnPush(push: OnPushBranches)
 
 struct StepEnv(
-  `TAG_NAME`: Option[String] = None,
-  `BOSATSU_C_RUNTIME_HASH`: Option[String] = None,
-  `BOSATSU_STATIC_NATIVE_IMAGE`: Option[String] = None,
-  `BOSATSU_NATIVE_IMAGE_LIBC`: Option[String] = None,
-  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Option[String] = None,
-  `CC`: Option[String] = None,
-  `PGP_PASSPHRASE`: Option[String] = None,
-  `PGP_SECRET`: Option[String] = None,
-  `SONATYPE_PASSWORD`: Option[String] = None,
-  `SONATYPE_USERNAME`: Option[String] = None,
-  `REPO_ROOT`: Option[String] = None,
-  `OUTDIR`: Option[String] = None,
-  `GIT_SHA`: Option[String] = None,
-  `URI_BASE`: Option[String] = None,
-  `C_RUNTIME_ARCHIVE`: Option[String] = None,
-  `GITHUB_TOKEN`: Option[String] = None,
-  `GITHUB_REF_NAME`: Option[String] = None,
-  `GH_TOKEN`: Option[String] = None,
+  `TAG_NAME`: Optional[String] = Absent,
+  `BOSATSU_C_RUNTIME_HASH`: Optional[String] = Absent,
+  `BOSATSU_STATIC_NATIVE_IMAGE`: Optional[String] = Absent,
+  `BOSATSU_NATIVE_IMAGE_LIBC`: Optional[String] = Absent,
+  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Optional[String] = Absent,
+  `CC`: Optional[String] = Absent,
+  `PGP_PASSPHRASE`: Optional[String] = Absent,
+  `PGP_SECRET`: Optional[String] = Absent,
+  `SONATYPE_PASSWORD`: Optional[String] = Absent,
+  `SONATYPE_USERNAME`: Optional[String] = Absent,
+  `REPO_ROOT`: Optional[String] = Absent,
+  `OUTDIR`: Optional[String] = Absent,
+  `GIT_SHA`: Optional[String] = Absent,
+  `URI_BASE`: Optional[String] = Absent,
+  `C_RUNTIME_ARCHIVE`: Optional[String] = Absent,
+  `GITHUB_TOKEN`: Optional[String] = Absent,
+  `GITHUB_REF_NAME`: Optional[String] = Absent,
+  `GH_TOKEN`: Optional[String] = Absent,
 )
 
 struct Step[with_t](
-  uses: Option[String] = None,
-  name: Option[String] = None,
-  with: Option[with_t] = None,
-  run: Option[String] = None,
-  env: Option[StepEnv] = None,
-  id: Option[String] = None,
+  uses: Optional[String] = Absent,
+  name: Optional[String] = Absent,
+  with: Optional[with_t] = Absent,
+  run: Optional[String] = Absent,
+  env: Optional[StepEnv] = Absent,
+  id: Optional[String] = Absent,
 )
 
 struct JavaWith(distribution: String, `java-version`: String)
 
 struct FetchJavaWith(
-  `fetch-depth`: Option[Int] = None,
-  distribution: Option[String] = None,
-  `java-version`: Option[String] = None,
-  token: Option[String] = None,
-  override_branch: Option[String] = None,
-  name: Option[String] = None,
-  path: Option[String] = None,
+  `fetch-depth`: Optional[Int] = Absent,
+  distribution: Optional[String] = Absent,
+  `java-version`: Optional[String] = Absent,
+  token: Optional[String] = Absent,
+  override_branch: Optional[String] = Absent,
+  name: Optional[String] = Absent,
+  path: Optional[String] = Absent,
 )
 
 struct JavaStrategyMatrix(java: List[String])

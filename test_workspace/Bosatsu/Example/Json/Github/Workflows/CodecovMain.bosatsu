@@ -1,5 +1,7 @@
 package Bosatsu/Example/Json/Github/Workflows/CodecovMain
 
+from Bosatsu/Json import Optional, Present
+
 from Bosatsu/Example/Json/Github/Workflows/Util import (
   action_cache,
   action_codecov,
@@ -43,29 +45,29 @@ workflow =
         runner_ubuntu_latest,
         [
           Step {
-            uses: Some(action_checkout_v2),
-            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+            uses: Present(action_checkout_v2),
+            with: Present(FetchJavaWith { `fetch-depth`: Present(0) }),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(
+            uses: Present(action_setup_java),
+            name: Present(java_matrix_setup_name),
+            with: Present(
               FetchJavaWith {
-                distribution: Some(java_distribution_temurin),
-                `java-version`: Some(java_version_matrix),
+                distribution: Present(java_distribution_temurin),
+                `java-version`: Present(java_version_matrix),
               },
             ),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("run tests with coverage"),
-            run: Some(
+            name: Present("run tests with coverage"),
+            run: Present(
               cat_lines([
                 "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
                 "",
@@ -73,12 +75,12 @@ workflow =
             ),
           },
           Step {
-            uses: Some(action_codecov),
-            name: Some("Upload to Codecov"),
-            with: Some(
+            uses: Present(action_codecov),
+            name: Present("Upload to Codecov"),
+            with: Present(
               FetchJavaWith {
-                token: Some(codecov_token_secret),
-                override_branch: Some(main_branch),
+                token: Present(codecov_token_secret),
+                override_branch: Present(main_branch),
               },
             ),
           },

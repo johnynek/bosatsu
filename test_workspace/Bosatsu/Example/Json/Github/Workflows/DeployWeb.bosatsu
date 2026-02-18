@@ -1,5 +1,7 @@
 package Bosatsu/Example/Json/Github/Workflows/DeployWeb
 
+from Bosatsu/Json import Optional, Absent, Present
+
 from Bosatsu/Example/Json/Github/Workflows/Util import (
   action_cache,
   action_checkout_v2,
@@ -24,10 +26,10 @@ struct WorkflowPermissions(contents: String)
 struct WorkflowJobsBuildAndDeployEnv(`BOSATSU_CI`: String, `GITHUB_TOKEN`: String)
 
 struct WorkflowJobsBuildAndDeployStepsItemWith(
-  distribution: Option[String] = None,
-  `java-version`: Option[String] = None,
-  github_token: Option[String] = None,
-  publish_dir: Option[String] = None,
+  distribution: Optional[String] = Absent,
+  `java-version`: Optional[String] = Absent,
+  github_token: Optional[String] = Absent,
+  publish_dir: Optional[String] = Absent,
 )
 
 struct WorkflowJobsBuildAndDeploy(
@@ -51,28 +53,28 @@ workflow =
         WorkflowJobsBuildAndDeployEnv("true", github_token_secret),
         [
           Step {
-            uses: Some(action_checkout_v2),
+            uses: Present(action_checkout_v2),
           },
           Step {
-            uses: Some(action_cache),
+            uses: Present(action_cache),
           },
           Step {
-            uses: Some(action_setup_java),
-            name: Some(java_17_setup_name),
-            with: Some(
+            uses: Present(action_setup_java),
+            name: Present(java_17_setup_name),
+            with: Present(
               WorkflowJobsBuildAndDeployStepsItemWith {
-                distribution: Some(java_distribution_temurin),
-                `java-version`: Some(java_version_17),
+                distribution: Present(java_distribution_temurin),
+                `java-version`: Present(java_version_17),
               },
             ),
           },
           Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
+            uses: Present(action_setup_sbt),
+            name: Present(install_sbt_step_name),
           },
           Step {
-            name: Some("build app"),
-            run: Some(
+            name: Present("build app"),
+            run: Present(
               cat_lines([
                 "export NODE_OPTIONS=--openssl-legacy-provider",
                 "sbt \"jsuiJS/fullOptJS::webpack; docs/paradox\"",
@@ -87,12 +89,12 @@ workflow =
             ),
           },
           Step {
-            uses: Some("peaceiris/actions-gh-pages@v3"),
-            name: Some("Deploy"),
-            with: Some(
+            uses: Present("peaceiris/actions-gh-pages@v3"),
+            name: Present("Deploy"),
+            with: Present(
               WorkflowJobsBuildAndDeployStepsItemWith {
-                github_token: Some(github_token_secret),
-                publish_dir: Some("./web_deploy"),
+                github_token: Present(github_token_secret),
+                publish_dir: Present("./web_deploy"),
               },
             ),
           },
