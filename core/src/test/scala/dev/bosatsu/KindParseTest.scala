@@ -4,6 +4,7 @@ import cats.kernel.Eq
 import cats.syntax.eq._
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
 import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
@@ -98,7 +99,7 @@ class KindParseTest extends ParserTestBase {
     val propArgs = forAll(Gen.listOf(genArg)) { args =>
       assertEquals(Kind(args*).toArgs, args)
     }
-    org.scalacheck.Prop.all(propKind, propArgs)
+    Prop.all(propKind, propArgs)
   }
 
   test("example orders") {
@@ -449,6 +450,6 @@ class KindParseTest extends ParserTestBase {
       )
     }
 
-    org.scalacheck.Prop.all(interleaveProp1, interleaveProp2)
+    Prop.all(interleaveProp1, interleaveProp2)
   }
 }

@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
 import Identifier.Bindable
@@ -330,7 +331,7 @@ x""")
       assertEquals(a0.hashCode, a1.hashCode)
     }
 
-    org.scalacheck.Prop.all(varProp, litProp, applyProp)
+    Prop.all(varProp, litProp, applyProp)
   }
 
   test("isCheap is constant under Annotation or Parens") {

@@ -5,6 +5,7 @@ import cats.syntax.all._
 import dev.bosatsu.{Kind, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
@@ -664,7 +665,7 @@ class TypeTest extends munit.ScalaCheckSuite {
         l
       )
     }
-    org.scalacheck.Prop.all(propRoundTrip, propSkolem, propMeta)
+    Prop.all(propRoundTrip, propSkolem, propMeta)
   }
 
   test("test all binders") {
@@ -1101,7 +1102,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       )
     }
 
-    org.scalacheck.Prop.all(genForAllProp, genExistsProp)
+    Prop.all(genForAllProp, genExistsProp)
   }
 
   test("Type.forAll and Type.exists bind vars selected from free vars") {

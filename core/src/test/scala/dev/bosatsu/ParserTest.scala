@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import java.math.BigInteger
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import org.typelevel.paiges.{Doc, Document}
 
@@ -157,7 +158,7 @@ class ParserTest extends ParserTestBase {
     val propWithUnderscore = forAll(strGen) { case Opaque(s) =>
       parseTestAll(Parser.integerString, s, s)
     }
-    org.scalacheck.Prop.all(propInts, propWithUnderscore)
+    Prop.all(propInts, propWithUnderscore)
   }
 
   test("string escape/unescape round trips") {
@@ -197,7 +198,7 @@ class ParserTest extends ParserTestBase {
     }
 
     assertEquals(Parser.unescape("\\u0020"), Right(" "))
-    org.scalacheck.Prop.all(propRoundTrip, propUnescape, propPrefixes)
+    Prop.all(propRoundTrip, propUnescape, propPrefixes)
   }
 
   test("we can parse quoted strings") {
@@ -479,7 +480,7 @@ class ParserTest extends ParserTestBase {
       val str = s"($it$pad)"
       parseTestAll(Parser.integerString.tupleOrParens, str, Left(it.toString))
     }
-    org.scalacheck.Prop.all(propTuple, propSingle)
+    Prop.all(propTuple, propSingle)
   }
 
   test("we can parse blocks") {
@@ -1149,7 +1150,7 @@ x"""
     testEqual("Foo(a)")
     testEqual("[1, Foo, a]")
     testEqual("[*a, Foo([]), bar]")
-    org.scalacheck.Prop.all(propLikePatterns, propAllDecls)
+    Prop.all(propLikePatterns, propAllDecls)
   }
 
   test("we can parse bind") {

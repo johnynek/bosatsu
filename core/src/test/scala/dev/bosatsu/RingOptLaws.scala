@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.{Hash, Order, Show}
 import cats.data.NonEmptyList
 import cats.syntax.all._
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 
@@ -426,7 +427,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
 
     regressions.foreach { case (e, div, w) => law2(e, div, w) }
     val law2Prop = forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
-    org.scalacheck.Prop.all(law1Prop, law2Prop)
+    Prop.all(law1Prop, law2Prop)
   }
 
   property("maybeDivInt handles ±1 and 0 correctly") {

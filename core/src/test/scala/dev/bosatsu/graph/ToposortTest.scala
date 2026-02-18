@@ -3,6 +3,7 @@ package dev.bosatsu.graph
 import cats.Order
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
 import cats.implicits._
@@ -35,7 +36,7 @@ class ToposortTest extends munit.ScalaCheckSuite {
 
     val propInts = forAll((ints: List[Int]) => law(ints.distinct))
     val propStrings = forAll((strings: List[String]) => law(strings.distinct))
-    org.scalacheck.Prop.all(propInts, propStrings)
+    Prop.all(propInts, propStrings)
   }
 
   /*

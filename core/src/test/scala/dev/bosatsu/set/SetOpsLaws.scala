@@ -3,6 +3,7 @@ package dev.bosatsu.set
 import cats.Eq
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Cogen, Gen, Shrink}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
 abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
@@ -292,7 +293,7 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
       missingBranchesIfAddedRegressions.foreach(law(t, _))
     }
-    org.scalacheck.Prop.all(props.result()*)
+    Prop.all(props.result()*)
   }
 
   test("missing branches are distinct") {

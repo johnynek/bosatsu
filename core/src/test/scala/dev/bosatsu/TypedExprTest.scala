@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
@@ -2309,7 +2310,7 @@ def makeLoop(fn):
 
     assertEquals(lamconst.foldMap(identity), "ab")
     assertEquals(lamconst.traverse(a => Const[String, Unit](a)).getConst, "ab")
-    org.scalacheck.Prop.all(propInt, propString)
+    Prop.all(propInt, propString)
   }
 
   test("TypedExpr.traverse.void matches traverse_") {
