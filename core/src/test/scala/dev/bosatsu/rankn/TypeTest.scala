@@ -1240,6 +1240,48 @@ class TypeTest extends munit.ScalaCheckSuite {
     assert(res.nonEmpty, s"could not instantiate: $t to $targ")
   }
 
+  test("instantiate rejects lifting inner foralls through function positions") {
+    def noUnsoundInstantiation(from: String, to: String): Unit = {
+      val fromT = parse(from)
+      val toT = parse(to)
+      val res = fromT match {
+        case Type.ForAll(fas, in) =>
+          Type.instantiate(fas.iterator.toMap, in, toT, Map.empty)
+        case _ =>
+          Type.instantiate(Map.empty, fromT, toT, Map.empty)
+      }
+
+      assert(
+        res.isEmpty,
+        s"unexpected instantiation success:\nfrom = $from\nto = $to\nres = $res"
+      )
+    }
+
+    // (forall a. a) in function arguments cannot be specialized to Int.
+    noUnsoundInstantiation(
+      "(forall a. a) -> (forall b. b)",
+      "Bosatsu/Predef::Int -> (forall b. b)"
+    )
+
+    // Same shape under an outer forall.
+    noUnsoundInstantiation(
+      "forall b. ((forall a. a) -> b)",
+      "forall b. Bosatsu/Predef::Int -> b"
+    )
+
+    // Nested function argument position.
+    noUnsoundInstantiation(
+      "forall b. (((forall a. a) -> b) -> b)",
+      "forall b. ((Bosatsu/Predef::Int -> b) -> b)"
+    )
+
+    // Invariant context: same function type appears in both argument/result.
+    noUnsoundInstantiation(
+      "forall b. (((forall a. a) -> b) -> ((forall a. a) -> b))",
+      "forall b. ((Bosatsu/Predef::Int -> b) -> (Bosatsu/Predef::Int -> b))"
+    )
+  }
+
   test("ForAll.unshadow is a no-op without collisions") {
     val genForAll =
       Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))

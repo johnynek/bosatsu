@@ -737,10 +737,10 @@ object Type {
       def updated(b: Var.Bound, kindBound: (Kind, BoundState)): State =
         copy(fixed = fixed.updated(b, kindBound))
 
-      def --(keys: IterableOnce[Var.Bound]): State =
+      def removeFixed(keys: IterableOnce[Var.Bound]): State =
         copy(fixed = fixed -- keys)
 
-      def ++(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
+      def addFixed(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
         copy(fixed = fixed ++ keys)
     }
 
@@ -779,8 +779,7 @@ object Type {
                       }
                     case _
                         if freeBoundTyVars(to :: Nil)
-                          .filterNot(env.keySet)
-                          .isEmpty =>
+                          .forall(env.contains) =>
                       // We only allow non-variable substitutions that are closed with
                       // respect to RHS-local binders. Otherwise we'd let `b` capture
                       // a binder introduced by an inner RHS forall.
@@ -807,6 +806,12 @@ object Type {
         case TyApply(a, b) =>
           to match {
             case TyApply(ta, tb) =>
+              // Descend structurally on both sides of application. This is sound
+              // because nested left-side quantifiers do not become instantiation
+              // variables: the ForAll branch below removes those binders from the
+              // `fixed` map while recursing and restores any outer solutions after.
+              // So argument-position recursion cannot "lift" inner left binders
+              // into top-level frees/substitutions.
               loop(a, ta, state).flatMap { s1 =>
                 loop(b, tb, s1)
               }
@@ -826,11 +831,14 @@ object Type {
             case _ => None
           }
         case ForAll(shadows, from1) =>
-          val noShadow = state -- shadows.iterator.map(_._1)
+          // These binders are local to `from1`; they are rigid and cannot be solved
+          // as top-level instantiation variables. Remove any colliding entries while
+          // descending, then restore only the previous outer state on return.
+          val noShadow = state.removeFixed(shadows.iterator.map(_._1))
           loop(from1, to, noShadow).map { s1 =>
-            s1 ++ shadows.iterator.flatMap { case (v, _) =>
+            s1.addFixed(shadows.iterator.flatMap { case (v, _) =>
               state.get(v).map(v -> _)
-            }
+            })
           }
         case _ =>
           // We can't use sameAt to compare Var.Bound since we know the variances
