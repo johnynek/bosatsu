@@ -459,6 +459,22 @@ object PackageError {
           Doc.hardLine + Doc.text(s"This unknown $label appears $count times.")
         else Doc.empty
 
+      def kindHintDoc(label: String, tpe: Type): Option[Doc] =
+        tpe match {
+          case Type.TyMeta(m) =>
+            val role =
+              if (m.existential) "existential meta"
+              else "meta"
+            Some(
+              Doc.text(s"$label has kind ") + Kind.toDoc(m.kind) +
+                Doc.text(s" ($role)")
+            )
+          case Type.TyVar(sk: Type.Var.Skolem) =>
+            Some(Doc.text(s"$label has kind ") + Kind.toDoc(sk.kind))
+          case _ =>
+            None
+        }
+
       def isUseBeforeDef(name: Identifier, region: Region): Boolean =
         name match {
           case b: Identifier.Bindable =>
@@ -735,11 +751,19 @@ object PackageError {
               } else {
                 context1
               }
+            val kindHints = List(
+              kindHintDoc("found type", foundType),
+              kindHintDoc("expected type", expectedType)
+            ).flatten
+            val kindHintSection =
+              if (kindHints.isEmpty) Doc.empty
+              else Doc.hardLine + Doc.intercalate(Doc.hardLine, kindHints)
             val doc = Doc.text("type ") + tmap(foundType) + context0 +
               Doc.text("does not subsume expected type ") + tmap(
                 expectedType
               ) + Doc.hardLine +
-              evidenceDoc
+              evidenceDoc +
+              kindHintSection
 
             (doc, Some(foundRegion))
 

@@ -1461,45 +1461,40 @@ object Infer {
         left: Region,
         right: Region
     ): Option[Infer[dom.Co]] =
-      (inferred match {
-        case Type.ForAll(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, Map.empty, declared, Map.empty).map {
-            case instantiation =>
-              validateSubs(instantiation.subs.toList, left, right)
+      {
+        val (fromForalls, fromT) = Type.liftUniversals(inferred)
+        val fromVars = fromForalls.toMap
+
+        val (toExists, toT) = Type.liftExistentials(declared)
+        val toVars = toExists.toMap
+        val toForalls = Type.forallList(toT).toMap
+
+        if (fromVars.isEmpty && toVars.isEmpty) None
+        else {
+          Type
+            .instantiate(fromVars, fromT, toVars, toT, Map.empty)
+            .map { instantiation =>
+              val validFromKinds =
+                validateSubs(
+                  instantiation.subs.toList,
+                  left,
+                  right,
+                  toVars ++ toForalls
+                )
+              val validToKinds =
+                validateSubs(instantiation.toSubs.toList, right, left, fromVars)
+
+              validFromKinds.parProductR(validToKinds)
                 .as {
                   new FunctionK[TypedExpr, dom.ExprKind] {
                     def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
-                      // we apply the annotation here and let Normalization
-                      // instantiate. We could explicitly have
-                      // instantiation TypedExpr where you pass the variables to set
+                      // TODO: enrich Annotation with explicit instantiation evidence.
                       dom.Annotation(te, declared)
                   }
                 }
-          }
-        case _ =>
-          None
-      }).orElse(declared match {
-        case Type.Exists(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, Map.empty, inferred, Map.empty).map {
-            case instantiation =>
-              validateSubs(instantiation.subs.toList, left, right)
-                .as {
-                  new FunctionK[TypedExpr, dom.ExprKind] {
-                    def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
-                      // we apply the annotation here and let Normalization
-                      // instantiate. We could explicitly have
-                      // instantiation TypedExpr where you pass the variables to set
-                      dom.Annotation(te, declared)
-                  }
-                }
-          }
-        case _ =>
-          // TODO: we should be able to handle Dual quantification which could
-          // solve more cases. The challenge is existentials and universals appear
-          // on different sides, so cases where both need solutions can't be done
-          // with the current method that only solves one direction now.
-          None
-      })
+            }
+        }
+      }
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
@@ -1676,10 +1671,14 @@ object Infer {
     def validateSubs(
         list: List[(Type.Var.Bound, (Kind, Type))],
         left: Region,
-        right: Region
+        right: Region,
+        knownBoundKinds: Map[Type.Var.Bound, Kind] = Map.empty
     ): Infer[Unit] =
       list.parTraverse_ { case (boundVar, (kind, tpe)) =>
-        kindOf(tpe, right).flatMap { k =>
+        val tpeInScope =
+          if (knownBoundKinds.isEmpty) tpe
+          else Type.forAll(knownBoundKinds.toList, tpe)
+        kindOf(tpeInScope, right).flatMap { k =>
           if (Kind.leftSubsumesRight(kind, k)) {
             unit
           } else {

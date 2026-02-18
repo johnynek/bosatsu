@@ -159,6 +159,33 @@ class TypeTest extends munit.ScalaCheckSuite {
       )
     } yield (from, to, kinds)
 
+  private val genValidTypeAndEnv: Gen[(Type, TypeEnv[Kind.Arg])] =
+    for {
+      typeEnv <- genKindedTypeEnv
+      allKinds = Type.builtInKinds ++ typeEnv.toKindMap
+      // Keep constructor arities small so generated terms stay fast.
+      kinds = allKinds.filter { case (_, kind) =>
+        requiredArgKinds(kind, Kind.Type).exists(_.length <= 2)
+      }
+      faCount <- Gen.choose(0, 2)
+      faBs <- Gen.pick(faCount, fromVarPool).map(_.toList)
+      exPool = (fromVarPool ++ rightVarPool).distinct.filterNot(faBs.contains)
+      exCount <- Gen.choose(0, math.min(2, exPool.size))
+      exBs <- Gen.pick(exCount, exPool).map(_.toList)
+      quantVars = (faBs ++ exBs).map(_ -> Kind.Type)
+      body <- genWellKindedType(Kind.Type, kinds, quantVars, depth = 2)
+      t = Type.quantify(
+        forallList = faBs.map(_ -> Kind.Type),
+        existList = exBs.map(_ -> Kind.Type),
+        in = body
+      )
+    } yield (t, typeEnv)
+
+  private def kindOfInEnv(typeEnv: TypeEnv[Kind.Arg], t: Type): Option[Kind] = {
+    val kinds = Type.builtInKinds ++ typeEnv.toKindMap
+    Type.kindOfOption(tc => kinds.get(tc.tpe.toDefined))(t)
+  }
+
   private def hasIllKindedSubstitution(
       instantiation: Type.Instantiation,
       kinds: Map[Type.Const.Defined, Kind]
@@ -1169,7 +1196,12 @@ class TypeTest extends munit.ScalaCheckSuite {
     )
 
     noSub("forall a, b. T::Cont[a, b]", "forall a: * -> *. T::Cont[a, T::Foo]")
-    noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
+    check(
+      "forall a. T::Box[a]",
+      "forall a. T::Box[T::Opt[a]]",
+      Nil,
+      List("a" -> "T::Opt[a]")
+    )
 
     check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", List("a" -> "b"), Nil)
   }
@@ -1281,6 +1313,184 @@ class TypeTest extends munit.ScalaCheckSuite {
       "forall b. (((forall a. a) -> b) -> ((forall a. a) -> b))",
       "forall b. ((Bosatsu/Predef::Int -> b) -> (Bosatsu/Predef::Int -> b))"
     )
+  }
+
+  private def instantiateWithRightExists(
+      fromStr: String,
+      toStr: String
+  ): Type.Instantiation = {
+    // Lift top-level RHS existentials into `toVars`. If the RHS is forall +
+    // exists and names collide, unshadow the exists first.
+    def liftRightExistsForInstantiate(
+        toT: Type
+    ): (Map[Type.Var.Bound, Kind], Type) =
+      toT match {
+        case ex: Type.Exists =>
+          (ex.vars.iterator.toMap, ex.in)
+        case Type.ForAll(fas, in) =>
+          in match {
+            case ex: Type.Exists =>
+              val ex1 = ex.unshadow(fas.iterator.map(_._1).toSet)
+              (ex1.vars.iterator.toMap, Type.ForAll(fas, ex1.in))
+            case _ =>
+              fail(s"expected RHS to have top-level exists after foralls: $toT")
+          }
+        case _ =>
+          fail(s"expected RHS to start with exists or forall+exists: $toT")
+      }
+
+    val fromT = parse(fromStr)
+    val toT0 = parse(toStr)
+    val (toVars, toT) = liftRightExistsForInstantiate(toT0)
+
+    val fromVars: Map[Type.Var.Bound, Kind] =
+      fromT match {
+        case Type.ForAll(fas, _) => fas.iterator.toMap
+        case _                   => Map.empty
+      }
+    val fromBody: Type =
+      fromT match {
+        case Type.ForAll(_, in) => in
+        case t                  => t
+      }
+
+    Type.instantiate(fromVars, fromBody, toVars, toT, Map.empty) match {
+      case Some(inst) =>
+        inst
+      case None =>
+        val toVarNames = toVars.iterator.map(_._1).map(_.name).toList.sorted
+        val toForDebug = toVarNames.mkString(", ")
+        fail(
+          s"expected instantiation success with rhs-exists solving:\nfrom = $fromStr\nto = $toStr\ntoVars = [$toForDebug]"
+        )
+    }
+  }
+
+  test("instantiate solves rhs existential to concrete type") {
+    val inst = instantiateWithRightExists(
+      "Bosatsu/Predef::Int",
+      "exists a. a"
+    )
+
+    val a = Type.Var.Bound("a")
+    assertEquals(inst.toSubs(a)._2, parse("Bosatsu/Predef::Int"))
+    assert(inst.subs.isEmpty)
+    assert(inst.frees.isEmpty)
+    assert(inst.toFrees.isEmpty)
+  }
+
+  test("instantiate handles endpoint: forall a. a -> a to exists x. x") {
+    val Type.ForAll(fromVars, fromIn) = parse("forall a. a -> a").runtimeChecked
+    val Type.Exists(toVars, toIn) = parse("exists x. x").runtimeChecked
+
+    val res = Type.instantiate(
+      fromVars.iterator.toMap,
+      fromIn,
+      toVars.iterator.toMap,
+      toIn,
+      Map.empty
+    )
+
+    assert(
+      res.nonEmpty,
+      s"expected instantiate to solve this endpoint case, got: $res"
+    )
+  }
+
+  test("instantiate handles endpoint: forall a. a to exists x. x -> x") {
+    val Type.ForAll(fromVars, fromIn) = parse("forall a. a").runtimeChecked
+    val Type.Exists(toVars, toIn) = parse("exists x. x -> x").runtimeChecked
+
+    val res = Type.instantiate(
+      fromVars.iterator.toMap,
+      fromIn,
+      toVars.iterator.toMap,
+      toIn,
+      Map.empty
+    )
+
+    assert(
+      res.nonEmpty,
+      s"expected instantiate to solve this endpoint case, got: $res"
+    )
+  }
+
+  test("instantiate law: rhs exists a. a is always solvable for well-kinded types") {
+    val a = Type.Var.Bound("_inst_rhs_top")
+
+    forAll(genValidTypeAndEnv) { case (t, typeEnv) =>
+      val kindOfType = kindOfInEnv(typeEnv, t).getOrElse(Kind.Type)
+      val (vars, rho) = Type.liftUniversals(t)
+      val sub = Type.instantiate(
+        vars.toMap,
+        rho,
+        Map(a -> kindOfType),
+        Type.TyVar(a),
+        Map.empty
+      )
+      assert(sub.nonEmpty, s"expected instantiate success for type $t")
+    }
+  }
+
+  test("instantiate law: lhs forall a. a is always solvable for well-kinded types") {
+    val a = Type.Var.Bound("_inst_lhs_bot")
+
+    forAll(genValidTypeAndEnv) { case (t, typeEnv) =>
+      val kindOfType = kindOfInEnv(typeEnv, t).getOrElse(Kind.Type)
+      val (toVars, toT) = Type.liftExistentials(t)
+      val sub = Type.instantiate(
+        Map(a -> kindOfType),
+        Type.TyVar(a),
+        toVars.toMap,
+        toT,
+        Map.empty
+      )
+      assert(sub.nonEmpty, s"expected instantiate success for type $t")
+    }
+  }
+
+  test("instantiate solves rhs existential through function shape") {
+    val inst = instantiateWithRightExists(
+      "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
+      "exists a. a -> Bosatsu/Predef::Int"
+    )
+
+    val a = Type.Var.Bound("a")
+    assertEquals(inst.toSubs(a)._2, parse("Bosatsu/Predef::Int"))
+    assert(inst.subs.isEmpty)
+    assert(inst.frees.isEmpty)
+    assert(inst.toFrees.isEmpty)
+  }
+
+  test("instantiate solves lhs forall and rhs exists under forall") {
+    val inst = instantiateWithRightExists(
+      "forall b. (b, Bosatsu/Predef::Int)",
+      "forall c. exists a. (c, a)"
+    )
+
+    val b = Type.Var.Bound("b")
+    val c = Type.Var.Bound("c")
+    val a = Type.Var.Bound("a")
+    assertEquals(inst.frees(b)._2, c)
+    assertEquals(inst.toSubs(a)._2, parse("Bosatsu/Predef::Int"))
+    assert(inst.subs.isEmpty)
+    assert(inst.toFrees.isEmpty)
+  }
+
+  test("instantiate rhs exists lifting unshadows collisions") {
+    val inst = instantiateWithRightExists(
+      "forall c. (c, Bosatsu/Predef::Int)",
+      "forall a. exists a. (a, a)"
+    )
+
+    val c = Type.Var.Bound("c")
+    assertEquals(inst.subs(c)._2, parse("Bosatsu/Predef::Int"))
+    assertEquals(inst.toSubs.size, 1)
+    val (innerExistsVar, (_, solvedType)) = inst.toSubs.head
+    assertNotEquals(innerExistsVar, Type.Var.Bound("a"))
+    assertEquals(solvedType, parse("Bosatsu/Predef::Int"))
+    assert(inst.frees.isEmpty)
+    assert(inst.toFrees.isEmpty)
   }
 
   test("ForAll.unshadow is a no-op without collisions") {
@@ -1505,6 +1715,25 @@ class TypeTest extends munit.ScalaCheckSuite {
         assertEquals(Type.forAll(ps, in), t)
       case _ => ()
     }
+  }
+  test("liftUniversals/forAll roundtrips by sameAs") {
+    forAll(NTypeGen.genDepth03) { t =>
+      val (vars, rho) = Type.liftUniversals(t)
+      assert(Type.forAll(vars, rho).sameAs(t))
+    }
+  }
+  test("liftExistentials/exists roundtrips by sameAs") {
+    forAll(NTypeGen.genDepth03) { t =>
+      val (vars, in) = Type.liftExistentials(t)
+      assert(Type.exists(vars, in).sameAs(t))
+    }
+  }
+  test("liftExistentials avoids forall/exists binder collisions") {
+    val t = parse("forall a. exists a. a")
+    val (vars, in) = Type.liftExistentials(t)
+    val inForalls = Type.forallList(in).iterator.map(_._1).toSet
+    assert(vars.forall { case (b, _) => !inForalls(b) })
+    assert(Type.exists(vars, in).sameAs(t))
   }
   test("exists -> unexists") {
     forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
