@@ -1876,39 +1876,86 @@ object Infer {
       (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN { (infFn, infArgs) =>
         infFn.flatMap { fnTe =>
           fnTe.getType match {
-            case Type.Fun.SimpleUniversal(us, argsT, resT)
-                if argsT.length == args.length =>
+            case Type.Fun.SimpleUniversal(us, fnArgTypes, resT)
+                if fnArgTypes.length == args.length =>
               infArgs.sequence
-                .flatMap { argsTE =>
-                  val argTypes = argsTE.map(_.getType)
+                .flatMap { appliedArgsTE =>
+                  val appliedArgTypes0 = appliedArgsTE.map(_.getType)
                   // we can lift any quantification of the args
                   // outside of the function application
                   // We have to lift *before* substitution
                   val noshadows =
-                    Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
+                    Type.freeBoundTyVars(resT :: appliedArgTypes0.toList).toSet ++
                       us.iterator.map(_._1)
-                  val (optQ, liftArgs) =
-                    TypedExpr.liftQuantification(argsTE, noshadows)
+                  val (optQ, appliedArgs) =
+                    TypedExpr.liftQuantification(appliedArgsTE, noshadows)
 
-                  val liftArgTypes = liftArgs.map(_.getType)
-                  Type.instantiate(
-                    us.toList.toMap,
-                    Type.Tuple(argsT.toList),
-                    Map.empty,
-                    Type.Tuple(liftArgTypes.toList),
+                  val appliedArgTypes = appliedArgs.map(_.getType)
+                  val existingQuantVars =
+                    optQ.fold(Set.empty[Type.Var.Bound])(
+                      _.vars.toList.iterator.map(_._1).toSet
+                    )
+                  // Lift top-level existentials from argument types into `toVars`
+                  // so instantiate can solve RHS existential witnesses when those
+                  // witnesses are fully constrained by the function domain shape.
+                  val (appliedToVars, appliedArgShapes) =
+                    appliedArgTypes.toList.foldLeft(
+                      (
+                        List.empty[(Type.Var.Bound, Kind)],
+                        noshadows ++ existingQuantVars,
+                        List.empty[Type]
+                      )
+                    ) { case ((accVars, avoid, accTypesRev), argTy) =>
+                      val (argExists, argNoExists) = Type.liftExistentials(argTy)
+                      NonEmptyList.fromList(argExists) match {
+                        case None =>
+                          (accVars, avoid, argNoExists :: accTypesRev)
+                        case Some(exNel) =>
+                          argNoExists match {
+                            case la: (Type.Leaf | Type.TyApply) =>
+                              // `avoid` carries all lifted existential names so far,
+                              // so each argument's lifted witness names remain distinct.
+                              val ex1 = Type.Exists(exNel, la).unshadow(avoid)
+                              val vars1 = ex1.vars.toList
+                              (
+                                accVars ::: vars1,
+                                avoid ++ vars1.iterator.map(_._1),
+                                ex1.in :: accTypesRev
+                              )
+                            case _ =>
+                              // We only solve RHS existentials for Rho argument types.
+                              // If a top-level forall remains, keep the original arg.
+                              (accVars, avoid, argTy :: accTypesRev)
+                          }
+                      }
+                    } match {
+                      case (vars, _, revTypes) => (vars.toMap, revTypes.reverse)
+                    }
+
+                  val instEnv =
                     optQ.fold(Map.empty[Type.Var.Bound, Kind])(
                       _.vars.toList.toMap
                     )
+                  Type.instantiate(
+                    // `us` are function-side binders, so function domain types are
+                    // the left side (`from`) and applied args are the right side (`to`).
+                    us.toList.toMap,
+                    Type.Tuple(fnArgTypes.toList),
+                    appliedToVars,
+                    Type.Tuple(appliedArgShapes),
+                    instEnv
                   ) match {
                     case None =>
                       /*
                           println(s"can't instantiate: ${
                             Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                          } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
+                          } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
                        */
                       pureNone
                     case Some(instantiation) =>
-                      if (instantiation.frees.nonEmpty) {
+                      if (
+                        instantiation.frees.nonEmpty || instantiation.toFrees.nonEmpty
+                      ) {
                         // TODO maybe we could handle this, but not yet
                         // seems like if the free vars are set to the same
                         // variable, then we can just lift it into the
@@ -1916,7 +1963,7 @@ object Infer {
                         /*
                             println(s"remaining frees in ${
                               Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                            } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
+                            } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
                          */
                         pureNone
                       } else {
@@ -1924,13 +1971,13 @@ object Infer {
                           instantiation.subs.view
                             .mapValues(_._2)
                             .toMap[Type.Var, Type]
-                        val fnType0 = Type.Fun(liftArgTypes, resT)
+                        val fnType0 = Type.Fun(appliedArgTypes, resT)
                         val fnType1 = Type.substituteVar(fnType0, subMap)
                         val resType = Type.substituteVar(resT, subMap)
 
                         val resTe = TypedExpr.App(
                           TypedExpr.Annotation(fnTe, fnType1),
-                          liftArgs,
+                          appliedArgs,
                           resType,
                           tag
                         )

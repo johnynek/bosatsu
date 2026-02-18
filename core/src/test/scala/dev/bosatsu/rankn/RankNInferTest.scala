@@ -1394,6 +1394,73 @@ main: forall a. Opt[a] = make_none(1)
     )
   }
 
+  test("application can be checked against existential result annotations") {
+    parseProgram(
+      """#
+struct Arg
+struct Box[a](item: a)
+
+external def choose[a](n: Arg) -> Box[a]
+
+main: exists a. Box[a] = choose(Arg)
+""",
+      "exists a. Box[a]"
+    )
+
+    parseProgram(
+      """#
+struct Arg
+struct Tup(a, b)
+
+external def pairWithArg[a](n: Arg) -> Tup[Arg, a]
+
+main: exists b. Tup[b, Arg] = pairWithArg(Arg)
+""",
+      "exists b. Tup[b, Arg]"
+    )
+  }
+
+  test("applyViaInst can solve rhs existential args when fully determined") {
+    parseProgram(
+      """#
+struct Out
+struct Pair(a, b)
+
+def consume[a](p: Pair[Out, a]) -> Out:
+  Pair(out, _) = p
+  out
+
+x: exists e. Pair[e, Out] = Pair(Out, Out)
+main = consume(x)
+""",
+      "Out"
+    )
+  }
+
+  test("applyViaInst falls back when existential argument witness remains abstract") {
+    parseProgram(
+      """#
+struct Box[a](item: a)
+enum Flag: T, F
+struct Seed
+
+external def getFlag(seed: Seed) -> Flag
+
+def anyBox(f) -> exists e. Box[e]:
+  match f:
+    case T: (Box(1): exists e. Box[e])
+    case F: (Box("x"): exists e. Box[e])
+
+external def unbox[a](b: Box[a]) -> a
+
+seed: Seed = Seed
+x = anyBox(getFlag(seed))
+main = unbox(x)
+""",
+      "exists a. a"
+    )
+  }
+
   // From the Quick Look paper on impredicativity examples.
   test("quick look paper examples") {
     val quickLookPrelude =
