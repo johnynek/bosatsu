@@ -698,16 +698,24 @@ object Type {
     * `subs` are variables from the left side that were solved to concrete
     * types. These substitutions are structural candidates only; callers still
     * need to validate kinds in the full type environment.
+    *
+    * `toFrees` / `toSubs` are reserved for right-side solving; they are empty
+    * in the current implementation.
     */
   case class Instantiation(
       frees: SortedMap[Var.Bound, (Kind, Var.Bound)],
-      subs: SortedMap[Var.Bound, (Kind, Type)]
+      subs: SortedMap[Var.Bound, (Kind, Type)],
+      toFrees: SortedMap[Var.Bound, (Kind, Var.Bound)],
+      toSubs: SortedMap[Var.Bound, (Kind, Type)]
   )
 
   /** Attempt to instantiate `vars` in `from` so it can match `to`.
     *
     * `env` is the set of bound variables already in scope on the right side.
     * Those variables are fixed names, not fresh instantiation targets.
+    *
+    * `toVars` is reserved for right-side solving; for now non-empty `toVars`
+    * is unsupported and this method returns `None`.
     *
     * This routine performs structural matching and local bound-variable kind
     * compatibility checks, but it does not validate solved substitutions
@@ -717,35 +725,38 @@ object Type {
   def instantiate(
       vars: Map[Var.Bound, Kind],
       from: Type,
+      toVars: Map[Var.Bound, Kind],
       to: Type,
       env: Map[Var.Bound, Kind]
   ): Option[Instantiation] = {
+    if (toVars.nonEmpty) None
+    else {
 
-    enum BoundState derives CanEqual {
-      case Unknown
-      case Fixed(tpe: Type)
-      case Free(rightName: Var.Bound)
-    }
+      enum BoundState derives CanEqual {
+        case Unknown
+        case Fixed(tpe: Type)
+        case Free(rightName: Var.Bound)
+      }
 
-    case class State(
-        fixed: Map[Var.Bound, (Kind, BoundState)],
-        rightFrees: Map[Var.Bound, Kind]
-    ) {
+      case class State(
+          fixed: Map[Var.Bound, (Kind, BoundState)],
+          rightFrees: Map[Var.Bound, Kind]
+      ) {
 
-      def get(b: Var.Bound): Option[(Kind, BoundState)] = fixed.get(b)
+        def get(b: Var.Bound): Option[(Kind, BoundState)] = fixed.get(b)
 
-      def updated(b: Var.Bound, kindBound: (Kind, BoundState)): State =
-        copy(fixed = fixed.updated(b, kindBound))
+        def updated(b: Var.Bound, kindBound: (Kind, BoundState)): State =
+          copy(fixed = fixed.updated(b, kindBound))
 
-      def removeFixed(keys: IterableOnce[Var.Bound]): State =
-        copy(fixed = fixed -- keys)
+        def removeFixed(keys: IterableOnce[Var.Bound]): State =
+          copy(fixed = fixed -- keys)
 
-      def addFixed(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
-        copy(fixed = fixed ++ keys)
-    }
+        def addFixed(keys: IterableOnce[(Var.Bound, (Kind, BoundState))]): State =
+          copy(fixed = fixed ++ keys)
+      }
 
-    def loop(from: Type, to: Type, state: State): Option[State] =
-      from match {
+      def loop(from: Type, to: Type, state: State): Option[State] =
+        from match {
         case TyVar(b: Var.Bound) =>
           state.get(b) match {
             case Some((kind, opt)) =>
@@ -861,29 +872,32 @@ object Type {
               if (bad) None else Some(state)
             }
           } else None
-      }
+        }
 
-    val initState = State(
-      vars.iterator.map { case (v, a) => (v, (a, BoundState.Unknown)) }.toMap,
-      Map.empty
-    )
+      val initState = State(
+        vars.iterator.map { case (v, a) => (v, (a, BoundState.Unknown)) }.toMap,
+        Map.empty
+      )
 
-    loop(from, to, initState)
-      .map { state =>
-        Instantiation(
-          frees = state.fixed.iterator
-            .collect {
-              case (t, (k, BoundState.Free(t1))) => (t, (k, t1))
-              case (t, (k, BoundState.Unknown))  => (t, (k, t))
-            }
-            .to(SortedMap),
-          subs = state.fixed.iterator
-            .collect { case (t, (k, BoundState.Fixed(f))) =>
-              (t, (k, f))
-            }
-            .to(SortedMap)
-        )
-      }
+      loop(from, to, initState)
+        .map { state =>
+          Instantiation(
+            frees = state.fixed.iterator
+              .collect {
+                case (t, (k, BoundState.Free(t1))) => (t, (k, t1))
+                case (t, (k, BoundState.Unknown))  => (t, (k, t))
+              }
+              .to(SortedMap),
+            subs = state.fixed.iterator
+              .collect { case (t, (k, BoundState.Fixed(f))) =>
+                (t, (k, f))
+              }
+              .to(SortedMap),
+            toFrees = SortedMap.empty,
+            toSubs = SortedMap.empty
+          )
+        }
+    }
   }
 
   /** Return the Bound and Skolem variables that are free in the given list of

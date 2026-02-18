@@ -982,7 +982,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
       t1 match {
         case Type.ForAll(fas, t) =>
-          Type.instantiate(fas.iterator.toMap, t, t2, Map.empty) match {
+          Type.instantiate(fas.iterator.toMap, t, Map.empty, t2, Map.empty) match {
             case Some(instantiation) =>
               val t3 = Type.substituteVar(
                 t,
@@ -1067,7 +1067,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     val to: Type = Type.TyVar(w)
 
     val Type.ForAll(fas, in) = from
-    Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
+    Type.instantiate(fas.iterator.toMap, in, Map.empty, to, Map.empty) match {
       case Some(instantiation) =>
         val t3 = Type.substituteVar(
           in,
@@ -1100,7 +1100,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     ) = {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
-      Type.instantiate(fas.iterator.toMap, t, targ, Map.empty) match {
+      Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty) match {
         case Some(instantiation) =>
           assertEquals(instantiation.frees.size, frees.size)
           frees.foreach { case (k, v) =>
@@ -1123,7 +1123,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     def noSub(forall: String, matches: String) = {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+      val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
       assertEquals(res, None)
     }
 
@@ -1182,7 +1182,8 @@ class TypeTest extends munit.ScalaCheckSuite {
     val from = Type.ForAll(fas, in)
     val to = parse(toStr)
 
-    val instantiation = Type.instantiate(fas.iterator.toMap, in, to, Map.empty)
+    val instantiation =
+      Type.instantiate(fas.iterator.toMap, in, Map.empty, to, Map.empty)
     assert(instantiation.nonEmpty, "instantiate should succeed in this case")
     assert(
       !isSubtypeWithKinds(from, to, Type.builtInKinds),
@@ -1197,7 +1198,7 @@ class TypeTest extends munit.ScalaCheckSuite {
   test("instantiate law: non-subtype implies ill-kinded substitution") {
     forAll(genInstantiateLawCase) { case (from, to, kinds) =>
       val Type.ForAll(fas, in) = from
-      Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
+      Type.instantiate(fas.iterator.toMap, in, Map.empty, to, Map.empty) match {
         case Some(instantiation) =>
           if (!isSubtypeWithKinds(from, to, kinds)) {
             assert(
@@ -1217,7 +1218,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     def ok(from: String, matches: String) = {
       val Type.ForAll(fas, t) = parse(from).runtimeChecked
       val targ = parse(matches)
-      val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+      val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
       assert(res.nonEmpty, s"could not instantiate: $from to $matches")
     }
 
@@ -1236,7 +1237,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     // Regression guard: shadowing inside nested forall in tuple position.
     val Type.ForAll(fas, t) = parse("forall b, c. (b, c)").runtimeChecked
     val targ = parse("forall a. (a, forall a. a)")
-    val res = Type.instantiate(fas.iterator.toMap, t, targ, Map.empty)
+    val res = Type.instantiate(fas.iterator.toMap, t, Map.empty, targ, Map.empty)
     assert(res.nonEmpty, s"could not instantiate: $t to $targ")
   }
 
@@ -1246,9 +1247,9 @@ class TypeTest extends munit.ScalaCheckSuite {
       val toT = parse(to)
       val res = fromT match {
         case Type.ForAll(fas, in) =>
-          Type.instantiate(fas.iterator.toMap, in, toT, Map.empty)
+          Type.instantiate(fas.iterator.toMap, in, Map.empty, toT, Map.empty)
         case _ =>
-          Type.instantiate(Map.empty, fromT, toT, Map.empty)
+          Type.instantiate(Map.empty, fromT, Map.empty, toT, Map.empty)
       }
 
       assert(

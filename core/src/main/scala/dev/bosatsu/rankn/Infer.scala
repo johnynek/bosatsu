@@ -1463,7 +1463,7 @@ object Infer {
     ): Option[Infer[dom.Co]] =
       (inferred match {
         case Type.ForAll(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, declared, Map.empty).map {
+          Type.instantiate(vars.iterator.toMap, inT, Map.empty, declared, Map.empty).map {
             case instantiation =>
               validateSubs(instantiation.subs.toList, left, right)
                 .as {
@@ -1480,7 +1480,7 @@ object Infer {
           None
       }).orElse(declared match {
         case Type.Exists(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
+          Type.instantiate(vars.iterator.toMap, inT, Map.empty, inferred, Map.empty).map {
             case instantiation =>
               validateSubs(instantiation.subs.toList, left, right)
                 .as {
@@ -1741,7 +1741,7 @@ object Infer {
               // see if we can instantiate the result type
               // if we can, we use that to fix the known parameters and continue
               Type
-                .instantiate(univ.iterator.toMap, outT, tpe, Map.empty)
+                .instantiate(univ.iterator.toMap, outT, Map.empty, tpe, Map.empty)
                 .flatMap { instantiation =>
                   // if instantiate works, we know outT => tpe
                   if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
@@ -1895,6 +1895,7 @@ object Infer {
                   Type.instantiate(
                     us.toList.toMap,
                     Type.Tuple(argsT.toList),
+                    Map.empty,
                     Type.Tuple(liftArgTypes.toList),
                     optQ.fold(Map.empty[Type.Var.Bound, Kind])(
                       _.vars.toList.toMap
@@ -2265,6 +2266,7 @@ object Infer {
                         Type.instantiate(
                           fas.iterator.toMap,
                           in,
+                          Map.empty,
                           rho,
                           Map.empty
                         ) match {
