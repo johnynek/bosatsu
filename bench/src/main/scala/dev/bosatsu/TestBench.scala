@@ -41,7 +41,8 @@ class TestBench {
         PackageMap
           .resolveThenInfer(
             PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
-            Nil
+            Nil,
+            CompileOptions.Default
           )
       )
       .strictToValidated match {
