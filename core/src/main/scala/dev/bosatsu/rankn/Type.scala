@@ -753,12 +753,19 @@ object Type {
                 case BoundState.Unknown =>
                   to match {
                     case tv @ TyVar(toB: Var.Bound) =>
+                      // `rightFrees` are RHS forall-bound names currently in scope.
+                      // If we bind `b` to one of these names, we must remember the
+                      // exact name so later occurrences of `b` are forced to the same
+                      // RHS binder (not just any same-kinded binder).
                       state.rightFrees.get(toB) match {
                         case Some(toBKind) =>
                           if (Kind.leftSubsumesRight(kind, toBKind)) {
                             Some(state.updated(b, (toBKind, BoundState.Free(toB))))
                           } else None
                         case None =>
+                          // `env` vars are fixed names already in scope on the RHS.
+                          // Matching against them is a concrete substitution, not a
+                          // free RHS-forall witness, so store as Fixed(TyVar(toB)).
                           env.get(toB) match {
                             case Some(toBKind)
                                 if (Kind.leftSubsumesRight(kind, toBKind)) =>
@@ -774,6 +781,9 @@ object Type {
                         if freeBoundTyVars(to :: Nil)
                           .filterNot(env.keySet)
                           .isEmpty =>
+                      // We only allow non-variable substitutions that are closed with
+                      // respect to RHS-local binders. Otherwise we'd let `b` capture
+                      // a binder introduced by an inner RHS forall.
                       Some(state.updated(b, (kind, BoundState.Fixed(to))))
                     case _ => None
                   }
@@ -781,6 +791,9 @@ object Type {
                   if (set.sameAs(to)) Some(state)
                   else None
                 case BoundState.Free(rightName) =>
+                  // `b` was previously matched to a specific RHS forall binder.
+                  // Keep that identity stable across repeated uses of `b`
+                  // (e.g. `a -> a` cannot match `x -> y`).
                   to match {
                     case TyVar(toB: Var.Bound) if rightName === toB =>
                       Some(state)
