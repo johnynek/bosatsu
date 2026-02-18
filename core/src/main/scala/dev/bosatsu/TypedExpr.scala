@@ -1099,7 +1099,7 @@ object TypedExpr {
     def allTypes: SortedSet[Type] = {
       val acc = scala.collection.mutable.HashSet.empty[Type]
       foreachTraversedType { t =>
-        acc.add(t); ()
+        acc.add(t): Unit
       }
       SortedSet.from(acc)
     }
@@ -1108,7 +1108,7 @@ object TypedExpr {
       val acc = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
       foreachTraversedType {
         case Type.TyVar(b: Type.Var.Bound) =>
-          acc.add(b); ()
+          acc.add(b): Unit
         case _ => ()
       }
       SortedSet.from(acc)
@@ -1131,21 +1131,21 @@ object TypedExpr {
         boundCount.updateWith(v) {
           case Some(c) => Some(c + 1)
           case None    => Some(1)
-        }
+        }: Unit
 
       inline def unbind(v: Type.Var.Bound): Unit =
         boundCount.updateWith(v) {
           case Some(1) => None
           case Some(c) => Some(c - 1)
           case None    => None
-        }
+        }: Unit
 
       inline def record(v: Type.Var): Unit =
         v match {
           case b: Type.Var.Bound =>
-            if (!isBound(b)) acc.add(b)
+            if (!isBound(b)) acc.add(b): Unit
           case sk: Type.Var.Skolem =>
-            acc.add(sk)
+            acc.add(sk): Unit
         }
 
       def addType(t: Type): Unit =
@@ -1458,7 +1458,7 @@ object TypedExpr {
         val set = scala.collection.mutable.HashSet.empty[Type.Var.Skolem]
         foreach(Type.freeTyVars(envList).iterator) {
           case ex @ Skolem(_, _, true, _) =>
-            set.add(ex); ()
+            set.add(ex): Unit
           case _ =>
             ()
         }
@@ -1471,7 +1471,7 @@ object TypedExpr {
 
       foreach(tyVars.iterator) {
         case b @ Type.Var.Bound(_) =>
-          used.add(b); ()
+          used.add(b): Unit
         case ex @ Skolem(_, _, true, _) if !envExistSkols.contains(ex) =>
           teSkolBuilder += ex
         case _ =>
@@ -2655,7 +2655,7 @@ object TypedExpr {
 
     def hasBoundInType(q0: Quantification, tpe: Type): Boolean = {
       val freeBounds = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
-      foreach(Type.freeBoundTyVars(tpe :: Nil).iterator)(freeBounds.add(_))
+      foreach(Type.freeBoundTyVars(tpe :: Nil).iterator)(b => freeBounds.add(b): Unit)
 
       val qIter = q0.vars.iterator
       var has = false
@@ -2692,7 +2692,7 @@ object TypedExpr {
       val frees = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
       foreach(ex.freeTyVars.iterator) {
         case b @ Type.Var.Bound(_) =>
-          frees.add(b); ()
+          frees.add(b): Unit
         case _ =>
           ()
       }
@@ -2701,9 +2701,9 @@ object TypedExpr {
         case None => ex
         case Some(q1) =>
           val avoid = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
-          foreach(ex.allBound.iterator)(avoid.add(_))
+          foreach(ex.allBound.iterator)(b => avoid.add(b): Unit)
           foreach(q1.vars.iterator) { case (b, _) =>
-            avoid.remove(b); ()
+            avoid.remove(b): Unit
           }
 
           q1 match {
@@ -2724,7 +2724,7 @@ object TypedExpr {
             case Dual(foralls, exists) =>
               val fa1 = Type.alignBinders(foralls, avoid.contains)
               foreach(fa1.iterator) { case (_, b) =>
-                avoid.add(b); ()
+                avoid.add(b): Unit
               }
               val ex1 = Type.alignBinders(exists, avoid.contains)
               val subs = toSubMap(fa1.iterator ++ ex1.iterator)

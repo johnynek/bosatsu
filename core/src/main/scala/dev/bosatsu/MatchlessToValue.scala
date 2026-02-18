@@ -349,7 +349,7 @@ object MatchlessToValue {
             Dynamic { (scope: Scope) =>
               var c = condF(scope)
               while (c) {
-                effectF(scope)
+                effectF(scope): Unit
                 c = condF(scope)
               }
               scope.muts(result.ident).get()

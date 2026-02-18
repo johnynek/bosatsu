@@ -5,6 +5,7 @@ import cats.syntax.all._
 import dev.bosatsu.{Kind, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
@@ -284,7 +285,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     }
 
   test("Tau.unapply recognizes tau and rejects forall") {
-    forAll(genTau) { t =>
+    val tauProp = forAll(genTau) { t =>
       val m = Type.Tau.unapply(t)
       assert(!m.isEmpty, s"Tau.unapply should match: $t")
       val asTau = m.get
@@ -296,6 +297,7 @@ class TypeTest extends munit.ScalaCheckSuite {
       Type.TyVar(Type.Var.Bound("a"))
     )
     assert(Type.Tau.unapply(fa).isEmpty, "Tau.unapply should reject ForAll")
+    tauProp
   }
 
   test("TauApply apply/unapply round trip") {
@@ -663,7 +665,7 @@ class TypeTest extends munit.ScalaCheckSuite {
         l
       )
     }
-    org.scalacheck.Prop.all(propRoundTrip, propSkolem, propMeta)
+    Prop.all(propRoundTrip, propSkolem, propMeta)
   }
 
   test("test all binders") {
@@ -1084,7 +1086,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     val genExists =
       Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
 
-    forAll(genForAll) { fa =>
+    val genForAllProp = forAll(genForAll) { fa =>
       val free = Type.freeBoundTyVars(fa.in :: Nil).toSet
       assert(
         fa.vars.toList.forall { case (b, _) => free(b) },
@@ -1092,13 +1094,15 @@ class TypeTest extends munit.ScalaCheckSuite {
       )
     }
 
-    forAll(genExists) { ex =>
+    val genExistsProp = forAll(genExists) { ex =>
       val free = Type.freeBoundTyVars(ex.in :: Nil).toSet
       assert(
         ex.vars.toList.forall { case (b, _) => free(b) },
         s"exists binders should all be free in body: $ex"
       )
     }
+
+    Prop.all(genForAllProp, genExistsProp)
   }
 
   test("Type.forAll and Type.exists bind vars selected from free vars") {

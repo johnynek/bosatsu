@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.SortedSet
 
@@ -36,7 +37,7 @@ class TypedExprTest extends munit.ScalaCheckSuite {
       )
     }
 
-    forAll(genTypedExpr)(law)
+    val allVarsProp = forAll(genTypedExpr)(law)
 
     checkLast("""
 enum AB: A, B(x)
@@ -44,6 +45,7 @@ x = match B(100):
   case A: 10
   case B(b): b
 """)(law)
+    allVarsProp
   }
 
   test("allVars includes binders from lambdas, lets, and matches") {
@@ -2308,7 +2310,7 @@ def makeLoop(fn):
 
     assertEquals(lamconst.foldMap(identity), "ab")
     assertEquals(lamconst.traverse(a => Const[String, Unit](a)).getConst, "ab")
-    org.scalacheck.Prop.all(propInt, propString)
+    Prop.all(propInt, propString)
   }
 
   test("TypedExpr.traverse.void matches traverse_") {

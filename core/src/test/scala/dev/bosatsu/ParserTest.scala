@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import java.math.BigInteger
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import org.typelevel.paiges.{Doc, Document}
 
@@ -157,7 +158,7 @@ class ParserTest extends ParserTestBase {
     val propWithUnderscore = forAll(strGen) { case Opaque(s) =>
       parseTestAll(Parser.integerString, s, s)
     }
-    org.scalacheck.Prop.all(propInts, propWithUnderscore)
+    Prop.all(propInts, propWithUnderscore)
   }
 
   test("string escape/unescape round trips") {
@@ -186,18 +187,18 @@ class ParserTest extends ParserTestBase {
     assert(Parser.unescape("\\u00").isLeft)
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
-    val propUnescape = forAll { (s: String) => Parser.unescape(s); () }
+    val propUnescape = forAll { (s: String) => Parser.unescape(s): Unit }
     // more brutal tests
     val propPrefixes = forAll { (s: String) =>
       val prefixes = List('x', 'o', 'u', 'U').map(c => s"\\$c")
       prefixes.foreach { p =>
-        Parser.unescape(s"$p$s")
+        Parser.unescape(s"$p$s"): Unit
         ()
       }
     }
 
     assertEquals(Parser.unescape("\\u0020"), Right(" "))
-    org.scalacheck.Prop.all(propRoundTrip, propUnescape, propPrefixes)
+    Prop.all(propRoundTrip, propUnescape, propPrefixes)
   }
 
   test("we can parse quoted strings") {
@@ -479,7 +480,7 @@ class ParserTest extends ParserTestBase {
       val str = s"($it$pad)"
       parseTestAll(Parser.integerString.tupleOrParens, str, Left(it.toString))
     }
-    org.scalacheck.Prop.all(propTuple, propSingle)
+    Prop.all(propTuple, propSingle)
   }
 
   test("we can parse blocks") {
@@ -1149,7 +1150,7 @@ x"""
     testEqual("Foo(a)")
     testEqual("[1, Foo, a]")
     testEqual("[*a, Foo([]), bar]")
-    org.scalacheck.Prop.all(propLikePatterns, propAllDecls)
+    Prop.all(propLikePatterns, propAllDecls)
   }
 
   test("we can parse bind") {
@@ -1958,8 +1959,6 @@ foo = 1
     val pp = Package.parser(None).map { pack =>
       pack.copy(program = pack.program.map(_.replaceRegions(emptyRegion)))
     }
-    forAll(Generators.packageGen(4))(law(pp))
-
     roundTripExact(
       Package.parser(None),
       """package Foo
@@ -1975,6 +1974,8 @@ def run(z):
 main = run(x)
 """
     )
+
+    forAll(Generators.packageGen(4))(law(pp))
   }
 
   test("parse errors point near where they occur") {

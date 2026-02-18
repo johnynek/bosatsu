@@ -444,13 +444,13 @@ object RingOpt {
       @annotation.tailrec
       def fix(prod: BigInt, e: Expr[A]): Option[(BigInt, Expr[A])] =
         loop(e, false) match {
-          case res @ Some((bi, inner)) =>
-            if (bi == 0) res
+          case Some((bi, inner)) =>
+            if (bi == 0) Some((BigInt(0), Zero))
             else {
               fix(bi * prod, inner)
             }
           case None =>
-            if (prod == 1) None
+            if ((prod == 1) || (prod == -1)) None
             else Some((prod, e))
         }
 

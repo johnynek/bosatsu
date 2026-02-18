@@ -866,7 +866,7 @@ object Type {
         boundCount.updateWith(v) {
           case Some(i) => Some(i + 1)
           case None    => Some(1)
-        }
+        }: Unit
       }
 
     inline def unbind(vars: List[Type.Var.Bound]): Unit =
@@ -875,7 +875,7 @@ object Type {
           case Some(1) => None
           case Some(i) => Some(i - 1)
           case None    => None
-        }
+        }: Unit
       }
 
     inline def isBound(v: Type.Var.Bound): Boolean =
@@ -1508,7 +1508,7 @@ object Type {
         case TyApply(a, r) =>
           check.prepend(r)
           check.prepend(a)
-        case TyMeta(m) => metas.add(m); ()
+        case TyMeta(m) => metas.add(m): Unit
         case _         => ()
       }
     }

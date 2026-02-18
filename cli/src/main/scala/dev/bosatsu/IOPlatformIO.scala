@@ -86,7 +86,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
         // Read all lines from the process's output
         while ({ line = reader.readLine(); line != null }) {
-          output.append(line).append("\n")
+          output.append(line).append("\n"): Unit
         }
         reader.close()
         output.toString.trim
@@ -119,7 +119,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
         val stream = Files.walk(path)
         try {
           stream.sorted(java.util.Comparator.reverseOrder()).forEach { p =>
-            Files.deleteIfExists(p)
+            Files.deleteIfExists(p): Unit
           }
         } finally {
           stream.close()

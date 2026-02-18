@@ -4,6 +4,7 @@ import cats.kernel.Eq
 import cats.syntax.eq._
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 
 import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
@@ -98,7 +99,7 @@ class KindParseTest extends ParserTestBase {
     val propArgs = forAll(Gen.listOf(genArg)) { args =>
       assertEquals(Kind(args*).toArgs, args)
     }
-    org.scalacheck.Prop.all(propKind, propArgs)
+    Prop.all(propKind, propArgs)
   }
 
   test("example orders") {
@@ -398,7 +399,7 @@ class KindParseTest extends ParserTestBase {
   }
 
   test("kindToLong can invert") {
-    forAll(genKind) { k =>
+    val invertProp = forAll(genKind) { k =>
       Kind.kindToLong(k) match {
         case Some(idx) =>
           assertEquals(Kind.longToKind(idx), Some(k))
@@ -421,10 +422,12 @@ class KindParseTest extends ParserTestBase {
       // these can all be encoded in 2 byte in proto
       assert(Kind.kindToLong(k).get < 0x7fffL)
     }
+
+    invertProp
   }
 
   test("interleave and uninterleave -> inverses") {
-    forAll { (l: Long) =>
+    val interleaveProp1 = forAll { (l: Long) =>
       val res = Kind.uninterleave(l)
       val high = (res >>> 32).toInt
       val low = (res & 0xffffffffL).toInt
@@ -435,7 +438,7 @@ class KindParseTest extends ParserTestBase {
       )
     }
 
-    forAll { (low: Int, high: Int) =>
+    val interleaveProp2 = forAll { (low: Int, high: Int) =>
       val long = Kind.interleave(high, low)
       val res = Kind.uninterleave(long)
       val high1 = (res >>> 32).toInt
@@ -446,5 +449,7 @@ class KindParseTest extends ParserTestBase {
         s"interleave($low, $high) = $long uninterleave($long) = $res"
       )
     }
+
+    Prop.all(interleaveProp1, interleaveProp2)
   }
 }

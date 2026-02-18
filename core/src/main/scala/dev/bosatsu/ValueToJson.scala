@@ -423,7 +423,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           })
           // put the result in the cache before we compute it
           // so we can recurse
-          successCache.put(tpe, res)
+          successCache.put(tpe, res): Unit
           res
       }
 
@@ -706,7 +706,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 }
             })
 
-          successCache.put(tpe, res)
+          successCache.put(tpe, res): Unit
           res
       }
 

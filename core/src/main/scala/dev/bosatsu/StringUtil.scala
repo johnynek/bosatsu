@@ -84,11 +84,15 @@ abstract class GenericStringUtil {
       def newAppender(first: Option[Int]): Appender[Option[Int], String] =
         new Appender[Option[Int], String] {
           val strbuilder = new java.lang.StringBuilder
-          if (first.isDefined) strbuilder.appendCodePoint(first.get)
+          if (first.isDefined) {
+            strbuilder.appendCodePoint(first.get): Unit
+          }
 
           def append(item: Option[Int]) = {
             // Performance: this avoids Option.foreach closure allocation/indirection.
-            if (item.isDefined) strbuilder.appendCodePoint(item.get)
+            if (item.isDefined) {
+              strbuilder.appendCodePoint(item.get): Unit
+            }
             this
           }
           def finish(): String = strbuilder.toString

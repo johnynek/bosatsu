@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Eq
 import cats.syntax.all._
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import Value._
 
@@ -48,7 +49,7 @@ class ValueTest extends munit.ScalaCheckSuite {
     }
 
     assertEquals(VOption.unapply(VOption.none), Some(None))
-    org.scalacheck.Prop.all(propSome, propUnapply)
+    Prop.all(propSome, propUnapply)
   }
 
   test("VList works") {
@@ -70,7 +71,7 @@ class ValueTest extends munit.ScalaCheckSuite {
     }
 
     assertEquals(VList.unapply(VList.VNil), Some(Nil))
-    org.scalacheck.Prop.all(propList, propUnapply)
+    Prop.all(propList, propUnapply)
   }
 
   val stringValue: Gen[List[(String, Value)]] =
