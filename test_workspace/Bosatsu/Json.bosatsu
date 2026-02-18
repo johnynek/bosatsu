@@ -167,11 +167,23 @@ def is_low_surrogate(code_unit: Int) -> Bool:
   in_range_Int(code_unit, low_surrogate_start, low_surrogate_end)
 
 def hex4_to_Int(h1: Char, h2: Char, h3: Char, h4: Char) -> Option[Int]:
-  d1 <- to_digit(h1, 16).if_Some()
-  d2 <- to_digit(h2, 16).if_Some()
-  d3 <- to_digit(h3, 16).if_Some()
-  d4 <- to_digit(h4, 16).if_Some()
-  Some(d1.mul(4096).add(d2.mul(256)).add(d3.mul(16)).add(d4))
+  match to_digit(h1, 16):
+    case Some(d1):
+      match to_digit(h2, 16):
+        case Some(d2):
+          match to_digit(h3, 16):
+            case Some(d3):
+              match to_digit(h4, 16):
+                case Some(d4):
+                  Some(d1.mul(4096).add(d2.mul(256)).add(d3.mul(16)).add(d4))
+                case None:
+                  None
+            case None:
+              None
+        case None:
+          None
+    case None:
+      None
 
 def parse_unicode_escape(tail_after_u: String) -> Option[(String, String)]:
   match tail_after_u:
@@ -600,14 +612,14 @@ tests = TestSuite("Bosatsu/Json parse+render", [
   Assertion(parses_to_json("3.14", JFloat(3.14)), "parse float decimal"),
   Assertion(parses_to_json("1e3", JFloat(1000.0)), "parse float exponent"),
   Assertion(parses_to_json("\"hello\"", JString("hello")), "parse string"),
-  Assertion(parses_to_json("\"a\\\\\"b\"", JString("a\"b")), "parse escaped quote"),
-  Assertion(parses_to_json("\"line\\\\nnext\"", JString("line\nnext")), "parse escaped newline"),
-  Assertion(parses_to_json("\"\\\\u0041\"", JString("A")), "parse unicode escape"),
-  Assertion(parses_to_json("\"\\\\uD83D\\\\uDE00\"", JString("😀")), "parse surrogate pair"),
+  Assertion(parses_to_json("\"a\\\"b\"", JString("a\"b")), "parse escaped quote"),
+  Assertion(parses_to_json("\"line\\nnext\"", JString("line\nnext")), "parse escaped newline"),
+  Assertion(parses_to_json("\"\\u0041\"", JString("A")), "parse unicode escape"),
+  Assertion(parses_to_json("\"\\uD83D\\uDE00\"", JString("😀")), "parse surrogate pair"),
   Assertion(parse_Json("\"line\nnext\"") matches None, "reject unescaped control char"),
-  Assertion(parse_Json("\"\\\\u00G1\"") matches None, "reject invalid unicode hex"),
-  Assertion(parse_Json("\"\\\\uD83D\"") matches None, "reject lone high surrogate"),
-  Assertion(parse_Json("\"\\\\uDE00\"") matches None, "reject lone low surrogate"),
+  Assertion(parse_Json("\"\\u00G1\"") matches None, "reject invalid unicode hex"),
+  Assertion(parse_Json("\"\\uD83D\"") matches None, "reject lone high surrogate"),
+  Assertion(parse_Json("\"\\uDE00\"") matches None, "reject lone low surrogate"),
   Assertion(parse_Json("[1, 2, 3]") matches Some(JArray([JInt(1), JInt(2), JInt(3)])), "parse int array"),
   Assertion(parse_Json("{\"a\": 1, \"b\": [true, null]}") matches Some(
     JObject([("a", JInt(1)), ("b", JArray([JBool(True), JNull]))])
@@ -616,12 +628,12 @@ tests = TestSuite("Bosatsu/Json parse+render", [
   Assertion(parse_Json("truex") matches None, "reject trailing junk"),
   Assertion(parse_Json("[1 2]") matches None, "reject missing comma"),
   Assertion(parse_Json("{\"a\" 1}") matches None, "reject missing colon"),
-  Assertion(parse_Json("\"\\\\x\"") matches None, "reject bad string escape"),
+  Assertion(parse_Json("\"\\x\"") matches None, "reject bad string escape"),
   Assertion(parse_Json("01") matches None, "reject leading zero"),
   Assertion(parse_Json("1.") matches None, "reject fraction without digits"),
   Assertion(parse_Json("1e") matches None, "reject exponent without digits"),
   Assertion(parse_Json("-") matches None, "reject bare minus"),
-  Assertion(render_Json(JString(unit_separator_string)) matches "\"\\\\u001f\"", "render control chars with unicode escape"),
+  Assertion(render_Json(JString(unit_separator_string)) matches "\"\\u001f\"", "render control chars with unicode escape"),
   Assertion(parses_to_json(render_Json(JString(unit_separator_string)), JString(unit_separator_string)), "control char parse/render round trip"),
   Assertion(parses_to_json(render_Json(JFloat(inf)), JFloat(inf)), "infinity round trip via quoted float token"),
   Assertion(parses_to_json(render_Json(JFloat(neg_inf)), JFloat(neg_inf)), "negative infinity round trip via quoted float token"),
