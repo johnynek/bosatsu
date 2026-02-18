@@ -14,7 +14,14 @@ import dev.bosatsu.tool.{
   PathGen,
   ShowSelection
 }
-import dev.bosatsu.{Package, PackageMap, PackageName, Par, PlatformIO}
+import dev.bosatsu.{
+  CompileOptions,
+  Package,
+  PackageMap,
+  PackageName,
+  Par,
+  PlatformIO
+}
 
 object ShowCommand {
   private def loadAndCompile[F[_], Path](
@@ -73,7 +80,8 @@ object ShowCommand {
             NonEmptyList(h, t),
             ifacesList ::: depIfs ::: packIfs,
             errColor,
-            packageResolver
+            packageResolver,
+            CompileOptions.Default
           )
           allPacks =
             (PackageMap.fromIterable(existingPacks) ++ packPath._1.toMap.map(

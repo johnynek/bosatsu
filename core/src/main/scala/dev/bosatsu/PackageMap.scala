@@ -401,7 +401,8 @@ object PackageMap {
   /** Infer all the types in a resolved PackageMap
     */
   def inferAll(
-      ps: Resolved
+      ps: Resolved,
+      compileOptions: CompileOptions
   )(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], Inferred] = {
 
     import Par.F
@@ -492,22 +493,34 @@ object PackageMap {
       Ior[NonEmptyList[PackageError], Package.Inferred]
     ] =
       infer0.andThen { parF =>
+        def optimizePack(
+            fte: TypeEnv[Kind.Arg],
+            pack: Package.Inferred
+        ): Package.Inferred = {
+          val normalized = pack.copy(program =
+            (
+              TypedExprNormalization.normalizeProgram(
+                pack.name,
+                fte,
+                pack.program._1
+              ),
+              pack.program._2
+            )
+          )
+          Package.discardUnused(normalized)
+        }
+
+        def maybeOptimizePack(
+            fte: TypeEnv[Kind.Arg],
+            pack: Package.Inferred
+        ): Par.F[Package.Inferred] =
+          if (compileOptions.optimize) Par.start(optimizePack(fte, pack))
+          else Monad[Par.F].pure(pack)
+
         // As soon as each Par.F is complete, we can start normalizing that one
         Monad[Par.F].flatMap(parF) { ior =>
           ior.traverse { case (fte, pack) =>
-            Par.start {
-              val optPack = pack.copy(program =
-                (
-                  TypedExprNormalization.normalizeProgram(
-                    pack.name,
-                    fte,
-                    pack.program._1
-                  ),
-                  pack.program._2
-                )
-              )
-              Package.discardUnused(optPack)
-            }
+            maybeOptimizePack(fte, pack)
           }
         }
       }
@@ -521,9 +534,10 @@ object PackageMap {
 
   def resolveThenInfer[A: Show](
       ps: List[(A, Package.Parsed)],
-      ifs: List[Package.Interface]
+      ifs: List[Package.Interface],
+      compileOptions: CompileOptions
   )(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], Inferred] =
-    resolveAll(ps, ifs).flatMap(inferAll)
+    resolveAll(ps, ifs).flatMap(inferAll(_, compileOptions))
 
   def buildSourceMap[F[_]: Foldable, A](
       parsedFiles: F[((A, LocationMap), Package.Parsed)]
@@ -544,7 +558,8 @@ object PackageMap {
   def typeCheckParsed[A: Show](
       packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
       ifs: List[Package.Interface],
-      predefKey: A
+      predefKey: A,
+      compileOptions: CompileOptions
   )(implicit
       cpuEC: Par.EC
   ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
@@ -562,7 +577,11 @@ object PackageMap {
       else withPredefImportsA[(A, LocationMap)](packs.toList)
 
     PackageMap
-      .resolveThenInfer[A](parsed.map { case ((a, _), p) => (a, p) }, ifs)
+      .resolveThenInfer[A](
+        parsed.map { case ((a, _), p) => (a, p) },
+        ifs,
+        compileOptions
+      )
   }
 
   /** Here is the fully compiled Predef
@@ -571,7 +590,11 @@ object PackageMap {
 
     // implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
     val inferred = PackageMap
-      .resolveThenInfer(((), Package.predefPackage) :: Nil, Nil)
+      .resolveThenInfer(
+        ((), Package.predefPackage) :: Nil,
+        Nil,
+        CompileOptions.Default
+      )
       .strictToValidated
 
     inferred match {

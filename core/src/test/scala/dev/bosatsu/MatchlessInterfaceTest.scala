@@ -14,7 +14,7 @@ class MatchlessInterfaceTest extends munit.FunSuite {
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap
-        .typeCheckParsed(nel, ifaces, "<predef>")
+        .typeCheckParsed(nel, ifaces, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(
           errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
