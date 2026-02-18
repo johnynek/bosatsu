@@ -2,10 +2,11 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Kind, TypedExpr}
+import dev.bosatsu.{Kind, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
+import scala.collection.immutable.SortedSet
 
 class TypeTest extends munit.ScalaCheckSuite {
   import NTypeGen.shrinkType
@@ -24,10 +25,118 @@ class TypeTest extends munit.ScalaCheckSuite {
         )
     }
 
+  // Keep a direct oracle for freeTyVars semantics so refactors preserve behavior.
+  private def freeTyVarsReference(ts: List[Type]): List[Type.Var] = {
+    def recurse(
+        ts: List[Type],
+        bound: Set[Type.Var.Bound],
+        acc: List[Type.Var]
+    ): List[Type.Var] = {
+      @annotation.tailrec
+      def go(todo: List[Type], acc0: List[Type.Var]): List[Type.Var] =
+        todo match {
+          case Nil                    => acc0
+          case Type.TyVar(tv) :: rest =>
+            val isBound =
+              tv match {
+                case b @ Type.Var.Bound(_) => bound(b)
+                case _: Type.Var.Skolem    => false
+              }
+            if (isBound) go(rest, acc0)
+            else go(rest, tv :: acc0)
+          case Type.TyApply(a, b) :: rest =>
+            go(a :: b :: rest, acc0)
+          case (Type.TyMeta(_) | Type.TyConst(_)) :: rest =>
+            go(rest, acc0)
+          case Type.ForAll(vars, in) :: rest =>
+            val acc1 =
+              recurse(in :: Nil, bound ++ vars.toList.iterator.map(_._1), acc0)
+            go(rest, acc1)
+          case Type.Exists(vars, in) :: rest =>
+            val acc1 =
+              recurse(in :: Nil, bound ++ vars.toList.iterator.map(_._1), acc0)
+            go(rest, acc1)
+        }
+
+      go(ts, acc)
+    }
+
+    recurse(ts, Set.empty, Nil).reverse.distinct
+  }
+
+  private def metaTvsReference(s: List[Type]): SortedSet[Type.Meta] = {
+    @annotation.tailrec
+    def go(check: List[Type], acc: SortedSet[Type.Meta]): SortedSet[Type.Meta] =
+      check match {
+        case Nil                         => acc
+        case Type.ForAll(_, r) :: tail  => go(r :: tail, acc)
+        case Type.Exists(_, r) :: tail  => go(r :: tail, acc)
+        case Type.TyApply(a, r) :: tail => go(a :: r :: tail, acc)
+        case Type.TyMeta(m) :: tail     => go(tail, acc + m)
+        case _ :: tail                  => go(tail, acc)
+      }
+
+    go(s, SortedSet.empty)
+  }
+
   test("free vars are not duplicated") {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       val frees = Type.freeTyVars(ts)
       assertEquals(frees.distinct, frees)
+    }
+  }
+
+  test("freeTyVars matches reference semantics") {
+    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+      assertEquals(Type.freeTyVars(ts), freeTyVarsReference(ts))
+    }
+  }
+
+  test("hashCode is stable across parse round-trip equality") {
+    forAll(NTypeGen.genDepth03) { t =>
+      val rendered = Type.fullyResolvedDocument.document(t).render(80)
+      val t1 = parse(rendered)
+      assertEquals(t1, t, s"round-trip parse mismatch for: $rendered")
+      assertEquals(t1.hashCode, t.hashCode)
+    }
+  }
+
+  test("metaTvs matches reference semantics") {
+    forAll(Gen.listOf(genTypeWithMeta(3))) { ts =>
+      assertEquals(Type.metaTvs(ts), metaTvsReference(ts))
+    }
+  }
+
+  test("zonkRhoMeta matches reference semantics with Option effect") {
+    val genCase =
+      for {
+        rho <- genRhoWithMeta(3)
+        lookup <- genMetaLookup(rho)
+      } yield (rho, lookup)
+
+    forAll(genCase) { case (rho, lookup) =>
+      def mfn(m: Type.Meta): Option[Option[Type.Tau]] =
+        Some(lookup.getOrElse(metaKey(m), None))
+
+      assertEquals(
+        Type.zonkRhoMeta[Option](rho)(mfn),
+        zonkRhoMetaReference(rho)(mfn)
+      )
+    }
+  }
+
+  test("zonkMeta matches reference semantics with Option effect") {
+    val genCase =
+      for {
+        t <- genTypeWithMeta(3)
+        lookup <- genMetaLookup(t)
+      } yield (t, lookup)
+
+    forAll(genCase) { case (t, lookup) =>
+      def mfn(m: Type.Meta): Option[Option[Type.Tau]] =
+        Some(lookup.getOrElse(metaKey(m), None))
+
+      assertEquals(Type.zonkMeta[Option](t)(mfn), zonkMetaReference(t)(mfn))
     }
   }
 
@@ -39,6 +148,111 @@ class TypeTest extends munit.ScalaCheckSuite {
       n <- Gen.choose(1, 4)
       vars <- Gen.listOfN(n, Gen.zip(NTypeGen.genBound, NTypeGen.genKind))
     } yield NonEmptyList.fromListUnsafe(vars)
+
+  private val genMetaLeaf: Gen[Type.TyMeta] =
+    for {
+      id <- Gen.chooseNum(0L, 10000L)
+      kind <- NTypeGen.genKind
+      ex <- Gen.oneOf(true, false)
+    } yield Type.TyMeta(Type.Meta(kind, id, ex, RefSpace.constRef(Option.empty)))
+
+  private def genLeafWithMeta: Gen[Type.Leaf] =
+    Gen.frequency(
+      (5, NTypeGen.genRootType(Some(NTypeGen.genConst))),
+      (2, genMetaLeaf)
+    )
+
+  private def genLeafOrApplyWithMeta(depth: Int): Gen[Type.Leaf | Type.TyApply] =
+    if (depth <= 0) genLeafWithMeta
+    else {
+      val recurLA = Gen.lzy(genLeafOrApplyWithMeta(depth - 1))
+      val recurTy = Gen.lzy(genTypeWithMeta(depth - 1))
+      val genApply = Gen.zip(recurLA, recurTy).map { case (on, arg) =>
+        Type.TyApply(on, arg)
+      }
+      Gen.frequency((3, genLeafWithMeta), (2, genApply))
+    }
+
+  private def genRhoWithMeta(depth: Int): Gen[Type.Rho] =
+    if (depth <= 0) genLeafWithMeta
+    else {
+      val genExists =
+        for {
+          vars <- genExistsVars
+          in <- Gen.lzy(genLeafOrApplyWithMeta(depth - 1))
+        } yield Type.existsRho(vars, in)
+
+      Gen.frequency((4, genLeafOrApplyWithMeta(depth)), (1, genExists))
+    }
+
+  private def genTypeWithMeta(depth: Int): Gen[Type] =
+    if (depth <= 0) genRhoWithMeta(0)
+    else {
+      val genForAll =
+        for {
+          vars <- genExistsVars
+          in <- Gen.lzy(genRhoWithMeta(depth - 1))
+        } yield Type.forAll(vars, in)
+
+      Gen.frequency((5, genRhoWithMeta(depth)), (1, genForAll))
+    }
+
+  private val genTauWithMeta: Gen[Type.Tau] =
+    genRhoWithMeta(2).map(Type.Tau.unapply(_).get)
+
+  private def metaKey(m: Type.Meta): (Long, Boolean, Kind) =
+    (m.id, m.existential, m.kind)
+
+  private def genMetaLookup(
+      t: Type
+  ): Gen[Map[(Long, Boolean, Kind), Option[Type.Tau]]] =
+    Type.metaTvs(t :: Nil).toList.foldLeft(
+      Gen.const(Map.empty[(Long, Boolean, Kind), Option[Type.Tau]])
+    ) { (accG, m) =>
+      accG.flatMap { acc =>
+        Gen.option(genTauWithMeta).map { opt =>
+          acc.updated(metaKey(m), opt)
+        }
+      }
+    }
+
+  private def zonkMetaReference(
+      t: Type
+  )(
+      m: Type.Meta => Option[Option[Type.Tau]]
+  ): Option[Type] =
+    t match {
+      case rho: Type.Rho => zonkRhoMetaReference(rho)(m)
+      case Type.ForAll(vars, in) =>
+        zonkRhoMetaReference(in)(m).map(Type.forAll(vars, _))
+    }
+
+  private def zonkRhoMetaReference(
+      t: Type.Rho
+  )(
+      mfn: Type.Meta => Option[Option[Type.Tau]]
+  ): Option[Type.Rho] =
+    t match {
+      case Type.Exists(vars, in) =>
+        zonkRhoMetaReference(in)(mfn).map(Type.existsRho(vars, _))
+      case Type.TyApply(on, arg) =>
+        (zonkRhoMetaReference(on)(mfn), zonkMetaReference(arg)(mfn)).mapN {
+          case (la: (Type.Leaf | Type.TyApply), arg1) =>
+            Type.TyApply(la, arg1)
+          case (e: Type.Exists, arg1)                 =>
+            val frees = Type.freeTyVars(arg1 :: Nil)
+            val (subst, newVars) = Type.unshadow(e.vars, frees.toSet)
+            val newIn = Type.substituteLeafApplyVar(e.in, subst)
+            Type.existsRho(newVars, Type.TyApply(newIn, arg1))
+        }
+      case t @ Type.TyMeta(m) =>
+        mfn(m).map {
+          case None      => t
+          case Some(rho) => rho
+        }
+      case (Type.TyConst(_) | Type.TyVar(_)) =>
+        Some(t)
+    }
 
   test("Type.exists preserves Tau when input is Tau") {
     forAll(genExistsVars, genTau) { (vars, in) =>
@@ -650,6 +864,81 @@ class TypeTest extends munit.ScalaCheckSuite {
           }
         case _ => ()
       }
+    }
+  }
+
+  test("instantiate regression: forall/exists sameAs round-trip from seed AdQaLIO...") {
+    val w = Type.Var.Bound("w")
+    val dvhi = Type.Var.Bound("dvhi")
+    val qhkmPwusm = Type.Var.Bound("qhkmPwusm")
+    val ntyjk4fo = Type.Var.Bound("ntyjk4fo")
+    val edz9w = Type.Var.Bound("edz9w")
+    val bfjhh = Type.Var.Bound("bfjhh")
+    val elm = Type.Var.Bound("elm")
+
+    val c = Variance.Covariant
+    val contra = Variance.Contravariant
+    val p = Variance.Phantom
+    val inv = Variance.Invariant
+    val tpe = Kind.Type
+    def arr(v: Variance, in: Kind, out: Kind): Kind =
+      Kind.Cons(Kind.Arg(v, in), out)
+
+    val kDvhi = arr(contra, tpe, arr(contra, tpe, tpe))
+    val kQhkmPwusm = arr(c, tpe, arr(p, tpe, tpe))
+    val kNtyjk4fo = arr(c, tpe, tpe)
+    val kEdz9wArg =
+      arr(
+        contra,
+        arr(contra, tpe, tpe),
+        arr(p, tpe, tpe)
+      )
+    val kEdz9w =
+      arr(
+        c,
+        kEdz9wArg,
+        arr(c, arr(c, tpe, tpe), arr(inv, tpe, tpe))
+      )
+    val kBfjhh = arr(c, arr(c, tpe, tpe), tpe)
+    val kElm = arr(p, tpe, arr(contra, tpe, tpe))
+
+    val existsVars = NonEmptyList.fromListUnsafe(
+      List(
+        dvhi -> kDvhi,
+        qhkmPwusm -> kQhkmPwusm,
+        ntyjk4fo -> kNtyjk4fo,
+        edz9w -> kEdz9w,
+        bfjhh -> kBfjhh,
+        elm -> kElm
+      )
+    )
+
+    val from =
+      Type.ForAll(
+        NonEmptyList.one(w -> Kind.Type),
+        Type.Exists(existsVars, Type.TyVar(w))
+      )
+    val to: Type = Type.TyVar(w)
+
+    val Type.ForAll(fas, in) = from
+    Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
+      case Some((frees, subs)) =>
+        val t3 = Type.substituteVar(
+          in,
+          subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+        )
+        val t4 = Type.substituteVar(
+          t3,
+          frees.iterator.map { case (v1, (_, v2)) => (v1, Type.TyVar(v2)) }.toMap
+        )
+        val t5 = Type.quantify(
+          forallList = frees.iterator.map { case (_, tup) => tup.swap }.toList,
+          existList = Nil,
+          t4
+        )
+        assert(t5.sameAs(to))
+      case None =>
+        ()
     }
   }
 

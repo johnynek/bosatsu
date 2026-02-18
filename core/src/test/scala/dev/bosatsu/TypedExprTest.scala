@@ -1561,6 +1561,63 @@ x = Foo
   val genTypedExprChar: Gen[TypedExpr[Char]] =
     gen(Gen.choose('a', 'z'))
 
+  private def allTypesViaTraverseType[A](te: TypedExpr[A]): SortedSet[Type] =
+    te.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t)).run._1
+
+  private def allBoundViaTraverseType[A](
+      te: TypedExpr[A]
+  ): SortedSet[Type.Var.Bound] =
+    te.traverseType {
+      case t @ Type.TyVar(b: Type.Var.Bound) =>
+        Writer[SortedSet[Type.Var.Bound], Type](SortedSet(b), t)
+      case t =>
+        Writer[SortedSet[Type.Var.Bound], Type](SortedSet.empty, t)
+    }.run._1
+
+  private def allPatternTypesViaTraverseType[N](
+      p: Pattern[N, Type]
+  ): SortedSet[Type] =
+    p.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t)).run._1
+
+  private def freeTyVarsReference[A](te: TypedExpr[A]): List[Type.Var] = {
+    def loop(self: TypedExpr[A]): Set[Type.Var] =
+      self match {
+        case TypedExpr.Generic(quant, expr) =>
+          loop(expr) -- quant.vars.iterator.map(_._1)
+        case TypedExpr.Annotation(of, tpe) =>
+          loop(of) ++ Type.freeTyVars(tpe :: Nil)
+        case TypedExpr.AnnotatedLambda(args, res, _) =>
+          loop(res) ++ Type.freeTyVars(args.toList.map { case (_, t) => t })
+        case TypedExpr.Local(_, tpe, _) =>
+          Type.freeTyVars(tpe :: Nil).toSet
+        case TypedExpr.Global(_, _, tpe, _) =>
+          Type.freeTyVars(tpe :: Nil).toSet
+        case TypedExpr.App(f, args, tpe, _) =>
+          args.foldLeft(loop(f))(_ | loop(_)) ++ Type.freeTyVars(tpe :: Nil)
+        case TypedExpr.Let(_, exp, in, _, _) =>
+          loop(exp) | loop(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.foldLeft(loop(body)) { case (acc, (_, expr)) =>
+            acc | loop(expr)
+          }
+        case TypedExpr.Recur(args, tpe, _) =>
+          args.foldLeft(Type.freeTyVars(tpe :: Nil).toSet)(_ | loop(_))
+        case TypedExpr.Literal(_, tpe, _) =>
+          Type.freeTyVars(tpe :: Nil).toSet
+        case TypedExpr.Match(expr, branches, _) =>
+          branches.foldLeft(loop(expr)) { case (acc, branch) =>
+            val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(
+              Set.empty[Type.Var]
+            )(loop)
+            acc1 ++ allPatternTypesViaTraverseType(branch.pattern).iterator.collect {
+              case Type.TyVar(v) => v
+            }
+          }
+      }
+
+    loop(te).toList.sorted
+  }
+
   test("TypedExpr.substituteTypeVar of identity is identity") {
     forAll(genTypedExpr, Gen.listOf(NTypeGen.genBound)) { (te, bounds) =>
       val identMap: Map[Type.Var, Type] = bounds.map { b =>
@@ -1655,6 +1712,24 @@ x = Foo
   test("TypedExpr.allTypes contains the type") {
     forAll(genTypedExpr) { te =>
       assert(te.allTypes.contains(te.getType))
+    }
+  }
+
+  test("TypedExpr.allTypes matches traverseType oracle") {
+    forAll(genTypedExpr) { te =>
+      assertEquals(te.allTypes, allTypesViaTraverseType(te))
+    }
+  }
+
+  test("TypedExpr.allBound matches traverseType oracle") {
+    forAll(genTypedExpr) { te =>
+      assertEquals(te.allBound, allBoundViaTraverseType(te))
+    }
+  }
+
+  test("TypedExpr.freeTyVars matches reference oracle") {
+    forAll(genTypedExpr) { te =>
+      assertEquals(te.freeTyVars, freeTyVarsReference(te))
     }
   }
 
