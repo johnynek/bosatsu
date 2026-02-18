@@ -167,22 +167,10 @@ def is_low_surrogate(code_unit: Int) -> Bool:
   in_range_Int(code_unit, low_surrogate_start, low_surrogate_end)
 
 def hex4_to_Int(h1: Char, h2: Char, h3: Char, h4: Char) -> Option[Int]:
-  match to_digit(h1, 16):
-    case Some(d1):
-      match to_digit(h2, 16):
-        case Some(d2):
-          match to_digit(h3, 16):
-            case Some(d3):
-              match to_digit(h4, 16):
-                case Some(d4):
-                  Some(d1.mul(4096).add(d2.mul(256)).add(d3.mul(16)).add(d4))
-                case None:
-                  None
-            case None:
-              None
-        case None:
-          None
-    case None:
+  match (to_digit(h1, 16), to_digit(h2, 16), to_digit(h3, 16), to_digit(h4, 16)):
+    case (Some(d1), Some(d2), Some(d3), Some(d4)):
+      Some(d1.mul(4096).add(d2.mul(256)).add(d3.mul(16)).add(d4))
+    case _:
       None
 
 def parse_unicode_escape(tail_after_u: String) -> Option[(String, String)]:
