@@ -671,6 +671,15 @@ object Type {
     ex
   }
 
+  private inline def forall[A](as: Iterable[A])(inline fn: A => Boolean): Boolean = {
+    var all = true
+    val iter = as.iterator
+    while (all && iter.hasNext) {
+      all = fn(iter.next())
+    }
+    all
+  }
+
   def substituteLeafApplyVar(
       t: Leaf | TyApply,
       env: Map[Type.Var, Leaf | TyApply]
@@ -783,12 +792,12 @@ object Type {
     }
 
     def freeVarsInScopeForToSolve(t: Type, state: State): Boolean =
-      freeBoundTyVars(t :: Nil).forall { b =>
+      forall(freeBoundTyVars(t :: Nil)) { b =>
         env.contains(b) || state.getFrom(b).nonEmpty
       }
 
     def freeVarsInScopeForFromSolve(t: Type, state: State): Boolean =
-      freeBoundTyVars(t :: Nil).forall { b =>
+      forall(freeBoundTyVars(t :: Nil)) { b =>
         env.contains(b) || state.rightFrees.contains(
           b
         ) || state.getTo(b).nonEmpty
