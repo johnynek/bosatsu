@@ -670,7 +670,8 @@ object Type {
     * right side after alpha-renaming.
     *
     * `subs` are variables from the left side that were solved to concrete
-    * types.
+    * types. These substitutions are structural candidates only; callers still
+    * need to validate kinds in the full type environment.
     */
   case class Instantiation(
       frees: SortedMap[Var.Bound, (Kind, Var.Bound)],
@@ -681,6 +682,11 @@ object Type {
     *
     * `env` is the set of bound variables already in scope on the right side.
     * Those variables are fixed names, not fresh instantiation targets.
+    *
+    * This routine performs structural matching and local bound-variable kind
+    * compatibility checks, but it does not validate solved substitutions
+    * (`Instantiation.subs`) against constructor kinds. That validation needs a
+    * full kind environment and happens in inference (`Infer.validateSubs`).
     */
   def instantiate(
       vars: Map[Var.Bound, Kind],

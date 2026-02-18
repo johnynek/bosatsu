@@ -2,6 +2,7 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.syntax.all._
+import dev.bosatsu.MonadGen.genMonad
 import dev.bosatsu.{Kind, Region, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
@@ -28,11 +29,148 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   private val emptyRegion: Region = Region(0, 0)
 
-  private def isSubtype(left: Type, right: Type): Boolean =
+  private val subtypeKinds: Map[Type.Const.Defined, Kind] =
+    Type.builtInKinds + (Type.OptionType.tpe.toDefined -> Kind(Kind.Type.co))
+
+  private def isSubtypeWithKinds(
+      left: Type,
+      right: Type,
+      kinds: Map[Type.Const.Defined, Kind]
+  ): Boolean =
     Infer
       .substitutionCheck(left, right, emptyRegion, emptyRegion)
-      .runFully(Map.empty, Map.empty, Type.builtInKinds)
+      .runFully(Map.empty, Map.empty, kinds)
       .isRight
+
+  private def isSubtype(left: Type, right: Type): Boolean =
+    isSubtypeWithKinds(left, right, subtypeKinds)
+
+  @annotation.tailrec
+  private def requiredArgKinds(
+      from: Kind,
+      to: Kind,
+      accRev: List[Kind] = Nil
+  ): Option[List[Kind]] =
+    if (from == to) Some(accRev.reverse)
+    else {
+      from match {
+        case Kind.Cons(Kind.Arg(_, argKind), next) =>
+          requiredArgKinds(next, to, argKind :: accRev)
+        case Kind.Type =>
+          None
+      }
+    }
+
+  private def oneOfGenerators[A](values: Vector[Gen[A]]): Option[Gen[A]] =
+    NonEmptyList.fromList(values.toList).map(nel =>
+      Gen.oneOf(nel.toList).flatMap(identity)
+    )
+
+  private val genKindArgForTypeEnv: Gen[Kind.Arg] =
+    Gen.oneOf(Kind.Type.co, Kind.Type.in, Kind.Type.contra, Kind.Type.phantom)
+
+  private val envTypeParamPool: Vector[Type.Var.Bound] =
+    Vector("x", "y", "z", "t", "u", "v").map(Type.Var.Bound(_))
+
+  private val genKindedTypeEnv: Gen[TypeEnv[Kind.Arg]] =
+    for {
+      pn <- NTypeGen.packageNameGen
+      dtCount <- Gen.choose(0, 3)
+      typeNames <- Gen.listOfN(dtCount, NTypeGen.typeNameGen).map(_.distinct)
+      dts <- typeNames.traverse { typeName =>
+        for {
+          paramCount <- Gen.choose(0, 2)
+          paramNames <- Gen.pick(paramCount, envTypeParamPool).map(_.toList)
+          paramKinds <- Gen.listOfN(paramCount, genKindArgForTypeEnv)
+        } yield DefinedType(pn, typeName, paramNames.zip(paramKinds), Nil)
+      }
+    } yield TypeEnv.fromDefinitions(dts)
+
+  private def genWellKindedType(
+      goal: Kind,
+      kinds: Map[Type.Const.Defined, Kind],
+      localVars: List[(Type.Var.Bound, Kind)],
+      depth: Int
+  ): Gen[Type] = {
+    val vars = localVars.map { case (b, k) => (Type.TyVar(b): Type, k) }
+    val cons = kinds.iterator.map { case (d, k) => (Type.TyConst(d): Type, k) }
+    val atoms: Vector[(Type, Kind)] = (vars.iterator ++ cons).toVector.distinct
+
+    def loop(kind: Kind, d: Int): Option[Gen[Type]] = {
+      val cands = atoms.flatMap { case (head, hk) =>
+        requiredArgKinds(hk, kind).flatMap {
+          case Nil =>
+            Some(Gen.const(head))
+          case _ if d <= 0 =>
+            None
+          case needed =>
+            needed.traverse(loop(_, d - 1)).map { argGens =>
+              argGens
+                .foldRight(Gen.const(List.empty[Type])) { (g, acc) =>
+                  g.flatMap(a => acc.map(a :: _))
+                }
+                .map(args => Type.applyAll(head, args))
+            }
+        }
+      }
+
+      oneOfGenerators(cands)
+    }
+
+    loop(goal, depth).getOrElse(Gen.const(Type.IntType))
+  }
+
+  private val fromVarPool: Vector[Type.Var.Bound] =
+    Vector("a", "b", "c", "d").map(Type.Var.Bound(_))
+  private val rightVarPool: Vector[Type.Var.Bound] =
+    Vector("u", "v", "w").map(Type.Var.Bound(_))
+
+  private val genInstantiateLawCase
+      : Gen[(Type.ForAll, Type, Map[Type.Const.Defined, Kind])] =
+    for {
+      typeEnv <- genKindedTypeEnv
+      allKinds = Type.builtInKinds ++ typeEnv.toKindMap
+      // Keep constructor arities small so generated terms remain fast.
+      kinds = allKinds.filter { case (_, kind) =>
+        requiredArgKinds(kind, Kind.Type).exists(_.length <= 2)
+      }
+      fromCount <- Gen.choose(1, 3)
+      fromBs <- Gen.pick(fromCount, fromVarPool).map(_.toList)
+      fromVars = fromBs.map(_ -> Kind.Type)
+      fromBody0 <- genWellKindedType(Kind.Type, kinds, fromVars, depth = 2)
+      freeInFrom = Type.freeBoundTyVars(fromBody0 :: Nil).toSet
+      fromBody =
+        if (fromBs.exists(freeInFrom)) fromBody0
+        else Type.TyVar(fromBs.head)
+      rightCount <- Gen.choose(0, 2)
+      rightBs <- Gen.pick(rightCount, rightVarPool).map(_.toList)
+      rightVars = rightBs.map(_ -> Kind.Type)
+      toBody <- genWellKindedType(Kind.Type, kinds, rightVars, depth = 2)
+      freeInTo = Type.freeBoundTyVars(toBody :: Nil).toSet
+      rightQuantified = rightVars.filter { case (b, _) => freeInTo(b) }
+      to =
+        NonEmptyList.fromList(rightQuantified) match {
+          case Some(qs) => Type.ForAll(qs, toBody.asInstanceOf[Type.Rho])
+          case None     => toBody
+        }
+      from = Type.ForAll(
+        NonEmptyList.fromListUnsafe(fromVars),
+        fromBody.asInstanceOf[Type.Rho]
+      )
+    } yield (from, to, kinds)
+
+  private def hasIllKindedSubstitution(
+      instantiation: Type.Instantiation,
+      kinds: Map[Type.Const.Defined, Kind]
+  ): Boolean = {
+    val kindOf = Type.kindOfOption(tc => kinds.get(tc.tpe.toDefined))
+    instantiation.subs.iterator.exists { case (_, (expectedKind, tpe)) =>
+      kindOf(tpe) match {
+        case Some(actualKind) => !Kind.leftSubsumesRight(expectedKind, actualKind)
+        case None             => true
+      }
+    }
+  }
 
   // Keep a direct oracle for freeTyVars semantics so refactors preserve behavior.
   private def freeTyVarsReference(ts: List[Type]): List[Type.Var] = {
@@ -1038,7 +1176,7 @@ class TypeTest extends munit.ScalaCheckSuite {
     check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", List("a" -> "b"), Nil)
   }
 
-  test("instantiate success does not always imply subsumption") {
+  test("instantiate/subsumption depends on having kind information") {
     val fromStr = "forall a, b. (a, b)"
     val toStr = "(Bosatsu/Predef::Bool, Bosatsu/Predef::Option[Bosatsu/Predef::Int])"
 
@@ -1049,9 +1187,30 @@ class TypeTest extends munit.ScalaCheckSuite {
     val instantiation = Type.instantiate(fas.iterator.toMap, in, to, Map.empty)
     assert(instantiation.nonEmpty, "instantiate should succeed in this case")
     assert(
-      !isSubtype(from, to),
-      "this demonstrates instantiate success does not imply substitutionCheck success"
+      !isSubtypeWithKinds(from, to, Type.builtInKinds),
+      "without Option kind in the environment, substitutionCheck fails early"
     )
+    assert(
+      isSubtype(from, to),
+      "with Option kind available, this instantiation is a valid subtype witness"
+    )
+  }
+
+  test("instantiate law: non-subtype implies ill-kinded substitution") {
+    forAll(genInstantiateLawCase) { case (from, to, kinds) =>
+      val Type.ForAll(fas, in) = from
+      Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
+        case Some(instantiation) =>
+          if (!isSubtypeWithKinds(from, to, kinds)) {
+            assert(
+              hasIllKindedSubstitution(instantiation, kinds),
+              s"from = $from, to = $to, instantiation = $instantiation"
+            )
+          }
+        case None =>
+          ()
+      }
+    }
   }
 
   test("instantiate handles rhs forall shadowing") {
