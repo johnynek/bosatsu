@@ -184,12 +184,38 @@ object Type {
   case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho)
       extends Type {
     lazy val normalize: Type = Type.runNormalize(this)
+
+    /** Alpha-rename quantified binders to avoid names already in use.
+      *
+      * The body is updated consistently with any binder renaming. Free bound
+      * variables in the body are also avoided to prevent accidental capture.
+      */
+    def unshadow[V >: Type.Var.Bound](otherVars: Set[V]): ForAll = {
+      val bound = vars.iterator.map(_._1).toSet
+      val freeInBody = freeBoundTyVars(in :: Nil).filterNot(bound).toSet
+      val (subst, vars1) = Type.unshadow(vars, otherVars ++ freeInBody)
+      if (subst.isEmpty) this
+      else ForAll(vars1, substituteRhoVar(in, subst))
+    }
   }
 
   // exists aren't nested, so in must be a Leaf or TyApply
   case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Leaf | TyApply)
       extends Rho {
     lazy val normalize: Rho = Type.runNormalize(this).asInstanceOf[Rho]
+
+    /** Alpha-rename quantified binders to avoid names already in use.
+      *
+      * The body is updated consistently with any binder renaming. Free bound
+      * variables in the body are also avoided to prevent accidental capture.
+      */
+    def unshadow[V >: Type.Var.Bound](otherVars: Set[V]): Exists = {
+      val bound = vars.iterator.map(_._1).toSet
+      val freeInBody = freeBoundTyVars(in :: Nil).filterNot(bound).toSet
+      val (subst, vars1) = Type.unshadow(vars, otherVars ++ freeInBody)
+      if (subst.isEmpty) this
+      else Exists(vars1, substituteLeafApplyVar(in, subst))
+    }
   }
 
   def unshadow[V >: Type.Var.Bound](
@@ -771,39 +797,14 @@ object Type {
               loop(a, ta, state).flatMap { s1 =>
                 loop(b, tb, s1)
               }
-            case ForAll(rightFrees, rightT) =>
-              val collisions = rightFrees.toList.filter { case (b, _) =>
-                state.rightFrees.contains(b)
-              }
-
-              val (rightFrees1, rightT1) =
-                if (collisions.isEmpty) (rightFrees, rightT)
-                else {
-                  val avoidSet =
-                    state.rightFrees.keySet ++ env.keySet ++
-                      rightFrees.iterator.map(_._1) ++
-                      freeBoundTyVars(rightT :: Nil)
-                  val aligned = alignBinders(collisions, avoidSet)
-                  val subMap = aligned.iterator
-                    .map { case ((b, _), b1) =>
-                      (b, TyVar(b1))
-                    }
-                    .toMap[Var, Type]
-                  val remap = aligned.iterator.map { case ((b, _), b1) =>
-                    (b, b1)
-                  }.toMap
-                  val rightFrees1 = rightFrees.map { case (b, k) =>
-                    (remap.getOrElse(b, b), k)
-                  }
-                  val rightT1 = substituteVar(rightT, subMap)
-                  (rightFrees1, rightT1)
-                }
+            case fa: ForAll =>
+              val fa1 = fa.unshadow(state.rightFrees.keySet ++ env.keySet)
 
               loop(
                 from,
-                rightT1,
+                fa1.in,
                 state.copy(rightFrees =
-                  state.rightFrees ++ rightFrees1.iterator
+                  state.rightFrees ++ fa1.vars.iterator
                 )
               )
                 .map { s1 =>
@@ -1626,14 +1627,8 @@ object Type {
             // zonking replaced an inner Leaf | TyApply with an exists, but
             // it may shadow values in arg. We need to lift it out
             // but without pulling arg into the exists.
-            val frees = freeTyVars(arg1 :: Nil)
-            val (subst, newVars) =
-              if (frees.isEmpty) (Map.empty[Type.Var, Type.TyVar], e.vars)
-              else unshadow(e.vars, frees.toSet)
-            val newIn =
-              if (subst.isEmpty) e.in
-              else substituteLeafApplyVar(e.in, subst)
-            existsRho(newVars, TyApply(newIn, arg1))
+            val e1 = e.unshadow(freeTyVars(arg1 :: Nil).toSet)
+            existsRho(e1.vars, TyApply(e1.in, arg1))
         }
       case t @ Type.TyMeta(m) =>
         mfn(m).map {

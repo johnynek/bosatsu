@@ -387,10 +387,8 @@ class TypeTest extends munit.ScalaCheckSuite {
           case (la: (Type.Leaf | Type.TyApply), arg1) =>
             Type.TyApply(la, arg1)
           case (e: Type.Exists, arg1)                 =>
-            val frees = Type.freeTyVars(arg1 :: Nil)
-            val (subst, newVars) = Type.unshadow(e.vars, frees.toSet)
-            val newIn = Type.substituteLeafApplyVar(e.in, subst)
-            Type.existsRho(newVars, Type.TyApply(newIn, arg1))
+            val e1 = e.unshadow(Type.freeTyVars(arg1 :: Nil).toSet)
+            Type.existsRho(e1.vars, Type.TyApply(e1.in, arg1))
         }
       case t @ Type.TyMeta(m) =>
         mfn(m).map {
@@ -1242,14 +1240,62 @@ class TypeTest extends munit.ScalaCheckSuite {
     assert(res.nonEmpty, s"could not instantiate: $t to $targ")
   }
 
+  test("ForAll.unshadow is a no-op without collisions") {
+    val genForAll =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+    val genOtherVars: Gen[Set[Type.Var.Bound]] =
+      Gen.listOf(NTypeGen.genBound).map(_.toSet)
+
+    forAll(genForAll, genOtherVars) { (fa, otherVars) =>
+      val collides = fa.vars.exists { case (b, _) => otherVars(b) }
+      if (!collides) {
+        val fa1 = fa.unshadow(otherVars)
+        assert(fa1 eq fa)
+      }
+    }
+  }
+
+  test("ForAll.unshadow alpha-renames colliding binders") {
+    val a = Type.Var.Bound("a")
+    val fa = parse("forall a. a").runtimeChecked match {
+      case f: Type.ForAll => f
+      case _              => fail("expected a forall")
+    }
+    val fa1 = fa.unshadow(Set(a))
+    val Type.ForAll(vars1, in1) = fa1
+    val a1 = vars1.head._1
+    assertNotEquals(a1, a)
+    assertEquals(in1, Type.TyVar(a1))
+    assert(fa1.sameAs(fa), s"expected alpha-equivalent types: $fa1 vs $fa")
+  }
+
+  test("ForAll.unshadow avoids capturing free vars in the body") {
+    val genForAll =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+
+    forAll(genForAll) { fa =>
+      val bound0 = fa.vars.iterator.map(_._1).toSet
+      val free0 = Type.freeBoundTyVars(fa.in :: Nil).filterNot(bound0).toSet
+
+      // Force alpha-renaming by colliding with all current binders.
+      val fa1 = fa.unshadow(bound0)
+      val bound1 = fa1.vars.iterator.map(_._1).toSet
+      val free1 = Type.freeBoundTyVars(fa1.in :: Nil).filterNot(bound1).toSet
+
+      assertEquals(free1, free0)
+      assertEquals(bound1.intersect(free0), Set.empty)
+    }
+  }
+
   test("Fun(ts, r) and Fun.unapply are inverses") {
-    val genArgs = for {
+    val genFunParts = for {
       cnt <- Gen.choose(0, Type.FnType.MaxSize - 1)
       head <- NTypeGen.genDepth03
       tail <- Gen.listOfN(cnt, NTypeGen.genDepth03)
-    } yield NonEmptyList(head, tail)
+      res <- NTypeGen.genDepth03
+    } yield (NonEmptyList(head, tail), res)
 
-    forAll(genArgs, NTypeGen.genDepth03) { (args, res) =>
+    forAll(genFunParts) { case (args, res) =>
       val fnType = Type.Fun(args, res)
       fnType match {
         case Type.Fun(args1, res1) =>
@@ -1258,6 +1304,61 @@ class TypeTest extends munit.ScalaCheckSuite {
         case _ =>
           fail(s"fnType didn't match Fun")
       }
+    }
+  }
+
+  test("ForAll.unshadow always returns a type that is sameAs the original type") {
+    val genForAll =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genForAll(d, Some(NTypeGen.genConst)))
+    val genOtherVars: Gen[Set[Type.Var.Bound]] =
+      Gen.listOf(NTypeGen.genBound).map(_.toSet)
+
+    forAll(genForAll, genOtherVars) { (fa, otherVars) =>
+      assert(fa.unshadow(otherVars).sameAs(fa))
+    }
+  }
+
+  test("Exists.unshadow is a no-op without collisions") {
+    val genExists =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+    val genOtherVars: Gen[Set[Type.Var.Bound]] =
+      Gen.listOf(NTypeGen.genBound).map(_.toSet)
+
+    forAll(genExists, genOtherVars) { (ex, otherVars) =>
+      val collides = ex.vars.exists { case (b, _) => otherVars(b) }
+      if (!collides) {
+        val ex1 = ex.unshadow(otherVars)
+        assert(ex1 eq ex)
+      }
+    }
+  }
+
+  test("Exists.unshadow avoids capturing free vars in the body") {
+    val genExists =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+
+    forAll(genExists) { ex =>
+      val bound0 = ex.vars.iterator.map(_._1).toSet
+      val free0 = Type.freeBoundTyVars(ex.in :: Nil).filterNot(bound0).toSet
+
+      // Force alpha-renaming by colliding with all current binders.
+      val ex1 = ex.unshadow(bound0)
+      val bound1 = ex1.vars.iterator.map(_._1).toSet
+      val free1 = Type.freeBoundTyVars(ex1.in :: Nil).filterNot(bound1).toSet
+
+      assertEquals(free1, free0)
+      assertEquals(bound1.intersect(free0), Set.empty)
+    }
+  }
+
+  test("Exists.unshadow always returns a type that is sameAs the original type") {
+    val genExists =
+      Gen.choose(1, 3).flatMap(d => NTypeGen.genExists(d, Some(NTypeGen.genConst)))
+    val genOtherVars: Gen[Set[Type.Var.Bound]] =
+      Gen.listOf(NTypeGen.genBound).map(_.toSet)
+
+    forAll(genExists, genOtherVars) { (ex, otherVars) =>
+      assert(ex.unshadow(otherVars).sameAs(ex))
     }
   }
 
