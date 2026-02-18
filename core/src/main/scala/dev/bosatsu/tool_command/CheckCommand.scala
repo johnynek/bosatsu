@@ -12,7 +12,7 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathGen
 }
-import dev.bosatsu.{PackageMap, PackageName, Par, PlatformIO}
+import dev.bosatsu.{CompileOptions, PackageMap, PackageName, Par, PlatformIO}
 
 object CheckCommand {
   private def compile[F[_], Path](
@@ -51,7 +51,8 @@ object CheckCommand {
         inputs,
         interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
         errColor,
-        packageResolver
+        packageResolver,
+        CompileOptions.NoOptimize
       )
     } yield packPath._1
   }

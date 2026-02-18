@@ -24,7 +24,10 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
 
     implicit val showString: Show[String] = Show.fromToString
-    val errsOpt = PackageMap.resolveThenInfer(withPrePaths, Nil).left
+    val errsOpt =
+      PackageMap
+        .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+        .left
     val errs = errsOpt.getOrElse(fail("expected unused let error"))
     val sourceMap = PackageMap.buildSourceMap(withPre)
     val msgOpt = errs.toList.collectFirst {

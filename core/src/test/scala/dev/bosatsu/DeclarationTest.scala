@@ -297,6 +297,40 @@ x""")
     law("Foo { a: b }", List("b"), List("b"))
   }
 
+  test("cached hashCode on hot Declaration nodes matches equality") {
+    val regionA = Region(0, 0)
+    val regionB = Region(9, 12)
+
+    forAll(Generators.identifierGen) { id =>
+      val v0 = Declaration.Var(id)(using regionA)
+      val v1 = Declaration.Var(id)(using regionB)
+      assertEquals(v0, v1)
+      assertEquals(v0.hashCode, v1.hashCode)
+    }
+
+    forAll(Generators.genLit) { lit =>
+      val l0 = Declaration.Literal(lit)(using regionA)
+      val l1 = Declaration.Literal(lit)(using regionB)
+      assertEquals(l0, l1)
+      assertEquals(l0.hashCode, l1.hashCode)
+    }
+
+    val genApplyPair =
+      for {
+        fn <- Generators.genNonBinding(2)
+        args <- Generators.smallNonEmptyList(Generators.genNonBinding(2), 4)
+        kind <- Gen.oneOf(Declaration.ApplyKind.Dot, Declaration.ApplyKind.Parens)
+      } yield (
+        Declaration.Apply(fn, args, kind)(using regionA),
+        Declaration.Apply(fn, args, kind)(using regionB)
+      )
+
+    forAll(genApplyPair) { case (a0, a1) =>
+      assertEquals(a0, a1)
+      assertEquals(a0.hashCode, a1.hashCode)
+    }
+  }
+
   test("isCheap is constant under Annotation or Parens") {
     val prop = forAll(genDecl) { d =>
       val an = Declaration.Annotation(d.toNonBinding, TypeRef.TypeVar("a"))

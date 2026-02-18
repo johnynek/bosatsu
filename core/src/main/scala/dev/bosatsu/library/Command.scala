@@ -21,6 +21,7 @@ import dev.bosatsu.hashing.Algo.WithAlgo.WithAlgoHashValue
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.{
+  CompileOptions,
   Identifier,
   Json,
   JsonEncodingError,
@@ -446,7 +447,8 @@ object Command {
 
         def packageMap(
             colorize: Colorize,
-            sourcePackageFilter: Option[PackageName => Boolean] = None
+            sourcePackageFilter: Option[PackageName => Boolean] = None,
+            compileOptions: CompileOptions
         ): F[PackageMap.Inferred] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
@@ -475,7 +477,8 @@ object Command {
                             _.interfaces
                           ),
                         colorize,
-                        packageResolver
+                        packageResolver,
+                        compileOptions
                       )
                     }
                     .map(_._1)
@@ -527,7 +530,8 @@ object Command {
                 _.interfaces
               ),
               colorize,
-              inputRes
+              inputRes,
+              CompileOptions.Default
             )
           }
           (compiled, sourcePaths) = checked
@@ -547,11 +551,12 @@ object Command {
 
       def check(
           colorize: Colorize,
-          sourcePackageFilter: Option[PackageName => Boolean] = None
+          sourcePackageFilter: Option[PackageName => Boolean] = None,
+          compileOptions: CompileOptions
       ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, sourcePackageFilter)
+          allPacks <- cs.packageMap(colorize, sourcePackageFilter, compileOptions)
           res <- sourcePackageFilter match {
             case None =>
               val validated = conf.validate(
@@ -569,11 +574,12 @@ object Command {
         } yield res
 
       def decodedWithDeps(
-          colorize: Colorize
+          colorize: Colorize,
+          compileOptions: CompileOptions
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize)
+          allPacks <- cs.packageMap(colorize, None, compileOptions)
           validated = conf.validate(
             cs.prevThis,
             allPacks.toMap.values.toList,
@@ -651,7 +657,11 @@ object Command {
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, Some(sourcePackageFilter))
+          allPacks <- cs.packageMap(
+            colorize,
+            Some(sourcePackageFilter),
+            CompileOptions.Default
+          )
           decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
         } yield decWithLibs
 
@@ -662,7 +672,7 @@ object Command {
       ): F[Doc] =
         for {
           decWithLibs <- sourcePackageFilter match {
-            case None         => decodedWithDeps(colorize)
+            case None         => decodedWithDeps(colorize, CompileOptions.Default)
             case Some(filter) =>
               decodedWithDepsFilteredForTest(colorize, filter)
           }
@@ -677,7 +687,11 @@ object Command {
       def buildLibrary(vcsIdent: String, colorize: Colorize): F[proto.Library] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize)
+          allPacks <- cs.packageMap(
+            colorize,
+            None,
+            CompileOptions.Default
+          )
           validated = conf.assemble(
             vcsIdent = vcsIdent,
             previous = cs.prevThis,
@@ -1279,7 +1293,11 @@ object Command {
           (fcc, sourceFilter, colorize) =>
             for {
               cc <- fcc
-              _ <- cc.check(colorize, sourceFilter)
+              _ <- cc.check(
+                colorize,
+                sourceFilter,
+                CompileOptions.NoOptimize
+              )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
         }
@@ -1376,7 +1394,7 @@ object Command {
             cc <- fcc
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize)
+                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
                   (target match {
@@ -1429,15 +1447,23 @@ object Command {
               help = "value names to show (package::value)"
             )
             .orEmpty,
+          Opts
+            .flag(
+              "no-opt",
+              help = "disable normalization/optimization to inspect typed expressions before optimization"
+            )
+            .orFalse,
           Opts.option[P]("output", help = "output path").orNone,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, packages, types, values, output, colorize) =>
+        ).mapN { (fcc, packages, types, values, noOpt, output, colorize) =>
+          val compileOptions =
+            if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
           val request = ShowSelection.Request(packages, types, values)
           for {
             cc <- fcc
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize)
+                dec <- cc.decodedWithDeps(colorize, compileOptions)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 requestedPackages =
                   if (request.isEmpty) Nil else request.requestedPackages
@@ -1605,7 +1631,7 @@ object Command {
             cc <- fcc
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize)
+                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {

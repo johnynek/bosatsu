@@ -17,16 +17,23 @@ import dev.bosatsu.{
 import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.{SortedSet, SortedMap}
+import scala.util.hashing.MurmurHash3
 
 import cats.implicits._
 
-sealed abstract class Type derives CanEqual {
+sealed abstract class Type extends Product derives CanEqual {
+  // Type nodes are immutable and heavily used as map/set keys; cache once.
+  final override val hashCode: Int =
+    MurmurHash3.caseClassHash(this)
+
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
 
   def normalize: Type
 }
 
 object Type {
+
+  private final case class ExitBound(vars: List[Type.Var.Bound])
 
   /** A type with no top level universal quantification.
     *
@@ -784,9 +791,33 @@ object Type {
           }
         case _ =>
           // We can't use sameAt to compare Var.Bound since we know the variances
-          // there
-          if (from.sameAs(to)) Some(state)
-          else None
+          // there.
+          // If we only matched via sameAs, unresolved Unknown vars that are free
+          // in `from` would be unsound (they later round-trip as quantified frees).
+          if (from.sameAs(to)) {
+            var hasUnknown = false
+            val unknownIt = state.fixed.iterator
+            while (!hasUnknown && unknownIt.hasNext) {
+              unknownIt.next() match {
+                case (_, (_, Unknown)) => hasUnknown = true
+                case _                 => ()
+              }
+            }
+
+            if (!hasUnknown) Some(state)
+            else {
+              val free = freeBoundTyVars(from :: Nil).toSet
+              var bad = false
+              val fixedIt = state.fixed.iterator
+              while (!bad && fixedIt.hasNext) {
+                fixedIt.next() match {
+                  case (b, (_, Unknown)) if free(b) => bad = true
+                  case _                            => ()
+                }
+              }
+              if (bad) None else Some(state)
+            }
+          } else None
       }
 
     val initState = State(
@@ -816,47 +847,80 @@ object Type {
     * types
     */
   def freeTyVars(ts: List[Type]): List[Type.Var] = {
+    val seen = scala.collection.mutable.HashSet.empty[Type.Var]
+    val acc = List.newBuilder[Type.Var]
+    val check = scala.collection.mutable.ArrayDeque.empty[Type | ExitBound]
+    val boundCount = scala.collection.mutable.HashMap.empty[Type.Var.Bound, Int]
 
-    // usually we can recurse in a loop, but sometimes not
-    def cheat(
-        ts: List[Type],
-        bound: Set[Type.Var.Bound],
-        acc: List[Type.Var]
-    ): List[Type.Var] =
-      go(ts, bound, acc)
+    inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit = {
+      while (iter.hasNext) {
+        fn(iter.next())
+      }
+    }
 
-    @annotation.tailrec
-    def go(
-        ts: List[Type],
-        bound: Set[Type.Var.Bound],
-        acc: List[Type.Var]
-    ): List[Type.Var] =
-      ts match {
-        case Nil                    => acc
-        case Type.TyVar(tv) :: rest =>
-          // we only check here, we don't add
-          val isBound =
-            tv match {
-              case b @ Type.Var.Bound(_) => bound(b)
-              case _: Type.Var.Skolem    => false
-            }
-          if (isBound) go(rest, bound, acc)
-          else go(rest, bound, tv :: acc)
-        case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
-        case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
-        case ForAll(vars, in) :: rest                   =>
-          val acc1 =
-            cheat(in :: Nil, bound ++ vars.toList.iterator.map(_._1), acc)
-          // note, vars ARE NOT bound in rest
-          go(rest, bound, acc1)
-        case Exists(vars, in) :: rest =>
-          val acc1 =
-            cheat(in :: Nil, bound ++ vars.toList.iterator.map(_._1), acc)
-          // note, vars ARE NOT bound in rest
-          go(rest, bound, acc1)
+    inline def record(tv: Type.Var): Unit =
+      if (seen.add(tv)) acc += tv
+
+    def bind(vars: List[Type.Var.Bound]): Unit =
+      foreach(vars.iterator) { v =>
+        boundCount.updateWith(v) {
+          case Some(i) => Some(i + 1)
+          case None    => Some(1)
+        }
       }
 
-    go(ts, Set.empty, Nil).reverse.distinct
+    inline def unbind(vars: List[Type.Var.Bound]): Unit =
+      foreach(vars.iterator) { v =>
+        boundCount.updateWith(v) {
+          case Some(1) => None
+          case Some(i) => Some(i - 1)
+          case None    => None
+        }
+      }
+
+    inline def isBound(v: Type.Var.Bound): Boolean =
+      boundCount.get(v) match {
+        case Some(c) => c > 0
+        case None    => false
+      }
+
+    foreach(ts.iterator)(check.append(_))
+
+    while (check.nonEmpty) {
+      check.removeHead() match {
+        case t: Type =>
+          t match {
+            case Type.TyVar(tv) =>
+              tv match {
+                case b: Type.Var.Bound if !isBound(b) =>
+                  record(b)
+                case _: Type.Var.Bound =>
+                  ()
+                case sk: Type.Var.Skolem =>
+                  record(sk)
+              }
+            case Type.TyApply(a, b) =>
+              check.prepend(b)
+              check.prepend(a)
+            case Type.ForAll(vars, in) =>
+              val vs = vars.toList.map(_._1)
+              bind(vs)
+              check.prepend(ExitBound(vs))
+              check.prepend(in)
+            case Type.Exists(vars, in) =>
+              val vs = vars.toList.map(_._1)
+              bind(vs)
+              check.prepend(ExitBound(vs))
+              check.prepend(in)
+            case _: (Type.TyMeta | Type.TyConst) =>
+              ()
+          }
+        case ExitBound(vars) =>
+          unbind(vars)
+      }
+    }
+
+    acc.result()
   }
 
   /** Return the Bound variables that are free in the given list of types
@@ -1429,17 +1493,27 @@ object Type {
   /** Final the set of all of Metas inside the list of given types
     */
   def metaTvs(s: List[Type]): SortedSet[Meta] = {
-    @annotation.tailrec
-    def go(check: List[Type], acc: SortedSet[Meta]): SortedSet[Meta] =
-      check match {
-        case Nil                   => acc
-        case ForAll(_, r) :: tail  => go(r :: tail, acc)
-        case Exists(_, r) :: tail  => go(r :: tail, acc)
-        case TyApply(a, r) :: tail => go(a :: r :: tail, acc)
-        case TyMeta(m) :: tail     => go(tail, acc + m)
-        case _ :: tail             => go(tail, acc)
+    val metas = scala.collection.mutable.HashSet.empty[Meta]
+    val check = scala.collection.mutable.ArrayDeque.empty[Type]
+
+    val initIter = s.iterator
+    while (initIter.hasNext) {
+      check.append(initIter.next())
+    }
+
+    while (check.nonEmpty) {
+      check.removeHead() match {
+        case ForAll(_, r)  => check.prepend(r)
+        case Exists(_, r)  => check.prepend(r)
+        case TyApply(a, r) =>
+          check.prepend(r)
+          check.prepend(a)
+        case TyMeta(m) => metas.add(m); ()
+        case _         => ()
       }
-    go(s, SortedSet.empty)
+    }
+
+    SortedSet.from(metas)
   }
 
   /** Report bound variables which are used in quantify. When we infer a sigma
@@ -1503,9 +1577,10 @@ object Type {
   )(m: Meta => F[Option[Type.Tau]]): F[Type] =
     t match {
       case rho: Rho         => zonkRhoMeta(rho)(m).widen
-      case ForAll(vars, in) =>
+      case fa @ ForAll(vars, in) =>
         zonkRhoMeta(in)(m).map { tpe =>
-          forAll(vars, tpe)
+          if (tpe eq in) fa
+          else forAll(vars, tpe)
         }
     }
 
@@ -1514,27 +1589,37 @@ object Type {
   def zonkRhoMeta[F[_]: Applicative](
       t: Type.Rho
   )(mfn: Meta => F[Option[Type.Tau]]): F[Type.Rho] =
+    val app = Applicative[F]
     t match {
-      case Exists(vars, in) =>
-        zonkRhoMeta(in)(mfn).map(existsRho(vars, _))
-      case Type.TyApply(on, arg) =>
-        (zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN {
-          case (la: (Leaf | TyApply), arg) => applyAllRho(la, arg :: Nil)
-          case (e: Exists, arg)            =>
+      case ex @ Exists(vars, in) =>
+        zonkRhoMeta(in)(mfn).map { in1 =>
+          if (in1 eq in) ex
+          else existsRho(vars, in1)
+        }
+      case ta @ Type.TyApply(on, arg) =>
+        app.map2(zonkRhoMeta(on)(mfn), zonkMeta(arg)(mfn)) {
+          case (la: (Leaf | TyApply), arg1) =>
+            if ((la eq on) && (arg1 eq arg)) ta
+            else TyApply(la, arg1)
+          case (e: Exists, arg1)            =>
             // zonking replaced an inner Leaf | TyApply with an exists, but
             // it may shadow values in arg. We need to lift it out
             // but without pulling arg into the exists.
-            val frees = freeTyVars(arg :: Nil)
-            val (subst, newVars) = unshadow(e.vars, frees.toSet)
-            val newIn = substituteLeafApplyVar(e.in, subst)
-            existsRho(newVars, TyApply(newIn, arg))
+            val frees = freeTyVars(arg1 :: Nil)
+            val (subst, newVars) =
+              if (frees.isEmpty) (Map.empty[Type.Var, Type.TyVar], e.vars)
+              else unshadow(e.vars, frees.toSet)
+            val newIn =
+              if (subst.isEmpty) e.in
+              else substituteLeafApplyVar(e.in, subst)
+            existsRho(newVars, TyApply(newIn, arg1))
         }
       case t @ Type.TyMeta(m) =>
         mfn(m).map {
           case None      => t
           case Some(rho) => rho
         }
-      case (Type.TyConst(_) | Type.TyVar(_)) => Applicative[F].pure(t)
+      case (Type.TyConst(_) | Type.TyVar(_)) => app.pure(t)
     }
 
   private object FullResolved extends TypeParser[Type] {

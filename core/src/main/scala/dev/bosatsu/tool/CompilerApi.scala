@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import dev.bosatsu.{
+  CompileOptions,
   PlatformIO,
   Package,
   PackageError,
@@ -36,7 +37,8 @@ object CompilerApi {
       inputs: List[Path],
       ifs: List[Package.Interface],
       errColor: Colorize,
-      packRes: PackageResolver[IO, Path]
+      packRes: PackageResolver[IO, Path],
+      compileOptions: CompileOptions
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
@@ -59,7 +61,7 @@ object CompilerApi {
           platformIO.moduleIOMonad.pure((PackageMap.empty, Nil))
         }
       case Some(nel) =>
-        typeCheck(platformIO, nel, ifs, errColor, packRes)
+        typeCheck(platformIO, nel, ifs, errColor, packRes, compileOptions)
           .map { case (m, ps) => (m, ps.toList) }
     }
   }
@@ -69,7 +71,8 @@ object CompilerApi {
       inputs: NonEmptyList[Path],
       ifs: List[Package.Interface],
       errColor: Colorize,
-      packRes: PackageResolver[IO, Path]
+      packRes: PackageResolver[IO, Path],
+      compileOptions: CompileOptions
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
@@ -82,7 +85,8 @@ object CompilerApi {
       packsString = packs.map { case ((path, lm), parsed) =>
         ((platformIO.pathToString(path), lm), parsed)
       }
-      checked = PackageMap.typeCheckParsed[String](packsString, ifs, "predef")
+      checked =
+        PackageMap.typeCheckParsed[String](packsString, ifs, "predef", compileOptions)
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
       res <-
@@ -107,7 +111,8 @@ object CompilerApi {
       srcs: List[Path],
       deps: List[Path],
       errColor: Colorize,
-      packRes: PackageResolver[IO, Path]
+      packRes: PackageResolver[IO, Path],
+      compileOptions: CompileOptions
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] = {
@@ -116,7 +121,14 @@ object CompilerApi {
     for {
       packs <- platformIO.readPackages(deps)
       ifaces = packs.map(Package.interfaceOf(_))
-      packsList <- typeCheck0(platformIO, srcs, ifaces, errColor, packRes)
+      packsList <- typeCheck0(
+        platformIO,
+        srcs,
+        ifaces,
+        errColor,
+        packRes,
+        compileOptions
+      )
       (thesePacks, lst) = packsList
       packMap = packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
     } yield (packMap, lst)

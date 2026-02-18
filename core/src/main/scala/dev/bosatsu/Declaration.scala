@@ -15,6 +15,7 @@ import dev.bosatsu.graph.Memoize
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.SortedSet
+import scala.util.hashing.MurmurHash3
 
 import Indy.IndyMethods
 
@@ -881,7 +882,10 @@ object Declaration {
       args: NonEmptyList[NonBinding],
       kind: ApplyKind
   )(using val region: Region)
-      extends NonBinding
+      extends NonBinding {
+    // Apply nodes are frequent map/set keys in normalization and substitution.
+    override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
+  }
   case class ApplyOp(
       left: NonBinding,
       op: Identifier.Operator,
@@ -914,7 +918,9 @@ object Declaration {
   case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(
       implicit val region: Region
   ) extends NonBinding
-  case class Literal(lit: Lit)(using val region: Region) extends NonBinding
+  case class Literal(lit: Lit)(using val region: Region) extends NonBinding {
+    override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
+  }
   case class MatchBranch(
       pattern: Pattern.Parsed,
       guard: Option[NonBinding],
@@ -933,7 +939,9 @@ object Declaration {
       extends NonBinding
   case class TupleCons(items: List[NonBinding])(using val region: Region)
       extends NonBinding
-  case class Var(name: Identifier)(using val region: Region) extends NonBinding
+  case class Var(name: Identifier)(using val region: Region) extends NonBinding {
+    override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
+  }
 
   /** This represents code like: Foo { bar: 12 }
     */

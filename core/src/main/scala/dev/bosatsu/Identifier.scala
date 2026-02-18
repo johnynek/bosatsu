@@ -16,14 +16,14 @@ sealed abstract class Identifier derives CanEqual {
   def sourceCodeRepr: String =
     Identifier.document.document(this).renderWideStream.mkString
 
-  override def equals(that: Any): Boolean =
+  final override def equals(that: Any): Boolean =
     that match {
       case ident: Identifier =>
-        asString == ident.asString
+        (this eq ident) || ((hashCode == ident.hashCode) && (asString == ident.asString))
       case _ => false
     }
 
-  override val hashCode: Int = asString.hashCode
+  final override val hashCode: Int = asString.hashCode
 
   def toBindable: Option[Identifier.Bindable] =
     this match {

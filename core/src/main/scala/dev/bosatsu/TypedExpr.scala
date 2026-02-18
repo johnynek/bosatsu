@@ -1003,64 +1003,235 @@ object TypedExpr {
       case _ => None
     }
 
-  private val emptyBound: SortedSet[Type.Var.Bound] =
-    SortedSet.empty
-
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
-    def allTypes: SortedSet[Type] =
-      traverseType { t =>
-        Writer[SortedSet[Type], Type](SortedSet(t), t)
-      }.run._1
+    // Iterate exactly the same type occurrences as traverseType would, while
+    // honoring Generic shadowing, but avoid Writer/traverse allocation.
+    private inline def foreachTraversedType(inline fn: Type => Unit): Unit = {
+      def visitType(t: Type, shadowed: Set[Type.Var.Bound]): Unit =
+        t match {
+          case Type.TyVar(v: Type.Var.Bound) if shadowed(v) => ()
+          case other                                         => fn(other)
+        }
 
-    def allBound: SortedSet[Type.Var.Bound] =
-      traverseType {
-        case t @ Type.TyVar(b: Type.Var.Bound) =>
-          Writer[SortedSet[Type.Var.Bound], Type](SortedSet(b), t)
-        case t =>
-          Writer[SortedSet[Type.Var.Bound], Type](emptyBound, t)
-      }.run._1
+      def visitPattern[N](
+          pat: Pattern[N, Type],
+          shadowed: Set[Type.Var.Bound]
+      ): Unit = {
+        @annotation.tailrec
+        def loop(todo: List[Pattern[N, Type]]): Unit =
+          todo match {
+            case Nil => ()
+            case (Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+                Pattern.StrPat(_)) :: tail =>
+              loop(tail)
+            case Pattern.Named(_, p) :: tail =>
+              loop(p :: tail)
+            case Pattern.ListPat(items) :: tail =>
+              val next = items.collect { case Pattern.ListPart.Item(p) => p }
+              loop(next ::: tail)
+            case Pattern.Annotation(p, tpe) :: tail =>
+              visitType(tpe, shadowed)
+              loop(p :: tail)
+            case Pattern.PositionalStruct(_, params) :: tail =>
+              loop(params ::: tail)
+            case Pattern.Union(h, t) :: tail =>
+              loop(h :: t.toList ::: tail)
+          }
 
-    def freeTyVars: List[Type.Var] = {
-      def loop(self: TypedExpr[A]): Set[Type.Var] =
-        self match {
-          case Generic(quant, expr) =>
-            loop(expr) -- quant.vars.iterator.map(_._1)
-          case Annotation(of, tpe) =>
-            loop(of) ++ Type.freeTyVars(tpe :: Nil)
-          case AnnotatedLambda(args, res, _) =>
-            loop(res) ++ Type.freeTyVars(args.toList.map { case (_, t) => t })
-          case Local(_, tpe, _) =>
-            Type.freeTyVars(tpe :: Nil).toSet
-          case Global(_, _, tpe, _) =>
-            // this shouldn't happen but does in generated tests
-            Type.freeTyVars(tpe :: Nil).toSet
-          case App(f, args, tpe, _) =>
-            args.foldLeft(loop(f))(_ | loop(_)) ++
-              Type.freeTyVars(tpe :: Nil)
-          case Let(_, exp, in, _, _) =>
-            loop(exp) | loop(in)
-          case Loop(args, body, _) =>
-            args.foldLeft(loop(body)) { case (acc, (_, expr)) =>
-              acc | loop(expr)
+        loop(pat :: Nil)
+      }
+
+      def visitExpr(
+          te: TypedExpr[A],
+          shadowed: Set[Type.Var.Bound]
+      ): Unit =
+        te match {
+          case gen @ Generic(quant, expr) =>
+            val params = quant.vars
+            params.iterator.foreach { case (b, _) =>
+              visitType(Type.TyVar(b), shadowed)
             }
+            visitType(gen.getType, shadowed)
+            val shadowed1 = shadowed ++ params.iterator.map(_._1)
+            visitExpr(expr, shadowed1)
+          case Annotation(of, tpe) =>
+            visitExpr(of, shadowed)
+            visitType(tpe, shadowed)
+          case lam @ AnnotatedLambda(args, res, _) =>
+            args.iterator.foreach { case (_, t) =>
+              visitType(t, shadowed)
+            }
+            visitType(lam.getType, shadowed)
+            visitExpr(res, shadowed)
+          case Local(_, tpe, _) =>
+            visitType(tpe, shadowed)
+          case Global(_, _, tpe, _) =>
+            visitType(tpe, shadowed)
+          case App(f, args, tpe, _) =>
+            visitExpr(f, shadowed)
+            args.iterator.foreach(visitExpr(_, shadowed))
+            visitType(tpe, shadowed)
+          case Let(_, exp, in, _, _) =>
+            visitExpr(exp, shadowed)
+            visitExpr(in, shadowed)
+          case Loop(args, body, _) =>
+            args.iterator.foreach { case (_, expr) =>
+              visitExpr(expr, shadowed)
+            }
+            visitExpr(body, shadowed)
           case Recur(args, tpe, _) =>
-            args.foldLeft(Type.freeTyVars(tpe :: Nil).toSet)(_ | loop(_))
+            args.iterator.foreach(visitExpr(_, shadowed))
+            visitType(tpe, shadowed)
           case Literal(_, tpe, _) =>
-            // this shouldn't happen but does in generated tests
-            Type.freeTyVars(tpe :: Nil).toSet
+            visitType(tpe, shadowed)
           case Match(expr, branches, _) =>
-            // all branches have the same type:
-            branches.foldLeft(loop(expr)) { case (acc, branch) =>
-              val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(
-                Set.empty[Type.Var]
-              )(loop)
-              acc1 ++ allPatternTypes(branch.pattern).iterator.collect {
-                case Type.TyVar(v) => v
-              }
+            visitExpr(expr, shadowed)
+            branches.iterator.foreach { branch =>
+              visitPattern(branch.pattern, shadowed)
+              branch.guard.iterator.foreach(visitExpr(_, shadowed))
+              visitExpr(branch.expr, shadowed)
             }
         }
 
-      loop(self).toList.sorted
+      visitExpr(self, Set.empty)
+    }
+
+    def allTypes: SortedSet[Type] = {
+      val acc = scala.collection.mutable.HashSet.empty[Type]
+      foreachTraversedType { t =>
+        acc.add(t); ()
+      }
+      SortedSet.from(acc)
+    }
+
+    def allBound: SortedSet[Type.Var.Bound] = {
+      val acc = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
+      foreachTraversedType {
+        case Type.TyVar(b: Type.Var.Bound) =>
+          acc.add(b); ()
+        case _ => ()
+      }
+      SortedSet.from(acc)
+    }
+
+    def freeTyVars: List[Type.Var] = {
+      val acc = scala.collection.mutable.HashSet.empty[Type.Var]
+      val boundCount = scala.collection.mutable.HashMap.empty[Type.Var.Bound, Int]
+
+      inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit =
+        while (iter.hasNext) fn(iter.next())
+
+      inline def isBound(v: Type.Var.Bound): Boolean =
+        boundCount.get(v) match {
+          case Some(c) => c > 0
+          case None    => false
+        }
+
+      def bind(v: Type.Var.Bound): Unit =
+        boundCount.updateWith(v) {
+          case Some(c) => Some(c + 1)
+          case None    => Some(1)
+        }
+
+      inline def unbind(v: Type.Var.Bound): Unit =
+        boundCount.updateWith(v) {
+          case Some(1) => None
+          case Some(c) => Some(c - 1)
+          case None    => None
+        }
+
+      inline def record(v: Type.Var): Unit =
+        v match {
+          case b: Type.Var.Bound =>
+            if (!isBound(b)) acc.add(b)
+          case sk: Type.Var.Skolem =>
+            acc.add(sk)
+        }
+
+      def addType(t: Type): Unit =
+        foreach(Type.freeTyVars(t :: Nil).iterator)(record(_))
+
+      def addPatternTypes[N](pat: Pattern[N, Type]): Unit = {
+        @annotation.tailrec
+        def loop(todo: List[Pattern[N, Type]]): Unit =
+          todo match {
+            case Nil => ()
+            case (Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+                Pattern.StrPat(_)) :: tail =>
+              loop(tail)
+            case Pattern.Named(_, p) :: tail =>
+              loop(p :: tail)
+            case Pattern.ListPat(items) :: tail =>
+              val next = items.collect { case Pattern.ListPart.Item(p) => p }
+              loop(next ::: tail)
+            case Pattern.Annotation(p, tpe) :: tail =>
+              tpe match {
+                case Type.TyVar(v) => record(v)
+                case _             => ()
+              }
+              loop(p :: tail)
+            case Pattern.PositionalStruct(_, params) :: tail =>
+              loop(params ::: tail)
+            case Pattern.Union(h, t) :: tail =>
+              loop(h :: t.toList ::: tail)
+          }
+
+        loop(pat :: Nil)
+      }
+
+      def loopExpr(te: TypedExpr[A]): Unit =
+        te match {
+          case Generic(quant, expr) =>
+            foreach(quant.vars.iterator) { case (b, _) =>
+              bind(b)
+            }
+            loopExpr(expr)
+            foreach(quant.vars.iterator) { case (b, _) =>
+              unbind(b)
+            }
+          case Annotation(of, tpe) =>
+            loopExpr(of)
+            addType(tpe)
+          case AnnotatedLambda(args, res, _) =>
+            foreach(args.iterator) { case (_, t) =>
+              addType(t)
+            }
+            loopExpr(res)
+          case Local(_, tpe, _) =>
+            addType(tpe)
+          case Global(_, _, tpe, _) =>
+            // this shouldn't happen but does in generated tests
+            addType(tpe)
+          case App(f, args, tpe, _) =>
+            loopExpr(f)
+            foreach(args.iterator)(loopExpr(_))
+            addType(tpe)
+          case Let(_, exp, in, _, _) =>
+            loopExpr(exp)
+            loopExpr(in)
+          case Loop(args, body, _) =>
+            loopExpr(body)
+            foreach(args.iterator) { case (_, expr) =>
+              loopExpr(expr)
+            }
+          case Recur(args, tpe, _) =>
+            foreach(args.iterator)(loopExpr(_))
+            addType(tpe)
+          case Literal(_, tpe, _) =>
+            // this shouldn't happen but does in generated tests
+            addType(tpe)
+          case Match(expr, branches, _) =>
+            // all branches have the same type:
+            loopExpr(expr)
+            foreach(branches.iterator) { branch =>
+              addPatternTypes(branch.pattern)
+              foreach(branch.guard.iterator)(loopExpr(_))
+              loopExpr(branch.expr)
+            }
+        }
+
+      loopExpr(self)
+      acc.toList.sorted
     }
 
     /** Traverse all the *non-shadowed* types inside the TypedExpr
@@ -1137,6 +1308,7 @@ object TypedExpr {
     ): F[TypedExpr[A]] = {
       // be careful not to mistake loop with fn
       def loop(te: TypedExpr[A]): F[TypedExpr[A]] = te.traverseUp(fn)
+      val mon = Monad[F]
 
       self match {
         case Generic(params, expr) =>
@@ -1154,35 +1326,43 @@ object TypedExpr {
         case v @ (Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _)) =>
           fn(v)
         case App(f, args, tpe, tag) =>
-          (loop(f), args.traverse(loop(_)))
-            .mapN(App(_, _, tpe, tag))
+          mon
+            .map2(loop(f), args.traverse(loop(_))) { (f1, args1) =>
+              App(f1, args1, tpe, tag)
+            }
             .flatMap(fn)
         case Let(v, exp, in, rec, tag) =>
-          (loop(exp), loop(in))
-            .mapN(Let(v, _, _, rec, tag))
+          mon
+            .map2(loop(exp), loop(in)) { (exp1, in1) =>
+              Let(v, exp1, in1, rec, tag)
+            }
             .flatMap(fn)
         case Loop(args, body, tag) =>
-          (
-            args.traverse { case (v, expr) =>
-              loop(expr).map((v, _))
-            },
-            loop(body)
-          )
-            .mapN(Loop(_, _, tag))
+          mon
+            .map2(
+              args.traverse { case (v, expr) =>
+                loop(expr).map((v, _))
+              },
+              loop(body)
+            ) { (args1, body1) =>
+              Loop(args1, body1, tag)
+            }
             .flatMap(fn)
         case Recur(args, tpe, tag) =>
           args.traverse(loop(_)).map(Recur(_, tpe, tag)).flatMap(fn)
         case Match(expr, branches, tag) =>
           val tbranch = branches.traverse { branch =>
-            (
+            mon.map2(
               branch.guard.traverse(loop(_)),
               loop(branch.expr)
-            ).mapN { (guard, expr) =>
+            ) { (guard, expr) =>
               branch.copy(guard = guard, expr = expr)
             }
           }
-          (loop(expr), tbranch)
-            .mapN(Match(_, _, tag))
+          mon
+            .map2(loop(expr), tbranch) { (expr1, branches1) =>
+              Match(expr1, branches1, tag)
+            }
             .flatMap(fn)
       }
     }
@@ -1218,6 +1398,7 @@ object TypedExpr {
   ): F[TypedExpr[A]] = {
 
     val zFn = Type.zonk(SortedSet.empty, readFn, writeFn)
+    val mon = Monad[F]
     // we need to zonk before so any known metas are removed
     // some of the meta-variables may point to the same values
     def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] =
@@ -1230,7 +1411,7 @@ object TypedExpr {
         rho: TypedExpr[A]
     ): F[TypedExpr[A]] =
       NonEmptyList.fromList(metaList) match {
-        case None        => Applicative[F].pure(rho)
+        case None        => mon.pure(rho)
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = rho.allBound
           val aligned = Type.alignBinders(metas, used)
@@ -1246,12 +1427,11 @@ object TypedExpr {
             readFn,
             writeFn
           )
-          (bound, zonkMeta[F, A](rho)(zFn))
-            .mapN { (typeArgs, r) =>
-              val forAlls = typeArgs.collect { case (nk, false) => nk }
-              val exists = typeArgs.collect { case (nk, true) => nk }
-              quantVars(forallList = forAlls, existList = exists, r)
-            }
+          mon.map2(bound, zonkMeta[F, A](rho)(zFn)) { (typeArgs, r) =>
+            val forAlls = typeArgs.collect { case (nk, false) => nk }
+            val exists = typeArgs.collect { case (nk, true) => nk }
+            quantVars(forallList = forAlls, existList = exists, r)
+          }
       }
 
     def quantifyMetas(
@@ -1259,7 +1439,7 @@ object TypedExpr {
         metas: SortedSet[Type.Meta],
         te: TypedExpr[A]
     ): F[TypedExpr[A]] =
-      if (metas.isEmpty) Applicative[F].pure(te)
+      if (metas.isEmpty) mon.pure(te)
       else {
         for {
           envTypeVars <- getMetaTyVars(envList)
@@ -1269,40 +1449,52 @@ object TypedExpr {
       }
 
     def quantifyFree(env: Set[Type], te: TypedExpr[A]): F[TypedExpr[A]] = {
+      inline def foreach[B](iter: Iterator[B])(inline fn: B => Unit): Unit =
+        while (iter.hasNext) fn(iter.next())
+
       // this is lazy because we only evaluate it if there is an existential skolem
       lazy val envList = env.toList
-      lazy val envExistSkols = Type
-        .freeTyVars(envList)
-        .iterator
-        .collect { case ex @ Skolem(_, _, true, _) =>
-          ex
+      lazy val envExistSkols = {
+        val set = scala.collection.mutable.HashSet.empty[Type.Var.Skolem]
+        foreach(Type.freeTyVars(envList).iterator) {
+          case ex @ Skolem(_, _, true, _) =>
+            set.add(ex); ()
+          case _ =>
+            ()
         }
-        .toSet[Type.Var.Skolem]
+        set
+      }
 
       val tyVars = te.freeTyVars
-      val teSkols = tyVars
-        .collect {
-          case ex @ Skolem(_, _, true, _) if !envExistSkols(ex) => ex
-        }
+      val teSkolBuilder = List.newBuilder[Type.Var.Skolem]
+      val used = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
 
-      val te1 = NonEmptyList.fromList(teSkols) match {
+      foreach(tyVars.iterator) {
+        case b @ Type.Var.Bound(_) =>
+          used.add(b); ()
+        case ex @ Skolem(_, _, true, _) if !envExistSkols.contains(ex) =>
+          teSkolBuilder += ex
+        case _ =>
+          ()
+      }
+
+      val te1 = NonEmptyList.fromList(teSkolBuilder.result()) match {
         case None      => te
         case Some(nel) =>
-          val used: Set[Type.Var.Bound] = tyVars.iterator.collect {
-            case b @ Type.Var.Bound(_) => b
-          }.toSet
-
-          val names = Type.alignBinders(nel, used)
-          val aligned = names.iterator
-            .map { case (v, b) =>
-              (v, Type.TyVar(b))
-            }
-            .toMap[Type.Var, Type]
+          val names = Type.alignBinders(nel, used.contains)
+          val aligned = Map.newBuilder[Type.Var, Type]
+          foreach(names.iterator) { case (v, b) =>
+            aligned += ((v, Type.TyVar(b)))
+          }
+          val exists = List.newBuilder[(Type.Var.Bound, Kind)]
+          foreach(names.iterator) { case (sk, b) =>
+            exists += ((b, sk.kind))
+          }
 
           quantVars(
             Nil,
-            names.toList.map { case (sk, b) => (b, sk.kind) },
-            substituteTypeVar(te, aligned)
+            exists.result(),
+            substituteTypeVar(te, aligned.result())
           )
       }
 
@@ -1339,29 +1531,30 @@ object TypedExpr {
           // this introduces something into the env
           val inEnv = env + expr.getType
           val exprEnv = if (rec.isRecursive) inEnv else env
-          (
+          mon.map2(
             deepQuantify(exprEnv + te.getType, expr),
             deepQuantify(inEnv + te.getType, in)
-          )
-            .mapN { (e1, i1) =>
-              Let(arg, e1, i1, rec, tag)
-            }
+          ) { (e1, i1) =>
+            Let(arg, e1, i1, rec, tag)
+          }
         case App(fn, args, tpe, tag) =>
           val env1 = env + te.getType
-          (deepQuantify(env1, fn), args.traverse(deepQuantify(env1, _)))
-            .mapN { (f1, a1) =>
-              App(f1, a1, tpe, tag)
-            }
+          mon.map2(
+            deepQuantify(env1, fn),
+            args.traverse(deepQuantify(env1, _))
+          ) { (f1, a1) =>
+            App(f1, a1, tpe, tag)
+          }
         case Loop(args, body, tag) =>
           val env1 = env + te.getType
           val bodyEnv = env1 ++ args.iterator.map(_._2.getType)
-          (
+          mon.map2(
             args.traverse { case (n, expr) =>
               deepQuantify(env1, expr).map((n, _))
             },
             deepQuantify(bodyEnv, body)
-          ).mapN {
-            Loop(_, _, tag)
+          ) { (args1, body1) =>
+            Loop(args1, body1, tag)
           }
         case Recur(args, tpe, tag) =>
           val env1 = env + te.getType
@@ -1399,10 +1592,10 @@ object TypedExpr {
             val branchEnv = env1 ++ Pattern
               .envOf(p, Map.empty)(ident => (None, ident))
               .values
-            (
+            mon.map2(
               br.guard.traverse(deepQuantify(branchEnv, _)),
               deepQuantify(branchEnv, br.expr)
-            ).mapN { (guard, expr) =>
+            ) { (guard, expr) =>
               br.copy(guard = guard, expr = expr)
             }
           }
@@ -2456,7 +2649,96 @@ object TypedExpr {
   def normalizeQuantVars[A](
       q: Quantification,
       expr: TypedExpr[A]
-  ): TypedExpr[A] =
+  ): TypedExpr[A] = {
+    inline def foreach[B](iter: Iterator[B])(inline fn: B => Unit): Unit =
+      while (iter.hasNext) fn(iter.next())
+
+    def hasBoundInType(q0: Quantification, tpe: Type): Boolean = {
+      val freeBounds = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
+      foreach(Type.freeBoundTyVars(tpe :: Nil).iterator)(freeBounds.add(_))
+
+      val qIter = q0.vars.iterator
+      var has = false
+      while (qIter.hasNext && !has) {
+        val (b, _) = qIter.next()
+        has = freeBounds.contains(b)
+      }
+      has
+    }
+
+    def toSubMap(
+        pairs: Iterator[((Type.Var.Bound, Kind), Type.Var.Bound)]
+    ): Map[Type.Var, Type] = {
+      val bldr = Map.newBuilder[Type.Var, Type]
+      foreach(pairs) { case ((b, _), b1) =>
+        if (b =!= b1) bldr += ((b, Type.TyVar(b1)))
+      }
+      bldr.result()
+    }
+
+    def renamedVars(
+        pairs: NonEmptyList[((Type.Var.Bound, Kind), Type.Var.Bound)]
+    ): NonEmptyList[(Type.Var.Bound, Kind)] = {
+      val ((_, hk), hb) = pairs.head
+      val tail = List.newBuilder[(Type.Var.Bound, Kind)]
+      foreach(pairs.tail.iterator) { case ((_, k), b) =>
+        tail += ((b, k))
+      }
+      NonEmptyList((hb, hk), tail.result())
+    }
+
+    def quantGeneric(q0: Quantification, ex: TypedExpr[A]): TypedExpr[A] = {
+      import Quantification._
+      val frees = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
+      foreach(ex.freeTyVars.iterator) {
+        case b @ Type.Var.Bound(_) =>
+          frees.add(b); ()
+        case _ =>
+          ()
+      }
+
+      q0.filter(frees.contains) match {
+        case None => ex
+        case Some(q1) =>
+          val avoid = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
+          foreach(ex.allBound.iterator)(avoid.add(_))
+          foreach(q1.vars.iterator) { case (b, _) =>
+            avoid.remove(b); ()
+          }
+
+          q1 match {
+            case ForAll(vars) =>
+              val fa1 = Type.alignBinders(vars, avoid.contains)
+              val subs = toSubMap(fa1.iterator)
+              Generic(
+                ForAll(renamedVars(fa1)),
+                substituteTypeVar(ex, subs)
+              )
+            case Exists(vars) =>
+              val ex1 = Type.alignBinders(vars, avoid.contains)
+              val subs = toSubMap(ex1.iterator)
+              Generic(
+                Exists(renamedVars(ex1)),
+                substituteTypeVar(ex, subs)
+              )
+            case Dual(foralls, exists) =>
+              val fa1 = Type.alignBinders(foralls, avoid.contains)
+              foreach(fa1.iterator) { case (_, b) =>
+                avoid.add(b); ()
+              }
+              val ex1 = Type.alignBinders(exists, avoid.contains)
+              val subs = toSubMap(fa1.iterator ++ ex1.iterator)
+              Generic(
+                Dual(
+                  renamedVars(fa1),
+                  renamedVars(ex1)
+                ),
+                substituteTypeVar(ex, subs)
+              )
+          }
+      }
+    }
+
     expr match {
       case Generic(oldQuant, ex0) =>
         normalizeQuantVars(q.concat(oldQuant), ex0)
@@ -2467,80 +2749,15 @@ object TypedExpr {
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
       case Annotation(term, tpe)
-          if !q.vars.iterator
-            .map(_._1)
-            .exists(
-              Type.freeBoundTyVars(expr.getType :: Nil).toSet
-            ) =>
+          if !hasBoundInType(q, expr.getType) =>
         // the variables may be free lower, but not here
         val genTerm = normalizeQuantVars(q, term)
         if (genTerm.getType.sameAs(tpe)) genTerm
-        else Annotation(normalizeQuantVars(q, term), tpe)
+        else Annotation(genTerm, tpe)
       case _ =>
-        import Quantification._
-        // We cannot rebind to any used typed inside of expr, but we can reuse
-        // any that are q
-        val frees: Set[Type.Var.Bound] =
-          expr.freeTyVars.iterator.collect { case b: Type.Var.Bound =>
-            b
-          }.toSet
-
-        q.filter(frees) match {
-          case None    => expr
-          case Some(q) =>
-            val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
-
-            val avoid: Set[Type.Var.Bound] =
-              expr.allBound.diff(varSet)
-
-            q match {
-              case ForAll(vars) =>
-                val fa1 = Type.alignBinders(vars, avoid)
-                val subs = fa1.iterator
-                  .collect {
-                    case ((b, _), b1) if b =!= b1 =>
-                      (b, Type.TyVar(b1))
-                  }
-                  .toMap[Type.Var, Type]
-
-                Generic(
-                  ForAll(fa1.map { case ((_, k), b) => (b, k) }),
-                  substituteTypeVar(expr, subs)
-                )
-              case Exists(vars) =>
-                val ex1 = Type.alignBinders(vars, avoid)
-                val subs = ex1.iterator
-                  .collect {
-                    case ((b, _), b1) if b =!= b1 =>
-                      (b, Type.TyVar(b1))
-                  }
-                  .toMap[Type.Var, Type]
-
-                Generic(
-                  Exists(ex1.map { case ((_, k), b) => (b, k) }),
-                  substituteTypeVar(expr, subs)
-                )
-              case Dual(foralls, exists) =>
-                val fa1 = Type.alignBinders(foralls, avoid)
-                val ex1 =
-                  Type.alignBinders(exists, avoid ++ fa1.iterator.map(_._2))
-                val subs = (fa1.iterator ++ ex1.iterator)
-                  .collect {
-                    case ((b, _), b1) if b =!= b1 =>
-                      (b, Type.TyVar(b1))
-                  }
-                  .toMap[Type.Var, Type]
-
-                Generic(
-                  Dual(
-                    fa1.map { case ((_, k), b) => (b, k) },
-                    ex1.map { case ((_, k), b) => (b, k) }
-                  ),
-                  substituteTypeVar(expr, subs)
-                )
-            }
-        }
+        quantGeneric(q, expr)
     }
+  }
 
   def quantVars[A](
       forallList: List[(Type.Var.Bound, Kind)],

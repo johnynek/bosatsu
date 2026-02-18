@@ -12,7 +12,7 @@ import dev.bosatsu.tool.{
   MarkdownDoc,
   Output
 }
-import dev.bosatsu.{Package, PackageName, PlatformIO}
+import dev.bosatsu.{CompileOptions, Package, PackageName, PlatformIO}
 
 object DocCommand {
   def opts[F[_], Path](
@@ -72,7 +72,8 @@ object DocCommand {
                 CommandSupport.dependencyInterfaces(dependencies) :::
                 includePacks.map(Package.interfaceOf(_)),
               color,
-              packageResolver
+              packageResolver,
+              CompileOptions.Default
             )
             (compiled, sourcePaths) = checked
             compiledPacks = {
