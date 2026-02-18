@@ -309,6 +309,15 @@ object RingOpt {
       *   6. the expression returned is never Integer(_) or Neg(_)
       */
     def unConstMult: Option[(BigInt, Expr[A])] = {
+      val origCounts = Expr.opCounts(expr)
+
+      def noOpCostIncrease(coeff: BigInt, inner: Expr[A]): Boolean =
+        if (inner.isOne || inner.isZero) true
+        else {
+          val newCounts = Expr.opCounts(Mult(Integer(coeff), inner))
+          newCounts.asCheapOrCheaperThan(origCounts)
+        }
+
       def loop(expr: Expr[A], insideMult: Boolean): Option[(BigInt, Expr[A])] =
         expr match {
           case s @ Symbol(_) =>
@@ -454,7 +463,9 @@ object RingOpt {
             else Some((prod, e))
         }
 
-      fix(BigInt(1), expr)
+      fix(BigInt(1), expr).filter { case (coeff, inner) =>
+        noOpCostIncrease(coeff, inner)
+      }
     }
 
     // try first to absorb, then to negate, only then do we use Mult
@@ -547,6 +558,37 @@ object RingOpt {
   }
 
   object Expr {
+    final case class OpCounts(mul: Int, add: Int, neg: Int) {
+      def asCheapOrCheaperThan(other: OpCounts): Boolean =
+        (mul <= other.mul) && (add <= other.add) && (neg <= other.neg)
+    }
+
+    def opCounts[A](e: Expr[A]): OpCounts = {
+      @annotation.tailrec
+      def loop(
+          stack: List[Expr[A]],
+          mulCnt: Int,
+          addCnt: Int,
+          negCnt: Int
+      ): OpCounts =
+        stack match {
+          case Nil => OpCounts(mulCnt, addCnt, negCnt)
+          case head :: tail =>
+            head match {
+              case Zero | One | Integer(_) | Symbol(_) =>
+                loop(tail, mulCnt, addCnt, negCnt)
+              case Neg(x) =>
+                loop(x :: tail, mulCnt, addCnt, negCnt + 1)
+              case Add(x, y) =>
+                loop(x :: y :: tail, mulCnt, addCnt + 1, negCnt)
+              case Mult(x, y) =>
+                loop(x :: y :: tail, mulCnt + 1, addCnt, negCnt)
+            }
+        }
+
+      loop(e :: Nil, 0, 0, 0)
+    }
+
     def symbol[A](a: A): Expr[A] = Symbol(a)
     def int(i: BigInt): Expr[Nothing] = Integer(i)
 
@@ -1485,23 +1527,14 @@ object RingOpt {
     Require(mult > 0, s"mult = $mult must be > 0")
     Require(neg > 0, s"neg = $neg must be > 0")
 
-    def cost[A](e: Expr[A]): Long = {
-      @annotation.tailrec
-      def loop(stack: List[Expr[A]], acc: Long): Long =
-        stack match {
-          case e :: tail =>
-            e match {
-              case Zero | One | Integer(_) | Symbol(_) => loop(tail, acc)
-              case Neg(x)    => loop(x :: tail, neg + acc)
-              case Add(a, b) =>
-                loop(a :: b :: tail, acc + add)
-              case Mult(a, b) =>
-                loop(a :: b :: tail, acc + mult)
-            }
-          case Nil => acc
-        }
+    def costOf(opCounts: Expr.OpCounts): Int =
+      (opCounts.mul * mult) + (opCounts.add * add) + (opCounts.neg * neg)
 
-      loop(e :: Nil, 0L)
+    def cost[A](e: Expr[A]): Long = {
+      val counts = Expr.opCounts(e)
+      (counts.mul.toLong * mult) +
+        (counts.add.toLong * add) +
+        (counts.neg.toLong * neg)
     }
 
     /** is it better to do x + x + ... + x (n times) or n * x we can statically
