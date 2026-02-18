@@ -1956,10 +1956,14 @@ object Infer {
                       if (
                         instantiation.frees.nonEmpty || instantiation.toFrees.nonEmpty
                       ) {
-                        // TODO maybe we could handle this, but not yet
-                        // seems like if the free vars are set to the same
-                        // variable, then we can just lift it into the
-                        // quantification
+                        // Conservative fallback: if instantiate leaves residual
+                        // frees on either side, we defer to the general apply
+                        // inference path (`pureNone` here).
+                        //
+                        // We could extend this to lift compatible residual frees
+                        // into quantification and continue, but we currently do
+                        // not have a concrete program where doing so changes the
+                        // accepted/rejected result.
                         /*
                             println(s"remaining frees in ${
                               Type.fullyResolvedDocument.document(fnTe.getType).render(80)
