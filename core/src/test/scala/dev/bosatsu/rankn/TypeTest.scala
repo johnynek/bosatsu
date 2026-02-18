@@ -2,7 +2,7 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.{Kind, TypedExpr, Variance}
+import dev.bosatsu.{Kind, Region, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop
@@ -25,6 +25,14 @@ class TypeTest extends munit.ScalaCheckSuite {
           s"failed to parse: <$s> at ${s.drop(err.failedAtOffset)}\n\n$err"
         )
     }
+
+  private val emptyRegion: Region = Region(0, 0)
+
+  private def isSubtype(left: Type, right: Type): Boolean =
+    Infer
+      .substitutionCheck(left, right, emptyRegion, emptyRegion)
+      .runFully(Map.empty, Map.empty, Type.builtInKinds)
+      .isRight
 
   // Keep a direct oracle for freeTyVars semantics so refactors preserve behavior.
   private def freeTyVarsReference(ts: List[Type]): List[Type.Var] = {
@@ -839,21 +847,21 @@ class TypeTest extends munit.ScalaCheckSuite {
       t1 match {
         case Type.ForAll(fas, t) =>
           Type.instantiate(fas.iterator.toMap, t, t2, Map.empty) match {
-            case Some((frees, subs)) =>
+            case Some(instantiation) =>
               val t3 = Type.substituteVar(
                 t,
-                subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+                instantiation.subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
               )
 
               val t4 = Type.substituteVar(
                 t3,
-                frees.iterator.map { case (v1, (_, v2)) =>
+                instantiation.frees.iterator.map { case (v1, (_, v2)) =>
                   (v1, Type.TyVar(v2))
                 }.toMap
               )
 
               val t5 = Type.quantify(
-                forallList = frees.iterator.map { case (_, tup) =>
+                forallList = instantiation.frees.iterator.map { case (_, tup) =>
                   tup.swap
                 }.toList,
                 existList = Nil,
@@ -924,17 +932,20 @@ class TypeTest extends munit.ScalaCheckSuite {
 
     val Type.ForAll(fas, in) = from
     Type.instantiate(fas.iterator.toMap, in, to, Map.empty) match {
-      case Some((frees, subs)) =>
+      case Some(instantiation) =>
         val t3 = Type.substituteVar(
           in,
-          subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
+          instantiation.subs.iterator.map { case (k, (_, v)) => (k, v) }.toMap
         )
         val t4 = Type.substituteVar(
           t3,
-          frees.iterator.map { case (v1, (_, v2)) => (v1, Type.TyVar(v2)) }.toMap
+          instantiation.frees.iterator
+            .map { case (v1, (_, v2)) => (v1, Type.TyVar(v2)) }
+            .toMap
         )
         val t5 = Type.quantify(
-          forallList = frees.iterator.map { case (_, tup) => tup.swap }.toList,
+          forallList =
+            instantiation.frees.iterator.map { case (_, tup) => tup.swap }.toList,
           existList = Nil,
           t4
         )
@@ -945,11 +956,24 @@ class TypeTest extends munit.ScalaCheckSuite {
   }
 
   test("some example instantiations") {
-    def check(forall: String, matches: String, subs: List[(String, String)]) = {
+    def check(
+        forall: String,
+        matches: String,
+        frees: List[(String, String)],
+        subs: List[(String, String)]
+    ) = {
       val Type.ForAll(fas, t) = parse(forall).runtimeChecked
       val targ = parse(matches)
       Type.instantiate(fas.iterator.toMap, t, targ, Map.empty) match {
-        case Some((_, subMap)) =>
+        case Some(instantiation) =>
+          assertEquals(instantiation.frees.size, frees.size)
+          frees.foreach { case (k, v) =>
+            val Type.TyVar(b: Type.Var.Bound) = parse(k).runtimeChecked
+            val Type.TyVar(vb: Type.Var.Bound) = parse(v).runtimeChecked
+            assertEquals(instantiation.frees(b)._2, vb)
+          }
+
+          val subMap = instantiation.subs
           assertEquals(subMap.size, subs.size)
           subs.foreach { case (k, v) =>
             val Type.TyVar(b: Type.Var.Bound) = parse(k).runtimeChecked
@@ -970,42 +994,64 @@ class TypeTest extends munit.ScalaCheckSuite {
     check(
       "forall a. a",
       "Bosatsu/Predef::Int",
+      Nil,
       List("a" -> "Bosatsu/Predef::Int")
     )
     check(
       "forall a. a -> a",
       "Bosatsu/Predef::Int -> Bosatsu/Predef::Int",
+      Nil,
       List("a" -> "Bosatsu/Predef::Int")
     )
     check(
       "forall a. a -> Bosatsu/Predef::Foo[a]",
       "Bosatsu/Predef::Int -> Bosatsu/Predef::Foo[Bosatsu/Predef::Int]",
+      Nil,
       List("a" -> "Bosatsu/Predef::Int")
     )
     check(
       "forall a. Bosatsu/Predef::Option[a]",
       "Bosatsu/Predef::Option[Bosatsu/Predef::Int]",
+      Nil,
       List("a" -> "Bosatsu/Predef::Int")
     )
 
-    check("forall a. a", "forall a. a", List("a" -> "forall a. a"))
+    check("forall a. a", "forall a. a", Nil, List("a" -> "forall a. a"))
 
     check(
       "forall a, b. a -> b",
       "forall c. c -> Bosatsu/Predef::Int",
+      List("a" -> "c"),
       List("b" -> "Bosatsu/Predef::Int")
     )
 
     check(
       "forall a, b. T::Cont[a, b]",
       "forall a. T::Cont[a, T::Foo]",
+      List("a" -> "a"),
       List("b" -> "T::Foo")
     )
 
     noSub("forall a, b. T::Cont[a, b]", "forall a: * -> *. T::Cont[a, T::Foo]")
     noSub("forall a. T::Box[a]", "forall a. T::Box[T::Opt[a]]")
 
-    check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", Nil)
+    check("forall a. T::Foo[a, a]", "forall b. T::Foo[b, b]", List("a" -> "b"), Nil)
+  }
+
+  test("instantiate success does not always imply subsumption") {
+    val fromStr = "forall a, b. (a, b)"
+    val toStr = "(Bosatsu/Predef::Bool, Bosatsu/Predef::Option[Bosatsu/Predef::Int])"
+
+    val Type.ForAll(fas, in) = parse(fromStr).runtimeChecked
+    val from = Type.ForAll(fas, in)
+    val to = parse(toStr)
+
+    val instantiation = Type.instantiate(fas.iterator.toMap, in, to, Map.empty)
+    assert(instantiation.nonEmpty, "instantiate should succeed in this case")
+    assert(
+      !isSubtype(from, to),
+      "this demonstrates instantiate success does not imply substitutionCheck success"
+    )
   }
 
   test("instantiate handles rhs forall shadowing") {

@@ -1464,8 +1464,8 @@ object Infer {
       (inferred match {
         case Type.ForAll(vars, inT) =>
           Type.instantiate(vars.iterator.toMap, inT, declared, Map.empty).map {
-            case (_, subs) =>
-              validateSubs(subs.toList, left, right)
+            case instantiation =>
+              validateSubs(instantiation.subs.toList, left, right)
                 .as {
                   new FunctionK[TypedExpr, dom.ExprKind] {
                     def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
@@ -1481,8 +1481,8 @@ object Infer {
       }).orElse(declared match {
         case Type.Exists(vars, inT) =>
           Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
-            case (_, subs) =>
-              validateSubs(subs.toList, left, right)
+            case instantiation =>
+              validateSubs(instantiation.subs.toList, left, right)
                 .as {
                   new FunctionK[TypedExpr, dom.ExprKind] {
                     def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
@@ -1742,13 +1742,13 @@ object Infer {
               // if we can, we use that to fix the known parameters and continue
               Type
                 .instantiate(univ.iterator.toMap, outT, tpe, Map.empty)
-                .flatMap { case (frees, inst) =>
+                .flatMap { instantiation =>
                   // if instantiate works, we know outT => tpe
-                  if (inst.nonEmpty && frees.isEmpty) {
+                  if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
                     // we made some progress and there are no frees
                     // TODO: we could support frees it seems but
                     // it triggers failures in tests now
-                    Some((fnTe, inT, frees, inst))
+                    Some((fnTe, inT, instantiation))
                   } else {
                     // We learned nothing
                     None
@@ -1761,11 +1761,11 @@ object Infer {
       }
 
       infOpt.flatMap {
-        case Some((fnTe, inT, frees, inst)) =>
+        case Some((fnTe, inT, instantiation)) =>
           val regTe = region(tag)
           val validKinds: Infer[Unit] =
-            validateSubs(inst.toList, region(fn), regTe)
-          val instNoKind = inst.iterator
+            validateSubs(instantiation.subs.toList, region(fn), regTe)
+          val instNoKind = instantiation.subs.iterator
             .map { case (k, (_, t)) => (k, t) }
             .toMap[Type.Var, Type]
 
@@ -1775,7 +1775,7 @@ object Infer {
           validKinds.parProductR {
             val remainingFree =
               NonEmptyList.fromList(
-                frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
+                instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
               )
 
             remainingFree match {
@@ -1907,8 +1907,8 @@ object Infer {
                           } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
                        */
                       pureNone
-                    case Some((frees, inst)) =>
-                      if (frees.nonEmpty) {
+                    case Some(instantiation) =>
+                      if (instantiation.frees.nonEmpty) {
                         // TODO maybe we could handle this, but not yet
                         // seems like if the free vars are set to the same
                         // variable, then we can just lift it into the
@@ -1921,7 +1921,9 @@ object Infer {
                         pureNone
                       } else {
                         val subMap =
-                          inst.view.mapValues(_._2).toMap[Type.Var, Type]
+                          instantiation.subs.view
+                            .mapValues(_._2)
+                            .toMap[Type.Var, Type]
                         val fnType0 = Type.Fun(liftArgTypes, resT)
                         val fnType1 = Type.substituteVar(fnType0, subMap)
                         val resType = Type.substituteVar(resT, subMap)
@@ -2266,7 +2268,8 @@ object Infer {
                           rho,
                           Map.empty
                         ) match {
-                          case Some((frees, subs)) if frees.isEmpty =>
+                          case Some(instantiation)
+                              if instantiation.frees.isEmpty =>
                             // we know that substituting in gives rho
                             // check kinds
                             // substitute
@@ -2274,7 +2277,7 @@ object Infer {
                             // else set inferred value
                             val validKinds: Infer[Unit] =
                               validateSubs(
-                                subs.toList,
+                                instantiation.subs.toList,
                                 region(term),
                                 region(tag)
                               )

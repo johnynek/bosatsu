@@ -610,6 +610,15 @@ object Type {
   def packageNamesIn(t: Type): List[PackageName] =
     allConsts(t :: Nil).map(_.tpe.toDefined.packageName).distinct
 
+  private inline def exists[A](as: Iterable[A])(inline fn: A => Boolean): Boolean = {
+    var ex = false
+    val iter = as.iterator
+    while (!ex && iter.hasNext) {
+      ex = fn(iter.next())
+    }
+    ex
+  }
+
   def substituteLeafApplyVar(
       t: Leaf | TyApply,
       env: Map[Type.Var, Leaf | TyApply]
@@ -654,25 +663,37 @@ object Type {
       case c @ TyConst(_) => c
     }
 
-  /** Kind of the opposite of substitute: given a Map of vars, can we set those
-    * vars to some Type and get from to match to exactly
+  /** A successful instantiation result from [[instantiate]].
+    *
+    * `frees` are variables from the left side that remain universally
+    * quantified. The mapped bound variable is the name that must appear on the
+    * right side after alpha-renaming.
+    *
+    * `subs` are variables from the left side that were solved to concrete
+    * types.
+    */
+  case class Instantiation(
+      frees: SortedMap[Var.Bound, (Kind, Var.Bound)],
+      subs: SortedMap[Var.Bound, (Kind, Type)]
+  )
+
+  /** Attempt to instantiate `vars` in `from` so it can match `to`.
+    *
+    * `env` is the set of bound variables already in scope on the right side.
+    * Those variables are fixed names, not fresh instantiation targets.
     */
   def instantiate(
       vars: Map[Var.Bound, Kind],
       from: Type,
       to: Type,
       env: Map[Var.Bound, Kind]
-  ): Option[
-    (
-        SortedMap[Var.Bound, (Kind, Var.Bound)],
-        SortedMap[Var.Bound, (Kind, Type)]
-    )
-  ] = {
+  ): Option[Instantiation] = {
 
-    sealed abstract class BoundState derives CanEqual
-    case object Unknown extends BoundState
-    case class Fixed(tpe: Type) extends BoundState
-    case class Free(rightName: Var.Bound) extends BoundState
+    enum BoundState derives CanEqual {
+      case Unknown
+      case Fixed(tpe: Type)
+      case Free(rightName: Var.Bound)
+    }
 
     case class State(
         fixed: Map[Var.Bound, (Kind, BoundState)],
@@ -697,19 +718,21 @@ object Type {
           state.get(b) match {
             case Some((kind, opt)) =>
               opt match {
-                case Unknown =>
+                case BoundState.Unknown =>
                   to match {
                     case tv @ TyVar(toB: Var.Bound) =>
                       state.rightFrees.get(toB) match {
                         case Some(toBKind) =>
                           if (Kind.leftSubsumesRight(kind, toBKind)) {
-                            Some(state.updated(b, (toBKind, Free(toB))))
+                            Some(state.updated(b, (toBKind, BoundState.Free(toB))))
                           } else None
                         case None =>
                           env.get(toB) match {
                             case Some(toBKind)
                                 if (Kind.leftSubsumesRight(kind, toBKind)) =>
-                              Some(state.updated(b, (toBKind, Fixed(tv))))
+                              Some(
+                                state.updated(b, (toBKind, BoundState.Fixed(tv)))
+                              )
                             case _ => None
                           }
                         // don't set to vars to non-free bound variables
@@ -719,13 +742,13 @@ object Type {
                         if freeBoundTyVars(to :: Nil)
                           .filterNot(env.keySet)
                           .isEmpty =>
-                      Some(state.updated(b, (kind, Fixed(to))))
+                      Some(state.updated(b, (kind, BoundState.Fixed(to))))
                     case _ => None
                   }
-                case Fixed(set) =>
+                case BoundState.Fixed(set) =>
                   if (set.sameAs(to)) Some(state)
                   else None
-                case Free(rightName) =>
+                case BoundState.Free(rightName) =>
                   to match {
                     case TyVar(toB: Var.Bound) if rightName === toB =>
                       Some(state)
@@ -795,25 +818,17 @@ object Type {
           // If we only matched via sameAs, unresolved Unknown vars that are free
           // in `from` would be unsound (they later round-trip as quantified frees).
           if (from.sameAs(to)) {
-            var hasUnknown = false
-            val unknownIt = state.fixed.iterator
-            while (!hasUnknown && unknownIt.hasNext) {
-              unknownIt.next() match {
-                case (_, (_, Unknown)) => hasUnknown = true
-                case _                 => ()
-              }
+            val hasUnknown = exists(state.fixed) {
+              case (_, (_, BoundState.Unknown)) => true
+              case _                            => false
             }
 
             if (!hasUnknown) Some(state)
             else {
               val free = freeBoundTyVars(from :: Nil).toSet
-              var bad = false
-              val fixedIt = state.fixed.iterator
-              while (!bad && fixedIt.hasNext) {
-                fixedIt.next() match {
-                  case (b, (_, Unknown)) if free(b) => bad = true
-                  case _                            => ()
-                }
+              val bad = exists(state.fixed) {
+                case (b, (_, BoundState.Unknown)) => free(b)
+                case _                            => false
               }
               if (bad) None else Some(state)
             }
@@ -821,21 +836,21 @@ object Type {
       }
 
     val initState = State(
-      vars.iterator.map { case (v, a) => (v, (a, Unknown)) }.toMap,
+      vars.iterator.map { case (v, a) => (v, (a, BoundState.Unknown)) }.toMap,
       Map.empty
     )
 
     loop(from, to, initState)
       .map { state =>
-        (
-          state.fixed.iterator
+        Instantiation(
+          frees = state.fixed.iterator
             .collect {
-              case (t, (k, Free(t1))) => (t, (k, t1))
-              case (t, (k, Unknown))  => (t, (k, t))
+              case (t, (k, BoundState.Free(t1))) => (t, (k, t1))
+              case (t, (k, BoundState.Unknown))  => (t, (k, t))
             }
             .to(SortedMap),
-          state.fixed.iterator
-            .collect { case (t, (k, Fixed(f))) =>
+          subs = state.fixed.iterator
+            .collect { case (t, (k, BoundState.Fixed(f))) =>
               (t, (k, f))
             }
             .to(SortedMap)
