@@ -1527,8 +1527,10 @@ object RingOpt {
     Require(mult > 0, s"mult = $mult must be > 0")
     Require(neg > 0, s"neg = $neg must be > 0")
 
-    def costOf(opCounts: Expr.OpCounts): Int =
-      (opCounts.mul * mult) + (opCounts.add * add) + (opCounts.neg * neg)
+    def costOf(opCounts: Expr.OpCounts): Long =
+      (opCounts.mul.toLong * mult) +
+        (opCounts.add.toLong * add) +
+        (opCounts.neg.toLong * neg)
 
     def cost[A](e: Expr[A]): Long = {
       val counts = Expr.opCounts(e)

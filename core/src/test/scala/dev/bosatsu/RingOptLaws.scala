@@ -278,7 +278,7 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   property("costOf(opCounts(e)) == cost(e)") {
     forAll { (e: Expr[BigInt], w: Weights) =>
       val counts = Expr.opCounts(e)
-      assertEquals(w.costOf(counts).toLong, w.cost(e), s"e=$e, counts=$counts")
+      assertEquals(w.costOf(counts), w.cost(e), s"e=$e, counts=$counts")
     }
   }
 
