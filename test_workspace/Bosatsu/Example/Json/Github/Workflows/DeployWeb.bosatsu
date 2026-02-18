@@ -3,13 +3,10 @@ package Bosatsu/Example/Json/Github/Workflows/DeployWeb
 from Bosatsu/Json import Optional, Missing, Set
 
 from Bosatsu/Example/Json/Github/Workflows/Util import (
-  action_cache,
-  action_checkout_v2,
-  action_setup_java,
-  action_setup_sbt,
+  cache_step,
   cat_lines,
+  checkout_v2_step,
   github_token_secret,
-  install_sbt_step_name,
   java_17_setup_name,
   java_distribution_temurin,
   java_version_17,
@@ -18,6 +15,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   OnPushBranches,
   permission_write,
   runner_ubuntu_latest,
+  setup_java_step,
+  setup_sbt_step,
   Step,
 )
 
@@ -42,6 +41,19 @@ struct WorkflowJobs(`build-and-deploy`: WorkflowJobsBuildAndDeploy)
 
 struct Workflow(name: String, permissions: WorkflowPermissions, on: OnPush, jobs: WorkflowJobs)
 
+web_build_setup_steps = [
+  checkout_v2_step,
+  cache_step,
+  setup_java_step(
+    java_17_setup_name,
+    WorkflowJobsBuildAndDeployStepsItemWith {
+      distribution: Set(java_distribution_temurin),
+      `java-version`: Set(java_version_17),
+    },
+  ),
+  setup_sbt_step,
+]
+
 workflow =
   Workflow(
     "Build and Deploy to GitHub Pages",
@@ -52,51 +64,28 @@ workflow =
         runner_ubuntu_latest,
         WorkflowJobsBuildAndDeployEnv("true", github_token_secret),
         [
-          Step {
-            uses: Set(action_checkout_v2),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name),
-            with: Set(
-              WorkflowJobsBuildAndDeployStepsItemWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name),
-          },
+          *web_build_setup_steps,
           Step {
             name: Set("build app"),
-            run: Set(
-              cat_lines([
-                "export NODE_OPTIONS=--openssl-legacy-provider",
-                "sbt \"jsuiJS/fullOptJS::webpack; docs/paradox\"",
-                "mkdir web_deploy",
-                "mkdir web_deploy/compiler",
-                "cp -a docs/target/paradox/site/main/* web_deploy",
-                "cp jsui/index.html web_deploy/compiler/",
-                "cp jsui/app.css web_deploy/compiler/",
-                "cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/compiler-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js",
-                "",
-              ]),
-            ),
+            run: Set(cat_lines([
+              "export NODE_OPTIONS=--openssl-legacy-provider",
+              "sbt \"jsuiJS/fullOptJS::webpack; docs/paradox\"",
+              "mkdir web_deploy",
+              "mkdir web_deploy/compiler",
+              "cp -a docs/target/paradox/site/main/* web_deploy",
+              "cp jsui/index.html web_deploy/compiler/",
+              "cp jsui/app.css web_deploy/compiler/",
+              "cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/compiler-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js",
+              "",
+            ])),
           },
           Step {
             uses: Set("peaceiris/actions-gh-pages@v3"),
             name: Set("Deploy"),
-            with: Set(
-              WorkflowJobsBuildAndDeployStepsItemWith {
-                github_token: Set(github_token_secret),
-                publish_dir: Set("./web_deploy"),
-              },
-            ),
+            with: Set(WorkflowJobsBuildAndDeployStepsItemWith {
+              github_token: Set(github_token_secret),
+              publish_dir: Set("./web_deploy"),
+            }),
           },
         ],
       ),

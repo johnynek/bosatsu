@@ -3,16 +3,17 @@ package Bosatsu/Example/Json/Github/Workflows/Release
 from Bosatsu/Json import Optional, Missing, Set
 
 from Bosatsu/Example/Json/Github/Workflows/Util import (
-  action_cache,
   action_checkout_v4,
   action_setup_java,
-  action_setup_sbt,
   action_upload_artifact,
+  cache_step,
   cat_lines,
+  checkout_v4_fetch_depth_0_step,
   FetchJavaWith,
   github_token_secret,
-  install_sbt_step_name_title,
+  install_b3sum_step,
   java_17_setup_name_title,
+  java17_title_fetch_step,
   java_distribution_temurin,
   java_version_17,
   needs_prepare,
@@ -20,8 +21,10 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   permission_write,
   runner_macos_14,
   runner_ubuntu_latest,
+  setup_sbt_title_step,
   StepEnv,
   run_publish_bosatsu_libs,
+  upload_artifact_step,
 )
 
 struct WorkflowOnPush(tags: List[String])
@@ -125,36 +128,81 @@ def native_linux_env(
     `CC`: Set(cc),
   }
 
-def release_env(
-  `BOSATSU_C_RUNTIME_HASH`: Optional[String],
-  `PGP_PASSPHRASE`: Optional[String],
-  `PGP_SECRET`: Optional[String],
-  `SONATYPE_PASSWORD`: Optional[String],
-  `SONATYPE_USERNAME`: Optional[String],
-  `REPO_ROOT`: Optional[String],
-  `OUTDIR`: Optional[String],
-  `GIT_SHA`: Optional[String],
-  `URI_BASE`: Optional[String],
-  `C_RUNTIME_ARCHIVE`: Optional[String],
-  `GITHUB_TOKEN`: Optional[String],
-  `GITHUB_REF_NAME`: Optional[String],
-  `GH_TOKEN`: Optional[String],
+def release_env_sonatype(
+  hash: String,
+  pgp_passphrase: String,
+  pgp_secret: String,
+  sonatype_password: String,
+  sonatype_username: String,
 ) -> StepEnv:
   StepEnv {
-    `BOSATSU_C_RUNTIME_HASH`,
-    `PGP_PASSPHRASE`,
-    `PGP_SECRET`,
-    `SONATYPE_PASSWORD`,
-    `SONATYPE_USERNAME`,
-    `REPO_ROOT`,
-    `OUTDIR`,
-    `GIT_SHA`,
-    `URI_BASE`,
-    `C_RUNTIME_ARCHIVE`,
-    `GITHUB_TOKEN`,
-    `GITHUB_REF_NAME`,
-    `GH_TOKEN`,
+    `BOSATSU_C_RUNTIME_HASH`: Set(hash),
+    `PGP_PASSPHRASE`: Set(pgp_passphrase),
+    `PGP_SECRET`: Set(pgp_secret),
+    `SONATYPE_PASSWORD`: Set(sonatype_password),
+    `SONATYPE_USERNAME`: Set(sonatype_username),
   }
+
+def release_env_lib_publish(
+  repo_root: String,
+  out_dir: String,
+  git_sha: String,
+  uri_base: String,
+) -> StepEnv:
+  StepEnv {
+    `REPO_ROOT`: Set(repo_root),
+    `OUTDIR`: Set(out_dir),
+    `GIT_SHA`: Set(git_sha),
+    `URI_BASE`: Set(uri_base),
+  }
+
+release_java17_bootstrap_steps = [
+  checkout_v4_fetch_depth_0_step,
+  cache_step,
+  java17_title_fetch_step,
+  setup_sbt_title_step,
+]
+
+native_macos_bootstrap_steps = [
+  Step {
+    uses: Set(action_checkout_v4),
+    name: Set("Check out code"),
+    with: Set(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Set(0) }),
+  },
+  cache_step,
+  Step {
+    uses: Set(action_setup_java),
+    name: Set(java_17_setup_name_title),
+    with: Set(WorkflowJobsNativeMacosStepsItemWith {
+      distribution: Set(java_distribution_temurin),
+      `java-version`: Set(java_version_17),
+      architecture: Set("aarch64"),
+    }),
+  },
+  setup_sbt_title_step,
+]
+
+release_job_checkout_cache_steps = [
+  Step {
+    uses: Set(action_checkout_v4),
+    name: Set("Check out code"),
+    with: Set(WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Set(0) }),
+  },
+  cache_step,
+]
+
+release_job_setup_steps = [
+  Step {
+    uses: Set(action_setup_java),
+    name: Set(java_17_setup_name_title),
+    with: Set(WorkflowJobsReleaseStepsItemWith {
+      distribution: Set(java_distribution_temurin),
+      `java-version`: Set(java_version_17),
+    }),
+  },
+  setup_sbt_title_step,
+  install_b3sum_step,
+]
 
 workflow =
   Workflow(
@@ -165,32 +213,8 @@ workflow =
       WorkflowJobsVerifyTag(
         runner_ubuntu_latest,
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name_title),
-            with: Set(
-              FetchJavaWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name_title),
-          },
-          Step {
-            name: Set("Install b3sum"),
-            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
-          },
+          *release_java17_bootstrap_steps,
+          install_b3sum_step,
           Step {
             name: Set("Verify tag matches sbt version"),
             run: Set(cat_lines([
@@ -211,15 +235,8 @@ workflow =
           "\${{ steps.cruntime.outputs.git_sha }}",
         ),
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
-          },
-          Step {
-            name: Set("Install b3sum"),
-            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
-          },
+          checkout_v4_fetch_depth_0_step,
+          install_b3sum_step,
           Step {
             name: Set("Create c_runtime archive"),
             run: Set(
@@ -237,233 +254,127 @@ workflow =
             ),
             id: Set("cruntime"),
           },
-          Step {
-            uses: Set(action_upload_artifact),
-            name: Set("Upload c_runtime archive"),
-            with: Set(
-              FetchJavaWith {
-                name: Set("bosatsu-c-runtime"),
-                path: Set("\${{ steps.cruntime.outputs.c_runtime_archive }}"),
-              },
-            ),
-          },
+          upload_artifact_step(
+            "Upload c_runtime archive",
+            "bosatsu-c-runtime",
+            "\${{ steps.cruntime.outputs.c_runtime_archive }}",
+          ),
         ],
       ),
       WorkflowJobsBuildCli(
         runner_ubuntu_latest,
         needs_prepare,
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name_title),
-            with: Set(
-              FetchJavaWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name_title),
-          },
+          *release_java17_bootstrap_steps,
           Step {
             name: Set("Build jar and node JS"),
-            run: Set(
-              cat_lines([
-                "sbt \"++3.8.1; cli/assembly; cliJSJS/fullOptJS\"",
-                "cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar",
-                "target_dir=\"\"",
-                "for d in cliJS/.js/target/scala-*; do",
-                "  if [ -d \"$d\" ]; then",
-                "    target_dir=\"$d\"",
-                "    break",
-                "  fi",
-                "done",
-                "if [ -z \"$target_dir\" ]; then",
-                "  echo \"Missing cliJS Scala.js target (run sbt \\\"cliJSJS/fullOptJS\\\")\" >&2",
-                "  exit 1",
-                "fi",
-                "for candidate in \\",
-                "  \"$target_dir/compiler-clijs-opt.js\" \\",
-                "  \"$target_dir/compiler-clijs-opt/main.js\"",
-                "do",
-                "  if [ -f \"$candidate\" ]; then",
-                "    cp \"$candidate\" bosatsu_node.js",
-                "    exit 0",
-                "  fi",
-                "done",
-                "echo \"Compiled cliJS output not found in \${target_dir}\" >&2",
-                "exit 1",
-                "",
-              ]),
-            ),
+            run: Set(cat_lines([
+              "sbt \"++3.8.1; cli/assembly; cliJSJS/fullOptJS\"",
+              "cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar",
+              "target_dir=\"\"",
+              "for d in cliJS/.js/target/scala-*; do",
+              "  if [ -d \"$d\" ]; then",
+              "    target_dir=\"$d\"",
+              "    break",
+              "  fi",
+              "done",
+              "if [ -z \"$target_dir\" ]; then",
+              "  echo \"Missing cliJS Scala.js target (run sbt \\\"cliJSJS/fullOptJS\\\")\" >&2",
+              "  exit 1",
+              "fi",
+              "for candidate in \\",
+              "  \"$target_dir/compiler-clijs-opt.js\" \\",
+              "  \"$target_dir/compiler-clijs-opt/main.js\"",
+              "do",
+              "  if [ -f \"$candidate\" ]; then",
+              "    cp \"$candidate\" bosatsu_node.js",
+              "    exit 0",
+              "  fi",
+              "done",
+              "echo \"Compiled cliJS output not found in \${target_dir}\" >&2",
+              "exit 1",
+              "",
+            ])),
             env: Set(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
           },
-          Step {
-            uses: Set(action_upload_artifact),
-            name: Set("Upload jar"),
-            with: Set(
-              FetchJavaWith {
-                name: Set("bosatsu-jar"),
-                path: Set("bosatsu.jar"),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_upload_artifact),
-            name: Set("Upload node JS"),
-            with: Set(
-              FetchJavaWith {
-                name: Set("bosatsu-node"),
-                path: Set("bosatsu_node.js"),
-              },
-            ),
-          },
+          upload_artifact_step("Upload jar", "bosatsu-jar", "bosatsu.jar"),
+          upload_artifact_step("Upload node JS", "bosatsu-node", "bosatsu_node.js"),
         ],
       ),
       WorkflowJobsNativeLinux(
         runner_ubuntu_latest,
         needs_prepare,
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name_title),
-            with: Set(
-              FetchJavaWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name_title),
-          },
+          *release_java17_bootstrap_steps,
           Step {
             name: Set("Install musl toolchain"),
             run: Set("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
           },
           Step {
             name: Set("Build musl zlib"),
-            run: Set(
-              cat_lines([
-                "set -euo pipefail",
-                "zlib_version=\"1.3.1\"",
-                "zlib_sha256=\"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
-                "zlib_url=\"https://github.com/madler/zlib/releases/download/v\${zlib_version}/zlib-\${zlib_version}.tar.gz\"",
-                "curl -fsSL \"$zlib_url\" -o /tmp/zlib.tar.gz",
-                "echo \"\${zlib_sha256}  /tmp/zlib.tar.gz\" | sha256sum -c -",
-                "rm -rf /tmp/zlib-src",
-                "mkdir -p /tmp/zlib-src",
-                "tar -xzf /tmp/zlib.tar.gz -C /tmp/zlib-src --strip-components=1",
-                "cd /tmp/zlib-src",
-                "CC=musl-gcc ./configure --static --prefix=/usr/local/musl",
-                "make -j\"$(nproc)\"",
-                "sudo make install",
-                "",
-              ]),
-            ),
+            run: Set(cat_lines([
+              "set -euo pipefail",
+              "zlib_version=\"1.3.1\"",
+              "zlib_sha256=\"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
+              "zlib_url=\"https://github.com/madler/zlib/releases/download/v\${zlib_version}/zlib-\${zlib_version}.tar.gz\"",
+              "curl -fsSL \"$zlib_url\" -o /tmp/zlib.tar.gz",
+              "echo \"\${zlib_sha256}  /tmp/zlib.tar.gz\" | sha256sum -c -",
+              "rm -rf /tmp/zlib-src",
+              "mkdir -p /tmp/zlib-src",
+              "tar -xzf /tmp/zlib.tar.gz -C /tmp/zlib-src --strip-components=1",
+              "cd /tmp/zlib-src",
+              "CC=musl-gcc ./configure --static --prefix=/usr/local/musl",
+              "make -j\"$(nproc)\"",
+              "sudo make install",
+              "",
+            ])),
           },
           Step {
             name: Set("Build native image (linux static)"),
-            run: Set(
-              cat_lines([
-                "sbt \"++3.8.1; cli/nativeImage\"",
-                "cp cli/target/native-image/bosatsu-cli bosatsu-linux",
-                "",
-              ]),
-            ),
-            env: Set(
-              native_linux_env(
-                "\${{ needs.prepare.outputs.c_runtime_hash }}",
-                "true",
-                "musl",
-                "/usr/local/musl/lib",
-                "musl-gcc",
-              ),
-            ),
+            run: Set(cat_lines([
+              "sbt \"++3.8.1; cli/nativeImage\"",
+              "cp cli/target/native-image/bosatsu-cli bosatsu-linux",
+              "",
+            ])),
+            env: Set(native_linux_env(
+              "\${{ needs.prepare.outputs.c_runtime_hash }}",
+              "true",
+              "musl",
+              "/usr/local/musl/lib",
+              "musl-gcc",
+            )),
           },
-          Step {
-            uses: Set(action_upload_artifact),
-            name: Set("Upload linux native image"),
-            with: Set(
-              FetchJavaWith {
-                name: Set("bosatsu-native-linux"),
-                path: Set("bosatsu-linux"),
-              },
-            ),
-          },
+          upload_artifact_step(
+            "Upload linux native image",
+            "bosatsu-native-linux",
+            "bosatsu-linux",
+          ),
         ],
       ),
       WorkflowJobsNativeMacos(
         runner_macos_14,
         needs_prepare,
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Set(0) }),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name_title),
-            with: Set(
-              WorkflowJobsNativeMacosStepsItemWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-                architecture: Set("aarch64"),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name_title),
-          },
+          *native_macos_bootstrap_steps,
           Step {
             name: Set("Build native image (macos)"),
-            run: Set(
-              cat_lines([
-                "sbt \"++3.8.1; cli/nativeImage\"",
-                "cp cli/target/native-image/bosatsu-cli bosatsu-macos",
-                "uname -m",
-                "file bosatsu-macos",
-                "file bosatsu-macos | grep -q \"arm64\" || { echo \"Expected arm64 binary\"; exit 1; }",
-                "",
-              ]),
-            ),
-            env: Set(
-              runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-            ),
+            run: Set(cat_lines([
+              "sbt \"++3.8.1; cli/nativeImage\"",
+              "cp cli/target/native-image/bosatsu-cli bosatsu-macos",
+              "uname -m",
+              "file bosatsu-macos",
+              "file bosatsu-macos | grep -q \"arm64\" || { echo \"Expected arm64 binary\"; exit 1; }",
+              "",
+            ])),
+            env: Set(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
           },
           Step {
             uses: Set(action_upload_artifact),
             name: Set("Upload macos native image"),
-            with: Set(
-              WorkflowJobsNativeMacosStepsItemWith {
-                name: Set("bosatsu-native-macos"),
-                path: Set("bosatsu-macos"),
-              },
-            ),
+            with: Set(WorkflowJobsNativeMacosStepsItemWith {
+              name: Set("bosatsu-native-macos"),
+              path: Set("bosatsu-macos"),
+            }),
           },
         ],
       ),
@@ -471,301 +382,155 @@ workflow =
         runner_ubuntu_latest,
         [ needs_prepare, "build_cli", "native_linux", "native_macos" ],
         [
-          Step {
-            uses: Set(action_checkout_v4),
-            name: Set("Check out code"),
-            with: Set(
-              WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Set(0) },
-            ),
-          },
-          Step {
-            uses: Set(action_cache),
-          },
+          *release_job_checkout_cache_steps,
           Step {
             uses: Set("actions/download-artifact@v4"),
             name: Set("Download artifacts"),
-            with: Set(
-              WorkflowJobsReleaseStepsItemWith {
-                path: Set("release_assets"),
-                `merge-multiple`: Set(True),
-              },
-            ),
+            with: Set(WorkflowJobsReleaseStepsItemWith {
+              path: Set("release_assets"),
+              `merge-multiple`: Set(True),
+            }),
           },
-          Step {
-            uses: Set(action_setup_java),
-            name: Set(java_17_setup_name_title),
-            with: Set(
-              WorkflowJobsReleaseStepsItemWith {
-                distribution: Set(java_distribution_temurin),
-                `java-version`: Set(java_version_17),
-              },
-            ),
-          },
-          Step {
-            uses: Set(action_setup_sbt),
-            name: Set(install_sbt_step_name_title),
-          },
-          Step {
-            name: Set("Install b3sum"),
-            run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
-          },
+          *release_job_setup_steps,
           Step {
             name: Set("Publish JVM/JS artifacts to Sonatype"),
             run: Set("sbt ci-release"),
-            env: Set(
-              release_env(
-                Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-                Set("\${{ secrets.PGP_PASSPHRASE }}"),
-                Set("\${{ secrets.PGP_SECRET }}"),
-                Set("\${{ secrets.SONATYPE_PASSWORD }}"),
-                Set("\${{ secrets.SONATYPE_USERNAME }}"),
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            env: Set(release_env_sonatype(
+              "\${{ needs.prepare.outputs.c_runtime_hash }}",
+              "\${{ secrets.PGP_PASSPHRASE }}",
+              "\${{ secrets.PGP_SECRET }}",
+              "\${{ secrets.SONATYPE_PASSWORD }}",
+              "\${{ secrets.SONATYPE_USERNAME }}",
+            )),
           },
           Step {
             name: Set("Build assembly for lib publish"),
             run: Set("sbt \"++3.8.1; cli/assembly\""),
-            env: Set(
-              release_env(
-                Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            env: Set(StepEnv {
+              `BOSATSU_C_RUNTIME_HASH`: Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
+            }),
           },
           Step {
             name: Set("Publish Bosatsu libraries"),
             run: Set(run_publish_bosatsu_libs),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set("\${{ github.workspace }}"),
-                Set("\${{ github.workspace }}/.bosatsu_lib_publish"),
-                Set("\${{ needs.prepare.outputs.git_sha }}"),
-                Set(
-                  "https://github.com/\${{ github.repository }}/releases/download/\${{ github.ref_name }}/",
-                ),
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            env: Set(release_env_lib_publish(
+              "\${{ github.workspace }}",
+              "\${{ github.workspace }}/.bosatsu_lib_publish",
+              "\${{ needs.prepare.outputs.git_sha }}",
+              "https://github.com/\${{ github.repository }}/releases/download/\${{ github.ref_name }}/",
+            )),
           },
           Step {
             name: Set("Stage release assets"),
-            run: Set(
-              cat_lines([
-                "set -euo pipefail",
-                "mkdir -p release_assets",
-                "cp bosatsu release_assets/",
-                "cp proto/src/main/protobuf/bosatsu/TypedAst.proto release_assets/",
-                "cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/",
-                "chmod +x release_assets/bosatsu || true",
-                "required_files=(",
-                "  \"bosatsu.jar\"",
-                "  \"bosatsu_node.js\"",
-                "  \"bosatsu-linux\"",
-                "  \"bosatsu-macos\"",
-                "  \"bosatsu\"",
-                "  \"TypedAst.proto\"",
-                "  \"\${C_RUNTIME_ARCHIVE}\"",
-                ")",
-                "for file in \"\${required_files[@]}\"; do",
-                "  if [ ! -f \"release_assets/\${file}\" ]; then",
-                "    echo \"Missing release asset: \${file}\" >&2",
-                "    exit 1",
-                "  fi",
-                "done",
-                "",
-              ]),
-            ),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            run: Set(cat_lines([
+              "set -euo pipefail",
+              "mkdir -p release_assets",
+              "cp bosatsu release_assets/",
+              "cp proto/src/main/protobuf/bosatsu/TypedAst.proto release_assets/",
+              "cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/",
+              "chmod +x release_assets/bosatsu || true",
+              "required_files=(",
+              "  \"bosatsu.jar\"",
+              "  \"bosatsu_node.js\"",
+              "  \"bosatsu-linux\"",
+              "  \"bosatsu-macos\"",
+              "  \"bosatsu\"",
+              "  \"TypedAst.proto\"",
+              "  \"\${C_RUNTIME_ARCHIVE}\"",
+              ")",
+              "for file in \"\${required_files[@]}\"; do",
+              "  if [ ! -f \"release_assets/\${file}\" ]; then",
+              "    echo \"Missing release asset: \${file}\" >&2",
+              "    exit 1",
+              "  fi",
+              "done",
+              "",
+            ])),
+            env: Set(StepEnv {
+              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+            }),
           },
           Step {
             name: Set("Create SHA256SUMS"),
-            run: Set(
-              cat_lines([
-                "set -euo pipefail",
-                "cd release_assets",
-                "find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'B3SUMS' -print0 \\",
-                "  | sort -z \\",
-                "  | xargs -0 sha256sum > SHA256SUMS",
-                "",
-              ]),
-            ),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            run: Set(cat_lines([
+              "set -euo pipefail",
+              "cd release_assets",
+              "find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'B3SUMS' -print0 \\",
+              "  | sort -z \\",
+              "  | xargs -0 sha256sum > SHA256SUMS",
+              "",
+            ])),
+            env: Set(StepEnv {
+              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+            }),
           },
           Step {
             name: Set("Create B3SUMS"),
-            run: Set(
-              cat_lines([
-                "set -euo pipefail",
-                "cd release_assets",
-                "find . -maxdepth 1 -type f ! -name 'B3SUMS' -print0 \\",
-                "  | sort -z \\",
-                "  | xargs -0 b3sum > B3SUMS",
-                "",
-              ]),
-            ),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-                Missing,
-                Missing,
-                Missing,
-              ),
-            ),
+            run: Set(cat_lines([
+              "set -euo pipefail",
+              "cd release_assets",
+              "find . -maxdepth 1 -type f ! -name 'B3SUMS' -print0 \\",
+              "  | sort -z \\",
+              "  | xargs -0 b3sum > B3SUMS",
+              "",
+            ])),
+            env: Set(StepEnv {
+              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+            }),
           },
           Step {
             uses: Set("softprops/action-gh-release@v2"),
             name: Set("Create GitHub release"),
-            with: Set(
-              WorkflowJobsReleaseStepsItemWith {
-                name: Set("Release \${{ github.ref_name }}"),
-                tag_name: Set("\${{ github.ref_name }}"),
-                generate_release_notes: Set(True),
-                files: Set(cat_lines([
-                  "release_assets/*",
-                  "",
-                ])),
-              },
-            ),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set(github_token_secret),
-                Missing,
-                Missing,
-              ),
-            ),
+            with: Set(WorkflowJobsReleaseStepsItemWith {
+              name: Set("Release \${{ github.ref_name }}"),
+              tag_name: Set("\${{ github.ref_name }}"),
+              generate_release_notes: Set(True),
+              files: Set(cat_lines([
+                "release_assets/*",
+                "",
+              ])),
+            }),
+            env: Set(StepEnv { `GITHUB_TOKEN`: Set(github_token_secret) }),
           },
           Step {
             name: Set("Create PR for core_conf.json changes"),
-            run: Set(
-              cat_lines([
-                "set -euo pipefail",
-                "echo \"Changes after bosatsu lib publish:\"",
-                "git status",
-                "git diff",
-                "",
-                "git config user.name \"bosatsu-release-bot\"",
-                "git config user.email \"bosatsu-release-bot@users.noreply.github.com\"",
-                "",
-                "git add **/*_conf.json",
-                "",
-                "if git diff --cached --quiet; then",
-                "  echo \"No core_conf.json changes to commit, skipping push.\"",
-                "  exit 0",
-                "fi",
-                "",
-                "branch=\"release/conf-\${GITHUB_REF_NAME}\"",
-                "git checkout -B \"$branch\"",
-                "git commit -m \"Update lib conf.jsons for \${GITHUB_REF_NAME}\"",
-                "git push -u --force-with-lease origin \"$branch\"",
-                "",
-                "if gh pr view \"$branch\" >/dev/null 2>&1; then",
-                "  echo \"PR already exists for \${branch}, skipping create.\"",
-                "  exit 0",
-                "fi",
-                "",
-                "gh pr create \\",
-                "  --base main \\",
-                "  --head \"$branch\" \\",
-                "  --title \"Update lib conf.jsons for \${GITHUB_REF_NAME}\" \\",
-                "  --body \"Automated updates for \${GITHUB_REF_NAME} release.\"",
-                "",
-              ]),
-            ),
-            env: Set(
-              release_env(
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Missing,
-                Set("\${{ github.ref_name }}"),
-                Set(github_token_secret),
-              ),
-            ),
+            run: Set(cat_lines([
+              "set -euo pipefail",
+              "echo \"Changes after bosatsu lib publish:\"",
+              "git status",
+              "git diff",
+              "",
+              "git config user.name \"bosatsu-release-bot\"",
+              "git config user.email \"bosatsu-release-bot@users.noreply.github.com\"",
+              "",
+              "git add **/*_conf.json",
+              "",
+              "if git diff --cached --quiet; then",
+              "  echo \"No core_conf.json changes to commit, skipping push.\"",
+              "  exit 0",
+              "fi",
+              "",
+              "branch=\"release/conf-\${GITHUB_REF_NAME}\"",
+              "git checkout -B \"$branch\"",
+              "git commit -m \"Update lib conf.jsons for \${GITHUB_REF_NAME}\"",
+              "git push -u --force-with-lease origin \"$branch\"",
+              "",
+              "if gh pr view \"$branch\" >/dev/null 2>&1; then",
+              "  echo \"PR already exists for \${branch}, skipping create.\"",
+              "  exit 0",
+              "fi",
+              "",
+              "gh pr create \\",
+              "  --base main \\",
+              "  --head \"$branch\" \\",
+              "  --title \"Update lib conf.jsons for \${GITHUB_REF_NAME}\" \\",
+              "  --body \"Automated updates for \${GITHUB_REF_NAME} release.\"",
+              "",
+            ])),
+            env: Set(StepEnv {
+              `GITHUB_REF_NAME`: Set("\${{ github.ref_name }}"),
+              `GH_TOKEN`: Set(github_token_secret),
+            }),
           },
         ],
       ),
