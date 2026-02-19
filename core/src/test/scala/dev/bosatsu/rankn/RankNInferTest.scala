@@ -2129,6 +2129,47 @@ x = 1
 """)
   }
 
+  test("list patterns can consume forall-list scrutinees") {
+    val a = Type.Var.Bound("a")
+    val forallListA = Type.forAll(
+      NonEmptyList.one((a, Kind.Type)),
+      Type.apply1(Type.ListType, Type.TyVar(a))
+    )
+
+    val nonEmptyPat: Pattern[String, Type] =
+      Pattern.ListPat(
+        List(
+          Pattern.ListPart.Item(Pattern.WildCard),
+          Pattern.ListPart.WildList
+        )
+      )
+    val anyListPat: Pattern[String, Type] =
+      Pattern.ListPat(List(Pattern.ListPart.WildList))
+
+    val term =
+      alam(
+        "xs",
+        forallListA,
+        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+      )
+
+    testType(term, typeFrom("(forall a. List[a]) -> Int"))
+  }
+
+  test("pattern instantiation pushes forall through mixed-variance constructor args") {
+    parseProgram(
+      """#
+struct Ret
+struct Mix[a: *, b: +*](left: a, right: b)
+
+def rightRet(v: forall t. Mix[t, Ret]) -> Ret:
+  match v:
+    case Mix(_, r): r
+""",
+      "(forall t. Mix[t, Ret]) -> Ret"
+    )
+  }
+
   test("rule out unsound kind operations") {
     parseProgramIllTyped("""#
 def cast[f: 👻* -> *, a, b](in: f[a]) -> f[b]: in
@@ -2523,6 +2564,29 @@ def branch(x: Option[forall a. a -> a]) -> forall a. a -> a:
 main = branch
 """,
       "Option[forall a. a -> a] -> (forall a. a -> a)"
+    )
+  }
+
+  test("polymorphic match result can be instantiated at higher-order call sites") {
+    parseProgram(
+      """#
+enum Option:
+  None
+  Some(a)
+
+struct Ret
+
+def branch(x):
+  match x:
+    case None: (z -> z)
+    case Some(y): y
+
+def useRet(fn: Ret -> Ret) -> Ret:
+  fn(Ret)
+
+main = useRet(branch(None))
+""",
+      "Ret"
     )
   }
 
