@@ -6,7 +6,7 @@ import cats.data.{NonEmptyList, Writer, State}
 import cats.implicits._
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document}
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
 import scala.util.hashing.MurmurHash3
 
 import Identifier.{Bindable, Constructor}
@@ -28,7 +28,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   lazy val getType: Type =
     this match {
       case g @ Generic(_, _)  => Type.normalize(g.quantType)
-      case Annotation(_, tpe) =>
+      case Annotation(_, tpe, _) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
         Type.Fun(args.map(_._2), res.getType)
@@ -51,7 +51,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   lazy val size: Int =
     this match {
       case Generic(_, g)              => g.size
-      case Annotation(a, _)           => a.size
+      case Annotation(a, _, _)        => a.size
       case AnnotatedLambda(_, res, _) =>
         res.size
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
@@ -82,7 +82,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
               g.quantType
             ) + Doc.line + loop(expr) + Doc.char(')')
           )
-        case Annotation(expr, tpe) =>
+        case Annotation(expr, tpe, _) =>
           block(
             Doc.text("(ann") + Doc.line + rept(
               tpe
@@ -201,7 +201,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     this match {
       case Generic(_, expr) =>
         expr.freeVarsDup
-      case Annotation(t, _) =>
+      case Annotation(t, _, _) =>
         t.freeVarsDup
       case Local(ident, _, _) =>
         ident :: Nil
@@ -268,7 +268,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     this match {
       case Generic(_, expr) =>
         expr.allVarsDup
-      case Annotation(t, _) =>
+      case Annotation(t, _, _) =>
         t.allVarsDup
       case Local(ident, _, _) =>
         ident :: Nil
@@ -330,6 +330,43 @@ object TypedExpr {
       ): Boolean =
         Order[Pattern[(PackageName, Constructor), Type]].eqv(left, right)
 
+      private def eqBoundVar(
+          left: Type.Var.Bound,
+          right: Type.Var.Bound
+      ): Boolean =
+        Order[Type.Var.Bound].eqv(left, right)
+
+      private def eqKind(left: Kind, right: Kind): Boolean =
+        Eq[Kind].eqv(left, right)
+
+      private def eqSolvedMap(
+          left: SortedMap[Type.Var.Bound, (Kind, Type)],
+          right: SortedMap[Type.Var.Bound, (Kind, Type)]
+      ): Boolean =
+        (left.size == right.size) && left.iterator.zip(right.iterator).forall {
+          case ((lb, (lk, lt)), (rb, (rk, rt))) =>
+            eqBoundVar(lb, rb) && eqKind(lk, rk) && eqType(lt, rt)
+        }
+
+      private def eqQuantifierEvidence(
+          left: QuantifierEvidence,
+          right: QuantifierEvidence
+      ): Boolean =
+        eqType(left.sourceAtSolve, right.sourceAtSolve) &&
+          eqType(left.targetAtSolve, right.targetAtSolve) &&
+          eqSolvedMap(left.forallSolved, right.forallSolved) &&
+          eqSolvedMap(left.existsHidden, right.existsHidden)
+
+      private def eqQuantifierEvidenceOpt(
+          left: Option[QuantifierEvidence],
+          right: Option[QuantifierEvidence]
+      ): Boolean =
+        (left, right) match {
+          case (Some(l), Some(r)) => eqQuantifierEvidence(l, r)
+          case (None, None)       => true
+          case _                  => false
+        }
+
       private def eqNel[B](
           left: NonEmptyList[B],
           right: NonEmptyList[B]
@@ -385,8 +422,10 @@ object TypedExpr {
         (left, right) match {
           case (Generic(lq, li), Generic(rq, ri)) =>
             eqQuant(lq, rq) && loop(li, ri)
-          case (Annotation(lt, lc), Annotation(rt, rc)) =>
-            eqType(lc, rc) && loop(lt, rt)
+          case (Annotation(lt, lc, le), Annotation(rt, rc, re)) =>
+            eqType(lc, rc) &&
+            eqQuantifierEvidenceOpt(le, re) &&
+            loop(lt, rt)
           case (
                 AnnotatedLambda(largs, lexpr, ltag),
                 AnnotatedLambda(rargs, rexpr, rtag)
@@ -555,6 +594,51 @@ object TypedExpr {
 
   sealed abstract class Name[+A] extends TypedExpr[A] with Product
 
+  case class QuantifierEvidence(
+      sourceAtSolve: Type,
+      targetAtSolve: Type,
+      forallSolved: SortedMap[Type.Var.Bound, (Kind, Type)],
+      existsHidden: SortedMap[Type.Var.Bound, (Kind, Type)]
+  ) {
+    import QuantifierEvidence.sortedMapTraverse
+
+    private def mapSolved(fn: Type => Type)(
+        solved: SortedMap[Type.Var.Bound, (Kind, Type)]
+    ): SortedMap[Type.Var.Bound, (Kind, Type)] =
+      SortedMap.from(
+        solved.iterator
+          .map { case (b, (k, t)) => (b, (k, fn(t))) }
+      )
+
+    private def traverseSolved[F[_]: Applicative](fn: Type => F[Type])(
+        solved: SortedMap[Type.Var.Bound, (Kind, Type)]
+    ): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
+      sortedMapTraverse.traverse(solved)(fn)
+
+    def mapTypes(fn: Type => Type): QuantifierEvidence =
+      copy(
+        sourceAtSolve = fn(sourceAtSolve),
+        targetAtSolve = fn(targetAtSolve),
+        forallSolved = mapSolved(fn)(forallSolved),
+        existsHidden = mapSolved(fn)(existsHidden)
+      )
+
+    def traverseTypes[F[_]: Applicative](
+        fn: Type => F[Type]
+    ): F[QuantifierEvidence] =
+      (
+        fn(sourceAtSolve),
+        fn(targetAtSolve),
+        traverseSolved(fn)(forallSolved),
+        traverseSolved(fn)(existsHidden)
+      ).mapN(QuantifierEvidence(_, _, _, _))
+  }
+  object QuantifierEvidence {
+    private[TypedExpr] val sortedMapTraverse =
+      Traverse[[V] =>> SortedMap[Type.Var.Bound, V]]
+        .compose[[T] =>> (Kind, T)]
+  }
+
   /** This says that the resulting term is generic on a given param
     *
     * The paper says to add TyLam and TyApp nodes, but it never mentions what to
@@ -568,7 +652,12 @@ object TypedExpr {
   }
   // Annotation really means "widen", the term has a type that is a subtype of coerce, so we are widening
   // to the given type. This happens on Locals/Globals also in their tpe
-  case class Annotation[T](term: TypedExpr[T], coerce: Type)
+  // Invariant: if quantifierEvidence is defined, evidence.targetAtSolve.sameAs(coerce).
+  case class Annotation[T](
+      term: TypedExpr[T],
+      coerce: Type,
+      quantifierEvidence: Option[QuantifierEvidence]
+  )
       extends TypedExpr[T] {
     def tag: T = term.tag
   }
@@ -807,7 +896,11 @@ object TypedExpr {
     type ExprKind[+A] <: TypedExpr[A]
     type Co = FunctionK[TypedExpr, ExprKind]
 
-    def Annotation[T](term: TypedExpr[T], coerce: TypeKind): ExprKind[T]
+    def Annotation[T](
+        term: TypedExpr[T],
+        coerce: TypeKind,
+        quantifierEvidence: Option[QuantifierEvidence]
+    ): ExprKind[T]
 
     def App[T](
         fn: TypedExpr[T],
@@ -825,8 +918,12 @@ object TypedExpr {
       type TypeKind = Type
       type ExprKind[+A] = TypedExpr[A]
 
-      def Annotation[T](term: TypedExpr[T], coerce: Type): TypedExpr[T] =
-        TypedExpr.Annotation(term, coerce)
+      def Annotation[T](
+          term: TypedExpr[T],
+          coerce: Type,
+          quantifierEvidence: Option[QuantifierEvidence]
+      ): TypedExpr[T] =
+        TypedExpr.Annotation(term, coerce, quantifierEvidence)
 
       def App[T](
           fn: TypedExpr[T],
@@ -843,8 +940,12 @@ object TypedExpr {
       type TypeKind = Type.Rho
       type ExprKind[+A] = Rho[A]
 
-      def Annotation[T](term: TypedExpr[T], coerce: Type.Rho): Rho[T] =
-        TypedExpr.Annotation(term, coerce)
+      def Annotation[T](
+          term: TypedExpr[T],
+          coerce: Type.Rho,
+          quantifierEvidence: Option[QuantifierEvidence]
+      ): Rho[T] =
+        TypedExpr.Annotation(term, coerce, quantifierEvidence)
 
       def App[T](
           fn: TypedExpr[T],
@@ -957,7 +1058,7 @@ object TypedExpr {
   ): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A])] =
     expr match {
       case Generic(_, e)                  => toArgsBody(arity, e)
-      case Annotation(e, _)               => toArgsBody(arity, e)
+      case Annotation(e, _, _)            => toArgsBody(arity, e)
       case AnnotatedLambda(args, expr, _) =>
         if (args.length == arity) {
           Some((args, expr))
@@ -1004,6 +1105,9 @@ object TypedExpr {
     }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
+    private inline def foreach[X](iter: Iterator[X])(inline fn: X => Unit): Unit =
+      while (iter.hasNext) fn(iter.next())
+
     // Iterate exactly the same type occurrences as traverseType would, while
     // honoring Generic shadowing, but avoid Writer/traverse allocation.
     private inline def foreachTraversedType(inline fn: Type => Unit): Unit = {
@@ -1041,6 +1145,23 @@ object TypedExpr {
         loop(pat :: Nil)
       }
 
+      def visitEvidenceTypes(
+          qev: Option[QuantifierEvidence],
+          shadowed: Set[Type.Var.Bound]
+      ): Unit =
+        qev match {
+          case Some(ev) =>
+            visitType(ev.sourceAtSolve, shadowed)
+            visitType(ev.targetAtSolve, shadowed)
+            foreach(ev.forallSolved.valuesIterator) { case (_, t) =>
+              visitType(t, shadowed)
+            }
+            foreach(ev.existsHidden.valuesIterator) { case (_, t) =>
+              visitType(t, shadowed)
+            }
+          case None => ()
+        }
+
       def visitExpr(
           te: TypedExpr[A],
           shadowed: Set[Type.Var.Bound]
@@ -1048,15 +1169,16 @@ object TypedExpr {
         te match {
           case gen @ Generic(quant, expr) =>
             val params = quant.vars
-            params.iterator.foreach { case (b, _) =>
+            foreach(params.iterator) { case (b, _) =>
               visitType(Type.TyVar(b), shadowed)
             }
             visitType(gen.getType, shadowed)
             val shadowed1 = shadowed ++ params.iterator.map(_._1)
             visitExpr(expr, shadowed1)
-          case Annotation(of, tpe) =>
+          case Annotation(of, tpe, qev) =>
             visitExpr(of, shadowed)
             visitType(tpe, shadowed)
+            visitEvidenceTypes(qev, shadowed)
           case lam @ AnnotatedLambda(args, res, _) =>
             args.iterator.foreach { case (_, t) =>
               visitType(t, shadowed)
@@ -1069,26 +1191,26 @@ object TypedExpr {
             visitType(tpe, shadowed)
           case App(f, args, tpe, _) =>
             visitExpr(f, shadowed)
-            args.iterator.foreach(visitExpr(_, shadowed))
+            foreach(args.iterator)(visitExpr(_, shadowed))
             visitType(tpe, shadowed)
           case Let(_, exp, in, _, _) =>
             visitExpr(exp, shadowed)
             visitExpr(in, shadowed)
           case Loop(args, body, _) =>
-            args.iterator.foreach { case (_, expr) =>
+            foreach(args.iterator) { case (_, expr) =>
               visitExpr(expr, shadowed)
             }
             visitExpr(body, shadowed)
           case Recur(args, tpe, _) =>
-            args.iterator.foreach(visitExpr(_, shadowed))
+            foreach(args.iterator)(visitExpr(_, shadowed))
             visitType(tpe, shadowed)
           case Literal(_, tpe, _) =>
             visitType(tpe, shadowed)
           case Match(expr, branches, _) =>
             visitExpr(expr, shadowed)
-            branches.iterator.foreach { branch =>
+            foreach(branches.iterator) { branch =>
               visitPattern(branch.pattern, shadowed)
-              branch.guard.iterator.foreach(visitExpr(_, shadowed))
+              foreach(branch.guard.iterator)(visitExpr(_, shadowed))
               visitExpr(branch.expr, shadowed)
             }
         }
@@ -1105,21 +1227,18 @@ object TypedExpr {
     }
 
     def allBound: SortedSet[Type.Var.Bound] = {
-      val acc = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
-      foreachTraversedType {
-        case Type.TyVar(b: Type.Var.Bound) =>
-          acc.add(b): Unit
-        case _ => ()
-      }
-      SortedSet.from(acc)
+      val tpes = allTypes.toList
+      // We need both:
+      // - freeBoundTyVars: bound vars referenced free in these types
+      // - tyVarBinders: bound vars introduced as forall/exists binders
+      // allBound is used as an avoid-set, so include both references and binders.
+      val free = Type.freeBoundTyVars(tpes).toSet
+      SortedSet.from(Type.tyVarBinders(tpes) ++ free)
     }
 
     def freeTyVars: List[Type.Var] = {
       val acc = scala.collection.mutable.HashSet.empty[Type.Var]
       val boundCount = scala.collection.mutable.HashMap.empty[Type.Var.Bound, Int]
-
-      inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit =
-        while (iter.hasNext) fn(iter.next())
 
       inline def isBound(v: Type.Var.Bound): Boolean =
         boundCount.get(v) match {
@@ -1179,6 +1298,20 @@ object TypedExpr {
         loop(pat :: Nil)
       }
 
+      def addEvidenceTypes(qev: Option[QuantifierEvidence]): Unit =
+        qev match {
+          case Some(ev) =>
+            addType(ev.sourceAtSolve)
+            addType(ev.targetAtSolve)
+            foreach(ev.forallSolved.valuesIterator) { case (_, t) =>
+              addType(t)
+            }
+            foreach(ev.existsHidden.valuesIterator) { case (_, t) =>
+              addType(t)
+            }
+          case None => ()
+        }
+
       def loopExpr(te: TypedExpr[A]): Unit =
         te match {
           case Generic(quant, expr) =>
@@ -1189,9 +1322,10 @@ object TypedExpr {
             foreach(quant.vars.iterator) { case (b, _) =>
               unbind(b)
             }
-          case Annotation(of, tpe) =>
+          case Annotation(of, tpe, qev) =>
             loopExpr(of)
             addType(tpe)
+            addEvidenceTypes(qev)
           case AnnotatedLambda(args, res, _) =>
             foreach(args.iterator) { case (_, t) =>
               addType(t)
@@ -1253,8 +1387,12 @@ object TypedExpr {
           val paramsF = params.traverse_(v => fn(Type.TyVar(v._1)))
           (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(quant, _))
-        case Annotation(of, tpe) =>
-          (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
+        case Annotation(of, tpe, qev) =>
+          (
+            of.traverseType(fn),
+            fn(tpe),
+            qev.traverse(_.traverseTypes(fn))
+          ).mapN(Annotation(_, _, _))
         case lam @ AnnotatedLambda(args, res, tag) =>
           val a1 = args.traverse { case (n, t) => fn(t).map(n -> _) }
           fn(lam.getType) *> (a1, res.traverseType(fn)).mapN {
@@ -1315,9 +1453,9 @@ object TypedExpr {
           loop(expr).flatMap { fx =>
             fn(Generic(params, fx))
           }
-        case Annotation(of, tpe) =>
+        case Annotation(of, tpe, qev) =>
           loop(of).flatMap { o2 =>
-            fn(Annotation(o2, tpe))
+            fn(Annotation(o2, tpe, qev))
           }
         case AnnotatedLambda(args, res, tag) =>
           loop(res).flatMap { res1 =>
@@ -1517,9 +1655,27 @@ object TypedExpr {
           deepQuantify(env + te.getType, in).map { in1 =>
             quantVars(quant.forallList, quant.existList, in1)
           }
-        case Annotation(term, coerce) =>
+        case Annotation(term, coerce, qev) =>
+          // QuantifierEvidence is solver provenance attached to this annotation:
+          // it records *how* we justified a coercion (source/target-at-solve and
+          // solved binders), but it is not part of the expression's semantic
+          // outward type. The outward type is `coerce` (Annotation.getType).
+          //
+          // `env` in deepQuantify tracks only outward, semantically relevant
+          // surrounding types that must constrain quantification while recursing.
+          // Therefore we extend env with `coerce`, not with evidence types.
+          //
+          // We intentionally do not let evidence influence env because evidence
+          // can mention historical/internal solver shapes that are not part of
+          // term semantics; using it as constraints here could over-constrain
+          // quantification (e.g. block quantification for metas that appear only
+          // in evidence payload).
+          //
+          // We also don't recurse into qev separately: quantifyFree has already
+          // traversed/rewritten all types at this node (including evidence via
+          // traverseType/allTypes), so qev is already updated for this layer.
           deepQuantify(env + coerce, term).map { t1 =>
-            ann(t1, coerce)
+            ann(t1, coerce, qev)
           }
         case AnnotatedLambda(args, expr, tag) =>
           val env1 = env ++ args.iterator.map(_._2)
@@ -1641,8 +1797,8 @@ object TypedExpr {
         typedExprT match {
           case Generic(params, expr) =>
             expr.traverse(fn).map(Generic(params, _))
-          case Annotation(of, tpe) =>
-            of.traverse(fn).map(Annotation(_, tpe))
+          case Annotation(of, tpe, qev) =>
+            of.traverse(fn).map(Annotation(_, tpe, qev))
           case AnnotatedLambda(args, res, tag) =>
             (res.traverse(fn), fn(tag)).mapN {
               AnnotatedLambda(args, _, _)
@@ -1692,7 +1848,7 @@ object TypedExpr {
         typedExprA match {
           case Generic(_, e) =>
             foldLeft(e, b)(f)
-          case Annotation(e, _) =>
+          case Annotation(e, _, _) =>
             foldLeft(e, b)(f)
           case AnnotatedLambda(_, e, tag) =>
             val b1 = foldLeft(e, b)(f)
@@ -1731,7 +1887,7 @@ object TypedExpr {
       ): Eval[B] = typedExprA match {
         case Generic(_, e) =>
           foldRight(e, lb)(f)
-        case Annotation(e, _) =>
+        case Annotation(e, _, _) =>
           foldRight(e, lb)(f)
         case AnnotatedLambda(_, e, tag) =>
           val lb1 = f(tag, lb)
@@ -1767,8 +1923,8 @@ object TypedExpr {
 
       override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
         te match {
-          case Generic(tv, in)       => Generic(tv, map(in)(fn))
-          case Annotation(term, tpe) => Annotation(map(term)(fn), tpe)
+          case Generic(tv, in)            => Generic(tv, map(in)(fn))
+          case Annotation(term, tpe, qev) => Annotation(map(term)(fn), tpe, qev)
           case AnnotatedLambda(args, expr, tag) =>
             AnnotatedLambda(args, map(expr)(fn), fn(tag))
           case l @ Local(_, _, _)       => l.copy(tag = fn(l.tag))
@@ -1861,7 +2017,8 @@ object TypedExpr {
   def instantiateTo[A](
       gen: Generic[A],
       instTpe: Type.Rho,
-      kinds: Type => Option[Kind]
+      kinds: Type => Option[Kind],
+      evidenceHint: Option[QuantifierEvidence]
   ): TypedExpr[A] = {
     import Type._
 
@@ -1923,43 +2080,94 @@ object TypedExpr {
         case (TyApply(_, _), _) => None
       }
 
-    val (freeList, exList, in) = Type.splitQuantifiers(gen.quantType)
+    val avoidQuantifierNames: Set[Type.Var.Bound] =
+      Type.freeBoundTyVars(instTpe :: Nil).toSet
+    val (quantSubst, quant1) = gen.quant.unshadow(avoidQuantifierNames)
+    val gen1 =
+      if (quantSubst.isEmpty) gen
+      else Generic(quant1, substituteTypeVar(gen.in, quantSubst))
 
+    val (freeList, exList, in) = Type.splitQuantifiers(gen1.quantType)
+    val sourceAtSolve = gen1.getType
+    val freeKinds: Map[Type.Var, Kind] = freeList.toMap
     val solveSet: Set[Var] = freeList.iterator.map(_._1).toSet
 
-    val result =
-      solve(in, instTpe, Map.empty, solveSet, freeList.toMap)
-        .map { subs =>
-          val freeVars = solveSet -- subs.keySet
-          val subBody = substituteTypeVar(gen.in, subs)
-          val freeExists = exList.filter { case (t, _) =>
-            freeVars(t)
-          }
-          val freeForall = freeList.filter { case (t, _) =>
-            freeVars(t)
-          }
-          val q = Type.quantify(
-            forallList = freeForall,
-            existList = freeExists,
-            subBody.getType
-          )
-          q match {
-            case _: (Type.Leaf | Type.TyApply) => subBody
-            case _                             =>
-              Quantification
-                .fromLists(freeForall, freeExists)
-                .map { quant =>
-                  val newGen = Generic(quant, subBody)
-                  pushGeneric(newGen) match {
-                    case badOpt @ (None | Some(Generic(_, _))) =>
-                      // just wrap
-                      ann(badOpt.getOrElse(newGen), instTpe)
-                    case Some(notGen) => notGen
-                  }
+    def resultFromSubs(
+        subs: Map[Type.Var, Type],
+        evidence: Option[QuantifierEvidence]
+    ): TypedExpr[A] = {
+      val freeVars = solveSet -- subs.keySet
+      val subBody = substituteTypeVar(gen1.in, subs)
+      val freeExists = exList.filter { case (t, _) =>
+        freeVars(t)
+      }
+      val freeForall = freeList.filter { case (t, _) =>
+        freeVars(t)
+      }
+      val q = Type.quantify(
+        forallList = freeForall,
+        existList = freeExists,
+        subBody.getType
+      )
+      val res0 =
+        q match {
+          case _: (Type.Leaf | Type.TyApply) => subBody
+          case _                             =>
+            Quantification
+              .fromLists(freeForall, freeExists)
+              .map { quant =>
+                val newGen = Generic(quant, subBody)
+                pushGeneric(newGen) match {
+                  case badOpt @ (None | Some(Generic(_, _))) =>
+                    // just wrap
+                    ann(badOpt.getOrElse(newGen), instTpe, evidence)
+                  case Some(notGen) => notGen
                 }
-                .getOrElse(subBody)
-          }
+              }
+              .getOrElse(subBody)
         }
+
+      if (res0.getType.sameAs(instTpe)) res0
+      else ann(res0, instTpe, evidence)
+    }
+
+    def evidenceSubs(ev: QuantifierEvidence): Option[Map[Type.Var, Type]] =
+      // Intentionally strict (`!=`), not `!sameAs`:
+      // evidence `forallSolved` is keyed by concrete bound vars from the
+      // original solve snapshot. `sameAs` can hold across alpha-renaming /
+      // quantifier normalization, but we do not carry a renaming witness to
+      // remap evidence keys (and embedded vars in evidence types) onto the
+      // current solve variables. So we only reuse evidence when snapshots are
+      // exactly the same representation; otherwise we conservatively recompute.
+      if (
+        sourceAtSolve != ev.sourceAtSolve ||
+          instTpe != ev.targetAtSolve
+      ) None
+      else {
+        val fromEv: Map[Type.Var, Type] =
+          ev.forallSolved.iterator.map { case (b, (_, t)) =>
+            (b: Type.Var) -> t
+          }.toMap
+
+        val closedSolutions =
+          fromEv.valuesIterator.forall { t =>
+            Type.freeBoundTyVars(t :: Nil).isEmpty
+          }
+
+        if (closedSolutions && fromEv.keys.forall(solveSet)) Some(fromEv)
+        else None
+      }
+
+    val fromHint =
+      evidenceHint
+        .flatMap(ev => evidenceSubs(ev).map(resultFromSubs(_, Some(ev))))
+        .filter(_.getType.sameAs(instTpe))
+
+    val result =
+      fromHint.orElse {
+        solve(in, instTpe, Map.empty, solveSet, freeKinds)
+          .map(resultFromSubs(_, None))
+      }
 
     result match {
       case None =>
@@ -1975,8 +2183,8 @@ object TypedExpr {
         // learn that ?338 == $k$303, but we don't seem to know that yet
 
         // just add an annotation:
-        ann(gen, instTpe)
-      case Some(res) => res
+        ann(gen1, instTpe, evidenceHint)
+      case Some(resultExpr) => resultExpr
     }
   }
 
@@ -2065,18 +2273,28 @@ object TypedExpr {
           def apply[A](expr: TypedExpr[A]): Rho[A] =
             expr match {
               case _ if expr.getType.sameAs(tpe) => expr
-              case Annotation(t, _)              => self(t)
+              case Annotation(t, _, _)           =>
+                // coerceRho is a widen rewrite to a new target `tpe`.
+                // Existing annotation evidence (if present) justifies that
+                // annotation's old target, and we do not currently implement
+                // evidence composition across multiple widen steps.
+                //
+                // If the old annotation already targeted `tpe`, the guard above
+                // would return `expr` unchanged (preserving evidence). Reaching
+                // this case means we need a different target, so unwrap and
+                // continue coercing the underlying term.
+                self(t)
               case Local(_, _, _) | Global(_, _, _, _) |
                   AnnotatedLambda(_, _, _) | Literal(_, _, _) =>
                 // All of these are widened. The lambda seems like we should be able to do
                 // better, but the type isn't a Fun(Type, Type.Rho)... this is probably unreachable for
                 // the AnnotatedLambda
-                Annotation(expr, tpe)
+                Annotation(expr, tpe, None)
               case gen @ Generic(_, _) =>
                 pushGeneric(gen) match {
                   case Some(e1) => self(e1)
                   case None     =>
-                    instantiateTo(gen, tpe, kinds)
+                    instantiateTo(gen, tpe, kinds, None)
                 }
               case App(fn, aargs, _, tag) =>
                 fn match {
@@ -2112,7 +2330,7 @@ object TypedExpr {
                         // but that implies something for fn and arg
                         // but we are ignoring that, which
                         // leaves them with potentially skolems or metavars
-                        ann(expr, tpe)
+                        ann(expr, tpe, None)
                     }
                 }
               case Let(arg, argE, in, rec, tag) =>
@@ -2120,7 +2338,7 @@ object TypedExpr {
               case Loop(args, body, tag) =>
                 Loop(args, self(body), tag)
               case Recur(_, _, _) =>
-                ann(expr, tpe)
+                ann(expr, tpe, None)
               case Match(arg, branches, tag) =>
                 // TODO: this may be wrong. e.g. we could leaving meta in the types
                 // embedded in patterns, this does not seem to happen since we would
@@ -2190,8 +2408,8 @@ object TypedExpr {
         case Global(_, _, _, _) | Literal(_, _, _) => Some(in)
         case Generic(a, expr)                      =>
           loop(table, expr).map(Generic(a, _))
-        case Annotation(t, tpe) =>
-          loop(table, t).map(Annotation(_, tpe))
+        case Annotation(t, tpe, qev) =>
+          loop(table, t).map(Annotation(_, tpe, qev))
         case lam @ AnnotatedLambda(args, res, tag) =>
           if (!enterLambda) None
           else {
@@ -2425,8 +2643,12 @@ object TypedExpr {
             quant.vars.toList.iterator.map(_._1).toSet
           val env1 = env.iterator.filter { case (k, _) => !paramSet(k) }.toMap
           Generic(quant, substituteTypeVar(expr, env1))
-        case Annotation(of, tpe) =>
-          Annotation(substituteTypeVar(of, env), Type.substituteVar(tpe, env))
+        case Annotation(of, tpe, qev) =>
+          Annotation(
+            substituteTypeVar(of, env),
+            Type.substituteVar(tpe, env),
+            qev.map(_.mapTypes(Type.substituteVar(_, env)))
+          )
         case AnnotatedLambda(args, res, tag) =>
           AnnotatedLambda(
             args.map { case (n, tpe) =>
@@ -2489,8 +2711,8 @@ object TypedExpr {
     def recur(t: TypedExpr[A]) = replaceVarType(t, name, tpe)
 
     te match {
-      case Generic(tv, in)                  => Generic(tv, recur(in))
-      case Annotation(term, tpe)            => Annotation(recur(term), tpe)
+      case Generic(tv, in)                    => Generic(tv, recur(in))
+      case Annotation(term, tpe, qev)         => Annotation(recur(term), tpe, qev)
       case AnnotatedLambda(args, expr, tag) =>
         // this is a kind of let:
         if (args.exists(_._1 == name)) {
@@ -2542,9 +2764,13 @@ object TypedExpr {
     }
   }
 
-  private def ann[A](te: TypedExpr[A], tpe: Type): TypedExpr[A] =
+  private def ann[A](
+      te: TypedExpr[A],
+      tpe: Type,
+      quantifierEvidence: Option[QuantifierEvidence]
+  ): TypedExpr[A] =
     if (te.getType.sameAs(tpe)) te
-    else Annotation(te, tpe)
+    else Annotation(te, tpe, quantifierEvidence)
 
   /** TODO this seems pretty expensive to blindly apply: we are deoptimizing the
     * nodes pretty heavily
@@ -2577,8 +2803,12 @@ object TypedExpr {
 
       def apply[A](expr: TypedExpr[A]): Rho[A] =
         expr match {
-          case _ if expr.getType.sameAs(fntpe)  => expr
-          case Annotation(t, _)                 => self(t)
+          case _ if expr.getType.sameAs(fntpe) => expr
+          case Annotation(t, _, _)             =>
+            // Same rationale as coerceRho: this pass computes a new target
+            // (`fntpe`), so any existing annotation/evidence is for a prior
+            // target and is not composed here.
+            self(t)
           case AnnotatedLambda(args0, res, tag) =>
             // note, Var(None, name, originalType, tag)
             // is hanging out in res, or it is unused
@@ -2594,16 +2824,16 @@ object TypedExpr {
             pushGeneric(gen) match {
               case Some(e1) => self(e1)
               case None     =>
-                instantiateTo(gen, fntpe, kinds)
+                instantiateTo(gen, fntpe, kinds, None)
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-            ann(expr, fntpe)
+            ann(expr, fntpe, None)
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
           case Loop(args, body, tag) =>
             Loop(args, self(body), tag)
           case Recur(_, _, _) =>
-            ann(expr, fntpe)
+            ann(expr, fntpe, None)
           case Match(arg, branches, tag) =>
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
@@ -2742,18 +2972,18 @@ object TypedExpr {
     expr match {
       case Generic(oldQuant, ex0) =>
         normalizeQuantVars(q.concat(oldQuant), ex0)
-      case Annotation(term, tpe)
+      case Annotation(term, tpe, _)
           if Type
             .quantify(q.forallList, q.existList, tpe)
             .sameAs(term.getType) =>
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
-      case Annotation(term, tpe)
+      case Annotation(term, tpe, qev)
           if !hasBoundInType(q, expr.getType) =>
         // the variables may be free lower, but not here
         val genTerm = normalizeQuantVars(q, term)
         if (genTerm.getType.sameAs(tpe)) genTerm
-        else Annotation(genTerm, tpe)
+        else Annotation(genTerm, tpe, qev)
       case _ =>
         quantGeneric(q, expr)
     }
@@ -2823,14 +3053,14 @@ object TypedExpr {
                 val rho1 = Type.substituteRhoVar(rho, map)
                 (
                   Some(q1.concat(qtail)),
-                  NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+                  NonEmptyList(TypedExpr.Annotation(args.head, rho1, None), rest)
                 )
               case None =>
                 val (map, q1) = q.unshadow(noshadow)
                 val rho1 = Type.substituteRhoVar(rho, map)
                 (
                   Some(q1),
-                  NonEmptyList(TypedExpr.Annotation(args.head, rho1), rest)
+                  NonEmptyList(TypedExpr.Annotation(args.head, rho1, None), rest)
                 )
             }
           case None =>

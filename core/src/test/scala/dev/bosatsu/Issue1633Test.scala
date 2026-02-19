@@ -66,7 +66,7 @@ main = parse_value(" null")
     te match {
       case TypedExpr.Generic(_, in) =>
         typedHasLoop(in)
-      case TypedExpr.Annotation(in, _) =>
+      case TypedExpr.Annotation(in, _, _) =>
         typedHasLoop(in)
       case TypedExpr.AnnotatedLambda(_, in, _) =>
         typedHasLoop(in)
@@ -91,7 +91,7 @@ main = parse_value(" null")
     te match {
       case TypedExpr.Generic(_, in) =>
         typedHasRecur(in)
-      case TypedExpr.Annotation(in, _) =>
+      case TypedExpr.Annotation(in, _, _) =>
         typedHasRecur(in)
       case TypedExpr.AnnotatedLambda(_, in, _) =>
         typedHasRecur(in)
