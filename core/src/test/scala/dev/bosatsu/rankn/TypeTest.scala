@@ -1823,6 +1823,30 @@ class TypeTest extends munit.ScalaCheckSuite {
       assert(Type.exists(vars, in).sameAs(t))
     }
   }
+  test("liftExistentials/exists roundtrips with duplicate existential names") {
+    val p = Type.Var.Bound("p")
+    val ckws = Type.Var.Bound("ckwsckMlk7r")
+
+    val existsVars = NonEmptyList.of(
+      p -> Kind.Type,
+      p -> Kind(
+        Kind.Arg(Variance.Contravariant, Kind.Type)
+      )
+    )
+
+    val aqfr = Type.Const.Defined(
+      dev.bosatsu.PackageName.parts("Tw"),
+      dev.bosatsu.TypeName("Aqfr")
+    )
+    val body = Type.TyApply(
+      Type.TyVar(p),
+      Type.TyApply(Type.TyConst(aqfr), Type.TyVar(ckws))
+    )
+
+    val t = Type.Exists(existsVars, body)
+    val (vars, in) = Type.liftExistentials(t)
+    assert(Type.exists(vars, in).sameAs(t))
+  }
   test("liftExistentials avoids forall/exists binder collisions") {
     val t = parse("forall a. exists a. a")
     val (vars, in) = Type.liftExistentials(t)
