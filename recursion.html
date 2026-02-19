@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3399b89e*
+0.0.0+1-dcd8c30e*
 </div>
 </div>
 <div class="nav-toc">
@@ -148,7 +148,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3399b89e*
+0.0.0+1-dcd8c30e*
 </div>
 </div>
 <div class="nav-toc">
@@ -277,7 +277,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
     case []: 0
     case [_, *tail]: len(tail).add(1)
 </code></pre>
-<p>At a high level: 1. <code>recur</code> matches a parameter of the nearest enclosing <code>def</code>. 1. Recursive calls are allowed in branches only when they are structurally  smaller (or use an explicit decreasing fuel value). 1. These value-level restrictions are only part of totality. Bosatsu also  restricts recursive types to covariant positions (issue #104:  <a href="https://github.com/johnynek/bosatsu/issues/104)">https://github.com/johnynek/bosatsu/issues/104)</a>, so type-level recursion is  also constrained to preserve totality.</p>
+<p>At a high level: 1. <code>recur</code> matches a parameter name, or a tuple of parameter names, of the  nearest enclosing <code>def</code>. 1. With a single target (<code>recur x</code>), recursive calls are allowed only when the  call argument for <code>x</code> is structurally smaller. 1. With a tuple target (<code>recur (x0, x1, ..., xk)</code>), recursive calls must be  lexicographically smaller in that target order.  1. Compare call arguments at target positions left-to-right.  1. The first position that differs must be structurally smaller.  1. All earlier target positions must be equal.  1. If a position becomes unrelated/non-decreasing before any smaller  position appears, the call is rejected. 1. These value-level restrictions are only part of totality. Bosatsu also  restricts recursive types to covariant positions (issue #104:  <a href="https://github.com/johnynek/bosatsu/issues/104)">https://github.com/johnynek/bosatsu/issues/104)</a>, so type-level recursion is  also constrained to preserve totality.</p>
+<p>Tuple targets are useful for nested-recursive definitions where one argument is allowed to reset or increase only after an earlier argument decreases.</p>
 <h2><a href="#pattern-1-structural-recursion-on-lists" name="pattern-1-structural-recursion-on-lists" class="anchor"><span class="anchor-link"></span></a>Pattern 1: Structural Recursion On Lists</h2>
 <p>This is the most common pattern. Recur directly on the list and call the same function on a tail.</p>
 <p>In terminology above, this is structural/well-founded recursion where list shape gives the decreasing measure for free.</p>
@@ -380,20 +381,16 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>If direct string recursion is awkward, you can compute a string length, convert to <code>Nat</code>, and recurse on that <code>Nat</code> as the parse budget.</p>
 <p>Sketch: 1. <code>len = to_Nat(length_String(input))</code> 1. <code>loop(len, input)</code> with <code>recur len</code> 1. consume string as you go, and always recurse with the predecessor fuel</p>
 <p>This is the same fuel pattern as Pattern 4, but with a string-derived bound.</p>
-<h2><a href="#pattern-9-non-obvious-nested-recursion-ackermann-style-" name="pattern-9-non-obvious-nested-recursion-ackermann-style-" class="anchor"><span class="anchor-link"></span></a>Pattern 9: Non-Obvious Nested Recursion (Ackermann-Style)</h2>
-<p><code>Ackermann.bosatsu</code> demonstrates a higher-order style where: 1. Outer recursion is on <code>n</code>. 1. Inner recursion is on <code>m</code>. 1. The recursive result from the smaller <code>n</code> (<code>ack_p</code>) is reused in the inner  loop.</p>
-<pre class="prettyprint"><code class="language-bosatsu">def ack1(n: Nat) -&gt; (Nat -&gt; Nat):
-  recur n:
-    case Zero: Succ
-    case Succ(n_prev):
-      ack_p = ack1(n_prev)
-      def inner(m: Nat) -&gt; Nat:
-        ack_p(recur m:
-          case Zero: Succ(Zero)
-          case Succ(m_prev): inner(m_prev))
-      inner
+<h2><a href="#pattern-9-lexicographic-tuple-recursion-ackermann-" name="pattern-9-lexicographic-tuple-recursion-ackermann-" class="anchor"><span class="anchor-link"></span></a>Pattern 9: Lexicographic Tuple Recursion (Ackermann)</h2>
+<p><code>Ackermann.bosatsu</code> now uses direct tuple <code>recur</code> with lexicographic decrease:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def ack(n: Nat, m: Nat) -&gt; Nat:
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
 </code></pre>
-<p>This is a useful pattern when recursion is nested but each recursive dimension still has a clear structural decrease.</p>
+<p>Why this is accepted: 1. <code>ack(n_prev, Succ(Zero))</code> is valid because the first target (<code>n</code>) decreases.  The second target may increase/reset once an earlier target has decreased. 1. <code>ack(n, m_prev)</code> is valid because <code>n</code> is equal and <code>m</code> decreases. 1. <code>ack(n_prev, ack(n, m_prev))</code> is valid because:  1. the outer call decreases <code>n</code>;  1. the nested call <code>ack(n, m_prev)</code> is itself lexicographically smaller  (<code>n</code> equal, <code>m</code> smaller).</p>
+<p>This lets us write Ackermann directly without the old higher-order encoding.</p>
 <p>This is related to the nested-recursion discussion in Bove-Capretta-style presentations: each nested layer needs its own decreasing argument/evidence.</p>
 <h2><a href="#pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" name="pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" class="anchor"><span class="anchor-link"></span></a>Pattern 10: Random Choice / Divide Patterns With Explicit Size Fuel</h2>
 <p><code>Rand.bosatsu</code> function <code>one_of</code> computes <code>len(items)</code> as a <code>BinNat</code>, then recurses on that size while splitting the list. This is the same termination proof idea as sorting: derive a bound, decrease it, recurse.</p>
@@ -406,7 +403,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ol>
   <li>If the recursive call is on an obvious subvalue, use structural recursion.</li>
   <li>If not, compute a bound and recurse on that fuel (<code>Nat</code> is usually easiest).</li>
-  <li>If recursion is nested, make sure each nesting level has its own decreasing  argument (Ackermann example).</li>
+  <li>If recursion uses multiple arguments, prefer <code>recur (a, b, ...)</code> and check  lexicographic decrease in that order.</li>
   <li>For parsing-like string scans, either recurse on string tail directly or use  length-derived fuel.</li>
 </ol>
 <h2><a href="#references" name="references" class="anchor"><span class="anchor-link"></span></a>References</h2>
@@ -446,7 +443,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
     <li><a href="recursion.html#pattern-6-convert-one-measure-to-another" class="header">Pattern 6: Convert One Measure To Another</a></li>
     <li><a href="recursion.html#pattern-7-recur-directly-on-string" class="header">Pattern 7: Recur Directly On <code>String</code></a></li>
     <li><a href="recursion.html#pattern-8-string-parsing-with-length-derived-fuel" class="header">Pattern 8: String Parsing With Length-Derived Fuel</a></li>
-    <li><a href="recursion.html#pattern-9-non-obvious-nested-recursion-ackermann-style-" class="header">Pattern 9: Non-Obvious Nested Recursion (Ackermann-Style)</a></li>
+    <li><a href="recursion.html#pattern-9-lexicographic-tuple-recursion-ackermann-" class="header">Pattern 9: Lexicographic Tuple Recursion (Ackermann)</a></li>
     <li><a href="recursion.html#pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" class="header">Pattern 10: Random Choice / Divide Patterns With Explicit Size Fuel</a></li>
     <li><a href="recursion.html#int-loops-and-trusted-externals" class="header">Int Loops And Trusted Externals</a></li>
     <li><a href="recursion.html#relation-to-fuel-and-bove-capretta" class="header">Relation To Fuel And Bove-Capretta</a></li>
@@ -519,7 +516,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3399b89e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-dcd8c30e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

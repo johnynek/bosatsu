@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3399b89e*
+0.0.0+1-dcd8c30e*
 </div>
 </div>
 <div class="nav-toc">
@@ -148,7 +148,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3399b89e*
+0.0.0+1-dcd8c30e*
 </div>
 </div>
 <div class="nav-toc">
@@ -464,6 +464,14 @@ y = 1 == 1
 
   loop(0, lst)
 </code></pre>
+<p>Tuple recursion targets are also supported and checked lexicographically in the target order:</p>
+<pre><code>def ack(n: Nat, m: Nat) -&gt; Nat:
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
+</code></pre>
+<p>In <code>recur (a, b, ...)</code>, a recursive call is accepted when the first target position that changes is smaller; earlier target positions must stay equal.</p>
 <p>For full recursion rules and advanced patterns (fuel, divide-and-conquer with a size bound, string recursion, trees, Ackermann-style nested recursion), see <a href="recursion.html">Recursion in Bosatsu</a>.</p>
 <h2><a href="#loops-with-recur-" name="loops-with-recur-" class="anchor"><span class="anchor-link"></span></a>Loops (with <code>recur</code>)</h2>
 <p>Bosatsu has no <code>while</code> or <code>for</code>. Loops are recursive defs using <code>recur</code>. In practice this is stricter than loops in most languages users have seen: we allow loops, but only when the compiler can prove they terminate. That restriction is what preserves type-system soundness.</p>
@@ -824,7 +832,7 @@ def foldO(oo, if_none, if_some):
   else:
     state
 </code></pre>
-<p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of inputs in the same position. This gives a simple proof that the loop will terminate.</p>
+<p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of the <code>recur</code> targets (single-target structural decrease or tuple-target lexicographic decrease). This gives a simple proof that the loop will terminate.</p>
 <p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is total and matches its declared type.</p>
 <pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
 </code></pre>
@@ -939,7 +947,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3399b89e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-dcd8c30e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
