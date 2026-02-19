@@ -347,6 +347,19 @@ def len(lst):
   loop(0, lst)
 ```
 
+Tuple recursion targets are also supported and checked lexicographically in the
+target order:
+```
+def ack(n: Nat, m: Nat) -> Nat:
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
+```
+
+In `recur (a, b, ...)`, a recursive call is accepted when the first target
+position that changes is smaller; earlier target positions must stay equal.
+
 For full recursion rules and advanced patterns (fuel, divide-and-conquer with a
 size bound, string recursion, trees, Ackermann-style nested recursion), see
 [Recursion in Bosatsu](recursion.html).
@@ -953,8 +966,9 @@ def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 ```
 We cannot write this function, even though it is total, because Bosatsu cannot
 prove that the loop terminates. The only recursions we can do are on values that
-are substructures of inputs in the same position. This gives a simple proof
-that the loop will terminate.
+are substructures of the `recur` targets (single-target structural decrease or
+tuple-target lexicographic decrease). This gives a simple proof that the loop
+will terminate.
 
 Instead, we implement this function in Predef as an external def that has to be
 supplied to the compiler with a promise that it is total and matches its
