@@ -3092,6 +3092,41 @@ main = match (Rec { a: 1 }, Rec { c: 4, a: 2 }, Rec { a: 3, c: 5 }, AllDefault {
   }
 
   test(
+    "struct update syntax evaluates by overriding explicit fields and copying omitted ones"
+  ) {
+    evalTest(
+      List(
+        """package Test
+struct Foo(a: Int, b: Int, c: Int)
+
+base = Foo(1, 2, 3)
+main = match Foo { b: 9, ..base }:
+  case Foo(1, 9, 3): 1
+  case _: 0
+"""
+      ),
+      "Test",
+      VInt(1)
+    )
+  }
+
+  test("tuple update syntax works through TupleN record constructors") {
+    evalTest(
+      List(
+        """package Test
+
+t = (1, 2)
+main = match Tuple2 { item1: 9, ..t }:
+  case (9, 2): 1
+  case _: 0
+"""
+      ),
+      "Test",
+      VInt(1)
+    )
+  }
+
+  test(
     "enum default field can reference an earlier constructor and typechecks polymorphically"
   ) {
     evalTest(

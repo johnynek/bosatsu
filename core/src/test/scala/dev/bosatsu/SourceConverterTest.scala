@@ -3,8 +3,7 @@ package dev.bosatsu
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
-import cats.data.Ior
-import cats.data.NonEmptyList
+import cats.data.{Ior, NonEmptyChain, NonEmptyList}
 import Identifier.Bindable
 
 import cats.implicits._
@@ -26,11 +25,14 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
   private def convertProgramResult(
       code: String
-  ): Ior[ cats.data.NonEmptyChain[SourceConverter.Error], Program[
-    (rankn.TypeEnv[Kind.Arg], rankn.ParsedTypeEnv[Option[Kind.Arg]]),
-    Expr[Declaration],
-    List[Statement]
-  ]] =
+  ): Ior[
+    cats.data.NonEmptyChain[SourceConverter.Error],
+    Program[
+      (rankn.TypeEnv[Kind.Arg], rankn.ParsedTypeEnv[Option[Kind.Arg]]),
+      Expr[Declaration],
+      List[Statement]
+    ]
+  ] =
     SourceConverter.toProgram(
       TestUtils.testPackage,
       Nil,
@@ -116,6 +118,46 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
     val actual = mainExpr(actualCode).eraseTags
     val expected = mainExpr(expectedCode).eraseTags
     assertEquals(actual, expected)
+  }
+
+  test(
+    "addErrorKeepGoing preserves successful values while accumulating errors"
+  ) {
+    val e1 = SourceConverter.UnknownTypeName(
+      Identifier.Constructor("One"),
+      Region(0, 0)
+    )
+    val e2 = SourceConverter.UnknownTypeName(
+      Identifier.Constructor("Two"),
+      Region(1, 1)
+    )
+
+    val fromRight =
+      SourceConverter.addErrorKeepGoing(SourceConverter.success(1), e1)
+    assertEquals(fromRight, Ior.Both(NonEmptyChain.one(e1), 1))
+
+    val fromLeft = SourceConverter.addErrorKeepGoing[Int](
+      Ior.Left(NonEmptyChain.one(e1)),
+      e2
+    )
+    fromLeft match {
+      case Ior.Left(errs) =>
+        assertEquals(errs.toList, List(e1, e2))
+      case other =>
+        fail(s"expected Left with accumulated errors, got: $other")
+    }
+
+    val fromBoth = SourceConverter.addErrorKeepGoing(
+      Ior.Both(NonEmptyChain.one(e1), 7),
+      e2
+    )
+    fromBoth match {
+      case Ior.Both(errs, value) =>
+        assertEquals(value, 7)
+        assertEquals(errs.toList, List(e1, e2))
+      case other =>
+        fail(s"expected Both with accumulated errors, got: $other")
+    }
   }
 
   test("makeLetsUnique preserves let count") {
@@ -358,7 +400,10 @@ main = S { b: 2 }
           stripWrapperExpr(in) match {
             case Expr.Global(p, b: Identifier.Bindable, _) =>
               assertEquals(p, TestUtils.testPackage)
-              assert(Identifier.isSynthetic(b), s"expected synthetic binding, got: $b")
+              assert(
+                Identifier.isSynthetic(b),
+                s"expected synthetic binding, got: $b"
+              )
             case other =>
               fail(s"expected synthetic global, got: $other")
           }
@@ -392,6 +437,287 @@ main = S(9)
       case other =>
         fail(s"expected constructor application, got: $other")
     }
+  }
+
+  test(
+    "record update desugars to a single-branch match for single-constructor structs"
+  ) {
+    val expr = stripWrapperExpr(mainExpr("""#
+struct Foo(a, b, c)
+base = Foo(1, 2, 3)
+main = Foo { b: 9, ..base }
+"""))
+
+    expr match {
+      case Expr.Match(scrutinee, branches, _) =>
+        assertEquals(branches.length, 1)
+        stripWrapperExpr(scrutinee) match {
+          case Expr.Global(p, Identifier.Name("base"), _) =>
+            assertEquals(p, TestUtils.testPackage)
+          case other =>
+            fail(s"expected base scrutinee, got: $other")
+        }
+
+        val branch = branches.head
+        branch.pattern match {
+          case Pattern.PositionalStruct(
+                (pack, Identifier.Constructor("Foo")),
+                List(aPat, bPat, cPat)
+              ) =>
+            assertEquals(pack, TestUtils.testPackage)
+            val aName = aPat match {
+              case Pattern.Var(v) => v
+              case other          =>
+                fail(s"expected var pattern for field a, got: $other")
+            }
+            assertEquals(bPat, Pattern.WildCard)
+            val cName = cPat match {
+              case Pattern.Var(v) => v
+              case other          =>
+                fail(s"expected var pattern for field c, got: $other")
+            }
+
+            branch.expr match {
+              case Expr.App(
+                    Expr.Global(p, Identifier.Constructor("Foo"), _),
+                    args,
+                    _
+                  ) =>
+                assertEquals(p, TestUtils.testPackage)
+                val argList = args.toList
+                assertEquals(argList.length, 3)
+
+                stripWrapperExpr(argList(0)) match {
+                  case Expr.Local(v, _) => assertEquals(v, aName)
+                  case other            =>
+                    fail(s"expected copied local for field a, got: $other")
+                }
+                stripWrapperExpr(argList(1)) match {
+                  case Expr.Literal(lit, _) =>
+                    assertEquals(lit, Lit.fromInt(9))
+                  case other =>
+                    fail(s"expected explicit literal for field b, got: $other")
+                }
+                stripWrapperExpr(argList(2)) match {
+                  case Expr.Local(v, _) => assertEquals(v, cName)
+                  case other            =>
+                    fail(s"expected copied local for field c, got: $other")
+                }
+              case other =>
+                fail(s"expected rebuilt Foo constructor, got: $other")
+            }
+          case other =>
+            fail(s"expected Foo positional pattern, got: $other")
+        }
+      case other =>
+        fail(s"expected match expression, got: $other")
+    }
+  }
+
+  test("record update supports shorthand explicit fields") {
+    val code = """#
+struct Foo(a, b, c)
+a = 9
+base = Foo(1, 2, 3)
+main = Foo { a, ..base }
+"""
+
+    assertEquals(conversionErrors(code), Nil)
+
+    mainBranches(code).head.expr match {
+      case Expr.App(
+            Expr.Global(_, Identifier.Constructor("Foo"), _),
+            args,
+            _
+          ) =>
+        val argList = args.toList
+        stripWrapperExpr(argList(0)) match {
+          case Expr.Global(p, Identifier.Name("a"), _) =>
+            assertEquals(p, TestUtils.testPackage)
+          case other =>
+            fail(
+              s"expected shorthand field `a` to resolve to global, got: $other"
+            )
+        }
+      case other =>
+        fail(s"expected rebuilt Foo constructor, got: $other")
+    }
+  }
+
+  test("record update errors on non-single-constructor enum types") {
+    val errs = conversionErrors("""#
+enum Foo:
+  A(a, b)
+  B(v)
+base = A(1, 2)
+main = A { a: 3, ..base }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.RecordUpdateRequiresSingleConstructor(
+              Identifier.Constructor("A"),
+              TypeName(Identifier.Constructor("Foo")),
+              2,
+              _,
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing RecordUpdateRequiresSingleConstructor in errors: $errs"
+    )
+  }
+
+  test("record update errors when no fields are sourced from base") {
+    val errs = conversionErrors("""#
+struct Foo(a, b)
+base = Foo(1, 2)
+main = Foo { a: 3, b: 4, ..base }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.RecordUpdateNoFieldsFromBase(
+              Identifier.Constructor("Foo"),
+              _,
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing RecordUpdateNoFieldsFromBase in errors: $errs"
+    )
+  }
+
+  test("record update errors when there are no explicit field overrides") {
+    val errs = conversionErrors("""#
+struct Foo(a, b)
+base = Foo(1, 2)
+main = Foo { ..base }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.RecordUpdateRequiresExplicitField(
+              Identifier.Constructor("Foo"),
+              _,
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing RecordUpdateRequiresExplicitField in errors: $errs"
+    )
+  }
+
+  test(
+    "record update duplicate fields report an error and use last-write-wins"
+  ) {
+    val code = """#
+struct Foo(a, b)
+base = Foo(1, 2)
+main = Foo { a: 3, a: 4, ..base }
+"""
+    val errs = conversionErrors(code)
+
+    assert(
+      errs.exists {
+        case SourceConverter.RecordUpdateDuplicateField(
+              Identifier.Constructor("Foo"),
+              _,
+              duplicated,
+              _
+            ) =>
+          duplicated.toList.contains(Identifier.Name("a"))
+        case _ =>
+          false
+      },
+      s"missing RecordUpdateDuplicateField in errors: $errs"
+    )
+
+    mainBranches(code).head.expr match {
+      case Expr.App(
+            Expr.Global(_, Identifier.Constructor("Foo"), _),
+            args,
+            _
+          ) =>
+        stripWrapperExpr(args.toList.head) match {
+          case Expr.Literal(lit, _) =>
+            assertEquals(lit, Lit.fromInt(4))
+          case other =>
+            fail(s"expected last explicit `a` value to win, got: $other")
+        }
+      case other =>
+        fail(s"expected rebuilt Foo constructor, got: $other")
+    }
+  }
+
+  test(
+    "record update duplicate fields listed once even with repeated duplicates"
+  ) {
+    val code = """#
+struct Foo(a, b)
+base = Foo(1, 2)
+main = Foo { a: 3, a: 4, a: 5, ..base }
+"""
+    val errs = conversionErrors(code)
+
+    val dups = errs.collect {
+      case SourceConverter.RecordUpdateDuplicateField(
+            Identifier.Constructor("Foo"),
+            _,
+            duplicated,
+            _
+          ) =>
+        duplicated.toList
+    }
+
+    assertEquals(dups, List(List(Identifier.Name("a"))))
+
+    mainBranches(code).head.expr match {
+      case Expr.App(
+            Expr.Global(_, Identifier.Constructor("Foo"), _),
+            args,
+            _
+          ) =>
+        stripWrapperExpr(args.toList.head) match {
+          case Expr.Literal(lit, _) =>
+            assertEquals(lit, Lit.fromInt(5))
+          case other =>
+            fail(s"expected final explicit `a` value to win, got: $other")
+        }
+      case other =>
+        fail(s"expected rebuilt Foo constructor, got: $other")
+    }
+  }
+
+  test("record update retains unexpected-field validation behavior") {
+    val errs = conversionErrors("""#
+struct Foo(a, b)
+base = Foo(1, 2)
+main = Foo { a: 3, nope: 4, ..base }
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.UnexpectedField(
+              Identifier.Constructor("Foo"),
+              _,
+              unexpected,
+              expected,
+              _
+            ) =>
+          unexpected.toList.contains(Identifier.Name("nope")) &&
+          expected == List(Identifier.Name("a"), Identifier.Name("b"))
+        case _ =>
+          false
+      },
+      s"missing UnexpectedField in errors: $errs"
+    )
   }
 
   test("constructor defaults cannot reference constructor parameters") {
@@ -459,11 +785,15 @@ main = Bar { }
 
     val fooHelperExpr = program
       .getLet(fooDefault)
-      .getOrElse(fail(s"missing helper binding for ${fooDefault.sourceCodeRepr}"))
+      .getOrElse(
+        fail(s"missing helper binding for ${fooDefault.sourceCodeRepr}")
+      )
       ._2
     val barHelperExpr = program
       .getLet(barDefault)
-      .getOrElse(fail(s"missing helper binding for ${barDefault.sourceCodeRepr}"))
+      .getOrElse(
+        fail(s"missing helper binding for ${barDefault.sourceCodeRepr}")
+      )
       ._2
 
     assert(
@@ -574,7 +904,9 @@ struct G[a](x: Option[a] = None)
     assertEquals(actual, expected)
   }
 
-  test("generic default helper naming is stable across type parameter renaming") {
+  test(
+    "generic default helper naming is stable across type parameter renaming"
+  ) {
     val codeA = """#
 struct Foo[a](opt: Option[a] = None)
 """
@@ -595,7 +927,11 @@ struct Foo[$tv](opt: Option[$tv] = None)
     val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
     names.foreach { tv =>
       val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
-      assertEquals(next, base, s"type parameter rename changed default hash: $tv")
+      assertEquals(
+        next,
+        base,
+        s"type parameter rename changed default hash: $tv"
+      )
     }
   }
 
@@ -607,7 +943,12 @@ struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
 struct Foo[x, y](pair: (Option[x], Option[y]) = (None, None))
 """
 
-    assertSameDefaultBindingName(codeAB, codeXY, Identifier.Constructor("Foo"), 0)
+    assertSameDefaultBindingName(
+      codeAB,
+      codeXY,
+      Identifier.Constructor("Foo"),
+      0
+    )
   }
 
   test("generic default helper naming is stable in nested function types") {
@@ -637,7 +978,9 @@ struct Foo[a: *](opt: Option[a] = None)
     )
   }
 
-  test("generic default helper naming is stable for equivalent type-arg parenthesization") {
+  test(
+    "generic default helper naming is stable for equivalent type-arg parenthesization"
+  ) {
     val codeFlat = """#
 struct Foo[a](opt: Option[Option[a]] = None)
 """
@@ -645,10 +988,17 @@ struct Foo[a](opt: Option[Option[a]] = None)
 struct Foo[a](opt: Option[(Option[a])] = None)
 """
 
-    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+    assertSameDefaultBindingName(
+      codeFlat,
+      codeParen,
+      Identifier.Constructor("Foo"),
+      0
+    )
   }
 
-  test("generic default helper naming is stable for equivalent function parenthesization") {
+  test(
+    "generic default helper naming is stable for equivalent function parenthesization"
+  ) {
     val codeFlat = """#
 struct Foo[a](fn: a -> Option[a] -> Option[a] = x -> y -> None)
 """
@@ -656,10 +1006,17 @@ struct Foo[a](fn: a -> Option[a] -> Option[a] = x -> y -> None)
 struct Foo[a](fn: a -> (Option[a] -> Option[a]) = x -> y -> None)
 """
 
-    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+    assertSameDefaultBindingName(
+      codeFlat,
+      codeParen,
+      Identifier.Constructor("Foo"),
+      0
+    )
   }
 
-  test("generic default helper naming is stable for equivalent tuple parenthesization") {
+  test(
+    "generic default helper naming is stable for equivalent tuple parenthesization"
+  ) {
     val codeFlat = """#
 struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
 """
@@ -667,7 +1024,12 @@ struct Foo[a, b](pair: (Option[a], Option[b]) = (None, None))
 struct Foo[a, b](pair: ((Option[a]), (Option[b])) = (None, None))
 """
 
-    assertSameDefaultBindingName(codeFlat, codeParen, Identifier.Constructor("Foo"), 0)
+    assertSameDefaultBindingName(
+      codeFlat,
+      codeParen,
+      Identifier.Constructor("Foo"),
+      0
+    )
   }
 
   test("generic default helper naming is stable under forall binder renaming") {
@@ -703,7 +1065,9 @@ enum FreeF[a]:
     )
   }
 
-  test("enum branch existential default helper naming is stable across many renames") {
+  test(
+    "enum branch existential default helper naming is stable across many renames"
+  ) {
     val names = List("b", "x", "with_t", "inner", "elem")
     val ctor = Identifier.Constructor("Mapped")
     def mkCode(tv: String): String = s"""#
@@ -715,7 +1079,11 @@ enum FreeF[a]:
     val base = defaultBindingNameAt(mkCode(names.head), ctor, 0)
     names.foreach { tv =>
       val next = defaultBindingNameAt(mkCode(tv), ctor, 0)
-      assertEquals(next, base, s"branch type parameter rename changed default hash: $tv")
+      assertEquals(
+        next,
+        base,
+        s"branch type parameter rename changed default hash: $tv"
+      )
     }
   }
 

@@ -270,6 +270,99 @@ main = match True:
 """)) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
+  test("record update source-converter errors have actionable messages") {
+    evalFail(List("""
+package UpdateSingle
+
+enum Foo:
+  A(a: Int, b: Int)
+  B(c: Int)
+
+base = A(1, 2)
+main = A { a: 3, ..base }
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "record update syntax for A is only supported on single-constructor types."
+        ),
+        msg
+      )
+      assert(msg.contains("Foo has 2 constructors."), msg)
+      ()
+    }
+
+    evalFail(List("""
+package UpdateNoBase
+
+struct Foo(a: Int, b: Int)
+base = Foo(1, 2)
+main = Foo { a: 3, b: 4, ..base }
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "record update syntax for Foo uses no fields from the base expression."
+        ),
+        msg
+      )
+      ()
+    }
+
+    evalFail(List("""
+package UpdateExplicit
+
+struct Foo(a: Int, b: Int)
+base = Foo(1, 2)
+main = Foo { ..base }
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "record update syntax for Foo requires at least one explicit field override."
+        ),
+        msg
+      )
+      ()
+    }
+
+    evalFail(List("""
+package UpdateDup
+
+struct Foo(a: Int, b: Int)
+base = Foo(1, 2)
+main = Foo { a: 1, a: 2, ..base }
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains("duplicate explicit field in record update for Foo: a."),
+        msg
+      )
+      assert(
+        msg.contains("the last explicit value wins while checking continues."),
+        msg
+      )
+      ()
+    }
+
+    evalFail(List("""
+package UpdateDupPlural
+
+struct Foo(a: Int, b: Int, c: Int)
+base = Foo(1, 2, 3)
+main = Foo { a: 1, a: 2, b: 3, b: 4, ..base }
+""")) { case te @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "duplicate explicit fields in record update for Foo: a, b."
+        ),
+        msg
+      )
+      ()
+    }
+  }
+
   test("unused let fails compilation") {
     evalFail(List("""
 package A

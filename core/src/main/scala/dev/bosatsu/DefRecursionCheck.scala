@@ -659,7 +659,7 @@ object DefRecursionCheck {
                 (f.parTraverse_(checkDecl))
           }
 
-        case RecordConstructor(_, args) =>
+        case RecordConstructor(_, args, updateFrom) =>
           def checkArg(arg: RecordArg): St[Unit] =
             arg match {
               case RecordArg.Simple(b) =>
@@ -667,7 +667,7 @@ object DefRecursionCheck {
               case RecordArg.Pair(_, v) =>
                 checkDecl(v)
             }
-          args.parTraverse_(checkArg)
+          args.parTraverse_(checkArg) *> updateFrom.parTraverse_(checkDecl)
       }
     }
 

@@ -187,7 +187,7 @@ class ParserTest extends ParserTestBase {
     assert(Parser.unescape("\\u00").isLeft)
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
-    val propUnescape = forAll { (s: String) => Parser.unescape(s): Unit }
+    val propUnescape = forAll((s: String) => Parser.unescape(s): Unit)
     // more brutal tests
     val propPrefixes = forAll { (s: String) =>
       val prefixes = List('x', 'o', 'u', 'U').map(c => s"\\$c")
@@ -451,9 +451,64 @@ class ParserTest extends ParserTestBase {
     check("Foo {\nbar:\n\tbaz, quux:\n\t42\n\t}")
     check("Foo {\nbar:\n\n\tbaz,\nquux\n:\n42\n}")
 
+    check("Foo { bar: baz, ..base }")
+    check("Foo{bar:baz,..base}")
+    check("Foo { bar, ..base }")
+    check("Foo { ..base }")
+    check("Foo { .. base }")
+    check("Foo { bar, ..base, }")
+    check("Foo { ..base, }")
+
+    val rp = Declaration.recordConstructorP(
+      "",
+      Declaration.varP,
+      Declaration.varP.orElse(Declaration.lits)
+    )
+    assert(rp.parseAll("Foo { ..x, a: 1 }").isLeft)
+    assert(rp.parseAll("Foo { ..x, ..y }").isLeft)
+    assert(rp.parseAll("Foo { .. }").isLeft)
+    assert(rp.parseAll("Foo { ... }").isLeft)
+
     check("Foo{x:1}")
     // from scalacheck
     // check("Ze8lujlrbo {wlqOvp: {}}")
+  }
+
+  test("Declaration.toPattern rejects record constructor updates") {
+    val ordinary = unsafeParse(Declaration.parser(""), "Foo { a: 1 }")
+      .asInstanceOf[Declaration.NonBinding]
+    assert(Declaration.toPattern(ordinary).nonEmpty)
+
+    val updated = unsafeParse(Declaration.parser(""), "Foo { a: 1, ..base }")
+      .asInstanceOf[Declaration.NonBinding]
+    assertEquals(Declaration.toPattern(updated), None)
+  }
+
+  test("Declaration.toPattern handles parens around non-bindings") {
+    val wrapped = unsafeParse(Declaration.parser(""), "(x)")
+      .asInstanceOf[Declaration.NonBinding]
+    assert(Declaration.toPattern(wrapped).nonEmpty)
+  }
+
+  test("record constructor updateFrom defaults to None") {
+    val rc = Declaration.RecordConstructor(Identifier.Constructor("Foo"), Nil)
+    assertEquals(rc.updateFrom, None)
+  }
+
+  test("replaceRegions updates record constructor spread source regions") {
+    val parsed = unsafeParse(Declaration.parser(""), "Foo { a: 1, ..base }")
+      .asInstanceOf[Declaration.NonBinding]
+    val replaced = parsed.replaceRegionsNB(emptyRegion)
+
+    replaced match {
+      case Declaration.RecordConstructor(_, _, Some(from)) =>
+        assertEquals(replaced.region, emptyRegion)
+        assertEquals(from.region, emptyRegion)
+      case other =>
+        fail(
+          s"expected record constructor with update source after replaceRegions, got: $other"
+        )
+    }
   }
 
   test("we can parse tuples") {

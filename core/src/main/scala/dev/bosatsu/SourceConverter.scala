@@ -709,23 +709,51 @@ final class SourceConverter(
               Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
             }
         }
-      case rc @ RecordConstructor(name, args) =>
+      case rc @ RecordConstructor(name, args, updateFrom) =>
         val (p, c) = nameToCons(name)
         val cons: Expr[Declaration] = Expr.Global(p, c, rc)
+        def argExpr(
+            arg: RecordArg
+        ): (Bindable, Result[Expr[Declaration]]) =
+          arg match {
+            case RecordArg.Simple(b) =>
+              (b, success(resolveToVar(b, rc, bound, topBound)))
+            case RecordArg.Pair(k, v) =>
+              (k, loop(v))
+          }
+
+        val mappingList = args.toList.map(argExpr)
+        val mapping =
+          mappingList.foldLeft(Map.empty[Bindable, Result[Expr[Declaration]]]) {
+            case (acc, (k, v)) => acc.updated(k, v)
+          }
+
         localTypeEnv.flatMap { env =>
-          env.getConstructorParams(p, c) match {
-            case Some(params) =>
-              def argExpr(
-                  arg: RecordArg
-              ): (Bindable, Result[Expr[Declaration]]) =
-                arg match {
-                  case RecordArg.Simple(b) =>
-                    (b, success(resolveToVar(b, rc, bound, topBound)))
-                  case RecordArg.Pair(k, v) =>
-                    (k, loop(v))
+          env.getConstructor(p, c) match {
+            case Some((definedType, constructorFn)) =>
+              val params = constructorFn.args
+              val paramNamesList = params.map(_.name)
+              val paramNames = paramNamesList.toSet
+              // here are all the fields we don't understand
+              val extra = mappingList.collect {
+                case (k, _) if !paramNames(k) => k
+              }
+
+              def addUnexpectedFieldError[A](res: Result[A]): Result[A] =
+                NonEmptyList.fromList(extra) match {
+                  case None        => res
+                  case Some(extra) =>
+                    SourceConverter.addError(
+                      res,
+                      SourceConverter.UnexpectedField(
+                        name,
+                        rc,
+                        extra,
+                        paramNamesList,
+                        rc.region
+                      )
+                    )
                 }
-              val mappingList = args.toList.map(argExpr)
-              val mapping = mappingList.toMap
 
               lazy val present =
                 mappingList.iterator
@@ -751,34 +779,140 @@ final class SourceConverter(
                         )
                     }
                 }
-              val exprArgs = params.traverse(param => get(param.name))
 
-              val res = exprArgs.map { args =>
-                Expr.buildApp(cons, args.toList, rc)
-              }
-              // we also need to check that there are no unused or duplicated
-              // fields
-              val paramNamesList = params.map(_.name)
-              val paramNames = paramNamesList.toSet
-              // here are all the fields we don't understand
-              val extra = mappingList.collect {
-                case (k, _) if !paramNames(k) => k
-              }
-              // Check that the mapping is exactly the right size
-              NonEmptyList.fromList(extra) match {
-                case None        => res
-                case Some(extra) =>
-                  SourceConverter
-                    .addError(
-                      res,
-                      SourceConverter.UnexpectedField(
-                        name,
-                        rc,
-                        extra,
-                        paramNamesList,
-                        rc.region
+              updateFrom match {
+                case None =>
+                  val exprArgs = params.traverse(param => get(param.name))
+
+                  val res = exprArgs.map { args =>
+                    Expr.buildApp(cons, args.toList, rc)
+                  }
+                  addUnexpectedFieldError(res)
+                case Some(baseExpr) =>
+                  val duplicatedFields = {
+                    val (_, _, dupsRev) = mappingList.foldLeft(
+                      (
+                        Set.empty[Bindable],
+                        Set.empty[Bindable],
+                        List.empty[Bindable]
                       )
-                    )
+                    ) { case ((seen, dupSet, dupsRev), (field, _)) =>
+                      if (!seen(field))
+                        (seen + field, dupSet, dupsRev)
+                      else if (dupSet(field))
+                        (seen, dupSet, dupsRev)
+                      else
+                        (seen, dupSet + field, field :: dupsRev)
+                    }
+                    dupsRev.reverse
+                  }
+
+                  val omitted = params.filterNot(p => mapping.contains(p.name))
+                  val freshNames = unusedNames(decl.allNames)
+                  val copyFromBase =
+                    omitted.iterator
+                      .map(param => (param.name, freshNames.next()))
+                      .toMap
+
+                  val patternArgs = params.map { param =>
+                    if (mapping.contains(param.name)) Pattern.WildCard
+                    else Pattern.Var(copyFromBase(param.name))
+                  }
+                  val updatedPattern =
+                    Pattern.PositionalStruct((p, c), patternArgs)
+
+                  val updatedArgs: Result[List[Expr[Declaration]]] =
+                    params.traverse { param =>
+                      mapping.get(param.name) match {
+                        case Some(explicit) => explicit
+                        case None           =>
+                          SourceConverter.success(
+                            Expr.Local(copyFromBase(param.name), rc)
+                          )
+                      }
+                    }
+
+                  val rebuilt = updatedArgs.map { args =>
+                    Expr.buildApp(cons, args, rc)
+                  }
+
+                  val matchExpr = (loop(baseExpr), rebuilt).parMapN {
+                    (scrutinee, rebuiltValue) =>
+                      val updateBranch =
+                        Expr.Branch(updatedPattern, None, rebuiltValue)
+                      val branches =
+                        if (definedType.constructors.lengthCompare(1) == 0)
+                          NonEmptyList.one(updateBranch)
+                        else {
+                          val fallback = freshNames.next()
+                          NonEmptyList(
+                            updateBranch,
+                            Expr.Branch(
+                              Pattern.Var(fallback),
+                              None,
+                              Expr.Local(fallback, rc)
+                            ) :: Nil
+                          )
+                        }
+
+                      Expr.Match(scrutinee, branches, rc)
+                  }
+
+                  val withDupErr =
+                    NonEmptyList.fromList(duplicatedFields) match {
+                      case None       => matchExpr
+                      case Some(dups) =>
+                        SourceConverter.addErrorKeepGoing(
+                          matchExpr,
+                          SourceConverter.RecordUpdateDuplicateField(
+                            name,
+                            rc,
+                            dups,
+                            rc.region
+                          )
+                        )
+                    }
+
+                  val withExplicitErr =
+                    if (mapping.isEmpty)
+                      SourceConverter.addErrorKeepGoing(
+                        withDupErr,
+                        SourceConverter.RecordUpdateRequiresExplicitField(
+                          name,
+                          rc,
+                          rc.region
+                        )
+                      )
+                    else withDupErr
+
+                  val withBaseErr =
+                    if (omitted.isEmpty)
+                      SourceConverter.addErrorKeepGoing(
+                        withExplicitErr,
+                        SourceConverter.RecordUpdateNoFieldsFromBase(
+                          name,
+                          rc,
+                          rc.region
+                        )
+                      )
+                    else withExplicitErr
+
+                  val withSingleConstructorErr =
+                    if (definedType.constructors.lengthCompare(1) == 0)
+                      withBaseErr
+                    else
+                      SourceConverter.addErrorKeepGoing(
+                        withBaseErr,
+                        SourceConverter.RecordUpdateRequiresSingleConstructor(
+                          name,
+                          definedType.name,
+                          definedType.constructors.size,
+                          rc,
+                          rc.region
+                        )
+                      )
+
+                  addUnexpectedFieldError(withSingleConstructorErr)
               }
             case None =>
               SourceConverter.failure(
@@ -2260,6 +2394,13 @@ object SourceConverter {
   def addError[A](r: Result[A], err: Error): Result[A] =
     parallelIor.<*(r)(failure(err))
 
+  def addErrorKeepGoing[A](r: Result[A], err: Error): Result[A] =
+    r match {
+      case Ior.Left(errs)    => Ior.Left(errs.append(err))
+      case Ior.Right(a)      => Ior.Both(NonEmptyChain.one(err), a)
+      case Ior.Both(errs, a) => Ior.Both(errs.append(err), a)
+    }
+
   // use this when we want to accumulate errors in parallel
   private val parallelIor: Applicative[Result] =
     Ior.catsDataParallelForIor[NonEmptyChain[Error]].applicative
@@ -2553,6 +2694,64 @@ object SourceConverter {
         Doc.text(
           s"in ${name.sourceCodeRepr}, expected: "
         ) + exDoc + Doc.lineOrSpace + syntax.toDoc).render(80)
+    }
+  }
+
+  final case class RecordUpdateRequiresSingleConstructor(
+      name: Constructor,
+      ownerType: TypeName,
+      constructorCount: Int,
+      syntax: ConstructorSyntax,
+      region: Region
+  ) extends ConstructorError {
+    def message =
+      (Doc.text(
+        s"record update syntax for ${name.sourceCodeRepr} is only supported on single-constructor types."
+      ) + Doc.lineOrSpace + Doc.text(
+        s"${ownerType.ident.sourceCodeRepr} has $constructorCount constructors."
+      ) + Doc.lineOrSpace + syntax.toDoc).render(80)
+  }
+
+  final case class RecordUpdateNoFieldsFromBase(
+      name: Constructor,
+      syntax: ConstructorSyntax,
+      region: Region
+  ) extends ConstructorError {
+    def message =
+      (Doc.text(
+        s"record update syntax for ${name.sourceCodeRepr} uses no fields from the base expression."
+      ) + Doc.lineOrSpace + Doc.text(
+        "all fields are explicitly set; remove `..base` or omit at least one field."
+      ) + Doc.lineOrSpace + syntax.toDoc).render(80)
+  }
+
+  final case class RecordUpdateRequiresExplicitField(
+      name: Constructor,
+      syntax: ConstructorSyntax,
+      region: Region
+  ) extends ConstructorError {
+    def message =
+      (Doc.text(
+        s"record update syntax for ${name.sourceCodeRepr} requires at least one explicit field override."
+      ) + Doc.lineOrSpace + Doc.text(
+        "this is an identity update; use the base expression directly."
+      ) + Doc.lineOrSpace + syntax.toDoc).render(80)
+  }
+
+  final case class RecordUpdateDuplicateField(
+      name: Constructor,
+      syntax: ConstructorSyntax,
+      duplicatedFields: NonEmptyList[Bindable],
+      region: Region
+  ) extends ConstructorError {
+    def message = {
+      val plural = if (duplicatedFields.tail.isEmpty) "field" else "fields"
+      val dups = duplicatedFields.toList.map(_.sourceCodeRepr).mkString(", ")
+      (Doc.text(
+        s"duplicate explicit $plural in record update for ${name.sourceCodeRepr}: $dups."
+      ) + Doc.lineOrSpace + Doc.text(
+        "the last explicit value wins while checking continues."
+      ) + Doc.lineOrSpace + syntax.toDoc).render(80)
     }
   }
 

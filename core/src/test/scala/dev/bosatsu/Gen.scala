@@ -866,9 +866,11 @@ object Generators {
   ): Gen[Declaration.RecordConstructor] = {
     val args =
       Gen.choose(0, 4).flatMap(Gen.listOfN(_, genRecordArg(dgen)))
+    val updateFrom =
+      Gen.frequency((4, Gen.const(None)), (1, dgen.map(Some(_))))
 
-    Gen.zip(consIdentGen, args).map { case (c, a) =>
-      Declaration.RecordConstructor(c, a)(using emptyRegion)
+    Gen.zip(consIdentGen, args, updateFrom).map { case (c, a, update) =>
+      Declaration.RecordConstructor(c, a, update)(using emptyRegion)
     }
   }
 
@@ -1014,21 +1016,35 @@ object Generators {
           items.to(LazyList).flatMap(kv => LazyList(kv.key, kv.value))
         case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
           (a.key :: a.value :: c :: d.toList).to(LazyList)
-        case RecordConstructor(n, args) =>
+        case RecordConstructor(n, args, updateFrom) =>
           def fromArg(arg: RecordArg): LazyList[Declaration] =
             arg match {
               case RecordArg.Pair(name, d) =>
                 LazyList(Var(name)(using emptyRegion), d)
-              case RecordArg.Simple(name)  =>
+              case RecordArg.Simple(name) =>
                 LazyList(Var(name)(using emptyRegion))
             }
 
           val dropOne = dropItemList(args).map(
-            RecordConstructor(n, _)(using emptyRegion): Declaration
+            RecordConstructor(n, _, updateFrom)(using emptyRegion): Declaration
           )
+          val updateShrinks = updateFrom match {
+            case Some(nb) =>
+              nb #:: LazyList.from(shrinkDecl.shrink(nb))
+            case None => LazyList.empty
+          }
+          val dropUpdate = updateFrom match {
+            case Some(_) =>
+              RecordConstructor(n, args, None)(using
+                emptyRegion
+              ) #:: LazyList.empty
+            case None => LazyList.empty
+          }
 
           Var(n)(using emptyRegion) #::
             args.to(LazyList).flatMap(fromArg) #:::
+            updateShrinks #:::
+            dropUpdate #:::
             dropOne
       }
     }

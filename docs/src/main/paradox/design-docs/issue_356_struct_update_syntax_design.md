@@ -1,8 +1,11 @@
 # Issue 356: Struct Update Syntax (`..old`)
 
-Status: proposed  
+Status: implemented  
 Date: 2026-02-19  
+Implemented: 2026-02-19  
 Issue: <https://github.com/johnynek/bosatsu/issues/356>
+
+Implementation status: all items in this design were implemented.
 
 ## Goal
 Add Rust-style struct update syntax:
