@@ -457,7 +457,7 @@ class InhabitednessTest extends munit.ScalaCheckSuite {
 
     assertState(
       Inhabitedness.checkMatch(listType, partialList, nonTrivialEnv),
-      State.Unknown
+      State.Inhabited
     )
     assertState(
       Inhabitedness.checkMatch(Type.IntType, prefixedListOnNonList, nonTrivialEnv),

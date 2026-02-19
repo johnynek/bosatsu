@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.data.ValidatedNec
+import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.rankn.TypeEnv
@@ -134,19 +134,19 @@ object Inhabitedness {
 
     private def varAssignments(
         vars: List[Type.Var.Bound]
-    ): Option[List[Map[Type.Var.Bound, State]]] =
+    ): Option[NonEmptyList[Map[Type.Var.Bound, State]]] =
       if (vars.lengthCompare(MaxQuantifierVars) > 0) None
       else {
         @annotation.tailrec
         def loop(
             rem: List[Type.Var.Bound],
-            acc: List[Map[Type.Var.Bound, State]]
-        ): List[Map[Type.Var.Bound, State]] =
+            acc: NonEmptyList[Map[Type.Var.Bound, State]]
+        ): NonEmptyList[Map[Type.Var.Bound, State]] =
           rem match {
             case Nil => acc
             case h :: t =>
               val next = acc.flatMap { m =>
-                List(
+                NonEmptyList.of(
                   m.updated(h, Inhabited),
                   m.updated(h, Uninhabited)
                 )
@@ -154,7 +154,7 @@ object Inhabitedness {
               loop(t, next)
           }
 
-        Some(loop(vars, List(Map.empty)))
+        Some(loop(vars, NonEmptyList.one(Map.empty)))
       }
 
     private def evaluateQuantifier(
@@ -171,11 +171,11 @@ object Inhabitedness {
           case Some(assignments) =>
             val states = assignments.map(assignment => bodyEval(outerState ++ assignment))
             if (isForAll) {
-              if (states.contains(Uninhabited)) Uninhabited
+              if (states.exists(_ == Uninhabited)) Uninhabited
               else if (states.forall(_ == Inhabited)) Inhabited
               else Unknown
             } else {
-              if (states.contains(Inhabited)) Inhabited
+              if (states.exists(_ == Inhabited)) Inhabited
               else if (states.forall(_ == Uninhabited)) Uninhabited
               else Unknown
             }
@@ -207,10 +207,10 @@ object Inhabitedness {
           )
         case Type.Fun(args, res) =>
           val resultState = checkType(res, varState, seen)
-          val argStates = args.toList.map(checkType(_, varState, seen))
+          val argStates = args.map(checkType(_, varState, seen))
           if ((resultState == Uninhabited) && argStates.forall(_ == Inhabited))
             Uninhabited
-          else if ((resultState == Inhabited) || argStates.contains(Uninhabited))
+          else if ((resultState == Inhabited) || argStates.exists(_ == Uninhabited))
             Inhabited
           else Unknown
         case Type.TyVar(b: Type.Var.Bound) =>
@@ -227,7 +227,9 @@ object Inhabitedness {
                 env.getType(tc) match {
                   case None => Unknown
                   case Some(dt) =>
-                    val root = Type.applyAll(tc, args).normalize
+                    // `norm` is already the fully-applied normalized type for this branch;
+                    // use it as the cycle-detection key directly.
+                    val root = norm
                     if (seen(root)) Uninhabited
                     else {
                       val params = dt.typeParams
@@ -329,11 +331,10 @@ object Inhabitedness {
             (head :: rest.toList).map(checkPattern(scrutinee, _, varState, seen))
           )
         case Pattern.Literal(lit)      =>
-          val litType = Type.getTypeOf(lit).normalize
-          if (scrutinee.normalize === litType) Inhabited
+          if (scrutinee.sameAs(Type.getTypeOf(lit))) Inhabited
           else Uninhabited
         case _: Pattern.StrPat =>
-          if (scrutinee.normalize === Type.StrType.normalize) Inhabited
+          if (scrutinee.sameAs(Type.StrType)) Inhabited
           else Uninhabited
         case lp @ Pattern.ListPat(_) =>
           Pattern.ListPat.toPositionalStruct(lp, EmptyListCons, NonEmptyListCons) match {
@@ -347,7 +348,7 @@ object Inhabitedness {
               // `Uninhabited` cases; otherwise we stay conservative with `Unknown`.
               checkType(scrutinee, varState, seen) match {
                 case Uninhabited => Uninhabited
-                case _ =>
+                case scrState =>
                   listElementType(scrutinee) match {
                     case None => Unknown
                     case Some(itemType) =>
@@ -356,6 +357,9 @@ object Inhabitedness {
                           checkPattern(itemType, itemPat, varState, seen)
                         }
                       if (itemStates.contains(Uninhabited)) Uninhabited
+                      else if ((scrState == Inhabited) && itemStates.forall(_ == Inhabited))
+                        // We only conclude Inhabited when the scrutinee is known inhabited.
+                        Inhabited
                       else Unknown
                   }
               }
