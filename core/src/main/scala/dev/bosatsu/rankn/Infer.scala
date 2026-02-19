@@ -1461,45 +1461,40 @@ object Infer {
         left: Region,
         right: Region
     ): Option[Infer[dom.Co]] =
-      (inferred match {
-        case Type.ForAll(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, declared, Map.empty).map {
-            case (_, subs) =>
-              validateSubs(subs.toList, left, right)
+      {
+        val (fromForalls, fromT) = Type.liftUniversals(inferred)
+        val fromVars = fromForalls.toMap
+
+        val (toExists, toT) = Type.liftExistentials(declared)
+        val toVars = toExists.toMap
+        val toForalls = Type.forallList(toT).toMap
+
+        if (fromVars.isEmpty && toVars.isEmpty) None
+        else {
+          Type
+            .instantiate(fromVars, fromT, toVars, toT, Map.empty)
+            .map { instantiation =>
+              val validFromKinds =
+                validateSubs(
+                  instantiation.subs.toList,
+                  left,
+                  right,
+                  toVars ++ toForalls
+                )
+              val validToKinds =
+                validateSubs(instantiation.toSubs.toList, right, left, fromVars)
+
+              validFromKinds.parProductR(validToKinds)
                 .as {
                   new FunctionK[TypedExpr, dom.ExprKind] {
                     def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
-                      // we apply the annotation here and let Normalization
-                      // instantiate. We could explicitly have
-                      // instantiation TypedExpr where you pass the variables to set
+                      // TODO: enrich Annotation with explicit instantiation evidence.
                       dom.Annotation(te, declared)
                   }
                 }
-          }
-        case _ =>
-          None
-      }).orElse(declared match {
-        case Type.Exists(vars, inT) =>
-          Type.instantiate(vars.iterator.toMap, inT, inferred, Map.empty).map {
-            case (_, subs) =>
-              validateSubs(subs.toList, left, right)
-                .as {
-                  new FunctionK[TypedExpr, dom.ExprKind] {
-                    def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
-                      // we apply the annotation here and let Normalization
-                      // instantiate. We could explicitly have
-                      // instantiation TypedExpr where you pass the variables to set
-                      dom.Annotation(te, declared)
-                  }
-                }
-          }
-        case _ =>
-          // TODO: we should be able to handle Dual quantification which could
-          // solve more cases. The challenge is existentials and universals appear
-          // on different sides, so cases where both need solutions can't be done
-          // with the current method that only solves one direction now.
-          None
-      })
+            }
+        }
+      }
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(
         inferred: Type,
@@ -1676,10 +1671,14 @@ object Infer {
     def validateSubs(
         list: List[(Type.Var.Bound, (Kind, Type))],
         left: Region,
-        right: Region
+        right: Region,
+        knownBoundKinds: Map[Type.Var.Bound, Kind] = Map.empty
     ): Infer[Unit] =
       list.parTraverse_ { case (boundVar, (kind, tpe)) =>
-        kindOf(tpe, right).flatMap { k =>
+        val tpeInScope =
+          if (knownBoundKinds.isEmpty) tpe
+          else Type.forAll(knownBoundKinds.toList, tpe)
+        kindOf(tpeInScope, right).flatMap { k =>
           if (Kind.leftSubsumesRight(kind, k)) {
             unit
           } else {
@@ -1741,14 +1740,14 @@ object Infer {
               // see if we can instantiate the result type
               // if we can, we use that to fix the known parameters and continue
               Type
-                .instantiate(univ.iterator.toMap, outT, tpe, Map.empty)
-                .flatMap { case (frees, inst) =>
+                .instantiate(univ.iterator.toMap, outT, Map.empty, tpe, Map.empty)
+                .flatMap { instantiation =>
                   // if instantiate works, we know outT => tpe
-                  if (inst.nonEmpty && frees.isEmpty) {
+                  if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
                     // we made some progress and there are no frees
                     // TODO: we could support frees it seems but
                     // it triggers failures in tests now
-                    Some((fnTe, inT, frees, inst))
+                    Some((fnTe, inT, instantiation))
                   } else {
                     // We learned nothing
                     None
@@ -1761,11 +1760,11 @@ object Infer {
       }
 
       infOpt.flatMap {
-        case Some((fnTe, inT, frees, inst)) =>
+        case Some((fnTe, inT, instantiation)) =>
           val regTe = region(tag)
           val validKinds: Infer[Unit] =
-            validateSubs(inst.toList, region(fn), regTe)
-          val instNoKind = inst.iterator
+            validateSubs(instantiation.subs.toList, region(fn), regTe)
+          val instNoKind = instantiation.subs.iterator
             .map { case (k, (_, t)) => (k, t) }
             .toMap[Type.Var, Type]
 
@@ -1775,7 +1774,7 @@ object Infer {
           validKinds.parProductR {
             val remainingFree =
               NonEmptyList.fromList(
-                frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
+                instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
               )
 
             remainingFree match {
@@ -1877,58 +1876,112 @@ object Infer {
       (maybeSimple(fn), args.traverse(maybeSimple(_))).mapN { (infFn, infArgs) =>
         infFn.flatMap { fnTe =>
           fnTe.getType match {
-            case Type.Fun.SimpleUniversal(us, argsT, resT)
-                if argsT.length == args.length =>
+            case Type.Fun.SimpleUniversal(us, fnArgTypes, resT)
+                if fnArgTypes.length == args.length =>
               infArgs.sequence
-                .flatMap { argsTE =>
-                  val argTypes = argsTE.map(_.getType)
+                .flatMap { appliedArgsTE =>
+                  val appliedArgTypes0 = appliedArgsTE.map(_.getType)
                   // we can lift any quantification of the args
                   // outside of the function application
                   // We have to lift *before* substitution
                   val noshadows =
-                    Type.freeBoundTyVars(resT :: argTypes.toList).toSet ++
+                    Type.freeBoundTyVars(resT :: appliedArgTypes0.toList).toSet ++
                       us.iterator.map(_._1)
-                  val (optQ, liftArgs) =
-                    TypedExpr.liftQuantification(argsTE, noshadows)
+                  val (optQ, appliedArgs) =
+                    TypedExpr.liftQuantification(appliedArgsTE, noshadows)
 
-                  val liftArgTypes = liftArgs.map(_.getType)
-                  Type.instantiate(
-                    us.toList.toMap,
-                    Type.Tuple(argsT.toList),
-                    Type.Tuple(liftArgTypes.toList),
+                  val appliedArgTypes = appliedArgs.map(_.getType)
+                  val existingQuantVars =
+                    optQ.fold(Set.empty[Type.Var.Bound])(
+                      _.vars.toList.iterator.map(_._1).toSet
+                    )
+                  // Lift top-level existentials from argument types into `toVars`
+                  // so instantiate can solve RHS existential witnesses when those
+                  // witnesses are fully constrained by the function domain shape.
+                  val (appliedToVars, appliedArgShapes) =
+                    appliedArgTypes.toList.foldLeft(
+                      (
+                        List.empty[(Type.Var.Bound, Kind)],
+                        noshadows ++ existingQuantVars,
+                        List.empty[Type]
+                      )
+                    ) { case ((accVars, avoid, accTypesRev), argTy) =>
+                      val (argExists, argNoExists) = Type.liftExistentials(argTy)
+                      NonEmptyList.fromList(argExists) match {
+                        case None =>
+                          (accVars, avoid, argNoExists :: accTypesRev)
+                        case Some(exNel) =>
+                          argNoExists match {
+                            case la: (Type.Leaf | Type.TyApply) =>
+                              // `avoid` carries all lifted existential names so far,
+                              // so each argument's lifted witness names remain distinct.
+                              val ex1 = Type.Exists(exNel, la).unshadow(avoid)
+                              val vars1 = ex1.vars.toList
+                              (
+                                accVars ::: vars1,
+                                avoid ++ vars1.iterator.map(_._1),
+                                ex1.in :: accTypesRev
+                              )
+                            case _ =>
+                              // We only solve RHS existentials for Rho argument types.
+                              // If a top-level forall remains, keep the original arg.
+                              (accVars, avoid, argTy :: accTypesRev)
+                          }
+                      }
+                    } match {
+                      case (vars, _, revTypes) => (vars.toMap, revTypes.reverse)
+                    }
+
+                  val instEnv =
                     optQ.fold(Map.empty[Type.Var.Bound, Kind])(
                       _.vars.toList.toMap
                     )
+                  Type.instantiate(
+                    // `us` are function-side binders, so function domain types are
+                    // the left side (`from`) and applied args are the right side (`to`).
+                    us.toList.toMap,
+                    Type.Tuple(fnArgTypes.toList),
+                    appliedToVars,
+                    Type.Tuple(appliedArgShapes),
+                    instEnv
                   ) match {
                     case None =>
                       /*
                           println(s"can't instantiate: ${
                             Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                          } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
+                          } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}")
                        */
                       pureNone
-                    case Some((frees, inst)) =>
-                      if (frees.nonEmpty) {
-                        // TODO maybe we could handle this, but not yet
-                        // seems like if the free vars are set to the same
-                        // variable, then we can just lift it into the
-                        // quantification
+                    case Some(instantiation) =>
+                      if (
+                        instantiation.frees.nonEmpty || instantiation.toFrees.nonEmpty
+                      ) {
+                        // Conservative fallback: if instantiate leaves residual
+                        // frees on either side, we defer to the general apply
+                        // inference path (`pureNone` here).
+                        //
+                        // We could extend this to lift compatible residual frees
+                        // into quantification and continue, but we currently do
+                        // not have a concrete program where doing so changes the
+                        // accepted/rejected result.
                         /*
                             println(s"remaining frees in ${
                               Type.fullyResolvedDocument.document(fnTe.getType).render(80)
-                            } to ${liftArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
+                            } to ${appliedArgTypes.map(Type.fullyResolvedDocument.document(_).render(80))}: $frees")
                          */
                         pureNone
                       } else {
                         val subMap =
-                          inst.view.mapValues(_._2).toMap[Type.Var, Type]
-                        val fnType0 = Type.Fun(liftArgTypes, resT)
+                          instantiation.subs.view
+                            .mapValues(_._2)
+                            .toMap[Type.Var, Type]
+                        val fnType0 = Type.Fun(appliedArgTypes, resT)
                         val fnType1 = Type.substituteVar(fnType0, subMap)
                         val resType = Type.substituteVar(resT, subMap)
 
                         val resTe = TypedExpr.App(
                           TypedExpr.Annotation(fnTe, fnType1),
-                          liftArgs,
+                          appliedArgs,
                           resType,
                           tag
                         )
@@ -2263,10 +2316,12 @@ object Infer {
                         Type.instantiate(
                           fas.iterator.toMap,
                           in,
+                          Map.empty,
                           rho,
                           Map.empty
                         ) match {
-                          case Some((frees, subs)) if frees.isEmpty =>
+                          case Some(instantiation)
+                              if instantiation.frees.isEmpty =>
                             // we know that substituting in gives rho
                             // check kinds
                             // substitute
@@ -2274,7 +2329,7 @@ object Infer {
                             // else set inferred value
                             val validKinds: Infer[Unit] =
                               validateSubs(
-                                subs.toList,
+                                instantiation.subs.toList,
                                 region(term),
                                 region(tag)
                               )

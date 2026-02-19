@@ -1394,6 +1394,73 @@ main: forall a. Opt[a] = make_none(1)
     )
   }
 
+  test("application can be checked against existential result annotations") {
+    parseProgram(
+      """#
+struct Arg
+struct Box[a](item: a)
+
+external def choose[a](n: Arg) -> Box[a]
+
+main: exists a. Box[a] = choose(Arg)
+""",
+      "exists a. Box[a]"
+    )
+
+    parseProgram(
+      """#
+struct Arg
+struct Tup(a, b)
+
+external def pairWithArg[a](n: Arg) -> Tup[Arg, a]
+
+main: exists b. Tup[b, Arg] = pairWithArg(Arg)
+""",
+      "exists b. Tup[b, Arg]"
+    )
+  }
+
+  test("applyViaInst can solve rhs existential args when fully determined") {
+    parseProgram(
+      """#
+struct Out
+struct Pair(a, b)
+
+def consume[a](p: Pair[Out, a]) -> Out:
+  Pair(out, _) = p
+  out
+
+x: exists e. Pair[e, Out] = Pair(Out, Out)
+main = consume(x)
+""",
+      "Out"
+    )
+  }
+
+  test("applyViaInst falls back when existential argument witness remains abstract") {
+    parseProgram(
+      """#
+struct Box[a](item: a)
+enum Flag: T, F
+struct Seed
+
+external def getFlag(seed: Seed) -> Flag
+
+def anyBox(f) -> exists e. Box[e]:
+  match f:
+    case T: (Box(1): exists e. Box[e])
+    case F: (Box("x"): exists e. Box[e])
+
+external def unbox[a](b: Box[a]) -> a
+
+seed: Seed = Seed
+x = anyBox(getFlag(seed))
+main = unbox(x)
+""",
+      "exists a. a"
+    )
+  }
+
   // From the Quick Look paper on impredicativity examples.
   test("quick look paper examples") {
     val quickLookPrelude =
@@ -1497,13 +1564,20 @@ struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
 struct Nil
 
-# TODO: These variants don't work, but the one with a fully
-# ascribed type does. There is a problem here with using subsCheck
-# which can never substitute a metavariable for a sigma type (outer forall)
-#Wrap(_: ((forall x. Foo[x]) -> Nil)) = cra_fn
-#def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
-# Wrap(_: ((forall x. x) -> Nil)) = cra_fn
-#Nil
+def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
+  Wrap(_: ((forall x. x) -> Nil)) = cra_fn
+  Nil
+main = foo
+""",
+      "Wrap[(forall ssss. ssss) -> Nil] -> Nil"
+    )
+
+    parseProgram(
+      """#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+struct Nil
+
 def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   match cra_fn:
     case (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
