@@ -209,9 +209,14 @@ sealed abstract class Declaration derives CanEqual {
         ListLang.documentDict[NonBinding, Pattern.Parsed].document(dict)
 
       case RecordConstructor(name, args, updateFrom) =>
-        val items = args.map(_.toDoc) ::: updateFrom
-          .map(d => (Doc.text("..") + d.toDoc) :: Nil)
-          .getOrElse(Nil)
+        val updateItems = updateFrom.toList.map { d =>
+          val prefix =
+            if (needsUpdateParens(d)) Doc.text(".. ")
+            else Doc.text("..")
+          val updateDoc = prefix + d.toDoc
+          updateDoc
+        }
+        val items = args.map(_.toDoc) ::: updateItems
         val argDoc = Doc.char('{') +
           Doc.intercalate(
             Doc.char(',') + Doc.space,
@@ -689,6 +694,16 @@ object Declaration {
     Identifier.document
 
   private val colonSpace = Doc.text(": ")
+
+  // Record-update syntax starts with `..`; dot-leading literals (e.g. .NaN,
+  // .'x') need a separator so we don't serialize `...`, which is pattern-spread
+  // syntax.
+  private def needsUpdateParens(nb: NonBinding): Boolean =
+    nb match {
+      case Literal(_: Lit.Float64) => true
+      case Literal(_: Lit.Chr)     => true
+      case _                       => false
+    }
 
   sealed abstract class RecordArg {
     def toDoc: Doc =

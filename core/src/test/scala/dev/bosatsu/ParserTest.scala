@@ -458,6 +458,8 @@ class ParserTest extends ParserTestBase {
     check("Foo { .. base }")
     check("Foo { bar, ..base, }")
     check("Foo { ..base, }")
+    check("Foo { .. .NaN }")
+    check("Foo { .. .'x' }")
 
     val rp = Declaration.recordConstructorP(
       "",
@@ -482,6 +484,26 @@ class ParserTest extends ParserTestBase {
     val updated = unsafeParse(Declaration.parser(""), "Foo { a: 1, ..base }")
       .asInstanceOf[Declaration.NonBinding]
     assertEquals(Declaration.toPattern(updated), None)
+  }
+
+  test("record update docs disambiguate dot-leading literals") {
+    val charUpdate = Declaration.RecordConstructor(
+      Identifier.Constructor("Foo"),
+      Nil,
+      Some(Declaration.Literal(Lit.fromChar('x')))
+    )
+    val nanUpdate = Declaration.RecordConstructor(
+      Identifier.Constructor("Foo"),
+      Nil,
+      Some(Declaration.Literal(Lit.Float64.fromDouble(Double.NaN)))
+    )
+
+    assertEquals(charUpdate.toDoc.render(80), "Foo {.. .'x'}")
+    assertEquals(nanUpdate.toDoc.render(80), "Foo {.. .NaN}")
+
+    val pNoRegion = Declaration.parser("").map(_.replaceRegions(emptyRegion))
+    law(pNoRegion)(charUpdate)
+    law(pNoRegion)(nanUpdate)
   }
 
   test("Declaration.toPattern handles parens around non-bindings") {
