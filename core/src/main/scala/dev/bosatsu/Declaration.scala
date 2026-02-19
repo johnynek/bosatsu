@@ -700,9 +700,8 @@ object Declaration {
   // syntax.
   private def needsUpdateParens(nb: NonBinding): Boolean =
     nb match {
-      case Literal(_: Lit.Float64) => true
-      case Literal(_: Lit.Chr)     => true
-      case _                       => false
+      case Literal(_: (Lit.Float64 | Lit.Chr)) => true
+      case _                                   => false
     }
 
   sealed abstract class RecordArg {
