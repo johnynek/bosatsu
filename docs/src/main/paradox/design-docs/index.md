@@ -11,6 +11,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 356: Struct Update Syntax (`..old`)](issue_356_struct_update_syntax_design.md)
 * [Well-Typed Statement Generator Design](well_typed_statement_generator_design.md)
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
+* [Libuv-Based IO Design for `Bosatsu/Prog`](libuv_prog_io_design.md)
 @@@
 
 ## Notes
