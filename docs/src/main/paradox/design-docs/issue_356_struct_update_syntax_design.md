@@ -92,6 +92,32 @@ Implementation check in `SourceConverter`:
 
 If not single-constructor, emit a dedicated source-converter error.
 
+### Why V1 does not support multi-constructor enums
+It is possible to define a desugaring for enum types with more than one constructor. For:
+
+```bosatsu
+Foo { a: 1, ..bar }
+```
+
+we could lower to:
+
+```bosatsu
+match bar:
+  case Foo(_, bar_b, ...):
+    Foo(1, bar_b, ...)
+  case _:
+    bar
+```
+
+So this is technically feasible.
+
+V1 intentionally does **not** support this form for multi-constructor enums for these reasons:
+1. Hidden control flow: syntax that looks like direct construction would actually be conditional matching.
+2. Silent no-op risk: when `bar` is another variant, the update does nothing and returns `bar`.
+3. Reduced readability/reviewability: readers must remember the implicit fallback path to understand behavior.
+
+Because these are high-cost semantic surprises, V1 restricts update syntax to single-constructor types only.
+
 ### Update Rewrite
 Given:
 
