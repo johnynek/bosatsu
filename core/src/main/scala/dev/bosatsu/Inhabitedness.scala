@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.{Eq}
 import cats.data.{NonEmptyList, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.rankn.Type
@@ -14,6 +15,8 @@ object Inhabitedness {
   }
 
   object State {
+    given Eq[State] = Eq.fromUniversalEquals
+
     def orStates(states: List[State]): State =
       if (states.contains(State.Inhabited)) State.Inhabited
       else if (states.forall(_ == State.Uninhabited)) State.Uninhabited
@@ -171,11 +174,11 @@ object Inhabitedness {
           case Some(assignments) =>
             val states = assignments.map(assignment => bodyEval(outerState ++ assignment))
             if (isForAll) {
-              if (states.exists(_ == Uninhabited)) Uninhabited
+              if (states.contains_(Uninhabited)) Uninhabited
               else if (states.forall(_ == Inhabited)) Inhabited
               else Unknown
             } else {
-              if (states.exists(_ == Inhabited)) Inhabited
+              if (states.contains_(Inhabited)) Inhabited
               else if (states.forall(_ == Uninhabited)) Uninhabited
               else Unknown
             }
@@ -210,7 +213,7 @@ object Inhabitedness {
           val argStates = args.map(checkType(_, varState, seen))
           if ((resultState == Uninhabited) && argStates.forall(_ == Inhabited))
             Uninhabited
-          else if ((resultState == Inhabited) || argStates.exists(_ == Uninhabited))
+          else if ((resultState == Inhabited) || argStates.contains_(Uninhabited))
             Inhabited
           else Unknown
         case Type.TyVar(b: Type.Var.Bound) =>
