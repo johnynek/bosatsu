@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Design Docs · Bosatsu Documentation</title>
+<title>Compiler Leveraging Type Inhabitedness · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/index.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/compiler_leveraging_type_inhabitedness.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="../js/page.js"></script>
@@ -38,9 +38,9 @@
 <div class="nav-toc">
 <ul>
   <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="../design-docs/index.html" class="active page">Design Docs</a>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
   <ul>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="page">Compiler Leveraging Type Inhabitedness</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="active page">Compiler Leveraging Type Inhabitedness</a></li>
     <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
     <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
@@ -153,9 +153,9 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-toc">
 <ul>
   <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
-  <li><a href="../design-docs/index.html" class="active page">Design Docs</a>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
   <ul>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="page">Compiler Leveraging Type Inhabitedness</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="active page">Compiler Leveraging Type Inhabitedness</a></li>
     <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
     <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
@@ -247,7 +247,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="../index.html">Bosatsu Documentation</a></li>
-  <li>Design Docs</li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Compiler Leveraging Type Inhabitedness</li>
 </ul>
 </div>
 </div>
@@ -255,20 +256,92 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#design-docs" name="design-docs" class="anchor"><span class="anchor-link"></span></a>Design Docs</h1>
-<p>This section collects implementation design documents for Bosatsu.</p>
-<h2><a href="#all-design-docs-in-this-repository" name="all-design-docs-in-this-repository" class="anchor"><span class="anchor-link"></span></a>All design docs in this repository</h2>
-<h2><a href="#notes" name="notes" class="anchor"><span class="anchor-link"></span></a>Notes</h2>
+<h1><a href="#compiler-leveraging-type-inhabitedness" name="compiler-leveraging-type-inhabitedness" class="anchor"><span class="anchor-link"></span></a>Compiler Leveraging Type Inhabitedness</h1>
+<p>Status: proposed<br/>Date: 2026-02-19 Issue: <a href="https://github.com/johnynek/bosatsu/issues/1724">https://github.com/johnynek/bosatsu/issues/1724</a></p>
+<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
+<p>Use type inhabitedness in the compiler to: 1. identify uninhabited types with explicit, complete rules (in a supported fragment), 2. improve match totality by excluding impossible constructors, 3. let users omit uninhabited branch cases, 4. prune unreachable branches before codegen.</p>
+<h2><a href="#motivation" name="motivation" class="anchor"><span class="anchor-link"></span></a>Motivation</h2>
+<p>We already rely on totality and strong typing, but we do not currently leverage full type inhabitedness information during match checking.</p>
+<p>Examples we want to classify statically: 1. <code>forall a. a</code> is uninhabited. 2. <code>struct Nothing(never: Nothing)</code> is uninhabited. 3. A struct with at least one uninhabited field is uninhabited. 4. An enum where every constructor is uninhabited is uninhabited. 5. A function type returning an uninhabited type is uninhabited when all its arguments are inhabited.</p>
+<h2><a href="#current-state" name="current-state" class="anchor"><span class="anchor-link"></span></a>Current State</h2>
+<p><code>Package.inferBodyUnopt</code> runs <code>TotalityCheck</code> on untyped <code>Expr</code> before rank-n inference.<br/>This cannot use final instantiated scrutinee types (for example <code>Option[NothingLike]</code>) to remove impossible constructors during coverage.</p>
+<h2><a href="#scope-and-completeness" name="scope-and-completeness" class="anchor"><span class="anchor-link"></span></a>Scope and Completeness</h2>
+<p>Full inhabitation for unrestricted higher-rank/higher-kinded polymorphism is not a practical target here.<br/>This design defines a <strong>complete decision procedure for a supported fragment</strong> and a conservative fallback outside it.</p>
+<p>Supported complete fragment: 1. kind-<code>Type</code> (value) types, 2. closed or locally-quantified types built from:  1. ADTs from <code>TypeEnv</code>,  2. function types,  3. <code>forall</code> / <code>exists</code> over kind-<code>Type</code> variables.</p>
+<p>Outside the fragment (for example higher-kinded quantifier-heavy cases), analysis returns <code>Unknown</code> and totality behavior remains conservative (no new pruning).</p>
+<h2><a href="#formal-rules" name="formal-rules" class="anchor"><span class="anchor-link"></span></a>Formal Rules</h2>
+<p>Let <code>I(t)</code> mean “type <code>t</code> is inhabited”, <code>U(t)</code> mean “type <code>t</code> is uninhabited”.</p>
+<h3><a href="#base-and-constructors" name="base-and-constructors" class="anchor"><span class="anchor-link"></span></a>Base and constructors</h3>
 <ol>
-  <li>This page is the canonical index for design docs.</li>
-  <li>Top-level documentation keeps only this single <code>Design Docs</code> entry so individual design docs do not clutter the main root sidebar list.</li>
+  <li>Base literal types (<code>Int</code>, <code>String</code>, <code>Char</code>, <code>Float64</code>, <code>Bool</code>, <code>Unit</code>) are inhabited.</li>
+  <li>For constructor <code>C : τ1, ..., τn -&gt; T</code>:</li>
+  <li><code>I(C)</code> iff <code>I(τ1) &amp;&amp; ... &amp;&amp; I(τn)</code>.</li>
+  <li>For struct type <code>T</code> (single constructor):</li>
+  <li><code>U(T)</code> iff at least one field type is uninhabited.</li>
+  <li>For enum type <code>T</code>:</li>
+  <li><code>U(T)</code> iff every constructor is uninhabited.</li>
 </ol>
+<h3><a href="#functions" name="functions" class="anchor"><span class="anchor-link"></span></a>Functions</h3>
+<p>For <code>Fn(τ1, ..., τn) -&gt; ρ</code>: 1. <code>U(Fn(...)-&gt;ρ)</code> iff <code>U(ρ)</code> and all arguments are inhabited. 2. Equivalent inhabited form:  1. <code>I(Fn(...)-&gt;ρ)</code> iff <code>I(ρ)</code> or at least one argument is uninhabited.</p>
+<p>This captures the requested rule: 1. returning uninhabited type + all args inhabited =&gt; uninhabited, 2. returning uninhabited type + some arg uninhabited =&gt; inhabited (vacuous function).</p>
+<h3><a href="#quantifiers" name="quantifiers" class="anchor"><span class="anchor-link"></span></a>Quantifiers</h3>
+<p>For kind-<code>Type</code> quantifiers: 1. <code>I(forall a. t)</code> iff <code>for all assignments of a, I(t)</code>. 2. <code>U(forall a. t)</code> iff <code>there exists an assignment of a with U(t)</code>. 3. <code>I(exists a. t)</code> iff <code>there exists an assignment of a with I(t)</code>. 4. <code>U(exists a. t)</code> iff <code>for all assignments of a, U(t)</code>.</p>
+<p>This yields: 1. <code>U(forall a. a)</code> (pick an uninhabited assignment), 2. <code>I(forall a. a -&gt; a)</code> (identity), 3. <code>I(forall a. List[a])</code> (empty list constructor), 4. <code>U(forall a. (a, a))</code> if tuple construction requires <code>I(a)</code>.</p>
+<h3><a href="#recursive-adts" name="recursive-adts" class="anchor"><span class="anchor-link"></span></a>Recursive ADTs</h3>
+<p>For mutually recursive type constants, define equations:</p>
+<p><code>I(T(args)) = OR over constructors c of T: (exists c-existentials. AND over c-fields fi: I(fi))</code></p>
+<p>Solve as least fixed point over the finite equation graph for the query.<br/>Least fixed point gives expected inductive behavior: 1. <code>struct Nothing(never: Nothing)</code> =&gt; uninhabited, 2. recursion only through impossible constructor paths stays uninhabited.</p>
+<h2><a href="#algorithm-design" name="algorithm-design" class="anchor"><span class="anchor-link"></span></a>Algorithm Design</h2>
+<p>New module: <code>core/src/main/scala/dev/bosatsu/Inhabitedness.scala</code></p>
+<p>Core API: 1. <code>verdict(t: Type, env: TypeEnv[Kind.Arg]): Inhabitedness.Verdict</code> 2. <code>constructorReachable(scrutinee: Type, cons: (PackageName, Constructor), env): Reachability</code></p>
+<p>Proposed result types: 1. <code>Inhabited</code> 2. <code>Uninhabited</code> 3. <code>Unknown</code> (outside supported complete fragment)</p>
+<p>Implementation strategy: 1. Normalize type (<code>Type.normalize</code>), split quantifiers, and classify by shape. 2. Build/evaluate equations with memoization by <code>(Type, quantifier context)</code>. 3. Use finite quantifier elimination for kind-<code>Type</code> vars (boolean inhabited/uninhabited assignments). 4. Solve recursive SCCs with fixed-point iteration. 5. If unsupported kind-level features are encountered, return <code>Unknown</code>.</p>
+<h2><a href="#using-inhabitedness-in-matches" name="using-inhabitedness-in-matches" class="anchor"><span class="anchor-link"></span></a>Using Inhabitedness in Matches</h2>
+<p>Introduce typed totality checking that uses scrutinee type + constructor reachability.</p>
+<h3><a href="#coverage-domain" name="coverage-domain" class="anchor"><span class="anchor-link"></span></a>Coverage domain</h3>
+<p>For match scrutinee type <code>S</code>, define: 1. <code>reachableConstructors(S)</code> = constructors of <code>S</code> whose argument bundle is inhabited under current type instantiation. 2. Coverage requires only these constructors. 3. Constructors proven uninhabited are removed from missing-branch requirements.</p>
+<h3><a href="#effects" name="effects" class="anchor"><span class="anchor-link"></span></a>Effects</h3>
+<ol>
+  <li>Users may omit branches for uninhabited constructors.</li>
+  <li>Branches that explicitly match uninhabited constructors are reported as unreachable.</li>
+  <li>Pattern-set operations still work, but domain expansion (<code>topFor</code>) filters out unreachable constructors.</li>
+</ol>
+<h2><a href="#pipeline-changes" name="pipeline-changes" class="anchor"><span class="anchor-link"></span></a>Pipeline Changes</h2>
+<p>Current: 1. <code>SourceConverter</code> -&gt; <code>TotalityCheck</code> on <code>Expr</code> -&gt; <code>Infer</code> -&gt; <code>TypedExprNormalization</code></p>
+<p>Proposed: 1. <code>SourceConverter</code> -&gt; <code>Infer</code> -&gt; <code>TypedTotalityCheck</code> (inhabitedness-aware) -&gt; <code>TypedExprNormalization</code></p>
+<p>Details: 1. Keep cheap source-level pattern-shape validation where helpful. 2. Move exhaustiveness/unreachable match checks to typed AST. 3. <code>Package.inferBodyUnopt</code> should run typed totality after successful inference. 4. Diagnostics stay at source regions via typed tags already attached to <code>TypedExpr</code>.</p>
+<h2><a href="#match-pruning-and-codegen" name="match-pruning-and-codegen" class="anchor"><span class="anchor-link"></span></a>Match Pruning and Codegen</h2>
+<p>Branch pruning should run after typed totality (or as part of normalization): 1. Remove branches that are impossible from inhabitedness facts. 2. Keep source order of remaining branches. 3. Preserve guard semantics (guarded branches still do not count toward totality unless unguarded fallback exists).</p>
+<p>Codegen benefits: 1. smaller match matrices, 2. fewer runtime constructor checks, 3. fewer dead branches emitted in Matchless IR.</p>
+<h2><a href="#edge-cases" name="edge-cases" class="anchor"><span class="anchor-link"></span></a>Edge Cases</h2>
+<ol>
+  <li>Polymorphic matches with free kind-<code>Type</code> vars:</li>
+  <li>prune only when constructor is unreachable for all assignments.</li>
+  <li>Outside supported fragment:</li>
+  <li><code>Unknown</code> means no pruning and existing conservative totality behavior.</li>
+  <li>If a scrutinee type itself is uninhabited:</li>
+  <li>every branch is unreachable,</li>
+  <li>totality is vacuously satisfied.</li>
+  <li>Optional future extension: allow empty <code>match</code> syntax explicitly.</li>
+</ol>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
+<p>Add tests across <code>TotalityCheck</code> replacement + inference + normalization: 1. <code>forall a. a</code> classified uninhabited. 2. Recursive self-field struct classified uninhabited. 3. Struct with one uninhabited field classified uninhabited. 4. Enum with one inhabited and one uninhabited constructor:  1. missing inhabited constructor still errors,  2. missing uninhabited constructor does not error. 5. Explicit branch on uninhabited constructor is unreachable. 6. Function rule:  1. <code>Unit -&gt; Nothing</code> uninhabited,  2. <code>Nothing -&gt; Nothing</code> inhabited. 7. Guard interactions:  1. guarded branch still excluded from totality coverage as today. 8. Regression tests for existing match behavior when no inhabitedness facts apply.</p>
+<h2><a href="#rollout-plan" name="rollout-plan" class="anchor"><span class="anchor-link"></span></a>Rollout Plan</h2>
+<ol>
+  <li>Phase 1: add <code>Inhabitedness</code> module + unit tests.</li>
+  <li>Phase 2: add typed totality checker and wire into <code>Package.inferBodyUnopt</code>.</li>
+  <li>Phase 3: apply branch pruning in normalization/Matchless lowering.</li>
+  <li>Phase 4 (optional): syntax/AST support for empty matches on provably uninhabited scrutinees.</li>
+</ol>
+<h2><a href="#trade-offs" name="trade-offs" class="anchor"><span class="anchor-link"></span></a>Trade-offs</h2>
+<p>Pros: 1. Better exhaustiveness precision. 2. Cleaner user code (no mandatory impossible cases). 3. Better generated code via dead-branch pruning.</p>
+<p>Costs: 1. More compiler complexity (new analysis + typed totality phase). 2. Some cases remain conservative (<code>Unknown</code>) by design. 3. Totality diagnostics now depend on successful type inference.</p>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/index.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/compiler_leveraging_type_inhabitedness.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="../design-docs/compiler_leveraging_type_inhabitedness.html">Compiler Leveraging Type Inhabitedness</a></p>
+<p><strong>Next:</strong> <a href="../design-docs/pattern_guards_design.html">Pattern Guards Design</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -277,10 +350,21 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="../design-docs/index.html#design-docs" class="header">Design Docs</a>
+  <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#compiler-leveraging-type-inhabitedness" class="header">Compiler Leveraging Type Inhabitedness</a>
   <ul>
-    <li><a href="../design-docs/index.html#all-design-docs-in-this-repository" class="header">All design docs in this repository</a></li>
-    <li><a href="../design-docs/index.html#notes" class="header">Notes</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#goal" class="header">Goal</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#motivation" class="header">Motivation</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#current-state" class="header">Current State</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#scope-and-completeness" class="header">Scope and Completeness</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#formal-rules" class="header">Formal Rules</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#algorithm-design" class="header">Algorithm Design</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#using-inhabitedness-in-matches" class="header">Using Inhabitedness in Matches</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#pipeline-changes" class="header">Pipeline Changes</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#match-pruning-and-codegen" class="header">Match Pruning and Codegen</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#edge-cases" class="header">Edge Cases</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#test-plan" class="header">Test Plan</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#rollout-plan" class="header">Rollout Plan</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#trade-offs" class="header">Trade-offs</a></li>
   </ul></li>
 </ul>
 </div>
