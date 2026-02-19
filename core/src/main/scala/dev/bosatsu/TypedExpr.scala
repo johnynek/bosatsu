@@ -2330,7 +2330,7 @@ object TypedExpr {
                         // but that implies something for fn and arg
                         // but we are ignoring that, which
                         // leaves them with potentially skolems or metavars
-                        ann(expr, tpe)
+                        ann(expr, tpe, None)
                     }
                 }
               case Let(arg, argE, in, rec, tag) =>
@@ -2338,7 +2338,7 @@ object TypedExpr {
               case Loop(args, body, tag) =>
                 Loop(args, self(body), tag)
               case Recur(_, _, _) =>
-                ann(expr, tpe)
+                ann(expr, tpe, None)
               case Match(arg, branches, tag) =>
                 // TODO: this may be wrong. e.g. we could leaving meta in the types
                 // embedded in patterns, this does not seem to happen since we would
@@ -2772,9 +2772,6 @@ object TypedExpr {
     if (te.getType.sameAs(tpe)) te
     else Annotation(te, tpe, quantifierEvidence)
 
-  private def ann[A](te: TypedExpr[A], tpe: Type): TypedExpr[A] =
-    ann(te, tpe, None)
-
   /** TODO this seems pretty expensive to blindly apply: we are deoptimizing the
     * nodes pretty heavily
     */
@@ -2830,13 +2827,13 @@ object TypedExpr {
                 instantiateTo(gen, fntpe, kinds, None)
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-            ann(expr, fntpe)
+            ann(expr, fntpe, None)
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
           case Loop(args, body, tag) =>
             Loop(args, self(body), tag)
           case Recur(_, _, _) =>
-            ann(expr, fntpe)
+            ann(expr, fntpe, None)
           case Match(arg, branches, tag) =>
             // TODO: this may be wrong. e.g. we could leaving meta in the types
             // embedded in patterns, this does not seem to happen since we would
