@@ -2463,6 +2463,25 @@ def makeLoop(fn):
     }
   }
 
+  test("TestUtils.assertValid enforces annotation evidence targetAtSolve") {
+    val qev = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = Type.IntType,
+      targetAtSolve = Type.StrType,
+      forallSolved = SortedMap.empty,
+      existsHidden = SortedMap.empty
+    )
+    val te: TypedExpr[Unit] = TypedExpr.Annotation(
+      TypedExpr.Literal(Lit.fromInt(1), Type.IntType, ()),
+      Type.IntType,
+      Some(qev)
+    )
+
+    val err = intercept[IllegalArgumentException] {
+      TestUtils.assertValid(te)
+    }
+    assert(err.getMessage.contains("quantifier evidence invariant violated"))
+  }
+
   test("TypedExpr.liftQuantification makes all args Rho types") {
 
     forAll(

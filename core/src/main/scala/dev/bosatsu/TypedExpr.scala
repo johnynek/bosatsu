@@ -600,6 +600,8 @@ object TypedExpr {
       forallSolved: SortedMap[Type.Var.Bound, (Kind, Type)],
       existsHidden: SortedMap[Type.Var.Bound, (Kind, Type)]
   ) {
+    import QuantifierEvidence.sortedMapTraverse
+
     private def mapSolved(fn: Type => Type)(
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
     ): SortedMap[Type.Var.Bound, (Kind, Type)] =
@@ -611,13 +613,7 @@ object TypedExpr {
     private def traverseSolved[F[_]: Applicative](fn: Type => F[Type])(
         solved: SortedMap[Type.Var.Bound, (Kind, Type)]
     ): F[SortedMap[Type.Var.Bound, (Kind, Type)]] =
-      solved.toList
-        .traverse { case (b, (k, t)) =>
-          fn(t).map { t1 =>
-            (b, (k, t1))
-          }
-        }
-        .map(lst => SortedMap.from(lst))
+      sortedMapTraverse.traverse(solved)(fn)
 
     def mapTypes(fn: Type => Type): QuantifierEvidence =
       copy(
@@ -637,6 +633,11 @@ object TypedExpr {
         traverseSolved(fn)(existsHidden)
       ).mapN(QuantifierEvidence(_, _, _, _))
   }
+  object QuantifierEvidence {
+    private[TypedExpr] val sortedMapTraverse =
+      Traverse[[V] =>> SortedMap[Type.Var.Bound, V]]
+        .compose[[T] =>> (Kind, T)]
+  }
 
   /** This says that the resulting term is generic on a given param
     *
@@ -651,6 +652,7 @@ object TypedExpr {
   }
   // Annotation really means "widen", the term has a type that is a subtype of coerce, so we are widening
   // to the given type. This happens on Locals/Globals also in their tpe
+  // Invariant: if quantifierEvidence is defined, evidence.targetAtSolve.sameAs(coerce).
   case class Annotation[T](
       term: TypedExpr[T],
       coerce: Type,
@@ -1103,6 +1105,9 @@ object TypedExpr {
     }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
+    private inline def foreach[X](iter: Iterator[X])(inline fn: X => Unit): Unit =
+      while (iter.hasNext) fn(iter.next())
+
     // Iterate exactly the same type occurrences as traverseType would, while
     // honoring Generic shadowing, but avoid Writer/traverse allocation.
     private inline def foreachTraversedType(inline fn: Type => Unit): Unit = {
@@ -1144,15 +1149,17 @@ object TypedExpr {
           qev: Option[QuantifierEvidence],
           shadowed: Set[Type.Var.Bound]
       ): Unit =
-        qev.foreach { ev =>
-          visitType(ev.sourceAtSolve, shadowed)
-          visitType(ev.targetAtSolve, shadowed)
-          ev.forallSolved.valuesIterator.foreach { case (_, t) =>
-            visitType(t, shadowed)
-          }
-          ev.existsHidden.valuesIterator.foreach { case (_, t) =>
-            visitType(t, shadowed)
-          }
+        qev match {
+          case Some(ev) =>
+            visitType(ev.sourceAtSolve, shadowed)
+            visitType(ev.targetAtSolve, shadowed)
+            foreach(ev.forallSolved.valuesIterator) { case (_, t) =>
+              visitType(t, shadowed)
+            }
+            foreach(ev.existsHidden.valuesIterator) { case (_, t) =>
+              visitType(t, shadowed)
+            }
+          case None => ()
         }
 
       def visitExpr(
@@ -1162,7 +1169,7 @@ object TypedExpr {
         te match {
           case gen @ Generic(quant, expr) =>
             val params = quant.vars
-            params.iterator.foreach { case (b, _) =>
+            foreach(params.iterator) { case (b, _) =>
               visitType(Type.TyVar(b), shadowed)
             }
             visitType(gen.getType, shadowed)
@@ -1184,26 +1191,26 @@ object TypedExpr {
             visitType(tpe, shadowed)
           case App(f, args, tpe, _) =>
             visitExpr(f, shadowed)
-            args.iterator.foreach(visitExpr(_, shadowed))
+            foreach(args.iterator)(visitExpr(_, shadowed))
             visitType(tpe, shadowed)
           case Let(_, exp, in, _, _) =>
             visitExpr(exp, shadowed)
             visitExpr(in, shadowed)
           case Loop(args, body, _) =>
-            args.iterator.foreach { case (_, expr) =>
+            foreach(args.iterator) { case (_, expr) =>
               visitExpr(expr, shadowed)
             }
             visitExpr(body, shadowed)
           case Recur(args, tpe, _) =>
-            args.iterator.foreach(visitExpr(_, shadowed))
+            foreach(args.iterator)(visitExpr(_, shadowed))
             visitType(tpe, shadowed)
           case Literal(_, tpe, _) =>
             visitType(tpe, shadowed)
           case Match(expr, branches, _) =>
             visitExpr(expr, shadowed)
-            branches.iterator.foreach { branch =>
+            foreach(branches.iterator) { branch =>
               visitPattern(branch.pattern, shadowed)
-              branch.guard.iterator.foreach(visitExpr(_, shadowed))
+              foreach(branch.guard.iterator)(visitExpr(_, shadowed))
               visitExpr(branch.expr, shadowed)
             }
         }
@@ -1221,6 +1228,10 @@ object TypedExpr {
 
     def allBound: SortedSet[Type.Var.Bound] = {
       val tpes = allTypes.toList
+      // We need both:
+      // - freeBoundTyVars: bound vars referenced free in these types
+      // - tyVarBinders: bound vars introduced as forall/exists binders
+      // allBound is used as an avoid-set, so include both references and binders.
       val free = Type.freeBoundTyVars(tpes).toSet
       SortedSet.from(Type.tyVarBinders(tpes) ++ free)
     }
@@ -1228,9 +1239,6 @@ object TypedExpr {
     def freeTyVars: List[Type.Var] = {
       val acc = scala.collection.mutable.HashSet.empty[Type.Var]
       val boundCount = scala.collection.mutable.HashMap.empty[Type.Var.Bound, Int]
-
-      inline def foreach[A](iter: Iterator[A])(inline fn: A => Unit): Unit =
-        while (iter.hasNext) fn(iter.next())
 
       inline def isBound(v: Type.Var.Bound): Boolean =
         boundCount.get(v) match {
@@ -1291,15 +1299,17 @@ object TypedExpr {
       }
 
       def addEvidenceTypes(qev: Option[QuantifierEvidence]): Unit =
-        qev.foreach { ev =>
-          addType(ev.sourceAtSolve)
-          addType(ev.targetAtSolve)
-          ev.forallSolved.valuesIterator.foreach { case (_, t) =>
-            addType(t)
-          }
-          ev.existsHidden.valuesIterator.foreach { case (_, t) =>
-            addType(t)
-          }
+        qev match {
+          case Some(ev) =>
+            addType(ev.sourceAtSolve)
+            addType(ev.targetAtSolve)
+            foreach(ev.forallSolved.valuesIterator) { case (_, t) =>
+              addType(t)
+            }
+            foreach(ev.existsHidden.valuesIterator) { case (_, t) =>
+              addType(t)
+            }
+          case None => ()
         }
 
       def loopExpr(te: TypedExpr[A]): Unit =
@@ -1646,6 +1656,24 @@ object TypedExpr {
             quantVars(quant.forallList, quant.existList, in1)
           }
         case Annotation(term, coerce, qev) =>
+          // QuantifierEvidence is solver provenance attached to this annotation:
+          // it records *how* we justified a coercion (source/target-at-solve and
+          // solved binders), but it is not part of the expression's semantic
+          // outward type. The outward type is `coerce` (Annotation.getType).
+          //
+          // `env` in deepQuantify tracks only outward, semantically relevant
+          // surrounding types that must constrain quantification while recursing.
+          // Therefore we extend env with `coerce`, not with evidence types.
+          //
+          // We intentionally do not let evidence influence env because evidence
+          // can mention historical/internal solver shapes that are not part of
+          // term semantics; using it as constraints here could over-constrain
+          // quantification (e.g. block quantification for metas that appear only
+          // in evidence payload).
+          //
+          // We also don't recurse into qev separately: quantifyFree has already
+          // traversed/rewritten all types at this node (including evidence via
+          // traverseType/allTypes), so qev is already updated for this layer.
           deepQuantify(env + coerce, term).map { t1 =>
             ann(t1, coerce, qev)
           }
@@ -2104,6 +2132,13 @@ object TypedExpr {
     }
 
     def evidenceSubs(ev: QuantifierEvidence): Option[Map[Type.Var, Type]] =
+      // Intentionally strict (`!=`), not `!sameAs`:
+      // evidence `forallSolved` is keyed by concrete bound vars from the
+      // original solve snapshot. `sameAs` can hold across alpha-renaming /
+      // quantifier normalization, but we do not carry a renaming witness to
+      // remap evidence keys (and embedded vars in evidence types) onto the
+      // current solve variables. So we only reuse evidence when snapshots are
+      // exactly the same representation; otherwise we conservatively recompute.
       if (
         sourceAtSolve != ev.sourceAtSolve ||
           instTpe != ev.targetAtSolve
@@ -2238,7 +2273,17 @@ object TypedExpr {
           def apply[A](expr: TypedExpr[A]): Rho[A] =
             expr match {
               case _ if expr.getType.sameAs(tpe) => expr
-              case Annotation(t, _, _)           => self(t)
+              case Annotation(t, _, _)           =>
+                // coerceRho is a widen rewrite to a new target `tpe`.
+                // Existing annotation evidence (if present) justifies that
+                // annotation's old target, and we do not currently implement
+                // evidence composition across multiple widen steps.
+                //
+                // If the old annotation already targeted `tpe`, the guard above
+                // would return `expr` unchanged (preserving evidence). Reaching
+                // this case means we need a different target, so unwrap and
+                // continue coercing the underlying term.
+                self(t)
               case Local(_, _, _) | Global(_, _, _, _) |
                   AnnotatedLambda(_, _, _) | Literal(_, _, _) =>
                 // All of these are widened. The lambda seems like we should be able to do
@@ -2762,7 +2807,11 @@ object TypedExpr {
       def apply[A](expr: TypedExpr[A]): Rho[A] =
         expr match {
           case _ if expr.getType.sameAs(fntpe) => expr
-          case Annotation(t, _, _)             => self(t)
+          case Annotation(t, _, _)             =>
+            // Same rationale as coerceRho: this pass computes a new target
+            // (`fntpe`), so any existing annotation/evidence is for a prior
+            // target and is not composed here.
+            self(t)
           case AnnotatedLambda(args0, res, tag) =>
             // note, Var(None, name, originalType, tag)
             // is hanging out in res, or it is unused
