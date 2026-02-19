@@ -118,6 +118,21 @@ V1 intentionally does **not** support this form for multi-constructor enums for 
 
 Because these are high-cost semantic surprises, V1 restricts update syntax to single-constructor types only.
 
+### Tuple interaction
+Tuples participate via their existing Predef constructor types:
+1. `TupleN` is defined as a single-constructor struct.
+2. Its fields are named `item1`, `item2`, ..., `itemN`.
+
+So tuple update uses the same record-constructor update form, for example:
+
+```bosatsu
+updated = Tuple2 { item1: a, ..tup }
+```
+
+There is no special tuple-literal update syntax in V1:
+1. `Tuple2 { item1: a, ..tup }` is supported (subject to the same semantic checks).
+2. Syntax like `(a, ..tup)` is out of scope for this issue.
+
 ### Update Rewrite
 Given:
 
