@@ -22,7 +22,7 @@ from Bosatsu/Num/Float64 import (
 )
 from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
 
-export Json(), parse_Json, render_Json, Optional(), Nullable()
+export Json(), parse_Json, render_Json, eq_Json, Optional(), Nullable()
 
 enum Json:
   JNull
