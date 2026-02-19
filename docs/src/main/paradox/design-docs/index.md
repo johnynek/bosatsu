@@ -10,6 +10,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1676: Default Values in Struct and Enum Constructors](issue_1676_default_values_struct_enum_design.md)
 * [Well-Typed Statement Generator Design](well_typed_statement_generator_design.md)
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
+* [Libuv-Based IO Design for `Bosatsu/Prog`](libuv_prog_io_design.md)
 @@@
 
 ## Notes
