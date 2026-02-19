@@ -18,6 +18,80 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bosatsuJsonTypeConst: Type.Const.Defined =
+    Type.Const.Defined(PackageName.parts("Bosatsu", "Json"), TypeName("Json"))
+  private val optionalTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "Json"),
+      TypeName("Optional")
+    )
+  private val nullableTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "Json"),
+      TypeName("Nullable")
+    )
+
+  private object OptionalT {
+    def unapply(t: Type): Option[Type] =
+      t match {
+        case Type.TyApply(Type.TyConst(`optionalTypeConst`), inner) =>
+          Some(inner)
+        case _ => None
+      }
+  }
+
+  private object NullableT {
+    def unapply(t: Type): Option[Type] =
+      t match {
+        case Type.TyApply(Type.TyConst(`nullableTypeConst`), inner) =>
+          Some(inner)
+        case _ => None
+      }
+  }
+
+  private def parseFloat64(str: String): Option[Double] =
+    try Some(java.lang.Double.parseDouble(str))
+    catch {
+      case _: NumberFormatException => None
+    }
+
+  private def isIntegerNumberToken(str: String): Boolean = {
+    val len = str.length
+    if (len == 0) false
+    else {
+      val start =
+        if (str.charAt(0) == '-') {
+          if (len == 1) return false
+          1
+        } else 0
+      var idx = start
+      while (idx < len) {
+        val c = str.charAt(idx)
+        if ((c < '0') || ('9' < c)) return false
+        idx = idx + 1
+      }
+      true
+    }
+  }
+
+  private def decodeOptionalLike(value: Value): Option[Option[Value]] =
+    value match {
+      case s: SumValue
+          if (s.variant == 0) && (s.value == UnitValue) =>
+        Some(None)
+      case s: SumValue if s.variant == 1 =>
+        s.value.values match {
+          case Array(v) => Some(Some(v))
+          case _        => None
+        }
+      case _ => None
+    }
+
+  private def encodeOptionalLike(value: Option[Value]): Value =
+    value match {
+      case None        => SumValue(0, UnitValue)
+      case Some(inner) => SumValue(1, ProductValue.single(inner))
+    }
 
   private def isSingleUnicodeScalar(v: String): Boolean =
     if (v.isEmpty) false
@@ -35,6 +109,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       case Type.OptionT(inner) =>
         // if the inside of an Option cannot be null, we can use null
         // to represent None
+        !canEncodeToNull(inner)
+      case OptionalT(inner) =>
+        // Optional follows Option semantics outside of struct/enum field positions.
         !canEncodeToNull(inner)
       case Type.ForAll(_, inner) => canEncodeToNull(inner)
       case Type.Exists(_, inner) => canEncodeToNull(inner)
@@ -71,6 +148,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           loop(inner, t :: revPath, t :: working)
         case Type.OptionT(inner) =>
           loop(inner, t :: revPath, t :: working)
+        case OptionalT(inner) =>
+          loop(inner, t :: revPath, t :: working)
+        case NullableT(inner) =>
+          loop(inner, t :: revPath, t :: working)
+        case Type.TyConst(`bosatsuJsonTypeConst`) =>
+          ()
         case Type.ListT(inner) =>
           loop(inner, t :: revPath, t :: working)
         case Type.DictT(Type.StrType, inner) =>
@@ -191,8 +274,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               // $COVERAGE-ON$
             }
             case Type.Float64Type => {
-              case VFloat(v) if java.lang.Double.isFinite(v) =>
-                Right(Json.JNumberStr(java.lang.Double.toString(v)))
+              case VFloat(v) =>
+                if (java.lang.Double.isFinite(v))
+                  Right(Json.JNumberStr(java.lang.Double.toString(v)))
+                else Right(Json.JString(java.lang.Double.toString(v)))
               case other =>
                 Left(IllTyped(revPath.reverse, tpe, other))
             }
@@ -247,6 +332,107 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case other =>
                     Left(IllTyped(revPath.reverse, tpe, other))
                 }
+            case opt @ OptionalT(t1) =>
+              lazy val inner = loop(t1, tpe :: revPath).value
+
+              if (canEncodeToNull(opt)) {
+                // not a nested option
+                {
+                  case value =>
+                    decodeOptionalLike(value) match {
+                      case Some(None)    => Right(Json.JNull)
+                      case Some(Some(a)) => inner(a)
+                      case None          =>
+                        Left(IllTyped(revPath.reverse, tpe, value))
+                    }
+                }
+              } else {
+                {
+                  case value =>
+                    decodeOptionalLike(value) match {
+                      case Some(None)    => Right(Json.JArray(Vector.empty))
+                      case Some(Some(a)) =>
+                        inner(a).map(j => Json.JArray(Vector(j)))
+                      case None =>
+                        Left(IllTyped(revPath.reverse, tpe, value))
+                    }
+                }
+              }
+            case NullableT(t1) =>
+              lazy val inner = loop(t1, tpe :: revPath).value
+
+              {
+                case s: SumValue
+                    if (s.variant == 0) && (s.value == UnitValue) =>
+                  Right(Json.JNull)
+                case s: SumValue if s.variant == 1 =>
+                  s.value.values match {
+                    case Array(a) => inner(a)
+                    case _        => Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
+            case Type.TyConst(`bosatsuJsonTypeConst`) =>
+              lazy val recur = loop(tpe, tpe :: revPath).value
+
+              {
+                case s: SumValue
+                    if (s.variant == 0) && (s.value == UnitValue) =>
+                  Right(Json.JNull)
+                case s: SumValue if s.variant == 1 =>
+                  s.value.values match {
+                    case Array(True)  => Right(Json.JBool(true))
+                    case Array(False) => Right(Json.JBool(false))
+                    case _            => Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case s: SumValue if s.variant == 2 =>
+                  s.value.values match {
+                    case Array(ExternalValue(v: String)) =>
+                      Right(Json.JString(v))
+                    case _ =>
+                      Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case s: SumValue if s.variant == 3 =>
+                  s.value.values match {
+                    case Array(ExternalValue(v: BigInteger)) =>
+                      Right(Json.JNumberStr(v.toString))
+                    case _ =>
+                      Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case s: SumValue if s.variant == 4 =>
+                  s.value.values match {
+                    case Array(VFloat(v)) =>
+                      if (java.lang.Double.isFinite(v))
+                        Right(Json.JNumberStr(java.lang.Double.toString(v)))
+                      else Right(Json.JString(java.lang.Double.toString(v)))
+                    case _ =>
+                      Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case s: SumValue if s.variant == 5 =>
+                  s.value.values match {
+                    case Array(VList(items)) =>
+                      items.toVector.traverse(recur).map(Json.JArray(_))
+                    case _ =>
+                      Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case s: SumValue if s.variant == 6 =>
+                  s.value.values match {
+                    case Array(VList(items)) =>
+                      items
+                        .traverse {
+                          case Tuple(Str(k) :: v :: Nil) =>
+                            recur(v).map((k, _))
+                          case bad =>
+                            Left(IllTyped(revPath.reverse, tpe, bad))
+                        }
+                        .map(Json.JObject(_))
+                    case _ =>
+                      Left(IllTyped(revPath.reverse, tpe, s))
+                  }
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
             case Type.ListT(t1) =>
               lazy val inner = loop(t1, tpe :: revPath).value
 
@@ -349,13 +535,44 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   val replaceMap =
                     dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
-                  val resInner: Eval[Map[Int, List[(String, Fn)]]] =
+                  sealed trait ObjFieldEncoder {
+                    def key: String
+                  }
+                  final case class RequiredField(key: String, fn: Fn)
+                      extends ObjFieldEncoder
+                  final case class OptionalField(key: String, fn: Fn)
+                      extends ObjFieldEncoder
+
+                  def encodeField(
+                      value: Value,
+                      field: ObjFieldEncoder
+                  ): Either[IllTyped, List[(String, Json)]] =
+                    field match {
+                      case RequiredField(key, fn) =>
+                        fn(value).map(json => (key, json) :: Nil)
+                      case OptionalField(key, fn) =>
+                        decodeOptionalLike(value) match {
+                          case Some(None) => Right(Nil)
+                          case Some(Some(v)) =>
+                            fn(v).map(json => (key, json) :: Nil)
+                          case None =>
+                            Left(IllTyped(revPath.reverse, tpe, value))
+                        }
+                    }
+
+                  val resInner: Eval[Map[Int, List[ObjFieldEncoder]]] =
                     cons.zipWithIndex
                       .traverse { case (cf, idx) =>
                         val rec = cf.args.traverse { param =>
                           val subsT = Type.substituteVar(param.tpe, replaceMap)
-                          val next = loop(subsT, fullPath)
-                          next.map(fn => (param.name.asString, fn))
+                          subsT match {
+                            case OptionalT(inner) =>
+                              loop(inner, fullPath)
+                                .map(fn => OptionalField(param.name.asString, fn))
+                            case _ =>
+                              loop(subsT, fullPath)
+                                .map(fn => RequiredField(param.name.asString, fn))
+                          }
                         }
                         rec.map(fields => (idx, fields))
                       }
@@ -364,12 +581,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   notNat match {
                     case DataFamily.NewType =>
                       lazy val fieldAndInner = resInner.value.head._2.head
-                      lazy val fieldName = fieldAndInner._1
-                      lazy val inner = fieldAndInner._2
 
                       { v =>
-                        inner(v).map { json =>
-                          Json.JObject(fieldName -> json :: Nil)
+                        encodeField(v, fieldAndInner).map { kvs =>
+                          Json.JObject(kvs)
                         }
                       }
                     case DataFamily.Struct =>
@@ -383,10 +598,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           if (plist.size == size) {
                             plist
                               .zip(productsInner)
-                              .traverse { case (p, (key, f)) =>
-                                f(p).map((key, _))
+                              .traverse { case (p, field) =>
+                                encodeField(p, field)
                               }
-                              .map(ps => Json.JObject(ps))
+                              .map(ps => Json.JObject(ps.flatten))
                           } else {
                             Left(IllTyped(revPath.reverse, tpe, prod))
                           }
@@ -395,7 +610,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           Left(IllTyped(revPath.reverse, tpe, other))
                       }
                     case _ => // this is Enum
-                      lazy val mapping: Map[Int, List[(String, Fn)]] =
+                      lazy val mapping: Map[Int, List[ObjFieldEncoder]] =
                         // if we are in here, all constituent parts can be solved
                         resInner.value
 
@@ -407,10 +622,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                               if (vlist.size == fn.size) {
                                 vlist
                                   .zip(fn)
-                                  .traverse { case (p, (key, f)) =>
-                                    f(p).map((key, _))
+                                  .traverse { case (p, field) =>
+                                    encodeField(p, field)
                                   }
-                                  .map(ps => Json.JObject(ps))
+                                  .map(ps => Json.JObject(ps.flatten))
                               } else Left(IllTyped(revPath.reverse, tpe, s))
                             case None =>
                               Left(IllTyped(revPath.reverse, tpe, s))
@@ -460,14 +675,13 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               }
               case Type.Float64Type => {
                 case num @ Json.JNumberStr(str) =>
-                  try {
-                    val d = java.lang.Double.parseDouble(str)
-                    if (java.lang.Double.isFinite(d)) Right(VFloat(d))
-                    else Left(IllTypedJson(revPath.reverse, tpe, num))
-                  } catch {
-                    case _: NumberFormatException =>
-                      Left(IllTypedJson(revPath.reverse, tpe, num))
-                  }
+                  parseFloat64(str)
+                    .map(VFloat(_))
+                    .toRight(IllTypedJson(revPath.reverse, tpe, num))
+                case str @ Json.JString(value) =>
+                  parseFloat64(value)
+                    .map(VFloat(_))
+                    .toRight(IllTypedJson(revPath.reverse, tpe, str))
                 case other =>
                   Left(IllTypedJson(revPath.reverse, tpe, other))
               }
@@ -526,6 +740,103 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case other =>
                       Left(IllTypedJson(revPath.reverse, tpe, other))
                   }
+                }
+              case opt @ OptionalT(t1) =>
+                if (canEncodeToNull(opt)) {
+                  // not a nested option
+                  lazy val inner = loop(t1, tpe :: revPath).value
+
+                  {
+                    case Json.JNull =>
+                      Right(encodeOptionalLike(None))
+                    case notNull =>
+                      inner(notNull).map(v => encodeOptionalLike(Some(v)))
+                  }
+                } else {
+                  // we can't encode Option[Option[T]] as null or not, so we encode
+                  // as list of 0 or 1 items
+                  lazy val inner = loop(t1, tpe :: revPath).value
+
+                  {
+                    case Json.JArray(items) if items.lengthCompare(1) <= 0 =>
+                      items.headOption match {
+                        case None =>
+                          Right(encodeOptionalLike(None))
+                        case Some(a) =>
+                          inner(a).map(v => encodeOptionalLike(Some(v)))
+                      }
+                    case other =>
+                      Left(IllTypedJson(revPath.reverse, tpe, other))
+                  }
+                }
+              case NullableT(t1) =>
+                lazy val inner = loop(t1, tpe :: revPath).value
+
+                {
+                  case Json.JNull =>
+                    Right(SumValue(0, UnitValue))
+                  case notNull =>
+                    inner(notNull)
+                      .map(v => SumValue(1, ProductValue.single(v)))
+                }
+              case Type.TyConst(`bosatsuJsonTypeConst`) =>
+                lazy val recur = loop(tpe, tpe :: revPath).value
+
+                {
+                  case Json.JNull =>
+                    Right(SumValue(0, UnitValue))
+                  case Json.JBool.True =>
+                    Right(
+                      SumValue(
+                        1,
+                        ProductValue.single(True)
+                      )
+                    )
+                  case Json.JBool.False =>
+                    Right(
+                      SumValue(
+                        1,
+                        ProductValue.single(False)
+                      )
+                    )
+                  case Json.JString(value) =>
+                    Right(
+                      SumValue(
+                        2,
+                        ProductValue.single(ExternalValue(value))
+                      )
+                    )
+                  case num @ Json.JNumberStr(str) =>
+                    if (isIntegerNumberToken(str))
+                      Right(
+                        SumValue(
+                          3,
+                          ProductValue.single(ExternalValue(new BigInteger(str)))
+                        )
+                      )
+                    else
+                      parseFloat64(str) match {
+                        case Some(v) =>
+                          Right(
+                            SumValue(4, ProductValue.single(VFloat(v)))
+                          )
+                        case None =>
+                          Left(IllTypedJson(revPath.reverse, tpe, num))
+                      }
+                  case Json.JArray(items) =>
+                    items.toVector
+                      .traverse(recur)
+                      .map(vs =>
+                        SumValue(5, ProductValue.single(VList(vs.toList)))
+                      )
+                  case Json.JObject(items) =>
+                    items
+                      .traverse { case (k, v) =>
+                        recur(v).map(decoded => Tuple(Str(k), decoded))
+                      }
+                      .map(vs =>
+                        SumValue(6, ProductValue.single(VList(vs)))
+                      )
                 }
               case Type.ListT(t) =>
                 lazy val inner = loop(t, tpe :: revPath).value
@@ -610,11 +921,16 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       Left(UnsupportedType(NonEmptyList(tpe, revPath).reverse))
                   })
 
-                val resInner: Eval[
-                  List[
-                    (Int, List[(String, Json => Either[IllTypedJson, Value])])
-                  ]
-                ] = {
+                sealed trait ObjFieldDecoder {
+                  def idx: Int
+                  def key: String
+                }
+                final case class RequiredField(idx: Int, key: String, fn: Fn)
+                    extends ObjFieldDecoder
+                final case class OptionalField(idx: Int, key: String, fn: Fn)
+                    extends ObjFieldDecoder
+
+                val resInner: Eval[List[(Int, List[ObjFieldDecoder])]] = {
                   val cons = dt.constructors
                   val (_, targs) = Type.unapplyAll(tpe)
                   val replaceMap =
@@ -622,11 +938,29 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
                   cons.zipWithIndex
                     .traverse { case (cf, idx) =>
-                      cf.args
-                        .traverse { param =>
+                      cf.args.zipWithIndex
+                        .traverse { case (param, fieldIdx) =>
                           val subsT = Type.substituteVar(param.tpe, replaceMap)
-                          loop(subsT, fullPath)
-                            .map((param.name.asString, _))
+                          subsT match {
+                            case OptionalT(inner) =>
+                              loop(inner, fullPath).map(
+                                fn =>
+                                  OptionalField(
+                                    fieldIdx,
+                                    param.name.asString,
+                                    fn
+                                  )
+                              )
+                            case _ =>
+                              loop(subsT, fullPath).map(
+                                fn =>
+                                  RequiredField(
+                                    fieldIdx,
+                                    param.name.asString,
+                                    fn
+                                  )
+                              )
+                          }
                         }
                         .map(pair => (idx, pair))
                     }
@@ -638,57 +972,90 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     // The runtime value is still unboxed, but for JSON we keep
                     // the source-level field/object shape.
                     lazy val fieldAndInner = resInner.value.head._2.head
-                    lazy val fieldName = fieldAndInner._1
-                    lazy val inner = fieldAndInner._2
 
                     {
                       case obj @ Json.JObject(_) =>
                         val itemMap = obj.toMap
-                        if (itemMap.keySet == Set(fieldName)) inner(itemMap(fieldName))
-                        else Left(IllTypedJson(revPath.reverse, tpe, obj))
+                        fieldAndInner match {
+                          case RequiredField(_, fieldName, inner) =>
+                            if (itemMap.keySet == Set(fieldName))
+                              inner(itemMap(fieldName))
+                            else Left(IllTypedJson(revPath.reverse, tpe, obj))
+                          case OptionalField(_, fieldName, inner) =>
+                            if (itemMap.isEmpty) Right(encodeOptionalLike(None))
+                            else if (itemMap.keySet == Set(fieldName))
+                              inner(itemMap(fieldName))
+                                .map(v => encodeOptionalLike(Some(v)))
+                            else Left(IllTypedJson(revPath.reverse, tpe, obj))
+                        }
                       case other =>
                         Left(IllTypedJson(revPath.reverse, tpe, other))
                     }
                   case DataFamily.Struct | DataFamily.Enum =>
                     // This is lazy because we don't want to run
                     // the Evals until we have the first value
-                    lazy val mapping: List[(Int, Map[String, (Int, Fn)])] =
+                    lazy val mapping: List[(Int, List[ObjFieldDecoder])] =
                       // if we are in here, all constituent parts can be solved
-                      resInner.value.map { case (idx, lst) =>
-                        (
-                          idx,
-                          lst.iterator.zipWithIndex.map {
-                            case ((nm, fn), idx) => (nm, (idx, fn))
-                          }.toMap
-                        )
-                      }
+                      resInner.value
 
                     {
                       case obj @ Json.JObject(_) =>
-                        val keySet = obj.toMap.keySet
+                        val itemMap = obj.toMap
+                        val keySet = itemMap.keySet
                         def run(
-                            cand: List[(Int, Map[String, (Int, Fn)])]
+                            cand: List[(Int, List[ObjFieldDecoder])]
                         ): Either[IllTypedJson, Value] =
                           cand match {
                             case Nil =>
                               Left(IllTypedJson(revPath.reverse, tpe, obj))
-                            case (variant, decode) :: _
-                                if keySet == decode.keySet =>
-                              val itemArray = new Array[Value](keySet.size)
-                              obj.items
-                                .foldM(itemArray) { case (ary, (k, v)) =>
-                                  val (idx, fn) = decode(k)
-                                  fn(v).map { value =>
-                                    ary(idx) = value
-                                    ary
+                            case (variant, decode) :: tail =>
+                              val allKeys = decode.iterator.map(_.key).toSet
+                              val requiredKeys = decode.collect {
+                                case RequiredField(_, k, _) => k
+                              }.toSet
+
+                              if (requiredKeys.subsetOf(keySet) && keySet
+                                  .subsetOf(allKeys)) {
+                                val itemArray = new Array[Value](decode.size)
+                                decode
+                                  .foldM(itemArray) { (ary, field) =>
+                                    field match {
+                                      case RequiredField(idx, key, fn) =>
+                                        itemMap.get(key) match {
+                                          case Some(value) =>
+                                            fn(value).map { parsed =>
+                                              ary(idx) = parsed
+                                              ary
+                                            }
+                                          case None =>
+                                            Left(
+                                              IllTypedJson(
+                                                revPath.reverse,
+                                                tpe,
+                                                obj
+                                              )
+                                            )
+                                        }
+                                      case OptionalField(idx, key, fn) =>
+                                        itemMap.get(key) match {
+                                          case Some(value) =>
+                                            fn(value).map { parsed =>
+                                              ary(idx) =
+                                                encodeOptionalLike(Some(parsed))
+                                              ary
+                                            }
+                                          case None =>
+                                            ary(idx) = encodeOptionalLike(None)
+                                            Right(ary)
+                                        }
+                                    }
                                   }
-                                }
-                                .map { ary =>
-                                  val prod = ProductValue.fromList(ary.toList)
-                                  if (dt.isStruct) prod
-                                  else SumValue(variant, prod)
-                                }
-                            case _ :: tail => run(tail)
+                                  .map { ary =>
+                                    val prod = ProductValue.fromList(ary.toList)
+                                    if (dt.isStruct) prod
+                                    else SumValue(variant, prod)
+                                  }
+                              } else run(tail)
                           }
 
                         run(mapping)

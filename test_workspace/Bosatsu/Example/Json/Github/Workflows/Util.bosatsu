@@ -1,5 +1,7 @@
 package Bosatsu/Example/Json/Github/Workflows/Util
 
+from Bosatsu/Json import Optional, Missing, Set
+
 export (
   action_cache,
   action_codecov,
@@ -44,10 +46,23 @@ export (
   run_lib_test_c,
   run_lib_build_c,
   run_python_tests_cmd,
+  checkout_v2_step,
+  checkout_v4_step,
+  cache_step,
+  setup_sbt_step,
+  setup_sbt_title_step,
+  setup_java_step,
+  matrix_java_step,
+  matrix_java_fetch_step,
+  java17_title_fetch_step,
+  checkout_v2_fetch_depth_0_step,
+  checkout_v4_fetch_depth_0_step,
+  install_b3sum_step,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
   transpile_c_cmd,
   transpile_python_cmd,
+  upload_artifact_step,
   timeout_minutes_default,
 )
 
@@ -56,45 +71,45 @@ struct OnPushBranches(branches: List[String])
 struct OnPush(push: OnPushBranches)
 
 struct StepEnv(
-  `TAG_NAME`: Option[String] = None,
-  `BOSATSU_C_RUNTIME_HASH`: Option[String] = None,
-  `BOSATSU_STATIC_NATIVE_IMAGE`: Option[String] = None,
-  `BOSATSU_NATIVE_IMAGE_LIBC`: Option[String] = None,
-  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Option[String] = None,
-  `CC`: Option[String] = None,
-  `PGP_PASSPHRASE`: Option[String] = None,
-  `PGP_SECRET`: Option[String] = None,
-  `SONATYPE_PASSWORD`: Option[String] = None,
-  `SONATYPE_USERNAME`: Option[String] = None,
-  `REPO_ROOT`: Option[String] = None,
-  `OUTDIR`: Option[String] = None,
-  `GIT_SHA`: Option[String] = None,
-  `URI_BASE`: Option[String] = None,
-  `C_RUNTIME_ARCHIVE`: Option[String] = None,
-  `GITHUB_TOKEN`: Option[String] = None,
-  `GITHUB_REF_NAME`: Option[String] = None,
-  `GH_TOKEN`: Option[String] = None,
+  `TAG_NAME`: Optional[String] = Missing,
+  `BOSATSU_C_RUNTIME_HASH`: Optional[String] = Missing,
+  `BOSATSU_STATIC_NATIVE_IMAGE`: Optional[String] = Missing,
+  `BOSATSU_NATIVE_IMAGE_LIBC`: Optional[String] = Missing,
+  `BOSATSU_NATIVE_IMAGE_CLIB_PATH`: Optional[String] = Missing,
+  `CC`: Optional[String] = Missing,
+  `PGP_PASSPHRASE`: Optional[String] = Missing,
+  `PGP_SECRET`: Optional[String] = Missing,
+  `SONATYPE_PASSWORD`: Optional[String] = Missing,
+  `SONATYPE_USERNAME`: Optional[String] = Missing,
+  `REPO_ROOT`: Optional[String] = Missing,
+  `OUTDIR`: Optional[String] = Missing,
+  `GIT_SHA`: Optional[String] = Missing,
+  `URI_BASE`: Optional[String] = Missing,
+  `C_RUNTIME_ARCHIVE`: Optional[String] = Missing,
+  `GITHUB_TOKEN`: Optional[String] = Missing,
+  `GITHUB_REF_NAME`: Optional[String] = Missing,
+  `GH_TOKEN`: Optional[String] = Missing,
 )
 
 struct Step[with_t](
-  uses: Option[String] = None,
-  name: Option[String] = None,
-  with: Option[with_t] = None,
-  run: Option[String] = None,
-  env: Option[StepEnv] = None,
-  id: Option[String] = None,
+  uses: Optional[String] = Missing,
+  name: Optional[String] = Missing,
+  with: Optional[with_t] = Missing,
+  run: Optional[String] = Missing,
+  env: Optional[StepEnv] = Missing,
+  id: Optional[String] = Missing,
 )
 
 struct JavaWith(distribution: String, `java-version`: String)
 
 struct FetchJavaWith(
-  `fetch-depth`: Option[Int] = None,
-  distribution: Option[String] = None,
-  `java-version`: Option[String] = None,
-  token: Option[String] = None,
-  override_branch: Option[String] = None,
-  name: Option[String] = None,
-  path: Option[String] = None,
+  `fetch-depth`: Optional[Int] = Missing,
+  distribution: Optional[String] = Missing,
+  `java-version`: Optional[String] = Missing,
+  token: Optional[String] = Missing,
+  override_branch: Optional[String] = Missing,
+  name: Optional[String] = Missing,
+  path: Optional[String] = Missing,
 )
 
 struct JavaStrategyMatrix(java: List[String])
@@ -159,6 +174,77 @@ def cat_lines(lines: List[String]) -> String:
     case []: ""
     case [line]: line
     case [line, *rest]: "${line}\n${cat_lines(rest)}"
+
+checkout_v2_step = Step { uses: Set(action_checkout_v2) }
+
+checkout_v4_step = Step { uses: Set(action_checkout_v4) }
+
+cache_step = Step { uses: Set(action_cache) }
+
+setup_sbt_step = Step { uses: Set(action_setup_sbt), name: Set(install_sbt_step_name) }
+
+setup_sbt_title_step = Step { uses: Set(action_setup_sbt), name: Set(install_sbt_step_name_title) }
+
+def setup_java_step[with_t](step_name: String, with: with_t) -> Step[with_t]:
+  Step {
+    uses: Set(action_setup_java),
+    name: Set(step_name),
+    with: Set(with),
+  }
+
+matrix_java_step =
+  setup_java_step(
+    java_matrix_setup_name,
+    JavaWith(java_distribution_temurin, java_version_matrix),
+  )
+
+matrix_java_fetch_step =
+  setup_java_step(
+    java_matrix_setup_name,
+    FetchJavaWith {
+      distribution: Set(java_distribution_temurin),
+      `java-version`: Set(java_version_matrix),
+    },
+  )
+
+java17_title_fetch_step =
+  setup_java_step(
+    java_17_setup_name_title,
+    FetchJavaWith {
+      distribution: Set(java_distribution_temurin),
+      `java-version`: Set(java_version_17),
+    },
+  )
+
+checkout_v2_fetch_depth_0_step =
+  Step {
+    uses: Set(action_checkout_v2),
+    with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
+  }
+
+checkout_v4_fetch_depth_0_step =
+  Step {
+    uses: Set(action_checkout_v4),
+    name: Set("Check out code"),
+    with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
+  }
+
+install_b3sum_step =
+  Step {
+    name: Set("Install b3sum"),
+    run: Set("sudo apt-get update && sudo apt-get install -y b3sum"),
+  }
+
+def upload_artifact_step(
+  step_name: String,
+  artifact_name: String,
+  path: String,
+) -> Step[FetchJavaWith]:
+  Step {
+    uses: Set(action_upload_artifact),
+    name: Set(step_name),
+    with: Set(FetchJavaWith { name: Set(artifact_name), path: Set(path) }),
+  }
 
 run_publish_bosatsu_libs =
   cat_lines([
