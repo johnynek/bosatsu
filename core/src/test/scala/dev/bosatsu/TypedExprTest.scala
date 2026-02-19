@@ -1568,13 +1568,11 @@ x = Foo
 
   private def allBoundViaTraverseType[A](
       te: TypedExpr[A]
-  ): SortedSet[Type.Var.Bound] =
-    te.traverseType {
-      case t @ Type.TyVar(b: Type.Var.Bound) =>
-        Writer[SortedSet[Type.Var.Bound], Type](SortedSet(b), t)
-      case t =>
-        Writer[SortedSet[Type.Var.Bound], Type](SortedSet.empty, t)
-    }.run._1
+  ): SortedSet[Type.Var.Bound] = {
+    val tpes = allTypesViaTraverseType(te).toList
+    val free = Type.freeBoundTyVars(tpes).toSet
+    SortedSet.from(Type.tyVarBinders(tpes) ++ free)
+  }
 
   private def allPatternTypesViaTraverseType[N](
       p: Pattern[N, Type]

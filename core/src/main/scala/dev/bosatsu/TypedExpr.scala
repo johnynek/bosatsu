@@ -1220,13 +1220,9 @@ object TypedExpr {
     }
 
     def allBound: SortedSet[Type.Var.Bound] = {
-      val acc = scala.collection.mutable.HashSet.empty[Type.Var.Bound]
-      foreachTraversedType {
-        case Type.TyVar(b: Type.Var.Bound) =>
-          acc.add(b): Unit
-        case _ => ()
-      }
-      SortedSet.from(acc)
+      val tpes = allTypes.toList
+      val free = Type.freeBoundTyVars(tpes).toSet
+      SortedSet.from(Type.tyVarBinders(tpes) ++ free)
     }
 
     def freeTyVars: List[Type.Var] = {
