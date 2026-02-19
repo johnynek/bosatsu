@@ -2185,10 +2185,11 @@ object Matchless {
             q,
             recurToSelfCall(loopName, loopType, in, inNestedLoop)
           )
-        case TypedExpr.Annotation(in, tpe) =>
+        case TypedExpr.Annotation(in, tpe, qev) =>
           TypedExpr.Annotation(
             recurToSelfCall(loopName, loopType, in, inNestedLoop),
-            tpe
+            tpe,
+            qev
           )
         case TypedExpr.AnnotatedLambda(args, body, tag) =>
           TypedExpr.AnnotatedLambda(
@@ -2272,7 +2273,7 @@ object Matchless {
     def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
       te match {
         case TypedExpr.Generic(_, expr)              => loop(expr, slots)
-        case TypedExpr.Annotation(term, _)           => loop(term, slots)
+        case TypedExpr.Annotation(term, _, _)        => loop(term, slots)
         case TypedExpr.AnnotatedLambda(args, res, _) =>
           val frees = TypedExpr.freeVars(te :: Nil)
           val (slots1, captures) = slots.lambdaFrees(frees)

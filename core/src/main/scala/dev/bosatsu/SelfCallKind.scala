@@ -47,7 +47,7 @@ object SelfCallKind {
   private def isFn[A](n: Bindable, te: TypedExpr[A]): Boolean =
     te match {
       case TypedExpr.Generic(_, in)    => isFn(n, in)
-      case TypedExpr.Annotation(te, _) => isFn(n, te)
+      case TypedExpr.Annotation(te, _, _) => isFn(n, te)
       case TypedExpr.Local(vn, _, _)   => vn == n
       case _                           => false
     }
@@ -57,7 +57,7 @@ object SelfCallKind {
   def apply[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =
     te match {
       case TypedExpr.Generic(_, in)               => apply(n, in)
-      case TypedExpr.Annotation(te, _)            => apply(n, te)
+      case TypedExpr.Annotation(te, _, _)         => apply(n, te)
       case TypedExpr.AnnotatedLambda(as, body, _) =>
         // let fn = x -> fn(x) in fn(1)
         // is a tail-call

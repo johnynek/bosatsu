@@ -1484,12 +1484,17 @@ object Infer {
               val validToKinds =
                 validateSubs(instantiation.toSubs.toList, right, left, fromVars)
 
+              val quantifierEvidence = quantifierEvidenceFromInstantiation(
+                sourceAtSolve = inferred,
+                targetAtSolve = declared,
+                instantiation = instantiation
+              )
+
               validFromKinds.parProductR(validToKinds)
                 .as {
                   new FunctionK[TypedExpr, dom.ExprKind] {
                     def apply[A](te: TypedExpr[A]): dom.ExprKind[A] =
-                      // TODO: enrich Annotation with explicit instantiation evidence.
-                      dom.Annotation(te, declared)
+                      dom.Annotation(te, declared, quantifierEvidence)
                   }
                 }
             }
@@ -1695,6 +1700,52 @@ object Infer {
           }
         }
       }
+
+    private def quantifierEvidenceFromInstantiation(
+        sourceAtSolve: Type,
+        targetAtSolve: Type,
+        instantiation: Type.Instantiation
+    ): Option[TypedExpr.QuantifierEvidence] = {
+      val hasAnySolve =
+        instantiation.subs.nonEmpty || instantiation.toSubs.nonEmpty
+
+      if (!hasAnySolve) None
+      else {
+        val hasMetaInSnapshots =
+          Type.metaTvs(sourceAtSolve :: targetAtSolve :: Nil).nonEmpty
+
+        val hasMetaInSolutions =
+          instantiation.subs.iterator.exists { case (_, (_, t)) =>
+            Type.metaTvs(t :: Nil).nonEmpty
+          } || instantiation.toSubs.iterator.exists { case (_, (_, t)) =>
+            Type.metaTvs(t :: Nil).nonEmpty
+          }
+
+        val hasFreeTyVarInSnapshots =
+          Type.freeTyVars(sourceAtSolve :: targetAtSolve :: Nil).nonEmpty
+
+        val hasFreeTyVarInSolutions =
+          instantiation.subs.iterator.exists { case (_, (_, t)) =>
+            Type.freeTyVars(t :: Nil).nonEmpty
+          } || instantiation.toSubs.iterator.exists { case (_, (_, t)) =>
+            Type.freeTyVars(t :: Nil).nonEmpty
+          }
+
+        if (
+          hasMetaInSnapshots || hasMetaInSolutions ||
+            hasFreeTyVarInSnapshots || hasFreeTyVarInSolutions
+        ) None
+        else
+          Some(
+            TypedExpr.QuantifierEvidence(
+              sourceAtSolve = sourceAtSolve,
+              targetAtSolve = targetAtSolve,
+              forallSolved = instantiation.subs,
+              existsHidden = instantiation.toSubs
+            )
+          )
+      }
+    }
 
     private def functionNameHint[A](
         fn: Expr[A]
@@ -1978,9 +2029,18 @@ object Infer {
                         val fnType0 = Type.Fun(appliedArgTypes, resT)
                         val fnType1 = Type.substituteVar(fnType0, subMap)
                         val resType = Type.substituteVar(resT, subMap)
+                        val quantifierEvidence = quantifierEvidenceFromInstantiation(
+                          sourceAtSolve = fnTe.getType,
+                          targetAtSolve = fnType1,
+                          instantiation = instantiation
+                        )
 
                         val resTe = TypedExpr.App(
-                          TypedExpr.Annotation(fnTe, fnType1),
+                          TypedExpr.Annotation(
+                            fnTe,
+                            fnType1,
+                            quantifierEvidence
+                          ),
                           appliedArgs,
                           resType,
                           tag
@@ -2336,6 +2396,12 @@ object Infer {
 
                             validKinds.parProductR(expect match {
                               case Expected.Check((r1, reg1)) =>
+                                val quantifierEvidence =
+                                  quantifierEvidenceFromInstantiation(
+                                    sourceAtSolve = te.getType,
+                                    targetAtSolve = rho,
+                                    instantiation = instantiation
+                                  )
                                 for {
                                   co <- subsCheckRho2(
                                     rho,
@@ -2345,7 +2411,11 @@ object Infer {
                                     Error.Direction.ExpectRight
                                   )
                                   z <- zonkTypedExpr(
-                                    TypedExpr.Annotation(te, rho)
+                                    TypedExpr.Annotation(
+                                      te,
+                                      rho,
+                                      quantifierEvidence
+                                    )
                                   )
                                 } yield co(z)
                               case inf @ Expected.Inf(_) =>

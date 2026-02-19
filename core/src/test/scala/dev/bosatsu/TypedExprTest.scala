@@ -5,12 +5,12 @@ import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 import Arbitrary.arbitrary
 import Identifier.{Bindable, Constructor}
 import TestUtils.checkLast
-import rankn.{Type, NTypeGen}
+import rankn.{Type, NTypeGen, RefSpace}
 
 class TypedExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
@@ -481,7 +481,7 @@ foo = _ -> 1
         true
       case TypedExpr.Generic(_, in) =>
         hasLoop(in)
-      case TypedExpr.Annotation(in, _) =>
+      case TypedExpr.Annotation(in, _, _) =>
         hasLoop(in)
       case TypedExpr.AnnotatedLambda(_, in, _) =>
         hasLoop(in)
@@ -506,7 +506,7 @@ foo = _ -> 1
         rec.isRecursive || hasRecursiveLet(expr) || hasRecursiveLet(in)
       case TypedExpr.Generic(_, in) =>
         hasRecursiveLet(in)
-      case TypedExpr.Annotation(in, _) =>
+      case TypedExpr.Annotation(in, _, _) =>
         hasRecursiveLet(in)
       case TypedExpr.AnnotatedLambda(_, in, _) =>
         hasRecursiveLet(in)
@@ -532,7 +532,7 @@ foo = _ -> 1
     te match {
       case t if t.void === target.void         => 1
       case TypedExpr.Generic(_, in)            => countExpr(in, target)
-      case TypedExpr.Annotation(in, _)         => countExpr(in, target)
+      case TypedExpr.Annotation(in, _, _)      => countExpr(in, target)
       case TypedExpr.AnnotatedLambda(_, in, _) => countExpr(in, target)
       case TypedExpr.App(fn, args, _, _)       =>
         countExpr(fn, target) + args.toList.map(countExpr(_, target)).sum
@@ -1247,7 +1247,7 @@ def for_all(xs: List[a], fn: a -> B) -> B:
   test("normalization removes non-recursive identity let bindings") {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())
-    val wrappedX = TypedExpr.Annotation(xVar, intTpe)
+    val wrappedX = TypedExpr.Annotation(xVar, intTpe, None)
     val body =
       TypedExpr.App(PredefAdd, NonEmptyList.of(xVar, int(1)), intTpe, ())
     val identLet =
@@ -1512,7 +1512,7 @@ x = Foo
           tpe :: Nil
         case TypedExpr.Generic(_, in) =>
           localTypesOf(in, target)
-        case TypedExpr.Annotation(in, _) =>
+        case TypedExpr.Annotation(in, _, _) =>
           localTypesOf(in, target)
         case TypedExpr.AnnotatedLambda(_, in, _) =>
           localTypesOf(in, target)
@@ -1582,12 +1582,18 @@ x = Foo
     p.traverseType(t => Writer[SortedSet[Type], Type](SortedSet(t), t)).run._1
 
   private def freeTyVarsReference[A](te: TypedExpr[A]): List[Type.Var] = {
+    def qevTypes(qev: TypedExpr.QuantifierEvidence): List[Type] =
+      qev.sourceAtSolve ::
+        qev.targetAtSolve ::
+        qev.forallSolved.valuesIterator.map(_._2).toList :::
+        qev.existsHidden.valuesIterator.map(_._2).toList
+
     def loop(self: TypedExpr[A]): Set[Type.Var] =
       self match {
         case TypedExpr.Generic(quant, expr) =>
           loop(expr) -- quant.vars.iterator.map(_._1)
-        case TypedExpr.Annotation(of, tpe) =>
-          loop(of) ++ Type.freeTyVars(tpe :: Nil)
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          loop(of) ++ Type.freeTyVars(tpe :: qev.toList.flatMap(qevTypes))
         case TypedExpr.AnnotatedLambda(args, res, _) =>
           loop(res) ++ Type.freeTyVars(args.toList.map { case (_, t) => t })
         case TypedExpr.Local(_, tpe, _) =>
@@ -2071,7 +2077,8 @@ def makeLoop(fn):
 
     val defExpr = TypedExpr.Annotation(
       TypedExpr.AnnotatedLambda(NonEmptyList.one((aName, intTpe)), defBody, ()),
-      fnTpe
+      fnTpe,
+      None
     )
 
     val shadowNoChange =
@@ -2081,7 +2088,7 @@ def makeLoop(fn):
     val shadowRecursive =
       TypedExpr.Let(fName, int(8), int(9), RecursionKind.Recursive, ())
 
-    val annotationNoChange = TypedExpr.Annotation(int(10), intTpe)
+    val annotationNoChange = TypedExpr.Annotation(int(10), intTpe, None)
     val genericNoChange = TypedExpr.Generic(
       TypedExpr.Quantification.ForAll(
         NonEmptyList.one((Type.Var.Bound("qa"), Kind.Type))
@@ -2360,6 +2367,101 @@ def makeLoop(fn):
             te.freeTyVars.toSet
           )
       )
+    }
+  }
+
+  test("TypedExpr.zonkMeta zonks quantifier evidence types") {
+    val k = Kind.Type
+    val m1 = Type.Meta(k, 1001L, existential = false, RefSpace.constRef(None))
+    val m2 = Type.Meta(k, 1002L, existential = true, RefSpace.constRef(None))
+    val a = Type.Var.Bound("a")
+    val e = Type.Var.Bound("e")
+    val qev = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = Type.TyMeta(m1),
+      targetAtSolve = Type.TyMeta(m2),
+      forallSolved = SortedMap(a -> (k, Type.TyMeta(m1))),
+      existsHidden = SortedMap(e -> (k, Type.TyMeta(m2)))
+    )
+    val te: TypedExpr[Unit] = TypedExpr.Annotation(
+      TypedExpr.Local(Identifier.Name("x"), Type.TyMeta(m1), ()),
+      Type.TyMeta(m2),
+      Some(qev)
+    )
+
+    val zonked = TypedExpr.zonkMeta[cats.Id, Unit](te) { m =>
+      if (m.id == m1.id) Some(Type.Tau(Type.IntType))
+      else if (m.id == m2.id) Some(Type.Tau(Type.StrType))
+      else None
+    }
+
+    zonked match {
+      case TypedExpr.Annotation(
+            TypedExpr.Local(_, localTpe, _),
+            coerce,
+            Some(qev1)
+          ) =>
+        assertEquals(localTpe, Type.IntType)
+        assertEquals(coerce, Type.StrType)
+        assertEquals(qev1.sourceAtSolve, Type.IntType)
+        assertEquals(qev1.targetAtSolve, Type.StrType)
+        assertEquals(qev1.forallSolved.valuesIterator.map(_._2).toList, Type.IntType :: Nil)
+        assertEquals(qev1.existsHidden.valuesIterator.map(_._2).toList, Type.StrType :: Nil)
+      case other =>
+        fail(s"expected annotation with evidence, got: ${other.reprString}")
+    }
+
+    assertEquals(Type.metaTvs(zonked.allTypes.toList), SortedSet.empty[Type.Meta])
+  }
+
+  test("TypedExpr.quantify handles metas and skolems inside quantifier evidence") {
+    type S[A] = State[Map[Type.Meta, Type.Tau], A]
+    val k = Kind.Type
+    val mForall = Type.Meta(k, 2001L, existential = false, RefSpace.constRef(None))
+    val mExists = Type.Meta(k, 2002L, existential = true, RefSpace.constRef(None))
+    val exSkolem = Type.Var.Skolem("ex", k, existential = true, id = 99L)
+    val qev = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = Type.TyMeta(mForall),
+      targetAtSolve = Type.TyVar(exSkolem),
+      forallSolved = SortedMap(Type.Var.Bound("fa") -> (k, Type.TyMeta(mForall))),
+      existsHidden = SortedMap(
+        Type.Var.Bound("ex") -> (k, Type.TyApply(Type.TyMeta(mExists), Type.TyVar(exSkolem)))
+      )
+    )
+    val rho: TypedExpr.Rho[Unit] = TypedExpr.Rho.assertRho(
+      TypedExpr.Annotation(
+        TypedExpr.Literal(Lit.fromInt(1), Type.IntType, ()),
+        Type.IntType,
+        Some(qev)
+      )
+    )
+
+    val readFn: Type.Meta => S[Option[Type.Tau]] = m => State.inspect(_.get(m))
+    val writeFn: (Type.Meta, Type.Tau) => S[Unit] =
+      (m, t) => State.modify(_.updated(m, t))
+
+    val quantified =
+      TypedExpr
+        .quantify[S, Unit](
+          Map.empty,
+          rho,
+          readFn,
+          writeFn
+        )
+        .runA(Map.empty)
+        .value
+
+    assertEquals(Type.metaTvs(quantified.allTypes.toList), SortedSet.empty[Type.Meta])
+    assert(
+      !Type.freeTyVars(quantified.allTypes.toList).contains(exSkolem),
+      quantified.reprString
+    )
+
+    quantified match {
+      case TypedExpr.Generic(quant, _) =>
+        assert(quant.forallList.nonEmpty)
+        assert(quant.existList.nonEmpty)
+      case other =>
+        fail(s"expected quantified result, got: ${other.reprString}")
     }
   }
 

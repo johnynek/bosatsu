@@ -2525,4 +2525,89 @@ main = branch
       "Option[forall a. a -> a] -> (forall a. a -> a)"
     )
   }
+
+  test("recover/ignore_err keeps env and error vars distinct under await") {
+    parseProgram(
+      """#
+external struct Prog[env: -*, err: +*, res: +*]
+external def pure[env, err, res](a: res) -> Prog[env, err, res]
+external def flat_map(prog: Prog[env, err, res], fn: res -> Prog[env, err, res1]) -> Prog[env, err, res1]
+external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+
+struct U
+
+def await(p, fn): p.flat_map(fn)
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+def show_error[env, err0](p: Prog[env, err0, U]) -> forall e. Prog[env, e, U]:
+  p.recover(_ -> (
+    _ <- ignore_err(pure(U), U).await()
+    pure(U)
+  ))
+
+main = show_error
+""",
+      "forall env, err0. Prog[env, err0, U] -> forall e. Prog[env, e, U]"
+    )
+  }
+
+  test("recover/ignore_err keeps env and error vars distinct without await") {
+    parseProgram(
+      """#
+external struct Prog[env: -*, err: +*, res: +*]
+external def pure[env, err, res](a: res) -> Prog[env, err, res]
+external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+
+struct U
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+def show_error[env, err0](p: Prog[env, err0, U]) -> forall e. Prog[env, e, U]:
+  p.recover(_ -> ignore_err(pure(U), U))
+
+main = show_error
+""",
+      "forall env, err0. Prog[env, err0, U] -> forall e. Prog[env, e, U]"
+    )
+  }
+
+  test("direct ignore_err application preserves env and abstracts error") {
+    parseProgram(
+      """#
+external struct Prog[env: -*, err: +*, res: +*]
+external def pure[env, err, res](a: res) -> Prog[env, err, res]
+external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+
+struct U
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+def foo[env](u: U) -> forall e. Prog[env, e, U]:
+  ignore_err(pure(u), u)
+
+main = foo
+""",
+      "forall env. U -> forall e. Prog[env, e, U]"
+    )
+  }
+
+  test("ignore_err declaration keeps env separate from quantified error") {
+    parseProgram(
+      """#
+external struct Prog[env: -*, err: +*, res: +*]
+external def pure[env, err, res](a: res) -> Prog[env, err, res]
+external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+
+def ignore_err[env, err, res](p: Prog[env, err, res], default: res) -> forall e. Prog[env, e, res]:
+  p.recover(_ -> pure(default))
+
+main = ignore_err
+""",
+      "forall env, err, res. (Prog[env, err, res], res) -> forall e. Prog[env, e, res]"
+    )
+  }
 }
