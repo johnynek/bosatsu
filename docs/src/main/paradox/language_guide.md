@@ -523,6 +523,27 @@ hash = HashResult("b9f32037daab5a0aff8e437ff1dd0f0d")
 my_file_rec = File { name, modified_time: 1540951025, size, hash }
 ```
 
+Record syntax also supports updates from an existing value:
+```
+base = File {
+  name: "readme.txt",
+  modified_time: 1540951025,
+  size: 10240,
+  hash: HashResult("b9f32037daab5a0aff8e437ff1dd0f0d"),
+}
+
+smaller = File { size: 4096, ..base }
+```
+In `File { size: 4096, ..base }`, explicitly listed fields override values from
+`base`, and omitted fields are copied from `base`.
+
+Rules for record updates:
+1. They are written with `..expr` in record construction syntax.
+1. `...` is only for patterns (not construction).
+1. You must explicitly set at least one field.
+1. At least one field must be copied from the base expression.
+1. Updates are supported on single-constructor types (for example, `struct`s).
+
 There are no methods in Bosatsu, only functions. We cannot define methods on
 `struct`s or `enum`s. The only thing we can do with a struct or enum is match it:
 ```

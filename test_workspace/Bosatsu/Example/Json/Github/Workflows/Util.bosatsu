@@ -183,7 +183,7 @@ cache_step = Step { uses: Set(action_cache) }
 
 setup_sbt_step = Step { uses: Set(action_setup_sbt), name: Set(install_sbt_step_name) }
 
-setup_sbt_title_step = Step { uses: Set(action_setup_sbt), name: Set(install_sbt_step_name_title) }
+setup_sbt_title_step = Step { name: Set(install_sbt_step_name_title), ..setup_sbt_step }
 
 def setup_java_step[with_t](step_name: String, with: with_t) -> Step[with_t]:
   Step {
@@ -218,15 +218,15 @@ java17_title_fetch_step =
 
 checkout_v2_fetch_depth_0_step =
   Step {
-    uses: Set(action_checkout_v2),
     with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
+    ..checkout_v2_step,
   }
 
 checkout_v4_fetch_depth_0_step =
   Step {
-    uses: Set(action_checkout_v4),
     name: Set("Check out code"),
     with: Set(FetchJavaWith { `fetch-depth`: Set(0) }),
+    ..checkout_v4_step,
   }
 
 install_b3sum_step =

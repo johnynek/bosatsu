@@ -208,11 +208,19 @@ sealed abstract class Declaration derives CanEqual {
       case DictDecl(dict) =>
         ListLang.documentDict[NonBinding, Pattern.Parsed].document(dict)
 
-      case RecordConstructor(name, args) =>
+      case RecordConstructor(name, args, updateFrom) =>
+        val updateItems = updateFrom.toList.map { d =>
+          val prefix =
+            if (needsUpdateParens(d)) Doc.text(".. ")
+            else Doc.text("..")
+          val updateDoc = prefix + d.toDoc
+          updateDoc
+        }
+        val items = args.map(_.toDoc) ::: updateItems
         val argDoc = Doc.char('{') +
           Doc.intercalate(
             Doc.char(',') + Doc.space,
-            args.map(_.toDoc)
+            items
           ) + Doc.char('}')
 
         Declaration.identDoc.document(name) + Doc.space + argDoc
@@ -307,14 +315,15 @@ sealed abstract class Declaration derives CanEqual {
           val acc2 = loop(ex.key, bound1, acc1)
           val acc3 = loop(ex.value, bound1, acc2)
           filter.fold(acc3)(loop(_, bound1, acc3))
-        case RecordConstructor(_, args) =>
+        case RecordConstructor(_, args, updateFrom) =>
           // A constructor doesn't introduce new bindings
-          args.foldLeft(acc) {
+          val fromArgs = args.foldLeft(acc) {
             case (acc, RecordArg.Pair(_, v)) =>
               loop(v, bound, acc)
             case (acc, RecordArg.Simple(v)) =>
               loop(Var(v)(using decl.region), bound, acc)
           }
+          updateFrom.fold(fromArgs)(loop(_, bound, fromArgs))
       }
 
     loop(this, Set.empty, SortedSet.empty)
@@ -418,11 +427,12 @@ sealed abstract class Declaration derives CanEqual {
           val acc2 = loop(ex.key, acc1 ++ b.names)
           val acc3 = loop(ex.value, acc2)
           filter.fold(acc3)(loop(_, acc3))
-        case RecordConstructor(_, args) =>
-          args.foldLeft(acc) {
+        case RecordConstructor(_, args, updateFrom) =>
+          val fromArgs = args.foldLeft(acc) {
             case (acc, RecordArg.Pair(_, v)) => loop(v, acc)
             case (acc, RecordArg.Simple(n))  => acc + n
           }
+          updateFrom.fold(fromArgs)(loop(_, fromArgs))
       }
     loop(this, SortedSet.empty)
   }
@@ -614,10 +624,9 @@ object Declaration {
         case DictDecl(ll) =>
           loopLL(ll)(_.traverse(loop))
             .map(DictDecl(_)(using decl.region))
-        case RecordConstructor(c, args) =>
-          args
-            .traverse(loopRA)
-            .map(RecordConstructor(c, _)(using decl.region))
+        case RecordConstructor(c, args, updateFrom) =>
+          (args.traverse(loopRA), updateFrom.traverse(loop))
+            .mapN(RecordConstructor(c, _, _)(using decl.region))
       }
 
     def loopDec(decl: Declaration): Option[Declaration] =
@@ -685,6 +694,15 @@ object Declaration {
     Identifier.document
 
   private val colonSpace = Doc.text(": ")
+
+  // Record-update syntax starts with `..`; dot-leading literals (e.g. .NaN,
+  // .'x') need a separator so we don't serialize `...`, which is pattern-spread
+  // syntax.
+  private def needsUpdateParens(nb: NonBinding): Boolean =
+    nb match {
+      case Literal(_: (Lit.Float64 | Lit.Chr)) => true
+      case _                                   => false
+    }
 
   sealed abstract class RecordArg {
     def toDoc: Doc =
@@ -803,13 +821,14 @@ object Declaration {
               filter.map(_.replaceRegionsNB(r))
             )
           )(using r)
-        case RecordConstructor(c, args) =>
+        case RecordConstructor(c, args, updateFrom) =>
           val args1 = args.map {
             case RecordArg.Simple(b)  => RecordArg.Simple(b)
             case RecordArg.Pair(k, v) =>
               RecordArg.Pair(k, v.replaceRegionsNB(r))
           }
-          RecordConstructor(c, args1)(using r)
+          val update1 = updateFrom.map(_.replaceRegionsNB(r))
+          RecordConstructor(c, args1, update1)(using r)
       }
   }
 
@@ -939,14 +958,19 @@ object Declaration {
       extends NonBinding
   case class TupleCons(items: List[NonBinding])(using val region: Region)
       extends NonBinding
-  case class Var(name: Identifier)(using val region: Region) extends NonBinding {
+  case class Var(name: Identifier)(using val region: Region)
+      extends NonBinding {
     override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
   }
 
   /** This represents code like: Foo { bar: 12 }
     */
-  case class RecordConstructor(cons: Constructor, args: List[RecordArg])(
-      implicit val region: Region
+  case class RecordConstructor(
+      cons: Constructor,
+      args: List[RecordArg],
+      updateFrom: Option[NonBinding] = None
+  )(implicit
+      val region: Region
   ) extends NonBinding
 
   /** This represents interpolated strings
@@ -1040,8 +1064,8 @@ object Declaration {
         ps.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
-      case Parens(p: NonBinding)         => toPattern(p)
-      case RecordConstructor(cons, args) =>
+      case Parens(p: NonBinding)               => toPattern(p)
+      case RecordConstructor(cons, args, None) =>
         args
           .traverse {
             case RecordArg.Simple(b)  => Some(Left(b))
@@ -1060,6 +1084,8 @@ object Declaration {
             case Nil =>
               None
           }
+      case RecordConstructor(_, _, Some(_)) =>
+        None
       case _ => None
     }
 
@@ -1275,10 +1301,43 @@ object Declaration {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv: P[RecordArg] = RecordArg.parser(indent, noAnn)
     val kvs = Parser.nonEmptyListToList(kv.nonEmptyListOfWs(ws))
+    val kvsNoTrail = Parser.nonEmptyListToList(
+      kv.nonEmptyListOfWsSep(ws, P.char(',').void, allowTrailing = false)
+    )
+    val sep: P0[Unit] = (ws.soft ~ P.char(',') ~ ws).void
+    val trailingSep: P0[Unit] = sep.?.void
+
+    val spread: P[NonBinding] = {
+      val rejectPatternSpread =
+        P.string("...") *>
+          P.failWith(
+            "`...` is only valid in patterns; use `..expr` in record constructors"
+          )
+      rejectPatternSpread.orElse(P.string("..") *> ws *> noAnn)
+    }
+
+    val argsWithSpread: P0[(List[RecordArg], Option[NonBinding])] =
+      ((kvsNoTrail <* sep) ~ spread <* trailingSep).map { case (args, from) =>
+        (args, Some(from): Option[NonBinding])
+      }
+
+    val spreadOnly: P0[(List[RecordArg], Option[NonBinding])] =
+      (spread <* trailingSep).map(from => (Nil, Some(from): Option[NonBinding]))
+
+    val argsOnly: P0[(List[RecordArg], Option[NonBinding])] =
+      kvs.map(args => (args, None: Option[NonBinding]))
+
+    val recParts: P0[(List[RecordArg], Option[NonBinding])] =
+      argsWithSpread.backtrack
+        .orElse(spreadOnly)
+        .orElse(argsOnly)
+        .orElse(P.pure((Nil, None: Option[NonBinding])))
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs: P[List[RecordArg]] =
-      (maybeSpace.with1.soft *> P.char('{') *> ws *> kvs) <* (ws ~ P.char('}'))
+    val recArgs: P[(List[RecordArg], Option[NonBinding])] =
+      (maybeSpace.with1.soft *> P.char('{') *> ws *> recParts) <* (ws ~ P.char(
+        '}'
+      ))
 
     // here is tuple style: Foo(a, b)
     val tupArgs = declP.parensLines1Cut.region
@@ -1290,8 +1349,8 @@ object Declaration {
 
     (Identifier.consParser ~ Parser.either(recArgs, tupArgs).?).region
       .map {
-        case (region, (n, Some(Left(args)))) =>
-          RecordConstructor(n, args)(using region)
+        case (region, (n, Some(Left((args, updateFrom))))) =>
+          RecordConstructor(n, args, updateFrom)(using region)
         case (region, (n, Some(Right(build)))) =>
           build(Var(n)(using region))
         case (region, (n, None)) =>
