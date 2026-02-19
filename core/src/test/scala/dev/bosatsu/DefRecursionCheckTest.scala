@@ -285,6 +285,55 @@ def len(a, lst):
     case [_, *tail]: len(a.plus(1), tail)
 """)
   }
+
+  test("we can recurse lexicographically on tuple recur targets") {
+    allowed("""#
+def ack(n, m):
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
+""")
+  }
+
+  test("tuple recur targets reject non-lexicographic recursion") {
+    disallowed("""#
+def bad(n, m):
+  recur (n, m):
+    case (Succ(n_prev), _): bad(n_prev, Succ(m))
+    case (Zero, Succ(m_prev)): bad(Succ(Zero), m_prev)
+    case (Zero, Zero): Zero
+""")
+
+    disallowed("""#
+def bad2(n, m):
+  recur (n, m):
+    case (Succ(_), Succ(m_prev)): bad2(n, Succ(m_prev))
+    case _: Zero
+""")
+  }
+
+  test("tuple recur targets must be distinct parameter names") {
+    disallowed("""#
+def dup(x, y):
+  recur (x, x):
+    case (_, _): dup(x, y)
+""")
+
+    disallowed("""#
+def invalid_target(x, y):
+  recur (x.plus(1), y):
+    case (_, _): invalid_target(x, y)
+""")
+
+    disallowed("""#
+def local_target(x, y):
+  z = x
+  recur (z, y):
+    case (_, _): local_target(x, y)
+""")
+  }
+
   test("recur is not return") {
     allowed("""#
 def dots(lst):

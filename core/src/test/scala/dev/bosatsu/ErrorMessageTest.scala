@@ -602,7 +602,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,48)\n"
+        "in file: <unknown source>, package A\nrecur target for fn must be a name or tuple of names bound to def args\nRegion(31,33)\n"
       )
       ()
     }

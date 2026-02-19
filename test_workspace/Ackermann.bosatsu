@@ -2,16 +2,8 @@ package Ackermann
 
 enum Nat: Zero, Succ(n: Nat)
 
-def ack1(n: Nat) -> (Nat -> Nat):
-  recur n:
-      case Zero: Succ
-      case Succ(n_prev):
-        ack_p = ack1(n_prev)
-        def inner(m: Nat) -> Nat:
-            ack_p(recur m:
-                case Zero: Succ(Zero)
-                case Succ(m_prev): inner(m_prev))
-        inner
-
-
-def ack(n: Nat, m: Nat) -> Nat: ack1(n)(m)
+def ack(n: Nat, m: Nat) -> Nat:
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
