@@ -1,0 +1,630 @@
+package Bosatsu/Json
+
+from Bosatsu/Char import (
+  char_to_Int,
+  from_digit,
+  int_to_Char,
+  is_ascii_control,
+  is_ascii_digit,
+  is_ascii_hex,
+  string_to_Char_List,
+  to_digit,
+)
+from Bosatsu/Num/Float64 import (
+  cmp_Float64,
+  float64_to_String,
+  inf,
+  is_finite,
+  is_infinite,
+  is_nan,
+  neg_inf,
+  string_to_Float64,
+)
+from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
+
+export Json(), parse_Json, render_Json, eq_Json, Optional(), Nullable()
+
+enum Json:
+  JNull
+  JBool(value: Bool)
+  JString(value: String)
+  JInt(value: Int)
+  JFloat(value: Float64)
+  JArray(items: List[Json])
+  JObject(items: List[(String, Json)])
+
+enum Optional[a]:
+  Missing
+  Set(value: a)
+
+enum Nullable[a]:
+  Null
+  NonNull(value: a)
+
+def andb(left: Bool, right: Bool) -> Bool:
+  if left:
+    right
+  else:
+    False
+
+def operator &(left: Bool, right: Bool) -> Bool:
+  andb(left, right)
+
+def lte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches (LT | EQ)
+
+def gte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches (GT | EQ)
+
+def in_range_Int(item: Int, low: Int, high: Int) -> Bool:
+  andb(gte_Int(item, low), lte_Int(item, high))
+
+def if_Some(o: Option[a], fn: a -> Option[b]) -> Option[b]:
+  match o:
+    case Some(a):
+      fn(a)
+    case None:
+      None
+
+def drop_ws(s: String) -> String:
+  def trim_chars(chars: List[Char]) -> String:
+    recur chars:
+      case [.' ', *tail]:
+        trim_chars(tail)
+      case [.'\n', *tail]:
+        trim_chars(tail)
+      case [.'\t', *tail]:
+        trim_chars(tail)
+      case [.'\r', *tail]:
+        trim_chars(tail)
+      case _:
+        char_List_to_String(chars)
+
+  trim_chars(string_to_Char_List(s))
+
+def take_digits(s: String, rev_digits: List[String]) -> (String, String):
+  recur s:
+    case "$.{c}${tail}" if is_ascii_digit(c):
+      take_digits(tail, [char_to_String(c), *rev_digits])
+    case _:
+      (s, concat_String(rev_digits.reverse()))
+
+def parse_exp_part(rest: String, token_so_far: String, int_if_no_exp: Bool) -> Option[(String, String, Bool)]:
+  match rest:
+    case "e${tail}" | "E${tail}":
+      sign_and_tail = match tail:
+        case "+${tail1}":
+          ("+", tail1)
+        case "-${tail1}":
+          ("-", tail1)
+        case _:
+          ("", tail)
+
+      (exp_sign, exp_tail) = sign_and_tail
+      (after_exp, exp_digits) = take_digits(exp_tail, [])
+      if exp_digits matches "":
+        None
+      else:
+        token = concat_String([token_so_far, "e", exp_sign, exp_digits])
+        Some((after_exp, token, False))
+    case _:
+      Some((rest, token_so_far, int_if_no_exp))
+
+def parse_number_token(s: String) -> Option[(String, String, Bool)]:
+  (sign_prefix, after_sign) = match s:
+    case "-${tail}":
+      ("-", tail)
+    case _:
+      ("", s)
+
+  int_part = match after_sign:
+    case "0${tail}":
+      Some((tail, "0"))
+    case "$.{c}${tail}" if is_ascii_digit(c):
+      (after_digits, more_digits) = take_digits(tail, [])
+      digits = concat_String([char_to_String(c), more_digits])
+      Some((after_digits, digits))
+    case _:
+      None
+
+  parsed_int <- int_part.if_Some()
+  (after_int, int_digits) = parsed_int
+  signed_int = concat_String([sign_prefix, int_digits])
+  match after_int:
+    case ".${tail}":
+      (after_frac, frac_digits) = take_digits(tail, [])
+      if frac_digits matches "":
+        None
+      else:
+        with_frac = concat_String([signed_int, ".", frac_digits])
+        parse_exp_part(after_frac, with_frac, False)
+    case _:
+      parse_exp_part(after_int, signed_int, True)
+
+def parse_number(s: String) -> Option[(String, Json)]:
+  number_tok <- parse_number_token(s).if_Some()
+  (rest, token, is_int_token) = number_tok
+  if is_int_token:
+    match string_to_Int(token):
+      case Some(i):
+        Some((rest, JInt(i)))
+      case None:
+        f <- string_to_Float64(token).if_Some()
+        Some((rest, JFloat(f)))
+  else:
+    f <- string_to_Float64(token).if_Some()
+    Some((rest, JFloat(f)))
+
+high_surrogate_start = 55296
+high_surrogate_end = 56319
+low_surrogate_start = 56320
+low_surrogate_end = 57343
+
+def is_high_surrogate(code_unit: Int) -> Bool:
+  in_range_Int(code_unit, high_surrogate_start, high_surrogate_end)
+
+def is_low_surrogate(code_unit: Int) -> Bool:
+  in_range_Int(code_unit, low_surrogate_start, low_surrogate_end)
+
+def hex4_to_Int(h1: Char, h2: Char, h3: Char, h4: Char) -> Option[Int]:
+  match (to_digit(h1, 16), to_digit(h2, 16), to_digit(h3, 16), to_digit(h4, 16)):
+    case (Some(d1), Some(d2), Some(d3), Some(d4)):
+      Some(d1.mul(4096).add(d2.mul(256)).add(d3.mul(16)).add(d4))
+    case _:
+      None
+
+def parse_unicode_escape(tail_after_u: String) -> Option[(String, String)]:
+  match tail_after_u:
+    case "$.{h1}$.{h2}$.{h3}$.{h4}${tail}" if is_ascii_hex(h1) & is_ascii_hex(h2) & is_ascii_hex(h3) & is_ascii_hex(h4):
+      code_unit_opt = hex4_to_Int(h1, h2, h3, h4)
+      code_unit <- code_unit_opt.if_Some()
+      if is_high_surrogate(code_unit):
+        match tail:
+          case "\\u$.{l1}$.{l2}$.{l3}$.{l4}${tail2}" if is_ascii_hex(l1) & is_ascii_hex(l2) & is_ascii_hex(l3) & is_ascii_hex(l4):
+            low_opt = hex4_to_Int(l1, l2, l3, l4)
+            low_unit <- low_opt.if_Some()
+            if is_low_surrogate(low_unit):
+              code_point = 65536.add(code_unit.sub(high_surrogate_start).mul(1024)).add(low_unit.sub(low_surrogate_start))
+              ch <- int_to_Char(code_point).if_Some()
+              Some((tail2, char_to_String(ch)))
+            else:
+              None
+          case _:
+            None
+      elif is_low_surrogate(code_unit):
+        None
+      else:
+        ch <- int_to_Char(code_unit).if_Some()
+        Some((tail, char_to_String(ch)))
+    case _:
+      None
+
+def parse_string_tail_with_fuel(fuel: Nat, s: String, rev_parts: List[String]) -> Option[(String, String)]:
+  recur fuel:
+    case Zero:
+      None
+    case Succ(prev):
+      match s:
+        case "":
+          None
+        case "\"${tail}":
+          Some((tail, concat_String(rev_parts.reverse())))
+        case "\\\"${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\"", *rev_parts])
+        case "\\\\${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\\", *rev_parts])
+        case "\\/${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["/", *rev_parts])
+        case "\\b${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\b", *rev_parts])
+        case "\\f${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\f", *rev_parts])
+        case "\\n${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\n", *rev_parts])
+        case "\\r${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\r", *rev_parts])
+        case "\\t${tail}":
+          parse_string_tail_with_fuel(prev, tail, ["\t", *rev_parts])
+        case "\\u${tail}":
+          parsed <- parse_unicode_escape(tail).if_Some()
+          (tail1, value) = parsed
+          parse_string_tail_with_fuel(prev, tail1, [value, *rev_parts])
+        case "\\":
+          None
+        case "\\${_}":
+          None
+        case "$.{ch}${_}" if is_ascii_control(ch):
+          None
+        case "$.{ch}${tail}":
+          parse_string_tail_with_fuel(prev, tail, [char_to_String(ch), *rev_parts])
+
+def parse_string(s: String) -> Option[(String, String)]:
+  match s:
+    case "\"${tail}":
+      fuel = to_Nat(length_String(tail).add(1))
+      parse_string_tail_with_fuel(fuel, tail, [])
+    case _:
+      None
+
+def to_json_string_or_nonfinite_float(s: String) -> Json:
+  match string_to_Float64(s):
+    case Some(f):
+      if is_nan(f):
+        JFloat(f)
+      elif is_infinite(f):
+        JFloat(f)
+      else:
+        JString(s)
+    case None:
+      JString(s)
+
+def parse_object_key_start(s: String) -> Option[(String, String)]:
+  parsed_key <- parse_string(drop_ws(s)).if_Some()
+  (after_key_raw, key) = parsed_key
+  after_key = drop_ws(after_key_raw)
+  match after_key:
+    case ":${after_colon}":
+      Some((after_colon, key))
+    case _:
+      None
+
+enum ParseFrame:
+  TopFrame
+  ArrFrame(rev_items: List[Json])
+  ObjFrame(key: String, rev_items: List[(String, Json)])
+
+enum ParseMode:
+  ParseValueMode(input: String, stack: List[ParseFrame])
+  ReturnMode(input: String, value: Json, stack: List[ParseFrame])
+
+enum ParseStep:
+  ParseContinue(next_mode: ParseMode)
+  ParseDone(result: Option[(String, Json)])
+
+def parse_value(input: String, stack: List[ParseFrame]) -> ParseStep:
+  rest = drop_ws(input)
+  match rest:
+    case "null${tail}":
+      ParseContinue(ReturnMode(tail, JNull, stack))
+    case "true${tail}":
+      ParseContinue(ReturnMode(tail, JBool(True), stack))
+    case "false${tail}":
+      ParseContinue(ReturnMode(tail, JBool(False), stack))
+    case "\"${_}":
+      match parse_string(rest):
+        case Some((tail, str)):
+          ParseContinue(ReturnMode(tail, to_json_string_or_nonfinite_float(str), stack))
+        case None:
+          ParseDone(None)
+    case "[${tail}":
+      after_open = drop_ws(tail)
+      match after_open:
+        case "]${tail1}":
+          ParseContinue(ReturnMode(tail1, JArray([]), stack))
+        case _:
+          ParseContinue(ParseValueMode(after_open, [ArrFrame([]), *stack]))
+    case "{${tail}":
+      after_open = drop_ws(tail)
+      match after_open:
+        case "}${tail1}":
+          ParseContinue(ReturnMode(tail1, JObject([]), stack))
+        case _:
+          match parse_object_key_start(after_open):
+            case Some((after_colon, key)):
+              ParseContinue(ParseValueMode(after_colon, [ObjFrame(key, []), *stack]))
+            case None:
+              ParseDone(None)
+    case _:
+      match parse_number(rest):
+        case Some((tail, number_json)):
+          ParseContinue(ReturnMode(tail, number_json, stack))
+        case None:
+          ParseDone(None)
+
+def parse_return(input: String, value: Json, stack: List[ParseFrame]) -> ParseStep:
+  match stack:
+    case []:
+      ParseDone(Some((input, value)))
+    case [TopFrame]:
+      ParseDone(Some((input, value)))
+    case [TopFrame, *_]:
+      ParseDone(None)
+    case [ArrFrame(rev_items), *stack_tail]:
+      updated_items = [value, *rev_items]
+      after = drop_ws(input)
+      match after:
+        case ",${tail}":
+          ParseContinue(ParseValueMode(tail, [ArrFrame(updated_items), *stack_tail]))
+        case "]${tail}":
+          ParseContinue(ReturnMode(tail, JArray(updated_items.reverse()), stack_tail))
+        case _:
+          ParseDone(None)
+    case [ObjFrame(key, rev_items), *stack_tail]:
+      updated_items = [(key, value), *rev_items]
+      after = drop_ws(input)
+      match after:
+        case ",${tail}":
+          match parse_object_key_start(tail):
+            case Some((after_colon, next_key)):
+              ParseContinue(ParseValueMode(after_colon, [ObjFrame(next_key, updated_items), *stack_tail]))
+            case None:
+              ParseDone(None)
+        case "}${tail}":
+          ParseContinue(ReturnMode(tail, JObject(updated_items.reverse()), stack_tail))
+        case _:
+          ParseDone(None)
+
+def parse_mode_with_fuel(fuel: Nat, mode: ParseMode) -> Option[(String, Json)]:
+  recur fuel:
+    case Zero:
+      None
+    case Succ(prev):
+      step = match mode:
+        case ParseValueMode(input, stack):
+          parse_value(input, stack)
+        case ReturnMode(input, value, stack):
+          parse_return(input, value, stack)
+
+      match step:
+        case ParseContinue(next_mode):
+          parse_mode_with_fuel(prev, next_mode)
+        case ParseDone(result):
+          result
+
+def parse_Json(s: String) -> Option[Json]:
+  len = length_String(s)
+  # Each parser transition consumes input or closes one pending frame; 8*len + 32
+  # is a conservative upper bound for valid/invalid JSON in this parser state machine.
+  fuel = to_Nat(len.mul(8).add(32))
+  parsed <- parse_mode_with_fuel(fuel, ParseValueMode(s, [TopFrame])).if_Some()
+  (rest, value) = parsed
+  if drop_ws(rest) matches "":
+    Some(value)
+  else:
+      None
+
+def to_hex_digit(d: Int) -> String:
+  match from_digit(d, 16):
+    case Some(c): char_to_String(c)
+    case None: "0"
+
+def to_hex4(code_point: Int) -> String:
+  d1 = code_point.div(4096).mod_Int(16)
+  d2 = code_point.div(256).mod_Int(16)
+  d3 = code_point.div(16).mod_Int(16)
+  d4 = code_point.mod_Int(16)
+  concat_String([
+    to_hex_digit(d1),
+    to_hex_digit(d2),
+    to_hex_digit(d3),
+    to_hex_digit(d4),
+  ])
+
+def render_escaped_char(c: Char) -> String:
+  cp = char_to_Int(c)
+  match c:
+    case .'\"': "\\\""
+    case .'\\': "\\\\"
+    case _:
+      if cp matches 8:
+        "\\b"
+      elif cp matches 9:
+        "\\t"
+      elif cp matches 10:
+        "\\n"
+      elif cp matches 12:
+        "\\f"
+      elif cp matches 13:
+        "\\r"
+      elif lte_Int(cp, 31):
+        concat_String(["\\u", to_hex4(cp)])
+      else:
+        char_to_String(c)
+
+def render_escaped_string(s: String) -> String:
+  def loop(chars: List[Char], rev_parts: List[String]) -> String:
+    recur chars:
+      case []:
+        concat_String(rev_parts.reverse())
+      case [h, *tail]:
+        loop(tail, [render_escaped_char(h), *rev_parts])
+
+  loop(string_to_Char_List(s), [])
+
+def render_string_literal(s: String) -> String:
+  concat_String(["\"", render_escaped_string(s), "\""])
+
+enum RenderTask:
+  Emit(text: String)
+  EmitValue(value: Json)
+
+def render_json_items_tasks(items: List[Json]) -> List[RenderTask]:
+  recur items:
+    case []:
+      []
+    case [head]:
+      [EmitValue(head)]
+    case [head, *tail]:
+      [EmitValue(head), Emit(","), *render_json_items_tasks(tail)]
+
+def render_object_item_tasks(item: (String, Json)) -> List[RenderTask]:
+  (k, v) = item
+  [Emit(render_string_literal(k)), Emit(":"), EmitValue(v)]
+
+def render_object_items_tasks(items: List[(String, Json)]) -> List[RenderTask]:
+  recur items:
+    case []:
+      []
+    case [head]:
+      render_object_item_tasks(head)
+    case [head, *tail]:
+      [*render_object_item_tasks(head), Emit(","), *render_object_items_tasks(tail)]
+
+def render_value_tasks(value: Json) -> List[RenderTask]:
+  match value:
+    case JNull:
+      [Emit("null")]
+    case JBool(v):
+      if v:
+        [Emit("true")]
+      else:
+        [Emit("false")]
+    case JString(v):
+      [Emit(render_string_literal(v))]
+    case JInt(v):
+      [Emit(int_to_String(v))]
+    case JFloat(v):
+      if is_finite(v):
+        [Emit(float64_to_String(v))]
+      else:
+        # non-finite values are not legal JSON numbers; emit them as strings
+        [Emit(render_string_literal(float64_to_String(v)))]
+    case JArray(items):
+      [Emit("["), *render_json_items_tasks(items), Emit("]")]
+    case JObject(items):
+      [Emit("{"), *render_object_items_tasks(items), Emit("}")]
+
+def render_tasks_with_fuel(
+  fuel: Nat,
+  tasks: List[RenderTask],
+  rev_parts: List[String],
+) -> Option[List[String]]:
+  recur fuel:
+    case Zero:
+      None
+    case Succ(prev):
+      match tasks:
+        case []:
+          Some(rev_parts)
+        case [Emit(text), *tail]:
+          render_tasks_with_fuel(prev, tail, [text, *rev_parts])
+        case [EmitValue(value), *tail]:
+          expanded = render_value_tasks(value)
+          render_tasks_with_fuel(prev, [*expanded, *tail], rev_parts)
+
+def render_Json(j: Json) -> String:
+  # This is intentionally generous; each step emits output or expands one value.
+  fuel = to_Nat(1000000)
+  match render_tasks_with_fuel(fuel, [EmitValue(j)], []):
+    case Some(rev_parts):
+      concat_String(rev_parts.reverse())
+    case None:
+      "null"
+
+def eq_Json(left: Json, right: Json) -> Bool:
+  match (left, right):
+    case (JNull, JNull):
+      True
+    case (JBool(True), JBool(True)):
+      True
+    case (JBool(False), JBool(False)):
+      True
+    case (JBool(_), JBool(_)):
+      False
+    case (JString(ls), JString(rs)):
+      cmp_String(ls, rs) matches EQ
+    case (JInt(li), JInt(ri)):
+      cmp_Int(li, ri) matches EQ
+    case (JFloat(lf), JFloat(rf)):
+      if is_nan(lf):
+        is_nan(rf)
+      elif is_nan(rf):
+        False
+      else:
+        cmp_Float64(lf, rf) matches EQ
+    case (JArray(_), JArray(_)):
+      cmp_String(render_Json(left), render_Json(right)) matches EQ
+    case (JObject(_), JObject(_)):
+      cmp_String(render_Json(left), render_Json(right)) matches EQ
+    case _:
+      False
+
+def round_trips(value: Json) -> Bool:
+  rendered = render_Json(value)
+  match parse_Json(rendered):
+    case Some(decoded):
+      eq_Json(decoded, value)
+    case None:
+      False
+
+unit_separator_char = match int_to_Char(31):
+  case Some(c): c
+  case None: .'?'
+unit_separator_string = char_to_String(unit_separator_char)
+
+nan_value = .NaN
+
+ast_round_trip_values = [
+  JNull,
+  JBool(True),
+  JBool(False),
+  JString("plain"),
+  JString("quote: \" and slash: / and backslash: \\\\ done"),
+  JString("emoji: 😀 and astral: 👩‍💻"),
+  JString(unit_separator_string),
+  JInt(0),
+  JInt(-42),
+  JInt(123456789012345678901234567890),
+  JFloat(3.125),
+  JFloat(-0.0),
+  JFloat(inf),
+  JFloat(neg_inf),
+  JFloat(nan_value),
+  JArray([JInt(1), JString("x"), JBool(False), JNull]),
+  JObject([
+    ("z", JInt(1)),
+    ("a", JArray([JString("nested"), JObject([("k", JBool(True))])])),
+  ]),
+]
+
+def all_round_trip(values: List[Json]) -> Bool:
+  recur values:
+    case []:
+      True
+    case [head, *tail]:
+      andb(round_trips(head), all_round_trip(tail))
+
+def parses_to_json(input: String, expected: Json) -> Bool:
+  match parse_Json(input):
+    case Some(decoded):
+      eq_Json(decoded, expected)
+    case None:
+      False
+
+tests = TestSuite("Bosatsu/Json parse+render", [
+  Assertion(parses_to_json("null", JNull), "parse null"),
+  Assertion(parses_to_json("true", JBool(True)), "parse true"),
+  Assertion(parses_to_json("false", JBool(False)), "parse false"),
+  Assertion(parses_to_json("42", JInt(42)), "parse int"),
+  Assertion(parses_to_json("-7", JInt(-7)), "parse negative int"),
+  Assertion(parses_to_json("3.14", JFloat(3.14)), "parse float decimal"),
+  Assertion(parses_to_json("1e3", JFloat(1000.0)), "parse float exponent"),
+  Assertion(parses_to_json("\"hello\"", JString("hello")), "parse string"),
+  Assertion(parses_to_json("\"a\\\"b\"", JString("a\"b")), "parse escaped quote"),
+  Assertion(parses_to_json("\"line\\nnext\"", JString("line\nnext")), "parse escaped newline"),
+  Assertion(parses_to_json("\"\\u0041\"", JString("A")), "parse unicode escape"),
+  Assertion(parses_to_json("\"\\uD83D\\uDE00\"", JString("😀")), "parse surrogate pair"),
+  Assertion(parse_Json("\"line\nnext\"") matches None, "reject unescaped control char"),
+  Assertion(parse_Json("\"\\u00G1\"") matches None, "reject invalid unicode hex"),
+  Assertion(parse_Json("\"\\uD83D\"") matches None, "reject lone high surrogate"),
+  Assertion(parse_Json("\"\\uDE00\"") matches None, "reject lone low surrogate"),
+  Assertion(parse_Json("[1, 2, 3]") matches Some(JArray([JInt(1), JInt(2), JInt(3)])), "parse int array"),
+  Assertion(parse_Json("{\"a\": 1, \"b\": [true, null]}") matches Some(
+    JObject([("a", JInt(1)), ("b", JArray([JBool(True), JNull]))])
+  ), "parse nested object"),
+  Assertion(parse_Json(" \n\t [ ] \r ") matches Some(JArray([])), "parse with surrounding whitespace"),
+  Assertion(parse_Json("truex") matches None, "reject trailing junk"),
+  Assertion(parse_Json("[1 2]") matches None, "reject missing comma"),
+  Assertion(parse_Json("{\"a\" 1}") matches None, "reject missing colon"),
+  Assertion(parse_Json("\"\\x\"") matches None, "reject bad string escape"),
+  Assertion(parse_Json("01") matches None, "reject leading zero"),
+  Assertion(parse_Json("1.") matches None, "reject fraction without digits"),
+  Assertion(parse_Json("1e") matches None, "reject exponent without digits"),
+  Assertion(parse_Json("-") matches None, "reject bare minus"),
+  Assertion(render_Json(JString(unit_separator_string)) matches "\"\\u001f\"", "render control chars with unicode escape"),
+  Assertion(parses_to_json(render_Json(JString(unit_separator_string)), JString(unit_separator_string)), "control char parse/render round trip"),
+  Assertion(parses_to_json(render_Json(JFloat(inf)), JFloat(inf)), "infinity round trip via quoted float token"),
+  Assertion(parses_to_json(render_Json(JFloat(neg_inf)), JFloat(neg_inf)), "negative infinity round trip via quoted float token"),
+  Assertion(round_trips(JFloat(nan_value)), "nan round trip via quoted float token"),
+  Assertion(all_round_trip(ast_round_trip_values), "round trip render(parse(.)) for representative AST values"),
+])

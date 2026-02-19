@@ -1,18 +1,15 @@
 package Bosatsu/Example/Json/Github/Workflows/CodecovMain
 
+from Bosatsu/Json import Set
+
 from Bosatsu/Example/Json/Github/Workflows/Util import (
-  action_cache,
   action_codecov,
-  action_checkout_v2,
-  action_setup_java,
-  action_setup_sbt,
+  cache_step,
   cat_lines,
+  checkout_v2_fetch_depth_0_step,
   codecov_token_secret,
-  install_sbt_step_name,
-  java_distribution_temurin,
-  java_matrix_setup_name,
   java_strategy_17,
-  java_version_matrix,
+  matrix_java_fetch_step,
   main_branch,
   OnPush,
   OnPushBranches,
@@ -20,6 +17,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   Step,
   FetchJavaWith,
   JavaStrategy,
+  setup_sbt_step,
   timeout_minutes_default,
 )
 
@@ -34,6 +32,13 @@ struct WorkflowJobs(testWithCoverageReport: WorkflowJobsTestWithCoverageReport)
 
 struct Workflow(name: String, on: OnPush, jobs: WorkflowJobs)
 
+coverage_setup_steps = [
+  checkout_v2_fetch_depth_0_step,
+  cache_step,
+  matrix_java_fetch_step,
+  setup_sbt_step,
+]
+
 workflow =
   Workflow(
     "Codecov on main",
@@ -42,45 +47,21 @@ workflow =
       WorkflowJobsTestWithCoverageReport(
         runner_ubuntu_latest,
         [
+          *coverage_setup_steps,
           Step {
-            uses: Some(action_checkout_v2),
-            with: Some(FetchJavaWith { `fetch-depth`: Some(0) }),
+            name: Set("run tests with coverage"),
+            run: Set(cat_lines([
+              "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
+              "",
+            ])),
           },
           Step {
-            uses: Some(action_cache),
-          },
-          Step {
-            uses: Some(action_setup_java),
-            name: Some(java_matrix_setup_name),
-            with: Some(
-              FetchJavaWith {
-                distribution: Some(java_distribution_temurin),
-                `java-version`: Some(java_version_matrix),
-              },
-            ),
-          },
-          Step {
-            uses: Some(action_setup_sbt),
-            name: Some(install_sbt_step_name),
-          },
-          Step {
-            name: Some("run tests with coverage"),
-            run: Some(
-              cat_lines([
-                "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
-                "",
-              ]),
-            ),
-          },
-          Step {
-            uses: Some(action_codecov),
-            name: Some("Upload to Codecov"),
-            with: Some(
-              FetchJavaWith {
-                token: Some(codecov_token_secret),
-                override_branch: Some(main_branch),
-              },
-            ),
+            uses: Set(action_codecov),
+            name: Set("Upload to Codecov"),
+            with: Set(FetchJavaWith {
+              token: Set(codecov_token_secret),
+              override_branch: Set(main_branch),
+            }),
           },
         ],
         java_strategy_17,
