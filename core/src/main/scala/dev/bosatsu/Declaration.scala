@@ -695,14 +695,11 @@ object Declaration {
 
   private val colonSpace = Doc.text(": ")
 
-  // Record-update syntax starts with `..`; dot-leading literals (e.g. .NaN,
-  // .'x') need a separator so we don't serialize `...`, which is pattern-spread
-  // syntax.
+  // Record-update syntax starts with `..`; if the rendered update expression
+  // starts with `.`, we need a separator so we don't serialize `...`, which is
+  // pattern-spread syntax.
   private def needsUpdateParens(nb: NonBinding): Boolean =
-    nb match {
-      case Literal(_: (Lit.Float64 | Lit.Chr)) => true
-      case _                                   => false
-    }
+    nb.toDoc.renderWideStream.mkString.startsWith(".")
 
   sealed abstract class RecordArg {
     def toDoc: Doc =
