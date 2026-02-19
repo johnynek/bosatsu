@@ -303,7 +303,7 @@ object Type {
     ): (List[(Var.Bound, Kind)], Leaf | TyApply) =
       rho match {
         case Exists(vars, in) =>
-          loop(in, vars.toList.reverse_:::(accRev))
+          loop(in, vars.toList.reverse ::: accRev)
         case other: (Leaf | TyApply) => (accRev.reverse, other)
       }
 
