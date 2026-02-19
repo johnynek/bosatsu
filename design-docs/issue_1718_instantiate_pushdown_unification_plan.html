@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Compiler Leveraging Type Inhabitedness · Bosatsu Documentation</title>
+<title>Issue 1718: Instantiate/Pushdown Unification Plan · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/compiler_leveraging_type_inhabitedness.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_1718_instantiate_pushdown_unification_plan.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="../js/page.js"></script>
@@ -40,14 +40,14 @@
   <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="../design-docs/index.html" class="page">Design Docs</a>
   <ul>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="active page">Compiler Leveraging Type Inhabitedness</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="page">Compiler Leveraging Type Inhabitedness</a></li>
     <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
     <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
     <li><a href="../design-docs/issue_356_struct_update_syntax_design.html" class="page">Issue 356: Struct Update Syntax (<code>..old</code>)</a></li>
     <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
     <li><a href="../design-docs/quantifier-evidence-design.html" class="page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
-    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html" class="page">Issue 1718: Instantiate/Pushdown Unification Plan</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html" class="active page">Issue 1718: Instantiate/Pushdown Unification Plan</a></li>
     <li><a href="../design-docs/lexicographic_recur_design.html" class="page">Lexicographic <code>recur</code> Tuple Design</a></li>
   </ul></li>
   <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
@@ -156,14 +156,14 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="../design-docs/index.html" class="page">Design Docs</a>
   <ul>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="active page">Compiler Leveraging Type Inhabitedness</a></li>
+    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html" class="page">Compiler Leveraging Type Inhabitedness</a></li>
     <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
     <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
     <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
     <li><a href="../design-docs/issue_356_struct_update_syntax_design.html" class="page">Issue 356: Struct Update Syntax (<code>..old</code>)</a></li>
     <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
     <li><a href="../design-docs/quantifier-evidence-design.html" class="page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
-    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html" class="page">Issue 1718: Instantiate/Pushdown Unification Plan</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html" class="active page">Issue 1718: Instantiate/Pushdown Unification Plan</a></li>
     <li><a href="../design-docs/lexicographic_recur_design.html" class="page">Lexicographic <code>recur</code> Tuple Design</a></li>
   </ul></li>
   <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
@@ -250,7 +250,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><a href="../index.html">Bosatsu Documentation</a></li>
   <li><a href="../design-docs/index.html">Design Docs</a></li>
-  <li>Compiler Leveraging Type Inhabitedness</li>
+  <li>Issue 1718: Instantiate/Pushdown Unification Plan</li>
 </ul>
 </div>
 </div>
@@ -258,92 +258,144 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#compiler-leveraging-type-inhabitedness" name="compiler-leveraging-type-inhabitedness" class="anchor"><span class="anchor-link"></span></a>Compiler Leveraging Type Inhabitedness</h1>
-<p>Status: proposed<br/>Date: 2026-02-19 Issue: <a href="https://github.com/johnynek/bosatsu/issues/1724">https://github.com/johnynek/bosatsu/issues/1724</a></p>
-<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
-<p>Use type inhabitedness in the compiler to: 1. identify uninhabited types with explicit, complete rules (in a supported fragment), 2. improve match totality by excluding impossible constructors, 3. let users omit uninhabited branch cases, 4. prune unreachable branches before codegen.</p>
-<h2><a href="#motivation" name="motivation" class="anchor"><span class="anchor-link"></span></a>Motivation</h2>
-<p>We already rely on totality and strong typing, but we do not currently leverage full type inhabitedness information during match checking.</p>
-<p>Examples we want to classify statically: 1. <code>forall a. a</code> is uninhabited. 2. <code>struct Nothing(never: Nothing)</code> is uninhabited. 3. A struct with at least one uninhabited field is uninhabited. 4. An enum where every constructor is uninhabited is uninhabited. 5. A function type returning an uninhabited type is uninhabited when all its arguments are inhabited.</p>
-<h2><a href="#current-state" name="current-state" class="anchor"><span class="anchor-link"></span></a>Current State</h2>
-<p><code>Package.inferBodyUnopt</code> runs <code>TotalityCheck</code> on untyped <code>Expr</code> before rank-n inference.<br/>This cannot use final instantiated scrutinee types (for example <code>Option[NothingLike]</code>) to remove impossible constructors during coverage.</p>
-<h2><a href="#scope-and-completeness" name="scope-and-completeness" class="anchor"><span class="anchor-link"></span></a>Scope and Completeness</h2>
-<p>Full inhabitation for unrestricted higher-rank/higher-kinded polymorphism is not a practical target here.<br/>This design defines a <strong>complete decision procedure for a supported fragment</strong> and a conservative fallback outside it.</p>
-<p>Supported complete fragment: 1. kind-<code>Type</code> (value) types, 2. closed or locally-quantified types built from:  1. ADTs from <code>TypeEnv</code>,  2. function types,  3. <code>forall</code> / <code>exists</code> over kind-<code>Type</code> variables.</p>
-<p>Outside the fragment (for example higher-kinded quantifier-heavy cases), analysis returns <code>Unknown</code> and totality behavior remains conservative (no new pruning).</p>
-<h2><a href="#formal-rules" name="formal-rules" class="anchor"><span class="anchor-link"></span></a>Formal Rules</h2>
-<p>Let <code>I(t)</code> mean “type <code>t</code> is inhabited”, <code>U(t)</code> mean “type <code>t</code> is uninhabited”.</p>
-<h3><a href="#base-and-constructors" name="base-and-constructors" class="anchor"><span class="anchor-link"></span></a>Base and constructors</h3>
+<h1><a href="#issue-1718-instantiate-pushdown-unification-plan" name="issue-1718-instantiate-pushdown-unification-plan" class="anchor"><span class="anchor-link"></span></a>Issue 1718: Instantiate/Pushdown Unification Plan</h1>
+<h2><a href="#context" name="context" class="anchor"><span class="anchor-link"></span></a>Context</h2>
+<p>Issue <a href="https://github.com/johnynek/bosatsu/issues/1718">#1718</a> calls out two duplication points:</p>
 <ol>
-  <li>Base literal types (<code>Int</code>, <code>String</code>, <code>Char</code>, <code>Float64</code>, <code>Bool</code>, <code>Unit</code>) are inhabited.</li>
-  <li>For constructor <code>C : τ1, ..., τn -&gt; T</code>:</li>
-  <li><code>I(C)</code> iff <code>I(τ1) &amp;&amp; ... &amp;&amp; I(τn)</code>.</li>
-  <li>For struct type <code>T</code> (single constructor):</li>
-  <li><code>U(T)</code> iff at least one field type is uninhabited.</li>
-  <li>For enum type <code>T</code>:</li>
-  <li><code>U(T)</code> iff every constructor is uninhabited.</li>
+  <li><code>TypedExpr.instantiateTo</code> vs <code>Type.instantiate</code>.</li>
+  <li><code>pushDownCovariant</code> in both <code>Infer.instDataCon</code> and <code>TypedExpr.instantiateTo</code>.</li>
 </ol>
-<h3><a href="#functions" name="functions" class="anchor"><span class="anchor-link"></span></a>Functions</h3>
-<p>For <code>Fn(τ1, ..., τn) -&gt; ρ</code>: 1. <code>U(Fn(...)-&gt;ρ)</code> iff <code>U(ρ)</code> and all arguments are inhabited. 2. Equivalent inhabited form:  1. <code>I(Fn(...)-&gt;ρ)</code> iff <code>I(ρ)</code> or at least one argument is uninhabited.</p>
-<p>This captures the requested rule: 1. returning uninhabited type + all args inhabited =&gt; uninhabited, 2. returning uninhabited type + some arg uninhabited =&gt; inhabited (vacuous function).</p>
-<h3><a href="#quantifiers" name="quantifiers" class="anchor"><span class="anchor-link"></span></a>Quantifiers</h3>
-<p>For kind-<code>Type</code> quantifiers: 1. <code>I(forall a. t)</code> iff <code>for all assignments of a, I(t)</code>. 2. <code>U(forall a. t)</code> iff <code>there exists an assignment of a with U(t)</code>. 3. <code>I(exists a. t)</code> iff <code>there exists an assignment of a with I(t)</code>. 4. <code>U(exists a. t)</code> iff <code>for all assignments of a, U(t)</code>.</p>
-<p>This yields: 1. <code>U(forall a. a)</code> (pick an uninhabited assignment), 2. <code>I(forall a. a -&gt; a)</code> (identity), 3. <code>I(forall a. List[a])</code> (empty list constructor), 4. <code>U(forall a. (a, a))</code> if tuple construction requires <code>I(a)</code>.</p>
-<h3><a href="#recursive-adts" name="recursive-adts" class="anchor"><span class="anchor-link"></span></a>Recursive ADTs</h3>
-<p>For mutually recursive type constants, define equations:</p>
-<p><code>I(T(args)) = OR over constructors c of T: (exists c-existentials. AND over c-fields fi: I(fi))</code></p>
-<p>Solve as least fixed point over the finite equation graph for the query.<br/>Least fixed point gives expected inductive behavior: 1. <code>struct Nothing(never: Nothing)</code> =&gt; uninhabited, 2. recursion only through impossible constructor paths stays uninhabited.</p>
-<h2><a href="#algorithm-design" name="algorithm-design" class="anchor"><span class="anchor-link"></span></a>Algorithm Design</h2>
-<p>New module: <code>core/src/main/scala/dev/bosatsu/Inhabitedness.scala</code></p>
-<p>Core API: 1. <code>verdict(t: Type, env: TypeEnv[Kind.Arg]): Inhabitedness.Verdict</code> 2. <code>constructorReachable(scrutinee: Type, cons: (PackageName, Constructor), env): Reachability</code></p>
-<p>Proposed result types: 1. <code>Inhabited</code> 2. <code>Uninhabited</code> 3. <code>Unknown</code> (outside supported complete fragment)</p>
-<p>Implementation strategy: 1. Normalize type (<code>Type.normalize</code>), split quantifiers, and classify by shape. 2. Build/evaluate equations with memoization by <code>(Type, quantifier context)</code>. 3. Use finite quantifier elimination for kind-<code>Type</code> vars (boolean inhabited/uninhabited assignments). 4. Solve recursive SCCs with fixed-point iteration. 5. If unsupported kind-level features are encountered, return <code>Unknown</code>.</p>
-<h2><a href="#using-inhabitedness-in-matches" name="using-inhabitedness-in-matches" class="anchor"><span class="anchor-link"></span></a>Using Inhabitedness in Matches</h2>
-<p>Introduce typed totality checking that uses scrutinee type + constructor reachability.</p>
-<h3><a href="#coverage-domain" name="coverage-domain" class="anchor"><span class="anchor-link"></span></a>Coverage domain</h3>
-<p>For match scrutinee type <code>S</code>, define: 1. <code>reachableConstructors(S)</code> = constructors of <code>S</code> whose argument bundle is inhabited under current type instantiation. 2. Coverage requires only these constructors. 3. Constructors proven uninhabited are removed from missing-branch requirements.</p>
-<h3><a href="#effects" name="effects" class="anchor"><span class="anchor-link"></span></a>Effects</h3>
+<p>The objective is the smallest refactor that reduces duplication while preserving:</p>
 <ol>
-  <li>Users may omit branches for uninhabited constructors.</li>
-  <li>Branches that explicitly match uninhabited constructors are reported as unreachable.</li>
-  <li>Pattern-set operations still work, but domain expansion (<code>topFor</code>) filters out unreachable constructors.</li>
+  <li>existing typechecking behavior,</li>
+  <li>instantiation evidence,</li>
+  <li>soundness (no widen-only shortcuts where evidence exists).</li>
 </ol>
-<h2><a href="#pipeline-changes" name="pipeline-changes" class="anchor"><span class="anchor-link"></span></a>Pipeline Changes</h2>
-<p>Current: 1. <code>SourceConverter</code> -&gt; <code>TotalityCheck</code> on <code>Expr</code> -&gt; <code>Infer</code> -&gt; <code>TypedExprNormalization</code></p>
-<p>Proposed: 1. <code>SourceConverter</code> -&gt; <code>Infer</code> -&gt; <code>TypedTotalityCheck</code> (inhabitedness-aware) -&gt; <code>TypedExprNormalization</code></p>
-<p>Details: 1. Keep cheap source-level pattern-shape validation where helpful. 2. Move exhaustiveness/unreachable match checks to typed AST. 3. <code>Package.inferBodyUnopt</code> should run typed totality after successful inference. 4. Diagnostics stay at source regions via typed tags already attached to <code>TypedExpr</code>.</p>
-<h2><a href="#match-pruning-and-codegen" name="match-pruning-and-codegen" class="anchor"><span class="anchor-link"></span></a>Match Pruning and Codegen</h2>
-<p>Branch pruning should run after typed totality (or as part of normalization): 1. Remove branches that are impossible from inhabitedness facts. 2. Keep source order of remaining branches. 3. Preserve guard semantics (guarded branches still do not count toward totality unless unguarded fallback exists).</p>
-<p>Codegen benefits: 1. smaller match matrices, 2. fewer runtime constructor checks, 3. fewer dead branches emitted in Matchless IR.</p>
-<h2><a href="#edge-cases" name="edge-cases" class="anchor"><span class="anchor-link"></span></a>Edge Cases</h2>
+<p>This document is an implementation and testing plan only (no <code>src/main</code> changes in this PR).</p>
+<h2><a href="#current-behavior-snapshot" name="current-behavior-snapshot" class="anchor"><span class="anchor-link"></span></a>Current Behavior Snapshot</h2>
+<h3><a href="#instantiation-paths-today" name="instantiation-paths-today" class="anchor"><span class="anchor-link"></span></a>Instantiation paths today</h3>
 <ol>
-  <li>Polymorphic matches with free kind-<code>Type</code> vars:</li>
-  <li>prune only when constructor is unreachable for all assignments.</li>
-  <li>Outside supported fragment:</li>
-  <li><code>Unknown</code> means no pruning and existing conservative totality behavior.</li>
-  <li>If a scrutinee type itself is uninhabited:</li>
-  <li>every branch is unreachable,</li>
-  <li>totality is vacuously satisfied.</li>
-  <li>Optional future extension: allow empty <code>match</code> syntax explicitly.</li>
+  <li><code>Type.instantiate</code>:</li>
+  <li>structural matcher with explicit left vars, right existentials, and right-side env scope.</li>
+  <li>returns <code>Type.Instantiation(frees, subs, toFrees, toSubs)</code>.</li>
+  <li>used in inference codepaths that can validate kind-correct substitutions.</li>
+  <li>
+  <p><code>TypedExpr.instantiateTo</code>:</p></li>
+  <li>local solver for <code>Generic</code> expression specialization to <code>Rho</code>.</li>
+  <li>contains local pushdown retry logic and expression-level wrapping/fallback.</li>
+  <li>falls back to annotation when it cannot solve.</li>
 </ol>
-<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
-<p>Add tests across <code>TotalityCheck</code> replacement + inference + normalization: 1. <code>forall a. a</code> classified uninhabited. 2. Recursive self-field struct classified uninhabited. 3. Struct with one uninhabited field classified uninhabited. 4. Enum with one inhabited and one uninhabited constructor:  1. missing inhabited constructor still errors,  2. missing uninhabited constructor does not error. 5. Explicit branch on uninhabited constructor is unreachable. 6. Function rule:  1. <code>Unit -&gt; Nothing</code> uninhabited,  2. <code>Nothing -&gt; Nothing</code> inhabited. 7. Guard interactions:  1. guarded branch still excluded from totality coverage as today. 8. Regression tests for existing match behavior when no inhabitedness facts apply.</p>
-<h2><a href="#rollout-plan" name="rollout-plan" class="anchor"><span class="anchor-link"></span></a>Rollout Plan</h2>
+<h3><a href="#pattern-pushdown-today" name="pattern-pushdown-today" class="anchor"><span class="anchor-link"></span></a>Pattern pushdown today</h3>
 <ol>
-  <li>Phase 1: add <code>Inhabitedness</code> module + unit tests.</li>
-  <li>Phase 2: add typed totality checker and wire into <code>Package.inferBodyUnopt</code>.</li>
-  <li>Phase 3: apply branch pruning in normalization/Matchless lowering.</li>
-  <li>Phase 4 (optional): syntax/AST support for empty matches on provably uninhabited scrutinees.</li>
+  <li><code>Infer.instDataCon</code> has local <code>pushDownCovariant</code> to handle constructor-pattern sigma with <code>forall</code>.</li>
+  <li><code>TypedExpr</code> has a similar local <code>pushDownCovariant</code> used by <code>instantiateTo</code>.</li>
 </ol>
-<h2><a href="#trade-offs" name="trade-offs" class="anchor"><span class="anchor-link"></span></a>Trade-offs</h2>
-<p>Pros: 1. Better exhaustiveness precision. 2. Cleaner user code (no mandatory impossible cases). 3. Better generated code via dead-branch pruning.</p>
-<p>Costs: 1. More compiler complexity (new analysis + typed totality phase). 2. Some cases remain conservative (<code>Unknown</code>) by design. 3. Totality diagnostics now depend on successful type inference.</p>
+<p>These are conceptually the same transform but implemented twice with slightly different shape.</p>
+<h2><a href="#coverage-baseline-before-this-pr-" name="coverage-baseline-before-this-pr-" class="anchor"><span class="anchor-link"></span></a>Coverage Baseline (Before This PR)</h2>
+<p>From <code>sbt &#39;;clean;set ThisBuild / coverageEnabled := true;coreJVM/test;cli/test;coreJVM/coverageReport;cli/coverageReport&#39;</code> on February 19, 2026:</p>
+<ol>
+  <li><code>coreJVM</code>: statement <code>84.28%</code>, branch <code>81.50%</code>.</li>
+  <li><code>cli</code>: statement <code>48.29%</code>, branch <code>39.53%</code>.</li>
+</ol>
+<p>Relevant uncovered branches in <code>Infer</code>:</p>
+<ol>
+  <li><code>typeCheckPattern</code> list-pattern <code>forall List</code> fast-path (<code>Infer.scala:2661</code>, <code>Infer.scala:2663</code>).</li>
+  <li><code>instDataCon</code> local <code>pushDownCovariant</code> branches that re-wrap recursive <code>ForAll</code> results (<code>Infer.scala:2875</code>, <code>Infer.scala:2877</code>, <code>Infer.scala:2890</code>, <code>Infer.scala:2891</code>).</li>
+</ol>
+<p><code>TypedExpr.instantiateTo</code> and <code>Type.instantiate</code> are already at 100% method coverage, but call-site behavior still benefits from regression tests.</p>
+<h2><a href="#tests-added-in-this-pr" name="tests-added-in-this-pr" class="anchor"><span class="anchor-link"></span></a>Tests Added In This PR</h2>
+<p>Added to <code>RankNInferTest</code>:</p>
+<ol>
+  <li><code>list patterns can consume forall-list scrutinees</code>:</li>
+  <li>targets <code>typeCheckPattern</code> <code>forall List</code> specialization fast-path.</li>
+  <li>
+  <p><code>pattern instantiation pushes forall through mixed-variance constructor args</code>:</p></li>
+  <li>targets <code>instDataCon.pushDownCovariant</code> recursive <code>ForAll</code> wrapping branches.</li>
+  <li>
+  <p><code>polymorphic match result can be instantiated at higher-order call sites</code>:</p></li>
+  <li>regression on polymorphic match results specialized at use sites (instantiate/coerce call graph behavior).</li>
+</ol>
+<h2><a href="#refactor-plan-issue-1718-" name="refactor-plan-issue-1718-" class="anchor"><span class="anchor-link"></span></a>Refactor Plan (Issue 1718)</h2>
+<h3><a href="#phase-1-unify-covariant-pushdown" name="phase-1-unify-covariant-pushdown" class="anchor"><span class="anchor-link"></span></a>Phase 1: Unify covariant pushdown</h3>
+<ol>
+  <li>Extract a shared type-level helper in <code>Type</code> (or closely related rankn module):</li>
+  <li>input: quantifier-bearing type plus a variance/kind lookup for applied heads.</li>
+  <li>output: transformed type with <code>forall</code> pushed through covariant positions conservatively.</li>
+  <li>
+  <p>Replace both current call sites with thin wrappers:</p></li>
+  <li><code>Infer.instDataCon</code> wrapper only supplies constructor arg variance/kind context.</li>
+  <li><code>TypedExpr.instantiateTo</code> wrapper supplies resolver from available kinds map.</li>
+  <li>
+  <p>Keep behavior conservative:</p></li>
+  <li>if variance info is missing, return input unchanged.</li>
+  <li>do not invent substitutions or quantifier elimination not already allowed.</li>
+</ol>
+<h3><a href="#phase-2-delegate-typedexpr-instantiateto-to-type-instantiate" name="phase-2-delegate-typedexpr-instantiateto-to-type-instantiate" class="anchor"><span class="anchor-link"></span></a>Phase 2: Delegate <code>TypedExpr.instantiateTo</code> to <code>Type.instantiate</code></h3>
+<ol>
+  <li>Rework <code>TypedExpr.instantiateTo</code> as orchestration only:</li>
+  <li>pre-step: split quantifiers from <code>gen.quantType</code>.</li>
+  <li>solver step: call <code>Type.instantiate</code>.</li>
+  <li>post-step: substitute expression types using returned <code>subs</code>.</li>
+  <li>quantifier rewrapping/pushGeneric/fallback remains local to <code>TypedExpr</code>.</li>
+  <li>
+  <p>Preserve evidence:</p></li>
+  <li>use <code>Instantiation.subs</code> as the primary witness for specialization.</li>
+  <li>preserve unsolved frees by rebuilding <code>Generic</code> wrappers when possible.</li>
+  <li>only use annotation fallback when solver cannot provide a coherent witness.</li>
+  <li>
+  <p>Keep existing fallback semantics:</p></li>
+  <li>if solve fails, keep <code>ann(gen, instTpe)</code> behavior.</li>
+  <li>avoid replacing evidence-driven coercions with widen-only coercions.</li>
+</ol>
+<h3><a href="#phase-3-clean-call-graph-and-reduce-duplication" name="phase-3-clean-call-graph-and-reduce-duplication" class="anchor"><span class="anchor-link"></span></a>Phase 3: Clean call graph and reduce duplication</h3>
+<ol>
+  <li>Remove duplicated local solver code once all tests pass.</li>
+  <li>Remove duplicated local pushdown implementation.</li>
+  <li>Keep helper APIs small:</li>
+  <li>one shared pushdown helper,</li>
+  <li>one shared instantiate solver (<code>Type.instantiate</code>) consumed by both inference and typed-expression coercion.</li>
+</ol>
+<h2><a href="#testing-plan-for-refactor" name="testing-plan-for-refactor" class="anchor"><span class="anchor-link"></span></a>Testing Plan For Refactor</h2>
+<h3><a href="#required-gates" name="required-gates" class="anchor"><span class="anchor-link"></span></a>Required gates</h3>
+<ol>
+  <li>existing <code>coreJVM/test</code> and <code>cli/test</code> must remain green.</li>
+  <li>targeted coverage for issue-relevant methods must be 100% statement/branch:</li>
+  <li><code>Type.instantiate</code>,</li>
+  <li><code>TypedExpr.instantiateTo</code>,</li>
+  <li>shared pushdown helper (new),</li>
+  <li><code>Infer.typeCheckPattern</code> list <code>forall List</code> branch,</li>
+  <li>constructor-pattern pushdown branches previously uncovered.</li>
+</ol>
+<h3><a href="#additional-regression-matrix" name="additional-regression-matrix" class="anchor"><span class="anchor-link"></span></a>Additional regression matrix</h3>
+<ol>
+  <li>pattern checks with:</li>
+  <li>mixed variance constructors,</li>
+  <li><code>forall</code> scrutinee types,</li>
+  <li>list patterns under <code>forall</code>.</li>
+  <li>
+  <p>specialization/coercion with:</p></li>
+  <li>polymorphic match branches,</li>
+  <li>higher-order call sites expecting monomorphic function types,</li>
+  <li>existential-heavy argument/application paths where apply fallback currently exists.</li>
+  <li>
+  <p>soundness checks:</p></li>
+  <li>keep existing ill-typed programs ill-typed (especially unsound variance/existential cases),</li>
+  <li>ensure no new widening-only acceptance appears where evidence should be required.</li>
+</ol>
+<h2><a href="#minimal-change-sequencing" name="minimal-change-sequencing" class="anchor"><span class="anchor-link"></span></a>Minimal-Change Sequencing</h2>
+<ol>
+  <li>land shared pushdown helper + call-site rewires first (no instantiate unification yet).</li>
+  <li>land <code>instantiateTo</code> delegation to <code>Type.instantiate</code> second.</li>
+  <li>remove dead duplicated code last.</li>
+  <li>after each step: run focused test subset + full <code>coreJVM/test</code>.</li>
+</ol>
+<p>This order minimizes blast radius while keeping bisectable behavioral changes.</p>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/compiler_leveraging_type_inhabitedness.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_1718_instantiate_pushdown_unification_plan.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="../design-docs/pattern_guards_design.html">Pattern Guards Design</a></p>
+<p><strong>Next:</strong> <a href="../design-docs/lexicographic_recur_design.html">Lexicographic <code>recur</code> Tuple Design</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -352,21 +404,15 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#compiler-leveraging-type-inhabitedness" class="header">Compiler Leveraging Type Inhabitedness</a>
+  <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#issue-1718-instantiate-pushdown-unification-plan" class="header">Issue 1718: Instantiate/Pushdown Unification Plan</a>
   <ul>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#goal" class="header">Goal</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#motivation" class="header">Motivation</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#current-state" class="header">Current State</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#scope-and-completeness" class="header">Scope and Completeness</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#formal-rules" class="header">Formal Rules</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#algorithm-design" class="header">Algorithm Design</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#using-inhabitedness-in-matches" class="header">Using Inhabitedness in Matches</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#pipeline-changes" class="header">Pipeline Changes</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#match-pruning-and-codegen" class="header">Match Pruning and Codegen</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#edge-cases" class="header">Edge Cases</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#test-plan" class="header">Test Plan</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#rollout-plan" class="header">Rollout Plan</a></li>
-    <li><a href="../design-docs/compiler_leveraging_type_inhabitedness.html#trade-offs" class="header">Trade-offs</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#context" class="header">Context</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#current-behavior-snapshot" class="header">Current Behavior Snapshot</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#coverage-baseline-before-this-pr-" class="header">Coverage Baseline (Before This PR)</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#tests-added-in-this-pr" class="header">Tests Added In This PR</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#refactor-plan-issue-1718-" class="header">Refactor Plan (Issue 1718)</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#testing-plan-for-refactor" class="header">Testing Plan For Refactor</a></li>
+    <li><a href="../design-docs/issue_1718_instantiate_pushdown_unification_plan.html#minimal-change-sequencing" class="header">Minimal-Change Sequencing</a></li>
   </ul></li>
 </ul>
 </div>
