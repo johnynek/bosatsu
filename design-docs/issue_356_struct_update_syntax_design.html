@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Issue 356: Struct Update Syntax (..old) · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_356_struct_update_syntax_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-2466af34*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html" class="active page">Issue 356: Struct Update Syntax (<code>..old</code>)</a></li>
+    <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html" class="page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Json.html" class="page"><code>Bosatsu/Json</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-2466af34*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a>
+  <ul>
+    <li><a href="../design-docs/pattern_guards_design.html" class="page">Pattern Guards Design</a></li>
+    <li><a href="../design-docs/issue_1628_pattern_value_reuse_design.html" class="page">Issue 1628: Pattern Value Reuse in <code>TypedExprNormalization</code></a></li>
+    <li><a href="../design-docs/issue_1676_default_values_struct_enum_design.html" class="page">Issue 1676: Default Values in Struct and Enum Constructors</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html" class="active page">Issue 356: Struct Update Syntax (<code>..old</code>)</a></li>
+    <li><a href="../design-docs/well_typed_statement_generator_design.html" class="page">Well-Typed Statement Generator Design</a></li>
+    <li><a href="../design-docs/quantifier-evidence-design.html" class="page">Quantifier Evidence on <code>TypedExpr.Annotation</code></a></li>
+  </ul></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a>
+  <ul>
+    <li><a href="../generated/core_alpha/Ackermann.html" class="page"><code>Ackermann</code></a></li>
+    <li><a href="../generated/core_alpha/AvlTree.html" class="page"><code>AvlTree</code></a></li>
+    <li><a href="../generated/core_alpha/Bar.html" class="page"><code>Bar</code></a></li>
+    <li><a href="../generated/core_alpha/BazelDepsApi.html" class="page"><code>BazelDepsApi</code></a></li>
+    <li><a href="../generated/core_alpha/Bo/Test.html" class="page"><code>Bo/Test</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Bool.html" class="page"><code>Bosatsu/Bool</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Char.html" class="page"><code>Bosatsu/Char</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Array.html" class="page"><code>Bosatsu/Collection/Array</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/Queue.html" class="page"><code>Bosatsu/Collection/Queue</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Collection/TreeList.html" class="page"><code>Bosatsu/Collection/TreeList</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Dict.html" class="page"><code>Bosatsu/Dict</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/ApplicativeTraverse.html" class="page"><code>Bosatsu/Example/ApplicativeTraverse</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Ci.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Ci</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/CodecovMain.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/CodecovMain</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/DeployWeb.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/DeployWeb</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Release.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Release</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Example/Json/Github/Workflows/Util.html" class="page"><code>Bosatsu/Example/Json/Github/Workflows/Util</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/FibBench.html" class="page"><code>Bosatsu/FibBench</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Error.html" class="page"><code>Bosatsu/IO/Error</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/IO/Std.html" class="page"><code>Bosatsu/IO/Std</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Json.html" class="page"><code>Bosatsu/Json</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/List.html" class="page"><code>Bosatsu/List</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Nothing.html" class="page"><code>Bosatsu/Nothing</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/BinNat.html" class="page"><code>Bosatsu/Num/BinNat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Binary.html" class="page"><code>Bosatsu/Num/Binary</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Float64.html" class="page"><code>Bosatsu/Num/Float64</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Num/Nat.html" class="page"><code>Bosatsu/Num/Nat</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/NumberProps.html" class="page"><code>Bosatsu/NumberProps</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Option.html" class="page"><code>Bosatsu/Option</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Predef.html" class="page"><code>Bosatsu/Predef</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Prog.html" class="page"><code>Bosatsu/Prog</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Rand.html" class="page"><code>Bosatsu/Rand</code></a></li>
+    <li><a href="../generated/core_alpha/Bosatsu/Testing/Properties.html" class="page"><code>Bosatsu/Testing/Properties</code></a></li>
+    <li><a href="../generated/core_alpha/BuildExample.html" class="page"><code>BuildExample</code></a></li>
+    <li><a href="../generated/core_alpha/BuildLibrary.html" class="page"><code>BuildLibrary</code></a></li>
+    <li><a href="../generated/core_alpha/DictTools.html" class="page"><code>DictTools</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Four.html" class="page"><code>Euler/Four</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/One.html" class="page"><code>Euler/One</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P5.html" class="page"><code>Euler/P5</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P6.html" class="page"><code>Euler/P6</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/P7.html" class="page"><code>Euler/P7</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Three.html" class="page"><code>Euler/Three</code></a></li>
+    <li><a href="../generated/core_alpha/Euler/Two.html" class="page"><code>Euler/Two</code></a></li>
+    <li><a href="../generated/core_alpha/Eval.html" class="page"><code>Eval</code></a></li>
+    <li><a href="../generated/core_alpha/Foo.html" class="page"><code>Foo</code></a></li>
+    <li><a href="../generated/core_alpha/GenDeps.html" class="page"><code>GenDeps</code></a></li>
+    <li><a href="../generated/core_alpha/IntTest.html" class="page"><code>IntTest</code></a></li>
+    <li><a href="../generated/core_alpha/Issue1633.html" class="page"><code>Issue1633</code></a></li>
+    <li><a href="../generated/core_alpha/ListPat.html" class="page"><code>ListPat</code></a></li>
+    <li><a href="../generated/core_alpha/Parser.html" class="page"><code>Parser</code></a></li>
+    <li><a href="../generated/core_alpha/PatternExamples.html" class="page"><code>PatternExamples</code></a></li>
+    <li><a href="../generated/core_alpha/PredefTests.html" class="page"><code>PredefTests</code></a></li>
+    <li><a href="../generated/core_alpha/Quicksort.html" class="page"><code>Quicksort</code></a></li>
+    <li><a href="../generated/core_alpha/RecordSet/Library.html" class="page"><code>RecordSet/Library</code></a></li>
+    <li><a href="../generated/core_alpha/StrConcatExample.html" class="page"><code>StrConcatExample</code></a></li>
+    <li><a href="../generated/core_alpha/StringPatternBranchTests.html" class="page"><code>StringPatternBranchTests</code></a></li>
+    <li><a href="../generated/core_alpha/TypeConstraint.html" class="page"><code>TypeConstraint</code></a></li>
+  </ul></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Issue 356: Struct Update Syntax (<code>..old</code>)</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#issue-356-struct-update-syntax-old-" name="issue-356-struct-update-syntax-old-" class="anchor"><span class="anchor-link"></span></a>Issue 356: Struct Update Syntax (<code>..old</code>)</h1>
+<p>Status: proposed<br/>Date: 2026-02-19<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/356">https://github.com/johnynek/bosatsu/issues/356</a></p>
+<h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
+<p>Add Rust-style struct update syntax:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Foo(a: Int, b: Int, c: Int)
+oldFoo = Foo(1, 2, 3)
+newA = 12
+foo1 = Foo { a: newA, ..oldFoo }
+</code></pre>
+<p>with source-level desugaring in <code>SourceConverter</code>, no new core runtime features, and clear rejection rules for non-struct-like constructors.</p>
+<h2><a href="#assessment-of-the-current-plan" name="assessment-of-the-current-plan" class="anchor"><span class="anchor-link"></span></a>Assessment of the Current Plan</h2>
+<p>The current assessment is mostly correct:</p>
+<ol>
+  <li><code>Declaration</code>/parser changes are required first, because current syntax only supports record fields (<code>field</code> / <code>field: expr</code>) and has no <code>..base</code> form.</li>
+  <li><code>SourceConverter</code> is the right place for desugaring, because it already has constructor/type metadata and already lowers record constructors.</li>
+  <li>The key eligibility check should be based on constructor-to-type lookup and confirming the type has exactly one constructor.</li>
+</ol>
+<p>Two important caveats:</p>
+<ol>
+  <li><code>SourceConverter</code> must use <code>getConstructor</code> (not only <code>getConstructorParams</code>) so it can inspect the owning <code>DefinedType</code> and its full constructor list.</li>
+  <li>For eligible updates, desugar to a single-branch <code>match</code> (no fallback <code>_</code> branch), otherwise totality checking may report the fallback as unreachable for single-constructor types.</li>
+</ol>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>Supporting updates for enums/types with multiple constructors.</li>
+  <li>Changing general record-constructor semantics (<code>Foo { a: 1 }</code>) beyond update-specific behavior.</li>
+  <li>Changing pattern syntax (this is expression syntax only).</li>
+  <li>Introducing mutable update semantics; this remains pure reconstruction.</li>
+</ol>
+<h2><a href="#proposed-syntax-and-semantics" name="proposed-syntax-and-semantics" class="anchor"><span class="anchor-link"></span></a>Proposed Syntax and Semantics</h2>
+<h3><a href="#syntax-v1-" name="syntax-v1-" class="anchor"><span class="anchor-link"></span></a>Syntax (V1)</h3>
+<p>Allow <code>..</code> update source inside record constructor braces:</p>
+<pre class="prettyprint"><code class="language-bosatsu">Foo { a: newA, ..oldFoo }
+Foo { a, ..oldFoo }         # shorthand field
+Foo { ..oldFoo }            # parses, but rejected during SourceConverter (Ior.Both)
+</code></pre>
+<p>Constraints: 1. At most one <code>..base</code> per constructor. 2. <code>..base</code> must appear last in the brace list. 3. <code>..</code> in expressions must always be followed by a source expression (<code>..baseExpr</code>); bare <code>..</code> is invalid. 4. Optional whitespace after <code>..</code> is allowed (<code>..x</code> and <code>.. x</code> are equivalent).</p>
+<p>Rejected examples:</p>
+<pre class="prettyprint"><code class="language-bosatsu">Foo { ..x, a: 1 }     # spread not last
+Foo { ..x, ..y }      # multiple spreads
+Foo { .. }            # missing source expression
+</code></pre>
+<h3><a href="#relation-to-existing-pattern-syntax" name="relation-to-existing-pattern-syntax" class="anchor"><span class="anchor-link"></span></a>Relation to existing <code>...</code> pattern syntax</h3>
+<p>Bosatsu already uses <code>...</code> in pattern matching for partial constructor patterns, for example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match v:
+  case Foo { a, ... }:
+    ...
+</code></pre>
+<p>This proposal adds expression syntax with <code>..</code>:</p>
+<pre class="prettyprint"><code class="language-bosatsu">next = Foo { a: 1, ..oldFoo }
+</code></pre>
+<p>Disambiguation rules: 1. Pattern context uses <code>Pattern.matchParser</code>; there <code>...</code> keeps its existing meaning (&ldquo;ignore remaining fields/args&rdquo;). 2. Expression context uses <code>Declaration.recordConstructorP</code>; there we parse <code>.. &lt;nonbinding-expr&gt;</code> as update source. 3. Token shape is distinct by design:  1. <code>...</code> (three dots) is pattern-partial syntax.  2. <code>..expr</code> (two dots plus expression) is expression-update syntax. 4. In expression record constructors, a literal <code>...</code> is rejected.</p>
+<h3><a href="#eligibility-rule-semantic-" name="eligibility-rule-semantic-" class="anchor"><span class="anchor-link"></span></a>Eligibility Rule (semantic)</h3>
+<p><code>Foo { ..., ..base }</code> is valid only if constructor <code>Foo</code> belongs to a type with exactly one constructor.</p>
+<p>Implementation check in <code>SourceConverter</code>: 1. Resolve <code>(package, constructor)</code> via existing <code>nameToCons</code>. 2. Lookup <code>env.getConstructor(package, constructor)</code> to get <code>(definedType, constructorFn)</code>. 3. Require <code>definedType.constructors.lengthCompare(1) == 0</code>.</p>
+<p>If not single-constructor, emit a dedicated source-converter error.</p>
+<h3><a href="#why-v1-does-not-support-multi-constructor-enums" name="why-v1-does-not-support-multi-constructor-enums" class="anchor"><span class="anchor-link"></span></a>Why V1 does not support multi-constructor enums</h3>
+<p>It is possible to define a desugaring for enum types with more than one constructor. For:</p>
+<pre class="prettyprint"><code class="language-bosatsu">Foo { a: 1, ..bar }
+</code></pre>
+<p>we could lower to:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match bar:
+  case Foo(_, bar_b, ...):
+    Foo(1, bar_b, ...)
+  case _:
+    bar
+</code></pre>
+<p>So this is technically feasible.</p>
+<p>V1 intentionally does <strong>not</strong> support this form for multi-constructor enums for these reasons: 1. Hidden control flow: syntax that looks like direct construction would actually be conditional matching. 2. Silent no-op risk: when <code>bar</code> is another variant, the update does nothing and returns <code>bar</code>. 3. Reduced readability/reviewability: readers must remember the implicit fallback path to understand behavior.</p>
+<p>Because these are high-cost semantic surprises, V1 restricts update syntax to single-constructor types only.</p>
+<h3><a href="#tuple-interaction" name="tuple-interaction" class="anchor"><span class="anchor-link"></span></a>Tuple interaction</h3>
+<p>Tuples participate via their existing Predef constructor types: 1. <code>TupleN</code> is defined as a single-constructor struct. 2. Its fields are named <code>item1</code>, <code>item2</code>, &hellip;, <code>itemN</code>.</p>
+<p>So tuple update uses the same record-constructor update form, for example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">updated = Tuple2 { item1: a, ..tup }
+</code></pre>
+<p>There is no special tuple-literal update syntax in V1: 1. <code>Tuple2 { item1: a, ..tup }</code> is supported (subject to the same semantic checks). 2. Syntax like <code>(a, ..tup)</code> is out of scope for this issue.</p>
+<h3><a href="#update-rewrite" name="update-rewrite" class="anchor"><span class="anchor-link"></span></a>Update Rewrite</h3>
+<p>Given:</p>
+<pre class="prettyprint"><code class="language-bosatsu">Foo { &lt;explicit fields&gt;, ..baseExpr }
+</code></pre>
+<p>with constructor parameter order <code>p1, p2, ..., pn</code>, rewrite to:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match baseExpr:
+  case Foo(&lt;pat1&gt;, &lt;pat2&gt;, ..., &lt;patn&gt;):
+    Foo(&lt;arg1&gt;, &lt;arg2&gt;, ..., &lt;argn&gt;)
+</code></pre>
+<p>where for each parameter <code>pi</code>: 1. If <code>pi</code> was explicitly set in the update:  1. <code>pati = _</code>  2. <code>argi = &lt;explicit expression for pi&gt;</code> 2. If <code>pi</code> was omitted:  1. <code>pati = freshVar_i</code>  2. <code>argi = freshVar_i</code></p>
+<p>No fallback branch is emitted.</p>
+<h3><a href="#required-non-trivial-update-rules" name="required-non-trivial-update-rules" class="anchor"><span class="anchor-link"></span></a>Required non-trivial update rules</h3>
+<p>To avoid no-op syntax and fully-explicit rebuilds, require both: 1. At least one field sourced from <code>baseExpr</code> (at least one omitted parameter). 2. At least one explicit field override.</p>
+<p>If either condition fails, emit a SourceConverter error as <code>Ior.Both</code> and keep converting so additional errors can still be accumulated.</p>
+<p>Example rejected:</p>
+<pre class="prettyprint"><code class="language-bosatsu">struct Foo(a: Int)
+Foo { a: 3, ..oldFoo }   # no field actually taken from oldFoo
+Foo { ..oldFoo }         # no explicit field override
+</code></pre>
+<h3><a href="#duplicate-explicit-field-policy" name="duplicate-explicit-field-policy" class="anchor"><span class="anchor-link"></span></a>Duplicate explicit field policy</h3>
+<p>If the same field appears multiple times in update fields: 1. Keep the last written value for lowering (deterministic &ldquo;last write wins&rdquo;). 2. Emit a SourceConverter error as <code>Ior.Both</code>. 3. Continue conversion to accumulate other diagnostics.</p>
+<p>Example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">Foo { a: 1, a: 2, ..x }
+</code></pre>
+<p>lowers as if <code>a: 2</code> was used, but still reports the duplicate-field error.</p>
+<h3><a href="#defaults-interaction" name="defaults-interaction" class="anchor"><span class="anchor-link"></span></a>Defaults Interaction</h3>
+<p>For update syntax with <code>..base</code>, omitted fields come from <code>base</code>, not constructor defaults.<br/>Defaults remain relevant only for existing non-update record construction (<code>Foo { ... }</code> without <code>..base</code>).</p>
+<h2><a href="#ast-and-parser-changes" name="ast-and-parser-changes" class="anchor"><span class="anchor-link"></span></a>AST and Parser Changes</h2>
+<h3><a href="#declaration-scala" name="declaration-scala" class="anchor"><span class="anchor-link"></span></a><code>Declaration.scala</code></h3>
+<p>Update <code>RecordConstructor</code> shape to carry optional update source, e.g.:</p>
+<pre class="prettyprint"><code class="language-scala">case class RecordConstructor(
+  cons: Constructor,
+  args: List[RecordArg],
+  updateFrom: Option[NonBinding]
+)
+</code></pre>
+<p>and update all traversals/utilities: 1. <code>toDoc</code> printer (<code>Foo { fields..., ..expr }</code> formatting). 2. <code>freeVars</code> / <code>allNames</code>. 3. <code>replaceRegions</code>. 4. <code>substitute</code>.</p>
+<h3><a href="#recordarg-parsing" name="recordarg-parsing" class="anchor"><span class="anchor-link"></span></a><code>RecordArg</code> parsing</h3>
+<p>Keep existing field arg kinds: 1. <code>Simple(field)</code> 2. <code>Pair(field, expr)</code></p>
+<p>and add parsing for optional trailing <code>..decl</code> in record-constructor braces.</p>
+<p>Parser note: 1. The record-constructor parser should parse an optional trailing spread clause separately from field args (do not treat <code>..</code> as a <code>RecordArg</code>). 2. Within expression parsing, attempt <code>...</code> first as an explicit rejection path (or forbid it directly) so users get a clear error message pointing to pattern-only syntax. 3. Spread clause parsing should accept optional spaces after <code>..</code> before the source expression.</p>
+<h3><a href="#pattern-conversion-safeguard" name="pattern-conversion-safeguard" class="anchor"><span class="anchor-link"></span></a>Pattern conversion safeguard</h3>
+<p><code>Declaration.toPattern</code> must reject record constructors that contain <code>updateFrom</code> (<code>None</code> result), since update syntax is expression-only.</p>
+<h2><a href="#sourceconverter-changes" name="sourceconverter-changes" class="anchor"><span class="anchor-link"></span></a>SourceConverter Changes</h2>
+<h3><a href="#fromdecl-record-constructor-branch" name="fromdecl-record-constructor-branch" class="anchor"><span class="anchor-link"></span></a><code>fromDecl</code> record-constructor branch</h3>
+<p>Split behavior:</p>
+<ol>
+  <li><code>updateFrom = None</code>: keep current behavior (including default filling).</li>
+  <li><code>updateFrom = Some(baseExpr)</code>: apply update rewrite path.</li>
+</ol>
+<h3><a href="#update-rewrite-algorithm-details" name="update-rewrite-algorithm-details" class="anchor"><span class="anchor-link"></span></a>Update rewrite algorithm details</h3>
+<ol>
+  <li>Convert explicit field args to a mapping exactly as today (<code>Simple</code> resolves as variable expression; <code>Pair</code> uses explicit expression).</li>
+  <li>Detect duplicate explicit fields:</li>
+  <li>Add error (<code>Ior.Both</code>) when duplicates are present.</li>
+  <li>Keep the last explicit value per field for the mapping.</li>
+  <li>Validate unexpected fields exactly as today.</li>
+  <li>Resolve constructor metadata with <code>env.getConstructor</code>.</li>
+  <li>Enforce single-constructor type.</li>
+  <li>Compute omitted parameters:</li>
+  <li><code>omitted = params.filterNot(p =&gt; mapping.contains(p.name))</code></li>
+  <li>If <code>mapping.isEmpty</code>, emit dedicated error as <code>Ior.Both</code> (&ldquo;update has no explicit field overrides&rdquo;).</li>
+  <li>If <code>omitted.isEmpty</code>, emit dedicated error as <code>Ior.Both</code> (&ldquo;update uses no fields from base&rdquo;).</li>
+  <li>Generate fresh bindables for omitted params using existing synthetic-name strategy (<code>unusedNames</code>).</li>
+  <li>Build pattern args in declared parameter order:</li>
+  <li>explicit -&gt; <code>Pattern.WildCard</code></li>
+  <li>omitted -&gt; <code>Pattern.Var(fresh)</code></li>
+  <li>Build constructor body args in same order:</li>
+  <li>explicit -&gt; mapped explicit expression</li>
+  <li>omitted -&gt; <code>Expr.Local(fresh, tag)</code></li>
+  <li>Convert <code>baseExpr</code> once via <code>loop(baseExpr)</code> and use it as match scrutinee.</li>
+  <li>Emit single-branch <code>Expr.Match(scrutinee, Branch(PositionalStruct(...), None, rebuiltCtor), tag)</code>.</li>
+</ol>
+<p>This guarantees single evaluation of <code>baseExpr</code> and no accidental double evaluation.</p>
+<h2><a href="#new-sourceconverter-errors" name="new-sourceconverter-errors" class="anchor"><span class="anchor-link"></span></a>New SourceConverter Errors</h2>
+<p>Add explicit errors for update syntax failures:</p>
+<ol>
+  <li><code>RecordUpdateRequiresSingleConstructor</code></li>
+  <li><code>RecordUpdateNoFieldsFromBase</code></li>
+  <li><code>RecordUpdateRequiresExplicitField</code></li>
+  <li><code>RecordUpdateDuplicateField</code></li>
+</ol>
+<p>with regions on the record constructor expression.</p>
+<p>Message guidance: 1. For multi-constructor types, include constructor/type context and explain update syntax is limited to single-constructor types. 2. For zero-use-of-base, explain all fields were explicitly set and suggest removing <code>..base</code> or omitting at least one field. 3. For zero-explicit-fields, explain this is an identity update and suggest using the source expression directly. 4. For duplicates, list duplicated field(s) and explain last explicit value is used for continued checking.</p>
+<p><code>PackageError.SourceConverterErrorsIn</code> needs no structural changes; new errors flow through existing rendering.</p>
+<h2><a href="#why-this-design-is-safe" name="why-this-design-is-safe" class="anchor"><span class="anchor-link"></span></a>Why this design is safe</h2>
+<ol>
+  <li>Pure source-level desugaring: no new IR/proto/runtime representation needed.</li>
+  <li>Constructor field order and names come from existing type env metadata (same source of truth as current record constructor conversion).</li>
+  <li>Totality remains valid because generated match is total under enforced single-constructor eligibility and wildcard/var parameter patterns.</li>
+  <li>Name capture is avoided with synthetic fresh variables.</li>
+</ol>
+<h2><a href="#implementation-plan" name="implementation-plan" class="anchor"><span class="anchor-link"></span></a>Implementation Plan</h2>
+<ol>
+  <li>Extend <code>Declaration.RecordConstructor</code> with optional <code>updateFrom</code>.</li>
+  <li>Update <code>RecordConstructor</code> parser to accept optional trailing <code>..expr</code>.</li>
+  <li>Update declaration printer and traversal helpers (<code>freeVars</code>, <code>allNames</code>, <code>replaceRegions</code>, <code>substitute</code>, <code>toPattern</code> behavior).</li>
+  <li>Add/adjust parser round-trip tests for update syntax and invalid forms.</li>
+  <li>Add new <code>SourceConverter.Error</code> variants for update eligibility/usage failures.</li>
+  <li>Refactor current record-constructor conversion into shared helpers for:</li>
+  <li>explicit field mapping</li>
+  <li>unexpected-field checks</li>
+  <li>constructor metadata lookup.</li>
+  <li>Implement update rewrite path in <code>SourceConverter.fromDecl</code>.</li>
+  <li>Keep non-update record constructor path unchanged (including defaults behavior).</li>
+  <li>Add <code>SourceConverterTest</code> cases for:</li>
+  <li>successful update desugaring shape</li>
+  <li>single-constructor eligibility failure</li>
+  <li>no-fields-from-base failure</li>
+  <li>no-explicit-fields failure (<code>Foo { ..x }</code>)</li>
+  <li>duplicate explicit fields produce <code>Ior.Both</code> and last-write-wins lowering</li>
+  <li>shorthand fields with update</li>
+  <li>unknown/extra fields behavior parity.</li>
+  <li>Add <code>ErrorMessageTest</code> cases for new user-facing error messages.</li>
+  <li>Run focused test targets (<code>ParserTest</code>, <code>SourceConverterTest</code>, <code>ErrorMessageTest</code>), then full <code>core</code> test suite.</li>
+</ol>
+<h2><a href="#test-matrix" name="test-matrix" class="anchor"><span class="anchor-link"></span></a>Test Matrix</h2>
+<ol>
+  <li>Parser accept:</li>
+  <li><code>Foo { a: 1, ..x }</code></li>
+  <li><code>Foo { a, ..x }</code></li>
+  <li><code>Foo { ..x }</code></li>
+  <li>Parser reject:</li>
+  <li><code>Foo { ..x, a: 1 }</code></li>
+  <li><code>Foo { ..x, ..y }</code></li>
+  <li>Conversion success:</li>
+  <li>Struct with omitted fields copied from base.</li>
+  <li>Generic single-constructor type update.</li>
+  <li>Conversion failure:</li>
+  <li>Multi-constructor enum update attempt.</li>
+  <li>All-fields-explicit plus <code>..base</code>.</li>
+  <li>No-explicit-fields (<code>Foo { ..x }</code>) with partial conversion (<code>Ior.Both</code>).</li>
+  <li>Duplicate fields with partial conversion (<code>Ior.Both</code>).</li>
+  <li>Regression:</li>
+  <li>Existing <code>Foo { ... }</code> constructor defaults behavior unchanged.</li>
+  <li>Pattern parsing/<code>toPattern</code> behavior unchanged except update-form exclusion.</li>
+</ol>
+<h2><a href="#resolution-notes" name="resolution-notes" class="anchor"><span class="anchor-link"></span></a>Resolution Notes</h2>
+<ol>
+  <li>Reject <code>Foo { ..oldFoo }</code> semantically via SourceConverter error (<code>Ior.Both</code>) while continuing conversion.</li>
+  <li>Treat duplicate explicit fields as SourceConverter errors (<code>Ior.Both</code>) with deterministic last-write-wins lowering.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_356_struct_update_syntax_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../design-docs/well_typed_statement_generator_design.html">Well-Typed Statement Generator Design</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#issue-356-struct-update-syntax-old-" class="header">Issue 356: Struct Update Syntax (<code>..old</code>)</a>
+  <ul>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#goal" class="header">Goal</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#assessment-of-the-current-plan" class="header">Assessment of the Current Plan</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#non-goals" class="header">Non-goals</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#proposed-syntax-and-semantics" class="header">Proposed Syntax and Semantics</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#ast-and-parser-changes" class="header">AST and Parser Changes</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#sourceconverter-changes" class="header">SourceConverter Changes</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#new-sourceconverter-errors" class="header">New SourceConverter Errors</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#why-this-design-is-safe" class="header">Why this design is safe</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#implementation-plan" class="header">Implementation Plan</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#test-matrix" class="header">Test Matrix</a></li>
+    <li><a href="../design-docs/issue_356_struct_update_syntax_design.html#resolution-notes" class="header">Resolution Notes</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-2466af34-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
