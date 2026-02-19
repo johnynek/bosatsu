@@ -210,11 +210,14 @@ sealed abstract class Declaration derives CanEqual {
 
       case RecordConstructor(name, args, updateFrom) =>
         val updateItems = updateFrom.toList.map { d =>
+          val dDoc = d.toDoc
+          val needSpace = dDoc.renderWideStream.headOption.exists(
+            _.startsWith(".")
+          )
           val prefix =
-            if (needsUpdateParens(d)) Doc.text(".. ")
+            if (needSpace) Doc.text(".. ")
             else Doc.text("..")
-          val updateDoc = prefix + d.toDoc
-          updateDoc
+          prefix + dDoc
         }
         val items = args.map(_.toDoc) ::: updateItems
         val argDoc = Doc.char('{') +
@@ -694,12 +697,6 @@ object Declaration {
     Identifier.document
 
   private val colonSpace = Doc.text(": ")
-
-  // Record-update syntax starts with `..`; if the rendered update expression
-  // starts with `.`, we need a separator so we don't serialize `...`, which is
-  // pattern-spread syntax.
-  private def needsUpdateParens(nb: NonBinding): Boolean =
-    nb.toDoc.renderWideStream.mkString.startsWith(".")
 
   sealed abstract class RecordArg {
     def toDoc: Doc =
