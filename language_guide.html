@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-2466af34*
+0.0.0+1-47b0dba7*
 </div>
 </div>
 <div class="nav-toc">
@@ -145,7 +145,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-2466af34*
+0.0.0+1-47b0dba7*
 </div>
 </div>
 <div class="nav-toc">
@@ -567,6 +567,18 @@ hash = HashResult(&quot;b9f32037daab5a0aff8e437ff1dd0f0d&quot;)
 
 my_file_rec = File { name, modified_time: 1540951025, size, hash }
 </code></pre>
+<p>Record syntax also supports updates from an existing value:</p>
+<pre><code>base = File {
+  name: &quot;readme.txt&quot;,
+  modified_time: 1540951025,
+  size: 10240,
+  hash: HashResult(&quot;b9f32037daab5a0aff8e437ff1dd0f0d&quot;),
+}
+
+smaller = File { size: 4096, ..base }
+</code></pre>
+<p>In <code>File { size: 4096, ..base }</code>, explicitly listed fields override values from <code>base</code>, and omitted fields are copied from <code>base</code>.</p>
+<p>Rules for record updates: 1. They are written with <code>..expr</code> in record construction syntax. 1. <code>...</code> is only for patterns (not construction). 1. You must explicitly set at least one field. 1. At least one field must be copied from the base expression. 1. Updates are supported on single-constructor types (for example, <code>struct</code>s).</p>
 <p>There are no methods in Bosatsu, only functions. We cannot define methods on <code>struct</code>s or <code>enum</code>s. The only thing we can do with a struct or enum is match it:</p>
 <pre><code>nm = match my_file:
   case File(name, _, _, _): name
@@ -921,7 +933,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-2466af34-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-47b0dba7-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
