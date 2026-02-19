@@ -153,6 +153,24 @@ c_build_bootstrap_steps = [
   setup_sbt_step,
 ]
 
+run_bosatsu_tests_step =
+  Step {
+    name: Set("run bosatsu tests"),
+    run: Set(cat_lines([
+      tool_test_workspace_cmd,
+      "",
+    ])),
+  }
+
+run_bosatsu_node_tests_step =
+  Step {
+    run: Set(cat_lines([
+      tool_test_workspace_node_cmd,
+      "",
+    ])),
+    ..run_bosatsu_tests_step,
+  }
+
 workflow =
   Workflow(
     WorkflowJobs(
@@ -247,13 +265,7 @@ workflow =
               "",
             ])),
           },
-          Step {
-            name: Set("run bosatsu tests"),
-            run: Set(cat_lines([
-              tool_test_workspace_cmd,
-              "",
-            ])),
-          },
+          run_bosatsu_tests_step,
         ],
         java_strategy_17,
       ),
@@ -269,13 +281,7 @@ workflow =
               "",
             ])),
           },
-          Step {
-            name: Set("run bosatsu tests"),
-            run: Set(cat_lines([
-              tool_test_workspace_node_cmd,
-              "",
-            ])),
-          },
+          run_bosatsu_node_tests_step,
           Step {
             name: Set("install boehm"),
             run: Set("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),

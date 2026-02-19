@@ -204,6 +204,69 @@ release_job_setup_steps = [
   install_b3sum_step,
 ]
 
+release_assets_env =
+  Set(StepEnv {
+    `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
+  })
+
+stage_release_assets_step =
+  Step {
+    name: Set("Stage release assets"),
+    run: Set(cat_lines([
+      "set -euo pipefail",
+      "mkdir -p release_assets",
+      "cp bosatsu release_assets/",
+      "cp proto/src/main/protobuf/bosatsu/TypedAst.proto release_assets/",
+      "cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/",
+      "chmod +x release_assets/bosatsu || true",
+      "required_files=(",
+      "  \"bosatsu.jar\"",
+      "  \"bosatsu_node.js\"",
+      "  \"bosatsu-linux\"",
+      "  \"bosatsu-macos\"",
+      "  \"bosatsu\"",
+      "  \"TypedAst.proto\"",
+      "  \"\${C_RUNTIME_ARCHIVE}\"",
+      ")",
+      "for file in \"\${required_files[@]}\"; do",
+      "  if [ ! -f \"release_assets/\${file}\" ]; then",
+      "    echo \"Missing release asset: \${file}\" >&2",
+      "    exit 1",
+      "  fi",
+      "done",
+      "",
+    ])),
+    env: release_assets_env,
+  }
+
+create_sha256sums_step =
+  Step {
+    name: Set("Create SHA256SUMS"),
+    run: Set(cat_lines([
+      "set -euo pipefail",
+      "cd release_assets",
+      "find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'B3SUMS' -print0 \\",
+      "  | sort -z \\",
+      "  | xargs -0 sha256sum > SHA256SUMS",
+      "",
+    ])),
+    ..stage_release_assets_step,
+  }
+
+create_b3sums_step =
+  Step {
+    name: Set("Create B3SUMS"),
+    run: Set(cat_lines([
+      "set -euo pipefail",
+      "cd release_assets",
+      "find . -maxdepth 1 -type f ! -name 'B3SUMS' -print0 \\",
+      "  | sort -z \\",
+      "  | xargs -0 b3sum > B3SUMS",
+      "",
+    ])),
+    ..create_sha256sums_step,
+  }
+
 workflow =
   Workflow(
     "Release",
@@ -420,64 +483,9 @@ workflow =
               "https://github.com/\${{ github.repository }}/releases/download/\${{ github.ref_name }}/",
             )),
           },
-          Step {
-            name: Set("Stage release assets"),
-            run: Set(cat_lines([
-              "set -euo pipefail",
-              "mkdir -p release_assets",
-              "cp bosatsu release_assets/",
-              "cp proto/src/main/protobuf/bosatsu/TypedAst.proto release_assets/",
-              "cp .bosatsu_lib_publish/*.bosatsu_lib release_assets/",
-              "chmod +x release_assets/bosatsu || true",
-              "required_files=(",
-              "  \"bosatsu.jar\"",
-              "  \"bosatsu_node.js\"",
-              "  \"bosatsu-linux\"",
-              "  \"bosatsu-macos\"",
-              "  \"bosatsu\"",
-              "  \"TypedAst.proto\"",
-              "  \"\${C_RUNTIME_ARCHIVE}\"",
-              ")",
-              "for file in \"\${required_files[@]}\"; do",
-              "  if [ ! -f \"release_assets/\${file}\" ]; then",
-              "    echo \"Missing release asset: \${file}\" >&2",
-              "    exit 1",
-              "  fi",
-              "done",
-              "",
-            ])),
-            env: Set(StepEnv {
-              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-            }),
-          },
-          Step {
-            name: Set("Create SHA256SUMS"),
-            run: Set(cat_lines([
-              "set -euo pipefail",
-              "cd release_assets",
-              "find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'B3SUMS' -print0 \\",
-              "  | sort -z \\",
-              "  | xargs -0 sha256sum > SHA256SUMS",
-              "",
-            ])),
-            env: Set(StepEnv {
-              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-            }),
-          },
-          Step {
-            name: Set("Create B3SUMS"),
-            run: Set(cat_lines([
-              "set -euo pipefail",
-              "cd release_assets",
-              "find . -maxdepth 1 -type f ! -name 'B3SUMS' -print0 \\",
-              "  | sort -z \\",
-              "  | xargs -0 b3sum > B3SUMS",
-              "",
-            ])),
-            env: Set(StepEnv {
-              `C_RUNTIME_ARCHIVE`: Set("\${{ needs.prepare.outputs.c_runtime_archive }}"),
-            }),
-          },
+          stage_release_assets_step,
+          create_sha256sums_step,
+          create_b3sums_step,
           Step {
             uses: Set("softprops/action-gh-release@v2"),
             name: Set("Create GitHub release"),
