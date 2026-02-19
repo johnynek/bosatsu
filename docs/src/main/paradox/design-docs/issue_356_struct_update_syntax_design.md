@@ -49,6 +49,7 @@ Constraints:
 1. At most one `..base` per constructor.
 2. `..base` must appear last in the brace list.
 3. `..` in expressions must always be followed by a source expression (`..baseExpr`); bare `..` is invalid.
+4. Optional whitespace after `..` is allowed (`..x` and `.. x` are equivalent).
 
 Rejected examples:
 
@@ -178,6 +179,7 @@ and add parsing for optional trailing `..decl` in record-constructor braces.
 Parser note:
 1. The record-constructor parser should parse an optional trailing spread clause separately from field args (do not treat `..` as a `RecordArg`).
 2. Within expression parsing, attempt `...` first as an explicit rejection path (or forbid it directly) so users get a clear error message pointing to pattern-only syntax.
+3. Spread clause parsing should accept optional spaces after `..` before the source expression.
 
 ### Pattern conversion safeguard
 `Declaration.toPattern` must reject record constructors that contain `updateFrom` (`None` result), since update syntax is expression-only.
