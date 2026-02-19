@@ -74,15 +74,10 @@ def set_List[a](xs: List[a], idx: Int, value: a) -> Option[List[a]]:
         loop(xs, idx, [])
 
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
-  recur a:
-    case []: b matches []
-    case [ah, *at]:
-      match b:
-        case []: False
-        case [bh, *bt] if fn(ah, bh):
-          eq_List(fn)(at, bt)
-        case [_, *_]:
-          False
+  recur (a, b):
+    case ([ah, *at], [bh, *bt]) if fn(ah, bh): eq_List(fn)(at, bt)
+    case ([], []): True
+    case _: False
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     def prepend_reversed_pairs(rev_prefix, suffix):
@@ -92,13 +87,11 @@ def zip(left: List[a], right: List[b]) -> List[(a, b)]:
                 prepend_reversed_pairs(t, [h, *suffix])
 
     def loop(ls, rs, rev_prefix):
-        recur ls:
-            case []: prepend_reversed_pairs(rev_prefix, [])
-            case [lh, *lt]:
-                match rs:
-                    case []: prepend_reversed_pairs(rev_prefix, [])
-                    case [rh, *rt]:
-                        loop(lt, rt, [(lh, rh), *rev_prefix])
+        recur (ls, rs):
+            case ([], _): prepend_reversed_pairs(rev_prefix, [])
+            case (_, []): prepend_reversed_pairs(rev_prefix, [])
+            case ([lh, *lt], [rh, *rt]):
+                loop(lt, rt, [(lh, rh), *rev_prefix])
     loop(left, right, [])
 
 # tail recursive size implementation

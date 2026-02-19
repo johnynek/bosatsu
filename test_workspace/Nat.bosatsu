@@ -8,15 +8,11 @@ export Nat(), mul2, add, sub_Nat, mult, exp, to_Int, to_Nat, is_even, div2, cmp_
 enum Nat: Zero, Succ(prev: Nat)
 
 def cmp_Nat(a: Nat, b: Nat) -> Comparison:
-    recur a:
-        case Zero:
-            match b:
-                case Zero: EQ
-                case _: LT
-        case Succ(n):
-            match b:
-                case Zero: GT
-                case Succ(m): cmp_Nat(n, m)
+    recur (a, b):
+        case (Zero, Zero): EQ
+        case (Zero, _): LT
+        case (Succ(_), Zero): GT
+        case (Succ(n), Succ(m)): cmp_Nat(n, m)
 
 # This is an O(n) operation
 def mul2(n: Nat) -> Nat:
