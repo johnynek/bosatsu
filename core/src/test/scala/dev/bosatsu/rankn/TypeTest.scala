@@ -1315,6 +1315,101 @@ class TypeTest extends munit.ScalaCheckSuite {
     )
   }
 
+  test("instantiate keeps argument positions distinct for prog-like types") {
+    val Type.ForAll(fromVars, fromIn) =
+      parse("forall env, e, r. Bosatsu/Prog::Prog[env, e, r]").runtimeChecked
+    val target = parse("Bosatsu/Prog::Prog[x, y, z]")
+    val rhsEnv = Map(
+      Type.Var.Bound("x") -> Kind.Type,
+      Type.Var.Bound("y") -> Kind.Type,
+      Type.Var.Bound("z") -> Kind.Type
+    )
+
+    val inst =
+      Type
+        .instantiate(
+          fromVars.iterator.toMap,
+          fromIn,
+          Map.empty,
+          target,
+          rhsEnv
+        )
+        .getOrElse(
+          fail(s"expected instantiate success:\nfrom = $fromIn\nto = $target")
+        )
+
+    val env = Type.Var.Bound("env")
+    val e = Type.Var.Bound("e")
+    val r = Type.Var.Bound("r")
+    val x = Type.Var.Bound("x")
+    val y = Type.Var.Bound("y")
+    val z = Type.Var.Bound("z")
+
+    assertEquals(inst.subs(env)._2, Type.TyVar(x))
+    assertEquals(inst.subs(e)._2, Type.TyVar(y))
+    assertEquals(inst.subs(r)._2, Type.TyVar(z))
+    assertNotEquals(inst.subs(e)._2, Type.TyVar(x))
+  }
+
+  test("instantiate supports skolem and meta targets for prog-like types") {
+    val Type.ForAll(fromVars, fromIn) =
+      parse("forall env, e, r. Bosatsu/Prog::Prog[env, e, r]").runtimeChecked
+    val targetTemplate = parse("Bosatsu/Prog::Prog[x, y, z]")
+    val rhsEnv = Map(
+      Type.Var.Bound("x") -> Kind.Type,
+      Type.Var.Bound("z") -> Kind.Type
+    )
+
+    val e = Type.Var.Bound("e")
+    val y = Type.Var.Bound("y")
+
+    val skErr = Type.Var.Skolem("skErr", Kind.Type, existential = false, 99991L)
+    val targetSkolem =
+      Type.substituteVar(
+        targetTemplate,
+        Map[Type.Var, Type](y -> Type.TyVar(skErr))
+      )
+    val skolemInst =
+      Type
+        .instantiate(
+          fromVars.iterator.toMap,
+          fromIn,
+          Map.empty,
+          targetSkolem,
+          rhsEnv
+        )
+        .getOrElse(
+          fail(s"expected instantiate success for skolem target: $targetSkolem")
+        )
+    assertEquals(skolemInst.subs(e)._2, Type.TyVar(skErr))
+
+    val metaErr =
+      Type.Meta(
+        Kind.Type,
+        99992L,
+        existential = false,
+        RefSpace.constRef(Option.empty)
+      )
+    val targetMeta =
+      Type.substituteVar(
+        targetTemplate,
+        Map[Type.Var, Type](y -> Type.TyMeta(metaErr))
+      )
+    val metaInst =
+      Type
+        .instantiate(
+          fromVars.iterator.toMap,
+          fromIn,
+          Map.empty,
+          targetMeta,
+          rhsEnv
+        )
+        .getOrElse(
+          fail(s"expected instantiate success for meta target: $targetMeta")
+        )
+    assertEquals(metaInst.subs(e)._2, Type.TyMeta(metaErr))
+  }
+
   private def instantiateWithRightExists(
       fromStr: String,
       toStr: String
@@ -1727,6 +1822,30 @@ class TypeTest extends munit.ScalaCheckSuite {
       val (vars, in) = Type.liftExistentials(t)
       assert(Type.exists(vars, in).sameAs(t))
     }
+  }
+  test("liftExistentials/exists roundtrips with duplicate existential names") {
+    val p = Type.Var.Bound("p")
+    val ckws = Type.Var.Bound("ckwsckMlk7r")
+
+    val existsVars = NonEmptyList.of(
+      p -> Kind.Type,
+      p -> Kind(
+        Kind.Arg(Variance.Contravariant, Kind.Type)
+      )
+    )
+
+    val aqfr = Type.Const.Defined(
+      dev.bosatsu.PackageName.parts("Tw"),
+      dev.bosatsu.TypeName("Aqfr")
+    )
+    val body = Type.TyApply(
+      Type.TyVar(p),
+      Type.TyApply(Type.TyConst(aqfr), Type.TyVar(ckws))
+    )
+
+    val t = Type.Exists(existsVars, body)
+    val (vars, in) = Type.liftExistentials(t)
+    assert(Type.exists(vars, in).sameAs(t))
   }
   test("liftExistentials avoids forall/exists binder collisions") {
     val t = parse("forall a. exists a. a")

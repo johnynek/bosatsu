@@ -176,6 +176,20 @@ message GenericExpr {
 message AnnotationExpr {
   int32 expr = 1;
   int32 typeOf = 2;
+  QuantifierEvidence quantifierEvidence = 3;
+}
+
+message QuantifierSolution {
+  int32 varName = 1;
+  Kind kind = 2;
+  int32 typeOf = 3;
+}
+
+message QuantifierEvidence {
+  int32 sourceType = 1;
+  int32 targetType = 2;
+  repeated QuantifierSolution forallSolved = 3;
+  repeated QuantifierSolution existsHidden = 4;
 }
 
 message LambdaExpr {

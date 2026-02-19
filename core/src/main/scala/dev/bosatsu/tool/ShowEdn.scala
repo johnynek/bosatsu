@@ -567,12 +567,76 @@ object ShowEdn {
         err(s"invalid quantification: ${rendered(other)}")
     }
 
+  private def encodeSolvedQuantifierMap(
+      solved: scala.collection.immutable.SortedMap[Type.Var.Bound, (Kind, Type)]
+  ): Edn =
+    EVector(solved.toList.map { case (b, (k, tpe)) =>
+      EVector(List(encodeKindBinder((b, k)), encodeType(tpe)))
+    })
+
+  private def decodeSolvedQuantifierMap(
+      edn: Edn
+  ): ErrorOr[scala.collection.immutable.SortedMap[Type.Var.Bound, (Kind, Type)]] =
+    for {
+      raw <- asVector(edn)
+      parsed <- raw.toList.traverse {
+        case EVector(List(binderEdn, typeEdn)) =>
+          (decodeKindBinder(binderEdn), decodeType(typeEdn))
+            .mapN { case ((b, k), tpe) => (b, (k, tpe)) }
+        case other =>
+          err[(Type.Var.Bound, (Kind, Type))](
+            s"invalid quantifier solution: ${rendered(other)}"
+          )
+      }
+    } yield scala.collection.immutable.SortedMap.from(parsed)(
+      using Ordering.by[Type.Var.Bound, String](_.name)
+    )
+
+  private def encodeQuantifierEvidence(
+      qev: TypedExpr.QuantifierEvidence
+  ): Edn =
+    EList(
+      List(
+        sym("qe"),
+        encodeType(qev.sourceAtSolve),
+        encodeType(qev.targetAtSolve),
+        encodeSolvedQuantifierMap(qev.forallSolved),
+        encodeSolvedQuantifierMap(qev.existsHidden)
+      )
+    )
+
+  private def decodeQuantifierEvidence(
+      edn: Edn
+  ): ErrorOr[TypedExpr.QuantifierEvidence] =
+    edn match {
+      case EList(
+            ESymbol("qe") :: sourceEdn :: targetEdn :: forallEdn :: existsEdn :: Nil
+          ) =>
+        (
+          decodeType(sourceEdn),
+          decodeType(targetEdn),
+          decodeSolvedQuantifierMap(forallEdn),
+          decodeSolvedQuantifierMap(existsEdn)
+        ).mapN(TypedExpr.QuantifierEvidence(_, _, _, _))
+      case other =>
+        err(s"invalid quantifier evidence: ${rendered(other)}")
+    }
+
   private def encodeTypedExpr(te: TypedExpr[Unit]): Edn =
     te match {
       case TypedExpr.Generic(quant, in) =>
         EList(List(sym("generic"), encodeQuant(quant), encodeTypedExpr(in)))
-      case TypedExpr.Annotation(term, coerce) =>
-        EList(List(sym("ann"), encodeType(coerce), encodeTypedExpr(term)))
+      case TypedExpr.Annotation(term, coerce, None) =>
+        EList(List(sym("widen"), encodeType(coerce), encodeTypedExpr(term)))
+      case TypedExpr.Annotation(term, coerce, Some(qev)) =>
+        EList(
+          List(
+            sym("instantiate"),
+            encodeType(coerce),
+            encodeQuantifierEvidence(qev),
+            encodeTypedExpr(term)
+          )
+        )
       case TypedExpr.AnnotatedLambda(args, expr, ()) =>
         EList(
           List(
@@ -666,9 +730,24 @@ object ShowEdn {
     edn match {
       case EList(ESymbol("generic") :: quantEdn :: inEdn :: Nil) =>
         (decodeQuant(quantEdn), decodeTypedExpr(inEdn)).mapN(TypedExpr.Generic(_, _))
-      case EList(ESymbol("ann") :: typeEdn :: termEdn :: Nil) =>
+      case EList(ESymbol("widen") :: typeEdn :: termEdn :: Nil) =>
         (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN {
-          (coerce, term) => TypedExpr.Annotation(term, coerce)
+          (coerce, term) => TypedExpr.Annotation(term, coerce, None)
+        }
+      case EList(
+            ESymbol("instantiate") :: typeEdn :: evidenceEdn :: termEdn :: Nil
+          ) =>
+        (
+          decodeType(typeEdn),
+          decodeQuantifierEvidence(evidenceEdn),
+          decodeTypedExpr(termEdn)
+        ).mapN { (coerce, qev, term) =>
+          TypedExpr.Annotation(term, coerce, Some(qev))
+        }
+      case EList(ESymbol("ann") :: typeEdn :: termEdn :: Nil) =>
+        // Backward-compatible decoder for older serialized forms.
+        (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN {
+          (coerce, term) => TypedExpr.Annotation(term, coerce, None)
         }
       case EList(ESymbol("lambda") :: argsEdn :: bodyEdn :: Nil) =>
         for {

@@ -99,7 +99,7 @@ object TypedExprNormalization {
       expr match {
         case Generic(_, in) =>
           isImmutableValueExpr(in)
-        case Annotation(in, _) =>
+        case Annotation(in, _, _) =>
           isImmutableValueExpr(in)
         case AnnotatedLambda(_, body, _) =>
           isImmutableValueExpr(body)
@@ -141,7 +141,7 @@ object TypedExprNormalization {
         case Generic(quant, in) =>
           val blockedTy1 = blockedTy ++ quant.vars.iterator.map(_._1)
           collect(in, blocked, blockedTy1)
-        case Annotation(in, _) =>
+        case Annotation(in, _, _) =>
           collect(in, blocked, blockedTy)
         case AnnotatedLambda(args, body, _) =>
           collect(body, blocked ++ args.iterator.map(_._1), blockedTy)
@@ -223,9 +223,9 @@ object TypedExprNormalization {
                 val blockedTy1 = blockedTy ++ q.vars.iterator.map(_._1)
                 val in1 = replace(in, blocked, blockedTy1)
                 if (in1 eq in) g else Generic(q, in1)
-              case ann @ Annotation(in, tpe) =>
+              case ann @ Annotation(in, tpe, qev) =>
                 val in1 = replace(in, blocked, blockedTy)
-                if (in1 eq in) ann else Annotation(in1, tpe)
+                if (in1 eq in) ann else Annotation(in1, tpe, qev)
               case lam @ AnnotatedLambda(args, body, tag) =>
                 val body1 =
                   replace(body, blocked ++ args.iterator.map(_._1), blockedTy)
@@ -351,7 +351,7 @@ object TypedExprNormalization {
     }
 
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
-    if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
+    if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe, None) else expr
 
   private def appLambda[A](
       f1: AnnotatedLambda[A],
@@ -373,7 +373,7 @@ object TypedExprNormalization {
   private def isSelfFn[A](name: Bindable, te: TypedExpr[A]): Boolean =
     te match {
       case Generic(_, in)    => isSelfFn(name, in)
-      case Annotation(in, _) => isSelfFn(name, in)
+      case Annotation(in, _, _) => isSelfFn(name, in)
       case Local(vn, _, _)   => vn == name
       case _                 => false
     }
@@ -382,7 +382,7 @@ object TypedExprNormalization {
     te match {
       case Generic(_, in) =>
         boolConst(in)
-      case Annotation(in, _) =>
+      case Annotation(in, _, _) =>
         boolConst(in)
       case Global(
             PackageName.PredefName,
@@ -411,8 +411,8 @@ object TypedExprNormalization {
     te match {
       case Generic(q, in) =>
         Generic(q, rewriteTailCalls(name, in, tailPos, canRecur))
-      case Annotation(in, tpe) =>
-        Annotation(rewriteTailCalls(name, in, tailPos, canRecur), tpe)
+      case Annotation(in, tpe, qev) =>
+        Annotation(rewriteTailCalls(name, in, tailPos, canRecur), tpe, qev)
       case lam @ AnnotatedLambda(args, body, tag) =>
         // Calls in nested lambdas are not in tail position for this function.
         val body1 =
@@ -495,8 +495,8 @@ object TypedExprNormalization {
         expr match {
           case Generic(q, in) =>
             loop(in).map(Generic(q, _))
-          case Annotation(in, tpe) =>
-            loop(in).map(Annotation(_, tpe))
+          case Annotation(in, tpe, qev) =>
+            loop(in).map(Annotation(_, tpe, qev))
           case AnnotatedLambda(args, body, tag) =>
             val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
               .map(_._1)
@@ -534,7 +534,7 @@ object TypedExprNormalization {
   private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
     te match {
       case Generic(_, in)    => stripTypeWrappers(in)
-      case Annotation(in, _) => stripTypeWrappers(in)
+      case Annotation(in, _, _) => stripTypeWrappers(in)
       case _                 => te
     }
 
@@ -586,7 +586,7 @@ object TypedExprNormalization {
     te match {
       case Generic(_, in) =>
         outerRecurInvariantFlags(in, loopNames, inNestedLoop)
-      case Annotation(in, _) =>
+      case Annotation(in, _, _) =>
         outerRecurInvariantFlags(in, loopNames, inNestedLoop)
       case AnnotatedLambda(_, in, _) =>
         outerRecurInvariantFlags(in, loopNames, inNestedLoop)
@@ -659,9 +659,9 @@ object TypedExprNormalization {
       case g @ Generic(q, in) =>
         val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
         if (in1 eq in) g else Generic(q, in1)
-      case a @ Annotation(in, tpe) =>
+      case a @ Annotation(in, tpe, qev) =>
         val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
-        if (in1 eq in) a else Annotation(in1, tpe)
+        if (in1 eq in) a else Annotation(in1, tpe, qev)
       case lam @ AnnotatedLambda(args, body, tag) =>
         val body1 = dropOuterRecurArgs(body, dropPositions, inNestedLoop)
         if (body1 eq body) lam
@@ -739,7 +739,7 @@ object TypedExprNormalization {
       expr match {
         case Generic(_, in) =>
           loop(in, bound, acc)
-        case Annotation(in, _) =>
+        case Annotation(in, _, _) =>
           loop(in, bound, acc)
         case AnnotatedLambda(args, body, _) =>
           loop(body, bound ++ args.iterator.map(_._1), acc)
@@ -786,7 +786,7 @@ object TypedExprNormalization {
     te match {
       case Generic(_, in) =>
         hasEscapingFnRef(in, fnName, fnVisible)
-      case Annotation(in, _) =>
+      case Annotation(in, _, _) =>
         hasEscapingFnRef(in, fnName, fnVisible)
       case AnnotatedLambda(args, body, _) =>
         val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
@@ -834,9 +834,9 @@ object TypedExprNormalization {
       case g @ Generic(q, in) =>
         val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
         if (in1 eq in) g else Generic(q, in1)
-      case a @ Annotation(in, tpe) =>
+      case a @ Annotation(in, tpe, qev) =>
         val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
-        if (in1 eq in) a else Annotation(in1, tpe)
+        if (in1 eq in) a else Annotation(in1, tpe, qev)
       case lam @ AnnotatedLambda(args, body, tag) =>
         val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
         val body1 = prependArgsToFnCalls(body, fnName, extraArgs, fnVisibleBody)
@@ -919,8 +919,8 @@ object TypedExprNormalization {
     te match {
       case Generic(q, in) =>
         prependLambdaArgs(in, extraArgs).map(Generic(q, _))
-      case Annotation(in, tpe) =>
-        prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe))
+      case Annotation(in, tpe, qev) =>
+        prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe, qev))
       case AnnotatedLambda(args, body, tag) =>
         val allArgs =
           NonEmptyList.fromListUnsafe(extraArgs.toList ::: args.toList)
@@ -1020,7 +1020,7 @@ object TypedExprNormalization {
       }
 
     te match {
-      case g @ Generic(_, Annotation(term, _))
+      case g @ Generic(_, Annotation(term, _, _))
           if g.getType.sameAs(term.getType) =>
         normalize1(namerec, term, scope, typeEnv)
       case Generic(q0, Generic(q1, in)) =>
@@ -1031,7 +1031,7 @@ object TypedExprNormalization {
         val g1 = TypedExpr.normalizeQuantVars(quant, sin)
         if (g1 === te) None
         else Some(g1)
-      case Annotation(term, tpe) =>
+      case Annotation(term, tpe, qev) =>
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
         val e1 = normalize1(namerec, term, scope, typeEnv).get
@@ -1040,17 +1040,20 @@ object TypedExprNormalization {
             // the type is already right
             Some(e1)
           case (gen @ Generic(_, _), rho: Type.Rho) =>
-            val inst = TypedExpr.instantiateTo(gen, rho, kindOf)
+            val inst = TypedExpr.instantiateTo(gen, rho, kindOf, qev)
             // we compare thes to te because instantiate
             // can add an Annotation back
             if ((inst: TypedExpr[A]) =!= te) Some(inst)
             else None
           case (notSameTpe, _) =>
             val nt = Type.normalize(tpe)
+            val qev1 =
+              if (nt == tpe) qev
+              else qev.map(_.mapTypes(Type.normalize))
             if (notSameTpe eq term) {
               if (nt == tpe) None
-              else Some(Annotation(term, nt))
-            } else Some(Annotation(notSameTpe, nt))
+              else Some(Annotation(term, nt, qev1))
+            } else Some(Annotation(notSameTpe, nt, qev1))
         }
 
       case AnnotatedLambda(lamArgs0, expr, tag) =>
@@ -1369,7 +1372,7 @@ object TypedExprNormalization {
           te match {
             case Generic(_, in) =>
               hasOuterRecur(in, inNestedLoop)
-            case Annotation(in, _) =>
+            case Annotation(in, _, _) =>
               hasOuterRecur(in, inNestedLoop)
             case AnnotatedLambda(_, in, _) =>
               hasOuterRecur(in, inNestedLoop)
@@ -1654,13 +1657,14 @@ object TypedExprNormalization {
           te match {
             case Annotation(
                   ResolveToLambda((h :: t), args, ex, tag),
-                  rho: Type.Rho
+                  rho: Type.Rho,
+                  qev
                 ) =>
               val body = AnnotatedLambda(args, ex, tag)
               val quant = Quantification.ForAll(NonEmptyList(h, t))
               val asGen = Generic(quant, body)
 
-              TypedExpr.instantiateTo(asGen, rho, kindOf) match {
+              TypedExpr.instantiateTo(asGen, rho, kindOf, qev) match {
                 case AnnotatedLambda(a, e, t) => Some((Nil, a, e, t))
                 case Generic(
                       Quantification.ForAll(nel),
@@ -1769,7 +1773,7 @@ object TypedExprNormalization {
           te match {
             case Generic(_, in) =>
               containsRecursiveControl(in)
-            case Annotation(in, _) =>
+            case Annotation(in, _, _) =>
               containsRecursiveControl(in)
             case AnnotatedLambda(_, in, _) =>
               containsRecursiveControl(in)
@@ -1833,7 +1837,7 @@ object TypedExprNormalization {
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
         case App(_, _, _, _)                                        => false
-        case Annotation(t, _)         => isSimple(t, lambdaSimple)
+        case Annotation(t, _, _)      => isSimple(t, lambdaSimple)
         case Generic(_, t)            => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _) =>
           // maybe inline lambdas so we can possibly
@@ -1918,7 +1922,7 @@ object TypedExprNormalization {
         case Generic(_, in) =>
           // if we can evaluate, we are okay
           evaluate(in, scope)
-        case Annotation(te, _) =>
+        case Annotation(te, _, _) =>
           evaluate(te, scope)
         case m @ Match(_, _, _) =>
           maybeEvalMatch(m, scope).flatMap(evaluate(_, scope))

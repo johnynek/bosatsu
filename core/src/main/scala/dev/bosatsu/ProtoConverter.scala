@@ -501,6 +501,41 @@ object ProtoConverter {
         def typeOf(i: Int): Try[Type] =
           ds.tryType(i - 1, s"invalid type id in $ex")
 
+        def solvedFromProto(
+            solved: Seq[proto.QuantifierSolution]
+        ): Try[SortedMap[Type.Var.Bound, (Kind, Type)]] =
+          solved.toList
+            .traverse { qs =>
+              (str(qs.varName), kindFromProto(qs.kind), typeOf(qs.typeOf))
+                .mapN { (nm, k, tpe) =>
+                  (Type.Var.Bound(nm), (k, tpe))
+                }
+            }
+            .map(s => SortedMap.from(s))
+
+        def quantifierEvidenceFromProto(
+            qev: Option[proto.QuantifierEvidence]
+        ): Try[Option[TypedExpr.QuantifierEvidence]] =
+          qev match {
+            case None => Success(None)
+            case Some(proto.QuantifierEvidence(src, dst, fs, exs, _)) =>
+              (
+                typeOf(src),
+                typeOf(dst),
+                solvedFromProto(fs),
+                solvedFromProto(exs)
+              ).mapN { (sourceAtSolve, targetAtSolve, forallSolved, existsHidden) =>
+                Some(
+                  TypedExpr.QuantifierEvidence(
+                    sourceAtSolve = sourceAtSolve,
+                    targetAtSolve = targetAtSolve,
+                    forallSolved = forallSolved,
+                    existsHidden = existsHidden
+                  )
+                )
+              }
+          }
+
         ex.value match {
           case Value.Empty => Failure(new Exception("invalid empty TypedExpr"))
           case Value.GenericExpr(proto.GenericExpr(forAlls, exists, expr, _)) =>
@@ -524,9 +559,12 @@ object ProtoConverter {
                   case None    => e
                 }
               }
-          case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
-            (exprOf(expr), typeOf(tpe))
-              .mapN(TypedExpr.Annotation(_, _))
+          case Value.AnnotationExpr(ann) =>
+            (
+              exprOf(ann.expr),
+              typeOf(ann.typeOf),
+              quantifierEvidenceFromProto(ann.quantifierEvidence)
+            ).mapN(TypedExpr.Annotation(_, _, _))
           case Value.LambdaExpr(proto.LambdaExpr(varsName, varsTpe, expr, _)) =>
             (
               varsName.traverse(bindable(_)),
@@ -917,6 +955,34 @@ object ProtoConverter {
       proto.VarKind(id, Some(kindToProto(k)))
     }
 
+  private def quantifierSolutionToProto(
+      solved: (Type.Var.Bound, (Kind, Type))
+  ): Tab[proto.QuantifierSolution] = {
+    val (v, (k, tpe)) = solved
+    getId(v.name)
+      .product(typeToProto(tpe))
+      .map { case (varName, typeOf) =>
+        proto.QuantifierSolution(varName, Some(kindToProto(k)), typeOf)
+      }
+  }
+
+  private def quantifierEvidenceToProto(
+      qev: TypedExpr.QuantifierEvidence
+  ): Tab[proto.QuantifierEvidence] =
+    (
+      typeToProto(qev.sourceAtSolve),
+      typeToProto(qev.targetAtSolve),
+      qev.forallSolved.toList.traverse(quantifierSolutionToProto),
+      qev.existsHidden.toList.traverse(quantifierSolutionToProto)
+    ).mapN { (sourceType, targetType, forallSolved, existsHidden) =>
+      proto.QuantifierEvidence(
+        sourceType = sourceType,
+        targetType = targetType,
+        forallSolved = forallSolved,
+        existsHidden = existsHidden
+      )
+    }
+
   def typedExprToProto(te: TypedExpr[Any]): Tab[Int] =
     StateT
       .get[Try, SerState]
@@ -941,11 +1007,17 @@ object ProtoConverter {
                     proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex))
                   )
                 }
-            case a @ Annotation(term, tpe) =>
-              typedExprToProto(term)
-                .product(typeToProto(tpe))
-                .flatMap { case (term, tpe) =>
-                  val ex = proto.AnnotationExpr(term, tpe)
+            case a @ Annotation(term, tpe, qev) =>
+              (
+                typedExprToProto(term),
+                typeToProto(tpe),
+                qev.traverse(quantifierEvidenceToProto)
+              ).flatMapN { (term, tpe, qevp) =>
+                  val ex = proto.AnnotationExpr(
+                    expr = term,
+                    typeOf = tpe,
+                    quantifierEvidence = qevp
+                  )
                   writeExpr(
                     a,
                     proto.TypedExpr(proto.TypedExpr.Value.AnnotationExpr(ex))

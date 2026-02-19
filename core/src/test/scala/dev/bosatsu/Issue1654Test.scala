@@ -87,7 +87,7 @@ tests = TestSuite("all", [
 
       val rewrittenLets = pack.lets.map {
         case (`testsName`, rec, te) =>
-          (testsName, rec, TypedExpr.Annotation(te, quantifiedTestType))
+          (testsName, rec, TypedExpr.Annotation(te, quantifiedTestType, None))
         case other => other
       }
       val rewritten =

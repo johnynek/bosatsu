@@ -79,6 +79,48 @@ object TestUtils {
         case Type.TyConst(_) => t
       }
     te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
+
+    def checkExpr(expr: TypedExpr[A]): Unit =
+      expr match {
+        case TypedExpr.Generic(_, in) =>
+          checkExpr(in)
+        case TypedExpr.Annotation(term, tpe, qev) =>
+          qev.foreach { ev =>
+            Require(
+              ev.targetAtSolve.sameAs(tpe),
+              s"quantifier evidence invariant violated: targetAtSolve ${ev.targetAtSolve} " +
+                s"is not sameAs annotation type $tpe in ${te.repr}"
+            )
+          }
+          checkExpr(term)
+        case TypedExpr.AnnotatedLambda(_, body, _) =>
+          checkExpr(body)
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          ()
+        case TypedExpr.App(fn, args, _, _) =>
+          checkExpr(fn)
+          args.iterator.foreach(checkExpr)
+        case TypedExpr.Let(_, expr0, in, _, _) =>
+          checkExpr(expr0)
+          checkExpr(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.iterator.foreach { case (_, init) =>
+            checkExpr(init)
+          }
+          checkExpr(body)
+        case TypedExpr.Recur(args, _, _) =>
+          args.iterator.foreach(checkExpr)
+        case TypedExpr.Match(arg, branches, _) =>
+          checkExpr(arg)
+          branches.iterator.foreach { branch =>
+            branch.guard.foreach(checkExpr)
+            checkExpr(branch.expr)
+          }
+      }
+
+    checkExpr(te)
+
     val tp = te.getType
     lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
     Require(
