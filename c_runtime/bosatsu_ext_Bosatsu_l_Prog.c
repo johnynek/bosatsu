@@ -9,8 +9,6 @@
 # FlatMap(p, f) => (2, p, f)
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
-# ReadEnv() => (5, )
-# RemapEnv(p, f) => (6, p, f)
 # Effect(arg: BValue, f: BValue => BValue) => (7, arg, f)
 */
 
@@ -34,19 +32,9 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_flat__map(BValue p, BValue f)
   return alloc_enum2(2, p, f);
 }
 
-BValue ___bsts_g_Bosatsu_l_Prog_l_read__env()
-{
-  return alloc_enum0(5);
-}
-
 BValue ___bsts_g_Bosatsu_l_Prog_l_recover(BValue p, BValue f)
 {
   return alloc_enum2(3, p, f);
-}
-
-BValue ___bsts_g_Bosatsu_l_Prog_l_remap__env(BValue p, BValue f)
-{
-  return alloc_enum2(6, p, f);
 }
 
 BValue bsts_prog_step_fix_closure(BValue *slots, BValue a)
@@ -67,7 +55,7 @@ BValue bsts_prog_step_fix(BValue arg, BValue fixfn)
   return call_fn1(ap1, arg);
 }
 
-int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
+int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
 {
   BValue arg_list = alloc_enum0(0);
   for (int i = argc; i > 0; i--)
@@ -83,11 +71,9 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
   done = (0,)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
-  def restore(env, stack): return (3, env, stack)
   */
   BValue stack = alloc_enum0(0);
-  BValue env = arg_list;
-  BValue arg = prog;
+  BValue arg = call_fn1(main_fn, arg_list);
   while (1)
   {
     switch (get_variant(arg))
@@ -117,11 +103,6 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
           // recstep, but this isn't an error
           stack = get_enum_index(stack, 1);
           break;
-        case 3:
-          // restore
-          env = get_enum_index(stack, 0);
-          stack = get_enum_index(stack, 1);
-          break;
         }
       }
       break;
@@ -141,7 +122,7 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
           return 1;
         case 1:
           // fmstep, but we have an error
-          stack = get_enum_index(stack, 2);
+          stack = get_enum_index(stack, 1);
           break;
         case 2:
         {
@@ -152,11 +133,6 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
           search_stack = 0;
           break;
         }
-        case 3:
-          // restore
-          env = get_enum_index(stack, 0);
-          stack = get_enum_index(stack, 1);
-          break;
         }
       }
       break;
@@ -181,19 +157,6 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
       // apply_fix
       arg = bsts_prog_step_fix(get_enum_index(arg, 0), get_enum_index(arg, 1));
       break;
-    case 5:
-      // ReadEnv() => (5, )
-      arg = ___bsts_g_Bosatsu_l_Prog_l_pure(env);
-      break;
-    case 6:
-    {
-      // RemapEnv(p, f) => (6, p, f)
-      stack = alloc_enum2(3, env, stack);
-      BValue remap_fn = get_enum_index(arg, 1);
-      env = call_fn1(remap_fn, env);
-      arg = get_enum_index(arg, 0);
-      break;
-    }
     case 7:
     {
       // Effect(arg: BValue, f: BValue => BValue) => (7, arg, f)
@@ -202,6 +165,9 @@ int bsts_Bosatsu_Prog_run_main(BValue prog, int argc, char **argv)
       arg = call_fn1(efn, earg);
       break;
     }
+    default:
+      printf("invalid Prog tag");
+      return 1;
     }
   }
   return 0;

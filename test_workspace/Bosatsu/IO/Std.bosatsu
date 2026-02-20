@@ -5,27 +5,27 @@ from Bosatsu/IO/Error import IOError
 
 export println, print, print_err, print_errln, read_stdin_utf8_bytes
 
-external def println_impl[env](str: String) -> Prog[env, IOError, Unit]
-external def print_impl[env](str: String) -> Prog[env, IOError, Unit]
-external def print_err_impl[env](str: String) -> Prog[env, IOError, Unit]
-external def print_errln_impl[env](str: String) -> Prog[env, IOError, Unit]
+external println_impl: String -> Prog[IOError, Unit]
+external print_impl: String -> Prog[IOError, Unit]
+external print_err_impl: String -> Prog[IOError, Unit]
+external print_errln_impl: String -> Prog[IOError, Unit]
 
 # read about n bytes from the standard in (may read up to n + 4 bytes to
 # finish a UTF-8 codepoint). n=0 behaves like n=1 (there is no empty read);
 # empty string indicates EOF.
-external def read_stdin_utf8_bytes_impl[env](n: Int) -> Prog[env, IOError, String]
+external read_stdin_utf8_bytes_impl: Int -> Prog[IOError, String]
 
-def println[env](str: String) -> Prog[env, IOError, Unit]:
+def println(str: String) -> Prog[IOError, Unit]:
   println_impl(str)
 
-def print[env](str: String) -> Prog[env, IOError, Unit]:
+def print(str: String) -> Prog[IOError, Unit]:
   print_impl(str)
 
-def print_err[env](str: String) -> Prog[env, IOError, Unit]:
+def print_err(str: String) -> Prog[IOError, Unit]:
   print_err_impl(str)
 
-def print_errln[env](str: String) -> Prog[env, IOError, Unit]:
+def print_errln(str: String) -> Prog[IOError, Unit]:
   print_errln_impl(str)
 
-def read_stdin_utf8_bytes[env](n: Int) -> Prog[env, IOError, String]:
+def read_stdin_utf8_bytes(n: Int) -> Prog[IOError, String]:
   read_stdin_utf8_bytes_impl(n)

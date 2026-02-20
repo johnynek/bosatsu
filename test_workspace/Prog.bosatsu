@@ -1,36 +1,29 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, read_env, recover, remap_env, await,
-  recursive, map, map_err, with_env, Prog, Main())
+export (unit, pure, raise_error, recover, await, recursive, map, map_err, Prog, Main())
 
-external struct Prog[env: -*, err: +*, res: +*]
+external struct Prog[err: +*, res: +*]
 
-external def pure[env, err, res](a: res) -> Prog[env, err, res]
-external def raise_error[env, err, res](e: err) -> Prog[env, err, res]
-external read_env: forall a, err. Prog[a, err, a]
-external def flat_map(prog: Prog[env, err, res], fn: res -> Prog[env, err, res1]) -> Prog[env, err, res1]
+external def pure[err, res](a: res) -> Prog[err, res]
+external def raise_error[err, res](e: err) -> Prog[err, res]
+external def flat_map(prog: Prog[err, res], fn: res -> Prog[err, res1]) -> Prog[err, res1]
 
-def map(prog: Prog[env, err, res], fn: res -> res1) -> Prog[env, err, res1]:
+def map(prog: Prog[err, res], fn: res -> res1) -> Prog[err, res1]:
   prog.flat_map(res -> pure(fn(res)))
 
-external def recover(prog: Prog[env, err, res], fn: err -> Prog[env, err1, res]) -> Prog[env, err1, res]
+external def recover(prog: Prog[err, res], fn: err -> Prog[err1, res]) -> Prog[err1, res]
 
-def map_err(prog: Prog[env, err, res], fn: err -> err1) -> Prog[env, err1, res]:
+def map_err(prog: Prog[err, res], fn: err -> err1) -> Prog[err1, res]:
   prog.recover(res -> raise_error(fn(res)))
 
 external def apply_fix(a: a,
-  fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> Prog[env, err, b]
-
-external def remap_env(p: Prog[env, err, res], f: env1 -> env) -> Prog[env1, err, res]
-
-def with_env(p: Prog[e, err, res], env: e) -> Prog[env, err, res]:
-  remap_env(p, _ -> env)
+  fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
 
 def await(p, fn): p.flat_map(fn)
 
-def recursive(fn: (a -> Prog[env, err, b]) -> (a -> Prog[env, err, b])) -> (a -> Prog[env, err, b]):
+def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err, b]):
   a -> apply_fix(a, fn)
 
-unit: forall env, err. Prog[env, err, ()] = pure(())
+unit: forall err. Prog[err, ()] = pure(())
 
-struct Main(prog: forall err. Prog[List[String], err, Int])
+struct Main(run: List[String] -> forall err. Prog[err, Int])
