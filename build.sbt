@@ -77,6 +77,7 @@ lazy val docs = (project in file("docs"))
   .settings(
     name := "paradox docs",
     paradoxTheme := Some(builtinParadoxTheme("generic")),
+    Compile / paradoxNavigationDepth := 1,
     Compile / paradoxProperties ++= Map(
       "empty" -> "",
       "version" -> version.value
@@ -133,13 +134,23 @@ lazy val docs = (project in file("docs"))
             IO.relativize(paradoxGeneratedRoot, f).getOrElse(f.getPath)
           )
 
-      val linkLines = markdownFiles.map { file =>
+      val tocLinkLines = markdownFiles.map { file =>
         val relPath = IO
           .relativize(paradoxGeneratedRoot, file)
           .getOrElse(file.getName)
           .replace(java.io.File.separatorChar, '/')
         val title = relPath.stripSuffix(".md")
         s"* [$title]($relPath)"
+      }
+
+      val pageLinkLines = markdownFiles.map { file =>
+        val relPath = IO
+          .relativize(paradoxGeneratedRoot, file)
+          .getOrElse(file.getName)
+          .replace(java.io.File.separatorChar, '/')
+        val title = relPath.stripSuffix(".md")
+        val htmlPath = s"${title}.html"
+        s"* [$title]($htmlPath)"
       }
 
       val generatedIndex =
@@ -149,8 +160,12 @@ lazy val docs = (project in file("docs"))
            |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef`
            |
            |@@@ index
-           |${linkLines.mkString("\n")}
+           |${tocLinkLines.mkString("\n")}
            |@@@
+           |
+           |## Browse all generated docs
+           |
+           |${pageLinkLines.mkString("\n")}
            |""".stripMargin
 
       IO.write(paradoxGeneratedRoot / "index.md", generatedIndex)

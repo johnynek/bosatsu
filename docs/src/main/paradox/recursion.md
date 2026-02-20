@@ -19,11 +19,14 @@ plain language:
 1. Structural recursion (well-founded recursion):
    each recursive call is on a strictly smaller argument under a well-founded
    order (for example, list tail, tree child, predecessor `Nat`).
+
 1. Fuel pattern (step-indexed style):
    add an explicit counter/fuel argument, decrement it on each recursive call,
    and stop when fuel reaches zero.
+
 1. Accessibility predicate / domain predicate:
    a predicate describing inputs on which a recursive function terminates.
+
 1. Bove-Capretta method:
    define a recursive function by structural recursion on evidence that the
    input is in the domain predicate; then separately prove totality by proving
@@ -44,17 +47,22 @@ def len(lst: List[a]) -> Int:
 ```
 
 At a high level:
+
 1. `recur` matches a parameter name, or a tuple of parameter names, of the
    nearest enclosing `def`.
+
 1. With a single target (`recur x`), recursive calls are allowed only when the
    call argument for `x` is structurally smaller.
+
 1. With a tuple target (`recur (x0, x1, ..., xk)`), recursive calls must be
    lexicographically smaller in that target order.
+
    1. Compare call arguments at target positions left-to-right.
    1. The first position that differs must be structurally smaller.
    1. All earlier target positions must be equal.
    1. If a position becomes unrelated/non-decreasing before any smaller
       position appears, the call is rejected.
+
 1. These value-level restrictions are only part of totality. Bosatsu also
    restricts recursive types to covariant positions (issue #104:
    https://github.com/johnynek/bosatsu/issues/104), so type-level recursion is
@@ -82,6 +90,7 @@ def for_all(xs: List[a], fn: a -> Bool) -> Bool:
 ```
 
 Other examples:
+
 1. `exists`, `eq_List`, `zip`, `size1` in `List.bosatsu`.
 1. `equal_List` in `recordset.bosatsu`.
 
@@ -171,6 +180,7 @@ def fib(b: BinNat) -> BinNat:
 ```
 
 Other examples:
+
 1. `run` in `Eval.bosatsu` (evaluation budget).
 1. `recur_max` in `Parser.bosatsu` (bounded parse steps).
 1. `rand_Queue_depth` and `geometric` in `Queue.bosatsu` and `Rand.bosatsu`.
@@ -252,6 +262,7 @@ If direct string recursion is awkward, you can compute a string length, convert
 to `Nat`, and recurse on that `Nat` as the parse budget.
 
 Sketch:
+
 1. `len = to_Nat(length_String(input))`
 1. `loop(len, input)` with `recur len`
 1. consume string as you go, and always recurse with the predecessor fuel
@@ -270,8 +281,10 @@ def ack(n: Nat, m: Nat) -> Nat:
 ```
 
 Why this is accepted:
+
 1. `ack(n_prev, Succ(Zero))` is valid because the first target (`n`) decreases.
    The second target may increase/reset once an earlier target has decreased.
+
 1. `ack(n, m_prev)` is valid because `n` is equal and `m` decreases.
 1. `ack(n_prev, ack(n, m_prev))` is valid because:
    1. the outer call decreases `n`;
@@ -299,11 +312,14 @@ The design request for this page is tracked at
 https://github.com/johnynek/bosatsu/issues/410.
 
 How that maps to Bosatsu practice:
+
 1. Fuel pattern: add a decreasing counter, return `None` or fallback on
    exhaustion (`Eval.run`, `Parser.recur_max`, `BinNat.fib`).
+
 1. Domain/companion pattern (Bove-Capretta spirit): build a companion structure
    that justifies recursive calls (`List.sort` with `size`, `Rand.one_of` with
    list length).
+
 1. Bosatsu keeps these ideas at the program level (data and recursion shape)
    instead of requiring explicit accessibility/domain proof terms in source
    code.
@@ -313,24 +329,32 @@ How that maps to Bosatsu practice:
 1. If not, compute a bound and recurse on that fuel (`Nat` is usually easiest).
 1. If recursion uses multiple arguments, prefer `recur (a, b, ...)` and check
    lexicographic decrease in that order.
+
 1. For parsing-like string scans, either recurse on string tail directly or use
    length-derived fuel.
 
 ## References
 1. Ana Bove and Venanzio Capretta, "Modelling general recursion in type
    theory" (MSCS, 2005): https://people.cs.nott.ac.uk/pszvc/publications/General_Recursion_MSCS_2005.pdf
+
 1. Ana Bove, "General Recursion in Type Theory" (TYPES 2002):
    https://doi.org/10.1007/3-540-39185-1_3
+
 1. Venanzio Capretta, "General Recursion via Coinductive Types" (LMCS, 2005):
    https://lmcs.episciences.org/2265
+
 1. Conor McBride, "Turing-Completeness Totally Free" (2015):
    https://personal.cis.strath.ac.uk/conor.mcbride/TotallyFree.pdf
+
 1. Casper Bach Poulsen, Arjen Rouvoet, Andrew Tolmach, Robbert Krebbers, and
    Eelco Visser, "Intrinsically-Typed Definitional Interpreters for Imperative
    Languages" (POPL, 2018): https://casperbp.net/store/intrinsicallytyped.pdf
+
 1. Background on well-founded/domain-style termination arguments:
    https://en.wikipedia.org/wiki/Well-founded_relation
+
 1. Project issue for this docs task:
    https://github.com/johnynek/bosatsu/issues/410
+
 1. Related Bosatsu implementation discussion:
    https://github.com/johnynek/bosatsu/pull/406

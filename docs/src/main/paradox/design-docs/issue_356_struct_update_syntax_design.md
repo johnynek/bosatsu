@@ -49,6 +49,7 @@ Foo { ..oldFoo }            # parses, but rejected during SourceConverter (Ior.B
 ```
 
 Constraints:
+
 1. At most one `..base` per constructor.
 2. `..base` must appear last in the brace list.
 3. `..` in expressions must always be followed by a source expression (`..baseExpr`); bare `..` is invalid.
@@ -78,6 +79,7 @@ next = Foo { a: 1, ..oldFoo }
 ```
 
 Disambiguation rules:
+
 1. Pattern context uses `Pattern.matchParser`; there `...` keeps its existing meaning ("ignore remaining fields/args").
 2. Expression context uses `Declaration.recordConstructorP`; there we parse `.. <nonbinding-expr>` as update source.
 3. Token shape is distinct by design:
@@ -89,6 +91,7 @@ Disambiguation rules:
 `Foo { ..., ..base }` is valid only if constructor `Foo` belongs to a type with exactly one constructor.
 
 Implementation check in `SourceConverter`:
+
 1. Resolve `(package, constructor)` via existing `nameToCons`.
 2. Lookup `env.getConstructor(package, constructor)` to get `(definedType, constructorFn)`.
 3. Require `definedType.constructors.lengthCompare(1) == 0`.
@@ -115,6 +118,7 @@ match bar:
 So this is technically feasible.
 
 V1 intentionally does **not** support this form for multi-constructor enums for these reasons:
+
 1. Hidden control flow: syntax that looks like direct construction would actually be conditional matching.
 2. Silent no-op risk: when `bar` is another variant, the update does nothing and returns `bar`.
 3. Reduced readability/reviewability: readers must remember the implicit fallback path to understand behavior.
@@ -123,6 +127,7 @@ Because these are high-cost semantic surprises, V1 restricts update syntax to si
 
 ### Tuple interaction
 Tuples participate via their existing Predef constructor types:
+
 1. `TupleN` is defined as a single-constructor struct.
 2. Its fields are named `item1`, `item2`, ..., `itemN`.
 
@@ -133,6 +138,7 @@ updated = Tuple2 { item1: a, ..tup }
 ```
 
 There is no special tuple-literal update syntax in V1:
+
 1. `Tuple2 { item1: a, ..tup }` is supported (subject to the same semantic checks).
 2. Syntax like `(a, ..tup)` is out of scope for this issue.
 
@@ -152,6 +158,7 @@ match baseExpr:
 ```
 
 where for each parameter `pi`:
+
 1. If `pi` was explicitly set in the update:
    1. `pati = _`
    2. `argi = <explicit expression for pi>`
@@ -163,6 +170,7 @@ No fallback branch is emitted.
 
 ### Required non-trivial update rules
 To avoid no-op syntax and fully-explicit rebuilds, require both:
+
 1. At least one field sourced from `baseExpr` (at least one omitted parameter).
 2. At least one explicit field override.
 
@@ -178,6 +186,7 @@ Foo { ..oldFoo }         # no explicit field override
 
 ### Duplicate explicit field policy
 If the same field appears multiple times in update fields:
+
 1. Keep the last written value for lowering (deterministic "last write wins").
 2. Emit a SourceConverter error as `Ior.Both`.
 3. Continue conversion to accumulate other diagnostics.
@@ -208,6 +217,7 @@ case class RecordConstructor(
 ```
 
 and update all traversals/utilities:
+
 1. `toDoc` printer (`Foo { fields..., ..expr }` formatting).
 2. `freeVars` / `allNames`.
 3. `replaceRegions`.
@@ -215,12 +225,14 @@ and update all traversals/utilities:
 
 ### `RecordArg` parsing
 Keep existing field arg kinds:
+
 1. `Simple(field)`
 2. `Pair(field, expr)`
 
 and add parsing for optional trailing `..decl` in record-constructor braces.
 
 Parser note:
+
 1. The record-constructor parser should parse an optional trailing spread clause separately from field args (do not treat `..` as a `RecordArg`).
 2. Within expression parsing, attempt `...` first as an explicit rejection path (or forbid it directly) so users get a clear error message pointing to pattern-only syntax.
 3. Spread clause parsing should accept optional spaces after `..` before the source expression.
@@ -271,6 +283,7 @@ Add explicit errors for update syntax failures:
 with regions on the record constructor expression.
 
 Message guidance:
+
 1. For multi-constructor types, include constructor/type context and explain update syntax is limited to single-constructor types.
 2. For zero-use-of-base, explain all fields were explicitly set and suggest removing `..base` or omitting at least one field.
 3. For zero-explicit-fields, explain this is an identity update and suggest using the source expression directly.
