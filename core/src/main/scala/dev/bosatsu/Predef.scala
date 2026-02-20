@@ -317,12 +317,6 @@ object Predef {
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
-      .add(progPackageName, "read_env", FfiCall.Const(PredefImpl.prog_read_env))
-      .add(
-        progPackageName,
-        "remap_env",
-        FfiCall.Fn2(PredefImpl.prog_remap_env(_, _))
-      )
       .add(
         ioStdPackageName,
         "print_impl",
@@ -633,9 +627,7 @@ object PredefImpl {
   private val ProgTagFlatMap = 2
   private val ProgTagRecover = 3
   private val ProgTagApplyFix = 4
-  private val ProgTagReadEnv = 5
-  private val ProgTagRemapEnv = 6
-  private val ProgTagEffect = 7
+  private val ProgTagEffect = 5
 
   private val IOErrorTagInvalidArgument = 12
   private val IOErrorTagInvalidUtf8 = 13
@@ -645,8 +637,6 @@ object PredefImpl {
   final private case class ProgStackFlatMap(fn: Value, tail: ProgStack)
       extends ProgStack
   final private case class ProgStackRecover(fn: Value, tail: ProgStack)
-      extends ProgStack
-  final private case class ProgStackRestore(env: Value, tail: ProgStack)
       extends ProgStack
 
   final case class ProgRuntimeState(
@@ -711,11 +701,6 @@ object PredefImpl {
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
-
-  val prog_read_env: Value = SumValue(ProgTagReadEnv, UnitValue)
-
-  def prog_remap_env(prog: Value, fn: Value): Value =
-    SumValue(ProgTagRemapEnv, ProductValue.fromList(prog :: fn :: Nil))
 
   def prog_print(str: Value): Value =
     prog_effect(
@@ -890,9 +875,8 @@ object PredefImpl {
     callFn1(callFn1(fixfn, fixed), arg)
   }
 
-  private def run_prog(prog: Value, env0: Value): Either[Value, Value] = {
+  private def run_prog(prog: Value): Either[Value, Value] = {
     var stack: ProgStack = ProgStackDone
-    var env: Value = env0
     var arg: Value = prog
 
     while (true) {
@@ -915,9 +899,6 @@ object PredefImpl {
                 searching = false
               case ProgStackRecover(_, tail) =>
                 stack = tail
-              case ProgStackRestore(prevEnv, tail) =>
-                env = prevEnv
-                stack = tail
             }
           }
 
@@ -934,9 +915,6 @@ object PredefImpl {
                 stack = tail
                 arg = callFn1(fn, err)
                 searching = false
-              case ProgStackRestore(prevEnv, tail) =>
-                env = prevEnv
-                stack = tail
             }
           }
 
@@ -946,14 +924,6 @@ object PredefImpl {
 
         case ProgTagApplyFix =>
           arg = prog_step_fix(sum.value.get(0), sum.value.get(1))
-
-        case ProgTagReadEnv =>
-          arg = prog_pure(env)
-
-        case ProgTagRemapEnv =>
-          stack = ProgStackRestore(env, stack)
-          env = callFn1(sum.value.get(1), env)
-          arg = sum.value.get(0)
 
         case ProgTagEffect =>
           arg = callFn1(sum.value.get(1), sum.value.get(0))
@@ -969,7 +939,6 @@ object PredefImpl {
 
   def runProg(
       prog: Value,
-      env: Value,
       stdin: String = ""
   ): ProgRunResult = {
     val runtime =
@@ -981,23 +950,28 @@ object PredefImpl {
       )
 
     val result = currentProgRuntime.withValue(Some(runtime)) {
-      run_prog(prog, env)
+      run_prog(prog)
     }
     ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
   }
+
+  private def unwrapMain(value: Value): Value =
+    value match {
+      case p: ProductValue if p.values.nonEmpty => unwrapMain(p.get(0))
+      case other                                => other
+    }
 
   def runProgMain(
       main: Value,
       args: List[String],
       stdin: String = ""
   ): ProgRunResult = {
-    val prog =
-      main match {
-        case p: ProductValue if p.values.nonEmpty => p.get(0)
-        case other                                => other
-      }
-    val env = VList(args.map(Str(_)))
-    runProg(prog, env, stdin)
+    val argList = VList(args.map(Str(_)))
+    val prog = unwrapMain(main) match {
+      case fn: FnValue => callFn1(fn, argList)
+      case other       => other
+    }
+    runProg(prog, stdin)
   }
 
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {

@@ -4,8 +4,7 @@
 # FlatMap(p, f) => (2, p, f)
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
-# ReadEnv() => (5, )
-# RemapEnv(p, f) => (6, p, f)
+# Effect(f) => (5, f)
 
 import errno as _errno
 import os
@@ -17,10 +16,8 @@ def raise_error(e): return (1, e)
 def flat_map(p, f): return (2, p, f)
 def recover(p, f): return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
-read_env = (5,)
-def remap_env(p, f): return (6, p, f) 
 # this is a thunk we run
-def effect(f): return (7, f)
+def effect(f): return (5, f)
 
 _pure_unit = pure(())
 
@@ -280,15 +277,22 @@ def step_fix(arg, fixfn):
   fixed = lambda a: (4, a, fixfn)
   return fixfn(fixed)(arg)
 
-# p: Prog[List[String], String, Int]
-def run(arg):
+def _prog_from_main(main):
+  args = py_to_bosatsu_list(sys.argv[1:])
+  if callable(main):
+    return main(args)
+  if isinstance(main, tuple) and len(main) > 0 and callable(main[0]):
+    return main[0](args)
+  return main
+
+# main: List[String] -> Prog[String, Int]
+def run(main):
   # the stack ADT:
   done = (0,)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
-  def restore(env, stack): return (3, env, stack)
 
-  env = py_to_bosatsu_list(sys.argv[1:])
+  arg = _prog_from_main(main)
   stack = done
   while True:
     prog_tag = arg[0]
@@ -311,11 +315,7 @@ def run(arg):
       elif stack_tag == 2:
         # recstep, but this isn't an error
         stack = stack[2]
-      elif stack_tag == 3:
-        # restore
-        env = stack[1]
-        stack = stack[2]
-    elif prog_tag == 7:
+    elif prog_tag == 5:
       # effect
       arg = arg[1]()
     elif prog_tag == 1:
@@ -333,10 +333,6 @@ def run(arg):
         recfn = stack[1]
         arg = recfn(err)
         stack = stack[2]
-      elif stack_tag == 3:
-        # restore
-        env = stack[1]
-        stack = stack[2]
     elif prog_tag == 3:
       # recover
       stack = recstep(arg[2], stack)
@@ -344,11 +340,5 @@ def run(arg):
     elif prog_tag == 4:
       # apply_fix
       arg = step_fix(arg[1], arg[2])
-    elif prog_tag == 5:
-      # read_env
-      arg = pure(env)
-    elif prog_tag == 6:
-      # remap_env
-      stack = restore(env, stack)
-      env = arg[2](env)
-      arg = arg[1]
+    else:
+      raise Exception(f"invalid Prog tag: {prog_tag}")

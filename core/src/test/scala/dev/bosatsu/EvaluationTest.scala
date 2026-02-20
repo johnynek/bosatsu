@@ -3005,7 +3005,7 @@ tests = TestSuite("array eval", [
     val progRunPack = """
 package ProgRun
 
-from Bosatsu/Prog import Prog, Main, pure, read_env, recover, await, recursive
+from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
 from Bosatsu/IO/Std import println, print, print_err, print_errln, read_stdin_utf8_bytes
 from Bosatsu/IO/Error import IOError
 
@@ -3019,9 +3019,7 @@ sum_to = recursive(loop -> (
     go
   ))
 
-main = Main(
-  (
-    args <- read_env.await()
+main = Main(args -> (
     bad <- read_stdin_utf8_bytes(-1).recover(_ -> pure("<bad>")).await()
     stdin <- read_stdin_utf8_bytes(1).await()
     _ <- print("start|").await()
