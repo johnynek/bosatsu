@@ -564,6 +564,77 @@ class TypeTest extends munit.ScalaCheckSuite {
     prop
   }
 
+  test("pushDownForAllCovariant is conservative when it cannot push") {
+    val notForAll = Type.IntType
+    assertEquals(
+      Type.pushDownForAllCovariant(notForAll, _ => None),
+      notForAll
+    )
+
+    val a = Type.Var.Bound("a")
+    val unknownHead = Type.forAll(
+      List(a -> Kind.Type),
+      Type.apply1(Type.TyVar(a), Type.IntType)
+    )
+    assertEquals(
+      Type.pushDownForAllCovariant(unknownHead, _ => None),
+      unknownHead
+    )
+  }
+
+  test("pushDownForAllCovariant pushes only unique covariant binders") {
+    val a = Type.Var.Bound("a")
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    val forallFun = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(Type.IntType, Type.TyVar(a))
+    )
+    val pushed = Type.pushDownForAllCovariant(forallFun, kindOfFn)
+    val expected = Type.Fun(
+      Type.IntType,
+      Type.forAll(List(a -> Kind.Type), Type.TyVar(a))
+    )
+
+    assert(
+      pushed.sameAs(expected),
+      s"expected ${Type.typeParser.render(expected)}, got ${Type.typeParser.render(pushed)}"
+    )
+
+    val sharedVar = Type.forAll(
+      List(a -> Kind.Type),
+      Type.Fun(Type.TyVar(a), Type.TyVar(a))
+    )
+    val sharedRes = Type.pushDownForAllCovariant(sharedVar, kindOfFn)
+    assert(
+      sharedRes.sameAs(sharedVar),
+      s"expected no pushdown for shared variable: ${Type.typeParser.render(sharedRes)}"
+    )
+  }
+
+  test("pushDownForAllCovariant respects non-covariant arguments") {
+    val a = Type.Var.Bound("a")
+    val forallList = Type.forAll(
+      List(a -> Kind.Type),
+      Type.apply1(Type.ListType, Type.TyVar(a))
+    )
+    val invariantListKind: Type => Option[Kind] = {
+      case tc: Type.TyConst if tc == Type.ListType =>
+        Some(Kind(Kind.Type.in))
+      case _ => None
+    }
+
+    val pushed = Type.pushDownForAllCovariant(forallList, invariantListKind)
+    assert(
+      pushed.sameAs(forallList),
+      s"expected no pushdown for invariant arg: ${Type.typeParser.render(pushed)}"
+    )
+  }
+
   test("freeBoundVar doesn't change by applyAll") {
     forAll(NTypeGen.genDepth03, Gen.listOf(NTypeGen.genDepth03)) { (ts, args) =>
       val applied = Type.applyAll(ts, args)

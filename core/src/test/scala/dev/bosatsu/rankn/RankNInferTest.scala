@@ -2156,6 +2156,48 @@ x = 1
     testType(term, typeFrom("(forall a. List[a]) -> Int"))
   }
 
+  test("list patterns can consume monomorphic-list scrutinees") {
+    val listInt = Type.apply1(Type.ListType, Type.IntType)
+    val nonEmptyPat: Pattern[String, Type] =
+      Pattern.ListPat(
+        List(
+          Pattern.ListPart.Item(Pattern.WildCard),
+          Pattern.ListPart.WildList
+        )
+      )
+    val anyListPat: Pattern[String, Type] =
+      Pattern.ListPat(List(Pattern.ListPart.WildList))
+
+    val term =
+      alam(
+        "xs",
+        listInt,
+        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+      )
+
+    testType(term, typeFrom("List[Int] -> Int"))
+  }
+
+  test("list patterns can infer list shape from unknown scrutinees") {
+    val nonEmptyPat: Pattern[String, Type] =
+      Pattern.ListPat(
+        List(
+          Pattern.ListPart.Item(Pattern.WildCard),
+          Pattern.ListPart.WildList
+        )
+      )
+    val anyListPat: Pattern[String, Type] =
+      Pattern.ListPat(List(Pattern.ListPart.WildList))
+
+    val term =
+      lambda(
+        "xs",
+        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+      )
+
+    testType(term, typeFrom("forall a. List[a] -> Int"))
+  }
+
   test("pattern instantiation pushes forall through mixed-variance constructor args") {
     parseProgram(
       """#

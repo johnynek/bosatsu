@@ -497,12 +497,14 @@ object PackageMap {
             fte: TypeEnv[Kind.Arg],
             pack: Package.Inferred
         ): Package.Inferred = {
+          val loweredProgram =
+            TypedExprLoopRecurLowering.lowerProgram(pack.program._1)
           val normalized = pack.copy(program =
             (
               TypedExprNormalization.normalizeProgram(
                 pack.name,
                 fte,
-                pack.program._1
+                loweredProgram
               ),
               pack.program._2
             )
