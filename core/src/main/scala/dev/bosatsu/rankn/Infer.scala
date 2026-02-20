@@ -2903,70 +2903,17 @@ object Infer {
                   rest <- loop(rest, nextKind, left)
                 } yield rest.updated(v0, right)
             }
-          // for a covariant type, forall a. t[a] == t[forall a. a]
-          // so we push the forall down to avoid allocating a metaVar which can only
-          // hold a monotype
-          def pushDownCovariant(
-              revArgs: List[(Type.Var.Bound, Kind.Arg)],
-              revForAlls: List[(Type.Var.Bound, Kind)],
-              sigma: Type
-          ): Type =
-            (revArgs, sigma) match {
-              case (_, Type.ForAll(params, over)) =>
-                pushDownCovariant(
-                  revArgs,
-                  params.toList reverse_::: revForAlls,
-                  over
-                )
-              case (
-                    (_, Kind.Arg(Variance.Covariant, _)) :: rest,
-                    Type.TyApply(left, right)
-                  ) =>
-                // TODO Phantom variance has some special rules too. I guess we
-                // can push into phantom as well (though that's rare)
-                val leftFree = Type.freeBoundTyVars(left :: Nil).toSet
-                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
-
-                val (nextRFA, nextRight) =
-                  revForAlls.filter { case (leftA, _) =>
-                    rightFree(leftA) && !leftFree(leftA)
-                  } match {
-                    case Nil    => (revForAlls, right)
-                    case pushed =>
-                      // it is safe to push it down
-                      val pushedSet = pushed.iterator.map(_._1).toSet
-                      val revFA1 = revForAlls.toList.filterNot { case (b, _) =>
-                        pushedSet(b)
-                      }
-                      val pushedRight = Type.forAll(pushed.reverse, right)
-                      (revFA1, pushedRight)
-                  }
-                pushDownCovariant(rest, nextRFA, left) match {
-                  case Type.ForAll(bs, l) =>
-                    // TODO: I think we can push down existentials too
-                    Type.forAll(bs, Type.apply1(l, nextRight))
-                  case rho /*: Type.Rho */ =>
-                    Type.apply1(rho, nextRight)
-                }
-              case (_ :: rest, Type.TyApply(left, right)) =>
-                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
-                val (keptRight, lefts) =
-                  revForAlls.partition { case (leftA, _) => rightFree(leftA) }
-
-                Type.forAll(
-                  keptRight.reverse,
-                  pushDownCovariant(rest, lefts, left)
-                ) match {
-                  case Type.ForAll(bs, l) =>
-                    Type.forAll(bs, Type.apply1(l, right))
-                  case rho /*: Type.Rho */ =>
-                    Type.apply1(rho, right)
-                }
-              case _ =>
-                Type.forAll(revForAlls.reverse, sigma)
-            }
           val revArgs = args.reverse
-          val pushedTpe = pushDownCovariant(revArgs, Nil, sigma)
+          // for a covariant type, forall a. t[a] == t[forall a. a], so we push
+          // foralls down before allocating metas that can only hold monotypes.
+          val kindOfThisTpe = Kind(args.map(_._2)*)
+          val pushedTpe = Type.pushDownForAllCovariant(
+            sigma,
+            {
+              case tc: Type.TyConst if tc == thisTpe => Some(kindOfThisTpe)
+              case _                                  => None
+            }
+          )
           loop(revArgs, Kind.Type, pushedTpe)
             .flatMap { env =>
               consExists

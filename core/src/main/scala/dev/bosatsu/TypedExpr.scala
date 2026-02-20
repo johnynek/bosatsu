@@ -1962,56 +1962,6 @@ object TypedExpr {
   inline def widenCoerceRho(co: CoerceRho): Coerce = co
   inline def substCoerceRho[F[_]](fc: F[CoerceRho]): F[Coerce] = fc
 
-  private def pushDownCovariant(
-      tpe: Type,
-      kinds: Type => Option[Kind]
-  ): Type =
-    tpe match {
-      case Type.ForAll(targs, in) =>
-        val (cons, cargs) = Type.unapplyAll(in)
-        kinds(cons) match {
-          case None =>
-            // this can happen because the cons is some kind of type variable
-            // we have lost track of (we need to track the type variables in
-            // recursions)
-            tpe
-          case Some(kind) =>
-            val kindArgs = kind.toArgs
-            val kindArgsWithArgs =
-              kindArgs.zip(cargs).map { case (ka, a) => (Some(ka), a) } :::
-                cargs.drop(kindArgs.length).map((None, _))
-
-            val argsVectorIdx = kindArgsWithArgs.iterator.zipWithIndex.map {
-              case ((optKA, tpe), idx) =>
-                (Type.freeBoundTyVars(tpe :: Nil).toSet, optKA, tpe, idx)
-            }.toVector
-
-            // if an arg is covariant, it can pull all it's unique freeVars
-            def uniqueFreeVars(idx: Int): Set[Type.Var.Bound] = {
-              val (justIdx, optKA, _, _) = argsVectorIdx(idx)
-              if (optKA.exists(_.variance == Variance.co)) {
-                argsVectorIdx.iterator
-                  .filter(_._4 != idx)
-                  .foldLeft(justIdx) { case (acc, (s, _, _, _)) => acc -- s }
-              } else Set.empty
-            }
-            val withPulled = argsVectorIdx.map { case rec @ (_, _, _, idx) =>
-              (rec, uniqueFreeVars(idx))
-            }
-            val allPulled: Set[Type.Var.Bound] = withPulled.foldMap(_._2)
-            val nonpulled = targs.filterNot { case (v, _) => allPulled(v) }
-            val pulledArgs = withPulled.iterator.map {
-              case ((_, _, tpe, _), uniques) =>
-                val keep: Type.Var.Bound => Boolean = uniques
-                Type.forAll(targs.filter { case (t, _) => keep(t) }, tpe)
-            }.toList
-            Type.forAll(nonpulled, Type.applyAll(cons, pulledArgs))
-        }
-      case notForAll =>
-        // TODO: we can push down existentials too
-        notForAll
-    }
-
   // We know initTpe <:< instTpe, we may be able to simply
   // fix some of the universally quantified variables
   def instantiateTo[A](
@@ -2021,64 +1971,7 @@ object TypedExpr {
       evidenceHint: Option[QuantifierEvidence]
   ): TypedExpr[A] = {
     import Type._
-
-    def solve(
-        left: Type,
-        right: Type,
-        state: Map[Type.Var, Type],
-        solveSet: Set[Type.Var],
-        varKinds: Map[Type.Var, Kind]
-    ): Option[Map[Type.Var, Type]] =
-      (left, right) match {
-        case (TyVar(v), right) if solveSet(v) =>
-          state.get(v) match {
-            case None      => Some(state.updated(v, right))
-            case Some(tpe) =>
-              if (tpe.sameAs(right)) Some(state)
-              else None
-          }
-        case (t: (Type.ForAll | Type.Exists), r) =>
-          if (t.sameAs(r)) Some(state)
-          // this will mask solving for the inside values:
-          else {
-            val (fa, ex, in) = Type.splitQuantifiers(t)
-            val vlist = fa ::: ex
-
-            solve(
-              in,
-              r,
-              state,
-              solveSet -- vlist.iterator.map(_._1),
-              varKinds ++ vlist
-            )
-          }
-        case (_, t)
-            if Type.forallList(t).nonEmpty || Type.existList(t).nonEmpty =>
-          val kindsWithVars: Type => Option[Kind] = {
-            case v: Type.TyVar => varKinds.get(v.toVar)
-            case t             => kinds(t)
-          }
-          val t1 = pushDownCovariant(t, kindsWithVars)
-          if (t1 != t) solve(left, t1, state, solveSet, varKinds)
-          else {
-            // not clear what to do here,
-            // the examples that come up look like un-unified
-            // types, as if coerceRho is called before we have
-            // finished unifying
-            None
-          }
-        case (TyApply(on, arg), TyApply(on2, arg2)) =>
-          for {
-            s1 <- solve(on, on2, state, solveSet, varKinds)
-            s2 <- solve(arg, arg2, s1, solveSet, varKinds)
-          } yield s2
-        case (TyConst(_) | TyMeta(_) | TyVar(_), _) =>
-          if (left == right) {
-            // can't recurse further into left
-            Some(state)
-          } else None
-        case (TyApply(_, _), _) => None
-      }
+    val _ = kinds
 
     val avoidQuantifierNames: Set[Type.Var.Bound] =
       Type.freeBoundTyVars(instTpe :: Nil).toSet
@@ -2087,10 +1980,15 @@ object TypedExpr {
       if (quantSubst.isEmpty) gen
       else Generic(quant1, substituteTypeVar(gen.in, quantSubst))
 
-    val (freeList, exList, in) = Type.splitQuantifiers(gen1.quantType)
+    val (freeList, exList, fromBody) = Type.splitQuantifiers(gen1.quantType)
     val sourceAtSolve = gen1.getType
-    val freeKinds: Map[Type.Var, Kind] = freeList.toMap
-    val solveSet: Set[Var] = freeList.iterator.map(_._1).toSet
+    val fromVars: Map[Type.Var.Bound, Kind] = freeList.toMap
+    val solveSet: Set[Type.Var] =
+      fromVars.keySet.iterator.map(v => (v: Type.Var)).toSet
+    val rightEnv: Map[Type.Var.Bound, Kind] =
+      Type.freeBoundTyVars(instTpe :: Nil).iterator.map { b =>
+        b -> kinds(Type.TyVar(b)).getOrElse(Kind.Type)
+      }.toMap
 
     def resultFromSubs(
         subs: Map[Type.Var, Type],
@@ -2165,8 +2063,29 @@ object TypedExpr {
 
     val result =
       fromHint.orElse {
-        solve(in, instTpe, Map.empty, solveSet, freeKinds)
-          .map(resultFromSubs(_, None))
+        def solveWithInstantiate(target: Type): Option[Type.Instantiation] =
+          Type.instantiate(
+            vars = fromVars,
+            from = fromBody,
+            toVars = Map.empty,
+            to = target,
+            env = rightEnv
+          )
+
+        solveWithInstantiate(instTpe).map { instantiation =>
+          val solvedSubs: Map[Type.Var, Type] = instantiation.subs.iterator
+            .map { case (b, (_, t)) => (b: Type.Var) -> t }
+            .toMap
+          val subs: Map[Type.Var, Type] =
+            instantiation.frees.iterator.foldLeft(solvedSubs) {
+              case (acc, (from, (_, to))) =>
+                val fromV: Type.Var = from
+                if (!from.equals(to) && !acc.contains(fromV)) {
+                  acc.updated(fromV, Type.TyVar(to))
+                } else acc
+            }
+          resultFromSubs(subs, None)
+        }
       }
 
     result match {
