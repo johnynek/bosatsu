@@ -244,7 +244,6 @@ object TypedExprLoopRecurLowering {
       helperName: Bindable,
       helperFnType: Type,
       groupedArities: Vector[Int],
-      tailPos: Boolean,
       canRecur: Boolean
   ): Option[RewriteResult[A]] = {
 
@@ -323,7 +322,7 @@ object TypedExprLoopRecurLowering {
     ): Option[RewriteResult[A]] =
       groups
         .traverse { group =>
-          group.traverse(recur(_, tailPos = false, canRecurHere))
+          group.traverse(recur(_, canRecurHere))
         }
         .map { group1 =>
           val flatArgs = group1.tail.foldLeft(group1.head.map(_.expr)) {
@@ -343,19 +342,18 @@ object TypedExprLoopRecurLowering {
 
     def recur(
         expr: TypedExpr[A],
-        tailPos: Boolean,
         canRecur: Boolean
     ): Option[RewriteResult[A]] =
       expr match {
         case g @ Generic(q, in) =>
-          recur(in, tailPos, canRecur).map { in1 =>
+          recur(in, canRecur).map { in1 =>
             val expr1 =
               if (in1.changed) Generic(q, in1.expr)
               else g
             RewriteResult(expr1, in1.changed, in1.sawSelfRef)
           }
         case a @ Annotation(in, tpe, qev) =>
-          recur(in, tailPos, canRecur).map { in1 =>
+          recur(in, canRecur).map { in1 =>
             val expr1 =
               if (in1.changed) Annotation(in1.expr, tpe, qev)
               else a
@@ -363,16 +361,16 @@ object TypedExprLoopRecurLowering {
           }
         case lam @ AnnotatedLambda(args, body, tag) =>
           val canRecurBody = canRecur && !args.exists(_._1 == fnName)
-          recur(body, tailPos = false, canRecurBody).map { body1 =>
-            // Nested lambda bodies are always visited with tailPos = false, so
-            // successful traversal cannot rewrite them to helper calls.
-            assert(!body1.changed)
-            RewriteResult(lam, changed = false, body1.sawSelfRef)
+          recur(body, canRecurBody).map { body1 =>
+            val expr1 =
+              if (body1.changed) AnnotatedLambda(args, body1.expr, tag)
+              else lam
+            RewriteResult(expr1, changed = body1.changed, body1.sawSelfRef)
           }
         case app @ App(fn, args, tpe, tag) =>
           val (head, groups) = unapplyApp(app, Nil)
           if (isSelfHead(head, canRecur)) {
-            if (!validGroupedArity(groups) || !tailPos) None
+            if (!validGroupedArity(groups)) None
             else
               NonEmptyList
                 .fromList(groups)
@@ -382,18 +380,22 @@ object TypedExprLoopRecurLowering {
             // eta-expanded lambdas whose body calls `fnName`.
             etaExpandedGroups(head, groups, canRecur) match {
               case Some(expandedGroups) =>
-                if (!validGroupedArity(expandedGroups) || !tailPos) None
+                if (!validGroupedArity(expandedGroups)) None
                 else
                   NonEmptyList
                     .fromList(expandedGroups)
                     .flatMap(rewriteToHelper(_, tpe, tag, canRecur))
               case None =>
                 map2(
-                  recur(fn, tailPos = false, canRecur),
-                  args.traverse(recur(_, tailPos = false, canRecur))
+                  recur(fn, canRecur),
+                  args.traverse(recur(_, canRecur))
                 ) { case (fn1, args1) =>
+                  val changed = fn1.changed || args1.exists(_.changed)
                   val sawSelf = fn1.sawSelfRef || args1.exists(_.sawSelfRef)
-                  RewriteResult(app, changed = false, sawSelf)
+                  val expr1 =
+                    if (changed) App(fn1.expr, args1.map(_.expr), tpe, tag)
+                    else app
+                  RewriteResult(expr1, changed, sawSelf)
                 }
             }
           }
@@ -406,8 +408,8 @@ object TypedExprLoopRecurLowering {
               else (canRecur, false)
             } else (canRecur, canRecur)
           map2(
-            recur(ex, tailPos = false, exCanRecur),
-            recur(in, tailPos, inCanRecur)
+            recur(ex, exCanRecur),
+            recur(in, inCanRecur)
           ) { (ex1, in1) =>
             val changed = ex1.changed || in1.changed
             val sawSelf = ex1.sawSelfRef || in1.sawSelfRef
@@ -418,13 +420,13 @@ object TypedExprLoopRecurLowering {
           }
         case Match(arg, branches, tag) =>
           map2(
-            recur(arg, tailPos = false, canRecur),
+            recur(arg, canRecur),
             branches.traverse { branch =>
               val canRecurBranch =
                 canRecur && !branch.pattern.names.contains(fnName)
               map2(
-                branch.guard.traverse(recur(_, tailPos = false, canRecurBranch)),
-                recur(branch.expr, tailPos, canRecurBranch)
+                branch.guard.traverse(recur(_, canRecurBranch)),
+                recur(branch.expr, canRecurBranch)
               ) { (guard1, expr1) =>
                 val changed =
                   guard1.exists(_.changed) || expr1.changed
@@ -456,7 +458,7 @@ object TypedExprLoopRecurLowering {
           Some(RewriteResult(n, changed = false, sawSelfRef = false))
       }
 
-    recur(te, tailPos, canRecur)
+    recur(te, canRecur)
   }
 
   private def isMonomorphicRecursiveBinding[A](
@@ -524,10 +526,10 @@ object TypedExprLoopRecurLowering {
   // instantiated self-call head type.
   // Polymorphic recursion can be optimized later after type erasure:
   // https://github.com/johnynek/bosatsu/issues/1749
-  // This is the grouped-call optimization pass: rewrite multi-group tail
-  // recursive calls through a helper so downstream loop/recur lowering can
-  // avoid allocating closures on each iteration.
-  private def rewriteMultiGroupTailRec[A](
+  // Phase 1: grouped self-call flattening. This rewrites grouped recursive
+  // calls (including non-tail ones) through a helper to avoid closure
+  // allocations on recursive steps.
+  private def flattenGroupedSelfCalls[A](
       fnName: Bindable,
       expr: TypedExpr[A]
   ): Option[TypedExpr[A]] =
@@ -583,7 +585,6 @@ object TypedExprLoopRecurLowering {
               helperName,
               helperFnType,
               groupedArities,
-              tailPos = true,
               canRecur = true
             ).flatMap { rewritten =>
               if (!rewritten.sawSelfRef) None
@@ -686,10 +687,12 @@ object TypedExprLoopRecurLowering {
         val expr1 = lowerExpr(expr)
         val expr2 =
           if (rec.isRecursive && isMonomorphicRecursiveBinding(arg, expr1)) {
-            val expr1a = rewriteMultiGroupTailRec(arg, expr1).getOrElse(expr1)
+            // Phase 1: flatten grouped recursive self calls.
+            val expr1a = flattenGroupedSelfCalls(arg, expr1).getOrElse(expr1)
             val expr1b =
               if (expr1a eq expr1) expr1
               else lowerExpr(expr1a)
+            // Phase 2: lower tail recursion to Loop/Recur.
             lowerRecursiveBinding(arg, expr1b).getOrElse(expr1b)
           }
           else expr1
@@ -730,7 +733,7 @@ object TypedExprLoopRecurLowering {
       val lowered = lowerExpr(te)
       val loweredRec =
         if (rec.isRecursive && isMonomorphicRecursiveBinding(n, lowered)) {
-          val lowered1 = rewriteMultiGroupTailRec(n, lowered).getOrElse(lowered)
+          val lowered1 = flattenGroupedSelfCalls(n, lowered).getOrElse(lowered)
           val lowered2 =
             if (lowered1 eq lowered) lowered
             else lowerExpr(lowered1)

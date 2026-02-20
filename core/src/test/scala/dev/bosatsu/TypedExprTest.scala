@@ -1527,7 +1527,9 @@ main = match Some(1):
     assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
   }
 
-  test("loop/recur lowering skips grouped rewrite for non-tail grouped calls") {
+  test(
+    "loop/recur lowering rewrites non-tail grouped calls without loop/recur lowering"
+  ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
     val yName = Identifier.Name("y")
@@ -1557,7 +1559,10 @@ main = match Some(1):
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
 
-    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assertEquals(hasLoop(lowered), false, lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+    TestUtils.assertValid(lowered)
   }
 
   test("loop/recur lowering skips grouped rewrite for partial grouped calls") {
@@ -1926,7 +1931,7 @@ main = match Some(1):
   }
 
   test(
-    "loop/recur lowering skips eta-expanded grouped calls with non-local final args"
+    "loop/recur lowering still rewrites nested grouped calls when eta-expanded final args are non-local"
   ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
@@ -1970,11 +1975,13 @@ main = match Some(1):
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
 
-    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+    TestUtils.assertValid(lowered)
   }
 
   test(
-    "loop/recur lowering skips eta-expanded grouped calls when outer group arity mismatches"
+    "loop/recur lowering still rewrites nested grouped calls when eta-expanded outer arity mismatches"
   ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
@@ -2018,10 +2025,14 @@ main = match Some(1):
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
 
-    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+    TestUtils.assertValid(lowered)
   }
 
-  test("loop/recur lowering skips non-tail eta-expanded grouped calls") {
+  test(
+    "loop/recur lowering rewrites non-tail eta-expanded grouped calls without loop/recur lowering"
+  ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
     val yName = Identifier.Name("y")
@@ -2073,7 +2084,10 @@ main = match Some(1):
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
 
-    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assertEquals(hasLoop(lowered), false, lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+    TestUtils.assertValid(lowered)
   }
 
   test("loop/recur lowering handles grouped let branch shadowing combinations") {
