@@ -167,6 +167,12 @@ BValue bsts_string_to_integer(BValue v);
 // (&Integer, &Integer) -> (Integer, Integer)
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r);
+// Integer -> uint64, taking low 64 bits in two's complement for negatives.
+uint64_t bsts_integer_to_low_uint64(BValue bint);
+// Integer -> Float64 using round-to-nearest, ties-to-even semantics.
+double bsts_integer_to_double(BValue bint);
+// Integral finite Float64 -> Integer.
+BValue bsts_integral_float64_to_integer(double d);
 
 // Float64 values are stored by packing IEEE754 bits into the BValue word.
 BValue bsts_float64_from_bits(uint64_t bits);

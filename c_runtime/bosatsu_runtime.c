@@ -1058,6 +1058,170 @@ BValue bsts_integer_from_uint64(uint64_t result) {
   }
 }
 
+uint64_t bsts_integer_to_low_uint64(BValue bint) {
+  if (IS_SMALL(bint)) {
+    return (uint64_t)(int64_t)GET_SMALL_INT(bint);
+  }
+
+  BSTS_Integer* bi = GET_BIG_INT(bint);
+  uint64_t low = 0;
+  if (bi->len > 0) low |= (uint64_t)bi->words[0];
+  if (bi->len > 1) low |= ((uint64_t)bi->words[1]) << 32;
+  if (!bi->sign) return low;
+  return (~low) + UINT64_C(1);
+}
+
+static unsigned bsts_u32_msb_index(uint32_t word) {
+#if defined(__clang__) || defined(__GNUC__)
+  return (unsigned)(31U - (unsigned)__builtin_clz(word));
+#else
+  unsigned idx = 0;
+  while (word >>= 1) {
+    idx++;
+  }
+  return idx;
+#endif
+}
+
+static inline _Bool bsts_bigint_get_bit(const BSTS_Integer* bi, size_t bit_index) {
+  size_t word_index = bit_index >> 5;
+  if (word_index >= bi->len) return 0;
+  return (bi->words[word_index] >> (bit_index & 31U)) & 1U;
+}
+
+static _Bool bsts_bigint_any_lower_bits(const BSTS_Integer* bi, size_t bit_count) {
+  size_t full_words = bit_count >> 5;
+  size_t limit = (full_words < bi->len) ? full_words : bi->len;
+  for (size_t i = 0; i < limit; i++) {
+    if (bi->words[i] != 0) return 1;
+  }
+
+  size_t rem_bits = bit_count & 31U;
+  if (rem_bits == 0 || full_words >= bi->len) return 0;
+  uint32_t mask = (UINT32_C(1) << rem_bits) - 1U;
+  return (bi->words[full_words] & mask) != 0U;
+}
+
+double bsts_integer_to_double(BValue bint) {
+  if (IS_SMALL(bint)) {
+    return (double)GET_SMALL_INT(bint);
+  }
+
+  BSTS_Integer* bi = GET_BIG_INT(bint);
+  size_t len = bi->len;
+  while (len > 0 && bi->words[len - 1] == 0) {
+    len--;
+  }
+  if (len == 0) return 0.0;
+
+  uint32_t top_word = bi->words[len - 1];
+  size_t exponent = (len - 1) * 32U + (size_t)bsts_u32_msb_index(top_word);
+
+  if (exponent > 1023U) {
+    return bi->sign ? -INFINITY : INFINITY;
+  }
+
+  if (exponent <= 52U) {
+    uint64_t mag = 0;
+    for (size_t i = len; i > 0; i--) {
+      mag = (mag << 32) | (uint64_t)bi->words[i - 1];
+    }
+    double d = (double)mag;
+    return bi->sign ? -d : d;
+  }
+
+  size_t shift = exponent - 52U;
+  uint64_t top53 = 0;
+  for (size_t bit = 0; bit < 53U; bit++) {
+    if (bsts_bigint_get_bit(bi, shift + bit)) {
+      top53 |= UINT64_C(1) << bit;
+    }
+  }
+
+  if (shift > 0U) {
+    _Bool half = bsts_bigint_get_bit(bi, shift - 1U);
+    _Bool sticky = bsts_bigint_any_lower_bits(bi, shift - 1U);
+    if (half && (sticky || (top53 & UINT64_C(1)) != 0U)) {
+      top53 += UINT64_C(1);
+      if (top53 == (UINT64_C(1) << 53)) {
+        top53 >>= 1;
+        exponent += 1U;
+        if (exponent > 1023U) {
+          return bi->sign ? -INFINITY : INFINITY;
+        }
+      }
+    }
+  }
+
+  double d = ldexp((double)top53, (int)exponent - 52);
+  return bi->sign ? -d : d;
+}
+
+BValue bsts_integral_float64_to_integer(double d) {
+  if (d == 0.0) {
+    return bsts_integer_from_int(0);
+  }
+
+  union {
+    double d;
+    uint64_t bits;
+  } conv;
+  conv.d = d;
+
+  _Bool is_negative = (conv.bits >> 63) != 0;
+  uint64_t exponent_bits = (conv.bits >> 52) & UINT64_C(0x7ff);
+  uint64_t fraction = conv.bits & UINT64_C(0x000fffffffffffff);
+
+  // Caller passes finite integral values; keep behavior safe for unexpected input.
+  if (exponent_bits == UINT64_C(0x7ff)) {
+    return bsts_integer_from_int(0);
+  }
+  if (exponent_bits == 0) {
+    return bsts_integer_from_int(0);
+  }
+
+  int exponent = (int)exponent_bits - 1023;
+  if (exponent < 0) {
+    return bsts_integer_from_int(0);
+  }
+
+  uint64_t significand = (UINT64_C(1) << 52) | fraction;
+  if (exponent <= 52) {
+    uint64_t magnitude = significand >> (52 - exponent);
+    uint32_t words[2] = {
+      (uint32_t)(magnitude & UINT32_C(0xffffffff)),
+      (uint32_t)(magnitude >> 32)
+    };
+    size_t size = (words[1] == 0) ? 1 : 2;
+    return bsts_integer_from_words_copy(!is_negative, size, words);
+  }
+
+  size_t shift = (size_t)(exponent - 52);
+  size_t word_shift = shift >> 5;
+  unsigned bit_shift = (unsigned)(shift & 31U);
+
+  // Max finite exponent is 1023, so this comfortably fits.
+  uint32_t words[35] = {0};
+  uint32_t low = (uint32_t)(significand & UINT32_C(0xffffffff));
+  uint32_t high = (uint32_t)(significand >> 32);
+  size_t size = word_shift + 3;
+
+  if (bit_shift == 0U) {
+    words[word_shift] = low;
+    words[word_shift + 1] = high;
+  } else {
+    words[word_shift] = low << bit_shift;
+    words[word_shift + 1] =
+        (low >> (32U - bit_shift)) | (high << bit_shift);
+    words[word_shift + 2] = high >> (32U - bit_shift);
+  }
+
+  while (size > 1 && words[size - 1] == 0U) {
+    size--;
+  }
+  return bsts_integer_from_words_copy(!is_negative, size, words);
+}
+
 BValue bsts_maybe_small_int(_Bool pos, uint32_t small_result) {
   if (!pos) {
     if (small_result <= 0x80000000) {
