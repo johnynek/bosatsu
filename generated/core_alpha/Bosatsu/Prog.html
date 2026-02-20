@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ffa824cf*
+0.0.0+1-3b5a7ca7*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-ffa824cf*
+0.0.0+1-3b5a7ca7*
 </div>
 </div>
 <div class="nav-toc">
@@ -122,7 +122,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
   <li>Types: <a href="#type-main"><code>Main</code></a>, <a href="#type-prog"><code>Prog</code></a></li>
-  <li>Values: <a href="#value-await"><code>await</code></a>, <a href="#value-map"><code>map</code></a>, <a href="#value-map-err"><code>map_err</code></a>, <a href="#value-pure"><code>pure</code></a>, <a href="#value-raise-error"><code>raise_error</code></a>, <a href="#value-read-env"><code>read_env</code></a>, <a href="#value-recover"><code>recover</code></a>, <a href="#value-recursive"><code>recursive</code></a>, <a href="#value-remap-env"><code>remap_env</code></a>, <a href="#value-unit"><code>unit</code></a>, <a href="#value-with-env"><code>with_env</code></a></li>
+  <li>Values: <a href="#value-await"><code>await</code></a>, <a href="#value-ignore-err"><code>ignore_err</code></a>, <a href="#value-map"><code>map</code></a>, <a href="#value-map-err"><code>map_err</code></a>, <a href="#value-pure"><code>pure</code></a>, <a href="#value-raise-error"><code>raise_error</code></a>, <a href="#value-recover"><code>recover</code></a>, <a href="#value-recursive"><code>recursive</code></a>, <a href="#value-unit"><code>unit</code></a></li>
 </ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
 <a id="type-main"></a>
@@ -131,59 +131,48 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <h4><a href="#constructors" name="constructors" class="anchor"><span class="anchor-link"></span></a>Constructors</h4>
 <ul>
-  <li><code>Main(prog: forall err: *. Prog[List[String], err, Int])</code></li>
+  <li><code>Main(run: List[String] -&gt; forall err: *. Prog[err, Int])</code></li>
 </ul>
 <a id="type-prog"></a>
-<h3><a href="#prog-env-err-res-" name="prog-env-err-res-" class="anchor"><span class="anchor-link"></span></a><code>Prog[env, err, res]</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">type Prog[env: -*, err: +*, res: +*]
+<h3><a href="#prog-err-res-" name="prog-err-res-" class="anchor"><span class="anchor-link"></span></a><code>Prog[err, res]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Prog[err: +*, res: +*]
 </code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-await"></a>
 <h3><a href="#await" name="await" class="anchor"><span class="anchor-link"></span></a><code>await</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def await[a, b, c, d](p: Prog[a, b, c], fn: c -&gt; Prog[a, b, d]) -&gt; Prog[a, b, d]
+<pre class="prettyprint"><code class="language-bosatsu">def await[a, b, c](p: Prog[a, b], fn: b -&gt; Prog[a, c]) -&gt; Prog[a, c]
+</code></pre>
+<a id="value-ignore-err"></a>
+<h3><a href="#ignore-err" name="ignore-err" class="anchor"><span class="anchor-link"></span></a><code>ignore_err</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def ignore_err[a, b](prog: Prog[a, b], default: b) -&gt; forall a: *. Prog[a, b]
 </code></pre>
 <a id="value-map"></a>
 <h3><a href="#map" name="map" class="anchor"><span class="anchor-link"></span></a><code>map</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map[a, b, c, d](prog: Prog[a, b, c], fn: c -&gt; d) -&gt; Prog[a, b, d]
+<pre class="prettyprint"><code class="language-bosatsu">def map[a, b, c](prog: Prog[a, b], fn: b -&gt; c) -&gt; Prog[a, c]
 </code></pre>
 <a id="value-map-err"></a>
 <h3><a href="#map-err" name="map-err" class="anchor"><span class="anchor-link"></span></a><code>map_err</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map_err[a, b, c, d](prog: Prog[a, b, c], fn: b -&gt; d) -&gt; Prog[a, d, c]
+<pre class="prettyprint"><code class="language-bosatsu">def map_err[a, b, c](prog: Prog[a, b], fn: a -&gt; c) -&gt; Prog[c, b]
 </code></pre>
 <a id="value-pure"></a>
 <h3><a href="#pure" name="pure" class="anchor"><span class="anchor-link"></span></a><code>pure</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def pure[env, err, res](a: res) -&gt; Prog[env, err, res]
+<pre class="prettyprint"><code class="language-bosatsu">def pure[err, res](a: res) -&gt; Prog[err, res]
 </code></pre>
 <a id="value-raise-error"></a>
 <h3><a href="#raise-error" name="raise-error" class="anchor"><span class="anchor-link"></span></a><code>raise_error</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def raise_error[env, err, res](e: err) -&gt; Prog[env, err, res]
-</code></pre>
-<a id="value-read-env"></a>
-<h3><a href="#read-env" name="read-env" class="anchor"><span class="anchor-link"></span></a><code>read_env</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">read_env: forall a: *, err: *. Prog[a, err, a]
+<pre class="prettyprint"><code class="language-bosatsu">def raise_error[err, res](e: err) -&gt; Prog[err, res]
 </code></pre>
 <a id="value-recover"></a>
 <h3><a href="#recover" name="recover" class="anchor"><span class="anchor-link"></span></a><code>recover</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def recover[env,
-    err,
-    res,
-    err1](prog: Prog[env, err, res], fn: err -&gt; Prog[env, err1, res]) -&gt; Prog[env, err1, res]
+<pre class="prettyprint"><code class="language-bosatsu">def recover[err, res, err1](prog: Prog[err, res], fn: err -&gt; Prog[err1, res]) -&gt; Prog[err1, res]
 </code></pre>
 <a id="value-recursive"></a>
 <h3><a href="#recursive" name="recursive" class="anchor"><span class="anchor-link"></span></a><code>recursive</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def recursive[a, b, c, d](fn: (a -&gt; Prog[b, c, d]) -&gt; a -&gt; Prog[b, c, d]) -&gt; a -&gt; Prog[b, c, d]
-</code></pre>
-<a id="value-remap-env"></a>
-<h3><a href="#remap-env" name="remap-env" class="anchor"><span class="anchor-link"></span></a><code>remap_env</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def remap_env[env, err, res, env1](p: Prog[env, err, res], f: env1 -&gt; env) -&gt; Prog[env1, err, res]
+<pre class="prettyprint"><code class="language-bosatsu">def recursive[a, b, c](fn: (a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]
 </code></pre>
 <a id="value-unit"></a>
 <h3><a href="#unit" name="unit" class="anchor"><span class="anchor-link"></span></a><code>unit</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">unit: forall a: *, b: *. Prog[a, b, ()]
-</code></pre>
-<a id="value-with-env"></a>
-<h3><a href="#with-env" name="with-env" class="anchor"><span class="anchor-link"></span></a><code>with_env</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def with_env[a, b, c, d](p: Prog[a, b, c], env: a) -&gt; Prog[d, b, c]
+<pre class="prettyprint"><code class="language-bosatsu">unit: forall a: *. Prog[a, ()]
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Prog.md">here</a>.
@@ -266,7 +255,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-ffa824cf-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3b5a7ca7-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
