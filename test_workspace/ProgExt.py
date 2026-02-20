@@ -4,7 +4,7 @@
 # FlatMap(p, f) => (2, p, f)
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
-# Effect(f) => (7, f)
+# Effect(f) => (5, f)
 
 import errno as _errno
 import os
@@ -17,7 +17,7 @@ def flat_map(p, f): return (2, p, f)
 def recover(p, f): return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
-def effect(f): return (7, f)
+def effect(f): return (5, f)
 
 _pure_unit = pure(())
 
@@ -315,7 +315,7 @@ def run(main):
       elif stack_tag == 2:
         # recstep, but this isn't an error
         stack = stack[2]
-    elif prog_tag == 7:
+    elif prog_tag == 5:
       # effect
       arg = arg[1]()
     elif prog_tag == 1:

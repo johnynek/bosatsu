@@ -625,7 +625,7 @@ object PredefImpl {
   private val ProgTagFlatMap = 2
   private val ProgTagRecover = 3
   private val ProgTagApplyFix = 4
-  private val ProgTagEffect = 7
+  private val ProgTagEffect = 5
 
   private val IOErrorTagInvalidArgument = 12
   private val IOErrorTagInvalidUtf8 = 13

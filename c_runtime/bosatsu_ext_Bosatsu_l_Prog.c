@@ -9,7 +9,7 @@
 # FlatMap(p, f) => (2, p, f)
 # Recover(p, f) => (3, p, f)
 # ApplyFix(a, f) => (4, a, f)
-# Effect(arg: BValue, f: BValue => BValue) => (7, arg, f)
+# Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
 */
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
@@ -157,16 +157,16 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
       // apply_fix
       arg = bsts_prog_step_fix(get_enum_index(arg, 0), get_enum_index(arg, 1));
       break;
-    case 7:
+    case 5:
     {
-      // Effect(arg: BValue, f: BValue => BValue) => (7, arg, f)
+      // Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
       BValue earg = get_enum_index(arg, 0);
       BValue efn = get_enum_index(arg, 1);
       arg = call_fn1(efn, earg);
       break;
     }
     default:
-      printf("invalid Prog tag");
+      fprintf(stderr, "bosatsu Prog execution fault: invalid Prog tag: %u\n", get_variant(arg));
       return 1;
     }
   }
