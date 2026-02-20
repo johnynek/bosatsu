@@ -364,6 +364,9 @@ object Type {
     *   - if the type is not a `ForAll`, it is unchanged,
     *   - if kind/variance information for the applied head is unavailable, it
     *     is unchanged.
+    *
+    * Only the root head kind is required (`kindOf(cons)` after `unapplyAll`);
+    * argument variance comes from that kind.
     */
   def pushDownForAllCovariant(
       tpe: Type,
@@ -401,9 +404,7 @@ object Type {
               }
 
             val allPulled: Set[Type.Var.Bound] =
-              withPulled.iterator.foldLeft(Set.empty[Type.Var.Bound]) {
-                case (acc, (_, pulled)) => acc ++ pulled
-              }
+              withPulled.iterator.flatMap(_._2.iterator).toSet
 
             val nonPulled = targs.filterNot { case (v, _) => allPulled(v) }
             val pushedArgs = withPulled.iterator.map {

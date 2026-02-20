@@ -1970,6 +1970,8 @@ x = (
           te1.getType.sameAs(te2.getType),
           s"type mismatch:\n${te1.getType}\n\n!=\n\n${te2.getType}"
         )
+        // `void` still includes bindable names, so alpha-equivalent locals
+        // (`z` vs `z1`) remain unequal. Normalize that one binder spelling.
         assertEquals(
           te1.reprString.replace("z1", "z"),
           te2.reprString.replace("z1", "z"),

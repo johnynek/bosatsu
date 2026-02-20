@@ -1971,7 +1971,6 @@ object TypedExpr {
       evidenceHint: Option[QuantifierEvidence]
   ): TypedExpr[A] = {
     import Type._
-    val _ = kinds
 
     val avoidQuantifierNames: Set[Type.Var.Bound] =
       Type.freeBoundTyVars(instTpe :: Nil).toSet
@@ -1985,6 +1984,8 @@ object TypedExpr {
     val fromVars: Map[Type.Var.Bound, Kind] = freeList.toMap
     val solveSet: Set[Type.Var] =
       fromVars.keySet.iterator.map(v => (v: Type.Var)).toSet
+    // `Type.instantiate` needs kinds for right-side bound vars already in
+    // scope. We only need free bound vars of `instTpe` here.
     val rightEnv: Map[Type.Var.Bound, Kind] =
       Type.freeBoundTyVars(instTpe :: Nil).iterator.map { b =>
         b -> kinds(Type.TyVar(b)).getOrElse(Kind.Type)
@@ -2063,16 +2064,16 @@ object TypedExpr {
 
     val result =
       fromHint.orElse {
-        def solveWithInstantiate(target: Type): Option[Type.Instantiation] =
+        val solveWithInst: Option[Type.Instantiation] =
           Type.instantiate(
             vars = fromVars,
             from = fromBody,
             toVars = Map.empty,
-            to = target,
+            to = instTpe,
             env = rightEnv
           )
 
-        solveWithInstantiate(instTpe).map { instantiation =>
+        solveWithInst.map { instantiation =>
           val solvedSubs: Map[Type.Var, Type] = instantiation.subs.iterator
             .map { case (b, (_, t)) => (b: Type.Var) -> t }
             .toMap
@@ -2084,6 +2085,9 @@ object TypedExpr {
                   acc.updated(fromV, Type.TyVar(to))
                 } else acc
             }
+          // We only preserve evidence when it was explicitly provided and
+          // matched (`fromHint`). `Type.instantiate` does not return the same
+          // QuantifierEvidence witness shape to safely reconstruct here.
           resultFromSubs(subs, None)
         }
       }

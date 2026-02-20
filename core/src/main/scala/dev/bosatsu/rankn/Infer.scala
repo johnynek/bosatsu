@@ -2906,6 +2906,9 @@ object Infer {
           val revArgs = args.reverse
           // for a covariant type, forall a. t[a] == t[forall a. a], so we push
           // foralls down before allocating metas that can only hold monotypes.
+          // `pushDownForAllCovariant` only needs the kind of the root head it
+          // rewrites. Here we only rewrite when sigma is headed by `thisTpe`;
+          // all other heads are left unchanged.
           val kindOfThisTpe = Kind(args.map(_._2)*)
           val pushedTpe = Type.pushDownForAllCovariant(
             sigma,
