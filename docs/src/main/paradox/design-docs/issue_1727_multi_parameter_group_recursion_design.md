@@ -8,7 +8,7 @@ Issue: <https://github.com/johnynek/bosatsu/issues/1727>
 
 Issue [#1727](https://github.com/johnynek/bosatsu/issues/1727) reports that recursive defs with multiple parameter groups often miss tail-rec loop lowering.
 
-Example:
+Current source shape:
 
 ```bosatsu
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
@@ -18,73 +18,109 @@ def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
     case _: False
 ```
 
-This should compile into a loop-shaped core, but currently the recursive call is seen as nested application (`eq_List(fn)` then `(at, bt)`) and does not match existing direct self-call rewrite logic.
+Target efficiency should match the explicit helper form:
+
+```bosatsu
+def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
+  def loop(fn: (a, a) -> Bool, a: List[a], b: List[a]) -> Bool:
+    recur (a, b):
+      case ([ah, *at], [bh, *bt]) if fn(ah, bh): loop(fn, at, bt)
+      case ([], []): True
+      case _: False
+
+  loop(fn, a, b)
+```
 
 ## Current behavior summary
 
 1. `SourceConverter.toLambdaExpr` lowers parameter groups into nested lambdas.
-2. The recursive call in the innermost body is represented as a chained `App(App(Local(self), prefixArgs), recurArgs)`.
-3. `SelfCallKind` and `rewriteTailCalls` only recognize direct `App(Local(self), args)` calls.
-4. `rewriteTailRecToLoop` therefore misses this shape and no `Loop/Recur` is introduced for issue-1727 patterns.
+2. Recursive calls become chained application nodes like `App(App(Local(self), g1Args), g2Args)`.
+3. Existing tail-call loop lowering is oriented around direct self-call shapes and may miss these chained grouped calls.
 
 ## Where this rewrite should live
 
-This rewrite should be implemented in `TypedExprNormalization`, specifically in the recursive `Let` normalization path in `normalizeLetOpt`.
+This rewrite should live in `TypedExprNormalization` as a pre-pass immediately before tail-call-to-loop lowering.
 
-Rationale:
-
-1. At this stage we have typed `TypedExpr`, so call-shape checks are reliable and alpha-safe rewrites are already centralized here.
-2. It composes naturally with existing normalizer passes (`rewriteTailRecToLoop` and `rewriteNonEscapingClosureBinding`).
-3. It avoids backend-specific duplication in C/Python/JS codegen.
-4. It keeps `SourceConverter` simple and syntax-oriented rather than optimization-oriented.
+1. It belongs in normalization (not parser/source conversion), because normalization already sees typed `TypedExpr` shapes and performs alpha-safe rewrites.
+2. It should run right before whichever hook currently lowers self tail calls to `Loop`/`Recur`.
+3. If loop-lowering internals moved (for example, after PR #1737), keep this as a normalization-stage pre-pass and wire it at the new call site.
 
 ## Proposed rewrite
 
 ### High-level transformation
 
-For recursive definitions with two or more lambda groups, rewrite innermost tail self-calls into a fresh local recursive helper whose parameter list includes outer-group arguments plus the innermost group arguments.
+For a recursive binding with grouped lambdas, create an internal helper that takes all group parameters in one argument list, rewrite recursive self-calls to that helper, then run existing loop lowering.
 
-Conceptual source-level form:
-
-```bosatsu
-def f(g1)(x1, x2):
-  ... f(g1)(y1, y2) ...
-```
-
-becomes:
+General shape:
 
 ```bosatsu
-def f(g1)(x1, x2):
-  def f_loop(g1_loop, x1_loop, x2_loop):
-    ... f_loop(g1_loop, y1, y2) ...
-  f_loop(g1, x1, x2)
+def f(g1)(g2)...(gn):
+  body with recursive calls f(a1)(a2)...(an)
 ```
 
-This preserves partial-application semantics for `f(g1)` while exposing a single-group recursive function that existing loop lowering can optimize.
+becomes (conceptually):
 
-### Detection constraints (conservative)
+```bosatsu
+def f(g1)(g2)...(gn):
+  def loop(g1, g2, ..., gn):
+    body with recursive calls loop(a1, a2, ..., an)
+  loop(g1, g2, ..., gn)
+```
 
-Apply rewrite only when all of the following hold:
+This handles any number of parameter groups (`n >= 2`) in one pass.
 
-1. Recursive RHS is nested lambdas with at least two groups.
-2. Every self-reference in the innermost group body is a full self-application in tail position.
-3. Prefix groups in recursive calls are invariant passthroughs of the current outer lambda binders.
-4. No escaping self-reference appears (for example, storing `self` in data or returning it).
+### Explicit detection in `TypedExpr`
 
-If any condition fails, do not rewrite.
+Detection is AST-driven and type-checked, not string-based.
 
-### Integration point
+1. Identify candidate recursive binding `Let(fnName, rhs, in, rec = Recursive, tag)`.
+2. Collect lambda groups from `rhs` by unwrapping `Generic`/`Annotation`, walking nested `AnnotatedLambda`, and allowing non-recursive `Let` wrappers between groups when they do not shadow already-collected group names. Abort if fewer than two groups are recovered.
+3. Traverse only the terminal group body and classify each occurrence of `fnName`: flatten chained `App` into `(head, argGroups)`; require `head` is `Local(fnName, _, _)` (after stripping wrappers); require group-count and per-group arity match; require full application to result type (no partial `f(g1)` values); require tail position eligibility.
+4. If any recursive occurrence fails these checks, abort rewrite for this binding.
 
-In `TypedExprNormalization.normalizeLetOpt`, recursive `Let` case:
+This is robust to shapes like:
 
-1. normalize RHS (`ex1`) as today.
-2. run new helper, for example `rewriteMultiGroupTailRec(arg, ex1, tag)`.
-3. run existing `rewriteTailRecToLoop` on the rewritten result.
-4. keep existing recursive/non-recursive recomputation and closure-rewrite logic unchanged.
+```bosatsu
+foo = fn -> (
+  x = 2
+  (x, y) -> (
+    ... foo(fn)(x, y)
+  )
+)
+```
 
-This keeps the new rewrite as a shape-exposing pre-pass, while existing passes remain responsible for loop materialization and capture tuning.
+because the detection allows a non-recursive `Let` wrapper between groups and still requires fully-applied grouped self-calls at the terminal body.
 
-## Sketch of helper API
+### Prefix arguments may change
+
+We do not require prefix groups to be invariant. Recursive calls like `f(nextFn)(x1, x2)` are valid rewrite targets.
+
+Reason:
+
+1. The helper threads all group arguments as explicit loop state.
+2. Recursive updates to any group become ordinary `Recur` state updates.
+3. This is semantically direct and avoids imposing an unnecessary restriction.
+
+### Why not recurse through an outer-function reference?
+
+Keeping recursion as "call outer function from inside helper" is possible but weaker:
+
+1. It reintroduces higher-order application in the recursive path.
+2. It can block existing direct `Recur` lowering and may keep extra closure/application overhead.
+3. Rewriting directly to helper self-calls aligns with the current loop-lowering pipeline.
+
+## Integration point
+
+In normalization, at the recursive-let rewrite site:
+
+1. normalize RHS first.
+2. run `rewriteMultiGroupTailRec`.
+3. then run existing tail-call loop lowering.
+4. then run existing closure/capture rewrites.
+
+This preserves current pass ordering while exposing the loopable shape earlier.
+
+## Sketch of helper API and invariants
 
 ```scala
 private def rewriteMultiGroupTailRec[A](
@@ -94,34 +130,32 @@ private def rewriteMultiGroupTailRec[A](
 ): Option[TypedExpr[A]]
 ```
 
-Supporting helpers:
+Invariants:
 
-1. lambda-group collection/unwrapping helper.
-2. self-call decomposition helper for chained `App`.
-3. tail-position rewriter that substitutes matched self-calls with local helper calls.
-4. fresh-name allocator using existing `Expr.nameIterator` plus `TypedExpr.allVarsSet`.
+1. `None` means "no safe rewrite".
+2. `Some(expr1)` means type-preserving rewrite: `expr1.getType.sameAs(expr.getType)`.
+3. `Some(expr1)` preserves semantics up to alpha-renaming and existing normalization equalities.
 
 ## Correctness notes
 
-1. External function type and calling convention are unchanged.
-2. The rewrite only changes internal recursion target and argument threading.
-3. Guard/match ordering and evaluation order are preserved.
-4. Rewrite is alpha-safe via existing unshadow/substitution utilities and fresh-name discipline.
+1. External function signature and partial-application behavior are unchanged.
+2. Only internal recursive target shape changes.
+3. Match/guard ordering and evaluation order are preserved.
+4. Alpha-safety is maintained via existing fresh-name/unshadow discipline.
 
 ## Tests to add
 
 In `core/src/test/scala/dev/bosatsu/TypedExprTest.scala`:
 
-1. Issue-1727 regression: normalized `eq_List` contains loop form for inner recursion.
-2. Partial-application regression: `eq_List(eq_Int)` behavior unchanged.
-3. Negative case: transformed prefix argument (not passthrough) does not rewrite.
-4. Negative case: escaping self-reference does not rewrite.
-5. Idempotence: second normalization pass makes no further structural change.
+1. Issue-1727 regression (`eq_List`) rewrites to helper-recursive shape and then loop form.
+2. Partial-application behavior remains unchanged (`eq_List(eq_Int)` style).
+3. Changed-prefix recursion rewrites correctly (`f(g1)(x)` recursing as `f(g1Next)(xNext)`).
+4. `Let`-between-groups shape is supported.
+5. Escaping self-reference still blocks rewrite.
+6. Idempotence: second normalization pass is stable.
 
 ## Non-goals
 
-1. No syntax change for defs or recur.
-2. No general uncurrying of all multi-group functions.
-3. No backend-specific rewrite in codegen.
-4. No changes to recursion validity rules in `DefRecursionCheck`.
-
+1. No syntax changes.
+2. No backend-specific rewrite.
+3. No recursion-rule changes in `DefRecursionCheck`.
