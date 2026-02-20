@@ -1095,7 +1095,9 @@ object PythonGen {
           offset: Expression,
           len: Expression
       ): Expression =
-        Code.MakeTuple(data :: offset :: len :: Nil)
+        Code.MakeTuple(
+          Code.Ident("tuple")(data) :: offset :: len :: Nil
+        )
       private val emptyArray: Expression =
         makeArray(Code.MakeList(Nil), Code.Const.Zero, Code.Const.Zero)
 
@@ -1918,10 +1920,12 @@ object PythonGen {
                           data := arrayData(ary),
                           offset := arrayOffset(ary),
                           size := arrayLen(ary),
-                          copied := Code.SelectRange(
-                            data,
-                            Some(offset),
-                            Some(offset.evalPlus(size))
+                          copied := Code.Ident("list")(
+                            Code.SelectRange(
+                              data,
+                              Some(offset),
+                              Some(offset.evalPlus(size))
+                            )
                           ),
                           selectItem(copied, idx) := value
                         )
@@ -1965,10 +1969,12 @@ object PythonGen {
                             data := arrayData(ary),
                             offset := arrayOffset(ary),
                             size := arrayLen(ary),
-                            items := Code.SelectRange(
-                              data,
-                              Some(offset),
-                              Some(offset.evalPlus(size))
+                            items := Code.Ident("list")(
+                              Code.SelectRange(
+                                data,
+                                Some(offset),
+                                Some(offset.evalPlus(size))
+                              )
                             ),
                             i := Code.Const.One,
                             Code.While(
