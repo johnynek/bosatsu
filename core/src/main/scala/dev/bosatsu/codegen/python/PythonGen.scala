@@ -757,6 +757,11 @@ object PythonGen {
       )
       private val unsigned64ModExpr =
         Code.PyInt(java.math.BigInteger.ONE.shiftLeft(64))
+      private val maxFiniteFloatIntExpr = Code.PyInt(
+        new java.math.BigInteger(
+          "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"
+        )
+      )
 
       private def signedToUnsignedBits64(
           bits: Code.Expression
@@ -958,7 +963,6 @@ object PythonGen {
                   .simplify
               )
               .simplify
-
             Code.Ternary(noneValue, nonFinite, someValue(roundedInt)).simplify
           }
         }
@@ -966,9 +970,16 @@ object PythonGen {
 
       private val intToFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast(input.head) { arg =>
-          // float(i) raises OverflowError for huge ints; float(str(i)) yields
-          // the nearest representable float64 (or +/-inf when out of range).
-          Code.Ident("float")(Code.Ident("str")(arg))
+          val absArg = Code.Ident("abs")(arg)
+          val overflow = absArg :> maxFiniteFloatIntExpr
+          val infBySign = Code
+            .Ternary(
+              Code.Ident("float")(Code.PyString("-inf")),
+              arg :< Code.Const.Zero,
+              Code.Ident("float")(Code.PyString("inf"))
+            )
+            .simplify
+          Code.Ternary(infBySign, overflow, Code.Ident("float")(arg)).simplify
         }
       }
 
