@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in Matchless · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_1732_match_site_struct_scrutinee_elision_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d0eb8b7a*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-d0eb8b7a*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in <code>Matchless</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#issue-1732-match-site-struct-tuple-scrutinee-elision-in-matchless" name="issue-1732-match-site-struct-tuple-scrutinee-elision-in-matchless" class="anchor"><span class="anchor-link"></span></a>Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in <code>Matchless</code></h1>
+<p>Status: proposed<br/>Date: 2026-02-20<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/1732">https://github.com/johnynek/bosatsu/issues/1732</a></p>
+<h2><a href="#problem" name="problem" class="anchor"><span class="anchor-link"></span></a>Problem</h2>
+<p>Issue <a href="https://github.com/johnynek/bosatsu/issues/1732">#1732</a> describes a common shape:</p>
+<pre class="prettyprint"><code class="language-bosatsu">match (f, g):
+  case (..., ...):
+</code></pre>
+<p>Today this lowers to <code>App(MakeStruct(2), ...)</code> and later pattern matching reads with <code>GetStructElement(...)</code>, so we allocate a tuple even when matching can read fields directly.</p>
+<h2><a href="#decision-summary" name="decision-summary" class="anchor"><span class="anchor-link"></span></a>Decision Summary</h2>
+<ol>
+  <li>Yes: we can do this entirely in the <code>Matchless</code> lowering layer.</li>
+  <li>Yes: this generalizes to all struct-like single-constructor values lowered as <code>MakeStruct(arity)</code>, not just tuples.</li>
+  <li>Yes: we can support both matching backends (matrix and ordered sequential if/else) with one shared scrutinee representation.</li>
+</ol>
+<h2><a href="#goals" name="goals" class="anchor"><span class="anchor-link"></span></a>Goals</h2>
+<ol>
+  <li>Elide match-site <code>MakeStruct</code> allocation when scrutinee is syntactically <code>App(MakeStruct(arity), args)</code>.</li>
+  <li>Preserve strict evaluation behavior (evaluate <code>args</code> once, left-to-right, before branch selection).</li>
+  <li>Keep semantics identical across matrix and ordered backends.</li>
+  <li>Reuse existing totality/typing invariants (no changes in <code>TypedExpr</code>, parser, or typechecker).</li>
+</ol>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>No source-language changes.</li>
+  <li>No changes to totality checking.</li>
+  <li>No lazy argument evaluation in phase 1.</li>
+</ol>
+<h2><a href="#implementation-scope-files-" name="implementation-scope-files-" class="anchor"><span class="anchor-link"></span></a>Implementation Scope (files)</h2>
+<p>Implementation (follow-up PR) is concentrated in:</p>
+<ol>
+  <li><code>core/src/main/scala/dev/bosatsu/Matchless.scala</code></li>
+  <li><code>core/src/test/scala/dev/bosatsu/MatchlessTests.scala</code></li>
+</ol>
+<p>This design-doc PR adds:</p>
+<ol>
+  <li><code>docs/src/main/paradox/design-docs/issue_1732_match_site_struct_scrutinee_elision_design.md</code></li>
+  <li><code>docs/src/main/paradox/design-docs/index.md</code></li>
+</ol>
+<h2><a href="#new-internal-abstractions-and-functions" name="new-internal-abstractions-and-functions" class="anchor"><span class="anchor-link"></span></a>New Internal Abstractions and Functions</h2>
+<p>Add these inside <code>Matchless.fromLet</code> (near existing match helpers):</p>
+<ol>
+  <li><code>case class InlinedStructRoot(fields: Vector[CheapExpr[B]])</code></li>
+  <li>Represents a root scrutinee known to be a struct constructor application, already converted to cheap field expressions.</li>
+  <li>
+  <p><code>def prepareInlinedStructRoot(arg: Expr[B]): F[Option[InlinedStructRoot]]</code></p></li>
+  <li>Detects <code>arg</code> shape <code>App(MakeStruct(arity), args)</code> with matching arity.</li>
+  <li>Ensures strict single evaluation by introducing <code>LocalAnon</code> lets for non-cheap args.</li>
+  <li>Returns cheap fields preserving source left-to-right order.</li>
+  <li>
+  <p><code>def structRootValue(root: InlinedStructRoot): Expr[B]</code></p></li>
+  <li>Reconstructs <code>App(MakeStruct(arity), fields)</code> only when a branch binds the whole scrutinee (<code>Var</code>/<code>Named</code> at root).</li>
+  <li>
+  <p><code>def structField(root: InlinedStructRoot, idx: Int, size: Int): CheapExpr[B]</code></p></li>
+  <li>Returns <code>root.fields(idx)</code> with arity check.</li>
+  <li>
+  <p><code>def bindOccurrenceValue(occ: CheapExpr[B], inlined: Option[InlinedStructRoot]): Expr[B]</code></p></li>
+  <li>For normal occurrences, returns <code>occ</code>.</li>
+  <li>For root inlined struct occurrence, returns <code>structRootValue(...)</code>.</li>
+  <li>
+  <p><code>def projectStructOccurrence(occ: CheapExpr[B], idx: Int, size: Int, inlined: Option[InlinedStructRoot]): CheapExpr[B]</code></p></li>
+  <li>For normal occurrences, returns <code>GetStructElement(occ, idx, size)</code>.</li>
+  <li>For root inlined struct occurrence, returns <code>structField(...)</code>.</li>
+</ol>
+<h2><a href="#ordered-sequential-matcher-changes" name="ordered-sequential-matcher-changes" class="anchor"><span class="anchor-link"></span></a>Ordered (sequential) matcher changes</h2>
+<p>Modify ordered compilation path (<code>matchExprOrderedCheap</code> + <code>doesMatch</code>) to thread optional root inlined-struct context:</p>
+<ol>
+  <li>Extend <code>doesMatch</code> with an optional <code>rootInlined: Option[InlinedStructRoot]</code> parameter used only at the top call.</li>
+  <li>In <code>Pattern.PositionalStruct</code> + <code>DataRepr.Struct/NewType</code> path, replace direct <code>GetStructElement(arg, pos, size)</code> with <code>projectStructOccurrence(...)</code>.</li>
+  <li>In root <code>Pattern.Var</code> / <code>Pattern.Named</code> binding cases, bind via <code>bindOccurrenceValue(...)</code> so full-value binds still work.</li>
+  <li>Recursive <code>doesMatch</code> calls on subpatterns pass <code>None</code> (only the root may be inlined).</li>
+</ol>
+<p>Result: sequential fallback gets the same no-allocation benefit as matrix compilation.</p>
+<h2><a href="#matrix-matcher-changes" name="matrix-matcher-changes" class="anchor"><span class="anchor-link"></span></a>Matrix matcher changes</h2>
+<p>Modify matrix compilation (<code>matchExprMatrixCheap</code>) so root-struct projections also go through shared projection helpers:</p>
+<ol>
+  <li>At entry, call <code>prepareInlinedStructRoot(arg)</code>.</li>
+  <li>If <code>None</code>, keep current behavior.</li>
+  <li>If <code>Some(root)</code>, compile with a root context flag and use:</li>
+  <li><code>projectStructOccurrence(...)</code> in <code>buildCase</code> for <code>StructSig</code>.</li>
+  <li><code>bindOccurrenceValue(...)</code> from <code>normalizeRow</code>/<code>peelPattern</code> when emitting alias binds for root occurrence.</li>
+  <li>Keep existing projection materialization (<code>materializeOccs</code>) for non-root projected occurrences.</li>
+</ol>
+<p>This keeps matrix sharing logic unchanged while replacing root <code>GetStructElement</code> reads with direct root field values.</p>
+<h2><a href="#why-this-is-matchless-only" name="why-this-is-matchless-only" class="anchor"><span class="anchor-link"></span></a>Why this is Matchless-only</h2>
+<p>This optimization depends on lowered constructor forms (<code>MakeStruct</code> + projection nodes) and backend matcher internals (<code>doesMatch</code>, <code>buildCase</code>, <code>peelPattern</code>).</p>
+<p>No changes are needed in:</p>
+<ol>
+  <li><code>TypedExpr</code> shape/typechecking.</li>
+  <li>Totality checker.</li>
+  <li>Source converter/parser.</li>
+</ol>
+<h2><a href="#generalization-beyond-tuple" name="generalization-beyond-tuple" class="anchor"><span class="anchor-link"></span></a>Generalization Beyond Tuple</h2>
+<p>Tuples and user-defined single-constructor struct-like values already lower to <code>MakeStruct(arity)</code> in <code>Matchless</code>.</p>
+<p>So detection on <code>App(MakeStruct(arity), args)</code> automatically covers:</p>
+<ol>
+  <li>tuple literals,</li>
+  <li>newtypes lowered as arity-1 struct,</li>
+  <li>any struct constructor lowered to <code>MakeStruct</code>.</li>
+</ol>
+<p>No tuple-specific code path is required.</p>
+<h2><a href="#strictness-and-the-idea" name="strictness-and-the-idea" class="anchor"><span class="anchor-link"></span></a>Strictness and the &ldquo;lazy fields&rdquo; idea</h2>
+<p>Issue <a href="https://github.com/johnynek/bosatsu/issues/1732">#1732</a> mentions possible lazy field evaluation via <code>LocalAnonMut</code>/<code>SetMut</code>.</p>
+<p>Phase 1 intentionally stays strict:</p>
+<ol>
+  <li>Evaluate all scrutinee args exactly once before matching.</li>
+  <li>Elide only the container allocation (<code>MakeStruct</code> result object).</li>
+</ol>
+<p>Because Bosatsu is total and pure, reordering this call graph is semantics-preserving. The phase-2 question is therefore performance-only.</p>
+<p>Optional phase 2 (separate issue/PR): lazy per-field memo cells, only when profiling suggests a likely win (or when a static condition can prove it is beneficial).</p>
+<h2><a href="#whole-scrutinee-bind-policy" name="whole-scrutinee-bind-policy" class="anchor"><span class="anchor-link"></span></a>Whole-scrutinee bind policy</h2>
+<p>If a branch binds the entire scrutinee (<code>case x</code> / <code>case ... as x</code>), we need a value for that bind.</p>
+<p>The design supports branch-local reconstruction (<code>structRootValue</code>) so allocation happens only on branch paths that actually bind the root.</p>
+<p>For phase 1, use this policy:</p>
+<ol>
+  <li>No branch binds the whole scrutinee: keep allocation elided.</li>
+  <li>Exactly one branch binds the whole scrutinee: reconstruct only in that branch.</li>
+  <li>More than one branch binds the whole scrutinee: disable this optimization for that match and keep eager root allocation.</li>
+</ol>
+<p>Rule (3) is a performance guardrail, not a semantic requirement, and can be relaxed later with benchmark data.</p>
+<h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
+<p>Add tests in <code>core/src/test/scala/dev/bosatsu/MatchlessTests.scala</code>:</p>
+<ol>
+  <li><code>matrix match elides tuple allocation at match site</code>:</li>
+  <li>compile <code>match (f(), g()): ...</code> and assert no root <code>App(MakeStruct(2), ...)</code> allocation is required for projection-only branches.</li>
+  <li>
+  <p><code>ordered matcher also elides tuple allocation for non-orthogonal suffix</code>:</p></li>
+  <li>force ordered fallback (e.g. list/string search suffix) and assert the same root elision.</li>
+  <li>
+  <p><code>single-constructor struct behaves like tuple</code>:</p></li>
+  <li>hand-written typed struct constructor scrutinee <code>App(MakeStruct(n), ...)</code> gets identical projection elision.</li>
+  <li>
+  <p><code>whole-root binding still works</code>:</p></li>
+  <li>include <code>case x as ...</code>/<code>case x</code> branch and verify root value reconstruction is only on branch path that binds it.</li>
+  <li>
+  <p><code>strict evaluation preserved</code>:</p></li>
+  <li>arguments are still evaluated once and in order (no duplication, no skipping).</li>
+</ol>
+<h2><a href="#risks-and-mitigations" name="risks-and-mitigations" class="anchor"><span class="anchor-link"></span></a>Risks and Mitigations</h2>
+<ol>
+  <li>Risk: regressions in root alias binding (<code>Pattern.Named</code> / <code>Pattern.Var</code>).</li>
+  <li>Mitigation: explicit whole-root binding tests in both matrix and ordered paths, plus a compile-time count of whole-root bind branches to apply the phase-1 policy above.</li>
+  <li>
+  <p>Risk: accidental fallback divergence between matrix and ordered backends.</p></li>
+  <li>Mitigation: mirror tests that force each backend.</li>
+  <li>
+  <p>Risk: introducing duplicate evaluations of non-cheap fields.</p></li>
+  <li>Mitigation: <code>prepareInlinedStructRoot</code> always memoizes non-cheap args before matching.</li>
+</ol>
+<h2><a href="#rollout" name="rollout" class="anchor"><span class="anchor-link"></span></a>Rollout</h2>
+<ol>
+  <li>Land this design doc.</li>
+  <li>Implement in <code>Matchless.scala</code> behind existing matcher-selection flow.</li>
+  <li>Add regression tests and compare generated Matchless trees before/after for representative tuple/struct matches.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_1732_match_site_struct_scrutinee_elision_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../design-docs/lexicographic_recur_design.html">Lexicographic <code>recur</code> Tuple Design</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/issue_1732_match_site_struct_scrutinee_elision_design.html#issue-1732-match-site-struct-tuple-scrutinee-elision-in-matchless" class="header">Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in <code>Matchless</code></a></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d0eb8b7a-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
