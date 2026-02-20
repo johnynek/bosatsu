@@ -14,9 +14,9 @@ The target API is a minimal core IO surface adapted to Bosatsu style and impleme
 
 ## Decision Summary
 1. Add a new package `Bosatsu/IO/Core` in `core_alpha` containing the file/process/env/time primitives and related IO types.
-2. Keep `Bosatsu/Prog` as the single effect boundary; every effectful operation returns `Prog[env, IOError, a]`.
+2. Keep `Bosatsu/Prog` as the single effect boundary; every effectful operation returns `Prog[IOError, a]`.
 3. Keep `Bosatsu/IO/Error::IOError` as the shared error channel.
-4. Keep `argv` as `Bosatsu/Prog::read_env` (do not duplicate it in `Bosatsu/IO/Core`).
+4. Keep `argv` at the `Main` boundary (`Main(args -> ...)`) and do not duplicate it in `Bosatsu/IO/Core`.
 5. Add a `Path` abstraction (not raw `String`) with basic conversion/combination helpers.
 6. Keep `Bosatsu/IO/Std` source-compatible and add `read_line` and `read_all_stdin`.
 
@@ -129,23 +129,23 @@ external stdin: Handle
 external stdout: Handle
 external stderr: Handle
 
-external def read_text[env](h: Handle, max_chars: Int) -> Prog[env, IOError, Option[String]]
-external def write_text[env](h: Handle, s: String) -> Prog[env, IOError, Unit]
-external def flush[env](h: Handle) -> Prog[env, IOError, Unit]
-external def close[env](h: Handle) -> Prog[env, IOError, Unit]
-external def open_file[env](path: Path, mode: OpenMode) -> Prog[env, IOError, Handle]
-external def list_dir[env](path: Path) -> Prog[env, IOError, List[Path]]
-external def stat[env](path: Path) -> Prog[env, IOError, Option[FileStat]]
-external def mkdir[env](path: Path, recursive: Bool) -> Prog[env, IOError, Unit]
-external def remove[env](path: Path, recursive: Bool) -> Prog[env, IOError, Unit]
-external def rename[env](from: Path, to: Path) -> Prog[env, IOError, Unit]
-external def get_env[env](name: String) -> Prog[env, IOError, Option[String]]
-external def exit[env, a](code: Int) -> Prog[env, IOError, a]
-external def spawn[env](cmd: String, args: List[String], stdio: StdioConfig) -> Prog[env, IOError, SpawnResult]
-external def wait[env](p: Process) -> Prog[env, IOError, Int]
-external def now_wall[env]() -> Prog[env, IOError, Instant]
-external def now_mono[env]() -> Prog[env, IOError, Duration]
-external def sleep[env](d: Duration) -> Prog[env, IOError, Unit]
+external def read_text(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
+external def write_text(h: Handle, s: String) -> Prog[IOError, Unit]
+external def flush(h: Handle) -> Prog[IOError, Unit]
+external def close(h: Handle) -> Prog[IOError, Unit]
+external def open_file(path: Path, mode: OpenMode) -> Prog[IOError, Handle]
+external def list_dir(path: Path) -> Prog[IOError, List[Path]]
+external def stat(path: Path) -> Prog[IOError, Option[FileStat]]
+external def mkdir(path: Path, recursive: Bool) -> Prog[IOError, Unit]
+external def remove(path: Path, recursive: Bool) -> Prog[IOError, Unit]
+external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
+external def get_env(name: String) -> Prog[IOError, Option[String]]
+external def exit[a](code: Int) -> Prog[IOError, a]
+external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
+external def wait(p: Process) -> Prog[IOError, Int]
+external def now_wall() -> Prog[IOError, Instant]
+external def now_mono() -> Prog[IOError, Duration]
+external def sleep(d: Duration) -> Prog[IOError, Unit]
 ```
 
 ## Mapping from the requested primitives
@@ -162,7 +162,7 @@ external def sleep[env](d: Duration) -> Prog[env, IOError, Unit]
 11. `mkdir` -> `mkdir`
 12. `remove` -> `remove`
 13. `rename` -> `rename`
-14. `argv` -> `Bosatsu/Prog::read_env` (not duplicated in `Bosatsu/IO/Core`)
+14. `argv` -> `Main(args -> ...)` argument list (not duplicated in `Bosatsu/IO/Core`)
 15. `getEnv` -> `get_env`
 16. `exit` -> `exit`
 17. `spawn` -> `spawn`
@@ -179,7 +179,8 @@ external def sleep[env](d: Duration) -> Prog[env, IOError, Unit]
 5. `Duration` maps to new opaque `external struct Duration`.
 6. `FileKind`, `FileStat`, `OpenMode`, `Stdio`, `StdioConfig`, `SpawnResult` are new `enum`/`struct` types in `Bosatsu/IO/Core`.
 7. `Handle` and `Process` map to opaque `external struct` types in `Bosatsu/IO/Core`.
-8. `IO[Never]` for `exit` maps to polymorphic result: `forall a. Prog[env, IOError, a]`.
+8. `IO[Never]` for `exit` maps to polymorphic result: `forall a. Prog[IOError, a]`.
+9. Program entrypoint args use `Bosatsu/Prog::Main(run: List[String] -> forall err. Prog[err, Int])`.
 
 ## Runtime semantics (shared contract)
 1. `read_text` returns `None` only for EOF; otherwise `Some(chunk)` where chunk length is `1..max_chars`.
@@ -196,8 +197,8 @@ external def sleep[env](d: Duration) -> Prog[env, IOError, Unit]
 12. `sleep` consumes `Duration` in nanoseconds and returns `InvalidArgument` for negative durations.
 
 ## `Bosatsu/IO/Std` additions
-1. Add `read_line[env]() -> Prog[env, IOError, Option[String]]`.
-2. Add `read_all_stdin[env]() -> Prog[env, IOError, String]`.
+1. Add `read_line() -> Prog[IOError, Option[String]]`.
+2. Add `read_all_stdin() -> Prog[IOError, String]`.
 3. `read_line` blocks until newline (`\n`) or EOF; returns `None` only when EOF is reached before reading any characters.
 4. `read_line` strips trailing line ending (`\n` or `\r\n`) from returned text.
 5. `read_all_stdin` reads until EOF (stdin stream closed), not merely until "nothing currently available".
@@ -249,8 +250,8 @@ external def sleep[env](d: Duration) -> Prog[env, IOError, Unit]
 1. `Bosatsu/IO/Std` remains source-compatible.
 2. Existing `print`/`println` behavior is preserved.
 3. New code can choose either high-level `IO/Std` or low-level `IO/Core`.
-4. `argv` remains available through `Bosatsu/Prog::read_env`.
-5. No changes to `Bosatsu/Prog` type shape are required.
+4. `argv` remains available at the `Main(args -> ...)` boundary.
+5. This design assumes the post-#1748 `Bosatsu/Prog` shape (`Prog[err, res]` with no reader env).
 
 ## Tests and conformance
 1. Add package-level evaluator tests in `core/src/test/scala/dev/bosatsu/EvaluationTest.scala` for each primitive family.
