@@ -116,7 +116,22 @@ Phase 1 intentionally stays strict:
 1. Evaluate all scrutinee args exactly once before matching.
 2. Elide only the container allocation (`MakeStruct` result object).
 
-Optional phase 2 (separate issue/PR): lazy per-field memo cells, only if we prove it does not change observable semantics in Bosatsu.
+Because Bosatsu is total and pure, reordering this call graph is semantics-preserving. The phase-2 question is therefore performance-only.
+
+Optional phase 2 (separate issue/PR): lazy per-field memo cells, only when profiling suggests a likely win (or when a static condition can prove it is beneficial).
+
+## Whole-scrutinee bind policy
+If a branch binds the entire scrutinee (`case x` / `case ... as x`), we need a value for that bind.
+
+The design supports branch-local reconstruction (`structRootValue`) so allocation happens only on branch paths that actually bind the root.
+
+For phase 1, use this policy:
+
+1. No branch binds the whole scrutinee: keep allocation elided.
+2. Exactly one branch binds the whole scrutinee: reconstruct only in that branch.
+3. More than one branch binds the whole scrutinee: disable this optimization for that match and keep eager root allocation.
+
+Rule (3) is a performance guardrail, not a semantic requirement, and can be relaxed later with benchmark data.
 
 ## Test Plan
 Add tests in `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`:
@@ -138,7 +153,7 @@ Add tests in `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`:
 
 ## Risks and Mitigations
 1. Risk: regressions in root alias binding (`Pattern.Named` / `Pattern.Var`).
-1. Mitigation: explicit whole-root binding tests in both matrix and ordered paths.
+1. Mitigation: explicit whole-root binding tests in both matrix and ordered paths, plus a compile-time count of whole-root bind branches to apply the phase-1 policy above.
 
 2. Risk: accidental fallback divergence between matrix and ordered backends.
 1. Mitigation: mirror tests that force each backend.
