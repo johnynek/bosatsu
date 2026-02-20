@@ -13,6 +13,7 @@ This section collects implementation design documents for Bosatsu.
 * [Well-Typed Statement Generator Design](well_typed_statement_generator_design.md)
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.md)
+* [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
 @@@
 
