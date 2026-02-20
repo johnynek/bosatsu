@@ -539,6 +539,60 @@ class SetOpsTests extends munit.ScalaCheckSuite {
     }
   }
 
+  test("greedySearch chooses from the winning permutation head") {
+    type Diff = Char
+    val diffs: List[Diff] = List('a', 'b', 'c')
+    val start = 2
+
+    def applyOne(state: Int, diff: Diff): Int =
+      (state, diff) match {
+        case (0, _)    => 0
+        case (1, 'a')  => 0
+        case (1, 'b')  => 0
+        case (1, 'c')  => 2
+        case (2, 'a')  => 2
+        case (2, 'b')  => 1
+        case (2, 'c')  => 0
+        case _         => fail("invalid test state")
+      }
+
+    def applyMany(state: Int, ds: List[Diff]): Int =
+      ds.foldLeft(state)(applyOne)
+
+    def referenceGreedySearch(
+        lookahead: Int,
+        union: Int,
+        ds: List[Diff]
+    ): Int =
+      ds match {
+        case Nil => union
+        case _   =>
+          val peek = ds.take(lookahead)
+          val trials = SetOps.allPerms(peek).map { peeks =>
+            val u1 = applyMany(union, peeks)
+            (u1, peeks.head)
+          }
+          val smallest = trials.iterator.minBy(_._1)
+          val best = trials
+            .collect { case (u1, p) if Ordering[Int].equiv(u1, smallest._1) => p }
+            .groupBy(identity)
+            .map { case (k, v) => (k, v.size) }
+            .maxBy(_._2)
+            ._1
+
+          val u1 = applyMany(union, best :: Nil)
+          referenceGreedySearch(lookahead, u1, ds.filterNot(_ == best))
+      }
+
+    val expected = referenceGreedySearch(2, start, diffs)
+    assertEquals(expected, 0)
+
+    val actual = SetOps.greedySearch(2, start, diffs)((state, ds) =>
+      applyMany(state, ds)
+    )
+    assertEquals(actual, expected)
+  }
+
   test("test A - (B | C) <= ((A - B) | (A - C)) - (B n C)") {
     forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
       val left = pa - (pb || pc)

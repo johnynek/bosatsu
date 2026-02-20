@@ -160,7 +160,7 @@ object SetOps {
         val peek = diffs.take(lookahead)
         val trials = SetOps.allPerms(peek).map { peeks =>
           val u1 = fn(union, peeks)
-          (u1, peek.head)
+          (u1, peeks.head)
         }
         val smallest = trials.iterator.minBy(_._1)
         // choose a diff that starts the most
