@@ -3,7 +3,7 @@
 Status: proposed  
 Date: 2026-02-20  
 Issue: <https://github.com/johnynek/bosatsu/issues/1744>  
-PR: TBD
+PR: <https://github.com/johnynek/bosatsu/pull/1745>
 
 ## Problem
 `core_alpha` currently exposes only `Bosatsu/IO/Std` (`print`, `println`, stderr variants, and `read_stdin_utf8_bytes`).
