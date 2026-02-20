@@ -476,16 +476,22 @@ object RingOpt {
           // negation should always be cheaper than multiplication
           if (c == -1) normalizeNeg
           else {
-            // we know c != 1, 0, -1
-            // we know that this is not 1, 0, -1 because absorbMultConst handles those
-            if (c < 0) {
-              // see if we can remove a Neg
-              cheapNeg match {
-                case Some(n) => Mult(n, Integer(-c))
-                case None    => Mult(this, Integer(c))
-              }
-            } else {
-              Mult(this, Integer(c))
+            expr match {
+              // Keep the sign on the literal when we can so we don't add a
+              // standalone Neg node and increase cost.
+              case Neg(n) => n.bestEffortConstMult(-c)
+              case _      =>
+                // we know c != 1, 0, -1
+                // we know that this is not 1, 0, -1 because absorbMultConst handles those
+                if (c < 0) {
+                  // see if we can remove a Neg
+                  cheapNeg match {
+                    case Some(n) => Mult(n, Integer(-c))
+                    case None    => Mult(this, Integer(c))
+                  }
+                } else {
+                  Mult(this, Integer(c))
+                }
             }
           }
       }
