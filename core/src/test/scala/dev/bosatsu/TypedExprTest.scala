@@ -1330,6 +1330,800 @@ main = match Some(1):
   }
 
   test(
+    "loop/recur lowering rewrites grouped recursive calls with changing prefix args"
+  ) {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+
+    def groupedCall(prefix: TypedExpr[Unit], inner: TypedExpr[Unit]) =
+      TypedExpr.App(
+        TypedExpr.App(fVar, NonEmptyList.one(prefix), innerFnType, ()),
+        NonEmptyList.one(inner),
+        intTpe,
+        ()
+      )
+
+    val recurse = groupedCall(TypedExpr.App(PredefAdd, NonEmptyList.of(fnVar, int(1)), intTpe, ()), yVar)
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, recurse)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering handles issue 1727 eta-expanded grouped calls") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val etaArgName = Identifier.Name("eta")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val etaArgVar = TypedExpr.Local(etaArgName, intTpe, ())
+
+    val etaBodyCall = TypedExpr.App(
+      TypedExpr.App(
+        fVar,
+        NonEmptyList.one(fnVar),
+        innerFnType,
+        ()
+      ),
+      NonEmptyList.one(etaArgVar),
+      intTpe,
+      ()
+    )
+    val etaCall = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((etaArgName, intTpe)),
+        etaBodyCall,
+        ()
+      ),
+      NonEmptyList.one(
+        TypedExpr.App(
+          PredefSub,
+          NonEmptyList.of(yVar, int(1)),
+          intTpe,
+          ()
+        )
+      ),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, etaCall)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering supports lets between grouped lambda args") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val tmpName = Identifier.Name("tmp")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+
+    val recurse = TypedExpr.App(
+      TypedExpr.App(
+        fVar,
+        NonEmptyList.one(fnVar),
+        innerFnType,
+        ()
+      ),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val innerBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, recurse)
+      ),
+      ()
+    )
+    val innerLam =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ())
+    val withLetBetween =
+      TypedExpr.Let(tmpName, int(2), innerLam, RecursionKind.NonRecursive, ())
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      withLetBetween,
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering skips grouped rewrite for non-tail grouped calls") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val nonTail = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(int(1), groupedSelf),
+      intTpe,
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), nonTail, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering skips grouped rewrite for partial grouped calls") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val partialName = Identifier.Name("partial")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+
+    val partialSelf =
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ())
+    val innerBody =
+      TypedExpr.Let(partialName, partialSelf, int(0), RecursionKind.NonRecursive, ())
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering skips grouped rewrite when group binders collide") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(int(1)), innerFnType, ()),
+      NonEmptyList.one(xVar),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      xVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, groupedSelf)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering skips grouped rewrite when loop/recur already appear") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val zName = Identifier.Name("z")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+
+    val loopBody = TypedExpr.Loop(
+      NonEmptyList.one((zName, int(0))),
+      TypedExpr.Recur(NonEmptyList.one(int(1)), intTpe, ()),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), loopBody, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test(
+    "loop/recur lowering supports grouped wrappers and wrapped grouped self heads"
+  ) {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val a = Type.Var.Bound("a")
+    val q = TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type)))
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val wrappedHead = TypedExpr.Generic(q, TypedExpr.Annotation(fVar, fType, None))
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(wrappedHead, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val innerBody = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, groupedSelf)
+      ),
+      ()
+    )
+    val innerLam =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ())
+    val wrappedInner = TypedExpr.Generic(
+      q,
+      TypedExpr.Annotation(innerLam, innerFnType, None)
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      wrappedInner,
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test(
+    "loop/recur lowering traverses grouped terminal wrappers, lambdas, and app fallbacks"
+  ) {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val lamArgName = Identifier.Name("z")
+    val a = Type.Var.Bound("a")
+    val q = TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type)))
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val lamArgVar = TypedExpr.Local(lamArgName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val genericSelf = TypedExpr.Generic(q, groupedSelf)
+    val annotationSelf = TypedExpr.Annotation(groupedSelf, intTpe, None)
+
+    val lambdaApp = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((lamArgName, intTpe)),
+        lamArgVar,
+        ()
+      ),
+      NonEmptyList.one(int(7)),
+      intTpe,
+      ()
+    )
+    val fallbackApp = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(int(1), int(2)),
+      intTpe,
+      ()
+    )
+
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), genericSelf),
+        branch(Pattern.Literal(Lit.fromInt(1)), annotationSelf),
+        branch(Pattern.Literal(Lit.fromInt(2)), lambdaApp),
+        branch(Pattern.WildCard, fallbackApp)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test(
+    "loop/recur lowering handles unchanged grouped generic and annotation branches"
+  ) {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val a = Type.Var.Bound("a")
+    val q = TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type)))
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val unchangedGeneric = TypedExpr.Generic(q, int(0))
+    val unchangedAnnotation = TypedExpr.Annotation(int(1), intTpe, None)
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), unchangedGeneric),
+        branch(Pattern.Literal(Lit.fromInt(1)), unchangedAnnotation),
+        branch(Pattern.WildCard, groupedSelf)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test(
+    "loop/recur lowering traverses unchanged grouped matches inside let bindings"
+  ) {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val wName = Identifier.Name("w")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val unchangedMatch = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, int(1))
+      ),
+      ()
+    )
+    val body = TypedExpr.Let(
+      wName,
+      unchangedMatch,
+      groupedSelf,
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowerAll traverses grouped recursive top-level definitions") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, groupedSelf)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+
+    val lowered = TypedExprLoopRecurLowering.lowerAll(
+      List((fName, RecursionKind.Recursive, expr))
+    )
+    assertEquals(lowered.length, 1)
+    val loweredExpr = lowered.head._3
+    assert(hasLoop(loweredExpr), loweredExpr.reprString)
+    assertEquals(SelfCallKind(fName, loweredExpr), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering skips eta-expanded grouped calls with no inner groups") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val etaArgName = Identifier.Name("eta")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val etaCall = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((etaArgName, intTpe)),
+        TypedExpr.Local(fName, intTpe, ()),
+        ()
+      ),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, etaCall)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test(
+    "loop/recur lowering skips eta-expanded grouped calls with non-local final args"
+  ) {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val etaArgName = Identifier.Name("eta")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val etaBody = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ()),
+      NonEmptyList.one(int(1)),
+      intTpe,
+      ()
+    )
+    val etaCall = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((etaArgName, intTpe)),
+        etaBody,
+        ()
+      ),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, etaCall)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test(
+    "loop/recur lowering skips eta-expanded grouped calls when outer group arity mismatches"
+  ) {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val etaArgName = Identifier.Name("eta")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val etaBodyCall = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ()),
+      NonEmptyList.one(TypedExpr.Local(etaArgName, intTpe, ())),
+      intTpe,
+      ()
+    )
+    val etaCall = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((etaArgName, intTpe)),
+        etaBodyCall,
+        ()
+      ),
+      NonEmptyList.of(yVar, int(1)),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, etaCall)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering skips non-tail eta-expanded grouped calls") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val etaArgName = Identifier.Name("eta")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val etaArgVar = TypedExpr.Local(etaArgName, intTpe, ())
+
+    val etaBodyCall = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ()),
+      NonEmptyList.one(etaArgVar),
+      intTpe,
+      ()
+    )
+    val etaCall = TypedExpr.App(
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((etaArgName, intTpe)),
+        etaBodyCall,
+        ()
+      ),
+      NonEmptyList.one(
+        TypedExpr.App(PredefSub, NonEmptyList.of(yVar, int(1)), intTpe, ())
+      ),
+      intTpe,
+      ()
+    )
+    val nonTail = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(int(1), etaCall),
+      intTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, nonTail)
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering handles grouped let branch shadowing combinations") {
+    val fName = Identifier.Name("f")
+    val fnArgName = Identifier.Name("fn")
+    val yName = Identifier.Name("y")
+    val wName = Identifier.Name("w")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val fnVar = TypedExpr.Local(fnArgName, intTpe, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      intTpe,
+      ()
+    )
+
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(
+          Pattern.Literal(Lit.fromInt(0)),
+          TypedExpr.Let(
+            fName,
+            int(1),
+            int(2),
+            RecursionKind.Recursive,
+            ()
+          )
+        ),
+        branch(
+          Pattern.Literal(Lit.fromInt(1)),
+          TypedExpr.Let(
+            fName,
+            int(3),
+            int(4),
+            RecursionKind.NonRecursive,
+            ()
+          )
+        ),
+        branch(
+          Pattern.WildCard,
+          TypedExpr.Let(
+            wName,
+            int(5),
+            groupedSelf,
+            RecursionKind.NonRecursive,
+            ()
+          )
+        )
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((fnArgName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering skips grouped rewrite on bare grouped self references") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+
+    val innerFnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fType = Type.Fun(NonEmptyList.one(intTpe), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+
+    val body = TypedExpr.Match(
+      yVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, TypedExpr.Local(fName, intTpe, ()))
+      ),
+      ()
+    )
+    val expr = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, intTpe)),
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), body, ()),
+      ()
+    )
+    val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test(
     "loop/recur lowering handles shadowing, guards, and explicit loop/recur nodes"
   ) {
     val fName = Identifier.Name("f")
