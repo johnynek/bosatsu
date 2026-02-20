@@ -1301,7 +1301,7 @@ main = match Some(1):
     assertEquals(TypedExprLoopRecurLowering.lower(root), None)
   }
 
-  test("loop/recur lowering handles generic and annotation wrappers") {
+  test("loop/recur lowering handles monomorphic recursive defs with wrappers") {
     val fName = Identifier.Name("f")
     val xName = Identifier.Name("x")
     val a = Type.Var.Bound("a")
@@ -1327,6 +1327,7 @@ main = match Some(1):
 
     val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
     assert(hasLoop(lowered), lowered.reprString)
+    TestUtils.assertValid(lowered)
   }
 
   test(
@@ -1430,6 +1431,53 @@ main = match Some(1):
     val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
     assert(hasLoop(lowered), lowered.reprString)
     assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+  }
+
+  test("loop/recur lowering handles monomorphic grouped recursive defs") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val a = Type.Var.Bound("a")
+    val aTy = Type.TyVar(a)
+
+    val innerFnType = Type.Fun(NonEmptyList.one(aTy), aTy)
+    val fType = Type.Fun(NonEmptyList.one(aTy), innerFnType)
+    val fVar = TypedExpr.Local(fName, fType, ())
+    val xVar = TypedExpr.Local(xName, aTy, ())
+    val yVar = TypedExpr.Local(yName, aTy, ())
+
+    val groupedSelf = TypedExpr.App(
+      TypedExpr.App(fVar, NonEmptyList.one(xVar), innerFnType, ()),
+      NonEmptyList.one(yVar),
+      aTy,
+      ()
+    )
+
+    val monoShape = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((xName, aTy)),
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((yName, aTy)),
+        groupedSelf,
+        ()
+      ),
+      ()
+    )
+    val polyDef = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      TypedExpr.Annotation(monoShape, fType, None)
+    )
+    val root = TypedExpr.Let(
+      fName,
+      polyDef,
+      TypedExpr.Literal(Lit.fromInt(0), intTpe, ()),
+      RecursionKind.Recursive,
+      ()
+    )
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
+    TestUtils.assertValid(lowered)
   }
 
   test("loop/recur lowering supports lets between grouped lambda args") {
@@ -2415,28 +2463,49 @@ main = match Some(1):
     assert(TypedExprLoopRecurLowering.lower(changedRecur).nonEmpty)
   }
 
-  test(
-    "normalizeAll lowers top-level recur defs to Loop and drops recursive kind"
-  ) {
+  test("lowerAll lowers top-level monomorphic generic len recursion") {
     TestUtils.checkPackageMap("""
-enum List[a]: E, NE(head: a, tail: List[a])
-enum B: T, F
+enum List[a]: EmptyList, NonEmptyList(head: a, tail: List[a])
+enum Nat: Z, S(prev: Nat)
 
-def for_all(xs: List[a], fn: a -> B) -> B:
-  recur xs:
-    case E: T
-    case NE(head, tail):
-      match fn(head):
-        case T: for_all(tail, fn)
-        case F: F
+def inc(n: Nat) -> Nat: S(n)
+
+def len[a](list: List[a], acc: Nat) -> Nat:
+  recur list:
+    case EmptyList: acc
+    case NonEmptyList(_, tail): len(tail, inc(acc))
     """) { pm =>
       val pack = pm.toMap(TestUtils.testPackage)
-      val (name, rec, te) =
-        pack.lets.find(_._1 == Identifier.Name("for_all")).get
-      assertEquals(name, Identifier.Name("for_all"))
-      assertEquals(rec, RecursionKind.NonRecursive)
-      assert(hasLoop(te.void), te.reprString)
-      assertEquals(hasRecursiveLet(te.void), false, te.reprString)
+      val loweredLets = TypedExprLoopRecurLowering.lowerAll(
+        pack.lets.map { case (n, rec, te) => (n, rec, te.void) }
+      )
+      val (name, _, te) =
+        loweredLets.find(_._1 == Identifier.Name("len")).get
+      assertEquals(name, Identifier.Name("len"))
+      assert(hasLoop(te), te.reprString)
+      TestUtils.assertValid(te)
+    }
+  }
+
+  test("lowerAll skips top-level type-changing polymorphic recursion") {
+    TestUtils.checkPackageMap("""
+enum Nat: Z, S(prev: Nat)
+enum Box[a]: Box(value: a)
+
+def poly[a](n: Nat, x: a) -> Nat:
+  recur n:
+    case Z: Z
+    case S(prev): poly(prev, Box(x))
+    """) { pm =>
+      val pack = pm.toMap(TestUtils.testPackage)
+      val loweredLets = TypedExprLoopRecurLowering.lowerAll(
+        pack.lets.map { case (n, rec, te) => (n, rec, te.void) }
+      )
+      val (name, _, te) =
+        loweredLets.find(_._1 == Identifier.Name("poly")).get
+      assertEquals(name, Identifier.Name("poly"))
+      assertEquals(hasLoop(te), false, te.reprString)
+      TestUtils.assertValid(te)
     }
   }
 
