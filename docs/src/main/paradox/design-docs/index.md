@@ -16,6 +16,18 @@ This section collects implementation design documents for Bosatsu.
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
 @@@
 
+## Browse design docs
+
+* [Compiler Leveraging Type Inhabitedness](compiler_leveraging_type_inhabitedness.html)
+* [Pattern Guards Design](pattern_guards_design.html)
+* [Issue 1628: Pattern Value Reuse in `TypedExprNormalization`](issue_1628_pattern_value_reuse_design.html)
+* [Issue 1676: Default Values in Struct and Enum Constructors](issue_1676_default_values_struct_enum_design.html)
+* [Issue 356: Struct Update Syntax (`..old`)](issue_356_struct_update_syntax_design.html)
+* [Well-Typed Statement Generator Design](well_typed_statement_generator_design.html)
+* [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.html)
+* [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.html)
+* [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
+
 ## Notes
 
 1. This page is the canonical index for design docs.

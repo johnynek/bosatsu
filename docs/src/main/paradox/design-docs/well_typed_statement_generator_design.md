@@ -8,10 +8,12 @@ Design `wellTypedProgramGen: Gen[WellTypedProgram]` that produces source `Statem
 
 ## Motivation
 Current test generators have a gap:
+
 1. `Generators.genStatements` generates syntactically valid statements, but not type-directed ones.
 2. `Generators.genTypedExpr` explicitly notes it is random and not well typed.
 
 That means we can stress parsing/printing/proto paths, but we cannot reliably generate source programs to test:
+
 1. `SourceConverter` + inference success paths,
 2. normalization and compilation (`MatchlessFromTypedExpr`),
 3. backend codegen against broader random inputs.
@@ -49,6 +51,7 @@ object WellTypedGenerators {
 
 ## Core Idea
 Use type-directed synthesis:
+
 1. Generate a target type `t`.
 2. Generate an expression `e` such that `e : t` under the current environment.
 3. Emit a statement binding `name = e`.
@@ -56,6 +59,7 @@ Use type-directed synthesis:
 5. Repeat.
 
 This is a standard introduction/elimination strategy:
+
 1. Introduction rules build values of a requested type (`lambda`, literals, constructors).
 2. Elimination rules consume existing values/functions from scope (`var`, application).
 
@@ -80,11 +84,14 @@ final case class Ctx(
 ```
 
 Notes:
+
 1. `vals` holds in-scope names generated so far.
 2. `usedNames` is the global freshness set, and must include all value binders:
    `vals.forall(v => usedNames(v.name))`.
+
 3. `ctors` is a sampling cache; the source of truth is `typeEnv`, and every cached constructor must exist there:
    `ctors.forall(c => typeEnv.getConstructor(c.pack, c.cons).isDefined)`.
+
 4. `CtorSig.resultTypeConst` records the constructor's final return type constant (the defined type it constructs), so constructor selection can quickly filter by demanded result type root before full instantiation.
 5. `ctors` and `typeEnv` come from imported interfaces plus generated type definitions.
 6. v1 uses monomorphic goals by default, but `sigma` storage keeps polymorphism support open.
@@ -93,6 +100,7 @@ Notes:
 `WellTypedProgram.typeEnv` is required so `expected: Map[Bindable, Type]` has an explicit interpretation context for `TyConst` references (especially generated local `struct`/`enum` types).
 
 Planned construction:
+
 1. Incrementally update `ctx.typeEnv` while generating statements (for v1 this is mostly imported/predef; later phases add local type defs).
 2. On finalize, derive the compiler-view env from generated statements via the same path used by compilation (`SourceConverter.toProgram` -> parsed type env -> `TypeEnv.fromParsed`) and merge with imported env.
 3. Return that finalized env as `WellTypedProgram.typeEnv`.
@@ -104,12 +112,14 @@ Generate only inhabitable goal types to keep `genExpr(goal)` failure low.
 
 ### `genType(ctx, depth): Gen[Type]`
 Weighted choices:
+
 1. Ground base types: `Int`, `String`, `Char`, `Float64`, `Bool`, `Unit`.
 2. ADT applications with available constructors: `Option[a]`, `List[a]`, tuples, and local generated ADTs.
 3. Function types with explicit arity (small arity), i.e. `a -> r`, `(a1, a2) -> r`, `(a1, a2, a3) -> r`, ... (internally `Fn1`..`Fn32`, not curried chains).
 
 ### Inhabited-type filter
 Use a memoized predicate `canInhabit(ctx, t)`:
+
 1. `True` for base literal types.
 2. `True` for function types (we can always lambda-introduce at that exact arity if result type is inhabitable under an extended scope).
 3. `True` for ADT types when some constructor can be instantiated and all argument types are inhabitable.
@@ -127,6 +137,7 @@ def genExpr(ctx: Ctx, goal: Type, depth: Int): OptionT[Gen, Declaration.NonBindi
 
 ### Introduction path (`genIntro`)
 Construct directly by type shape:
+
 1. If goal is `Type.Fun(args, res)`: generate a lambda with exactly `args.length` parameters, extend `ctx`, generate body for `res`.
 2. If goal is a literal type: emit literal (`Int`, `String`, `Char`, `Float64`).
 3. If goal is an ADT: choose constructor where `resultTypeConst` matches goal root `TyConst` (when present), then instantiate `sigma` to the full goal and recursively build args.
@@ -134,6 +145,7 @@ Construct directly by type shape:
 
 ### Elimination path (`genElim`)
 Use available names:
+
 1. Choose a value/function `v : sigma` from `ctx.vals` or constructor from `ctx.ctors`.
 2. For constructors, optionally prefilter by `resultTypeConst` vs goal root `TyConst`; then instantiate `sigma` toward `goal` (using `Type.instantiate`-style matching on result type).
 3. If instantiation yields needed argument types `a1..an`, recursively generate args and build one application node with arity `n` (not nested curried applications).
@@ -141,6 +153,7 @@ Use available names:
 
 ### Control flow expressions (phase-gated)
 After v1 is stable:
+
 1. `if` / ternary by generating `Bool` condition and same-typed branches.
 2. `match` with typed pattern generation and exhaustiveness by construction.
 
@@ -151,12 +164,15 @@ This section lists every `Declaration` syntax constructor and how to generate it
 1. `Declaration.Binding(BindingStatement(pattern, value, in))`  
    Syntax shape: `<pattern> = <nonbinding>` then continuation declaration.  
    Generation: choose `pattern`, generate `value` that matches pattern type, extend env with pattern bindings for `in`.
+
 2. `Declaration.Comment(CommentStatement[Padding[Declaration]])`  
    Syntax shape: `# ...` preceding declaration.  
    Generation: wrapper over an already generated declaration; semantics-preserving noise.
+
 3. `Declaration.DefFn(DefStatement(...))`  
    Syntax shape: local `def` with args/body plus continuation.  
    Generation: generate function type, args/patterns/body, optional return annotation, then generate continuation in extended env.
+
 4. `Declaration.LeftApply(arg, fn, result)`  
    Syntax shape: `<pattern> <- <fn(exprs...)>` then body.  
    Generation: choose `fn` returning function-on-last-arg; generate lambda body for appended arg. Equivalent to desugared `Apply` with final lambda argument.
@@ -165,59 +181,76 @@ This section lists every `Declaration` syntax constructor and how to generate it
 1. `Declaration.Annotation(fn, tpe)`  
    Syntax: `<expr>: <TypeRef>`.  
    Generation: generate expression of subtype/instantiation-compatible type, then annotate/widen to demanded type.
+
 2. `Declaration.Apply(fn, args, kind = Parens)`  
    Syntax: `f(a, b, ...)`.  
    Generation: pick callable with arity `n`, generate exactly `n` typed args, build one application.
+
 3. `Declaration.Apply(fn, args, kind = Dot)`  
    Syntax: `recv.f(a, b, ...)` (parser desugars shape constraints).  
    Generation: same as apply, but render in dot form when legal for readability/syntax coverage.
+
 4. `Declaration.ApplyOp(left, op, right)`  
    Syntax: `left <op> right`.  
    Generation: choose operator identifier with known function type and generate typed operands.
+
 5. `Declaration.CommentNB(CommentStatement[Padding[NonBinding]])`  
    Syntax shape: comment wrapping NB expression.  
    Generation: wrapper/noise over generated nonbinding.
+
 6. `Declaration.IfElse(ifCases, elseCase)`  
    Syntax: `if cond: ... elif cond: ... else: ...`.  
    Generation: generate `Bool` conditions and branch bodies of demanded type.
+
 7. `Declaration.Ternary(trueCase, cond, falseCase)`  
    Syntax: `trueCase if cond else falseCase`.  
    Generation: same typing rule as `IfElse`, compact syntax variant.
+
 8. `Declaration.Lambda(args, body)`  
    Syntax: `(p1, p2, ...) -> body` / `p -> body`.  
    Generation: introduction for `Type.Fun(args, res)` with exact arity and typed arg patterns.
+
 9. `Declaration.Literal(lit)`  
    Syntax: numeric/string/char/float literal.  
    Generation: direct for literal-compatible goal types.
+
 10. `Declaration.Match(kind, arg, cases)`  
     Syntax: `match`/`recur` with `case` branches.  
     Generation: choose scrutinee type, build total pattern set, generate each branch in branch-extended env.
+
 11. `Declaration.Matches(arg, pattern)`  
     Syntax: `expr matches pattern` (returns `Bool`).  
     Generation: generate `arg` and pattern at same type; use when demanded type is `Bool`.
+
 12. `Declaration.Parens(of)`  
     Syntax: `(decl)`.  
     Generation: wrapper for precedence/roundtrip diversity.
+
 13. `Declaration.TupleCons(items)`  
     Syntax: `()`, `(a,)`, `(a, b, ...)`.  
     Generation: produce tuple values for tuple goal types.
+
 14. `Declaration.Var(name)`  
     Syntax: identifier reference.  
     Generation: elimination path from env value/constructor.
+
 15. `Declaration.RecordConstructor(cons, arg)`  
     Syntax: `Cons { field }`, `Cons { field: value, ... }`.  
     Generation: choose struct/constructor with record style fields; generate each provided field expression.
+
 16. `Declaration.StringDecl(items)` with `StringDecl.Part` variants:  
     1. `StringDecl.Literal(region, str)`  
     2. `StringDecl.StrExpr(nonBinding)`  
     3. `StringDecl.CharExpr(nonBinding)`  
     Syntax: interpolated string segments `'foo${s}$.{c}'`.  
     Generation: mixed literal and embedded expressions (`String` or `Char`) to produce `String`.
+
 17. `Declaration.ListDecl(list)` with `ListLang` variants:  
     1. `ListLang.Cons(items)` where items are `SpliceOrItem.Item(expr)` or `SpliceOrItem.Splice(expr)` (`*expr`)  
     2. `ListLang.Comprehension(expr, binding, in, filter)`  
     Syntax: `[a, *rest]`, `[expr for p in src if cond]`.  
     Generation: constructor/list-intro path plus optional comprehension path.
+
 18. `Declaration.DictDecl(list)` with `ListLang` variants:  
     1. `ListLang.Cons(items)` where item is `KVPair(key, value)`  
     2. `ListLang.Comprehension(KVPair(key, value), binding, in, filter)`  
@@ -234,6 +267,7 @@ This section lists every `Declaration` syntax constructor and how to generate it
 
 ### Pattern surface (exhaustive)
 Generate all `Pattern` forms:
+
 1. `Pattern.WildCard` syntax `_`.
 2. `Pattern.Literal(lit)` syntax literal pattern.
 3. `Pattern.Var(name)` syntax bindable name.
@@ -278,6 +312,7 @@ def totalPatterns(ctx: Ctx, tpe: rankn.Type, depth: Int): NonEmptyList[BranchPat
 ```
 
 Rules (must always return a total set):
+
 1. If `tpe` root is a known defined type in `ctx.typeEnv` (including predef ADTs) and has constructors, generate one branch per constructor.
 2. Instantiate constructor argument types by substituting the type parameters of the `DefinedType` with the concrete type arguments from `tpe`.
 3. For each constructor argument type, generate subpatterns with a depth budget:
@@ -289,6 +324,7 @@ Rules (must always return a total set):
 
 ### DefinedType-specific totality
 Given `dt: DefinedType[Kind.Arg]` and demanded type `T`:
+
 1. Let `constructors = dt.constructors`.
 2. Build branch pattern for each constructor `cf` in source order.
 3. Each branch root is `Pattern.PositionalStruct((dt.packageName, cf.name), argsPats)`.
@@ -297,12 +333,14 @@ Given `dt: DefinedType[Kind.Arg]` and demanded type `T`:
 
 ### Branch environment extension
 For each generated branch:
+
 1. Compute `branchCtx = ctx` extended with `bindings` from that branch pattern.
 2. Generate guard (if any) and branch body under `branchCtx`.
 3. Because each branch has different `bindings`, branch generation is independent per branch.
 
 ### Validation pass for pattern sets
 Before finalizing a `match`:
+
 1. Convert planned patterns to typed/internal form.
 2. Run `TotalityCheck` validation (`validatePattern`, missing/unreachable checks) in test mode.
 3. If invalid/non-total, regenerate pattern set with reduced complexity or wildcard fallback.
@@ -331,6 +369,7 @@ This already enables nontrivial typed programs through lambdas/apps/constructors
 
 ## Shrinking Strategy
 Structural shrinking alone tends to break typing. Use a typing-aware shrinker:
+
 1. Remove whole statements while preserving at least one exported/main candidate.
 2. Shrink expression subtrees with typed rules (replace with in-scope variable of same type, simplify constructor args, simplify literals).
 3. Recheck candidates with the fast typecheck harness; keep only well-typed shrinks.
@@ -343,6 +382,7 @@ The generator enables new properties beyond parser roundtrips.
 ## 1. Typecheck success property
 
 For all generated programs, full package typechecking succeeds:
+
 1. Build a parsed package from generated statements.
 2. Run `PackageMap.typeCheckParsed` (so predef import behavior matches real compilation).
 3. Assert no type errors.
@@ -352,6 +392,7 @@ This validates both generator and `SourceConverter` + infer success-path robustn
 ## 2. Witness agreement property
 
 For `wellTypedProgramGen`, compare inferred top-level types with generator expectations:
+
 1. For each generated bind `x : t_expected`,
 2. infer type `t_inferred`,
 3. validate `t_expected` is closed/resolved in `wellTypedProgram.typeEnv` (all referenced `TyConst` are known in that env),
@@ -362,6 +403,7 @@ This catches generator bookkeeping bugs and inference regressions.
 ## 3. Normalization equivalence property
 
 For a generated package with a ground `main` value:
+
 1. infer unoptimized body (`inferBodyUnopt`),
 2. normalize (`TypedExprNormalization.normalizeProgram`),
 3. evaluate both via `Evaluation`,
@@ -372,6 +414,7 @@ This directly tests optimization soundness on random typed source programs.
 ## 4. Matchless compilation totality property
 
 For inferred packages:
+
 1. run `MatchlessFromTypedExpr.compile`,
 2. assert no exceptions and all lets compile.
 
@@ -380,6 +423,7 @@ This is a strong stability property for the middle-end.
 ## 5. Backend smoke/semantic checks (nightly)
 
 For a restricted generated subset (ground result types, limited externals):
+
 1. compile with backend(s) (C/Python as configured),
 2. evaluate `main`,
 3. compare with interpreter result.
@@ -395,10 +439,13 @@ Run at lower test counts initially due runtime cost.
 ## Risks and Mitigations
 1. High rejection rate from `OptionT` failures.
    Mitigation: inhabited-type filtering + fallback to base goals + bounded retries.
+
 2. Inference blowups on deep types/expressions.
    Mitigation: strict depth/arity limits and weighted small-size bias.
+
 3. Shrinker flakiness/perf cost.
    Mitigation: typed rewrite shrinker first, then typecheck-filtered fallback.
+
 4. Overfitting to current inference behavior.
    Mitigation: keep generator rules type-theoretic (intro/elim) and avoid solver internals where possible.
 
