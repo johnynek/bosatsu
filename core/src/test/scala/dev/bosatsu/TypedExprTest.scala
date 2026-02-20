@@ -528,6 +528,11 @@ foo = _ -> 1
         false
     }
 
+  def lowerAndNormalize(te: TypedExpr[Unit]): TypedExpr[Unit] = {
+    val lowered = TypedExprLoopRecurLowering.lower(te).getOrElse(te)
+    TypedExprNormalization.normalize(lowered).getOrElse(lowered)
+  }
+
   def countExpr[A](te: TypedExpr[A], target: TypedExpr[?]): Int =
     te match {
       case t if t.void === target.void         => 1
@@ -1009,6 +1014,90 @@ foo = _ -> 1
     }
   }
 
+  test(
+    "normalization can lift non-simple lets outside lambdas when binders do not shadow args"
+  ) {
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val boundExpr = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val body = TypedExpr.Let(
+      yName,
+      boundExpr,
+      TypedExpr.App(PredefAdd, NonEmptyList.of(yVar, yVar), intTpe, ()),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
+
+    TypedExprNormalization.normalize(lamExpr) match {
+      case Some(norm) =>
+        assert(countLet(norm) > 0, norm.reprString)
+      case None =>
+        fail("expected normalized result for non-simple lambda let body")
+    }
+  }
+
+  test(
+    "normalization keeps lambda-match shape when branch guards depend on lambda args"
+  ) {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaqueApp = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val guardExpr = TypedExpr.App(
+      PredefEqInt,
+      NonEmptyList.of(xVar, int(0)),
+      boolTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      TypedExpr.Annotation(opaqueApp, intTpe, None),
+      NonEmptyList.one(
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), int(1))
+      ),
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
+
+    TypedExprNormalization.normalize(lamExpr) match {
+      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+        assertEquals(branches.length, 1)
+        assert(branches.head.guard.nonEmpty)
+      case other =>
+        fail(s"expected lambda preserving guarded match, got: $other")
+    }
+  }
+
+  test(
+    "normalization leaves lambda guarded matches unchanged when lifting is blocked"
+  ) {
+    val xName = Identifier.Name("x")
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val guardExpr = TypedExpr.App(
+      PredefEqInt,
+      NonEmptyList.of(xVar, int(0)),
+      boolTpe,
+      ()
+    )
+    val body = TypedExpr.Match(
+      int(1),
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), int(1)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(2))
+      ),
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
+
+    assertEquals(TypedExprNormalization.normalize(lamExpr), None)
+  }
+
   test("normalization can evaluate guarded constructor matches to constants") {
     val normalized = Par.withEC {
       var out: Option[TypedExpr[Unit]] = None
@@ -1067,12 +1156,469 @@ main = match Some(1):
       lam("g", fnType, app(varTE("g", fnType), int(1), intTpe))
     val root = letrec("f", fDef, app(useOnce, fVar, intTpe))
 
-    val normed = TypedExprNormalization.normalize(root)
-    assert(normed.isDefined)
-    val norm = normed.get
+    val norm = lowerAndNormalize(root)
     assert(hasLoop(norm), norm.reprString)
     assertEquals(hasRecursiveLet(norm), false)
     assertEquals(TypedExpr.allVarsSet(norm :: Nil).contains(fName), false)
+  }
+
+  test("normalization does not lower recursive lets to loop/recur") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val fBody = TypedExpr.Match(
+      xVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(0)),
+        branch(Pattern.WildCard, app(fVar, int(0), intTpe))
+      ),
+      ()
+    )
+    val fDef =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), fBody, ())
+    val root = letrec("f", fDef, fVar)
+
+    val normalizedOnly = TypedExprNormalization.normalize(root).getOrElse(root)
+    assertEquals(hasLoop(normalizedOnly), false, normalizedOnly.reprString)
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+  }
+
+  test("loop/recur lowering keeps non-tail self-calls and lowers tail ones") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val tailSelfCall = app(fVar, int(0), intTpe)
+    val nonTailSelfCall = app(fVar, int(1), intTpe)
+    val withNonTail = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(int(1), nonTailSelfCall),
+      intTpe,
+      ()
+    )
+    val fBody = TypedExpr.Match(
+      xVar,
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), tailSelfCall),
+        branch(Pattern.WildCard, withNonTail)
+      ),
+      ()
+    )
+    val fDef =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), fBody, ())
+    val root = letrec("f", fDef, fVar)
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+
+    def hasRecur(te: TypedExpr[Unit]): Boolean =
+      te match {
+        case TypedExpr.Recur(_, _, _) =>
+          true
+        case TypedExpr.Generic(_, in) =>
+          hasRecur(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          hasRecur(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          hasRecur(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          hasRecur(fn) || args.exists(hasRecur)
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          hasRecur(ex) || hasRecur(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.exists { case (_, init) => hasRecur(init) } || hasRecur(body)
+        case TypedExpr.Match(arg, branches, _) =>
+          hasRecur(arg) || branches.exists { case TypedExpr.Branch(_, g, b) =>
+            g.exists(hasRecur) || hasRecur(b)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          false
+      }
+
+    def hasDirectSelfCall(te: TypedExpr[Unit]): Boolean =
+      te match {
+        case TypedExpr.App(TypedExpr.Local(`fName`, _, _), _, _, _) =>
+          true
+        case TypedExpr.Generic(_, in) =>
+          hasDirectSelfCall(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          hasDirectSelfCall(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          hasDirectSelfCall(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          hasDirectSelfCall(fn) || args.exists(hasDirectSelfCall)
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          hasDirectSelfCall(ex) || hasDirectSelfCall(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.exists { case (_, init) => hasDirectSelfCall(init) } ||
+            hasDirectSelfCall(body)
+        case TypedExpr.Recur(args, _, _) =>
+          args.exists(hasDirectSelfCall)
+        case TypedExpr.Match(arg, branches, _) =>
+          hasDirectSelfCall(arg) || branches.exists {
+            case TypedExpr.Branch(_, g, b) =>
+              g.exists(hasDirectSelfCall) || hasDirectSelfCall(b)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          false
+      }
+
+    assert(hasRecur(lowered), lowered.reprString)
+    assert(hasDirectSelfCall(lowered), lowered.reprString)
+    assert(hasRecursiveLet(lowered), lowered.reprString)
+  }
+
+  test("loop/recur lowering skips recursive lets without tail self-calls") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+
+    val onlyNonTail = TypedExpr.App(
+      PredefAdd,
+      NonEmptyList.of(int(1), app(fVar, xVar, intTpe)),
+      intTpe,
+      ()
+    )
+    val fDef =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((xName, intTpe)),
+        onlyNonTail,
+        ()
+      )
+    val root = letrec("f", fDef, fVar)
+
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering handles generic and annotation wrappers") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val a = Type.Var.Bound("a")
+    val aTy = Type.TyVar(a)
+    val fnType = Type.Fun(NonEmptyList.one(aTy), aTy)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, aTy, ())
+
+    val lam =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, aTy)), app(fVar, xVar, aTy), ())
+    val ann = TypedExpr.Annotation(lam, fnType, None)
+    val polyDef = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      ann
+    )
+    val root = TypedExpr.Let(
+      fName,
+      polyDef,
+      TypedExpr.Literal(Lit.fromInt(0), intTpe, ()),
+      RecursionKind.Recursive,
+      ()
+    )
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+  }
+
+  test(
+    "loop/recur lowering handles shadowing, guards, and explicit loop/recur nodes"
+  ) {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val zName = Identifier.Name("z")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val zVar = TypedExpr.Local(zName, intTpe, ())
+    val idVar = TypedExpr.Local(Identifier.Name("id"), fnType, ())
+    val a = Type.Var.Bound("a")
+    val q = TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type)))
+
+    val tailSelf = TypedExpr.App(
+      TypedExpr.Generic(q, fVar),
+      NonEmptyList.one(xVar),
+      intTpe,
+      ()
+    )
+
+    val nestedUnchanged = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((zName, intTpe)),
+      TypedExpr.App(idVar, NonEmptyList.one(zVar), intTpe, ()),
+      ()
+    )
+    val nestedChanged = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((zName, intTpe)),
+      TypedExpr.Generic(q, zVar),
+      ()
+    )
+
+    val shadowRec = TypedExpr.Let(
+      fName,
+      int(1),
+      int(2),
+      RecursionKind.Recursive,
+      ()
+    )
+    val shadowNonRec = TypedExpr.Let(
+      fName,
+      int(3),
+      int(4),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val nonShadow = TypedExpr.Let(
+      Identifier.Name("w"),
+      int(2),
+      int(3),
+      RecursionKind.NonRecursive,
+      ()
+    )
+
+    val loopUnchanged = TypedExpr.Loop(
+      NonEmptyList.one((fName, int(1))),
+      TypedExpr.Recur(NonEmptyList.one(int(2)), intTpe, ()),
+      ()
+    )
+    val loopChanged = TypedExpr.Loop(
+      NonEmptyList.one((Identifier.Name("acc"), TypedExpr.Generic(q, int(4)))),
+      TypedExpr.Recur(
+        NonEmptyList.one(TypedExpr.Generic(q, int(5))),
+        intTpe,
+        ()
+      ),
+      ()
+    )
+
+    val unchangedMatch = TypedExpr.Match(
+      int(1),
+      NonEmptyList.one(TypedExpr.Branch(Pattern.WildCard, None, int(1))),
+      ()
+    )
+    val guardedMatch = TypedExpr.Match(
+      int(0),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(bool(true)),
+          tailSelf
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, nonShadow)
+      ),
+      ()
+    )
+
+    val body =
+      TypedExpr.Let(
+        Identifier.Name("a"),
+        nestedUnchanged,
+        TypedExpr.Let(
+          Identifier.Name("b"),
+          nestedChanged,
+          TypedExpr.Let(
+            Identifier.Name("c"),
+            shadowRec,
+            TypedExpr.Let(
+              Identifier.Name("d"),
+              shadowNonRec,
+              TypedExpr.Let(
+                Identifier.Name("e"),
+                loopUnchanged,
+                TypedExpr.Let(
+                  Identifier.Name("g"),
+                  loopChanged,
+                  TypedExpr.Let(
+                    Identifier.Name("h"),
+                    unchangedMatch,
+                    guardedMatch,
+                    RecursionKind.NonRecursive,
+                    ()
+                  ),
+                  RecursionKind.NonRecursive,
+                  ()
+                ),
+                RecursionKind.NonRecursive,
+                ()
+              ),
+              RecursionKind.NonRecursive,
+              ()
+            ),
+            RecursionKind.NonRecursive,
+            ()
+          ),
+          RecursionKind.NonRecursive,
+          ()
+        ),
+        RecursionKind.NonRecursive,
+        ()
+      )
+
+    val fDef = TypedExpr.Generic(
+      q,
+      TypedExpr.Annotation(
+        TypedExpr.AnnotatedLambda(
+          NonEmptyList.one((xName, intTpe)),
+          body,
+          ()
+        ),
+        fnType,
+        None
+      )
+    )
+    val root = TypedExpr.Let(fName, fDef, fVar, RecursionKind.Recursive, ())
+
+    def hasRecur(te: TypedExpr[Unit]): Boolean =
+      te match {
+        case TypedExpr.Recur(_, _, _) =>
+          true
+        case TypedExpr.Generic(_, in) =>
+          hasRecur(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          hasRecur(in)
+        case TypedExpr.AnnotatedLambda(_, in, _) =>
+          hasRecur(in)
+        case TypedExpr.App(fn, args, _, _) =>
+          hasRecur(fn) || args.exists(hasRecur)
+        case TypedExpr.Let(_, ex, in, _, _) =>
+          hasRecur(ex) || hasRecur(in)
+        case TypedExpr.Loop(args, in, _) =>
+          args.exists { case (_, init) => hasRecur(init) } || hasRecur(in)
+        case TypedExpr.Match(arg, branches, _) =>
+          hasRecur(arg) || branches.exists { case TypedExpr.Branch(_, g, b) =>
+            g.exists(hasRecur) || hasRecur(b)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          false
+      }
+
+    val lowered = TypedExprLoopRecurLowering.lower(root).getOrElse(root)
+    assert(hasLoop(lowered), lowered.reprString)
+    assert(hasRecur(lowered), lowered.reprString)
+  }
+
+  test("loop/recur lowering skips recursive non-lambda bindings") {
+    val root = TypedExpr.Let(
+      Identifier.Name("f"),
+      int(1),
+      int(2),
+      RecursionKind.Recursive,
+      ()
+    )
+    assertEquals(TypedExprLoopRecurLowering.lower(root), None)
+  }
+
+  test("loop/recur lowering rewrites changed shadow lets and guards") {
+    val fName = Identifier.Name("f")
+    val xName = Identifier.Name("x")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val fVar = TypedExpr.Local(fName, fnType, ())
+    val xVar = TypedExpr.Local(xName, intTpe, ())
+    val a = Type.Var.Bound("a")
+    val q = TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type)))
+
+    val shadowRecChanged = TypedExpr.Let(
+      fName,
+      TypedExpr.Generic(q, int(1)),
+      int(2),
+      RecursionKind.Recursive,
+      ()
+    )
+    val shadowNonRecChanged = TypedExpr.Let(
+      fName,
+      TypedExpr.Generic(q, int(3)),
+      int(4),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val guarded = TypedExpr.Match(
+      int(0),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(TypedExpr.Generic(q, bool(true))),
+          app(fVar, xVar, intTpe)
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, int(0))
+      ),
+      ()
+    )
+    val body = TypedExpr.Let(
+      Identifier.Name("a"),
+      shadowRecChanged,
+      TypedExpr.Let(
+        Identifier.Name("b"),
+        shadowNonRecChanged,
+        guarded,
+        RecursionKind.NonRecursive,
+        ()
+      ),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val root = TypedExpr.Let(
+      fName,
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ()),
+      fVar,
+      RecursionKind.Recursive,
+      ()
+    )
+
+    val lowered = TypedExprLoopRecurLowering.lower(root)
+    assert(lowered.nonEmpty)
+    assert(hasLoop(lowered.getOrElse(root)), lowered.get.reprString)
+  }
+
+  test("loop/recur lowering traverses app/loop/recur containers") {
+    val hName = Identifier.Name("h")
+    val uName = Identifier.Name("u")
+    val hType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val hVar = TypedExpr.Local(hName, hType, ())
+    val uVar = TypedExpr.Local(uName, intTpe, ())
+    val hDef =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((uName, intTpe)),
+        app(hVar, uVar, intTpe),
+        ()
+      )
+    val innerRec = TypedExpr.Let(hName, hDef, hVar, RecursionKind.Recursive, ())
+
+    val useTy = Type.Fun(NonEmptyList.one(hType), intTpe)
+    val appContainer = TypedExpr.App(
+      TypedExpr.Local(Identifier.Name("use"), useTy, ()),
+      NonEmptyList.one(innerRec),
+      intTpe,
+      ()
+    )
+    assert(TypedExprLoopRecurLowering.lower(appContainer).nonEmpty)
+
+    val unchangedLoop = TypedExpr.Loop(
+      NonEmptyList.one((Identifier.Name("x0"), int(1))),
+      int(2),
+      ()
+    )
+    assertEquals(TypedExprLoopRecurLowering.lower(unchangedLoop), None)
+    val changedLoop = TypedExpr.Loop(
+      NonEmptyList.one((Identifier.Name("x1"), innerRec)),
+      int(0),
+      ()
+    )
+    assert(TypedExprLoopRecurLowering.lower(changedLoop).nonEmpty)
+
+    val unchangedRecur =
+      TypedExpr.Recur(NonEmptyList.one(int(1)), intTpe, ())
+    assertEquals(TypedExprLoopRecurLowering.lower(unchangedRecur), None)
+    val changedRecur =
+      TypedExpr.Recur(NonEmptyList.one(innerRec), intTpe, ())
+    assert(TypedExprLoopRecurLowering.lower(changedRecur).nonEmpty)
   }
 
   test(
@@ -1833,10 +2379,11 @@ x = Foo
       case None             =>
         fail(s"missing let: $letName in ${unoptProgram.lets.map(_._1)}")
     }
+    val loweredLets = TypedExprLoopRecurLowering.lowerAll(unoptProgram.lets)
     val normalizedLets =
       TypedExprNormalization.normalizeAll(
         TestUtils.testPackage,
-        unoptProgram.lets,
+        loweredLets,
         fullTypeEnv
       )
     val normalizedExpr = normalizedLets.find(_._1 == targetName) match {

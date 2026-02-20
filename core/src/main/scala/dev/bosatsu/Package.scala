@@ -321,7 +321,8 @@ object Package {
     Declaration
   ], List[Statement]]] =
     inferBodyUnopt(p, imps, stmts).map { case (fullTypeEnv, prog) =>
-      TypedExprNormalization.normalizeProgram(p, fullTypeEnv, prog)
+      val lowered = TypedExprLoopRecurLowering.lowerProgram(prog)
+      TypedExprNormalization.normalizeProgram(p, fullTypeEnv, lowered)
     }
 
   /** Infer the types but do not optimize/normalize the lets
