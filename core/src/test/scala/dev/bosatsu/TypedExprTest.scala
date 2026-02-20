@@ -1964,9 +1964,17 @@ x = (
   fn1(NE(1, NE(2, E)))
 )
     """) { te2 =>
+        TestUtils.assertValid(te1)
+        TestUtils.assertValid(te2)
+        assert(
+          te1.getType.sameAs(te2.getType),
+          s"type mismatch:\n${te1.getType}\n\n!=\n\n${te2.getType}"
+        )
+        // `void` still includes bindable names, so alpha-equivalent locals
+        // (`z` vs `z1`) remain unequal. Normalize that one binder spelling.
         assertEquals(
-          te1.void,
-          te2.void,
+          te1.reprString.replace("z1", "z"),
+          te2.reprString.replace("z1", "z"),
           s"\n${te1.reprString}\n\n!=\n\n${te2.reprString}"
         )
       }
@@ -2460,6 +2468,90 @@ def makeLoop(fn):
         assert(quant.existList.nonEmpty)
       case other =>
         fail(s"expected quantified result, got: ${other.reprString}")
+    }
+  }
+
+  test("instantiateTo reuses matching quantifier evidence") {
+    val a = Type.Var.Bound("a")
+    val b = Type.Var.Bound("b")
+    val fromBody = Type.Tuple(List(Type.TyVar(a), Type.TyVar(b)))
+    val target = Type.Tuple(List(Type.IntType, Type.IntType))
+    val gen: TypedExpr.Generic[Unit] = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(
+        NonEmptyList.of((a, Kind.Type), (b, Kind.Type))
+      ),
+      TypedExpr.Local(Identifier.Name("x"), fromBody, ())
+    )
+
+    val evidence = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = gen.getType,
+      targetAtSolve = target,
+      forallSolved = SortedMap(a -> (Kind.Type, Type.IntType)),
+      existsHidden = SortedMap.empty
+    )
+
+    val instantiated =
+      TypedExpr.instantiateTo(gen, target, _ => None, Some(evidence))
+
+    instantiated match {
+      case TypedExpr.Annotation(
+            TypedExpr.Generic(quant, TypedExpr.Local(_, innerTpe, _)),
+            coerce,
+            Some(ev1)
+          ) =>
+        assertEquals(quant.forallList.map(_._1), List(b))
+        assertEquals(
+          innerTpe,
+          Type.Tuple(List(Type.IntType, Type.TyVar(b)))
+        )
+        assertEquals(coerce, target)
+        assertEquals(ev1, evidence)
+      case other =>
+        fail(s"expected annotation with reused evidence, got: ${other.reprString}")
+    }
+  }
+
+  test("instantiateTo ignores non-matching evidence and solves directly") {
+    val a = Type.Var.Bound("a")
+    val gen: TypedExpr.Generic[Unit] = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      TypedExpr.Local(Identifier.Name("x"), Type.TyVar(a), ())
+    )
+
+    val wrongEvidence = TypedExpr.QuantifierEvidence(
+      sourceAtSolve = Type.StrType,
+      targetAtSolve = Type.IntType,
+      forallSolved = SortedMap(a -> (Kind.Type, Type.StrType)),
+      existsHidden = SortedMap.empty
+    )
+
+    val instantiated =
+      TypedExpr.instantiateTo(gen, Type.IntType, _ => None, Some(wrongEvidence))
+
+    instantiated match {
+      case TypedExpr.Local(_, tpe, _) =>
+        assertEquals(tpe, Type.IntType)
+      case other =>
+        fail(s"expected direct solved local, got: ${other.reprString}")
+    }
+  }
+
+  test("instantiateTo falls back to annotation when no instantiation exists") {
+    val a = Type.Var.Bound("a")
+    val fnType = Type.Fun(Type.TyVar(a), Type.TyVar(a))
+    val gen: TypedExpr.Generic[Unit] = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
+      TypedExpr.Local(Identifier.Name("f"), fnType, ())
+    )
+
+    val instantiated = TypedExpr.instantiateTo(gen, Type.IntType, _ => None, None)
+
+    instantiated match {
+      case TypedExpr.Annotation(term @ TypedExpr.Generic(_, _), coerce, None) =>
+        assertEquals(coerce, Type.IntType)
+        assert(term.getType.sameAs(gen.getType))
+      case other =>
+        fail(s"expected fallback annotation, got: ${other.reprString}")
     }
   }
 
