@@ -15,10 +15,14 @@ object TypedExprLoopRecurLowering {
   // Local minimal-allocation Option product for this file.
   private inline def map2[A, B, C](
       oa: Option[A],
-      ob: Option[B]
+      inline ob: => Option[B]
   )(inline fn: (A, B) => C): Option[C] =
-    if (oa.isDefined && ob.isDefined) Some(fn(oa.get, ob.get))
-    else None
+    if (oa.isDefined) {
+      // we don't have to compute ob if oa isn't defined
+      val compB = ob
+      if (compB.isDefined) Some(fn(oa.get, compB.get))
+      else None
+    } else None
 
   private def isSelfFn[A](name: Bindable, te: TypedExpr[A]): Boolean =
     te match {
@@ -312,7 +316,7 @@ object TypedExprLoopRecurLowering {
       }
 
     def rewriteToHelper(
-        groups: List[NonEmptyList[TypedExpr[A]]],
+        groups: NonEmptyList[NonEmptyList[TypedExpr[A]]],
         tpe: Type,
         tag: A,
         canRecurHere: Boolean
@@ -322,17 +326,10 @@ object TypedExprLoopRecurLowering {
           group.traverse(recur(_, tailPos = false, canRecurHere))
         }
         .map { group1 =>
-          val flatArgs =
-            group1 match {
-              case h :: t =>
-                t.foldLeft(h.map(_.expr)) { (acc, group) =>
-                  acc.concatNel(group.map(_.expr))
-                }
-              case Nil =>
-                throw new IllegalStateException(
-                  "rewriteToHelper requires at least one argument group"
-                )
-            }
+          val flatArgs = group1.tail.foldLeft(group1.head.map(_.expr)) {
+            (acc, group) =>
+              acc.concatNel(group.map(_.expr))
+          }
           val app1 = App(
             Local(helperName, helperFnType, tag),
             flatArgs,
@@ -376,14 +373,20 @@ object TypedExprLoopRecurLowering {
           val (head, groups) = unapplyApp(app, Nil)
           if (isSelfHead(head, canRecur)) {
             if (!validGroupedArity(groups) || !tailPos) None
-            else rewriteToHelper(groups, tpe, tag, canRecur)
+            else
+              NonEmptyList
+                .fromList(groups)
+                .flatMap(rewriteToHelper(_, tpe, tag, canRecur))
           } else {
             // Non-self heads can still encode grouped recursion when they are
             // eta-expanded lambdas whose body calls `fnName`.
             etaExpandedGroups(head, groups, canRecur) match {
               case Some(expandedGroups) =>
                 if (!validGroupedArity(expandedGroups) || !tailPos) None
-                else rewriteToHelper(expandedGroups, tpe, tag, canRecur)
+                else
+                  NonEmptyList
+                    .fromList(expandedGroups)
+                    .flatMap(rewriteToHelper(_, tpe, tag, canRecur))
               case None =>
                 map2(
                   recur(fn, tailPos = false, canRecur),
