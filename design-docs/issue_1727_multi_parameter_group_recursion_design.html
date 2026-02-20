@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/issue_1727_multi_parameter_group_recursion_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-ffa824cf*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-ffa824cf*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#issue-1727-tail-loop-rewrite-for-multi-parameter-group-functions" name="issue-1727-tail-loop-rewrite-for-multi-parameter-group-functions" class="anchor"><span class="anchor-link"></span></a>Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions</h1>
+<p>Status: proposed<br/>Date: 2026-02-20<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/1727">https://github.com/johnynek/bosatsu/issues/1727</a></p>
+<h2><a href="#problem-statement" name="problem-statement" class="anchor"><span class="anchor-link"></span></a>Problem statement</h2>
+<p>Issue <a href="https://github.com/johnynek/bosatsu/issues/1727">#1727</a> reports that recursive defs with multiple parameter groups often miss tail-rec loop lowering.</p>
+<p>Current source shape:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_List(fn: (a, a) -&gt; Bool)(a: List[a], b: List[a]) -&gt; Bool:
+  recur (a, b):
+    case ([ah, *at], [bh, *bt]) if fn(ah, bh): eq_List(fn)(at, bt)
+    case ([], []): True
+    case _: False
+</code></pre>
+<p>Target efficiency should match the explicit helper form:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_List(fn: (a, a) -&gt; Bool)(a: List[a], b: List[a]) -&gt; Bool:
+  def loop(fn: (a, a) -&gt; Bool, a: List[a], b: List[a]) -&gt; Bool:
+    recur (a, b):
+      case ([ah, *at], [bh, *bt]) if fn(ah, bh): loop(fn, at, bt)
+      case ([], []): True
+      case _: False
+
+  loop(fn, a, b)
+</code></pre>
+<h2><a href="#current-behavior-summary" name="current-behavior-summary" class="anchor"><span class="anchor-link"></span></a>Current behavior summary</h2>
+<ol>
+  <li><code>SourceConverter.toLambdaExpr</code> lowers parameter groups into nested lambdas.</li>
+  <li>Recursive calls become chained application nodes like <code>App(App(Local(self), g1Args), g2Args)</code>.</li>
+  <li>Existing tail-call loop lowering is oriented around direct self-call shapes and may miss these chained grouped calls.</li>
+</ol>
+<h2><a href="#where-this-rewrite-should-live" name="where-this-rewrite-should-live" class="anchor"><span class="anchor-link"></span></a>Where this rewrite should live</h2>
+<p>This rewrite should live in <code>TypedExprNormalization</code> as a pre-pass immediately before tail-call-to-loop lowering.</p>
+<ol>
+  <li>It belongs in normalization (not parser/source conversion), because normalization already sees typed <code>TypedExpr</code> shapes and performs alpha-safe rewrites.</li>
+  <li>It should run right before whichever hook currently lowers self tail calls to <code>Loop</code>/<code>Recur</code>.</li>
+  <li>If loop-lowering internals moved (for example, after PR #1737), keep this as a normalization-stage pre-pass and wire it at the new call site.</li>
+</ol>
+<h2><a href="#proposed-rewrite" name="proposed-rewrite" class="anchor"><span class="anchor-link"></span></a>Proposed rewrite</h2>
+<h3><a href="#high-level-transformation" name="high-level-transformation" class="anchor"><span class="anchor-link"></span></a>High-level transformation</h3>
+<p>For a recursive binding with grouped lambdas, create an internal helper that takes all group parameters in one argument list, rewrite recursive self-calls to that helper, then run existing loop lowering.</p>
+<p>General shape:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def f(g1)(g2)...(gn):
+  body with recursive calls f(a1)(a2)...(an)
+</code></pre>
+<p>becomes (conceptually):</p>
+<pre class="prettyprint"><code class="language-bosatsu">def f(g1)(g2)...(gn):
+  def loop(g1, g2, ..., gn):
+    body with recursive calls loop(a1, a2, ..., an)
+  loop(g1, g2, ..., gn)
+</code></pre>
+<p>This handles any number of parameter groups (<code>n &gt;= 2</code>) in one pass.</p>
+<h3><a href="#explicit-detection-in-typedexpr" name="explicit-detection-in-typedexpr" class="anchor"><span class="anchor-link"></span></a>Explicit detection in <code>TypedExpr</code></h3>
+<p>Detection is AST-driven and type-checked, not string-based.</p>
+<ol>
+  <li>Identify candidate recursive binding <code>Let(fnName, rhs, in, rec = Recursive, tag)</code>.</li>
+  <li>Collect lambda groups from <code>rhs</code> by unwrapping <code>Generic</code>/<code>Annotation</code>, walking nested <code>AnnotatedLambda</code>, and allowing non-recursive <code>Let</code> wrappers between groups when they do not shadow already-collected group names. Abort if fewer than two groups are recovered.</li>
+  <li>Traverse only the terminal group body and classify each occurrence of <code>fnName</code>: flatten chained <code>App</code> into <code>(head, argGroups)</code>; require <code>head</code> is <code>Local(fnName, _, _)</code> (after stripping wrappers); require group-count and per-group arity match; require full application to result type (no partial <code>f(g1)</code> values); require tail position eligibility.</li>
+  <li>If any recursive occurrence fails these checks, abort rewrite for this binding.</li>
+</ol>
+<p>This is robust to shapes like:</p>
+<pre class="prettyprint"><code class="language-bosatsu">foo = fn -&gt; (
+  x = 2
+  (x, y) -&gt; (
+    ... foo(fn)(x, y)
+  )
+)
+</code></pre>
+<p>because the detection allows a non-recursive <code>Let</code> wrapper between groups and still requires fully-applied grouped self-calls at the terminal body.</p>
+<h3><a href="#prefix-arguments-may-change" name="prefix-arguments-may-change" class="anchor"><span class="anchor-link"></span></a>Prefix arguments may change</h3>
+<p>We do not require prefix groups to be invariant. Recursive calls like <code>f(nextFn)(x1, x2)</code> are valid rewrite targets.</p>
+<p>Reason:</p>
+<ol>
+  <li>The helper threads all group arguments as explicit loop state.</li>
+  <li>Recursive updates to any group become ordinary <code>Recur</code> state updates.</li>
+  <li>This is semantically direct and avoids imposing an unnecessary restriction.</li>
+</ol>
+<h3><a href="#why-not-recurse-through-an-outer-function-reference-" name="why-not-recurse-through-an-outer-function-reference-" class="anchor"><span class="anchor-link"></span></a>Why not recurse through an outer-function reference?</h3>
+<p>Keeping recursion as &ldquo;call outer function from inside helper&rdquo; is possible but weaker:</p>
+<ol>
+  <li>It reintroduces higher-order application in the recursive path.</li>
+  <li>It can block existing direct <code>Recur</code> lowering and may keep extra closure/application overhead.</li>
+  <li>Rewriting directly to helper self-calls aligns with the current loop-lowering pipeline.</li>
+</ol>
+<h2><a href="#integration-point" name="integration-point" class="anchor"><span class="anchor-link"></span></a>Integration point</h2>
+<p>In normalization, at the recursive-let rewrite site:</p>
+<ol>
+  <li>normalize RHS first.</li>
+  <li>run <code>rewriteMultiGroupTailRec</code>.</li>
+  <li>then run existing tail-call loop lowering.</li>
+  <li>then run existing closure/capture rewrites.</li>
+</ol>
+<p>This preserves current pass ordering while exposing the loopable shape earlier.</p>
+<h2><a href="#sketch-of-helper-api-and-invariants" name="sketch-of-helper-api-and-invariants" class="anchor"><span class="anchor-link"></span></a>Sketch of helper API and invariants</h2>
+<pre class="prettyprint"><code class="language-scala">private def rewriteMultiGroupTailRec[A](
+  fnName: Bindable,
+  expr: TypedExpr[A],
+  tag: A
+): Option[TypedExpr[A]]
+</code></pre>
+<p>Invariants:</p>
+<ol>
+  <li><code>None</code> means &ldquo;no safe rewrite&rdquo;.</li>
+  <li><code>Some(expr1)</code> means type-preserving rewrite: <code>expr1.getType.sameAs(expr.getType)</code>.</li>
+  <li><code>Some(expr1)</code> preserves semantics up to alpha-renaming and existing normalization equalities.</li>
+</ol>
+<h2><a href="#correctness-notes" name="correctness-notes" class="anchor"><span class="anchor-link"></span></a>Correctness notes</h2>
+<ol>
+  <li>External function signature and partial-application behavior are unchanged.</li>
+  <li>Only internal recursive target shape changes.</li>
+  <li>Match/guard ordering and evaluation order are preserved.</li>
+  <li>Alpha-safety is maintained via existing fresh-name/unshadow discipline.</li>
+</ol>
+<h2><a href="#tests-to-add" name="tests-to-add" class="anchor"><span class="anchor-link"></span></a>Tests to add</h2>
+<p>In <code>core/src/test/scala/dev/bosatsu/TypedExprTest.scala</code>:</p>
+<ol>
+  <li>Issue-1727 regression (<code>eq_List</code>) rewrites to helper-recursive shape and then loop form.</li>
+  <li>Partial-application behavior remains unchanged (<code>eq_List(eq_Int)</code> style).</li>
+  <li>Changed-prefix recursion rewrites correctly (<code>f(g1)(x)</code> recursing as <code>f(g1Next)(xNext)</code>).</li>
+  <li><code>Let</code>-between-groups shape is supported.</li>
+  <li>Escaping self-reference still blocks rewrite.</li>
+  <li>Idempotence: second normalization pass is stable.</li>
+</ol>
+<h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
+<ol>
+  <li>No syntax changes.</li>
+  <li>No backend-specific rewrite.</li>
+  <li>No recursion-rule changes in <code>DefRecursionCheck</code>.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/issue_1727_multi_parameter_group_recursion_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../design-docs/issue_1732_match_site_struct_scrutinee_elision_design.html">Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in <code>Matchless</code></a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/issue_1727_multi_parameter_group_recursion_design.html#issue-1727-tail-loop-rewrite-for-multi-parameter-group-functions" class="header">Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions</a></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-ffa824cf-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
