@@ -37,6 +37,7 @@ struct S(a: Int, b: Int = a) # rejected
 ```
 
 Allowed default dependencies are only:
+
 1. imported values,
 2. values defined earlier in the same file,
 3. earlier default helpers by source order.
@@ -69,6 +70,7 @@ enum E:
 
 ### Construction semantics (record syntax only)
 For `C { field1: e1, ... }`:
+
 1. Unknown field names still error.
 2. Duplicate/extra field behavior remains as today (no new behavior change in this feature).
 3. For each constructor field in declared order:
@@ -111,6 +113,7 @@ final case class ConstructorFn[+A](
 Defaults are generated during source-to-core conversion as a conceptual desugaring of the statement stream.
 
 Semantics are:
+
 1. Process top-level statements in source order.
 2. When a `struct`/`enum` definition is seen, keep the type definition unchanged.
 3. Immediately after that type definition, insert synthetic non-recursive helper bindings for its defaulted fields.
@@ -118,6 +121,7 @@ Semantics are:
 So yes: semantically these names exist immediately after the defining `struct`/`enum` statement.
 
 Consequences:
+
 1. Later top-level statements can see/use those helpers (through constructor metadata), earlier ones cannot.
 2. Default expressions can reference earlier top-level values.
 3. Defaults may reference earlier defaults from the same type definition under a deterministic order:
@@ -131,6 +135,7 @@ For each defaulted field, generate a synthetic top-level binding in the defining
 The helper expression is the parsed default expression and is typechecked against the field type.
 
 This gives:
+
 1. Single evaluation/sharing (not re-elaborated per construction site).
 2. A concrete symbol that downstream packages can reference after import of constructor metadata.
 3. Normal error reporting at the default expression source region.
@@ -142,6 +147,7 @@ Name allocation happens in `SourceConverter` (whole-file context available), bef
 Each helper name is a deterministic hash of constructor parameter API identity, not of local file context.
 
 Fingerprint input (`DefaultNameV1`):
+
 1. package name,
 2. type name,
 3. constructor name,
@@ -151,6 +157,7 @@ Fingerprint input (`DefaultNameV1`):
 Canonical type digest should be computed from a normalized, alpha-stable encoding of the field type (for example de-Bruijn-style bound-variable numbering) so harmless binder renaming does not perturb helper names.
 
 Suggested emitted bindable:
+
 1. create `Identifier.synthetic("default$" + <digest>)`,
 2. where `<digest>` is base32/hex `Blake3(DefaultNameV1 input)`.
 
@@ -164,6 +171,7 @@ _default$8f3c1a7d9b42...
 Under current `ApiDiff` policy, changing any of (type/constructor identity, parameter position, parameter type) is already major-only.
 
 So:
+
 1. patch/minor changes that keep constructor parameter API identity unchanged keep helper names unchanged,
 2. helper-name changes imply a major-allowed API change.
 
@@ -173,10 +181,12 @@ Default expression body changes are excluded from the fingerprint, so implementa
 Assumption: `Identifier.synthetic(...)` names are not definable by users in Bosatsu source.
 
 Under that assumption:
+
 1. user-vs-helper collisions cannot occur,
 2. user shadowing of helper names cannot occur.
 
 For generated helpers:
+
 1. we generate at most one helper per constructor parameter slot,
 2. emitted name is a pure function of `DefaultNameV1` key for that slot,
 3. assuming no Blake3 collisions, two different keys cannot produce the same emitted name.
@@ -187,6 +197,7 @@ To avoid non-deterministic behavior, we still do **not** fall back to `unusedNam
 
 ### 5. Scope rule for default expressions (v1)
 To keep evaluation acyclic and predictable, a default expression may reference:
+
 1. Imported names.
 2. Top-level values defined earlier in source order.
 3. Earlier generated default helpers.
@@ -203,6 +214,7 @@ This matches a DAG-friendly ordering and avoids introducing implicit call-site s
 
 ### 6. Record-constructor conversion
 In `SourceConverter` record-constructor handling:
+
 1. Look up constructor params with default metadata.
 2. Build full positional arg list by field name:
    1. explicit arg
@@ -218,6 +230,7 @@ Because this remains an ordinary application after elaboration, the rest of infe
 Current constructor args in `Statement.Struct`/`Statement.EnumBranch` are just `(Bindable, Option[TypeRef])`, so there is no per-default region.
 
 To surface precise errors for defaults, we should change parsed arg shape to carry:
+
 1. field name,
 2. optional declared type,
 3. optional default expression,
@@ -228,6 +241,7 @@ The parser change is to parse default clauses with `.region` and keep that regio
 
 ### How this plugs into the current typechecker pipeline
 Current flow already has good region plumbing:
+
 1. `SourceConverter.toProgram` builds `Expr[Declaration]`.
 2. `Infer.typeCheckLets` uses `HasRegion[Declaration]` when creating `Infer.Error`.
 3. `PackageError.TypeErrorIn` renders source snippets from those regions via `LocationMap`.
@@ -242,10 +256,12 @@ __bosatsu_default_Foo_a = (<default-expr> : <field-type>)
 ```
 
 Region policy:
+
 1. The annotation tag region is the stored default-clause region (`= <expr>`).
 2. The inner default expression keeps its own parsed subregions.
 
 Effect with current `Infer` behavior:
+
 1. `checkAnnotated` reports expected-type region from the annotation tag.
 2. Found-type region comes from the inner expression.
 3. `PackageError.TypeErrorIn` therefore highlights the original default source location, not an invented synthetic location.
@@ -262,6 +278,7 @@ reports a normal type mismatch at the default clause (expected `Int`, found `Str
 Default-scope policy violations (for example, forbidden forward/default dependency shape) should be emitted as `SourceConverter` errors at the stored default-clause region.
 
 This keeps:
+
 1. parse/scope errors in `SourceConverterErrorsIn`,
 2. type mismatches in `TypeErrorIn`,
 with both pointing to the same user-visible source location.
@@ -272,6 +289,7 @@ Compatibility checks live in `library/ApiDiff.scala` and are enforced from `LibC
 
 ### Existing constructor-shape rules remain
 These remain `major`-only:
+
 1. Constructor add/remove.
 2. Constructor index change.
 3. Param add/remove.
@@ -282,6 +300,7 @@ Reason: positional constructor calls are intentionally unchanged and remain part
 
 ### New default-specific diffs
 Add constructor-param default diffs:
+
 1. `ConstructorParamDefaultAdded` (`None -> Some`) : allowed in `minor` and `major`, disallowed in `patch`.
 2. `ConstructorParamDefaultRemoved` (`Some -> None`) : `major` only.
 
@@ -310,6 +329,7 @@ message FnParam {
 
 ### Converter changes
 In `ProtoConverter`:
+
 1. Encode/decode `defaultBindingName` on constructor params.
 2. Continue serializing generated helper lets as ordinary package lets.
 
@@ -324,10 +344,12 @@ This avoids introducing named-argument-like implicit imports at constructor call
 
 ### Export/import behavior
 Bosatsu reminder:
+
 1. `export T` exports only the type name.
 2. `export T()` exports the type name plus all constructors.
 
 Defaults follow constructor visibility:
+
 1. Exporting `T` only does not expose constructor defaults.
 2. Exporting `T()` includes constructor default metadata and the associated synthetic helper values needed to realize those defaults.
 3. Importing constructor names via `T()` automatically links the default behavior for record construction in downstream packages.
@@ -337,6 +359,7 @@ Defaults follow constructor visibility:
 No new user-visible import item is introduced for defaults.
 
 Consequences:
+
 1. Unused-import checks remain keyed to the explicit imported constructor/type/value names.
 2. Using record construction that relies on defaults still counts as using the constructor import (same as any constructor use).
 3. There should be no new false-positive unused-import errors caused solely by default helpers.
@@ -345,6 +368,7 @@ Consequences:
 Bosatsu normally reports unused top-level values unless they are reachable from roots (exports/main/tests/non-binding uses).
 
 For defaults:
+
 1. helper lets are synthetic (`Identifier.synthetic(...)`),
 2. they are treated as synthetic exports reachable from exported constructors (`T()` path),
 3. thus they are on the export-reachability path under the normal rule,

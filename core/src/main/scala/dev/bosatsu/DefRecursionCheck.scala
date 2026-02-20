@@ -77,19 +77,31 @@ object DefRecursionCheck {
       s"recur not on an argument to the def of ${fnname.sourceCodeRepr}, args: $argStr"
     }
   }
-  case class RecursionArgNotVar(fnname: Bindable, invalidArg: Declaration)
+  case class RecurTargetInvalid(fnname: Bindable, invalidArg: Declaration)
       extends RecursionError {
     def region = invalidArg.region
     def message =
-      s"recursion in ${fnname.sourceCodeRepr} is not on a name (expect a name which is exactly a arg to the def)"
+      s"recur target for ${fnname.sourceCodeRepr} must be a name or tuple of names bound to def args"
   }
-  case class RecursionNotSubstructural(
+  case class RecurTargetDuplicate(
       fnname: Bindable,
-      recurPat: Pattern.Parsed,
-      arg: Declaration.Var
+      duplicated: Bindable,
+      invalidArg: Declaration
   ) extends RecursionError {
-    def region = arg.region
-    def message = s"recursion in ${fnname.sourceCodeRepr} not substructual"
+    def region = invalidArg.region
+    def message =
+      s"recur target for ${fnname.sourceCodeRepr} contains duplicate parameter ${duplicated.sourceCodeRepr}"
+  }
+  case class RecursionNotLexicographic(
+      fnname: Bindable,
+      target: NonEmptyList[Bindable],
+      illegalPosition: Region
+  ) extends RecursionError {
+    def region = illegalPosition
+    def message = {
+      val targetStr = target.toList.map(_.sourceCodeRepr).mkString(", ")
+      s"recursive call to ${fnname.sourceCodeRepr} is not lexicographically smaller on recur target ($targetStr)."
+    }
   }
   case class RecursiveDefNoRecur(
       defstmt: DefStatement[Pattern.Parsed, Declaration],
@@ -132,6 +144,9 @@ object DefRecursionCheck {
 
   private object Impl {
     val unitValid: Res = Validated.valid(())
+    case class RecurTargetItem(group: Int, index: Int, paramName: Bindable)
+        derives CanEqual
+    type RecurTarget = NonEmptyList[RecurTargetItem]
 
     /*
      * While checking a def we have three states we can be in:
@@ -166,9 +181,9 @@ object DefRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _)                                => id
-          case InDefRecurred(ir, _, _, _, _, _)                      => ir.inDef
-          case InRecurBranch(InDefRecurred(ir, _, _, _, _, _), _, _) =>
+          case id @ InDef(_, _, _, _)                    => id
+          case InDefRecurred(ir, _, _, _, _)             => ir.inDef
+          case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _, _) =>
             ir.inDef
         }
 
@@ -186,8 +201,8 @@ object DefRecursionCheck {
       def addLocal(b: Bindable): InDef =
         InDef(outer, fnname, args, localScope + b)
 
-      def setRecur(index: (Int, Int), m: Declaration.Match): InDefRecurred =
-        InDefRecurred(this, index._1, index._2, m, 0, Map.empty)
+      def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
+        InDefRecurred(this, target, m, 0, Map.empty)
 
       // This is eta-expansion of the function name as a lambda so we can check using the lambda rule
       def asLambda(region: Region): Declaration.Lambda = {
@@ -231,8 +246,7 @@ object DefRecursionCheck {
     }
     case class InDefRecurred(
         inRec: InDef,
-        group: Int,
-        index: Int,
+        target: RecurTarget,
         recur: Declaration.Match,
         recCount: Int,
         calledNames: Map[Bindable, Int]
@@ -247,7 +261,8 @@ object DefRecursionCheck {
     case class InRecurBranch(
         inRec: InDefRecurred,
         branch: Pattern.Parsed,
-        allowedNames: Set[Bindable]
+        allowedPerTarget: NonEmptyList[Set[Bindable]],
+        reachableNames: Set[Bindable]
     ) extends InDefState {
       def incRecCount: InRecurBranch = copy(inRec = inRec.incRecCount)
       def noteCalledName(nm: Bindable): InRecurBranch =
@@ -271,53 +286,187 @@ object DefRecursionCheck {
         )
         .map(_.value)
 
+    private def getRecurTargetItemsByName(
+        args: NonEmptyList[NonEmptyList[Pattern.Parsed]]
+    ): Map[Bindable, RecurTargetItem] =
+      args.iterator
+        .zipWithIndex
+        .flatMap { case (group, gidx) =>
+          group.iterator.zipWithIndex.flatMap { case (item, idx) =>
+            item.topNames.iterator.map { topName =>
+              topName -> RecurTargetItem(gidx, idx, topName)
+            }
+          }
+        }
+        .toMap
+
+    private def resolveRecurTargetItem(
+        fnname: Bindable,
+        args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
+        recur: Declaration.Match,
+        locals: Set[Bindable],
+        targetItemsByName: Map[Bindable, RecurTargetItem],
+        d: Declaration
+    ): ValidatedNel[RecursionError, RecurTargetItem] =
+      d match {
+        case Declaration.Var(b: Bindable) if locals(b) =>
+          Validated.invalidNel(RecurNotOnArg(recur, fnname, args))
+        case Declaration.Var(b: Bindable) =>
+          targetItemsByName
+            .get(b)
+            .toValidNel(RecurNotOnArg(recur, fnname, args))
+        case Declaration.Var(_) =>
+          Validated.invalidNel(RecurNotOnArg(recur, fnname, args))
+        case _ =>
+          Validated.invalidNel(RecurTargetInvalid(fnname, d))
+      }
+
     /*
-     * What is the index into the list of def arguments where we are doing our recursion
+     * What are the indices into the list of def arguments where we are doing recursion.
      */
-    def getRecurIndex(
+    def getRecurTarget(
         fnname: Bindable,
         args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
         m: Declaration.Match,
         locals: Set[Bindable]
-    ): ValidatedNel[RecursionError, (Int, Int)] = {
+    ): ValidatedNel[RecursionError, RecurTarget] = {
       import Declaration._
-      m.arg match {
-        case Var(v) =>
-          v match {
-            case b: Bindable if locals(b) =>
-              Validated.invalidNel(RecurNotOnArg(m, fnname, args))
-            case _ =>
-              val idxes = for {
-                (group, gidx) <- args.iterator.zipWithIndex
-                (item, idx) <- group.iterator.zipWithIndex
-                if item.topNames.contains(v)
-              } yield (gidx, idx)
+      val targetItemsByName = getRecurTargetItemsByName(args)
 
-              if (idxes.hasNext) Validated.valid(idxes.next())
-              else Validated.invalidNel(RecurNotOnArg(m, fnname, args))
-          }
+      def checkDuplicates(
+          target: RecurTarget,
+          sourceItems: NonEmptyList[Declaration]
+      ): ValidatedNel[RecursionError, RecurTarget] = {
+        val (_, errorsRev) =
+          target.iterator
+            .zip(sourceItems.iterator)
+            .foldLeft((Set.empty[Bindable], List.empty[RecursionError])) {
+              case ((seen, errs), (item, sourceDecl)) =>
+                if (seen(item.paramName))
+                  (
+                    seen,
+                    RecurTargetDuplicate(fnname, item.paramName, sourceDecl) :: errs
+                  )
+                else (seen + item.paramName, errs)
+            }
+
+        NonEmptyList.fromList(errorsRev.reverse) match {
+          case Some(errs) => Validated.invalid(errs)
+          case None       => Validated.valid(target)
+        }
+      }
+
+      m.arg match {
+        case v @ Var(_) =>
+          resolveRecurTargetItem(
+            fnname,
+            args,
+            m,
+            locals,
+            targetItemsByName,
+            v
+          ).map(NonEmptyList.one)
+        case TupleCons(Nil) =>
+          Validated.invalidNel(RecurTargetInvalid(fnname, m.arg))
+        case TupleCons(h :: tail) =>
+          val sourceItems = NonEmptyList(h, tail)
+          sourceItems
+            .traverse(
+              resolveRecurTargetItem(
+                fnname,
+                args,
+                m,
+                locals,
+                targetItemsByName,
+                _
+              )
+            )
+            .andThen(checkDuplicates(_, sourceItems))
         case _ =>
-          Validated.invalidNel(RecurNotOnArg(m, fnname, args))
+          Validated.invalidNel(RecurTargetInvalid(fnname, m.arg))
       }
     }
 
-    /*
-     * Check that decl is a strict substructure of pat. We do this by making sure decl is a Var
-     * and that var is one of the strict substrutures of the pattern.
-     */
-    def allowedRecursion(
+    private enum ArgLexOrder derives CanEqual {
+      case Equal
+      case Smaller
+      case Other
+    }
+    import ArgLexOrder.*
+
+    private def classifyArg(
+        target: RecurTargetItem,
+        allowed: Set[Bindable],
+        arg: Declaration
+    ): ArgLexOrder =
+      arg match {
+        case Declaration.Var(nm: Bindable) if allowed(nm)            => Smaller
+        case Declaration.Var(nm: Bindable) if nm == target.paramName => Equal
+        case _                                                       => Other
+      }
+
+    private def isLexicographicallySmaller(
+        target: RecurTarget,
+        allowedPerTarget: NonEmptyList[Set[Bindable]],
+        callArgsByTarget: NonEmptyList[Declaration]
+    ): Boolean = {
+      val stepIter = target.iterator
+        .zip(allowedPerTarget.iterator)
+        .zip(callArgsByTarget.iterator)
+
+      while (stepIter.hasNext) {
+        val ((targetItem, allowed), arg) = stepIter.next()
+        classifyArg(targetItem, allowed, arg) match {
+          case Smaller => return true
+          case Equal   => ()
+          case Other   => return false
+        }
+      }
+
+      false
+    }
+
+    private def recurAllowedByLexOrder(
         fnname: Bindable,
-        pat: Pattern.Parsed,
-        names: Set[Bindable],
-        decl: Declaration
+        target: RecurTarget,
+        allowedPerTarget: NonEmptyList[Set[Bindable]],
+        callArgsByTarget: NonEmptyList[Declaration],
+        region: Region
     ): Res =
-      decl match {
-        case v @ Declaration.Var(nm: Bindable) =>
-          if (names.contains(nm)) unitValid
-          else Validated.invalidNel(RecursionNotSubstructural(fnname, pat, v))
+      if (isLexicographicallySmaller(target, allowedPerTarget, callArgsByTarget))
+        unitValid
+      else {
+        val targetParams = target.map(_.paramName)
+        Validated.invalidNel(RecursionNotLexicographic(fnname, targetParams, region))
+      }
+
+    @annotation.tailrec
+    private def unwrapNamedAnnotation(
+        pat: Pattern.Parsed
+    ): Pattern.Parsed =
+      pat match {
+        case Pattern.Annotation(inner, _) => unwrapNamedAnnotation(inner)
+        case Pattern.Named(_, inner)      => unwrapNamedAnnotation(inner)
+        case p                            => p
+      }
+
+    private def allowedByTarget(
+        target: RecurTarget,
+        branchPat: Pattern.Parsed
+    ): NonEmptyList[Set[Bindable]] =
+      target.tail match {
+        case Nil =>
+          NonEmptyList.one(branchPat.substructures.toSet)
         case _ =>
-          // we can only recur with vars
-          Validated.invalidNel(RecursionArgNotVar(fnname, decl))
+          unwrapNamedAnnotation(branchPat) match {
+            case Pattern.PositionalStruct(kind, parts)
+                if parts.length == target.length &&
+                  ((kind == Pattern.StructKind.Tuple) ||
+                    kind.namedStyle.contains(Pattern.StructKind.Style.TupleLike)) =>
+              NonEmptyList.fromListUnsafe(parts.map(_.substructures.toSet))
+            case _ =>
+              target.map(_ => Set.empty[Bindable])
+          }
       }
 
     /*
@@ -420,13 +569,25 @@ object DefRecursionCheck {
         case _ => None
       }
 
-    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
+    private def withTemporaryRecurBranchNames[A](
+        in: St[A],
+        onMissing: State => St[A]
+    )(
+        update: (NonEmptyList[Set[Bindable]], Set[Bindable]) => (
+            NonEmptyList[Set[Bindable]],
+            Set[Bindable]
+        )
+    ): St[A] =
       getSt.flatMap {
-        case start @ InRecurBranch(inrec, branch, names) =>
-          (setSt(InRecurBranch(inrec, branch, names ++ newNames)) *> in, getSt)
+        case start @ InRecurBranch(inrec, branch, allowed, names) =>
+          val (allowed1, names1) = update(allowed, names)
+          (
+            setSt(InRecurBranch(inrec, branch, allowed1, names1)) *> in,
+            getSt
+          )
             .flatMapN {
-              case (a, InRecurBranch(ir1, b1, _)) =>
-                setSt(InRecurBranch(ir1, b1, names)).as(a)
+              case (a, InRecurBranch(ir1, b1, _, _)) =>
+                setSt(InRecurBranch(ir1, b1, allowed, names)).as(a)
               // $COVERAGE-OFF$ this should be unreachable
               case (_, unexpected) =>
                 sys.error(
@@ -434,25 +595,26 @@ object DefRecursionCheck {
                 )
             }
         case notRecur =>
-          sys.error(s"called setNames on $notRecur with names: $newNames")
-        // $COVERAGE-ON$ this should be unreachable
+          onMissing(notRecur)
+      }
+
+    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
+      withTemporaryRecurBranchNames(
+        in,
+        notRecur => sys.error(s"called setNames on $notRecur with names: $newNames")
+      ) { (allowed, names) =>
+        // Single-target recursion keeps the old behavior where lambda args
+        // from reachable substructures are also considered recursive args.
+        val allowed1 = allowed.tail match {
+          case Nil    => NonEmptyList.one(allowed.head ++ newNames)
+          case _ :: _ => allowed
+        }
+        (allowed1, names ++ newNames)
       }
 
     private def filterNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
-      getSt.flatMap {
-        case start @ InRecurBranch(inrec, branch, names) =>
-          (setSt(InRecurBranch(inrec, branch, names -- newNames)) *> in, getSt)
-            .flatMapN {
-              case (a, InRecurBranch(ir1, b1, _)) =>
-                setSt(InRecurBranch(ir1, b1, names)).as(a)
-              // $COVERAGE-OFF$ this should be unreachable
-              case (_, unexpected) =>
-                sys.error(
-                  s"invariant violation expected InRecurBranch: start = $start, end = $unexpected"
-                )
-              // $COVERAGE-ON$ this should be unreachable
-            }
-        case _ => in
+      withTemporaryRecurBranchNames(in, _ => in) { (allowed, names) =>
+        (allowed.map(_ -- newNames), names -- newNames)
       }
 
     def checkApply(
@@ -464,20 +626,33 @@ object DefRecursionCheck {
         case TopLevel =>
           // without any recursion, normal typechecking will detect bad states:
           checkDecl(fn) *> args.parTraverse_(checkDecl)
-        case irb @ InRecurBranch(inrec, branch, names) =>
+        case irb @ InRecurBranch(inrec, _, allowedPerTarget, names) =>
           argsOnDefName(fn, NonEmptyList.one(args)) match {
             case Some((nm, groups)) =>
               if (nm == irb.defname) {
-                val group = inrec.group
-                val idx = inrec.index
-                groups.get(group.toLong).flatMap(_.get(idx.toLong)) match {
-                  case None =>
-                    // not enough args to check recursion
-                    failSt(NotEnoughRecurArgs(nm, region))
-                  case Some(arg) =>
-                    toSt(allowedRecursion(irb.defname, branch, names, arg)) *>
-                      setSt(irb.incRecCount) // we have recurred again
-                }
+                val targetArgsV: ValidatedNel[RecursionError, NonEmptyList[
+                  Declaration
+                ]] =
+                  inrec.target.traverse { targetItem =>
+                    groups
+                      .get(targetItem.group.toLong)
+                      .flatMap(_.get(targetItem.index.toLong))
+                      .toValidNel(NotEnoughRecurArgs(nm, region))
+                  }
+
+                val allArgs = groups.iterator.flatMap(_.iterator).toList
+                toSt(
+                  targetArgsV.andThen(
+                    recurAllowedByLexOrder(
+                      irb.defname,
+                      inrec.target,
+                      allowedPerTarget,
+                      _,
+                      region
+                    )
+                  )
+                ) *>
+                  setSt(irb.incRecCount) *> allArgs.parTraverse_(checkDecl)
               } else if (irb.defNamesContain(nm)) {
                 failSt(InvalidRecursion(nm, region))
               } else if (names.contains(nm)) {
@@ -573,20 +748,25 @@ object DefRecursionCheck {
         case recur @ Match(RecursionKind.Recursive, _, cases) =>
           // this is a state change
           getSt.flatMap {
-            case TopLevel | InRecurBranch(_, _, _) |
-                InDefRecurred(_, _, _, _, _, _) =>
+            case TopLevel | InRecurBranch(_, _, _, _) |
+                InDefRecurred(_, _, _, _, _) =>
               failSt(UnexpectedRecur(recur))
             case InDef(_, defname, args, locals) =>
-              toSt(getRecurIndex(defname, args, recur, locals)).flatMap { idx =>
+              toSt(getRecurTarget(defname, args, recur, locals)).flatMap {
+                target =>
                 // on all these branchs, use the the same
                 // parent state
                 def beginBranch(pat: Pattern.Parsed): St[Unit] =
                   getSt.flatMap {
                     case ir @ InDef(_, _, _, _) =>
-                      val rec = ir.setRecur(idx, recur)
+                      val rec = ir.setRecur(target, recur)
                       setSt(rec) *> beginBranch(pat)
-                    case irr @ InDefRecurred(_, _, _, _, _, _) =>
-                      setSt(InRecurBranch(irr, pat, pat.substructures.toSet))
+                    case irr @ InDefRecurred(_, _, _, _, _) =>
+                      val allowed = allowedByTarget(irr.target, pat)
+                      val reachable = allowed.iterator.flatMap(_.iterator).toSet
+                      setSt(
+                        InRecurBranch(irr, pat, allowed, reachable)
+                      )
                     case illegal =>
                       // $COVERAGE-OFF$ this should be unreachable
                       sys.error(s"unreachable: $pat -> $illegal")
@@ -595,7 +775,7 @@ object DefRecursionCheck {
 
                 val endBranch: St[Unit] =
                   getSt.flatMap {
-                    case InRecurBranch(irr, _, _) => setSt(irr)
+                    case InRecurBranch(irr, _, _, _) => setSt(irr)
                     case illegal                  =>
                       // $COVERAGE-OFF$ this should be unreachable
                       sys.error(s"unreachable end state: $illegal")
@@ -690,10 +870,10 @@ object DefRecursionCheck {
           case InDef(_, _, _, _) =>
             // we never hit a recur
             unitSt
-          case InDefRecurred(_, _, _, _, cnt, _) if cnt > 0 =>
+          case InDefRecurred(_, _, _, cnt, _) if cnt > 0 =>
             // we did hit a recur
             unitSt
-          case InDefRecurred(_, _, _, recur, 0, calledNames) =>
+          case InDefRecurred(_, _, recur, 0, calledNames) =>
             // we hit a recur, but we didn't recurse
             failSt[Unit](
               RecursiveDefNoRecur(

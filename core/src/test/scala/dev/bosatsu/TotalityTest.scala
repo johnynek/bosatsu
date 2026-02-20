@@ -668,6 +668,86 @@ enum Either: Left(l), Right(r)
 
   override def missingBranchesIfAddedRegressions: List[List[Pat]] =
     patterns("""[[*foo, "$.{_}", "$.{_}"], [[b, *_]]]""") ::
+      {
+        import Pattern._
+        import Pattern.ListPart.{Item, NamedList, WildList}
+        import Pattern.StrPart.{LitStr, NamedChar, WildChar}
+        import Identifier.{Constructor, Name, Operator}
+
+        val largeInt = Literal(Lit.Integer(2147483648L))
+        val p0 =
+          ListPat(
+            List(
+              WildList,
+              Item(
+                Union(
+                  largeInt,
+                  NonEmptyList.of(
+                    StrPat(
+                      NonEmptyList.of(
+                        LitStr("fmvzwe"),
+                        NamedChar(Name("ziiz")),
+                        WildChar
+                      )
+                    ),
+                    StrPat(
+                      NonEmptyList.of(
+                        WildChar,
+                        NamedChar(Name("woyi"))
+                      )
+                    )
+                  )
+                )
+              ),
+              Item(
+                StrPat(
+                  NonEmptyList.of(
+                    LitStr("vf"),
+                    NamedChar(Operator("|")),
+                    NamedChar(Name("k7"))
+                  )
+                )
+              )
+            )
+          )
+
+        val p1 =
+          ListPat(
+            List(
+              Item(StrPat(NonEmptyList.of(WildChar))),
+              Item(
+                PositionalStruct(
+                  (PackageName(NonEmptyList.one("Tdaeo")), Constructor("Mkbvflxqji")),
+                  List(StrPat(NonEmptyList.of(NamedChar(Name("ym")))), WildCard)
+                )
+              ),
+              Item(Var(Operator("%+"))),
+              Item(ListPat(Nil)),
+              Item(
+                ListPat(
+                  List(
+                    NamedList(Name("hqhkcqz1feX")),
+                    Item(WildCard),
+                    Item(
+                      PositionalStruct(
+                        (
+                          PackageName(
+                            NonEmptyList.of("V", "LfMnybi", "Hwxgqe2s")
+                          ),
+                          Constructor("ZLl")
+                        ),
+                        Nil
+                      )
+                    ),
+                    Item(WildCard)
+                  )
+                )
+              )
+            )
+          )
+
+        List(p0, p1, Literal(Lit.fromInt(-1)))
+      } ::
       Nil
 
   test("var pattern is super or same") {

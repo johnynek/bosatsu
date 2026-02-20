@@ -457,6 +457,8 @@ object PredefImpl {
   private def finiteDoubleToNearestInt(d: Double): BigInteger = {
     val rounded = java.lang.Math.rint(d)
     if (rounded == 0.0d) BigInteger.ZERO
+    else if (rounded >= Long.MinValue.toDouble && rounded <= Long.MaxValue.toDouble)
+      BigInteger.valueOf(rounded.toLong)
     else {
       val bits = java.lang.Double.doubleToRawLongBits(rounded)
       val isNegative = (bits >>> 63) == 1L

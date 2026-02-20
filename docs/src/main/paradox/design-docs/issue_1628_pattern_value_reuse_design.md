@@ -29,6 +29,7 @@ def if_one_two_none_zero(o: Option[Int]):
 
 ## Current state in `TypedExprNormalization`
 `normalizeLetOpt` already normalizes `Match` branches by:
+
 1. Normalizing guards and branch bodies in pattern scope.
 2. Folding guards that normalize to `True`/`False`.
 3. Dropping `False` branches.
@@ -73,6 +74,7 @@ This is conservative and still captures the issue-1628 example.
 
 ## Fresh-name and capture safety
 When introducing `Pattern.Named(fresh, pattern)`, choose `fresh` not present in:
+
 1. `pattern.names`
 2. free vars of guard and branch expr
 3. all vars in match arg/branch expressions already in scope for this rewrite
@@ -142,6 +144,7 @@ match value:
 Given `(pattern, guard, expr)`, find a subpattern `p_sub` inside `pattern` such that `expr` structurally rebuilds `p_sub`.
 
 Then:
+
 1. If `p_sub` already binds a full-value name (`Var` or `Named` top binder), reuse that name.
 2. Otherwise insert `Pattern.Named(fresh, p_sub)` at that subpattern location.
 3. Rewrite branch body to `Local(chosenName, expr.getType, expr.tag)`.
@@ -160,6 +163,7 @@ private case class SubpatternCandidate(
 ```
 
 Algorithm:
+
 1. Traverse pattern and enumerate eligible subpatterns with deterministic order (left-to-right DFS).
 2. For each candidate subpattern, test `rebuilds(candidatePattern, expr)`.
 3. Keep matches and choose best by:
@@ -171,6 +175,7 @@ Algorithm:
 
 ### Structural matcher for phase 2
 Reuse phase-1 `rebuilds` rules, but apply them to any subpattern:
+
 1. `Var(x)` <-> `Local(x, _, _)`
 2. `Named(_, p)` <-> `rebuilds(p, expr)` (or direct name local)
 3. `Annotation(p, _)` <-> `rebuilds(p, expr)`
@@ -178,6 +183,7 @@ Reuse phase-1 `rebuilds` rules, but apply them to any subpattern:
 5. `Literal(l)` <-> `Literal(l, _, _)`
 
 Still excluded in phase 2:
+
 1. `Union`
 2. `ListPat`
 3. `StrPat`
@@ -195,6 +201,7 @@ private def bindAtPath(
 ```
 
 Rules:
+
 1. `path == Nil`: wrap this node in `Pattern.Named(name, p)` unless already top-bound by `Var`/`Named`.
 2. For `Annotation(inner, t)`: recurse into `inner` and rebuild annotation.
 3. For `Named(n, inner)`: recurse into `inner` (preserve `n`).
@@ -203,10 +210,12 @@ Rules:
 
 ### Name hygiene and shadowing
 Use one `used: Set[Bindable]` per match rewrite pass, seeded from:
+
 1. all vars in `arg`, all branch guards, all branch bodies
 2. all names bound by all branch patterns
 
 Fresh binder generation must avoid:
+
 1. current branch pattern names,
 2. free vars of branch guard and expr,
 3. global `used` set for the whole match.
@@ -226,6 +235,7 @@ private def freshName(
 
 ### Integration in normalization flow
 Inside `normalizeLetOpt` `case Match(arg, branches, tag)`:
+
 1. Keep current guard/body normalization and `True`/`False` folding.
 2. Before `freeT1` and `filterVars`, run:
    1. phase-1 whole-pattern reuse attempt,
@@ -242,6 +252,7 @@ Running before `filterVars` is important so newly introduced names are preserved
 
 ### Phase-2 tests
 Add focused tests in `TypedExprTest`:
+
 1. Nested constructor reuse:
    1. `case Foo(_, Bar(x)): Bar(x)` rewrites to alias of nested bound value.
 2. Existing nested binder reused:
@@ -256,6 +267,7 @@ Add focused tests in `TypedExprTest`:
 
 ### Optional phase-2b
 If useful later:
+
 1. add `Union` support when the matched branch has already selected a concrete side.
 2. add `ListPat`/`StrPat` structural reuse by extending matcher with list/string constructors.
 3. add profitability guard for very large pattern scans.
@@ -282,6 +294,7 @@ match o:
 
 ### Core idea (subexpression constructor-collision reuse)
 For each branch:
+
 1. Collect constructor-shaped subpatterns from the branch pattern.
 2. Convert each to a reusable candidate with:
    1. constructor key `(package, constructor, arity)`,
@@ -304,6 +317,7 @@ private case class ReuseCandidate(
 ```
 
 Extraction rules:
+
 1. Include `PositionalStruct` subpatterns (possibly under `Named`/`Annotation`).
 2. Skip `Union`, `ListPat`, `StrPat` for the first version.
 3. Prefer candidates with larger `score` (node count) and deeper `path`.
@@ -312,6 +326,7 @@ This is the "find constructors in patterns" part of the heuristic.
 
 ### Replacing subexpressions
 Implement a scope-aware expression traversal:
+
 1. Track blocked term names (`Set[Bindable]`) due to lambda args, let binders, loop binders, and branch pattern binders.
 2. At each node, try candidates in stable priority order.
 3. A candidate matches only when:
@@ -325,6 +340,7 @@ This prevents capture/shadowing bugs when inner scopes redefine names.
 
 ### Pattern updates required for replacement
 If a selected candidate has no binder yet:
+
 1. introduce one with `bindAtPath` (from phase 2),
 2. thread immutable `used: Set[Bindable]` through the rewrite.
 
@@ -332,6 +348,7 @@ If a candidate already has a binder (`as name` / `Var`), reuse it directly.
 
 ### Integration order
 Inside `normalizeLetOpt` `Match` branch normalization:
+
 1. existing guard/body normalization and guard folding,
 2. phase-1 whole-pattern reuse,
 3. phase-2 nested whole-branch reuse,
@@ -347,6 +364,7 @@ Running phase 3 before `filterVars` ensures newly introduced binders are retaine
 
 ### Phase-3 tests
 Add tests in `TypedExprTest`:
+
 1. `case Some(x): f(Some(x))` rewrites to reuse branch value binder.
 2. Multiple occurrences: `g(Some(x), Some(x))` rewrites both.
 3. Shadowing safety:

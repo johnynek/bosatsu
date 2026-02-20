@@ -497,13 +497,39 @@ class ParserTest extends ParserTestBase {
       Nil,
       Some(Declaration.Literal(Lit.Float64.fromDouble(Double.NaN)))
     )
+    val matchesUpdate = Declaration.RecordConstructor(
+      Identifier.Constructor("Foo"),
+      Nil,
+      Some(
+        Declaration.Matches(
+          Declaration.Literal(Lit.fromChar('x')),
+          Pattern.Literal(Lit.fromInt(1))
+        )
+      )
+    )
 
     assertEquals(charUpdate.toDoc.render(80), "Foo {.. .'x'}")
     assertEquals(nanUpdate.toDoc.render(80), "Foo {.. .NaN}")
+    assertEquals(matchesUpdate.toDoc.render(80), "Foo {.. .'x' matches 1}")
 
     val pNoRegion = Declaration.parser("").map(_.replaceRegions(emptyRegion))
     law(pNoRegion)(charUpdate)
     law(pNoRegion)(nanUpdate)
+    law(pNoRegion)(matchesUpdate)
+  }
+
+  test("record update docs roundtrip any non-binding update source") {
+    val pNoRegion = Declaration.parser("").map(_.replaceRegions(emptyRegion))
+    val prop = forAll(Generators.genNonBinding(5)) { update =>
+      val recordUpdate = Declaration.RecordConstructor(
+        Identifier.Constructor("Foo"),
+        Nil,
+        Some(update)
+      )
+      law(pNoRegion)(recordUpdate)
+    }
+
+    prop
   }
 
   test("Declaration.toPattern handles parens around non-bindings") {

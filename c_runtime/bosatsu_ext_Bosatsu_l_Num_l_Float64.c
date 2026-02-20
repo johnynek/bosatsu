@@ -37,54 +37,6 @@ static BValue bsts_uint64_to_int(uint64_t bits) {
   return bsts_integer_from_words_copy(1, words[1] == 0 ? 1 : 2, words);
 }
 
-static uint64_t bsts_int_to_low_uint64(BValue int_value) {
-  uint32_t mask_words[2] = { UINT32_C(0xffffffff), UINT32_C(0xffffffff) };
-  uint32_t div_words[2] = { UINT32_C(0x00000000), UINT32_C(0x00000001) };
-  BValue mask = bsts_integer_from_words_copy(1, 2, mask_words);
-  BValue two32 = bsts_integer_from_words_copy(1, 2, div_words);
-  BValue low64 = bsts_integer_and(int_value, mask);
-  BValue divmod = bsts_integer_div_mod(low64, two32);
-  BValue hi = get_struct_index(divmod, 0);
-  BValue lo = get_struct_index(divmod, 1);
-  uint32_t hi32 = (uint32_t)bsts_integer_to_int32(hi);
-  uint32_t lo32 = (uint32_t)bsts_integer_to_int32(lo);
-  return (((uint64_t)hi32) << 32) | ((uint64_t)lo32);
-}
-
-static BValue bsts_integral_double_to_int(double d) {
-  if (d == 0.0) {
-    return bsts_integer_from_int(0);
-  }
-
-  int text_len = snprintf(NULL, 0, "%.0f", d);
-  if (text_len <= 0) {
-    perror("snprintf failure in bsts_integral_double_to_int");
-    abort();
-  }
-
-  char* text = (char*)malloc((size_t)text_len + 1);
-  if (text == NULL) {
-    perror("failed to malloc in bsts_integral_double_to_int");
-    abort();
-  }
-
-  int written = snprintf(text, (size_t)text_len + 1, "%.0f", d);
-  if (written != text_len) {
-    perror("snprintf mismatch in bsts_integral_double_to_int");
-    abort();
-  }
-
-  BValue as_string = bsts_string_from_utf8_bytes_copy((size_t)text_len, text);
-  free(text);
-
-  BValue parsed = bsts_string_to_integer(as_string);
-  if (get_variant(parsed) == 0) {
-    perror("failed to parse integral double text in bsts_integral_double_to_int");
-    abort();
-  }
-  return get_enum_index(parsed, 0);
-}
-
 static double bsts_round_ties_even(double d) {
   double int_part = 0.0;
   double frac = modf(d, &int_part);
@@ -281,7 +233,7 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__bits__to__Float64(BValue a) {
-  return bsts_float64_from_bits(bsts_int_to_low_uint64(a));
+  return bsts_float64_from_bits(bsts_integer_to_low_uint64(a));
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__bits__to__Int(BValue a) {
@@ -294,32 +246,11 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__Int(BValue a) {
     return bsts_none();
   }
   double rounded = bsts_round_ties_even(d);
-  return bsts_some(bsts_integral_double_to_int(rounded));
+  return bsts_some(bsts_integral_float64_to_integer(rounded));
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__to__Float64(BValue a) {
-  // Fast path for small immediate Int values.
-  if ((a & (BValue)0x3) == (BValue)0x1) {
-    int32_t small = (int32_t)(a >> 2);
-    return bsts_boxf((double)small);
-  }
-
-  BValue as_string = bsts_integer_to_string(a);
-  BSTS_String_View view = bsts_string_view_ref(&as_string);
-  size_t len = view.len;
-  const char* bytes = view.bytes;
-
-  char* null_term = (char*)malloc(len + 1);
-  if (null_term == NULL) {
-    perror("failed to malloc in int_to_Float64");
-    abort();
-  }
-
-  memcpy(null_term, bytes, len);
-  null_term[len] = '\0';
-  double parsed = strtod(null_term, NULL);
-  free(null_term);
-  return bsts_boxf(parsed);
+  return bsts_boxf(bsts_integer_to_double(a));
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_log(BValue a) {

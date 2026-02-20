@@ -12,7 +12,8 @@ import dev.bosatsu.{
   Identifier,
   Parser,
   TypeParser,
-  Require
+  Require,
+  Variance
 }
 import dev.bosatsu.hashing.{Algo, Hashable}
 import dev.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
@@ -356,6 +357,66 @@ object Type {
     val (fa, ex, _) = splitQuantifiers(t)
     fa ::: ex
   }
+
+  /** Push top-level forall binders into unique covariant arguments.
+    *
+    * This transform is conservative:
+    *   - if the type is not a `ForAll`, it is unchanged,
+    *   - if kind/variance information for the applied head is unavailable, it
+    *     is unchanged.
+    *
+    * Only the root head kind is required (`kindOf(cons)` after `unapplyAll`);
+    * argument variance comes from that kind.
+    */
+  def pushDownForAllCovariant(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type =
+    tpe match {
+      case Type.ForAll(targs, in) =>
+        val (cons, cargs) = Type.unapplyAll(in)
+        kindOf(cons) match {
+          case None =>
+            tpe
+          case Some(kind) =>
+            val kindArgs = kind.toArgs
+            val kindArgsWithArgs =
+              kindArgs.zip(cargs).map { case (ka, a) => (Some(ka), a) } :::
+                cargs.drop(kindArgs.length).map((None, _))
+
+            val argsVectorIdx = kindArgsWithArgs.iterator.zipWithIndex.map {
+              case ((optKA, argTpe), idx) =>
+                (Type.freeBoundTyVars(argTpe :: Nil).toSet, optKA, argTpe, idx)
+            }.toVector
+
+            def uniqueCovariantFreeVars(idx: Int): Set[Type.Var.Bound] = {
+              val (justIdx, optKA, _, _) = argsVectorIdx(idx)
+              if (optKA.exists(_.variance == Variance.co)) {
+                argsVectorIdx.iterator
+                  .filter(_._4 != idx)
+                  .foldLeft(justIdx) { case (acc, (s, _, _, _)) => acc -- s }
+              } else Set.empty
+            }
+
+            val withPulled =
+              argsVectorIdx.map { case rec @ (_, _, _, idx) =>
+                (rec, uniqueCovariantFreeVars(idx))
+              }
+
+            val allPulled: Set[Type.Var.Bound] =
+              withPulled.iterator.flatMap(_._2.iterator).toSet
+
+            val nonPulled = targs.filterNot { case (v, _) => allPulled(v) }
+            val pushedArgs = withPulled.iterator.map {
+              case ((_, _, argTpe, _), uniques) =>
+                Type.forAll(targs.filter { case (t, _) => uniques(t) }, argTpe)
+            }.toList
+
+            Type.forAll(nonPulled, Type.applyAll(cons, pushedArgs))
+        }
+      case notForAll =>
+        notForAll
+    }
 
   @annotation.tailrec
   private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =

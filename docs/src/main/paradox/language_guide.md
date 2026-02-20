@@ -6,6 +6,7 @@ This guide is a quick tour of Bosatsu syntax. For installation and running code,
 Bosatsu aims to be simple, but not always easy.
 
 Simple here means the language has a small core model:
+
 1. structs and enums
 1. creating values
 1. creating functions
@@ -162,6 +163,7 @@ conventions:
 
 1. Bindable names (defs, values, parameters, locals) use lowercase with
    underscore separation.
+
 1. Type and constructor names use UpperCamelCase.
 1. If a bindable name includes a type name, put the full type name at the end
    after an underscore.
@@ -347,6 +349,19 @@ def len(lst):
   loop(0, lst)
 ```
 
+Tuple recursion targets are also supported and checked lexicographically in the
+target order:
+```
+def ack(n: Nat, m: Nat) -> Nat:
+  recur (n, m):
+    case (Zero, _): Succ(m)
+    case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
+    case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
+```
+
+In `recur (a, b, ...)`, a recursive call is accepted when the first target
+position that changes is smaller; earlier target positions must stay equal.
+
 For full recursion rules and advanced patterns (fuel, divide-and-conquer with a
 size bound, string recursion, trees, Ackermann-style nested recursion), see
 [Recursion in Bosatsu](recursion.html).
@@ -358,6 +373,7 @@ loops, but only when the compiler can prove they terminate. That restriction is
 what preserves type-system soundness.
 
 Most loops are either:
+
 1. structural recursion on subvalues (like a list tail or tree branch), or
 1. explicit fuel recursion on a decreasing `Nat`.
 
@@ -503,6 +519,7 @@ Defaults are only applied when using record syntax (`Rec { ... }`), and only for
 omitted fields. Positional constructor calls (`Rec(...)`) do not fill defaults.
 
 Two rules apply to constructor defaults:
+
 1. A field with a default must have an explicit type annotation.
 1. A default expression may only reference imports, or top-level values defined
 earlier in the same file (including earlier defaults). It may not reference
@@ -538,6 +555,7 @@ In `File { size: 4096, ..base }`, explicitly listed fields override values from
 `base`, and omitted fields are copied from `base`.
 
 Rules for record updates:
+
 1. They are written with `..expr` in record construction syntax.
 1. `...` is only for patterns (not construction).
 1. You must explicitly set at least one field.
@@ -626,6 +644,7 @@ enum List:
 ```
 
 Data-structures have two simple rules:
+
 1. they must form a DAG
 2. if they refer to themselves, they do so in covariant positions (roughly, not
    as inputs to functions).
@@ -764,12 +783,15 @@ def run[a](fa: FreeF[a]) -> a:
 ```
 
 When to use existentials:
+
 - To hide intermediate types in data constructors while still allowing later
   consumption (e.g. `Mapped`/`Map2` store an internal `b` or `c` plus functions
   that know how to use them).
+
 - To model heterogeneous or stateful structures where the internal type varies
   but is not part of the public API (e.g. existential tails in custom list-like
   structures, or continuations with hidden state).
+
 - To return or store values that must remain opaque to callers while keeping
   internal consistency inside a match branch.
 
@@ -841,6 +863,7 @@ Sometimes such opacity is useful to enforce modularity.
 ## Value usage requirements
 Bosatsu requires top-level values to be used. A top-level value must be
 transitively reachable from at least one of these roots:
+
 1. an exported value
 1. the package main value (the last top-level value in the package)
 1. the package test value (the last top-level value with type `Bosatsu/Predef::Test`)
@@ -863,14 +886,17 @@ That makes the intent explicit to readers and to the compiler.
 ## Testing
 Bosatsu tests are regular values of type `Bosatsu/Predef::Test`.
 `Bosatsu/Predef` defines:
+
 1. `Assertion(value: Bool, message: String)`
 1. `TestSuite(name: String, tests: List[Test])`
 
 Common patterns in `test_workspace/*.bosatsu`:
+
 1. A single assertion:
 ```
 test = Assertion(eq_Int(add(1, 1), 2), "1 + 1 == 2")
 ```
+
 1. A suite of assertions:
 ```
 tests = TestSuite("math tests", [
@@ -878,6 +904,7 @@ tests = TestSuite("math tests", [
   Assertion(eq_Int(mul(3, 4), 12), "3 * 4"),
 ])
 ```
+
 1. Nested/composed suites, including generated tests:
 ```
 tests = TestSuite("all tests", [
@@ -953,8 +980,9 @@ def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 ```
 We cannot write this function, even though it is total, because Bosatsu cannot
 prove that the loop terminates. The only recursions we can do are on values that
-are substructures of inputs in the same position. This gives a simple proof
-that the loop will terminate.
+are substructures of the `recur` targets (single-target structural decrease or
+tuple-target lexicographic decrease). This gives a simple proof that the loop
+will terminate.
 
 Instead, we implement this function in Predef as an external def that has to be
 supplied to the compiler with a promise that it is total and matches its

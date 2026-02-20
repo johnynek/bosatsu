@@ -6,6 +6,7 @@ Issue: <https://github.com/johnynek/bosatsu/issues/1724>
 
 ## Goal
 Use type inhabitedness in the compiler to:
+
 1. identify uninhabited types with explicit, complete rules (in a supported fragment),
 2. improve match totality by excluding impossible constructors,
 3. let users omit uninhabited branch cases,
@@ -15,6 +16,7 @@ Use type inhabitedness in the compiler to:
 We already rely on totality and strong typing, but we do not currently leverage full type inhabitedness information during match checking.
 
 Examples we want to classify statically:
+
 1. `forall a. a` is uninhabited.
 2. `struct Nothing(never: Nothing)` is uninhabited.
 3. A struct with at least one uninhabited field is uninhabited.
@@ -30,6 +32,7 @@ Full inhabitation for unrestricted higher-rank/higher-kinded polymorphism is not
 This design defines a **complete decision procedure for a supported fragment** and a conservative fallback outside it.
 
 Supported complete fragment:
+
 1. kind-`Type` (value) types,
 2. closed or locally-quantified types built from:
    1. ADTs from `TypeEnv`,
@@ -52,22 +55,26 @@ Let `I(t)` mean “type `t` is inhabited”, `U(t)` mean “type `t` is uninhabi
 
 ### Functions
 For `Fn(τ1, ..., τn) -> ρ`:
+
 1. `U(Fn(...)->ρ)` iff `U(ρ)` and all arguments are inhabited.
 2. Equivalent inhabited form:
    1. `I(Fn(...)->ρ)` iff `I(ρ)` or at least one argument is uninhabited.
 
 This captures the requested rule:
+
 1. returning uninhabited type + all args inhabited => uninhabited,
 2. returning uninhabited type + some arg uninhabited => inhabited (vacuous function).
 
 ### Quantifiers
 For kind-`Type` quantifiers:
+
 1. `I(forall a. t)` iff `for all assignments of a, I(t)`.
 2. `U(forall a. t)` iff `there exists an assignment of a with U(t)`.
 3. `I(exists a. t)` iff `there exists an assignment of a with I(t)`.
 4. `U(exists a. t)` iff `for all assignments of a, U(t)`.
 
 This yields:
+
 1. `U(forall a. a)` (pick an uninhabited assignment),
 2. `I(forall a. a -> a)` (identity),
 3. `I(forall a. List[a])` (empty list constructor),
@@ -80,6 +87,7 @@ For mutually recursive type constants, define equations:
 
 Solve as least fixed point over the finite equation graph for the query.  
 Least fixed point gives expected inductive behavior:
+
 1. `struct Nothing(never: Nothing)` => uninhabited,
 2. recursion only through impossible constructor paths stays uninhabited.
 
@@ -87,15 +95,18 @@ Least fixed point gives expected inductive behavior:
 New module: `core/src/main/scala/dev/bosatsu/Inhabitedness.scala`
 
 Core API:
+
 1. `verdict(t: Type, env: TypeEnv[Kind.Arg]): Inhabitedness.Verdict`
 2. `constructorReachable(scrutinee: Type, cons: (PackageName, Constructor), env): Reachability`
 
 Proposed result types:
+
 1. `Inhabited`
 2. `Uninhabited`
 3. `Unknown` (outside supported complete fragment)
 
 Implementation strategy:
+
 1. Normalize type (`Type.normalize`), split quantifiers, and classify by shape.
 2. Build/evaluate equations with memoization by `(Type, quantifier context)`.
 3. Use finite quantifier elimination for kind-`Type` vars (boolean inhabited/uninhabited assignments).
@@ -107,6 +118,7 @@ Introduce typed totality checking that uses scrutinee type + constructor reachab
 
 ### Coverage domain
 For match scrutinee type `S`, define:
+
 1. `reachableConstructors(S)` = constructors of `S` whose argument bundle is inhabited under current type instantiation.
 2. Coverage requires only these constructors.
 3. Constructors proven uninhabited are removed from missing-branch requirements.
@@ -118,12 +130,15 @@ For match scrutinee type `S`, define:
 
 ## Pipeline Changes
 Current:
+
 1. `SourceConverter` -> `TotalityCheck` on `Expr` -> `Infer` -> `TypedExprNormalization`
 
 Proposed:
+
 1. `SourceConverter` -> `Infer` -> `TypedTotalityCheck` (inhabitedness-aware) -> `TypedExprNormalization`
 
 Details:
+
 1. Keep cheap source-level pattern-shape validation where helpful.
 2. Move exhaustiveness/unreachable match checks to typed AST.
 3. `Package.inferBodyUnopt` should run typed totality after successful inference.
@@ -131,11 +146,13 @@ Details:
 
 ## Match Pruning and Codegen
 Branch pruning should run after typed totality (or as part of normalization):
+
 1. Remove branches that are impossible from inhabitedness facts.
 2. Keep source order of remaining branches.
 3. Preserve guard semantics (guarded branches still do not count toward totality unless unguarded fallback exists).
 
 Codegen benefits:
+
 1. smaller match matrices,
 2. fewer runtime constructor checks,
 3. fewer dead branches emitted in Matchless IR.
@@ -152,6 +169,7 @@ Codegen benefits:
 
 ## Test Plan
 Add tests across `TotalityCheck` replacement + inference + normalization:
+
 1. `forall a. a` classified uninhabited.
 2. Recursive self-field struct classified uninhabited.
 3. Struct with one uninhabited field classified uninhabited.
@@ -174,11 +192,13 @@ Add tests across `TotalityCheck` replacement + inference + normalization:
 
 ## Trade-offs
 Pros:
+
 1. Better exhaustiveness precision.
 2. Cleaner user code (no mandatory impossible cases).
 3. Better generated code via dead-branch pruning.
 
 Costs:
+
 1. More compiler complexity (new analysis + typed totality phase).
 2. Some cases remain conservative (`Unknown`) by design.
 3. Totality diagnostics now depend on successful type inference.

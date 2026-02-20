@@ -14,8 +14,23 @@ This section collects implementation design documents for Bosatsu.
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.md)
 * [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.md)
+* [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
 @@@
+
+## Browse design docs
+
+* [Compiler Leveraging Type Inhabitedness](compiler_leveraging_type_inhabitedness.html)
+* [Pattern Guards Design](pattern_guards_design.html)
+* [Issue 1628: Pattern Value Reuse in `TypedExprNormalization`](issue_1628_pattern_value_reuse_design.html)
+* [Issue 1676: Default Values in Struct and Enum Constructors](issue_1676_default_values_struct_enum_design.html)
+* [Issue 356: Struct Update Syntax (`..old`)](issue_356_struct_update_syntax_design.html)
+* [Well-Typed Statement Generator Design](well_typed_statement_generator_design.html)
+* [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.html)
+* [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.html)
+* [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.html)
+* [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.html)
+* [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
 
 ## Notes
 
