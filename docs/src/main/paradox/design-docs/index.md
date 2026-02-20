@@ -14,6 +14,7 @@ This section collects implementation design documents for Bosatsu.
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
+* [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.md)
 @@@
 
 ## Browse design docs
@@ -27,6 +28,7 @@ This section collects implementation design documents for Bosatsu.
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.html)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.html)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
+* [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.html)
 
 ## Notes
 
