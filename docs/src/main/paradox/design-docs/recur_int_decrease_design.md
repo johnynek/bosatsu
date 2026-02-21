@@ -282,6 +282,41 @@ This lets typed recursion checking stay platform-agnostic while backends differ.
    2. must support both Node.js and browser,
    3. browser note: `z3-solver` requires threading support (`SharedArrayBuffer` + COOP/COEP); if unavailable, backend returns `Unavailable`.
 
+### Browser viability and async behavior
+Clarification:
+1. Running `z3-solver` in the browser is possible.
+2. Async APIs (`Promise`/`Future`) are expected and not, by themselves, a blocker.
+3. The main browser blocker is thread/isolation requirements, not asynchrony.
+
+In practice, browser mode works only when the page is cross-origin isolated so `SharedArrayBuffer` is available.
+
+### What COOP/COEP means concretely
+For browser deployments using `z3-solver`, responses should include:
+1. `Cross-Origin-Opener-Policy: same-origin`
+2. `Cross-Origin-Embedder-Policy: require-corp`
+
+And loaded resources (scripts/workers/wasm) must be compatible with those policies.
+
+### `jsui` deployment guidance
+Current `jsui` deploy path is static GitHub Pages (`.github/workflows/deploy_web.yml`), where setting custom headers is limited. Practical options:
+
+1. Preferred (if hosting supports headers):
+   1. serve `jsui` with real COOP/COEP headers,
+   2. keep browser solver enabled.
+2. GitHub Pages workaround:
+   1. add `coi-serviceworker.js` under `jsui/`,
+   2. load it from `jsui/index.html` before `bosatsu_ui.js`,
+   3. copy it in deploy workflow (`.github/workflows/deploy_web.yml`) into `web_deploy/compiler/`.
+
+This allows cross-origin isolation on hosts without header control, but it should be treated as an operational workaround.
+
+### Security impact of cross-origin isolation choices
+1. COOP/COEP headers are generally a hardening step, not a relaxation.
+2. The service-worker workaround adds moving parts:
+   1. persistent worker lifecycle concerns,
+   2. potential breakage with third-party assets lacking proper CORS/CORP behavior.
+3. For Bosatsu safety goals, keep browser solver optional and retain JVM-authoritative proof as the trust anchor.
+
 ### Authoritative-check policy
 `int_decrease` should be treated as a **compile-time proof obligation**, not a runtime behavior.
 
