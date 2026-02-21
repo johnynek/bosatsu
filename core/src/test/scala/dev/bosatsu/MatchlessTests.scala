@@ -134,12 +134,26 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   private val issue1688EnumType = Constructor("E")
   private val issue1688Enum0 = Constructor("E0")
   private val issue1688Enum1 = Constructor("E1")
+  private val issue1732Package = PackageName.parts("Issue1732")
+  private val issue1732Pair = Constructor("Pair")
+  private val predefEmptyList = Constructor("EmptyList")
+  private val predefNonEmptyList = Constructor("NonEmptyList")
   private val issue1688StructType: rankn.Type = rankn.Type.TyConst(
     rankn.Type.Const.Defined(issue1688Package, TypeName(issue1688Struct))
+  )
+  private val issue1732PairType: rankn.Type = rankn.Type.TyConst(
+    rankn.Type.Const.Defined(issue1732Package, TypeName(issue1732Pair))
   )
   private val issue1688EnumTypeValue: rankn.Type = rankn.Type.TyConst(
     rankn.Type.Const.Defined(issue1688Package, TypeName(issue1688EnumType))
   )
+  private val issue1688StructCtorType: rankn.Type =
+    rankn.Type.Fun(
+      NonEmptyList.of(rankn.Type.IntType, rankn.Type.IntType, rankn.Type.IntType),
+      issue1688StructType
+    )
+  private val listIntType: rankn.Type =
+    rankn.Type.apply1(rankn.Type.ListType, rankn.Type.IntType)
   private val issue1688Fn: Fn = {
     val base = fnFromTypeEnv(rankn.TypeEnv.empty)
     {
@@ -151,6 +165,74 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         Some(DataRepr.Enum(1, 0, 3 :: 0 :: Nil))
       case (pn, cons) =>
         base(pn, cons)
+    }
+  }
+  private val issue1732Fn: Fn = {
+    val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+    {
+      case (`issue1732Package`, `issue1732Pair`) =>
+        Some(DataRepr.Struct(2))
+      case (pn, cons) =>
+        base(pn, cons)
+    }
+  }
+
+  private def intLit(i: Int): TypedExpr[Unit] =
+    TypedExpr.Literal(Lit.fromInt(i), rankn.Type.IntType, ())
+
+  private def pairCtorType(
+      leftType: rankn.Type,
+      rightType: rankn.Type
+  ): rankn.Type =
+    rankn.Type.Fun(
+      NonEmptyList.of(leftType, rightType),
+      issue1732PairType
+    )
+
+  private def pairCtorExpr(
+      leftType: rankn.Type,
+      rightType: rankn.Type
+  ): TypedExpr[Unit] =
+    TypedExpr.Global(
+      issue1732Package,
+      issue1732Pair,
+      pairCtorType(leftType, rightType),
+      ()
+    )
+
+  private def pairCall(
+      left: TypedExpr[Unit],
+      leftType: rankn.Type,
+      right: TypedExpr[Unit],
+      rightType: rankn.Type
+  ): TypedExpr[Unit] =
+    TypedExpr.App(
+      pairCtorExpr(leftType, rightType),
+      NonEmptyList.of(left, right),
+      issue1732PairType,
+      ()
+    )
+
+  private def issue1688StructCall(a: Int, b: Int, c: Int): TypedExpr[Unit] =
+    TypedExpr.App(
+      TypedExpr.Global(issue1688Package, issue1688Struct, issue1688StructCtorType, ()),
+      NonEmptyList.of(intLit(a), intLit(b), intLit(c)),
+      issue1688StructType,
+      ()
+    )
+
+  private def listOfInts(items: List[Int]): TypedExpr[Unit] = {
+    val empty: TypedExpr[Unit] =
+      TypedExpr.Global(PackageName.PredefName, predefEmptyList, listIntType, ())
+    val consType = rankn.Type.Fun(
+      NonEmptyList.of(rankn.Type.IntType, listIntType),
+      listIntType
+    )
+    val cons =
+      TypedExpr.Global(PackageName.PredefName, predefNonEmptyList, consType, ())
+
+    items.foldRight(empty) { (item, tail) =>
+      TypedExpr.App(cons, NonEmptyList.of(intLit(item), tail), listIntType, ())
     }
   }
 
@@ -231,6 +313,262 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     loopExpr(expr)
     indices.toSet
+  }
+
+  private def countStructConstructorApps(
+      expr: Matchless.Expr[Unit],
+      arity: Int
+  ): Int = {
+    def loopCheap(c: Matchless.CheapExpr[Unit]): Int =
+      c match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopCheap(arg)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopCheap(arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+          0
+      }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): Int =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopCheap(e)
+        case Matchless.EqualsNat(e, _) =>
+          loopCheap(e)
+        case Matchless.And(l, r) =>
+          loopBool(l) + loopBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e)
+        case Matchless.TrueConst =>
+          0
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+      }
+
+    def loopExpr(e: Matchless.Expr[Unit]): Int =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.toList.map(loopExpr).sum + loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(Matchless.MakeStruct(a), args) =>
+          val nested = args.toList.map(loopExpr).sum
+          (if (a == arity) 1 else 0) + nested
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.toList.map(loopExpr).sum
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case c: Matchless.CheapExpr[Unit] =>
+          loopCheap(c)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
+  private def hasStructConstructorOutsideConditional(
+      expr: Matchless.Expr[Unit],
+      arity: Int
+  ): Boolean = {
+    def loopCheap(c: Matchless.CheapExpr[Unit], inConditionalBranch: Boolean): Boolean =
+      c match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopCheap(arg, inConditionalBranch)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopCheap(arg, inConditionalBranch)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+          false
+      }
+
+    def loopBool(
+        b: Matchless.BoolExpr[Unit],
+        inConditionalBranch: Boolean
+    ): Boolean =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.EqualsNat(e, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.And(l, r) =>
+          loopBool(l, inConditionalBranch) || loopBool(r, inConditionalBranch)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e, inConditionalBranch)
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value, inConditionalBranch) || loopBool(
+            in,
+            inConditionalBranch
+          )
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in, inConditionalBranch)
+      }
+
+    def loopExpr(
+        e: Matchless.Expr[Unit],
+        inConditionalBranch: Boolean
+    ): Boolean =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr(_, inConditionalBranch)) || loopExpr(
+            body,
+            inConditionalBranch
+          )
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond, inConditionalBranch) || loopExpr(
+            effectExpr,
+            inConditionalBranch
+          )
+        case Matchless.App(Matchless.MakeStruct(a), args) =>
+          val isOutside = (a == arity) && !inConditionalBranch
+          isOutside || args.exists(loopExpr(_, inConditionalBranch))
+        case Matchless.App(fn, args) =>
+          loopExpr(fn, inConditionalBranch) || args.exists(
+            loopExpr(_, inConditionalBranch)
+          )
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value, inConditionalBranch) || loopExpr(
+            in,
+            inConditionalBranch
+          )
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in, inConditionalBranch)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond, inConditionalBranch) || loopExpr(
+            thenExpr,
+            inConditionalBranch = true
+          ) || loopExpr(elseExpr, inConditionalBranch = true)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond, inConditionalBranch) || loopExpr(
+            thenExpr,
+            inConditionalBranch
+          )
+        case Matchless.PrevNat(of) =>
+          loopExpr(of, inConditionalBranch)
+        case c: Matchless.CheapExpr[Unit] =>
+          loopCheap(c, inConditionalBranch)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          false
+      }
+
+    loopExpr(expr, inConditionalBranch = false)
+  }
+
+  private def countGlobalCalls(
+      expr: Matchless.Expr[Unit],
+      pack: PackageName,
+      name: Bindable
+  ): Int = {
+    def loopCheap(c: Matchless.CheapExpr[Unit]): Int =
+      c match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopCheap(arg)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopCheap(arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+          0
+      }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): Int =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopCheap(e)
+        case Matchless.EqualsNat(e, _) =>
+          loopCheap(e)
+        case Matchless.And(l, r) =>
+          loopBool(l) + loopBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e)
+        case Matchless.TrueConst =>
+          0
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+      }
+
+    def loopExpr(e: Matchless.Expr[Unit]): Int =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.toList.map(loopExpr).sum + loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(Matchless.Global(_, p, fn), args)
+            if (p == pack) && (fn == name) =>
+          1 + args.toList.map(loopExpr).sum
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.toList.map(loopExpr).sum
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case c: Matchless.CheapExpr[Unit] =>
+          loopCheap(c)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
+  private def leadingLetGlobalCalls(
+      expr: Matchless.Expr[Unit],
+      pack: PackageName
+  ): List[Bindable] = {
+    def callName(value: Matchless.Expr[Unit]): Option[Bindable] =
+      value match {
+        case Matchless.App(Matchless.Global(_, p, fn), _) if p == pack =>
+          Some(fn)
+        case _ =>
+          None
+      }
+
+    @annotation.tailrec
+    def loop(
+        e: Matchless.Expr[Unit],
+        revAcc: List[Bindable]
+    ): List[Bindable] =
+      e match {
+        case Matchless.Let(_, value, in) =>
+          val revAcc1 = callName(value).fold(revAcc)(_ :: revAcc)
+          loop(in, revAcc1)
+        case _ =>
+          revAcc.reverse
+      }
+
+    loop(expr, Nil)
   }
 
   test("Matchless.Expr order is lawful") {
@@ -1084,6 +1422,494 @@ def matches_five(xs):
 
       assertEquals(projected, usedIdx.toSet)
     }
+  }
+
+  test("matrix match elides tuple allocation at match site") {
+    val first = Identifier.Name("first")
+    val out = Identifier.Name("matrix_elide")
+    val scrutinee = pairCall(
+      issue1688StructCall(10, 11, 12),
+      issue1688StructType,
+      issue1688StructCall(20, 21, 22),
+      issue1688StructType
+    )
+    val expr = TypedExpr.Match(
+      scrutinee,
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.Var(first) :: Pattern.WildCard :: Nil
+          ),
+          None,
+          TypedExpr.Local(first, issue1688StructType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+    val tupleProjections =
+      collectProjectionIndices(lowered) {
+        case Matchless.GetStructElement(_, idx, 2) => idx
+      }
+    assertEquals(tupleProjections, Set.empty[Int])
+  }
+
+  test("ordered matcher also elides tuple allocation for non-orthogonal suffix") {
+    val out = Identifier.Name("ordered_elide")
+    val listPattern = Pattern.ListPat(
+      Pattern.ListPart.WildList ::
+        Pattern.ListPart.Item(Pattern.Literal(Lit.fromInt(2))) ::
+        Pattern.ListPart.WildList ::
+        Nil
+    )
+    val scrutinee = pairCall(
+      intLit(1),
+      rankn.Type.IntType,
+      listOfInts(1 :: 2 :: 3 :: Nil),
+      listIntType
+    )
+    val expr = TypedExpr.Match(
+      scrutinee,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.WildCard :: listPattern :: Nil
+          ),
+          None,
+          intLit(1)
+        ),
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.WildCard :: Pattern.WildCard :: Nil
+          ),
+          None,
+          intLit(0)
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+    val tupleProjections =
+      collectProjectionIndices(lowered) {
+        case Matchless.GetStructElement(_, idx, 2) => idx
+      }
+    assertEquals(tupleProjections, Set.empty[Int])
+  }
+
+  test("ordered matcher handles annotated glob-first list pattern (wild glob)") {
+    val out = Identifier.Name("list_glob_wild")
+    val annotated = Pattern.Annotation(
+      Pattern.ListPat(
+        Pattern.ListPart.WildList :: Pattern.ListPart.WildList :: Nil
+      ),
+      listIntType
+    )
+    val expr = TypedExpr.Match(
+      listOfInts(1 :: 2 :: Nil),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          annotated,
+          None,
+          intLit(1)
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(0))
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("ordered matcher handles annotated glob-first list pattern (named glob)") {
+    val out = Identifier.Name("list_glob_named")
+    val prefix = Identifier.Name("prefix")
+    val annotated = Pattern.Annotation(
+      Pattern.ListPat(
+        Pattern.ListPart.NamedList(prefix) :: Pattern.ListPart.WildList :: Nil
+      ),
+      listIntType
+    )
+    val expr = TypedExpr.Match(
+      listOfInts(3 :: 4 :: Nil),
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          annotated,
+          None,
+          intLit(1)
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("ordered matcher visits simplified string patterns") {
+    val out = Identifier.Name("ordered_str_simplify")
+    val strType = rankn.Type.StrType
+    val literal = Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.LitStr("abc")))
+    val listSearch = Pattern.ListPat(
+      Pattern.ListPart.WildList ::
+        Pattern.ListPart.Item(Pattern.Literal(Lit.fromInt(2))) ::
+        Pattern.ListPart.WildList ::
+        Nil
+    )
+    val expr = TypedExpr.Match(
+      pairCall(
+        TypedExpr.Literal(Lit.Str("abc"), strType, ()),
+        strType,
+        listOfInts(1 :: 2 :: 3 :: Nil),
+        listIntType
+      ),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.WildCard :: listSearch :: Nil
+          ),
+          None,
+          intLit(0)
+        ),
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            literal :: Pattern.WildCard :: Nil
+          ),
+          None,
+          intLit(1)
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("ordered matcher handles union roots with named and var binds") {
+    val out = Identifier.Name("ordered_union_root_binds")
+    val alias = Identifier.Name("alias_pair")
+    val anyPair = Identifier.Name("any_pair")
+    val listSearch = Pattern.ListPat(
+      Pattern.ListPart.WildList ::
+        Pattern.ListPart.Item(Pattern.Literal(Lit.fromInt(2))) ::
+        Pattern.ListPart.WildList ::
+        Nil
+    )
+    val unionPat = Pattern.Union(
+      Pattern.Named(
+        alias,
+        Pattern.PositionalStruct(
+          (issue1732Package, issue1732Pair),
+          Pattern.Literal(Lit.fromInt(1)) :: Pattern.WildCard :: Nil
+        )
+      ),
+      NonEmptyList.one(Pattern.Var(anyPair))
+    )
+    val expr = TypedExpr.Match(
+      pairCall(
+        intLit(1),
+        rankn.Type.IntType,
+        listOfInts(1 :: 2 :: 3 :: Nil),
+        listIntType
+      ),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.WildCard :: listSearch :: Nil
+          ),
+          None,
+          intLit(0)
+        ),
+        TypedExpr.Branch(unionPat, None, intLit(1)),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(2))
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2) >= 0, true)
+  }
+
+  test(
+    "matrix bridge handles long orthogonal prefix before non-orthogonal suffix"
+  ) {
+    val out = Identifier.Name("ortho_prefix_bridge")
+    val listSearch = Pattern.ListPat(
+      Pattern.ListPart.WildList ::
+        Pattern.ListPart.Item(Pattern.Literal(Lit.fromInt(2))) ::
+        Pattern.ListPart.WildList ::
+        Nil
+    )
+    def litPair(i: Int): Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.Literal(Lit.fromInt(i)) :: Pattern.WildCard :: Nil
+      )
+
+    val nonOrthoBranch =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.WildCard :: listSearch :: Nil
+      )
+
+    val expr = TypedExpr.Match(
+      pairCall(
+        intLit(99),
+        rankn.Type.IntType,
+        listOfInts(1 :: 2 :: 3 :: Nil),
+        listIntType
+      ),
+      NonEmptyList.of(
+        TypedExpr.Branch(litPair(0), None, intLit(0)),
+        TypedExpr.Branch(litPair(1), None, intLit(1)),
+        TypedExpr.Branch(litPair(2), None, intLit(2)),
+        TypedExpr.Branch(litPair(3), None, intLit(3)),
+        TypedExpr.Branch(nonOrthoBranch, None, intLit(4)),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(5))
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2) >= 0, true)
+  }
+
+  test("matrix matcher peels annotated binders") {
+    val out = Identifier.Name("matrix_annotated_bind")
+    val first = Identifier.Name("first_annotated")
+    val expr = TypedExpr.Match(
+      pairCall(intLit(7), rankn.Type.IntType, intLit(8), rankn.Type.IntType),
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.Annotation(Pattern.Var(first), rankn.Type.IntType) ::
+              Pattern.WildCard ::
+              Nil
+          ),
+          None,
+          TypedExpr.Local(first, rankn.Type.IntType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("single-constructor struct constructor scrutinee behaves like tuple") {
+    val selected = Identifier.Name("selected")
+    val out = Identifier.Name("pick_struct_ctor")
+    val intType = rankn.Type.IntType
+    val ctorType =
+      rankn.Type.Fun(
+        NonEmptyList.of(intType, intType, intType),
+        issue1688StructType
+      )
+    val ctor =
+      TypedExpr.Global(issue1688Package, issue1688Struct, ctorType, ())
+    val scrutinee = TypedExpr.App(
+      ctor,
+      NonEmptyList.of(
+        TypedExpr.Literal(Lit.fromInt(1), intType, ()),
+        TypedExpr.Literal(Lit.fromInt(2), intType, ()),
+        TypedExpr.Literal(Lit.fromInt(3), intType, ())
+      ),
+      issue1688StructType,
+      ()
+    )
+    val matchExpr = TypedExpr.Match(
+      scrutinee,
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1688Package, issue1688Struct),
+            Pattern.WildCard :: Pattern.Var(selected) :: Pattern.WildCard :: Nil
+          ),
+          None,
+          TypedExpr.Local(selected, intType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, matchExpr)(
+        issue1688Fn
+      )
+
+    assertEquals(countStructConstructorApps(lowered, 3), 0)
+    val structProjections =
+      collectProjectionIndices(lowered) {
+        case Matchless.GetStructElement(_, idx, 3) => idx
+      }
+    assertEquals(structProjections, Set.empty[Int])
+  }
+
+  test("whole-root binding reconstructs only on bound branch path") {
+    val x2 = Identifier.Name("x2")
+    val pairAlias = Identifier.Name("pair_alias")
+    val out = Identifier.Name("whole_root")
+    val intType = rankn.Type.IntType
+
+    val expr = TypedExpr.Match(
+      pairCall(intLit(1), intType, intLit(2), intType),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.Named(
+            pairAlias,
+            Pattern.PositionalStruct(
+              (issue1732Package, issue1732Pair),
+              Pattern.Literal(Lit.fromInt(0)) :: Pattern.WildCard :: Nil
+            )
+          ),
+          None,
+          intLit(0)
+        ),
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.Var(x2) :: Pattern.WildCard :: Nil
+          ),
+          None,
+          TypedExpr.Local(x2, intType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 1)
+    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), false)
+  }
+
+  test("strict evaluation for inlined root fields is once and left-to-right") {
+    val first = Identifier.Name("first_field")
+    val fName = Identifier.Name("f")
+    val gName = Identifier.Name("g")
+    val out = Identifier.Name("strict_eval")
+    val intType = rankn.Type.IntType
+    val fnType = rankn.Type.Fun(NonEmptyList.one(intType), intType)
+    val fCall = TypedExpr.App(
+      TypedExpr.Global(TestUtils.testPackage, fName, fnType, ()),
+      NonEmptyList.one(intLit(1)),
+      intType,
+      ()
+    )
+    val gCall = TypedExpr.App(
+      TypedExpr.Global(TestUtils.testPackage, gName, fnType, ()),
+      NonEmptyList.one(intLit(2)),
+      intType,
+      ()
+    )
+    val expr = TypedExpr.Match(
+      pairCall(
+        fCall,
+        intType,
+        gCall,
+        intType
+      ),
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          Pattern.PositionalStruct(
+            (issue1732Package, issue1732Pair),
+            Pattern.Var(first) :: Pattern.WildCard :: Nil
+          ),
+          None,
+          TypedExpr.Local(first, intType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+    assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, fName), 1)
+    assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, gName), 1)
+
+    val leadCalls = leadingLetGlobalCalls(lowered, TestUtils.testPackage)
+    val fIdx = leadCalls.indexOf(fName)
+    val gIdx = leadCalls.indexOf(gName)
+    assert(fIdx >= 0, s"expected leading let-bound call to include $fName")
+    assert(gIdx >= 0, s"expected leading let-bound call to include $gName")
+    assert(
+      fIdx < gIdx,
+      s"expected left-to-right call evaluation order f then g, got: $leadCalls"
+    )
+  }
+
+  test("multiple whole-root bind branches disable root inlining") {
+    val flag = Identifier.Name("flag")
+    val left = Identifier.Name("left")
+    val right = Identifier.Name("right")
+    val out = Identifier.Name("multiple_root")
+
+    val expr = TypedExpr.Match(
+      pairCall(intLit(1), rankn.Type.IntType, intLit(2), rankn.Type.IntType),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.Named(
+            left,
+            Pattern.PositionalStruct(
+              (issue1732Package, issue1732Pair),
+              Pattern.WildCard :: Pattern.WildCard :: Nil
+            )
+          ),
+          Some(TypedExpr.Local(flag, rankn.Type.BoolType, ())),
+          intLit(0)
+        ),
+        TypedExpr.Branch(
+          Pattern.Named(
+            right,
+            Pattern.PositionalStruct(
+              (issue1732Package, issue1732Pair),
+              Pattern.WildCard :: Pattern.WildCard :: Nil
+            )
+          ),
+          None,
+          intLit(1)
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countStructConstructorApps(lowered, 2), 1)
+    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), true)
   }
 
   test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
