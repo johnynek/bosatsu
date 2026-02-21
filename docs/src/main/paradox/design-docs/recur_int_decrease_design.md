@@ -263,6 +263,51 @@ From Princess source and Maven Central (as of 2026-02-21):
 Phase 1: CLI backend (no Scala binary coupling).  
 Phase 2: optionally add a small Scala 2.13 bridge module only if in-process API proves necessary.
 
+## JVM + JS Support Model
+Goal: keep Bosatsu usable on JVM, Node.js, and browser without making web tooling depend on JVM-only solver availability.
+
+### Shared abstraction in `core`
+Add a tiny solver abstraction in shared `core` (implemented in `.jvm` and `.js`):
+1. input: normalized `int_decrease` obligations (`PC`, `next_i`, `i`),
+2. output: `Proved`, `Refuted(model)`, `Unknown`, or `Unavailable`.
+
+This lets typed recursion checking stay platform-agnostic while backends differ.
+
+### Backend implementations
+1. JVM:
+   1. preferred backend: Princess (CLI or in-process where feasible),
+   2. this is the authoritative proving path for CI/release.
+2. JS:
+   1. optional backend: `z3-solver` via Scala.js facades,
+   2. must support both Node.js and browser,
+   3. browser note: `z3-solver` requires threading support (`SharedArrayBuffer` + COOP/COEP); if unavailable, backend returns `Unavailable`.
+
+### Authoritative-check policy
+`int_decrease` should be treated as a **compile-time proof obligation**, not a runtime behavior.
+
+Recommended policy:
+1. authoritative proving runs on JVM builds/CI,
+2. resulting artifacts (package/lib) are marked as proof-verified,
+3. JS tools can consume those verified artifacts without rerunning SMT.
+
+This matches the user model "same code checked on JVM, reused on JS."
+
+### JS disable/skip mode
+Add an explicit mode for JS compilers:
+1. `require_proof` (strict): must prove locally; fail on `Unavailable`/`Unknown`.
+2. `assume_jvm_verified` (recommended default for web UI + Node tooling): skip local SMT if input artifacts are marked proof-verified from JVM.
+3. `unsafe_skip` (debug-only): skip all `int_decrease` checks even without verification metadata; emit clear warning.
+
+Guardrails:
+1. in `assume_jvm_verified`, raw source files without verification metadata must fail (or require `unsafe_skip`),
+2. metadata must be invalidated by source hash/compiler-version mismatch,
+3. if metadata is missing or stale, fall back to JVM check in CI pipeline.
+
+### Why this preserves multi-platform support
+1. JVM remains the trust anchor for theorem proving.
+2. Browser/Node remain usable even when local SMT runtime is unavailable.
+3. Bosatsu stays conceptually total: acceptance still depends on a proof, just not necessarily proved on every platform.
+
 ## Soundness and Completeness
 1. Soundness target: only accept recursive calls when obligations are proven.
 2. Completeness is intentionally partial: unsupported arithmetic/boolean forms are rejected conservatively.
@@ -278,10 +323,12 @@ Phase 2: optionally add a small Scala 2.13 bridge module only if in-process API 
 1. Parser/AST support for `by int_decrease`.
 2. Extend `DefRecursionCheck` with strategy shape checks only.
 3. Implement typed obligation extractor.
-4. Implement Princess backend adapter (start with CLI).
-5. Add `PackageError` plumbing and diagnostics.
-6. Add `int_loop` as normal Bosatsu definition in predef, keep external behind temporary flag during migration.
-7. Remove external once tests pass and perf is acceptable.
+4. Implement JVM backend adapter (Princess first, start with CLI).
+5. Define proof metadata format in compiled package/library output.
+6. Implement JS solver adapter (`z3-solver`) and JS skip modes (`require_proof` / `assume_jvm_verified` / `unsafe_skip`).
+7. Add `PackageError` plumbing and diagnostics.
+8. Add `int_loop` as normal Bosatsu definition in predef, keep external behind temporary flag during migration.
+9. Remove external once tests pass and perf is acceptable.
 
 ## Test Plan
 1. Parser tests:
@@ -298,11 +345,17 @@ Phase 2: optionally add a small Scala 2.13 bridge module only if in-process API 
    1. failing proof reports model values.
 5. Regression:
    1. existing structural/lexicographic recursion behavior unchanged.
+6. Cross-platform policy:
+   1. JVM proof-verified artifact compiles in JS with `assume_jvm_verified`.
+   2. JS strict mode fails when solver unavailable.
+   3. JS unsafe mode emits warning and is disallowed in release CI.
 
 ## Open Questions
 1. v1 syntax flexibility: allow only `recur i by int_decrease` or also `recur (i) by int_decrease`?
 2. Should unsupported expressions be hard errors or a separate warning + failure code?
 3. When CLI backend returns `unknown`, do we suggest a rewrite to `Nat` fuel automatically?
+4. Where should proof metadata live for long-term stability: package binary only, interface file too, or both?
+5. Should `assume_jvm_verified` be default for JS CLI/web UI, or require explicit opt-in?
 
 ## References
 1. Princess repo: <https://github.com/uuverifiers/princess>
@@ -311,3 +364,5 @@ Phase 2: optionally add a small Scala 2.13 bridge module only if in-process API 
 4. Maven Central search API: <https://search.maven.org/>
 5. Maven query for Scala 3 artifact (`princess_3`): <https://search.maven.org/solrsearch/select?q=g:%22io.github.uuverifiers%22%20AND%20a:%22princess_3%22&rows=20&wt=json>
 6. Maven query for Scala.js artifact (`princess_sjs1_2.13`): <https://search.maven.org/solrsearch/select?q=g:%22io.github.uuverifiers%22%20AND%20a:%22princess_sjs1_2.13%22&rows=20&wt=json>
+7. `z3-solver` npm package/readme: <https://www.npmjs.com/package/z3-solver>
+8. SharedArrayBuffer browser requirements (COOP/COEP): <https://web.dev/coop-coep/>
