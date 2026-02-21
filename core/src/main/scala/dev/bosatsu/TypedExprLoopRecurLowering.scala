@@ -1,13 +1,28 @@
 package dev.bosatsu
 
 import cats.Eq
+import cats.data.NonEmptyList
 import cats.syntax.all._
-import dev.bosatsu.rankn.TypeEnv
+import dev.bosatsu.rankn.{Type, TypeEnv}
 
 import Identifier.Bindable
 
 object TypedExprLoopRecurLowering {
   import TypedExpr._
+
+  private type Group = NonEmptyList[(Bindable, Type)]
+
+  // Local minimal-allocation Option product for this file.
+  private inline def map2[A, B, C](
+      oa: Option[A],
+      inline ob: => Option[B]
+  )(inline fn: (A, B) => C): Option[C] =
+    if (oa.isDefined) {
+      // we don't have to compute ob if oa isn't defined
+      val compB = ob
+      if (compB.isDefined) Some(fn(oa.get, compB.get))
+      else None
+    } else None
 
   private def isSelfFn[A](name: Bindable, te: TypedExpr[A]): Boolean =
     te match {
@@ -148,47 +163,571 @@ object TypedExprLoopRecurLowering {
         false
     }
 
-  private def lowerRecursiveBinding[A](
-      name: Bindable,
-      te: TypedExpr[A]
-  ): Option[TypedExpr[A]] = {
-    def loop(expr: TypedExpr[A]): Option[TypedExpr[A]] =
-      expr match {
+  // Reader-only helper: this inspects shape and must never be used to rebuild
+  // expressions, since it drops type wrappers.
+  @annotation.tailrec
+  private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
+    te match {
+      case Generic(_, in)    => stripTypeWrappers(in)
+      case Annotation(in, _, _) => stripTypeWrappers(in)
+      case other             => other
+    }
+
+  private case class GroupedLambda[A](
+      groups: Vector[NonEmptyList[(Bindable, Type)]],
+      terminalBody: TypedExpr[A],
+      rebuild: TypedExpr[A] => TypedExpr[A]
+  )
+
+  // Collect nested lambda groups from a recursive binding expression.
+  // We allow Generic/Annotation wrappers and non-recursive Let wrappers
+  // between groups, e.g. fn -> (x = 2; (a, b) -> ...).
+  private def collectGroupedLambdas[A](
+      expr: TypedExpr[A]
+  ): Option[GroupedLambda[A]] = {
+    // `rebuild` only replays the original wrapper/binder path and swaps the
+    // already-scoped terminal body expression, so scope and type shadowing are
+    // preserved by construction.
+    def scanBody(
+        te: TypedExpr[A],
+        groups: Vector[Group],
+        rebuild: TypedExpr[A] => TypedExpr[A]
+    ): Option[GroupedLambda[A]] =
+      te match {
         case Generic(q, in) =>
-          loop(in).map(Generic(q, _))
+          scanBody(in, groups, in1 => rebuild(Generic(q, in1)))
         case Annotation(in, tpe, qev) =>
-          loop(in).map(Annotation(_, tpe, qev))
+          scanBody(in, groups, in1 => rebuild(Annotation(in1, tpe, qev)))
+        case Let(arg, ex, in, RecursionKind.NonRecursive, tag) =>
+          scanBody(
+            in,
+            groups,
+            in1 => rebuild(Let(arg, ex, in1, RecursionKind.NonRecursive, tag))
+          )
+        case _ =>
+          scan(te, groups, rebuild)
+      }
+
+    def scan(
+        te: TypedExpr[A],
+        groups: Vector[Group],
+        rebuild: TypedExpr[A] => TypedExpr[A]
+    ): Option[GroupedLambda[A]] =
+      te match {
+        case Generic(q, in) =>
+          scan(in, groups, in1 => rebuild(Generic(q, in1)))
+        case Annotation(in, tpe, qev) =>
+          scan(in, groups, in1 => rebuild(Annotation(in1, tpe, qev)))
         case AnnotatedLambda(args, body, tag) =>
-          val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
-            .map(_._1)
-            .toSet + name
-          val fresh = Expr.nameIterator().filterNot(avoid)
-          val freshArgs =
-            args.map { case (_, tpe) =>
-              (fresh.next(), tpe)
-            }
-          val subMap = args.iterator
-            .map(_._1)
-            .zip(freshArgs.iterator.map {
-              case (n1, _) => { (loc: Local[A]) =>
-                Local(n1, loc.tpe, loc.tag)
+          scanBody(
+            body,
+            groups :+ args,
+            body1 => rebuild(AnnotatedLambda(args, body1, tag))
+          )
+        case _ =>
+          if (groups.isEmpty) None
+          else Some(GroupedLambda(groups, te, rebuild))
+      }
+
+    scan(expr, Vector.empty, identity)
+  }
+
+  private case class RewriteResult[A](
+      expr: TypedExpr[A],
+      changed: Boolean,
+      sawSelfRef: Boolean
+  )
+
+  private def rewriteGroupedSelfCalls[A](
+      te: TypedExpr[A],
+      fnName: Bindable,
+      helperName: Bindable,
+      helperFnType: Type,
+      groupedArities: Vector[Int],
+      canRecur: Boolean
+  ): Option[RewriteResult[A]] = {
+
+    def isSelfHead(head: TypedExpr[A], canRecurHere: Boolean): Boolean =
+      canRecurHere && (
+        stripTypeWrappers(head) match {
+          case Local(n, _, _) => n == fnName
+          case _              => false
+        }
+      )
+
+    @annotation.tailrec
+    def unapplyApp(
+        curr: TypedExpr[A],
+        acc: List[NonEmptyList[TypedExpr[A]]]
+    ): (TypedExpr[A], List[NonEmptyList[TypedExpr[A]]]) =
+      curr match {
+        case App(fn, args, _, _) =>
+          unapplyApp(fn, args :: acc)
+        case other =>
+          (other, acc)
+      }
+
+    def validGroupedArity[T](groups: List[NonEmptyList[T]]): Boolean =
+      (groups.length == groupedArities.length) &&
+        groups.iterator
+          .zip(groupedArities.iterator)
+          .forall { case (args, expectedArity) =>
+            args.length == expectedArity
+          }
+
+    def localNameOf(te: TypedExpr[A]): Option[Bindable] =
+      stripTypeWrappers(te) match {
+        case Local(n, _, _) => Some(n)
+        case _              => None
+      }
+
+    def etaExpandedGroups(
+        head: TypedExpr[A],
+        outerGroups: List[NonEmptyList[TypedExpr[A]]],
+        canRecurHere: Boolean
+    ): Option[List[NonEmptyList[TypedExpr[A]]]] =
+      // Reader-only shape check: wrappers may appear from local ascriptions.
+      // We do not rebuild from stripped nodes. Also, loop/recur lowering is
+      // gated to monomorphic recursion so recursive polymorphism is skipped.
+      stripTypeWrappers(head) match {
+        case AnnotatedLambda(lambdaArgs, lambdaBody, _) =>
+          outerGroups match {
+            case applied :: rest if applied.length == lambdaArgs.length =>
+              val (innerHead, innerGroups) =
+                unapplyApp(stripTypeWrappers(lambdaBody), Nil)
+              if (
+                innerGroups.isEmpty || !isSelfHead(innerHead, canRecurHere)
+              ) None
+              else {
+                val lastGroup = innerGroups.last
+                val lambdaArgNames = lambdaArgs.toList.map(_._1)
+                val lastGroupNames = lastGroup.toList.map(localNameOf)
+                if (
+                  (lastGroup.length == lambdaArgNames.length) &&
+                  lastGroupNames.forall(_.nonEmpty) &&
+                  (lastGroupNames.flatten == lambdaArgNames)
+                ) Some(innerGroups.init ++ (applied :: rest))
+                else None
               }
-            })
-            .toMap
-          val body1 =
-            TypedExpr.substituteAll(subMap, body, enterLambda = true).get
-          val recurBody =
-            rewriteTailCalls(name, body1, tailPos = true, canRecur = true)
-          if (!hasOuterRecur(recurBody, inNestedLoop = false)) None
-          else {
-            val loopArgs = freshArgs.zip(args).map {
-              case ((loopName, _), (argName, argTpe)) =>
-                (loopName, Local(argName, argTpe, tag): TypedExpr[A])
-            }
-            Some(AnnotatedLambda(args, Loop(loopArgs, recurBody, tag), tag))
+            case _ =>
+              None
           }
         case _ =>
           None
+      }
+
+    def rewriteToHelper(
+        groups: NonEmptyList[NonEmptyList[TypedExpr[A]]],
+        tpe: Type,
+        tag: A,
+        canRecurHere: Boolean
+    ): Option[RewriteResult[A]] =
+      groups
+        .traverse { group =>
+          group.traverse(recur(_, canRecurHere))
+        }
+        .map { group1 =>
+          val flatArgs = group1.tail.foldLeft(group1.head.map(_.expr)) {
+            (acc, group) =>
+              acc.concatNel(group.map(_.expr))
+          }
+          val app1 = App(
+            Local(helperName, helperFnType, tag),
+            flatArgs,
+            tpe,
+            tag
+          )
+          // A successful helper rewrite always changes shape and always
+          // corresponds to a recursive self-call.
+          RewriteResult(app1, changed = true, sawSelfRef = true)
+        }
+
+    def recur(
+        expr: TypedExpr[A],
+        canRecur: Boolean
+    ): Option[RewriteResult[A]] =
+      expr match {
+        case g @ Generic(q, in) =>
+          recur(in, canRecur).map { in1 =>
+            val expr1 =
+              if (in1.changed) Generic(q, in1.expr)
+              else g
+            RewriteResult(expr1, in1.changed, in1.sawSelfRef)
+          }
+        case a @ Annotation(in, tpe, qev) =>
+          recur(in, canRecur).map { in1 =>
+            val expr1 =
+              if (in1.changed) Annotation(in1.expr, tpe, qev)
+              else a
+            RewriteResult(expr1, in1.changed, in1.sawSelfRef)
+          }
+        case lam @ AnnotatedLambda(args, body, tag) =>
+          val canRecurBody = canRecur && !args.exists(_._1 == fnName)
+          recur(body, canRecurBody).map { body1 =>
+            val expr1 =
+              if (body1.changed) AnnotatedLambda(args, body1.expr, tag)
+              else lam
+            RewriteResult(expr1, changed = body1.changed, body1.sawSelfRef)
+          }
+        case app @ App(fn, args, tpe, tag) =>
+          val (head, groups) = unapplyApp(app, Nil)
+          if (isSelfHead(head, canRecur)) {
+            if (!validGroupedArity(groups)) None
+            else
+              NonEmptyList
+                .fromList(groups)
+                .flatMap(rewriteToHelper(_, tpe, tag, canRecur))
+          } else {
+            // Non-self heads can still encode grouped recursion when they are
+            // eta-expanded lambdas whose body calls `fnName`.
+            etaExpandedGroups(head, groups, canRecur) match {
+              case Some(expandedGroups) =>
+                if (!validGroupedArity(expandedGroups)) None
+                else
+                  NonEmptyList
+                    .fromList(expandedGroups)
+                    .flatMap(rewriteToHelper(_, tpe, tag, canRecur))
+              case None =>
+                map2(
+                  recur(fn, canRecur),
+                  args.traverse(recur(_, canRecur))
+                ) { case (fn1, args1) =>
+                  val changed = fn1.changed || args1.exists(_.changed)
+                  val sawSelf = fn1.sawSelfRef || args1.exists(_.sawSelfRef)
+                  val expr1 =
+                    if (changed) App(fn1.expr, args1.map(_.expr), tpe, tag)
+                    else app
+                  RewriteResult(expr1, changed, sawSelf)
+                }
+            }
+          }
+        case let @ Let(arg, ex, in, rec, tag) =>
+          val (exCanRecur, inCanRecur) =
+            if (arg == fnName) {
+              // `in` is under the new binder, so outer `fnName` is shadowed.
+              // For recursive lets, `ex` is also scoped to the inner binder.
+              if (rec.isRecursive) (false, false)
+              else (canRecur, false)
+            } else (canRecur, canRecur)
+          map2(
+            recur(ex, exCanRecur),
+            recur(in, inCanRecur)
+          ) { (ex1, in1) =>
+            val changed = ex1.changed || in1.changed
+            val sawSelf = ex1.sawSelfRef || in1.sawSelfRef
+            val expr1 =
+              if (changed) Let(arg, ex1.expr, in1.expr, rec, tag)
+              else let
+            RewriteResult(expr1, changed, sawSelf)
+          }
+        case Match(arg, branches, tag) =>
+          map2(
+            recur(arg, canRecur),
+            branches.traverse { branch =>
+              val canRecurBranch =
+                canRecur && !branch.pattern.names.contains(fnName)
+              map2(
+                branch.guard.traverse(recur(_, canRecurBranch)),
+                recur(branch.expr, canRecurBranch)
+              ) { (guard1, expr1) =>
+                val changed =
+                  guard1.exists(_.changed) || expr1.changed
+                val sawSelf =
+                  guard1.exists(_.sawSelfRef) || expr1.sawSelfRef
+                val branch1 =
+                  if (changed) {
+                    branch.copy(
+                      guard = guard1.map(_.expr),
+                      expr = expr1.expr
+                    )
+                  } else branch
+                (branch1, changed, sawSelf)
+              }
+            }
+          ) { (arg1, branches1) =>
+            val changed = arg1.changed || branches1.exists(_._2)
+            val sawSelf = arg1.sawSelfRef || branches1.exists(_._3)
+            RewriteResult(Match(arg1.expr, branches1.map(_._1), tag), changed, sawSelf)
+          }
+        case Loop(_, _, _) | Recur(_, _, _) =>
+          // Conservative fallback: these should not appear in pre-lowered
+          // recursive definition bodies. If they do, skip this rewrite.
+          None
+        case Local(n, _, _) if canRecur && (n == fnName) =>
+          // Bare self-reference escapes the supported full-application shape.
+          None
+        case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
+          Some(RewriteResult(n, changed = false, sawSelfRef = false))
+      }
+
+    recur(te, canRecur)
+  }
+
+  private def isMonomorphicRecursiveBinding[A](
+      fnName: Bindable,
+      expr: TypedExpr[A]
+  ): Boolean = {
+    val expectedFnType = stripTypeWrappers(expr).getType
+    val expectedFnTypeVars =
+      Type.freeBoundTyVars(expectedFnType :: Nil).toSet
+
+    def isSelfHead(head: TypedExpr[A], canRecurHere: Boolean): Boolean =
+      canRecurHere && (
+        stripTypeWrappers(head) match {
+          case Local(n, _, _) => n == fnName
+          case _              => false
+        }
+      )
+
+    def loop(
+        te: TypedExpr[A],
+        canRecur: Boolean,
+        expectedVarsInScope: Set[Type.Var.Bound],
+        expectedVarsShadowed: Boolean
+    ): Boolean =
+      te match {
+        case Generic(q, in) =>
+          val qVars = q.vars.iterator.map(_._1).toSet
+          // Track where expected function-type vars are bound, and detect when
+          // a nested Generic reuses one (shadowing). Self-call checks under
+          // that shadowed scope are rejected below.
+          val expectedVarsShadowed1 =
+            expectedVarsShadowed || qVars.exists(expectedVarsInScope)
+          val expectedVarsInScope1 =
+            expectedVarsInScope ++ qVars.intersect(expectedFnTypeVars)
+          loop(in, canRecur, expectedVarsInScope1, expectedVarsShadowed1)
+        case Annotation(in, _, _) =>
+          loop(in, canRecur, expectedVarsInScope, expectedVarsShadowed)
+        case AnnotatedLambda(args, body, _) =>
+          // Lambda binders only affect term-variable recursion visibility.
+          // Type-level stability is checked on self-call heads at App sites.
+          val canRecurBody = canRecur && !args.exists(_._1 == fnName)
+          loop(body, canRecurBody, expectedVarsInScope, expectedVarsShadowed)
+        case App(fn, args, _, _) =>
+          val selfHeadTypeStable =
+            if (isSelfHead(fn, canRecur))
+              !expectedVarsShadowed && fn.getType.sameAs(expectedFnType)
+            else true
+          selfHeadTypeStable &&
+            loop(fn, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
+            args.forall(
+              loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed)
+            )
+        case Let(arg, ex, in, rec, _) =>
+          if (arg == fnName) {
+            if (rec.isRecursive)
+              loop(ex, canRecur = false, expectedVarsInScope, expectedVarsShadowed) && loop(
+              in,
+              canRecur = false,
+              expectedVarsInScope,
+              expectedVarsShadowed
+            )
+            else
+              loop(ex, canRecur, expectedVarsInScope, expectedVarsShadowed) && loop(
+                in,
+                canRecur = false,
+                expectedVarsInScope,
+                expectedVarsShadowed
+              )
+          } else {
+            loop(ex, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
+            loop(in, canRecur, expectedVarsInScope, expectedVarsShadowed)
+          }
+        case Loop(args, body, _) =>
+          val argsStable = args.forall { case (_, initExpr) =>
+            loop(initExpr, canRecur, expectedVarsInScope, expectedVarsShadowed)
+          }
+          val canRecurBody = canRecur && !args.exists(_._1 == fnName)
+          argsStable && loop(
+            body,
+            canRecurBody,
+            expectedVarsInScope,
+            expectedVarsShadowed
+          )
+        case Recur(args, _, _) =>
+          args.forall(loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed))
+        case Match(arg, branches, _) =>
+          loop(arg, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
+            branches.forall { branch =>
+              val canRecurBranch =
+                canRecur && !branch.pattern.names.contains(fnName)
+              branch.guard.forall(
+                loop(
+                  _,
+                  canRecurBranch,
+                  expectedVarsInScope,
+                  expectedVarsShadowed
+                )
+              ) &&
+              loop(
+                branch.expr,
+                canRecurBranch,
+                expectedVarsInScope,
+                expectedVarsShadowed
+              )
+            }
+        case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+          true
+      }
+
+    loop(
+      expr,
+      canRecur = true,
+      expectedVarsInScope = Set.empty,
+      expectedVarsShadowed = false
+    )
+  }
+
+  private case class MonomorphicRec[A](name: Bindable, expr: TypedExpr[A])
+
+  private def toMonomorphicRec[A](
+      name: Bindable,
+      expr: TypedExpr[A]
+  ): Option[MonomorphicRec[A]] =
+    if (isMonomorphicRecursiveBinding(name, expr))
+      Some(MonomorphicRec(name, expr))
+    else None
+
+  // TypedExpr loop/recur lowering is currently restricted to monomorphic
+  // recursion so loop argument types remain stable in the typed AST. Generic
+  // wrappers are still allowed when recursive calls preserve the same
+  // instantiated self-call head type.
+  // Polymorphic recursion can be optimized later after type erasure:
+  // https://github.com/johnynek/bosatsu/issues/1749
+  // Phase 1: grouped self-call flattening. This rewrites grouped recursive
+  // calls (including non-tail ones) through a helper to avoid closure
+  // allocations on recursive steps.
+  private def flattenGroupedSelfCalls[A](
+      mono: MonomorphicRec[A]
+  ): Option[TypedExpr[A]] =
+    collectGroupedLambdas(mono.expr).flatMap { grouped =>
+      if (grouped.groups.lengthCompare(2) < 0) {
+        // Only one group: there is nothing to flatten.
+        None
+      } else {
+        // We already checked that groups has 2+ items so this is safe.
+        val groupsNel = NonEmptyList.fromListUnsafe(grouped.groups.toList)
+        val groupedArgs = groupsNel.flatMap(identity)
+        val groupedArgNames = groupedArgs.map(_._1).toList
+        if (groupedArgNames.toSet.size != groupedArgNames.size) None
+        else {
+          val used = scala.collection.mutable.HashSet.empty[Bindable] ++
+            TypedExpr.allVarsSet(mono.expr :: Nil).toSet
+          used.add(mono.name): Unit
+          val names = Expr.nameIterator()
+
+          def freshName(): Bindable = {
+            var n = names.next()
+            while (used(n)) n = names.next()
+            used.add(n): Unit
+            n
+          }
+
+          val helperName = freshName()
+          val helperArgs = groupedArgs.map { case (_, tpe) =>
+            (freshName(), tpe)
+          }
+          val helperArgPairs = groupedArgs.zip(helperArgs)
+          val renameMap = helperArgPairs.iterator.map {
+            case ((oldName, _), (newName, _)) =>
+              oldName -> { (loc: Local[A]) =>
+                Local(newName, loc.tpe, loc.tag): TypedExpr[A]
+              }
+          }.toMap
+
+          val substitutedBody =
+            TypedExpr.substituteAll(
+              renameMap,
+              grouped.terminalBody,
+              enterLambda = true
+            ).get
+
+          val helperFnType = Type.Fun(
+            helperArgs.map(_._2),
+            substitutedBody.getType
+          )
+          val groupedArities = grouped.groups.map(_.length)
+
+          rewriteGroupedSelfCalls(
+            substitutedBody,
+            mono.name,
+            helperName,
+            helperFnType,
+            groupedArities,
+            canRecur = true
+          ).flatMap { rewritten =>
+            if (!rewritten.sawSelfRef) None
+            else {
+              val helperDef = AnnotatedLambda(
+                helperArgs,
+                rewritten.expr,
+                grouped.terminalBody.tag
+              )
+              val initArgs = groupedArgs.map { case (n, tpe) =>
+                Local(n, tpe, grouped.terminalBody.tag): TypedExpr[A]
+              }
+              val helperCall = App(
+                Local(helperName, helperFnType, grouped.terminalBody.tag),
+                initArgs,
+                grouped.terminalBody.getType,
+                grouped.terminalBody.tag
+              )
+              val terminalBody1 = Let(
+                helperName,
+                helperDef,
+                helperCall,
+                RecursionKind.Recursive,
+                grouped.terminalBody.tag
+              )
+              Some(grouped.rebuild(terminalBody1))
+            }
+          }
+        }
+      }
+    }
+
+  private def lowerRecursiveBinding[A](
+      mono: MonomorphicRec[A]
+  ): Option[TypedExpr[A]] = {
+    val name = mono.name
+    val te = mono.expr
+    def loop(expr: TypedExpr[A]): Option[TypedExpr[A]] =
+      expr match {
+          case Generic(q, in) =>
+            loop(in).map(Generic(q, _))
+          case Annotation(in, tpe, qev) =>
+            loop(in).map(Annotation(_, tpe, qev))
+          case AnnotatedLambda(args, body, tag) =>
+            val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
+              .map(_._1)
+              .toSet + name
+            val fresh = Expr.nameIterator().filterNot(avoid)
+            val freshArgs =
+              args.map { case (_, tpe) =>
+                (fresh.next(), tpe)
+              }
+            val subMap = args.iterator
+              .map(_._1)
+              .zip(freshArgs.iterator.map {
+                case (n1, _) => { (loc: Local[A]) =>
+                  Local(n1, loc.tpe, loc.tag)
+                }
+              })
+              .toMap
+            val body1 =
+              TypedExpr.substituteAll(subMap, body, enterLambda = true).get
+            val recurBody =
+              rewriteTailCalls(name, body1, tailPos = true, canRecur = true)
+            if (!hasOuterRecur(recurBody, inNestedLoop = false)) None
+            else {
+              val loopArgs = freshArgs.zip(args).map {
+                case ((loopName, _), (argName, argTpe)) =>
+                  (loopName, Local(argName, argTpe, tag): TypedExpr[A])
+              }
+              Some(AnnotatedLambda(args, Loop(loopArgs, recurBody, tag), tag))
+            }
+          case _ =>
+            None
       }
 
     loop(te)
@@ -214,8 +753,18 @@ object TypedExprLoopRecurLowering {
       case let @ Let(arg, expr, in, rec, tag) =>
         val expr1 = lowerExpr(expr)
         val expr2 =
-          if (rec.isRecursive)
-            lowerRecursiveBinding(arg, expr1).getOrElse(expr1)
+          if (rec.isRecursive) {
+            val mono0 = toMonomorphicRec(arg, expr1)
+            // Phase 1: flatten grouped recursive self calls.
+            val expr1a = mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(expr1)
+            val expr1b =
+              if (expr1a eq expr1) expr1
+              else lowerExpr(expr1a)
+            // Phase 2: lower tail recursion to Loop/Recur.
+            toMonomorphicRec(arg, expr1b)
+              .flatMap(lowerRecursiveBinding(_))
+              .getOrElse(expr1b)
+          }
           else expr1
         val in1 = lowerExpr(in)
         if ((expr2 eq expr) && (in1 eq in)) let
@@ -253,7 +802,16 @@ object TypedExprLoopRecurLowering {
     lets.map { case (n, rec, te) =>
       val lowered = lowerExpr(te)
       val loweredRec =
-        if (rec.isRecursive) lowerRecursiveBinding(n, lowered).getOrElse(lowered)
+        if (rec.isRecursive) {
+          val mono0 = toMonomorphicRec(n, lowered)
+          val lowered1 = mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(lowered)
+          val lowered2 =
+            if (lowered1 eq lowered) lowered
+            else lowerExpr(lowered1)
+          toMonomorphicRec(n, lowered2)
+            .flatMap(lowerRecursiveBinding(_))
+            .getOrElse(lowered2)
+        }
         else lowered
       (n, rec, loweredRec)
     }
