@@ -6,6 +6,7 @@ import java.nio.file.{Files, Paths}
 import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
 import munit.Assertions.{assertEquals, fail}
+import Identifier.Constructor
 import IorMethods.IorExtension
 
 import cats.syntax.all._
@@ -28,15 +29,97 @@ object TestUtils {
   ): TypeValidation[Unit] =
     Validated.invalidNec(TypeValidationError(path, message))
 
-  private def combineTypeValidation(
-      checks: Iterable[TypeValidation[Unit]]
-  ): TypeValidation[Unit] =
-    checks.foldLeft(typeValidationPass) { (acc, next) =>
-      (acc, next).mapN((_, _) => ())
-    }
-
   private def showType(t: Type): String =
     Type.fullyResolvedDocument.document(t).render(80)
+
+  private def typesConnectInScope(
+      expected: Type,
+      actual: Type,
+      boundKinds: Map[Type.Var.Bound, Kind]
+  ): Boolean =
+    expected.sameAs(actual) || {
+      def hoistResultForAll(t: Type): Type = {
+        val (outerForalls, rho0) = Type.liftUniversals(t)
+
+        @annotation.tailrec
+        def loop(
+            rho: Type.Rho,
+            accRev: List[(Type.Var.Bound, Kind)]
+        ): (List[(Type.Var.Bound, Kind)], Type.Rho) =
+          Type.Fun.unapply(rho) match {
+            case Some((args, Type.ForAll(vars, res))) =>
+              val argFrees = Type.freeBoundTyVars(args.toList).toSet
+              val (movable, blocked) =
+                vars.toList.partition { case (b, _) => !argFrees(b) }
+              NonEmptyList.fromList(movable) match {
+                case None =>
+                  (accRev.reverse, rho)
+                case Some(movableNel) =>
+                  val nextRes = NonEmptyList.fromList(blocked) match {
+                    case Some(blockedNel) => Type.ForAll(blockedNel, res)
+                    case None             => res
+                  }
+                  loop(
+                    Type.Fun(args, nextRes),
+                    movableNel.toList reverse_::: accRev
+                  )
+              }
+            case _ =>
+              (accRev.reverse, rho)
+          }
+
+        val (hoisted, rho1) = loop(rho0, Nil)
+        Type.forAll(outerForalls ::: hoisted, rho1)
+      }
+
+      val expected1 = hoistResultForAll(expected)
+      val actual1 = hoistResultForAll(actual)
+      val inferredKinds =
+        Type
+          .freeBoundTyVars(expected1 :: actual1 :: Nil)
+          .iterator
+          .filterNot(boundKinds.contains)
+          .map(_ -> Kind.Type)
+          .toMap
+      val envKinds = boundKinds ++ inferredKinds
+      val (foralls, exists, fromRho) = Type.splitQuantifiers(expected1)
+      val scopedFrees =
+        Type.freeBoundTyVars(fromRho :: Nil).distinct.filter(envKinds.contains)
+      val vars =
+        (
+          foralls.iterator ++
+            exists.iterator ++
+            scopedFrees.iterator.map(b => b -> envKinds(b))
+        ).toMap
+
+      Type
+        .instantiate(
+          vars = vars,
+          from = fromRho,
+          toVars = Map.empty,
+          to = actual1,
+          env = envKinds
+        )
+        .isDefined
+    }
+
+  private def functionTailTypes(t: Type): List[Type] = {
+    val (foralls, fromRho) = Type.liftUniversals(t)
+    Type.Fun.unapply(fromRho) match {
+      case None =>
+        Nil
+      case Some((args, result)) =>
+        val argsList = args.toList
+        (1 to argsList.length).toList.map { dropped =>
+          val remaining = argsList.drop(dropped)
+          val tailType = NonEmptyList.fromList(remaining) match {
+            case Some(nel) => Type.Fun(nel, result)
+            case None      => result
+          }
+          Type.forAll(foralls, tailType)
+        }
+    }
+  }
 
   type SourceConvertedProgram = Program[
     (TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]),
@@ -203,16 +286,230 @@ object TestUtils {
       ((pack, n: Identifier), te.getType)
     }.toMap
 
+  private def patternBindingTypes(
+      scrutineeType: Type,
+      pat: Pattern[(PackageName, Constructor), Type],
+      env: TypeEnv[Kind.Arg],
+      path: String
+  ): TypeValidation[Map[Identifier.Bindable, Type]] = {
+    type Bindings = Map[Identifier.Bindable, Type]
+
+    def failAt[A](at: String, message: String): TypeValidation[A] =
+      Validated.invalidNec(TypeValidationError(at, message))
+
+    def mergeBindings(
+        at: String,
+        left: Bindings,
+        right: Bindings
+    ): TypeValidation[Bindings] =
+      right.toList.foldLeft(Validated.validNec(left): TypeValidation[Bindings]) {
+        case (acc, (name, tpe)) =>
+          acc.andThen { current =>
+            current.get(name) match {
+              case None =>
+                Validated.validNec(current.updated(name, tpe))
+              case Some(existing) if existing.sameAs(tpe) =>
+                Validated.validNec(current)
+              case Some(existing) =>
+                failAt(
+                  s"$at/${name.sourceCodeRepr}",
+                  s"pattern binding type mismatch: existing ${showType(existing)}, new ${showType(tpe)}"
+                )
+            }
+          }
+      }
+
+    def mergeAll(
+        at: String,
+        checks: List[TypeValidation[Bindings]]
+    ): TypeValidation[Bindings] =
+      checks.sequence.andThen { maps =>
+        maps.foldLeft(Validated.validNec(Map.empty): TypeValidation[Bindings]) {
+          case (acc, item) =>
+            acc.andThen(mergeBindings(at, _, item))
+        }
+      }
+
+    def listItemTypeOf(tpe: Type): Option[Type] =
+      tpe match {
+        case Type.ListT(item) => Some(item)
+        case Type.ForAll(vars, Type.ListT(item)) if vars.tail.isEmpty =>
+          Some(Type.forAll(vars, item))
+        case _ => None
+      }
+
+    def constructorArgTypes(
+        at: String,
+        expectedType: Type,
+        pack: PackageName,
+        cons: Constructor
+    ): TypeValidation[List[Type]] =
+      env.getConstructor(pack, cons) match {
+        case None =>
+          failAt(
+            at,
+            s"unknown constructor ${pack.asString}::${cons.sourceCodeRepr}"
+          )
+        case Some((dt, cf)) =>
+          val pushedExpected = Type.pushDownForAllCovariant(
+            expectedType,
+            {
+              case tc: Type.TyConst if tc.sameAs(dt.toTypeTyConst) =>
+                Some(dt.kindOf)
+              case _ => None
+            }
+          )
+          val (_, _, rho) = Type.splitQuantifiers(pushedExpected)
+          val (head, targs) = Type.unapplyAll(rho)
+          if (!head.sameAs(dt.toTypeTyConst))
+            failAt(
+              at,
+              s"constructor ${pack.asString}::${cons.sourceCodeRepr} does not match scrutinee type ${showType(expectedType)}"
+            )
+          else if (targs.length != dt.typeParams.length)
+            failAt(
+              at,
+              s"constructor type argument arity mismatch: expected ${dt.typeParams.length}, got ${targs.length}"
+            )
+          else {
+            val subMap: Map[Type.Var, Type] =
+              dt.typeParams.iterator
+                .zip(targs.iterator)
+                .map { case (tv, ty) => (tv: Type.Var, ty) }
+                .toMap
+            Validated.validNec(
+              cf.args.map(arg => Type.substituteVar(arg.tpe, subMap))
+            )
+          }
+      }
+
+    def loop(
+        expectedType: Type,
+        pattern: Pattern[(PackageName, Constructor), Type],
+        at: String
+    ): TypeValidation[Bindings] =
+      pattern match {
+        case Pattern.WildCard | Pattern.Literal(_) =>
+          Validated.validNec(Map.empty)
+
+        case Pattern.Var(name) =>
+          Validated.validNec(Map(name -> expectedType))
+
+        case Pattern.Named(name, inner) =>
+          mergeAll(
+            at,
+            Validated.validNec(Map(name -> expectedType)) ::
+              loop(expectedType, inner, s"$at/named") :: Nil
+          )
+
+        case Pattern.StrPat(parts) =>
+          val strCheck =
+            if (expectedType.sameAs(Type.StrType)) typeValidationPass
+            else
+              typeValidationFail(
+                at,
+                s"string pattern expects String scrutinee, got ${showType(expectedType)}"
+              )
+          val partBindings = parts.toList.collect {
+            case Pattern.StrPart.NamedStr(name) =>
+              Validated.validNec(Map(name -> Type.StrType))
+            case Pattern.StrPart.NamedChar(name) =>
+              Validated.validNec(Map(name -> Type.CharType))
+          }
+          val mergedParts = mergeAll(at, partBindings)
+          (
+            strCheck ::
+              mergedParts.void :: Nil
+          ).sequence_.andThen(_ => mergedParts)
+
+        case Pattern.ListPat(parts) =>
+          listItemTypeOf(expectedType) match {
+            case None =>
+              failAt(
+                at,
+                s"list pattern expects List scrutinee, got ${showType(expectedType)}"
+              )
+            case Some(itemType) =>
+              val partChecks = parts.toList.zipWithIndex.map {
+                case (Pattern.ListPart.WildList, _) =>
+                  Validated.validNec(Map.empty)
+                case (Pattern.ListPart.NamedList(name), _) =>
+                  Validated.validNec(Map(name -> expectedType))
+                case (Pattern.ListPart.Item(inner), idx) =>
+                  loop(itemType, inner, s"$at/list/item[$idx]")
+              }
+              mergeAll(at, partChecks)
+          }
+
+        case Pattern.Annotation(inner, annType) =>
+          loop(annType, inner, s"$at/annotation")
+
+        case Pattern.PositionalStruct((pack, cons), args) =>
+          constructorArgTypes(at, expectedType, pack, cons).andThen { inferredArgs =>
+            val arityCheck =
+              if (args.lengthCompare(inferredArgs.length) == 0) typeValidationPass
+              else
+                typeValidationFail(
+                  at,
+                  s"constructor arg arity mismatch for ${pack.asString}::${cons.sourceCodeRepr}: expected ${inferredArgs.length}, got ${args.length}"
+                )
+
+            val argChecks = args.toList.zipWithIndex.map { case (innerPat, idx) =>
+              val argType = innerPat match {
+                case Pattern.Annotation(_, annType) => annType
+                case _                              =>
+                  inferredArgs.lift(idx).getOrElse(expectedType)
+              }
+              loop(argType, innerPat, s"$at/arg[$idx]")
+            }
+            val mergedArgs = mergeAll(at, argChecks)
+
+            (arityCheck :: mergedArgs.void :: Nil)
+              .sequence_
+              .andThen(_ => mergedArgs)
+          }
+
+        case Pattern.Union(head, rest) =>
+          val branchChecks = (head :: rest.toList).zipWithIndex.map {
+            case (innerPat, idx) =>
+              loop(expectedType, innerPat, s"$at/union[$idx]")
+          }
+          branchChecks.sequence.andThen { maps =>
+            val expectedNames = maps.headOption.map(_.keySet).getOrElse(Set.empty)
+            val sameNameChecks = maps.zipWithIndex.drop(1).map { case (m, idx) =>
+              if (m.keySet == expectedNames) typeValidationPass
+              else
+                typeValidationFail(
+                  s"$at/union[$idx]",
+                  s"union branch binders differ: expected ${expectedNames.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}, got ${m.keySet.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}"
+                )
+            }
+            val mergedMaps =
+              maps.foldLeft(Validated.validNec(Map.empty): TypeValidation[Bindings]) {
+                case (acc, m) => acc.andThen(mergeBindings(at, _, m))
+              }
+            (sameNameChecks.sequence_ :: mergedMaps.void :: Nil)
+              .sequence_
+              .andThen(_ => mergedMaps)
+          }
+      }
+
+    loop(scrutineeType, pat, path)
+  }
+
   private def validateTypeConnections[A](
       te: TypedExpr[A],
       locals: Map[Identifier.Bindable, Type],
       globals: Map[(PackageName, Identifier), Type],
       env: TypeEnv[Kind.Arg],
       loopStack: List[LoopContext],
+      boundKinds: Map[Type.Var.Bound, Kind],
+      recursiveLocals: Set[Identifier.Bindable],
       path: String
   ): TypeValidation[Unit] =
     te match {
       case TypedExpr.Generic(quant, in) =>
+        val quantKinds = quant.vars.iterator.toMap
         val expected =
           Type.quantify(quant.forallList, quant.existList, in.getType)
         val quantCheck =
@@ -222,16 +519,19 @@ object TestUtils {
               path,
               s"generic quantification type mismatch: expected ${showType(expected)}, got ${showType(te.getType)}"
             )
-        combineTypeValidation(
-          quantCheck :: validateTypeConnections(
-            in,
-            locals,
-            globals,
-            env,
-            loopStack,
-            s"$path/generic"
-          ) :: Nil
-        )
+        (
+          quantCheck ::
+            validateTypeConnections(
+              in,
+              locals,
+              globals,
+              env,
+              loopStack,
+              boundKinds ++ quantKinds,
+              recursiveLocals,
+              s"$path/generic"
+            ) :: Nil
+        ).sequence_
 
       case TypedExpr.Annotation(term, tpe, qev) =>
         val evidenceCheck = qev match {
@@ -243,16 +543,19 @@ object TestUtils {
           case _ =>
             typeValidationPass
         }
-        combineTypeValidation(
-          evidenceCheck :: validateTypeConnections(
-            term,
-            locals,
-            globals,
-            env,
-            loopStack,
-            s"$path/annotation"
-          ) :: Nil
-        )
+        (
+          evidenceCheck ::
+            validateTypeConnections(
+              term,
+              locals,
+              globals,
+              env,
+              loopStack,
+              boundKinds,
+              recursiveLocals,
+              s"$path/annotation"
+            ) :: Nil
+        ).sequence_
 
       case TypedExpr.AnnotatedLambda(args, body, _) =>
         val argsMap = args.iterator.toMap
@@ -262,13 +565,26 @@ object TestUtils {
           globals,
           env,
           loopStack,
+          boundKinds,
+          recursiveLocals,
           s"$path/lambda"
         )
 
       case TypedExpr.Local(name, tpe, _) =>
         locals.get(name) match {
-          case Some(_) =>
-            typeValidationPass
+          case Some(expected) =>
+            val recursiveTailOk =
+              recursiveLocals(name) &&
+                functionTailTypes(expected)
+                  .exists(typesConnectInScope(_, tpe, boundKinds))
+            if (
+              typesConnectInScope(expected, tpe, boundKinds) || recursiveTailOk
+            ) typeValidationPass
+            else
+              typeValidationFail(
+                path,
+                s"local type mismatch for ${name.sourceCodeRepr}: expected ${showType(expected)}, got ${showType(tpe)}"
+              )
           case None =>
             typeValidationFail(
               path,
@@ -278,8 +594,13 @@ object TestUtils {
 
       case TypedExpr.Global(pack, name, tpe, _) =>
         globals.get((pack, name)).orElse(env.getValue(pack, name)) match {
-          case Some(_) =>
-            typeValidationPass
+          case Some(expected) =>
+            if (typesConnectInScope(expected, tpe, boundKinds)) typeValidationPass
+            else
+              typeValidationFail(
+                path,
+                s"global type mismatch for ${pack.asString}::${name.sourceCodeRepr}: expected ${showType(expected)}, got ${showType(tpe)}"
+              )
           case None =>
             typeValidationFail(
               path,
@@ -288,13 +609,15 @@ object TestUtils {
         }
 
       case TypedExpr.App(fn, args, _, _) =>
-        val childChecks = combineTypeValidation(
+        val childChecks = (
           validateTypeConnections(
             fn,
             locals,
             globals,
             env,
             loopStack,
+            boundKinds,
+            recursiveLocals,
             s"$path/app/fn"
           ) :: args.toList.zipWithIndex.map { case (arg, idx) =>
             validateTypeConnections(
@@ -303,25 +626,94 @@ object TestUtils {
               globals,
               env,
               loopStack,
+              boundKinds,
+              recursiveLocals,
               s"$path/app/arg[$idx]"
             )
           }
-        )
+        ).sequence_
+
+        val fnTypeForCheck = fn match {
+          case TypedExpr.Local(name, _, _) =>
+            locals.get(name).getOrElse(fn.getType)
+          case TypedExpr.Global(pack, name, _, _) =>
+            globals
+              .get((pack, name))
+              .orElse(env.getValue(pack, name))
+              .getOrElse(fn.getType)
+          case _ =>
+            fn.getType
+        }
 
         val appTypeChecks: TypeValidation[Unit] = {
-          val (_, _, rho) = Type.splitQuantifiers(fn.getType)
-          rho match {
-            case Type.Fun(_, _) =>
-              typeValidationPass
-            case nonFn =>
-              typeValidationFail(
-                path,
-                s"application head is not a function type: ${showType(nonFn)}"
-              )
+          @annotation.tailrec
+          def consumeArgs(
+              currentFnType: Type,
+              remaining: Int,
+              accRev: List[Type]
+          ): Either[String, (List[Type], Type)] =
+            if (remaining <= 0) Right((accRev.reverse, currentFnType))
+            else {
+              val (_, _, rho) = Type.splitQuantifiers(currentFnType)
+              Type.Fun.unapply(rho) match {
+                case Some((fnArgs, fnRes)) =>
+                  val argsList = fnArgs.toList
+                  if (argsList.lengthCompare(remaining) <= 0)
+                    consumeArgs(
+                      fnRes,
+                      remaining - argsList.length,
+                      argsList reverse_::: accRev
+                    )
+                  else {
+                    val consumed = argsList.take(remaining)
+                    val leftover = argsList.drop(remaining)
+                    consumeArgs(
+                      Type.Fun(NonEmptyList.fromListUnsafe(leftover), fnRes),
+                      0,
+                      consumed reverse_::: accRev
+                    )
+                  }
+                case None =>
+                  Left(
+                    s"application head is not a function type: ${showType(currentFnType)}"
+                  )
+              }
+            }
+
+          consumeArgs(fnTypeForCheck, args.length, Nil) match {
+            case Left(message) =>
+              typeValidationFail(path, message)
+            case Right((expectedArgTypes, expectedResult)) =>
+              val gotArgs = args.toList
+              val argTypeChecks =
+                expectedArgTypes
+                  .zip(gotArgs)
+                  .zipWithIndex
+                  .map { case ((expected, got), idx) =>
+                    if (typesConnectInScope(expected, got.getType, boundKinds))
+                      typeValidationPass
+                    else
+                      typeValidationFail(
+                        s"$path/app/arg[$idx]",
+                        s"app arg type mismatch: expected ${showType(expected)}, got ${showType(got.getType)}"
+                      )
+                  }
+              val resultCheck =
+                if (
+                  expectedArgTypes.lengthCompare(gotArgs.length) == 0 &&
+                    !typesConnectInScope(expectedResult, te.getType, boundKinds)
+                )
+                  typeValidationFail(
+                    path,
+                    s"application result type mismatch: expected ${showType(expectedResult)}, got ${showType(te.getType)}"
+                  )
+                else typeValidationPass
+
+              (resultCheck :: argTypeChecks).sequence_
           }
         }
 
-        combineTypeValidation(childChecks :: appTypeChecks :: Nil)
+        (childChecks :: appTypeChecks :: Nil).sequence_
 
       case TypedExpr.Let(arg, expr, in, rec, _) =>
         val exprLocals =
@@ -329,23 +721,28 @@ object TestUtils {
           else locals
         val inLocals = locals.updated(arg, expr.getType)
 
-        combineTypeValidation(
+        (
           validateTypeConnections(
             expr,
             exprLocals,
             globals,
             env,
             loopStack,
+            boundKinds,
+            if (rec.isRecursive) recursiveLocals + arg else recursiveLocals,
             s"$path/let/$arg/expr"
-          ) :: validateTypeConnections(
-            in,
-            inLocals,
-            globals,
-            env,
-            loopStack,
-            s"$path/let/$arg/in"
-          ) :: Nil
-        )
+          ) ::
+            validateTypeConnections(
+              in,
+              inLocals,
+              globals,
+              env,
+              loopStack,
+              boundKinds,
+              if (rec.isRecursive) recursiveLocals + arg else recursiveLocals,
+              s"$path/let/$arg/in"
+            ) :: Nil
+        ).sequence_
 
       case TypedExpr.Loop(args, body, _) =>
         val initChecks = args.toList.zipWithIndex.map { case ((_, init), idx) =>
@@ -355,6 +752,8 @@ object TestUtils {
             globals,
             env,
             loopStack,
+            boundKinds,
+            recursiveLocals,
             s"$path/loop/init[$idx]"
           )
         }
@@ -376,10 +775,12 @@ object TestUtils {
           globals,
           env,
           LoopContext(argTypes.map(_._2), te.getType) :: loopStack,
+          boundKinds,
+          recursiveLocals,
           s"$path/loop/body"
         )
 
-        combineTypeValidation(duplicateCheck :: bodyChecks :: initChecks)
+        (duplicateCheck :: bodyChecks :: initChecks).sequence_
 
       case TypedExpr.Recur(args, tpe, _) =>
         val argChecks = args.toList.zipWithIndex.map { case (arg, idx) =>
@@ -389,6 +790,8 @@ object TestUtils {
             globals,
             env,
             loopStack,
+            boundKinds,
+            recursiveLocals,
             s"$path/recur/arg[$idx]"
           )
         }
@@ -409,7 +812,8 @@ object TestUtils {
                   .zip(args.toList)
                   .zipWithIndex
                   .map { case ((expected, got), idx) =>
-                    if (got.getType.sameAs(expected)) typeValidationPass
+                    if (typesConnectInScope(expected, got.getType, boundKinds))
+                      typeValidationPass
                     else
                       typeValidationFail(
                         s"$path/recur/arg[$idx]",
@@ -417,16 +821,16 @@ object TestUtils {
                       )
                   }
               val recurTypeCheck =
-                if (tpe.sameAs(loopType)) typeValidationPass
+                if (typesConnectInScope(loopType, tpe, boundKinds)) typeValidationPass
                 else
                   typeValidationFail(
                     path,
                     s"recur result type mismatch: expected ${showType(loopType)}, got ${showType(tpe)}"
                   )
-              combineTypeValidation(arityCheck :: recurTypeCheck :: argTypeChecks)
+              (arityCheck :: recurTypeCheck :: argTypeChecks).sequence_
           }
 
-        combineTypeValidation(recurChecks :: argChecks)
+        (recurChecks :: argChecks).sequence_
 
       case TypedExpr.Literal(lit, tpe, _) =>
         val expected = Type.getTypeOf(lit)
@@ -444,62 +848,73 @@ object TestUtils {
           globals,
           env,
           loopStack,
+          boundKinds,
+          recursiveLocals,
           s"$path/match/arg"
         )
 
         val branchChecks = branches.toList.zipWithIndex.map { case (branch, idx) =>
           val branchPath = s"$path/match/branch[$idx]"
-          val branchLocals: Map[Identifier.Bindable, Type] =
-            branch.pattern.names.iterator.map(_ -> Type.UnitType).toMap
+          val branchLocals = patternBindingTypes(
+            arg.getType,
+            branch.pattern,
+            env,
+            branchPath
+          )
 
           val branchResultTypeCheck =
-            if (branch.expr.getType.sameAs(te.getType)) typeValidationPass
+            if (typesConnectInScope(te.getType, branch.expr.getType, boundKinds))
+              typeValidationPass
             else
               typeValidationFail(
                 branchPath,
                 s"branch result type mismatch: expected ${showType(te.getType)}, got ${showType(branch.expr.getType)}"
               )
 
-          val scope = locals ++ branchLocals
-          val guardCheck =
-            branch.guard match {
-              case None =>
-                typeValidationPass
-              case Some(guard) =>
-                val guardTypeCheck =
-                  if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
-                  else
-                    typeValidationFail(
-                      s"$branchPath/guard",
-                      s"guard must be Bool, got ${showType(guard.getType)}"
-                    )
-                combineTypeValidation(
-                  guardTypeCheck :: validateTypeConnections(
-                    guard,
-                    scope,
-                    globals,
-                    env,
-                    loopStack,
-                    s"$branchPath/guard"
-                  ) :: Nil
-                )
-            }
+          branchLocals.andThen { localsFromPattern =>
+            val scope = locals ++ localsFromPattern
+            val guardCheck =
+              branch.guard match {
+                case None =>
+                  typeValidationPass
+                case Some(guard) =>
+                  val guardTypeCheck =
+                    if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
+                    else
+                      typeValidationFail(
+                        s"$branchPath/guard",
+                        s"guard must be Bool, got ${showType(guard.getType)}"
+                      )
+                  (
+                    guardTypeCheck ::
+                      validateTypeConnections(
+                        guard,
+                        scope,
+                        globals,
+                        env,
+                        loopStack,
+                        boundKinds,
+                        recursiveLocals,
+                        s"$branchPath/guard"
+                      ) :: Nil
+                  ).sequence_
+              }
 
-          val branchExprCheck = validateTypeConnections(
-            branch.expr,
-            scope,
-            globals,
-            env,
-            loopStack,
-            s"$branchPath/body"
-          )
-          val branchScopeChecks =
-            combineTypeValidation(guardCheck :: branchExprCheck :: Nil)
-
-          combineTypeValidation(branchResultTypeCheck :: branchScopeChecks :: Nil)
+            val branchExprCheck = validateTypeConnections(
+              branch.expr,
+              scope,
+              globals,
+              env,
+              loopStack,
+              boundKinds,
+              recursiveLocals,
+              s"$branchPath/body"
+            )
+            (branchResultTypeCheck :: guardCheck :: branchExprCheck :: Nil).sequence_
+          }
         }
 
-        combineTypeValidation(argCheck :: branchChecks)
+        (argCheck :: branchChecks).sequence_
     }
 
   private def validateLetList[A](
@@ -511,19 +926,22 @@ object TestUtils {
   ): TypeValidation[Unit] = {
     val localNames = lets.iterator.map { case (n, _, te) => (n, te.getType) }.toMap
 
-    combineTypeValidation(lets.map { case (name, _, te) =>
+    lets.map { case (name, _, te) =>
       val path = s"$stage/${pack.asString}/${name.sourceCodeRepr}"
-      combineTypeValidation(
-        validateTypedExprInvariants(te, path) :: validateTypeConnections(
-          te,
-          localNames,
-          globalValues,
-          fullTypeEnv,
-          Nil,
-          path
-        ) :: Nil
-      )
-    })
+      (
+        validateTypedExprInvariants(te, path) ::
+          validateTypeConnections(
+            te,
+            localNames,
+            globalValues,
+            fullTypeEnv,
+            Nil,
+            Map.empty,
+            Set.empty,
+            path
+          ) :: Nil
+      ).sequence_
+    }.sequence_
   }
 
   private def allTypeEnvOfPackageMap[A](
@@ -573,16 +991,19 @@ object TestUtils {
         ((p, n), t)
       }.toMap
 
-    combineTypeValidation(
-      validateTypedExprInvariants(te, "typed-expr") :: validateTypeConnections(
-        te,
-        localNames,
-        globalNames,
-        env,
-        Nil,
-        "typed-expr"
-      ) :: Nil
-    )
+    (
+      validateTypedExprInvariants(te, "typed-expr") ::
+        validateTypeConnections(
+          te,
+          localNames,
+          globalNames,
+          env,
+          Nil,
+          Map.empty,
+          Set.empty,
+          "typed-expr"
+        ) :: Nil
+    ).sequence_
   }
 
   def validatePackageMap[A](
@@ -596,9 +1017,9 @@ object TestUtils {
           letGlobalValues(pack.name, pack.lets)
       }.toMap
 
-    combineTypeValidation(pm.toMap.valuesIterator.map { pack =>
+    pm.toMap.valuesIterator.map { pack =>
       validateLetList(pack.name, pack.lets, fullTypeEnv, globalValues, stage)
-    }.toList)
+    }.toList.sequence_
   }
 
   def assertPackageMapTypeConnections[A](
