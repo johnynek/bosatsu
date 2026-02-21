@@ -333,6 +333,20 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       }
     }
   }
+
+  test("maybeDivInt remult regression #1742") {
+    val div = BigInt(4)
+    val e: Expr[BigInt] =
+      Mult(Integer(-div), Mult(Symbol(BigInt(1)), Symbol(BigInt(2))))
+    val w = Weights(mult = 3, add = 2, neg = 2)
+
+    val res = e.maybeDivInt(div).getOrElse(fail("expected a quotient"))
+    val remult = res.bestEffortConstMult(div)
+
+    assertEquals(Expr.toValue(remult), Expr.toValue(e))
+    assert(w.cost(remult) <= w.cost(e), show"e=$e, res=$res, remult=$remult")
+  }
+
   property("unConstMult <=> maybeDivInt relationship") {
     // if unConstMult works, we could divide by the same const using maybeDivInt
     val law1Prop = forAll { (e: Expr[BigInt]) =>
