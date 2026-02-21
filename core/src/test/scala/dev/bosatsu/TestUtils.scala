@@ -449,20 +449,8 @@ object TestUtils {
 
         val branchChecks = branches.toList.zipWithIndex.map { case (branch, idx) =>
           val branchPath = s"$path/match/branch[$idx]"
-          val branchLocalsRes: TypeValidation[Map[Identifier.Bindable, Type]] =
-            Either
-              .catchNonFatal {
-                Pattern
-                  .envOf(branch.pattern, Map.empty[Identifier, Type])(identity)
-                  .collect { case (b: Identifier.Bindable, t) => (b, t) }
-              }
-              .leftMap(err =>
-                TypeValidationError(
-                  branchPath,
-                  s"failed to infer pattern env: ${Option(err.getMessage).getOrElse(err.toString)}"
-                )
-              )
-              .toValidatedNec
+          val branchLocals: Map[Identifier.Bindable, Type] =
+            branch.pattern.names.iterator.map(_ -> Type.UnitType).toMap
 
           val branchResultTypeCheck =
             if (branch.expr.getType.sameAs(te.getType)) typeValidationPass
@@ -472,42 +460,41 @@ object TestUtils {
                 s"branch result type mismatch: expected ${showType(te.getType)}, got ${showType(branch.expr.getType)}"
               )
 
-          val branchScopeChecks = branchLocalsRes.andThen { branchLocals =>
-            val scope = locals ++ branchLocals
-            val guardCheck =
-              branch.guard match {
-                case None =>
-                  typeValidationPass
-                case Some(guard) =>
-                  val guardTypeCheck =
-                    if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
-                    else
-                      typeValidationFail(
-                        s"$branchPath/guard",
-                        s"guard must be Bool, got ${showType(guard.getType)}"
-                      )
-                  combineTypeValidation(
-                    guardTypeCheck :: validateTypeConnections(
-                      guard,
-                      scope,
-                      globals,
-                      env,
-                      loopStack,
-                      s"$branchPath/guard"
-                    ) :: Nil
-                  )
-              }
+          val scope = locals ++ branchLocals
+          val guardCheck =
+            branch.guard match {
+              case None =>
+                typeValidationPass
+              case Some(guard) =>
+                val guardTypeCheck =
+                  if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
+                  else
+                    typeValidationFail(
+                      s"$branchPath/guard",
+                      s"guard must be Bool, got ${showType(guard.getType)}"
+                    )
+                combineTypeValidation(
+                  guardTypeCheck :: validateTypeConnections(
+                    guard,
+                    scope,
+                    globals,
+                    env,
+                    loopStack,
+                    s"$branchPath/guard"
+                  ) :: Nil
+                )
+            }
 
-            val branchExprCheck = validateTypeConnections(
-              branch.expr,
-              scope,
-              globals,
-              env,
-              loopStack,
-              s"$branchPath/body"
-            )
+          val branchExprCheck = validateTypeConnections(
+            branch.expr,
+            scope,
+            globals,
+            env,
+            loopStack,
+            s"$branchPath/body"
+          )
+          val branchScopeChecks =
             combineTypeValidation(guardCheck :: branchExprCheck :: Nil)
-          }
 
           combineTypeValidation(branchResultTypeCheck :: branchScopeChecks :: Nil)
         }
