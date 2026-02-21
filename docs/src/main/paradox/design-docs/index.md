@@ -16,6 +16,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.md)
 * [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
+* [`recur ... by int_decrease` Design](recur_int_decrease_design.md)
 @@@
 
 ## Browse design docs
