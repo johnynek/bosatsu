@@ -23,6 +23,54 @@ class TotalityTest
 
   type Pat = Pattern[(PackageName, Constructor), Type]
 
+  private enum RootShape:
+    case Str, List, Struct, Int, Float64, Char
+
+  private def literalShape(lit: Lit): RootShape =
+    lit match {
+      case Lit.Str(_)     => RootShape.Str
+      case Lit.Integer(_) => RootShape.Int
+      case _: Lit.Float64 => RootShape.Float64
+      case Lit.Chr(_)     => RootShape.Char
+    }
+
+  private def listLikeConstructor(
+      cons: (PackageName, Constructor)
+  ): Boolean =
+    cons match {
+      case (PackageName.PredefName, Constructor("EmptyList"))    => true
+      case (PackageName.PredefName, Constructor("NonEmptyList")) => true
+      case _                                                     => false
+    }
+
+  // This is intentionally conservative: only detect obvious mixed root domains.
+  // False negatives are fine; false positives should be rare.
+  private def definitelyNotHomogeneouslyTyped(
+      pats: List[Pattern[(PackageName, Constructor), Type]]
+  ): Boolean = {
+    def rootShapes(
+        pat: Pattern[(PackageName, Constructor), Type]
+    ): Set[RootShape] =
+      pat match {
+        case Pattern.WildCard | Pattern.Var(_) => Set.empty
+        case Pattern.Named(_, p)               => rootShapes(p)
+        case Pattern.Annotation(p, _)          => rootShapes(p)
+        case Pattern.Union(h, t) =>
+          (h :: t.toList).iterator.flatMap(rootShapes(_)).toSet
+        case Pattern.Literal(lit) => Set(literalShape(lit))
+        case Pattern.StrPat(_)    => Set(RootShape.Str)
+        case Pattern.ListPat(_)   => Set(RootShape.List)
+        case Pattern.PositionalStruct(cons, _) =>
+          if (listLikeConstructor(cons)) Set(RootShape.List)
+          else Set(RootShape.Struct)
+      }
+
+    pats.iterator.flatMap(rootShapes(_)).toSet.sizeCompare(1) > 0
+  }
+
+  override def includeInMissingBranchesLaw(top: Pat, pats: List[Pat]): Boolean =
+    !definitelyNotHomogeneouslyTyped(top :: pats)
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 20)
