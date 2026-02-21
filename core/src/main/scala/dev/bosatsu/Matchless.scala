@@ -2497,7 +2497,7 @@ object Matchless {
             resMut :: currentList :: Nil,
             LetBool(Left(letBind), searchLoop, isTrueExpr(resMut))
           )
-        }
+       }
       /*
             Dynamic { (scope: Scope) =>
               var res = false
@@ -2524,12 +2524,84 @@ object Matchless {
             }
        */
 
+    case class InlinedStructRoot(fields: Vector[CheapExpr[B]]) {
+      def toExpr: Expr[B] =
+        applyArgs(
+          MakeStruct(fields.length),
+          NonEmptyList.fromListUnsafe(fields.toList)
+        )
+
+      def field(idx: Int, size: Int): CheapExpr[B] = {
+        require((size == fields.length) && (idx >= 0) && (idx < size))
+        fields(idx)
+      }
+    }
+
+    def prepareInlinedStructRoot(
+        arg: Expr[B]
+    ): F[Option[(List[(LocalAnon, Expr[B])], InlinedStructRoot)]] =
+      arg match {
+        case App(MakeStruct(arity), args) if args.length == arity =>
+          args.toList
+            .foldLeftM(
+              (List.empty[(LocalAnon, Expr[B])], List.empty[CheapExpr[B]])
+            ) { case ((letsRev, fieldsRev), item) =>
+              item match {
+                case ch: CheapExpr[B] =>
+                  Monad[F].pure((letsRev, ch :: fieldsRev))
+                case expr =>
+                  makeAnon.map { nm =>
+                    val local = LocalAnon(nm)
+                    ((local, expr) :: letsRev, local :: fieldsRev)
+                  }
+              }
+            }
+            .map { case (letsRev, fieldsRev) =>
+              Some(
+                (
+                  letsRev.reverse,
+                  InlinedStructRoot(fieldsRev.reverse.toVector)
+                )
+              )
+            }
+        case _ =>
+          Monad[F].pure(None)
+      }
+
+    def bindOccurrenceValue(
+        occ: CheapExpr[B],
+        inlined: Option[InlinedStructRoot]
+    ): Expr[B] =
+      inlined match {
+        case Some(root) => root.toExpr
+        case None       => occ
+      }
+
+    def projectStructOccurrence(
+        occ: CheapExpr[B],
+        idx: Int,
+        size: Int,
+        inlined: Option[InlinedStructRoot]
+    ): CheapExpr[B] =
+      inlined match {
+        case Some(root) => root.field(idx, size)
+        case None       => GetStructElement(occ, idx, size)
+      }
+
+    def rootInlinedForOcc(
+        occ: CheapExpr[B],
+        rootOcc: CheapExpr[B],
+        inlinedRoot: Option[InlinedStructRoot]
+    ): Option[InlinedStructRoot] =
+      inlinedRoot.filter(_ => occ.equals(rootOcc))
+
     // return the check expression for the check we need to do, and the list of bindings
     // if must match is true, we know that the pattern must match, so we can potentially remove some checks
     def doesMatch(
         arg: CheapExpr[B],
         pat: Pattern[(PackageName, Constructor), Type],
-        mustMatch: Boolean
+        mustMatch: Boolean,
+        rootInlined: Option[InlinedStructRoot]
     ): F[UnionMatch] = {
       pat match {
         case Pattern.WildCard =>
@@ -2538,14 +2610,21 @@ object Matchless {
         case Pattern.Literal(lit) =>
           Monad[F].pure(NonEmptyList((Nil, EqualsLit(arg, lit), Nil), Nil))
         case Pattern.Var(v) =>
-          Monad[F].pure(NonEmptyList((Nil, TrueConst, (v, arg) :: Nil), Nil))
+          Monad[F].pure(
+            NonEmptyList(
+              (Nil, TrueConst, (v, bindOccurrenceValue(arg, rootInlined)) :: Nil),
+              Nil
+            )
+          )
         case Pattern.Named(v, p) =>
-          doesMatch(arg, p, mustMatch).map(_.map { case (l0, cond, bs) =>
-            (l0, cond, (v, arg) :: bs)
+          doesMatch(arg, p, mustMatch, rootInlined).map(_.map {
+            case (l0, cond, bs) =>
+              (l0, cond, (v, bindOccurrenceValue(arg, rootInlined)) :: bs)
           })
         case strPat @ Pattern.StrPat(items) =>
           strPat.simplify match {
-            case Some(simpler) => doesMatch(arg, simpler, mustMatch)
+            case Some(simpler) =>
+              doesMatch(arg, simpler, mustMatch, rootInlined)
             case None          =>
               val sbinds: List[Bindable] =
                 items.toList
@@ -2587,7 +2666,9 @@ object Matchless {
           }
         case lp @ Pattern.ListPat(_) =>
           Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
-            case Right(p) => doesMatch(arg, p, mustMatch)
+            case Right(p) =>
+              // rootInlined = None: list patterns match enum constructors, not root structs.
+              doesMatch(arg, p, mustMatch, None)
             case Left(
                   (glob, right @ NonEmptyList(Pattern.ListPart.Item(_), _))
                 ) =>
@@ -2611,8 +2692,8 @@ object Matchless {
               (leftF, makeAnon).tupled
                 .flatMap { case (optAnonLeft, tmpList) =>
                   val anonList = LocalAnonMut(tmpList)
-
-                  doesMatch(anonList, Pattern.ListPat(right.toList), false)
+                  // rootInlined = None: we match the derived suffix list, not the root.
+                  doesMatch(anonList, Pattern.ListPat(right.toList), false, None)
                     .flatMap { cases =>
                       cases.traverse {
                         case (_, TrueConst, _) =>
@@ -2661,10 +2742,20 @@ object Matchless {
               glob match {
                 case Pattern.ListPart.WildList =>
                   // no binding on the let
-                  doesMatch(arg, Pattern.ListPat(right.toList), mustMatch)
+                  doesMatch(
+                    arg,
+                    Pattern.ListPat(right.toList),
+                    mustMatch,
+                    None
+                  )
                 case Pattern.ListPart.NamedList(ln) =>
                   // bind empty to ln
-                  doesMatch(arg, Pattern.ListPat(right.toList), mustMatch)
+                  doesMatch(
+                    arg,
+                    Pattern.ListPat(right.toList),
+                    mustMatch,
+                    None
+                  )
                     .map { nel =>
                       nel.map { case (preLet, expr, binds) =>
                         (preLet, expr, (ln, emptyExpr) :: binds)
@@ -2676,7 +2767,7 @@ object Matchless {
 
         case Pattern.Annotation(p, _) =>
           // we discard types at this point
-          doesMatch(arg, p, mustMatch)
+          doesMatch(arg, p, mustMatch, rootInlined)
         case Pattern.PositionalStruct((pack, cname), params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
@@ -2706,7 +2797,7 @@ object Matchless {
                     nm <- WriterT.valueT[F, Locals, Long](makeAnon)
                     lam = LocalAnonMut(nm)
                     um <- WriterT.valueT[F, Locals, UnionMatch](
-                      doesMatch(lam, pat, mustMatch)
+                      doesMatch(lam, pat, mustMatch, None)
                     )
                     // if this is a total match, we don't need to do the getter at all
                     chain =
@@ -2730,7 +2821,9 @@ object Matchless {
           }
 
           def forStruct(size: Int) =
-            asStruct(pos => GetStructElement(arg, pos, size)).run
+            asStruct(pos =>
+              projectStructOccurrence(arg, pos, size, rootInlined)
+            ).run
               .map { case (anons, ums) =>
                 ums.map { case (pre, cond, bind) =>
                   val pre1 = anons.foldLeft(pre) { case (pre, (a, _)) =>
@@ -2801,7 +2894,8 @@ object Matchless {
                           nm <- makeAnon
                           loc = LocalAnonMut(nm)
                           prev = PrevNat(arg)
-                          rest <- doesMatch(loc, single, mustMatch)
+                          // rootInlined = None: we match the predecessor occurrence, not the root.
+                          rest <- doesMatch(loc, single, mustMatch, None)
                         } yield rest.map { case (preLets, cond, res) =>
                           (
                             loc :: preLets,
@@ -2842,7 +2936,7 @@ object Matchless {
           )
           ((h :: ts)
             .zip(unionMustMatch))
-            .traverse { case (p, mm) => doesMatch(arg, p, mm) }
+            .traverse { case (p, mm) => doesMatch(arg, p, mm, rootInlined) }
             .map { nene =>
               val nel = nene.flatten
               // at the first total match, we can stop
@@ -2988,16 +3082,17 @@ object Matchless {
     // WildCard, Literal, PositionalStruct, or Union.
     def peelPattern(
         p: Pattern[(PackageName, Constructor), Type],
-        occ: CheapExpr[B]
+        occ: CheapExpr[B],
+        inlined: Option[InlinedStructRoot]
     ): (List[(Bindable, Expr[B])], Pattern[(PackageName, Constructor), Type]) =
       p match {
         case Pattern.Named(v, inner) =>
-          val (bs, core) = peelPattern(inner, occ)
-          ((v, occ) :: bs, core)
+          val (bs, core) = peelPattern(inner, occ, inlined)
+          ((v, bindOccurrenceValue(occ, inlined)) :: bs, core)
         case Pattern.Var(v) =>
-          ((v, occ) :: Nil, Pattern.WildCard)
+          ((v, bindOccurrenceValue(occ, inlined)) :: Nil, Pattern.WildCard)
         case Pattern.Annotation(inner, _) =>
-          peelPattern(inner, occ)
+          peelPattern(inner, occ, inlined)
         case Pattern.WildCard | Pattern.Literal(_) |
             Pattern.PositionalStruct(_, _) | Pattern.Union(_, _) =>
           (Nil, p)
@@ -3037,7 +3132,9 @@ object Matchless {
     // Invariant: row.pats.length == occs.length.
     def normalizeRow(
         row: MatchRow,
-        occs: List[CheapExpr[B]]
+        occs: List[CheapExpr[B]],
+        rootOcc: CheapExpr[B],
+        inlinedRoot: Option[InlinedStructRoot]
     ): MatchRow = {
       val (bindsRev, patsRev) =
         row.pats.iterator
@@ -3049,7 +3146,8 @@ object Matchless {
             )
           ) { case ((bs, acc), (pat, occ)) =>
             val p1 = normalizePattern(pat)
-            val (moreBinds, core) = peelPattern(p1, occ)
+            val maybeInlined = rootInlinedForOcc(occ, rootOcc, inlinedRoot)
+            val (moreBinds, core) = peelPattern(p1, occ, maybeInlined)
             // we prepend in reverse order so this isn't quadratic
             // otherwise prepending the bs accumulator would be quadratic
             (moreBinds.reverse ::: bs, core :: acc)
@@ -3295,7 +3393,8 @@ object Matchless {
     // Ifs. This preserves the semantics of non-orthogonal patterns.
     def matchExprOrderedCheap(
         arg: CheapExpr[B],
-        branches: NonEmptyList[MatchBranch]
+        branches: NonEmptyList[MatchBranch],
+        rootInlined: Option[InlinedStructRoot]
     ): F[Expr[B]] = {
       def recur(
           arg: CheapExpr[B],
@@ -3357,7 +3456,9 @@ object Matchless {
           }
 
         val mustMatchPattern = branches.tail.isEmpty && head1.guard.isEmpty
-        doesMatch(arg, head1.pattern, mustMatchPattern).flatMap(loop)
+        doesMatch(arg, head1.pattern, mustMatchPattern, rootInlined).flatMap(
+          loop
+        )
       }
 
       recur(arg, branches)
@@ -3379,7 +3480,8 @@ object Matchless {
     // See: https://compiler.club/compiling-pattern-matching/
     def matchExprMatrixCheap(
         arg: CheapExpr[B],
-        branches: NonEmptyList[MatchBranch]
+        branches: NonEmptyList[MatchBranch],
+        inlinedRoot: Option[InlinedStructRoot]
     ): F[Expr[B]] = {
       val rows0 = branches.toList.map(MatchRow.fromBranch)
 
@@ -3442,7 +3544,7 @@ object Matchless {
           mustMatch: Boolean
       ): F[Expr[B]] =
         materializeOccs(occsIn).flatMap { case (occLets, occsMemoed) =>
-          val norm = rowsIn.map(normalizeRow(_, occsMemoed))
+          val norm = rowsIn.map(normalizeRow(_, occsMemoed, arg, inlinedRoot))
           val expanded = expandRows(norm)
           val (rows, occs) = dropWildColumns(expanded, occsMemoed)
 
@@ -3527,8 +3629,10 @@ object Matchless {
                     case StructSig(_, s) =>
                       val (newRows, keepOffsets) =
                         minimizeSpecializedRows(sig, rows, colIdx, s)
+                      val occInline =
+                        rootInlinedForOcc(occ, arg, inlinedRoot)
                       val fields = keepOffsets.map(i =>
-                        GetStructElement(occ, i, s)
+                        projectStructOccurrence(occ, i, s, occInline)
                       )
                       val newOccs = occs.patch(colIdx, fields, 1)
                       Monad[F].pure((TrueConst, Nil, newRows, newOccs))
@@ -3810,7 +3914,9 @@ object Matchless {
           occsIn: List[CheapExpr[B]],
           mustMatch: Boolean
       ): Int = {
-        val norm = rowsIn.map(tr => tr.copy(row = normalizeRow(tr.row, occsIn)))
+        val norm = rowsIn.map(tr =>
+          tr.copy(row = normalizeRow(tr.row, occsIn, dummyMut, None))
+        )
         val expanded = expandTaggedRows(norm)
         val (rows, occs) = dropWildColumnsTagged(expanded, occsIn)
 
@@ -3900,36 +4006,78 @@ object Matchless {
         tmp: F[Long],
         branches: NonEmptyList[MatchBranch]
     ): F[Expr[B]] = {
-      val (orthoPrefix, nonOrthoSuffix) =
-        branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
-      val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
+      def bindsWholeRoot(
+          p: Pattern[(PackageName, Constructor), Type]
+      ): Boolean =
+        p match {
+          case Pattern.Var(_) | Pattern.Named(_, _) => true
+          case Pattern.Annotation(inner, _)          => bindsWholeRoot(inner)
+          case Pattern.Union(h, tail) =>
+            bindsWholeRoot(h) && tail.forall(bindsWholeRoot)
+          case _                                    => false
+        }
+
+      val wholeRootBindBranches =
+        branches.toList.count(branch => bindsWholeRoot(branch.pattern))
+
       // Heuristic: only pay the matrix setup cost if we can prune a few
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
       def maybeMatrix(
           arg: CheapExpr[B],
-          branches: NonEmptyList[MatchBranch]
+          branches: NonEmptyList[MatchBranch],
+          rootInlined: Option[InlinedStructRoot]
       ): F[Expr[B]] =
         if (shouldPreferOrderedTerminalFallback(branches))
-          matchExprOrderedCheap(arg, branches)
+          matchExprOrderedCheap(arg, branches, rootInlined)
         else
-          matchExprMatrixCheap(arg, branches)
+          matchExprMatrixCheap(arg, branches, rootInlined)
 
-      maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+      def compileWithCheapArg(
+          arg: CheapExpr[B],
+          branches: NonEmptyList[MatchBranch],
+          rootInlined: Option[InlinedStructRoot]
+      ): F[Expr[B]] = {
+        val (orthoPrefix, nonOrthoSuffix) =
+          branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
+        val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
+
         maybeNonOrthoSuffix match {
           case None =>
-            maybeMatrix(arg, branches)
+            maybeMatrix(arg, branches, rootInlined)
           case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
-            matchExprOrderedCheap(arg, suffixNel).flatMap { fallbackExpr =>
-              val combinedNel = NonEmptyList.ofInitLast(
-                orthoPrefix,
-                MatchBranch(Pattern.WildCard, None, fallbackExpr)
-              )
-              matchExpr(arg, tmp, combinedNel)
+            matchExprOrderedCheap(arg, suffixNel, rootInlined).flatMap {
+              fallbackExpr =>
+                val combinedNel = NonEmptyList.ofInitLast(
+                  orthoPrefix,
+                  MatchBranch(Pattern.WildCard, None, fallbackExpr)
+                )
+                compileWithCheapArg(arg, combinedNel, rootInlined)
             }
           case _ =>
-            matchExprOrderedCheap(arg, branches)
+            matchExprOrderedCheap(arg, branches, rootInlined)
+        }
+      }
+
+      def compileWithoutInlining: F[Expr[B]] =
+        maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+          compileWithCheapArg(arg, branches, None)
+        }
+
+      // phase-1 policy: if multiple branches bind the whole root, keep eager root allocation
+      if (wholeRootBindBranches > 1) compileWithoutInlining
+      else {
+        prepareInlinedStructRoot(arg).flatMap {
+          case Some((argLets, inlinedRoot)) =>
+            makeAnon
+              .map(LocalAnon(_))
+              .flatMap { rootOcc =>
+                compileWithCheapArg(rootOcc, branches, Some(inlinedRoot))
+              }
+              .map(letAnons(argLets, _))
+          case None =>
+            compileWithoutInlining
         }
       }
     }
