@@ -288,22 +288,22 @@ BValue bsts_print_errln_effect(BValue a)
 
 static BValue bsts_io_std_print_prog(BValue a)
 {
-  return alloc_enum2(7, a, alloc_boxed_pure_fn1(bsts_print_effect));
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(bsts_print_effect));
 }
 
 static BValue bsts_io_std_println_prog(BValue a)
 {
-  return alloc_enum2(7, a, alloc_boxed_pure_fn1(bsts_println_effect));
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(bsts_println_effect));
 }
 
 static BValue bsts_io_std_print_err_prog(BValue a)
 {
-  return alloc_enum2(7, a, alloc_boxed_pure_fn1(bsts_print_err_effect));
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(bsts_print_err_effect));
 }
 
 static BValue bsts_io_std_print_errln_prog(BValue a)
 {
-  return alloc_enum2(7, a, alloc_boxed_pure_fn1(bsts_print_errln_effect));
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(bsts_print_errln_effect));
 }
 
 /* Helper: check that the first len bytes form a sequence of whole UTF-8 code points. */
@@ -456,7 +456,7 @@ BValue bsts_read_stdin_utf8_bytes_effect(BValue size)
 
 static BValue bsts_io_std_read_stdin_utf8_bytes_prog(BValue a)
 {
-  return alloc_enum2(7, a, alloc_boxed_pure_fn1(bsts_read_stdin_utf8_bytes_effect));
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(bsts_read_stdin_utf8_bytes_effect));
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Std_l_print__impl(BValue a)
