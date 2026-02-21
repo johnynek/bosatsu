@@ -2037,7 +2037,7 @@ object Matchless {
         cond: LocalAnonMut,
         result: LocalAnonMut,
         body: Expr[B]
-    ): Expr[B] = {
+    ): (Expr[B], Boolean) = {
 
       def returnValue(v: Expr[B]): Expr[B] =
         setAll((cond, FalseExpr) :: (result, v) :: Nil, UnitExpr)
@@ -2111,7 +2111,51 @@ object Matchless {
       )
 
       // No tail call means this loop executes once and returns bodyTrans.
-      loop(bodyTrans).getOrElse(returnValue(bodyTrans))
+      loop(bodyTrans) match {
+        case Some(rewritten) =>
+          (rewritten, true)
+        case None =>
+          (returnValue(bodyTrans), false)
+      }
+    }
+
+    def buildLoopExpr(
+        name: Bindable,
+        args: NonEmptyList[Bindable],
+        initArgs: NonEmptyList[Expr[B]],
+        body: Expr[B],
+        onlyIfTailCall: Boolean
+    ): F[Option[Expr[B]]] = {
+      val mut = makeAnon.map(LocalAnonMut(_))
+      val anon = makeAnon.map(LocalAnon(_))
+      for {
+        cond <- mut
+        result <- mut
+        args1 <- args.traverse(b => (anon, mut).mapN(ArgRecord(b, _, _)))
+        whileRes = toWhileBody(name, args1, cond, result, body)
+        (whileBody, rewroteTailCall) = whileRes
+        allMuts = cond :: result :: args1.toList.map(_.loopVar)
+      } yield {
+        if (onlyIfTailCall && !rewroteTailCall) None
+        else {
+          val initSets =
+            args1.toList.zip(initArgs.toList).map { case (argRec, initArg) =>
+              (argRec.loopVar, initArg)
+            }
+          Some(
+            letMutAll(
+              allMuts,
+              setAll(
+                initSets,
+                Always(
+                  SetMut(cond, TrueExpr),
+                  WhileExpr(isTrueExpr(cond), whileBody, result)
+                )
+              )
+            )
+          )
+        }
+      }
     }
 
     def buildLoop(
@@ -2119,32 +2163,15 @@ object Matchless {
         args: NonEmptyList[Bindable],
         initArgs: NonEmptyList[Expr[B]],
         body: Expr[B]
-    ): F[Expr[B]] = {
-      val mut = makeAnon.map(LocalAnonMut(_))
-      val anon = makeAnon.map(LocalAnon(_))
-      for {
-        cond <- mut
-        result <- mut
-        args1 <- args.traverse(b => (anon, mut).mapN(ArgRecord(b, _, _)))
-        whileBody = toWhileBody(name, args1, cond, result, body)
-        allMuts = cond :: result :: args1.toList.map(_.loopVar)
-      } yield {
-        val initSets =
-          args1.toList.zip(initArgs.toList).map { case (argRec, initArg) =>
-            (argRec.loopVar, initArg)
-          }
-        letMutAll(
-          allMuts,
-          setAll(
-            initSets,
-            Always(
-              SetMut(cond, TrueExpr),
-              WhileExpr(isTrueExpr(cond), whileBody, result)
-            )
+    ): F[Expr[B]] =
+      buildLoopExpr(name, args, initArgs, body, onlyIfTailCall = false).map {
+        case Some(loopExpr) => loopExpr
+        case None =>
+          // unreachable: onlyIfTailCall = false always returns Some(...)
+          sys.error(
+            s"internal error: missing loop body for $name with onlyIfTailCall=false"
           )
-        )
       }
-    }
 
     def loopLetVal(
         name: Bindable,
@@ -2154,22 +2181,35 @@ object Matchless {
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
-          val e0 = loop(e, slots.inLet(name))
-          def letrec(expr: Expr[B]): Expr[B] =
-            expr match {
-              case fn: Lambda[B] if fn.recursiveName == Some(name) => fn
-              case fn: Lambda[?]                                   =>
-                // loops always have a function name
-                sys.error(
-                  s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
-                )
-              case _ =>
-                sys.error(
-                  s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
-                )
-            }
-
-          e0.map(letrec)
+          loop(e, slots.inLet(name)).flatMap {
+            case fn @ Lambda(captures, Some(fnName), args, body)
+                if fnName == name =>
+              // TypedExpr lowering keeps polymorphic recursion in lambda form to
+              // preserve typed AST invariants. Matchless is type-erased, so we
+              // can lower tail self-calls here when available.
+              val initArgs = args.map(Local(_))
+              buildLoopExpr(
+                fnName,
+                args,
+                initArgs,
+                body,
+                onlyIfTailCall = true
+              ).map {
+                case Some(loopBody) =>
+                  Lambda(captures, Some(fnName), args, loopBody)
+                case None =>
+                  fn
+              }
+            case fn: Lambda[?] =>
+              // loops always have a function name
+              sys.error(
+                s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
+              )
+            case expr =>
+              sys.error(
+                s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
+              )
+          }
         case RecursionKind.NonRecursive => loop(e, slots)
       }
 
