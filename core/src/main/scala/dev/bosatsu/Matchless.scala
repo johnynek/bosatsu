@@ -2132,16 +2132,21 @@ object Matchless {
         cond <- mut
         result <- mut
         args1 <- args.traverse(b => (anon, mut).mapN(ArgRecord(b, _, _)))
-        whileRes = toWhileBody(name, args1, cond, result, body)
-        (whileBody, rewroteTailCall) = whileRes
+        (whileBody, rewroteTailCall) = toWhileBody(
+          name,
+          args1,
+          cond,
+          result,
+          body
+        )
         allMuts = cond :: result :: args1.toList.map(_.loopVar)
       } yield {
         if (onlyIfTailCall && !rewroteTailCall) None
         else {
-          val initSets =
-            args1.toList.zip(initArgs.toList).map { case (argRec, initArg) =>
-              (argRec.loopVar, initArg)
-            }
+          val initSets = args1.iterator
+            .zip(initArgs.iterator)
+            .map { case (argRec, initArg) => (argRec.loopVar, initArg) }
+            .toList
           Some(
             letMutAll(
               allMuts,
