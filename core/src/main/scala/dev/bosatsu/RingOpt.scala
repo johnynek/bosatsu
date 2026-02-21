@@ -1084,31 +1084,35 @@ object RingOpt {
           val l = undistribute[A](l0a)
           val r = undistribute[A](r0a)
 
-          (l, r) match {
-            case (Mult(a, b), Mult(c, d)) =>
-              if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
-              else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
-              else if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
-              else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
-              else Add(l, r)
-            case (Mult(a, b), Neg(c)) =>
-              if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
-              else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
-              else Add(l, r)
-            case (Mult(a, b), c) =>
-              if (isEq(a, c)) Mult(a, Add(b, One))
-              else if (isEq(b, c)) Mult(b, Add(a, One))
-              else Add(l, r)
-            case (Neg(c), Mult(a, b)) =>
-              if (isEq(a, c)) Mult(a, Add(Neg(One), b))
-              else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
-              else Add(l, r)
-            case (c, Mult(a, b)) =>
-              if (isEq(a, c)) Mult(a, Add(One, b))
-              else if (isEq(b, c)) Mult(b, Add(One, a))
-              else Add(l, r)
-            case _ => Add(l, r)
-          }
+          // Keep repeated-add shape intact so normalize(Add) can compare
+          // term-wise decomposition against 2*x style rewrites.
+          if (isEq(l, r)) Add(l, r)
+          else
+            (l, r) match {
+              case (Mult(a, b), Mult(c, d)) =>
+                if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
+                else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
+                else if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
+                else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
+                else Add(l, r)
+              case (Mult(a, b), Neg(c)) =>
+                if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
+                else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
+                else Add(l, r)
+              case (Mult(a, b), c) =>
+                if (isEq(a, c)) Mult(a, Add(b, One))
+                else if (isEq(b, c)) Mult(b, Add(a, One))
+                else Add(l, r)
+              case (Neg(c), Mult(a, b)) =>
+                if (isEq(a, c)) Mult(a, Add(Neg(One), b))
+                else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
+                else Add(l, r)
+              case (c, Mult(a, b)) =>
+                if (isEq(a, c)) Mult(a, Add(One, b))
+                else if (isEq(b, c)) Mult(b, Add(One, a))
+                else Add(l, r)
+              case _ => Add(l, r)
+            }
         case Neg(x) =>
           val xa: Expr[A] = x
           Neg(undistribute[A](xa))
