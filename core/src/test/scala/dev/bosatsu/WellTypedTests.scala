@@ -58,8 +58,8 @@ class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
     )
 
     checked match {
-      case Ior.Right(_) =>
-        ()
+      case Ior.Right(pm) =>
+        TestUtils.assertPackageMapTypeConnections(pm, "well-typed optimized")
       case Ior.Both(errs, _) =>
         val sourceMap = Map(
           packageName -> (LocationMap(source), "<generated>"),

@@ -2,7 +2,7 @@ package dev.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Monad, Order}
+import cats.{Applicative, Monad, Order, Show}
 import org.typelevel.paiges.{Doc, Document}
 import dev.bosatsu.{
   Kind,
@@ -33,6 +33,11 @@ sealed abstract class Type extends Product derives CanEqual {
 }
 
 object Type {
+
+  given Show[Type] with {
+    def show(t: Type): String =
+      fullyResolvedDocument.document(t).render(80)
+  }
 
   private final case class ExitBound(vars: List[Type.Var.Bound])
 
@@ -417,6 +422,62 @@ object Type {
       case notForAll =>
         notForAll
     }
+
+  /** Hoist forall binders out of unique covariant arguments.
+    *
+    * This is the opposite direction of [[pushDownForAllCovariant]].
+    * We only hoist binders that appear in exactly one covariant argument.
+    */
+  def hoistForAllCovariant(
+      tpe: Type,
+      kindOf: Type => Option[Kind]
+  ): Type = {
+    val (outerForalls, rho0) = liftUniversals(tpe)
+    val (cons, cargs) = unapplyAll(rho0)
+    kindOf(cons) match {
+      case None =>
+        tpe
+      case Some(kind) =>
+        val kindArgs = kind.toArgs
+        val freeByArg =
+          cargs.iterator.map(t => freeBoundTyVars(t :: Nil).toSet).toVector
+        val outerBoundSet = outerForalls.iterator.map(_._1).toSet
+
+        val (hoistedRev, argsRev) =
+          cargs.iterator.zipWithIndex.foldLeft(
+            (List.empty[(Type.Var.Bound, Kind)], List.empty[Type])
+          ) {
+            case ((hoistedAccRev, argsAccRev), (arg, idx)) =>
+              val isCovariant =
+                kindArgs.lift(idx).exists(_.variance == Variance.co)
+
+              if (!isCovariant) (hoistedAccRev, arg :: argsAccRev)
+              else
+                arg match {
+                  case fa: ForAll =>
+                    val avoid =
+                      outerBoundSet ++
+                        hoistedAccRev.iterator.map(_._1).toSet ++
+                        freeByArg.iterator.zipWithIndex.collect {
+                          case (freeSet, i) if i != idx => freeSet
+                        }.flatten
+                    val fa1 = fa.unshadow(avoid)
+                    val (movable, blocked) =
+                      fa1.vars.toList.partition { case (b, _) => !avoid(b) }
+                    val arg1 = forAll(blocked, fa1.in)
+                    (
+                      movable.reverse_:::(hoistedAccRev),
+                      arg1 :: argsAccRev
+                    )
+                  case notForAll =>
+                    (hoistedAccRev, notForAll :: argsAccRev)
+                }
+          }
+
+        val hoisted = hoistedRev.reverse
+        forAll(outerForalls ::: hoisted, applyAll(cons, argsRev.reverse))
+    }
+  }
 
   @annotation.tailrec
   private def applyAllRho(rho: Leaf | TyApply, args: List[Type]): Rho =
