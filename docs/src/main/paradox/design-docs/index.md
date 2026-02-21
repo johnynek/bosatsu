@@ -14,6 +14,7 @@ This section collects implementation design documents for Bosatsu.
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
+* [`recur ... by int_decrease` Design](recur_int_decrease_design.md)
 @@@
 
 ## Notes
