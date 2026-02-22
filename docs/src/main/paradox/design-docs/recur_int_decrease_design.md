@@ -355,6 +355,60 @@ This demonstrates that the required SMT integration for `int_decrease` is small:
 we only need QF_LIA obligations generated from typed guards and recursive-call
 arguments, not full general-purpose theorem proving.
 
+### Non-tail divide-and-conquer example (`n/2` and `n-n/2`)
+This is a useful non-tail recursion pattern that is beyond the shape of a
+single linear `int_loop` step.
+
+Goal conditions for a split:
+1. `n1 >= 2`
+2. `n2 = n1 / 2` (integer division)
+3. `n3 = n1 - n2`
+4. prove:
+   1. `1 <= n2 < n1`
+   2. `1 <= n3 < n1`
+
+SMT-LIB check:
+
+```smt2
+(set-logic ALL)
+(declare-const n1 Int)
+(declare-const n2 Int)
+(declare-const n3 Int)
+
+(assert (>= n1 2))
+(assert (= n2 (div n1 2)))
+(assert (= n3 (- n1 n2)))
+
+(assert (not (and (<= 1 n2) (< n2 n1)
+                  (<= 1 n3) (< n3 n1))))
+
+(check-sat)
+; expected: unsat
+```
+
+For `int_decrease`, we would typically run per-call obligations, one recursive
+call at a time:
+1. call on `n2`: prove `0 <= n2` and `n2 < n1`,
+2. call on `n3`: prove `0 <= n3` and `n3 < n1`.
+
+Bosatsu shape:
+
+```bosatsu
+def split_sum(n: Int) -> Int:
+  recur n by int_decrease:
+    case _ if n <= 1:
+      n
+    case _:
+      n2 = n.div(2)
+      n3 = n.sub(n2)
+      split_sum(n2).add(split_sum(n3))
+```
+
+This demonstrates where SMT-backed `int_decrease` gives clear value:
+1. non-tail recursion,
+2. two recursive calls in one branch,
+3. local arithmetic proofs for each recursive argument.
+
 ### Extraction sketch from typed trees
 At each recursive self-call node:
 1. recognize `TypedExpr.App(TypedExpr.Local(defName, _, _), args, _, _)` where
