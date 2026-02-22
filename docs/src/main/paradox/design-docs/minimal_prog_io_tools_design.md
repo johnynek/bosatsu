@@ -17,8 +17,10 @@ The target API is a minimal core IO surface adapted to Bosatsu style and impleme
 2. Keep `Bosatsu/Prog` as the single effect boundary; every effectful operation returns `Prog[IOError, a]`.
 3. Keep `Bosatsu/IO/Error::IOError` as the shared error channel.
 4. Keep `argv` at the `Main` boundary (`Main(args -> ...)`) and do not duplicate it in `Bosatsu/IO/Core`.
-5. Add a `Path` abstraction (not raw `String`) with basic conversion/combination helpers.
-6. Keep `Bosatsu/IO/Std` source-compatible and add `read_line` and `read_all_stdin`.
+5. Represent `Path` as an opaque Bosatsu `struct Path(to_String: String)` and export `path_sep` + path helpers.
+6. Represent `Instant`/`Duration` as opaque Bosatsu structs backed by nanosecond `Int` fields.
+7. Keep `Bosatsu/IO/Std` source-compatible and add `read_line` and `read_all_stdin`.
+8. Do not add direct `exit` to `Bosatsu/IO/Core`; model termination with `Main` return codes and explicit result types.
 
 ## Where in `core_alpha`
 ### New package
@@ -34,7 +36,7 @@ The target API is a minimal core IO surface adapted to Bosatsu style and impleme
 3. C runtime: new `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `.h`, plus `c_runtime/Makefile`
 
 ## Bosatsu API Shape (adapted)
-Naming follows current stdlib style (`snake_case`), and `Bosatsu/IO/Core` exports externals directly (no duplicated `*_impl` wrappers).
+Naming follows current stdlib style (`snake_case`), except where a type name appears in the identifier (`path_from_String`, `path_to_String`). `Bosatsu/IO/Core` exports externals directly (no duplicated `*_impl` wrappers).
 
 ```bosatsu
 package Bosatsu/IO/Core
@@ -44,8 +46,9 @@ from Bosatsu/IO/Error import IOError
 
 export (
   Path,
-  path_from_string,
-  path_to_string,
+  path_sep,
+  path_from_String,
+  path_to_String,
   path_join,
   path_parent,
   path_file_name,
@@ -73,7 +76,6 @@ export (
   remove,
   rename,
   get_env,
-  exit,
   spawn,
   wait,
   now_wall,
@@ -81,21 +83,24 @@ export (
   sleep,
 )
 
-external struct Path
+external path_sep: String
 
-# Lift a string into a Path (platform validation/normalization point).
-external path_from_string: String -> Option[Path]
-external path_to_string: Path -> String
-external path_join: (base: Path, child: String) -> Path
-external path_parent: Path -> Option[Path]
-external path_file_name: Path -> Option[String]
+# Opaque in public API because constructor is not exported.
+struct Path(to_String: String)
+
+# Lift/projection helpers stay in Bosatsu so callers only depend on Path.
+def path_from_String(s: String) -> Option[Path]
+def path_to_String(path: Path) -> String
+external def path_join(base: Path, child: String) -> Path
+external def path_parent(path: Path) -> Option[Path]
+external def path_file_name(path: Path) -> Option[String]
 
 external struct Handle
 external struct Process
 
-# Opaque runtime values.
-external struct Instant
-external struct Duration
+# Opaque in public API because constructors are not exported.
+struct Instant(epoch_nanos: Int)
+struct Duration(to_nanos: Int)
 
 enum FileKind:
   File
@@ -140,13 +145,24 @@ external def mkdir(path: Path, recursive: Bool) -> Prog[IOError, Unit]
 external def remove(path: Path, recursive: Bool) -> Prog[IOError, Unit]
 external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
 external def get_env(name: String) -> Prog[IOError, Option[String]]
-external def exit[a](code: Int) -> Prog[IOError, a]
 external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
 external def wait(p: Process) -> Prog[IOError, Int]
-external def now_wall() -> Prog[IOError, Instant]
-external def now_mono() -> Prog[IOError, Duration]
+external now_wall: Prog[IOError, Instant]
+external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
 ```
+
+## Path representation tradeoff
+1. Chosen shape: native `struct Path(to_String: String)` with hidden constructor, plus `path_sep` and helper APIs.
+2. Advantage: callers manipulate `Path` values without runtime-specific wrapper allocation.
+3. Cost: runtime implementations still convert `Path.to_String` to platform-native path objects at IO call boundaries.
+4. Alternative considered: `external struct Path` parsed once per value. That can reduce repeated conversion but increases runtime payload complexity and portability risk.
+5. Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to `external struct Path`.
+
+## Process termination tradeoff
+1. This design intentionally omits direct `exit` from `Bosatsu/IO/Core`.
+2. Abrupt process termination from inside arbitrary `Prog` code makes cleanup and structured error handling less safe.
+3. Preferred pattern: return status from `Main` (`Prog[err, Int]`), or encode early termination in program types such as `Prog[IOError, Result[Int, a]]`.
 
 ## Mapping from the requested primitives
 1. `stdin` -> `Bosatsu/IO/Core::stdin`
@@ -164,7 +180,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 13. `rename` -> `rename`
 14. `argv` -> `Main(args -> ...)` argument list (not duplicated in `Bosatsu/IO/Core`)
 15. `getEnv` -> `get_env`
-16. `exit` -> `exit`
+16. `exit` -> intentionally omitted; use `Main` return codes and typed early-termination (`Result[Int, a]`) instead
 17. `spawn` -> `spawn`
 18. `wait` -> `wait`
 19. `nowWall` -> `now_wall`
@@ -173,19 +189,19 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 
 ## Type mapping in Bosatsu / Predef / core_alpha
 1. `String`, `Int`, `Bool`, `List[a]`, `Option[a]`, `Unit` map to existing `Bosatsu/Predef` builtins.
-2. `Path` maps to new opaque `external struct Path` in `Bosatsu/IO/Core` with helper functions (`path_from_string`, `path_to_string`, `path_join`, `path_parent`, `path_file_name`).
+2. `Path` maps to opaque `struct Path(to_String: String)` in `Bosatsu/IO/Core` with helpers (`path_from_String`, `path_to_String`, `path_join`, `path_parent`, `path_file_name`) and external `path_sep`.
 3. `Int64 sizeBytes` maps to `Int` (Bosatsu `Int` is arbitrary precision; runtimes convert native 64-bit values).
-4. `Instant` maps to new opaque `external struct Instant`.
-5. `Duration` maps to new opaque `external struct Duration`.
+4. `Instant` maps to opaque `struct Instant(epoch_nanos: Int)`.
+5. `Duration` maps to opaque `struct Duration(to_nanos: Int)`.
 6. `FileKind`, `FileStat`, `OpenMode`, `Stdio`, `StdioConfig`, `SpawnResult` are new `enum`/`struct` types in `Bosatsu/IO/Core`.
 7. `Handle` and `Process` map to opaque `external struct` types in `Bosatsu/IO/Core`.
-8. `IO[Never]` for `exit` maps to polymorphic result: `forall a. Prog[IOError, a]`.
-9. Program entrypoint args use `Bosatsu/Prog::Main(run: List[String] -> forall err. Prog[err, Int])`.
+8. Program entrypoint args use `Bosatsu/Prog::Main(run: List[String] -> forall err. Prog[err, Int])`.
+9. Constructors for `Path`, `Instant`, and `Duration` are intentionally hidden from consumers (type exported, constructor not exported).
 
 ## Runtime semantics (shared contract)
 1. `read_text` returns `None` only for EOF; otherwise `Some(chunk)` where chunk length is `1..max_chars`.
 2. `read_text(max_chars <= 0)` returns `InvalidArgument`.
-3. `list_dir` returns child paths sorted by `path_to_string` for deterministic behavior.
+3. `list_dir` returns child paths sorted by `path_to_String` for deterministic behavior.
 4. `stat` returns `None` for missing path, `Some(FileStat(...))` otherwise.
 5. `stat.kind` is `Symlink` when path itself is a symlink (`lstat`-style classification).
 6. `remove(recursive = true)` removes directory trees without following symlinks.
@@ -209,21 +225,20 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 ### JVM (`Predef.scala`)
 1. Extend `jvmExternals` with all `Bosatsu/IO/Core` symbols.
 2. Add internal runtime objects:
-   1. `PathValue`
-   2. `HandleValue` (`stdin`, `stdout`, `stderr`, file, child pipe read/write)
-   3. `ProcessValue` (wrap `java.lang.Process`, cached exit status)
-   4. `InstantValue` and `DurationValue`
+   1. `HandleValue` (`stdin`, `stdout`, `stderr`, file, child pipe read/write)
+   2. `ProcessValue` (wrap `java.lang.Process`, cached exit status)
 3. Implement IO effects using `prog_effect` dispatch:
    1. Files: `java.nio.file.Files` + `java.io` streams
    2. Process: `ProcessBuilder` + redirected streams
    3. Env: `System.getenv`
-   4. Wall clock: `java.time.Instant.now()` converted to epoch nanoseconds
-   5. Monotonic clock: `System.nanoTime()`
-   6. Sleep: `Thread.sleep`/`LockSupport.parkNanos` from duration nanoseconds
+   4. Path conversion: convert `Path.to_String` to `java.nio.file.Path` at each filesystem call
+   5. Wall clock: `java.time.Instant.now()` converted to epoch nanoseconds
+   6. Monotonic clock: `System.nanoTime()`
+   7. Sleep: `Thread.sleep`/`LockSupport.parkNanos` from duration nanoseconds
 4. Keep existing `ProgRunResult` testability by preserving capture-mode behavior for stdio when run under evaluator tests.
 
 ### Python (`ProgExt.py` + externals map)
-1. Add runtime classes for `Path`, `Handle`, `Process`, `Instant`, `Duration` wrapper values.
+1. Add runtime classes for `Handle` and `Process` wrapper values (`Path`/`Instant`/`Duration` remain Bosatsu struct values).
 2. Add new `ProgExt` constructors returning `effect(...)` thunks for each primitive.
 3. Implement using stdlib:
    1. Files/dirs/stat/remove/rename/path ops: `os`, `pathlib`, `shutil`
@@ -236,7 +251,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 
 ### C (`c_runtime`)
 1. Add `bosatsu_ext_Bosatsu_l_IO_l_Core.c/.h` and include in build/install targets.
-2. Represent opaque runtime paths/handles/processes/time values as `alloc_external(...)` payloads.
+2. Represent opaque runtime handles/processes as `alloc_external(...)` payloads (`Path`/`Instant`/`Duration` stay Bosatsu struct values).
 3. Implement using POSIX APIs first (same approach as current IO/Error errno mapping):
    1. Files/dirs/stat/remove/rename/path ops: `open/fopen`, `readdir`, `lstat`, `mkdir`, `unlink/rmdir`, `rename`
    2. Spawn/wait/pipes: `fork/execvp/pipe/waitpid` (or `posix_spawn` variant)
@@ -251,7 +266,8 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 2. Existing `print`/`println` behavior is preserved.
 3. New code can choose either high-level `IO/Std` or low-level `IO/Core`.
 4. `argv` remains available at the `Main(args -> ...)` boundary.
-5. This design assumes the post-#1748 `Bosatsu/Prog` shape (`Prog[err, res]` with no reader env).
+5. Program termination should flow through `Main` return codes rather than `IO/Core::exit`.
+6. This design assumes the post-#1748 `Bosatsu/Prog` shape (`Prog[err, res]` with no reader env).
 
 ## Tests and conformance
 1. Add package-level evaluator tests in `core/src/test/scala/dev/bosatsu/EvaluationTest.scala` for each primitive family.
