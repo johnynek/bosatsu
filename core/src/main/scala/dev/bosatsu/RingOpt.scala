@@ -419,6 +419,12 @@ object RingOpt {
                   }
                 }
               }
+              .filter { case (coeff, _) =>
+                // Inside multiplication, extracting +/-1 from additions is
+                // counterproductive: we can re-introduce extra ops while not
+                // changing the coefficient product.
+                (coeff == 0) || !insideMult || ((coeff != 1) && (coeff != -1))
+              }
           case Mult(x, y) =>
             // Inside Mult we are more permissive to allow integers to bubble up
             // but we need to be sure not to return 1 in the end
@@ -460,7 +466,18 @@ object RingOpt {
             }
           case None =>
             if ((prod == 1) || (prod == -1)) None
-            else Some((prod, e))
+            else
+              e match {
+                case Neg(inner) =>
+                  Some((-prod, inner))
+                case Integer(n) =>
+                  val p1 = prod * n
+                  if (p1 == 0) Some((BigInt(0), Zero))
+                  else if ((p1 == 1) || (p1 == -1)) None
+                  else Some((p1, One))
+                case _ =>
+                  Some((prod, e))
+              }
         }
 
       fix(BigInt(1), expr).filter { case (coeff, inner) =>
