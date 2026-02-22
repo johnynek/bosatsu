@@ -220,6 +220,154 @@ For each recursive call in a `by int_decrease` region:
 
 If either fails, emit recursion error at call site.
 
+## Worked Example: `TypedExpr` -> SMT-LIB
+This section shows how much machinery is needed if we only support
+`by int_decrease` and linear integer constraints.
+
+### Source shape (`int_loop` style)
+```bosatsu
+def int_loop[a](intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+  recur intValue by int_decrease:
+    case _ if intValue > 0:
+      (next_i, next_state) = fn(intValue, state)
+      if next_i > 0:
+        if next_i < intValue:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
+```
+
+### Representative typed AST fragment (real constructors)
+Below is a reduced Scala fragment using actual constructors from
+`TypedExpr.scala` to show the recursive call node we inspect:
+
+```scala
+import cats.data.NonEmptyList
+import dev.bosatsu.{Identifier, PackageName, TypedExpr}
+import dev.bosatsu.rankn.Type
+
+val tag = () // real code uses Region-bearing tags (Declaration)
+val intT = Type.IntType
+val stateTpe: Type = ???    // inferred state type `a`
+val fnTpe: Type = ???       // inferred type of `fn`
+val intLoopFnTpe: Type = ??? // inferred type of `int_loop`
+
+val intLoopName = Identifier.Name("int_loop")
+val intValueName = Identifier.Name("intValue")
+val nextIName = Identifier.Name("next_i")
+val nextStateName = Identifier.Name("next_state")
+val fnName = Identifier.Name("fn")
+
+val recCall: TypedExpr[Unit] =
+  TypedExpr.App(
+    fn = TypedExpr.Local(intLoopName, intLoopFnTpe, tag),
+    args = NonEmptyList.of(
+      TypedExpr.Local(nextIName, intT, tag),
+      TypedExpr.Local(nextStateName, stateTpe, tag),
+      TypedExpr.Local(fnName, fnTpe, tag)
+    ),
+    result = stateTpe,
+    tag = tag
+  )
+```
+
+At the recursive call site above, path-condition extraction from surrounding
+typed guards/matches yields:
+1. `intValue > 0`
+2. `next_i > 0`
+3. `next_i < intValue`
+
+### Constraint IR we need (minimal)
+For v1 we only need:
+1. integer variables/constants,
+2. `+`, `-`,
+3. comparisons `<`, `<=`, `=`, `>=`, `>`,
+4. conjunction of atoms (`PC`).
+
+Then for each recursive call we check:
+1. `PC => next_i >= 0`
+2. `PC => next_i < intValue`
+
+by SAT checks on `PC /\ not(goal)`.
+
+### SMT-LIB query A (prove `next_i >= 0`)
+```smt2
+(set-logic QF_LIA)
+(declare-fun intValue () Int)
+(declare-fun next_i () Int)
+
+; path condition at recursive call
+(assert (> intValue 0))
+(assert (> next_i 0))
+(assert (< next_i intValue))
+
+; negate goal
+(assert (not (>= next_i 0)))
+
+(check-sat)
+; expected: unsat
+```
+
+### SMT-LIB query B (prove `next_i < intValue`)
+```smt2
+(set-logic QF_LIA)
+(declare-fun intValue () Int)
+(declare-fun next_i () Int)
+
+(assert (> intValue 0))
+(assert (> next_i 0))
+(assert (< next_i intValue))
+
+(assert (not (< next_i intValue)))
+
+(check-sat)
+; expected: unsat
+```
+
+### Failing example (missing strict-decrease guard)
+Suppose extracted `PC` is only:
+1. `intValue > 0`
+2. `next_i > 0`
+
+Check `PC => next_i < intValue`:
+
+```smt2
+(set-logic QF_LIA)
+(declare-fun intValue () Int)
+(declare-fun next_i () Int)
+
+(assert (> intValue 0))
+(assert (> next_i 0))
+
+; negate goal
+(assert (not (< next_i intValue))) ; equivalent to next_i >= intValue
+
+(check-sat)
+(get-model)
+; expected: sat, e.g. intValue = 1, next_i = 1
+```
+
+This demonstrates that the required SMT integration for `int_decrease` is small:
+we only need QF_LIA obligations generated from typed guards and recursive-call
+arguments, not full general-purpose theorem proving.
+
+### Extraction sketch from typed trees
+At each recursive self-call node:
+1. recognize `TypedExpr.App(TypedExpr.Local(defName, _, _), args, _, _)` where
+   `defName` is current recursive def,
+2. select the recur-target argument position (`intValue` position in this
+   example) to obtain `next_i`,
+3. collect typed branch/guard facts on the path to the call (`PC`),
+4. translate supported typed expressions to linear atoms,
+5. run the two SMT-LIB checks above (`PC /\ not(goal)`).
+
+Unsupported expressions in steps (3)-(4) become conservative failures:
+"cannot prove decrease in supported arithmetic fragment."
+
 ## Path Condition Extraction (v1)
 Support a conservative boolean/arithmetic fragment:
 
