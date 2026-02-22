@@ -616,6 +616,68 @@ class TypeTest extends munit.ScalaCheckSuite {
     )
   }
 
+  test("hoistForAllCovariant hoists only unique covariant binders") {
+    val a = Type.Var.Bound("a")
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    val funWithForallResult = Type.Fun(
+      Type.IntType,
+      Type.forAll(List(a -> Kind.Type), Type.TyVar(a))
+    )
+    val hoisted = Type.hoistForAllCovariant(funWithForallResult, kindOfFn)
+    val expected =
+      Type.forAll(List(a -> Kind.Type), Type.Fun(Type.IntType, Type.TyVar(a)))
+
+    assert(
+      hoisted.sameAs(expected),
+      s"expected ${expected.show}, got ${hoisted.show}"
+    )
+  }
+
+  test("hoist and pushDown round-trip to hoist normal form") {
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    forAll(NTypeGen.genDepth03) { t =>
+      val hoisted = Type.hoistForAllCovariant(t, kindOfFn)
+      val roundTrip = Type.hoistForAllCovariant(
+        Type.pushDownForAllCovariant(hoisted, kindOfFn),
+        kindOfFn
+      )
+      assert(
+        roundTrip.sameAs(hoisted),
+        s"expected ${hoisted.show}, got ${roundTrip.show}"
+      )
+    }
+  }
+
+  test("pushDown and hoist round-trip to pushDown normal form") {
+    val kindOfFn: Type => Option[Kind] = {
+      case tc: Type.TyConst if Type.FnType.unapply(tc).exists(_._2 == 1) =>
+        Some(Kind(Kind.Type.contra, Kind.Type.co))
+      case _ => None
+    }
+
+    forAll(NTypeGen.genDepth03) { t =>
+      val pushed = Type.pushDownForAllCovariant(t, kindOfFn)
+      val roundTrip = Type.pushDownForAllCovariant(
+        Type.hoistForAllCovariant(pushed, kindOfFn),
+        kindOfFn
+      )
+      assert(
+        roundTrip.sameAs(pushed),
+        s"expected ${pushed.show}, got ${roundTrip.show}"
+      )
+    }
+  }
+
   test("pushDownForAllCovariant respects non-covariant arguments") {
     val a = Type.Var.Bound("a")
     val forallList = Type.forAll(

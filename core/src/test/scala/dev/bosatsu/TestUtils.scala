@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import cats.Order
-import cats.data.{Chain, Ior, Validated, NonEmptyList}
+import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec}
 import java.nio.file.{Files, Paths}
 import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
@@ -11,6 +11,46 @@ import IorMethods.IorExtension
 import cats.syntax.all._
 
 object TestUtils {
+
+  type TypeValidationError = TypeValidator.TypeValidationError
+
+  def assertValid[A](te: TypedExpr[A]): Unit =
+    TypeValidator.assertValid(te)
+
+  def validateTypes[A](
+      te: TypedExpr[A],
+      names: Map[TypedExpr.Name[A], Type],
+      env: TypeEnv[Kind.Arg]
+  ): ValidatedNec[TypeValidationError, Unit] =
+    TypeValidator.validateTypes(te, names, env)
+
+  def validatePackageMap[A](
+      pm: PackageMap.Typed[A],
+      stage: String = "package-map"
+  ): ValidatedNec[TypeValidationError, Unit] =
+    TypeValidator.validatePackageMap(pm, stage)
+
+  def assertPackageMapTypeConnections[A](
+      pm: PackageMap.Typed[A],
+      stage: String
+  ): Unit =
+    TypeValidator.assertPackageMapTypeConnections(pm, stage)
+
+  def assertRewritePipelineTypeConnections[A: cats.Eq](
+      unoptimized: PackageMap.Typed[A]
+  ): Unit =
+    TypeValidator.assertRewritePipelineTypeConnections(unoptimized)
+
+  private def normalizeWithRewriteValidation(
+      pack: PackageName,
+      fullTypeEnv: TypeEnv[Kind.Arg],
+      unoptimized: Program[
+        TypeEnv[Kind.Arg],
+        TypedExpr[Declaration],
+        List[Statement]
+      ]
+  ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]] =
+    TypeValidator.normalizeWithRewriteValidation(pack, fullTypeEnv, unoptimized)
 
   type SourceConvertedProgram = Program[
     (TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]),
@@ -56,83 +96,6 @@ object TestUtils {
   def statementsOf(str: String): List[Statement] =
     Parser.unsafeParse(Statement.parser, str)
 
-  /** Make sure no illegal final types escaped into a TypedExpr
-    */
-  def assertValid[A](te: TypedExpr[A]): Unit = {
-    def checkType[T <: Type](t: T, bound: Set[Type.Var.Bound]): T =
-      t match {
-        case t @ Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
-          sys.error(s"illegal skolem ($t) escape in ${te.repr}")
-        case Type.TyVar(Type.Var.Bound(_)) => t
-        case t @ Type.TyMeta(_)            =>
-          sys.error(s"illegal meta ($t) escape in ${te.repr}")
-        case Type.TyApply(left, right) =>
-          checkType(left, bound): Unit
-          checkType(right, bound): Unit
-          t
-        case Type.ForAll(vars, in) =>
-          checkType(in, bound ++ vars.toList.map(_._1)): Unit
-          t
-        case Type.Exists(vars, in) =>
-          checkType(in, bound ++ vars.toList.map(_._1)): Unit
-          t
-        case Type.TyConst(_) => t
-      }
-    te.traverseType[cats.Id](checkType(_, Set.empty)): Unit
-
-    def checkExpr(expr: TypedExpr[A]): Unit =
-      expr match {
-        case TypedExpr.Generic(_, in) =>
-          checkExpr(in)
-        case TypedExpr.Annotation(term, tpe, qev) =>
-          qev.foreach { ev =>
-            Require(
-              ev.targetAtSolve.sameAs(tpe),
-              s"quantifier evidence invariant violated: targetAtSolve ${ev.targetAtSolve} " +
-                s"is not sameAs annotation type $tpe in ${te.repr}"
-            )
-          }
-          checkExpr(term)
-        case TypedExpr.AnnotatedLambda(_, body, _) =>
-          checkExpr(body)
-        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
-            TypedExpr.Literal(_, _, _) =>
-          ()
-        case TypedExpr.App(fn, args, _, _) =>
-          checkExpr(fn)
-          args.iterator.foreach(checkExpr)
-        case TypedExpr.Let(_, expr0, in, _, _) =>
-          checkExpr(expr0)
-          checkExpr(in)
-        case TypedExpr.Loop(args, body, _) =>
-          args.iterator.foreach { case (_, init) =>
-            checkExpr(init)
-          }
-          checkExpr(body)
-        case TypedExpr.Recur(args, _, _) =>
-          args.iterator.foreach(checkExpr)
-        case TypedExpr.Match(arg, branches, _) =>
-          checkExpr(arg)
-          branches.iterator.foreach { branch =>
-            branch.guard.foreach(checkExpr)
-            checkExpr(branch.expr)
-          }
-      }
-
-    checkExpr(te)
-
-    val tp = te.getType
-    lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
-    Require(
-      Type.freeTyVars(tp :: Nil).isEmpty,
-      s"illegal inferred type: $teStr in: ${te.repr}"
-    )
-
-    Require(
-      Type.metaTvs(tp :: Nil).isEmpty,
-      s"illegal inferred type: $teStr in: ${te.repr}"
-    )
-  }
 
   val testPackage: PackageName = PackageName.parts("Test")
 
@@ -140,7 +103,7 @@ object TestUtils {
       statement: String
   )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
+    Package.inferBodyUnopt(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -150,10 +113,11 @@ object TestUtils {
           }
           .mkString("", "\n==========\n", "\n")
         sys.error("inference failure: " + msg)
-      case Validated.Valid(program) =>
-        // make sure all the TypedExpr are valid
-        program.lets.foreach { case (_, _, te) => assertValid(te) }
-        fn(program.lets.last._3)
+      case Validated.Valid((fullTypeEnv, program)) =>
+        val normalized =
+          normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
+        normalized.lets.foreach { case (_, _, te) => assertValid(te) }
+        fn(normalized.lets.last._3)
     }
   }
 
@@ -163,7 +127,7 @@ object TestUtils {
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
+    Package.inferBodyUnopt(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -173,13 +137,15 @@ object TestUtils {
           }
           .mkString("", "\n==========\n", "\n")
         sys.error("inference failure: " + msg)
-      case Validated.Valid(program) =>
-        // make sure all the TypedExpr are valid
-        program.lets.foreach { case (_, _, te) => assertValid(te) }
+      case Validated.Valid((fullTypeEnv, program)) =>
+        val normalized =
+          normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
+        normalized.lets.foreach { case (_, _, te) => assertValid(te) }
         val pack: Package.Typed[Declaration] =
-          Package(testPackage, Nil, Nil, (program, ImportMap.empty))
+          Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
           PackageMap.empty + pack + PackageMap.predefCompiled
+        assertPackageMapTypeConnections(pm, "optimized")
         fn(pm)
     }
   }
@@ -221,7 +187,9 @@ object TestUtils {
       case None      => ()
     }
 
-    res.right.get
+    val pm = res.right.get
+    assertPackageMapTypeConnections(pm, "optimized")
+    pm
   }
 
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
@@ -353,9 +321,24 @@ object TestUtils {
         .map { case ((path, _), p) => (path, p) }
 
     PackageMap
+      .resolveThenInfer(fullParsed, Nil, CompileOptions.NoOptimize)
+      .strictToValidated match {
+      case Validated.Valid(unoptimizedPackMap) =>
+        assertRewritePipelineTypeConnections(unoptimizedPackMap)
+      case Validated.Invalid(errs) =>
+        val tes = errs.toList
+          .collect { case te: PackageError.TypeErrorIn =>
+            te.tpeErr.toString
+          }
+          .mkString("\n")
+        fail(tes + "\n" + errs.toString)
+    }
+
+    PackageMap
       .resolveThenInfer(fullParsed, Nil, CompileOptions.Default)
       .strictToValidated match {
       case Validated.Valid(packMap) =>
+        assertPackageMapTypeConnections(packMap, "optimized")
         inferredHandler(packMap, mainPack)
 
       case Validated.Invalid(errs) =>
