@@ -76,6 +76,84 @@ def int_loop[a](intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 
 The recursive call path includes `next_i > 0` and `next_i < intValue`, so obligations are provable.
 
+## Comparison with Intrinsic `int_loop`
+Question: does `recur ... by int_decrease` add power beyond a trusted intrinsic
+`int_loop`?
+
+Short answer:
+1. If we restrict `by int_decrease` to a tail-loop shape, power is essentially the same as `int_loop`.
+2. Under the current proposal (prove each recursive call decreases), `by int_decrease` is strictly more expressive.
+
+### Baseline: intrinsic `int_loop` model
+Today `int_loop` has a trusted external implementation:
+
+```bosatsu
+external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
+```
+
+This gives one loop combinator:
+1. single control counter (`Int`),
+2. one state value (`a`),
+3. one step function per iteration,
+4. operationally linear iteration (one step at a time).
+
+### Where power is equivalent
+If we intentionally constrain `by int_decrease` definitions to:
+1. one recur target `i: Int`,
+2. at most one recursive self-call per control path,
+3. recursive call in tail position,
+4. no nested recursive calls in recursive arguments,
+
+then a mechanical encoding to `int_loop` exists by packing all evolving locals
+into `state`.
+
+Conversely, `int_loop` itself can be written with `recur i by int_decrease`, so
+under this tail-loop subset both formulations are mostly syntax/ergonomics
+differences.
+
+### Where `by int_decrease` is more expressive
+The current proof rule checks each recursive self-call independently under path
+conditions. That allows patterns not naturally representable by one `int_loop`
+without extra encodings (manual stacks/continuations), for example:
+1. non-tail recursion,
+2. more than one recursive call in a branch,
+3. nested recursive calls used as arguments.
+
+Example shape:
+
+```bosatsu
+def f(i: Int) -> Int:
+  recur i by int_decrease:
+    case _ if i <= 0:
+      0
+    case _:
+      f(i.sub(1)).add(f(i.sub(2)))
+```
+
+Each call can satisfy decrease obligations, but this is not a simple linear
+`int_loop` step function.
+
+### Safety/trust trade-off
+Comparing approaches:
+1. Intrinsic-only:
+   1. trust one implementation (`int_loop`) globally,
+   2. users must encode loops through that API shape.
+2. `by int_decrease`:
+   1. trust the checker + solver integration,
+   2. each use site is locally justified by proof obligations,
+   3. removes need for a special trusted runtime primitive for integer loops.
+
+With JVM-authoritative checking, JS can still reuse verified artifacts, so this
+does not require proving on every platform.
+
+### Design choice for v1 scope
+If the language goal is "add no new power beyond intrinsic `int_loop`," adopt
+the tail-loop subset above in v1.
+
+If the goal is broader expressiveness with still-simple totality rules, keep the
+current per-call decrease rule (strictly more expressive than `int_loop` API
+shape, while still conceptually simple: prove `0 <= next_i < i` at each call).
+
 ## Where to Check: Declaration vs Typed Trees
 ### Question
 Could we run this purely on `Declaration` AST and assume type checker will fail later if needed?
@@ -391,6 +469,7 @@ Guardrails:
 3. When CLI backend returns `unknown`, do we suggest a rewrite to `Nat` fuel automatically?
 4. Where should proof metadata live for long-term stability: package binary only, interface file too, or both?
 5. Should `assume_jvm_verified` be default for JS CLI/web UI, or require explicit opt-in?
+6. Should v1 restrict `by int_decrease` to the tail-loop subset to stay power-equivalent to intrinsic `int_loop`?
 
 ## References
 1. Princess repo: <https://github.com/uuverifiers/princess>
