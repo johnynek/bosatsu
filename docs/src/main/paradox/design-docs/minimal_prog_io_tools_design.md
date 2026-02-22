@@ -89,6 +89,8 @@ external path_sep: String
 struct Path(to_String: String)
 
 # Lift/projection helpers stay in Bosatsu so callers only depend on Path.
+# `None` means the input is not a valid cross-platform path in the
+# portable profile described below.
 def path_from_String(s: String) -> Option[Path]
 def path_to_String(path: Path) -> String
 external def path_join(base: Path, child: String) -> Path
@@ -158,6 +160,38 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 3. Cost: runtime implementations still convert `Path.to_String` to platform-native path objects at IO call boundaries.
 4. Alternative considered: `external struct Path` parsed once per value. That can reduce repeated conversion but increases runtime payload complexity and portability risk.
 5. Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to `external struct Path`.
+
+## Path parsing and cross-platform behavior
+1. `path_from_String: String -> Option[Path]` is intentionally partial because not every `String` can be used as a path on every target runtime.
+2. POSIX baseline: pathnames are slash-separated byte sequences; `NUL` is not allowed, slash is the separator, null pathname is invalid, and exactly two leading slashes have implementation-defined meaning.
+3. Java baseline (`java.nio.file.FileSystem.getPath`): parsing is implementation-dependent, uses platform path rules, and throws `InvalidPathException` for rejected strings (for example, `NUL` on UNIX).
+4. Python baseline (`pathlib`): `PurePath` parsing is lexical (no filesystem access), while concrete IO operations apply host filesystem validation later.
+5. To get deterministic behavior across macOS, Linux/Unix, and Windows, `path_from_String` uses a Bosatsu-level portable parser instead of delegating directly to host-native parsing.
+6. Parsing policy:
+   1. Accept separators `/` and `\` in input; normalize stored `Path.to_String` to `/`.
+   2. Accept roots in these forms: relative (`a/b`), POSIX absolute (`/a/b`), Windows drive absolute (`C:/a/b`), UNC (`//server/share/a`).
+   3. Reject Windows drive-relative form (`C:tmp/file`) because meaning depends on per-drive current directory.
+   4. Reject Windows device namespace prefixes (`\\\\?\\`, `\\\\.\\`) in v1.
+   5. Reject ambiguous POSIX-like paths that start with exactly `//` unless they parse as UNC with non-empty server/share components.
+   6. Reject strings containing `NUL` (`\\u0000`) or control characters `\\u0001..\\u001F`.
+   7. Reject path components containing Windows-reserved characters `< > : " | ? *` (except the drive colon in `C:/...`).
+   8. Reject Windows reserved device names as components (case-insensitive): `CON`, `PRN`, `AUX`, `NUL`, `COM1..COM9`, `LPT1..LPT9` (including with extensions like `NUL.txt`).
+   9. Reject components with trailing space or trailing dot to avoid Windows shell/API mismatch.
+   10. Keep `.` and `..` as lexical components; do not resolve symlinks or normalize away `..` at parse time.
+   11. Do not enforce `PATH_MAX`/`NAME_MAX` at parse time; those checks remain runtime/filesystem specific.
+7. Why `Option[Path]` instead of total `String -> Path`: parsing failure is expected for non-portable or malformed inputs, and callers can handle `None` without exceptions in pure code.
+8. Representative rejected inputs:
+   1. `""` (empty string)
+   2. `"a\u0000b"`
+   3. `"C:tmp\\x"`
+   4. `"foo/<bar>"`
+   5. `"NUL.txt"`
+   6. `"dir/ends-with-dot."`
+9. References:
+   1. POSIX pathname definition and resolution: <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html#tag_03_271>, <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_11>
+   2. Java parsing contract (`FileSystem.getPath`): <https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/FileSystem.html#getPath(java.lang.String,java.lang.String...)>
+   3. Python `pathlib` lexical behavior and flavor differences: <https://docs.python.org/3/library/pathlib.html>
+   4. Windows naming constraints: <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file>
 
 ## Process termination tradeoff
 1. This design intentionally omits direct `exit` from `Bosatsu/IO/Core`.
