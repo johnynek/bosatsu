@@ -1438,6 +1438,43 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("unConstMult can always remove * const") {
+    val regressions: List[(Expr[BigInt], BigInt)] =
+      (
+        Add(
+          Add(
+            Neg(One),
+            Symbol(BigInt("20195331171140066237232561801535085096"))
+          ),
+          Add(
+            Integer(BigInt("5770508449411511621")),
+            Symbol(BigInt("9223372036854775807"))
+          )
+        ),
+        BigInt(-2)
+      ) :: (
+        Add(
+          Add(
+            Neg(One),
+            Add(
+              Zero,
+              Symbol(
+                BigInt("-110669654550331471115483389665223738867131442269105218925")
+              )
+            )
+          ),
+          Add(
+            Symbol(BigInt("19032331167890620900154367247757747878169438074714195968")),
+            Integer(BigInt("6406209105737102121"))
+          )
+        ),
+        BigInt(-3)
+      ) :: Nil
+
+    regressions.foreach { case (e, const) =>
+      assert((e * Integer(const)).unConstMult.isDefined)
+      assert((Integer(const) * e).unConstMult.isDefined)
+    }
+
     forAll { (e: Expr[BigInt], const: BigInt) =>
       if ((const != 0) && (const != 1) && (const != -1)) {
         assert((e * Integer(const)).unConstMult.isDefined)
