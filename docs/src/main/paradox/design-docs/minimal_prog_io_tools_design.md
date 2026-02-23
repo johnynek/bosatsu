@@ -93,9 +93,9 @@ struct Path(to_String: String)
 # portable profile described below.
 def string_to_Path(s: String) -> Option[Path]
 def path_to_String(path: Path) -> String
-external def path_join(base: Path, child: Path) -> Path
-external def path_parent(path: Path) -> Option[Path]
-external def path_file_name(path: Path) -> Option[String]
+def path_join(base: Path, child: Path) -> Path
+def path_parent(path: Path) -> Option[Path]
+def path_file_name(path: Path) -> Option[String]
 
 external struct Handle
 external struct Process
@@ -192,7 +192,8 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
    1. `string_to_Path("src") -> Some(child)`
    2. `string_to_Path("/tmp") -> Some(base)`
    3. `path_join(base, child) -> /tmp/src`
-11. References:
+11. `path_join`, `path_parent`, and `path_file_name` are lexical Bosatsu helpers (not externals); runtime-specific path handling is required only at IO call boundaries such as `open_file`, `stat`, and `list_dir`.
+12. References:
    1. POSIX pathname definition and resolution: <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html#tag_03_271>, <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_11>
    2. Java parsing contract (`FileSystem.getPath`): <https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/FileSystem.html#getPath(java.lang.String,java.lang.String...)>
    3. Python `pathlib` lexical behavior and flavor differences: <https://docs.python.org/3/library/pathlib.html>
