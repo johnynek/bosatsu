@@ -36,7 +36,7 @@ The target API is a minimal core IO surface adapted to Bosatsu style and impleme
 3. C runtime: new `c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c` and `.h`, plus `c_runtime/Makefile`
 
 ## Bosatsu API Shape (adapted)
-Naming follows current stdlib style (`snake_case`), except where a type name appears in the identifier (`path_from_String`, `path_to_String`). `Bosatsu/IO/Core` exports externals directly (no duplicated `*_impl` wrappers).
+Naming follows current stdlib style (`snake_case`), except where a type name appears in the identifier (`string_to_Path`, `path_to_String`). `Bosatsu/IO/Core` exports externals directly (no duplicated `*_impl` wrappers).
 
 ```bosatsu
 package Bosatsu/IO/Core
@@ -47,7 +47,7 @@ from Bosatsu/IO/Error import IOError
 export (
   Path,
   path_sep,
-  path_from_String,
+  string_to_Path,
   path_to_String,
   path_join,
   path_parent,
@@ -91,9 +91,9 @@ struct Path(to_String: String)
 # Lift/projection helpers stay in Bosatsu so callers only depend on Path.
 # `None` means the input is not a valid cross-platform path in the
 # portable profile described below.
-def path_from_String(s: String) -> Option[Path]
+def string_to_Path(s: String) -> Option[Path]
 def path_to_String(path: Path) -> String
-external def path_join(base: Path, child: String) -> Path
+external def path_join(base: Path, child: Path) -> Path
 external def path_parent(path: Path) -> Option[Path]
 external def path_file_name(path: Path) -> Option[String]
 
@@ -162,11 +162,11 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 5. Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to `external struct Path`.
 
 ## Path parsing and cross-platform behavior
-1. `path_from_String: String -> Option[Path]` is intentionally partial because not every `String` can be used as a path on every target runtime.
+1. `string_to_Path: String -> Option[Path]` is intentionally partial because not every `String` can be used as a path on every target runtime.
 2. POSIX baseline: pathnames are slash-separated byte sequences; `NUL` is not allowed, slash is the separator, null pathname is invalid, and exactly two leading slashes have implementation-defined meaning.
 3. Java baseline (`java.nio.file.FileSystem.getPath`): parsing is implementation-dependent, uses platform path rules, and throws `InvalidPathException` for rejected strings (for example, `NUL` on UNIX).
 4. Python baseline (`pathlib`): `PurePath` parsing is lexical (no filesystem access), while concrete IO operations apply host filesystem validation later.
-5. To get deterministic behavior across macOS, Linux/Unix, and Windows, `path_from_String` uses a Bosatsu-level portable parser instead of delegating directly to host-native parsing.
+5. To get deterministic behavior across macOS, Linux/Unix, and Windows, `string_to_Path` uses a Bosatsu-level portable parser instead of delegating directly to host-native parsing.
 6. Parsing policy:
    1. Accept separators `/` and `\` in input; normalize stored `Path.to_String` to `/`.
    2. Accept roots in these forms: relative (`a/b`), POSIX absolute (`/a/b`), Windows drive absolute (`C:/a/b`), UNC (`//server/share/a`).
@@ -179,15 +179,20 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
    9. Reject components with trailing space or trailing dot to avoid Windows shell/API mismatch.
    10. Keep `.` and `..` as lexical components; do not resolve symlinks or normalize away `..` at parse time.
    11. Do not enforce `PATH_MAX`/`NAME_MAX` at parse time; those checks remain runtime/filesystem specific.
-7. Why `Option[Path]` instead of total `String -> Path`: parsing failure is expected for non-portable or malformed inputs, and callers can handle `None` without exceptions in pure code.
-8. Representative rejected inputs:
+7. `path_join(base: Path, child: Path) -> Path` stays total because both inputs are already validated `Path` values.
+8. Why `Option[Path]` instead of total `String -> Path`: parsing failure is expected for non-portable or malformed inputs, and callers can handle `None` without exceptions in pure code.
+9. Representative rejected inputs:
    1. `""` (empty string)
    2. `"a\u0000b"`
    3. `"C:tmp\\x"`
    4. `"foo/<bar>"`
    5. `"NUL.txt"`
    6. `"dir/ends-with-dot."`
-9. References:
+10. Representative accepted flow:
+   1. `string_to_Path("src") -> Some(child)`
+   2. `string_to_Path("/tmp") -> Some(base)`
+   3. `path_join(base, child) -> /tmp/src`
+11. References:
    1. POSIX pathname definition and resolution: <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html#tag_03_271>, <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_11>
    2. Java parsing contract (`FileSystem.getPath`): <https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/FileSystem.html#getPath(java.lang.String,java.lang.String...)>
    3. Python `pathlib` lexical behavior and flavor differences: <https://docs.python.org/3/library/pathlib.html>
@@ -223,7 +228,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 
 ## Type mapping in Bosatsu / Predef / core_alpha
 1. `String`, `Int`, `Bool`, `List[a]`, `Option[a]`, `Unit` map to existing `Bosatsu/Predef` builtins.
-2. `Path` maps to opaque `struct Path(to_String: String)` in `Bosatsu/IO/Core` with helpers (`path_from_String`, `path_to_String`, `path_join`, `path_parent`, `path_file_name`) and external `path_sep`.
+2. `Path` maps to opaque `struct Path(to_String: String)` in `Bosatsu/IO/Core` with helpers (`string_to_Path`, `path_to_String`, `path_join`, `path_parent`, `path_file_name`) and external `path_sep`.
 3. `Int64 sizeBytes` maps to `Int` (Bosatsu `Int` is arbitrary precision; runtimes convert native 64-bit values).
 4. `Instant` maps to opaque `struct Instant(epoch_nanos: Int)`.
 5. `Duration` maps to opaque `struct Duration(to_nanos: Int)`.
@@ -247,8 +252,8 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 12. `sleep` consumes `Duration` in nanoseconds and returns `InvalidArgument` for negative durations.
 
 ## `Bosatsu/IO/Std` additions
-1. Add `read_line() -> Prog[IOError, Option[String]]`.
-2. Add `read_all_stdin() -> Prog[IOError, String]`.
+1. Add `read_line: Prog[IOError, Option[String]]`.
+2. Add `read_all_stdin: Prog[IOError, String]`.
 3. `read_line` blocks until newline (`\n`) or EOF; returns `None` only when EOF is reached before reading any characters.
 4. `read_line` strips trailing line ending (`\n` or `\r\n`) from returned text.
 5. `read_all_stdin` reads until EOF (stdin stream closed), not merely until "nothing currently available".
