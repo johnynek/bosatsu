@@ -25,10 +25,15 @@ Extend `recur` header syntax with an optional strategy clause:
 
 ```bosatsu
 recur <target>:
-recur <target> by int_decrease:
+recur i by int_decrease:
 ```
 
-For this proposal, `int_decrease` is only valid when `<target>` is a single variable (not tuple).
+For this proposal, `int_decrease` is only valid in the single-name form.
+In v1 we only support:
+1. accepted: `recur i by int_decrease:`
+2. rejected: `recur (i) by int_decrease:`
+3. rejected: `recur (i, j) by int_decrease:`
+4. rejected: any tuple target with `by int_decrease`.
 
 Example target usage:
 
@@ -81,8 +86,8 @@ Question: does `recur ... by int_decrease` add power beyond a trusted intrinsic
 `int_loop`?
 
 Short answer:
-1. If we restrict `by int_decrease` to a tail-loop shape, power is essentially the same as `int_loop`.
-2. Under the current proposal (prove each recursive call decreases), `by int_decrease` is strictly more expressive.
+1. For the chosen design (prove each recursive call decreases), `by int_decrease` is strictly more expressive than intrinsic `int_loop`.
+2. A hypothetical restricted subset could be made equivalent to `int_loop`, but that is not the chosen direction for this proposal.
 
 ### Baseline: intrinsic `int_loop` model
 Today `int_loop` has a trusted external implementation:
@@ -143,16 +148,8 @@ Comparing approaches:
    2. each use site is locally justified by proof obligations,
    3. removes need for a special trusted runtime primitive for integer loops.
 
-With JVM-authoritative checking, JS can still reuse verified artifacts, so this
-does not require proving on every platform.
-
-### Design choice for v1 scope
-If the language goal is "add no new power beyond intrinsic `int_loop`," adopt
-the tail-loop subset above in v1.
-
-If the goal is broader expressiveness with still-simple totality rules, keep the
-current per-call decrease rule (strictly more expressive than `int_loop` API
-shape, while still conceptually simple: prove `0 <= next_i < i` at each call).
+We choose the broader expressiveness direction while keeping simple local proof
+obligations (`0 <= next_i < i` at each recursive call).
 
 ## Where to Check: Declaration vs Typed Trees
 ### Question
@@ -173,10 +170,11 @@ Typed-phase checks keep termination proofs aligned with the same resolved/typed 
 
 ## Retaining Strategy Information Across Phases
 Minimal retention plan:
-1. Extend `Declaration.Match` to carry optional recursion strategy metadata.
-2. Parse `by int_decrease` into that metadata.
+1. Extend `Declaration.Match` to carry an optional recursion strategy tag.
+2. Parse `by int_decrease` into that tag.
 3. Keep existing `Expr`/`TypedExpr` shapes unchanged.
 4. Read strategy from expression tags (`Declaration`) during typed recursion checking.
+5. Do not persist proof results/metadata in package output for this feature.
 
 Why this is minimal:
 1. `Expr.Match` and `TypedExpr.Match` already preserve source tags.
@@ -439,13 +437,17 @@ Support a conservative boolean/arithmetic fragment:
 2. boolean match on `True`/`False` from desugared `if`.
 3. guard expressions that normalize into conjunctions of supported comparisons.
 
-Unsupported terms/conditions in an `int_decrease` proof path cause a conservative error: "cannot prove decrease in supported arithmetic fragment".
+Unsupported terms/conditions in an `int_decrease` proof path cause a
+conservative hard type-check error:
+`cannot prove decrease in supported arithmetic fragment`.
+This is never downgraded to a warning, because that would weaken totality.
 
-## Princess Backend Design
-Two backend options are viable:
-
-### Option A (recommended for Bosatsu now): CLI + SMT-LIB2
-Reason: avoids Scala binary compatibility issues (see dependency section).
+## Z3 Backend Design (`scalawasiz3`)
+Backend assumption for this proposal:
+1. use Z3 via SMT-LIB queries,
+2. invoke through `scalawasiz3` on both JVM and Scala.js,
+3. run proofs in every compiler mode (JVM, Node.js, browser-hosted Scala.js),
+   with no proof-check bypass mode.
 
 Per obligation query shape:
 
@@ -463,53 +465,54 @@ Per obligation query shape:
 Interpretation:
 1. `unsat` => obligation proven.
 2. `sat` => produce counterexample model for diagnostics.
-3. `unknown`/timeout => fail conservatively.
+3. `unknown`/solver failure/timeout => hard type-check error (fail
+   conservatively).
 
-### Option B (future): in-process `SimpleAPI`
-Princess `SimpleAPI` call sketch (from `ap.api.SimpleAPI`):
-
+### `scalawasiz3` call sketch
 ```scala
-import ap.SimpleAPI
-import ap.SimpleAPI.ProverStatus
-import ap.parser.IExpression._
+import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
 
-def proveImplication(
-    pc: IFormula,
-    goal: IFormula,
-    timeoutMs: Long
-): Either[Counterexample, Unit] =
-  SimpleAPI.withProver { p =>
-    import p._
+val solver = Z3Solver.default
+val smt: String = makeObligationSmt2(pc, goal) // emits (check-sat) and (get-model)
 
-    // add constants used by pc/goal if needed
-    addConstantsRaw(SymbolCollector constantsSorted (pc &&& !goal))
-
-    withTimeout(timeoutMs) {
-      scope {
-        !!(pc)
-        !!(!goal)
-        ??? match {
-          case ProverStatus.Unsat => Right(())
-          case ProverStatus.Sat | ProverStatus.Inconclusive =>
-            Left(Counterexample.fromPartialModel(partialModel))
-          case ProverStatus.Unknown =>
-            Left(Counterexample.unknown)
-          case ProverStatus.OutOfMemory =>
-            Left(Counterexample.outOfMemory)
-          case other =>
-            Left(Counterexample.error(other.toString))
-        }
-      }
+solver.runSmt2(smt) match {
+  case Z3Result.Success(stdout, stderr, _) =>
+    parseFirstStatus(stdout) match {
+      case "unsat"   => ObligationResult.Proved
+      case "sat"     => ObligationResult.Refuted(parseModel(stdout))
+      case "unknown" => ObligationResult.Unknown(stderr)
+      case other     => ObligationResult.InvalidSolverOutput(other, stdout, stderr)
     }
-  }
+  case Z3Result.Failure(msg, _, stdout, stderr, _) =>
+    ObligationResult.SolverFailure(msg, stdout, stderr)
+}
 ```
 
-Implementation notes tied to Princess API:
-1. `withTimeout` is supported by `SimpleAPI` (`SimpleAPI.scala:486`).
-2. assertions via `!!`/`addAssertion` (`SimpleAPI.scala:1831`, `1837`).
-3. satisfiability via `???`/`checkSat` (`SimpleAPI.scala:1930`, `1955`).
-4. model extraction via `partialModel` (`SimpleAPI.scala:3111`) and `PartialModel.eval` (`PartialModel.scala:66`).
-5. temporary scopes via `scope/push/pop` (`SimpleAPI.scala:3924`, `3965`, `4022`).
+## Dependency Management
+### Bosatsu constraints
+Bosatsu compiler is Scala 3 (`/Users/oscar/code/bosatsu2/build.sbt:12`) and uses Scala.js/JVM cross projects.
+
+### `scalawasiz3` fit
+`scalawasiz3` is designed as a Scala 3 cross-platform library:
+1. one shared API (`runSmt2: String => Z3Result`),
+2. JVM backend runs embedded Z3 WASI via Chicory,
+3. Scala.js backend runs embedded Z3 WASI via an internal MiniWASI host.
+
+### Browser/runtime notes
+From current `scalawasiz3` code path:
+1. Scala.js backend uses `WebAssembly.Module`/`WebAssembly.Instance` directly,
+2. no pthread worker model is used,
+3. no `SharedArrayBuffer` requirement is currently introduced by this backend.
+
+So COOP/COEP-style thread isolation is not a baseline requirement for this
+design as currently implemented in `scalawasiz3`. If backend internals change
+later (for example worker/thread-based execution), we should revisit this note.
+
+### Cross-platform proof policy
+Proof obligations are checked in all modes:
+1. JVM compiler path checks all `int_decrease` obligations.
+2. Scala.js compiler path checks all `int_decrease` obligations.
+3. If solver execution is unavailable/fails in any mode, compilation fails.
 
 ## Error Reporting
 New error family (typed recursion termination):
@@ -521,107 +524,8 @@ Diagnostic content:
 1. obligation text (`next_i >= 0` or `next_i < i`),
 2. simplified path condition used,
 3. if `sat`, model values for involved symbols.
-
-## Dependency Management
-### Bosatsu constraints
-Bosatsu compiler is Scala 3 (`/Users/oscar/code/bosatsu2/build.sbt:12`) and uses Scala.js/JVM cross projects.
-
-### Princess ecosystem facts
-From Princess source and Maven Central (as of 2026-02-21):
-1. Princess source repo build file currently configures Scala 2.11/2.12 (`https://github.com/uuverifiers/princess/blob/master/build.sbt`).
-2. Maven Central publishes JVM artifacts for Scala 2.11/2.12/2.13 (`io.github.uuverifiers:princess_2.11/_2.12/_2.13`, latest `2025-06-25`).
-3. No Scala 3 artifacts (`princess_3`) found.
-4. No Scala.js artifacts (`princess_sjs1_*`) found.
-5. Runtime deps include Scala library, parser modules, `scala-parser-combinators`, and `java-cup`.
-
-### Practical consequence
-1. **Direct in-process dependency from Bosatsu Scala 3 core is not currently feasible**.
-2. **Scala.js integration is not currently feasible** (no published Scala.js artifacts).
-3. Most realistic near-term integration is solver subprocess via SMT-LIB2 (CLI), JVM-only in compiler path.
-
-### Recommendation
-Phase 1: CLI backend (no Scala binary coupling).  
-Phase 2: optionally add a small Scala 2.13 bridge module only if in-process API proves necessary.
-
-## JVM + JS Support Model
-Goal: keep Bosatsu usable on JVM, Node.js, and browser without making web tooling depend on JVM-only solver availability.
-
-### Shared abstraction in `core`
-Add a tiny solver abstraction in shared `core` (implemented in `.jvm` and `.js`):
-1. input: normalized `int_decrease` obligations (`PC`, `next_i`, `i`),
-2. output: `Proved`, `Refuted(model)`, `Unknown`, or `Unavailable`.
-
-This lets typed recursion checking stay platform-agnostic while backends differ.
-
-### Backend implementations
-1. JVM:
-   1. preferred backend: Princess (CLI or in-process where feasible),
-   2. this is the authoritative proving path for CI/release.
-2. JS:
-   1. optional backend: `z3-solver` via Scala.js facades,
-   2. must support both Node.js and browser,
-   3. browser note: `z3-solver` requires threading support (`SharedArrayBuffer` + COOP/COEP); if unavailable, backend returns `Unavailable`.
-
-### Browser viability and async behavior
-Clarification:
-1. Running `z3-solver` in the browser is possible.
-2. Async APIs (`Promise`/`Future`) are expected and not, by themselves, a blocker.
-3. The main browser blocker is thread/isolation requirements, not asynchrony.
-
-In practice, browser mode works only when the page is cross-origin isolated so `SharedArrayBuffer` is available.
-
-### What COOP/COEP means concretely
-For browser deployments using `z3-solver`, responses should include:
-1. `Cross-Origin-Opener-Policy: same-origin`
-2. `Cross-Origin-Embedder-Policy: require-corp`
-
-And loaded resources (scripts/workers/wasm) must be compatible with those policies.
-
-### `jsui` deployment guidance
-Current `jsui` deploy path is static GitHub Pages (`.github/workflows/deploy_web.yml`), where setting custom headers is limited. Practical options:
-
-1. Preferred (if hosting supports headers):
-   1. serve `jsui` with real COOP/COEP headers,
-   2. keep browser solver enabled.
-2. GitHub Pages workaround:
-   1. add `coi-serviceworker.js` under `jsui/`,
-   2. load it from `jsui/index.html` before `bosatsu_ui.js`,
-   3. copy it in deploy workflow (`.github/workflows/deploy_web.yml`) into `web_deploy/compiler/`.
-
-This allows cross-origin isolation on hosts without header control, but it should be treated as an operational workaround.
-
-### Security impact of cross-origin isolation choices
-1. COOP/COEP headers are generally a hardening step, not a relaxation.
-2. The service-worker workaround adds moving parts:
-   1. persistent worker lifecycle concerns,
-   2. potential breakage with third-party assets lacking proper CORS/CORP behavior.
-3. For Bosatsu safety goals, keep browser solver optional and retain JVM-authoritative proof as the trust anchor.
-
-### Authoritative-check policy
-`int_decrease` should be treated as a **compile-time proof obligation**, not a runtime behavior.
-
-Recommended policy:
-1. authoritative proving runs on JVM builds/CI,
-2. resulting artifacts (package/lib) are marked as proof-verified,
-3. JS tools can consume those verified artifacts without rerunning SMT.
-
-This matches the user model "same code checked on JVM, reused on JS."
-
-### JS disable/skip mode
-Add an explicit mode for JS compilers:
-1. `require_proof` (strict): must prove locally; fail on `Unavailable`/`Unknown`.
-2. `assume_jvm_verified` (recommended default for web UI + Node tooling): skip local SMT if input artifacts are marked proof-verified from JVM.
-3. `unsafe_skip` (debug-only): skip all `int_decrease` checks even without verification metadata; emit clear warning.
-
-Guardrails:
-1. in `assume_jvm_verified`, raw source files without verification metadata must fail (or require `unsafe_skip`),
-2. metadata must be invalidated by source hash/compiler-version mismatch,
-3. if metadata is missing or stale, fall back to JVM check in CI pipeline.
-
-### Why this preserves multi-platform support
-1. JVM remains the trust anchor for theorem proving.
-2. Browser/Node remain usable even when local SMT runtime is unavailable.
-3. Bosatsu stays conceptually total: acceptance still depends on a proof, just not necessarily proved on every platform.
+4. actionable hint text when possible (for example: rewrite with explicit `Nat`
+   fuel or use a trusted loop combinator such as `int_loop` when appropriate).
 
 ## Soundness and Completeness
 1. Soundness target: only accept recursive calls when obligations are proven.
@@ -632,15 +536,16 @@ Guardrails:
 1. Obligation count: 2 per recursive call site.
 2. Use query caching on normalized `(PC, goal)` pairs.
 3. Use per-obligation timeout budget.
-4. Reuse solver process for multiple obligations in one def when using CLI backend.
+4. Reuse a solver instance/process for multiple obligations in one def when
+   possible.
 
 ## Rollout Plan
 1. Parser/AST support for `by int_decrease`.
 2. Extend `DefRecursionCheck` with strategy shape checks only.
 3. Implement typed obligation extractor.
-4. Implement JVM backend adapter (Princess first, start with CLI).
-5. Define proof metadata format in compiled package/library output.
-6. Implement JS solver adapter (`z3-solver`) and JS skip modes (`require_proof` / `assume_jvm_verified` / `unsafe_skip`).
+4. Integrate Z3 obligation execution via `scalawasiz3` in compiler backends.
+5. Ensure JVM and Scala.js compilation paths both run proof checks.
+6. Add deterministic parsing of solver status/model output (`unsat`/`sat`/`unknown`).
 7. Add `PackageError` plumbing and diagnostics.
 8. Add `int_loop` as normal Bosatsu definition in predef, keep external behind temporary flag during migration.
 9. Remove external once tests pass and perf is acceptable.
@@ -661,24 +566,20 @@ Guardrails:
 5. Regression:
    1. existing structural/lexicographic recursion behavior unchanged.
 6. Cross-platform policy:
-   1. JVM proof-verified artifact compiles in JS with `assume_jvm_verified`.
-   2. JS strict mode fails when solver unavailable.
-   3. JS unsafe mode emits warning and is disallowed in release CI.
+   1. JVM and Scala.js both run proof obligations.
+   2. solver unavailable/failure causes compile failure in both modes.
 
 ## Open Questions
-1. v1 syntax flexibility: allow only `recur i by int_decrease` or also `recur (i) by int_decrease`?
-2. Should unsupported expressions be hard errors or a separate warning + failure code?
-3. When CLI backend returns `unknown`, do we suggest a rewrite to `Nat` fuel automatically?
-4. Where should proof metadata live for long-term stability: package binary only, interface file too, or both?
-5. Should `assume_jvm_verified` be default for JS CLI/web UI, or require explicit opt-in?
-6. Should v1 restrict `by int_decrease` to the tail-loop subset to stay power-equivalent to intrinsic `int_loop`?
+1. For `unknown`, should the primary hint prefer `Nat` fuel or `int_loop` first?
+2. Should we require `(set-option :produce-models true)` for all queries, or add
+   it only when issuing `(get-model)`?
+3. Do we normalize all obligations to one global logic (`QF_LIA`) or pick the
+   minimal logic per obligation?
 
 ## References
-1. Princess repo: <https://github.com/uuverifiers/princess>
-2. Princess `SimpleAPI` source: <https://github.com/uuverifiers/princess/blob/master/src/main/scala/ap/api/SimpleAPI.scala>
-3. Princess `ITerm` operators: <https://github.com/uuverifiers/princess/blob/master/src/main/scala/ap/parser/ITerm.scala>
-4. Maven Central search API: <https://search.maven.org/>
-5. Maven query for Scala 3 artifact (`princess_3`): <https://search.maven.org/solrsearch/select?q=g:%22io.github.uuverifiers%22%20AND%20a:%22princess_3%22&rows=20&wt=json>
-6. Maven query for Scala.js artifact (`princess_sjs1_2.13`): <https://search.maven.org/solrsearch/select?q=g:%22io.github.uuverifiers%22%20AND%20a:%22princess_sjs1_2.13%22&rows=20&wt=json>
-7. `z3-solver` npm package/readme: <https://www.npmjs.com/package/z3-solver>
-8. SharedArrayBuffer browser requirements (COOP/COEP): <https://web.dev/coop-coep/>
+1. `scalawasiz3` repository: <https://github.com/johnynek/scalawasiz3>
+2. `scalawasiz3` README (architecture and platform notes): <https://github.com/johnynek/scalawasiz3/blob/main/README.md>
+3. `scalawasiz3` Scala.js backend (`JsWasiZ3Solver`): <https://github.com/johnynek/scalawasiz3/blob/main/core/js/src/main/scala/dev/bosatsu/scalawasiz3/JsWasiZ3Solver.scala>
+4. `scalawasiz3` JVM backend (`JvmWasiZ3Solver`): <https://github.com/johnynek/scalawasiz3/blob/main/core/jvm/src/main/scala/dev/bosatsu/scalawasiz3/JvmWasiZ3Solver.scala>
+5. SMT-LIB standard: <https://smt-lib.org/language.shtml>
+6. Z3 project: <https://github.com/Z3Prover/z3>
