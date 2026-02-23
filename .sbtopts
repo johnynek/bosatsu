@@ -1,0 +1,4 @@
+-Dsbt.global.base=.sbt-local/global
+-Dsbt.boot.directory=.sbt-local/boot
+-Dsbt.ivy.home=.sbt-local/ivy2
+-Dsbt.coursier.home=.sbt-local/coursier

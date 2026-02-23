@@ -1,21 +1,18 @@
 package Bosatsu/Example/Json/Github/Workflows/Ci
 
-from Bosatsu/Json import Optional, Missing, Set
+from Bosatsu/Json import Set
 
 from Bosatsu/Example/Json/Github/Workflows/Util import (
   action_codecov,
   action_setup_python,
-  cache_step,
   cat_lines,
   checkout_v2_fetch_depth_0_step,
   checkout_v2_step,
   codecov_token_secret,
   Step,
-  JavaWith,
   FetchJavaWith,
   JavaStrategy,
   matrix_java_fetch_step,
-  matrix_java_step,
   StepEnv,
   java_strategy_17,
   java_version_17,
@@ -35,20 +32,15 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   tool_test_workspace_node_cmd,
   transpile_c_cmd,
   transpile_python_cmd,
+  sbt_cache_fetch_step,
   timeout_minutes_default,
 )
 
 struct WorkflowJobsTest(
   `runs-on`: String,
-  steps: List[Step[JavaWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: JavaStrategy,
   `timeout-minutes`: Int,
-)
-
-struct WorkflowJobsTestPYStepsItemWith(
-  distribution: Optional[String] = Missing,
-  `java-version`: Optional[String] = Missing,
-  `python-version`: Optional[String] = Missing,
 )
 
 struct WorkflowJobsTestPYStrategyMatrix(java: List[String], python: List[String])
@@ -58,7 +50,7 @@ struct WorkflowJobsTestPYStrategy(matrix: WorkflowJobsTestPYStrategyMatrix)
 struct WorkflowJobsTestPY(
   needs: String,
   `runs-on`: String,
-  steps: List[Step[WorkflowJobsTestPYStepsItemWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: WorkflowJobsTestPYStrategy,
   `timeout-minutes`: Int,
 )
@@ -66,7 +58,7 @@ struct WorkflowJobsTestPY(
 struct WorkflowJobsTestJS(
   needs: String,
   `runs-on`: String,
-  steps: List[Step[JavaWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: JavaStrategy,
   `timeout-minutes`: Int,
 )
@@ -82,7 +74,7 @@ struct WorkflowJobsTestWithCoverageReport(
 struct WorkflowJobsNeedsRunStepsStrategy(
   needs: String,
   `runs-on`: String,
-  steps: List[Step[JavaWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: JavaStrategy,
 )
 
@@ -90,14 +82,14 @@ struct WorkflowJobsNeedsRunStrategyStepsTimeout(
   needs: String,
   `runs-on`: String,
   strategy: JavaStrategy,
-  steps: List[Step[JavaWith]],
+  steps: List[Step[FetchJavaWith]],
   `timeout-minutes`: Int,
 )
 
 struct WorkflowJobsLibPublishDryRun(
   needs: String,
   `runs-on`: String,
-  steps: List[Step[JavaWith]],
+  steps: List[Step[FetchJavaWith]],
   strategy: JavaStrategy,
 )
 
@@ -121,35 +113,28 @@ struct Workflow(jobs: WorkflowJobs, name: String, on: WorkflowOn)
 
 java_matrix_bootstrap_steps = [
   checkout_v2_step,
-  cache_step,
-  matrix_java_step,
+  sbt_cache_fetch_step,
+  matrix_java_fetch_step,
   setup_sbt_step,
 ]
 
 coverage_bootstrap_steps = [
   checkout_v2_fetch_depth_0_step,
-  cache_step,
+  sbt_cache_fetch_step,
   matrix_java_fetch_step,
   setup_sbt_step,
 ]
 
 py_bootstrap_steps = [
   checkout_v2_step,
-  cache_step,
-  Step {
-    uses: Set("actions/setup-java@v5"),
-    name: Set("java \${{matrix.java}} setup"),
-    with: Set(WorkflowJobsTestPYStepsItemWith {
-      distribution: Set("temurin"),
-      `java-version`: Set("\${{matrix.java}}"),
-    }),
-  },
+  sbt_cache_fetch_step,
+  matrix_java_fetch_step,
   setup_sbt_step,
 ]
 
 c_build_bootstrap_steps = [
   checkout_v2_step,
-  matrix_java_step,
+  matrix_java_fetch_step,
   setup_sbt_step,
 ]
 
@@ -198,7 +183,7 @@ workflow =
           Step {
             uses: Set(action_setup_python),
             name: Set("python setup"),
-            with: Set(WorkflowJobsTestPYStepsItemWith {
+            with: Set(FetchJavaWith {
               `python-version`: Set(python_version_matrix),
             }),
           },

@@ -3,10 +3,10 @@ package Bosatsu/Example/Json/Github/Workflows/Release
 from Bosatsu/Json import Optional, Missing, Set
 
 from Bosatsu/Example/Json/Github/Workflows/Util import (
+  action_cache_v4,
   action_checkout_v4,
   action_setup_java,
   action_upload_artifact,
-  cache_step,
   cat_lines,
   checkout_v4_fetch_depth_0_step,
   FetchJavaWith,
@@ -21,6 +21,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   permission_write,
   runner_macos_14,
   runner_ubuntu_latest,
+  sbt_cache_fetch_step,
   setup_sbt_title_step,
   StepEnv,
   run_publish_bosatsu_libs,
@@ -70,6 +71,8 @@ struct WorkflowJobsNativeMacosStepsItemWith(
   architecture: Optional[String] = Missing,
   name: Optional[String] = Missing,
   path: Optional[String] = Missing,
+  key: Optional[String] = Missing,
+  `restore-keys`: Optional[String] = Missing,
 )
 
 struct WorkflowJobsNativeMacos(
@@ -81,6 +84,8 @@ struct WorkflowJobsNativeMacos(
 struct WorkflowJobsReleaseStepsItemWith(
   `fetch-depth`: Optional[Int] = Missing,
   path: Optional[String] = Missing,
+  key: Optional[String] = Missing,
+  `restore-keys`: Optional[String] = Missing,
   `merge-multiple`: Optional[Bool] = Missing,
   distribution: Optional[String] = Missing,
   `java-version`: Optional[String] = Missing,
@@ -158,10 +163,39 @@ def release_env_lib_publish(
 
 release_java17_bootstrap_steps = [
   checkout_v4_fetch_depth_0_step,
-  cache_step,
+  sbt_cache_fetch_step,
   java17_title_fetch_step,
   setup_sbt_title_step,
 ]
+
+sbt_cache_paths =
+  cat_lines([
+    ".sbt-local",
+    "~/.ivy2/cache",
+    "~/.sbt",
+    "~/.cache/coursier",
+    "",
+  ])
+
+sbt_cache_key =
+  "sbt-\${{ runner.os }}-\${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"
+
+sbt_cache_restore_keys =
+  cat_lines([
+    "sbt-\${{ runner.os }}-",
+    "",
+  ])
+
+native_macos_sbt_cache_step =
+  Step {
+    name: Set("Cache sbt directories"),
+    uses: Set(action_cache_v4),
+    with: Set(WorkflowJobsNativeMacosStepsItemWith {
+      path: Set(sbt_cache_paths),
+      key: Set(sbt_cache_key),
+      `restore-keys`: Set(sbt_cache_restore_keys),
+    }),
+  }
 
 native_macos_bootstrap_steps = [
   Step {
@@ -169,7 +203,7 @@ native_macos_bootstrap_steps = [
     name: Set("Check out code"),
     with: Set(WorkflowJobsNativeMacosStepsItemWith { `fetch-depth`: Set(0) }),
   },
-  cache_step,
+  native_macos_sbt_cache_step,
   Step {
     uses: Set(action_setup_java),
     name: Set(java_17_setup_name_title),
@@ -188,7 +222,15 @@ release_job_checkout_cache_steps = [
     name: Set("Check out code"),
     with: Set(WorkflowJobsReleaseStepsItemWith { `fetch-depth`: Set(0) }),
   },
-  cache_step,
+  Step {
+    name: Set("Cache sbt directories"),
+    uses: Set(action_cache_v4),
+    with: Set(WorkflowJobsReleaseStepsItemWith {
+      path: Set(sbt_cache_paths),
+      key: Set(sbt_cache_key),
+      `restore-keys`: Set(sbt_cache_restore_keys),
+    }),
+  },
 ]
 
 release_job_setup_steps = [
