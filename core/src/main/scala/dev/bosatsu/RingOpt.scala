@@ -419,6 +419,12 @@ object RingOpt {
                   }
                 }
               }
+              .filter { case (coeff, _) =>
+                // Inside multiplication, extracting +/-1 from additions is
+                // counterproductive: we can re-introduce extra ops while not
+                // changing the coefficient product.
+                (coeff == 0) || !insideMult || ((coeff != 1) && (coeff != -1))
+              }
           case Mult(x, y) =>
             // Inside Mult we are more permissive to allow integers to bubble up
             // but we need to be sure not to return 1 in the end
@@ -460,7 +466,18 @@ object RingOpt {
             }
           case None =>
             if ((prod == 1) || (prod == -1)) None
-            else Some((prod, e))
+            else
+              e match {
+                case Neg(inner) =>
+                  Some((-prod, inner))
+                case Integer(n) =>
+                  val p1 = prod * n
+                  if (p1 == 0) Some((BigInt(0), Zero))
+                  else if ((p1 == 1) || (p1 == -1)) None
+                  else Some((p1, One))
+                case _ =>
+                  Some((prod, e))
+              }
         }
 
       fix(BigInt(1), expr).filter { case (coeff, inner) =>
@@ -476,16 +493,22 @@ object RingOpt {
           // negation should always be cheaper than multiplication
           if (c == -1) normalizeNeg
           else {
-            // we know c != 1, 0, -1
-            // we know that this is not 1, 0, -1 because absorbMultConst handles those
-            if (c < 0) {
-              // see if we can remove a Neg
-              cheapNeg match {
-                case Some(n) => Mult(n, Integer(-c))
-                case None    => Mult(this, Integer(c))
-              }
-            } else {
-              Mult(this, Integer(c))
+            expr match {
+              // Keep the sign on the literal when we can so we don't add a
+              // standalone Neg node and increase cost.
+              case Neg(n) => n.bestEffortConstMult(-c)
+              case _      =>
+                // we know c != 1, 0, -1
+                // we know that this is not 1, 0, -1 because absorbMultConst handles those
+                if (c < 0) {
+                  // see if we can remove a Neg
+                  cheapNeg match {
+                    case Some(n) => Mult(n, Integer(-c))
+                    case None    => Mult(this, Integer(c))
+                  }
+                } else {
+                  Mult(this, Integer(c))
+                }
             }
           }
       }
@@ -1078,31 +1101,35 @@ object RingOpt {
           val l = undistribute[A](l0a)
           val r = undistribute[A](r0a)
 
-          (l, r) match {
-            case (Mult(a, b), Mult(c, d)) =>
-              if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
-              else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
-              else if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
-              else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
-              else Add(l, r)
-            case (Mult(a, b), Neg(c)) =>
-              if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
-              else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
-              else Add(l, r)
-            case (Mult(a, b), c) =>
-              if (isEq(a, c)) Mult(a, Add(b, One))
-              else if (isEq(b, c)) Mult(b, Add(a, One))
-              else Add(l, r)
-            case (Neg(c), Mult(a, b)) =>
-              if (isEq(a, c)) Mult(a, Add(Neg(One), b))
-              else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
-              else Add(l, r)
-            case (c, Mult(a, b)) =>
-              if (isEq(a, c)) Mult(a, Add(One, b))
-              else if (isEq(b, c)) Mult(b, Add(One, a))
-              else Add(l, r)
-            case _ => Add(l, r)
-          }
+          // Keep repeated-add shape intact so normalize(Add) can compare
+          // term-wise decomposition against 2*x style rewrites.
+          if (isEq(l, r)) Add(l, r)
+          else
+            (l, r) match {
+              case (Mult(a, b), Mult(c, d)) =>
+                if (isEq(a, c)) Mult(a, undistribute(Add(b, d)))
+                else if (isEq(a, d)) Mult(a, undistribute(Add(b, c)))
+                else if (isEq(b, c)) Mult(b, undistribute(Add(a, d)))
+                else if (isEq(b, d)) Mult(b, undistribute(Add(a, c)))
+                else Add(l, r)
+              case (Mult(a, b), Neg(c)) =>
+                if (isEq(a, c)) Mult(a, Add(b, Neg(One)))
+                else if (isEq(b, c)) Mult(b, Add(a, Neg(One)))
+                else Add(l, r)
+              case (Mult(a, b), c) =>
+                if (isEq(a, c)) Mult(a, Add(b, One))
+                else if (isEq(b, c)) Mult(b, Add(a, One))
+                else Add(l, r)
+              case (Neg(c), Mult(a, b)) =>
+                if (isEq(a, c)) Mult(a, Add(Neg(One), b))
+                else if (isEq(b, c)) Mult(b, Add(Neg(One), a))
+                else Add(l, r)
+              case (c, Mult(a, b)) =>
+                if (isEq(a, c)) Mult(a, Add(One, b))
+                else if (isEq(b, c)) Mult(b, Add(One, a))
+                else Add(l, r)
+              case _ => Add(l, r)
+            }
         case Neg(x) =>
           val xa: Expr[A] = x
           Neg(undistribute[A](xa))

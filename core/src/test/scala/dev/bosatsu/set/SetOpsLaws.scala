@@ -266,6 +266,11 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
 
   def missingBranchesIfAddedRegressions: List[List[A]] = Nil
 
+  /** Hook for suites whose generator can produce values outside the intended
+    * domain of this law. Return false to skip clearly invalid inputs.
+    */
+  def includeInMissingBranchesLaw(top: A, pats: List[A]): Boolean = true
+
   test(
     "missing branches, if added are total and none of the missing are unreachable"
   ) {
@@ -289,9 +294,13 @@ abstract class SetOpsLaws[A] extends munit.ScalaCheckSuite {
     val props = List.newBuilder[org.scalacheck.Prop]
     top.foreach { t =>
       val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genItem))
-      props += forAll(pats)(law(t, _))
+      props += forAll(pats) { generated =>
+        if (includeInMissingBranchesLaw(t, generated)) law(t, generated)
+      }
 
-      missingBranchesIfAddedRegressions.foreach(law(t, _))
+      missingBranchesIfAddedRegressions.foreach { regression =>
+        if (includeInMissingBranchesLaw(t, regression)) law(t, regression)
+      }
     }
     Prop.all(props.result()*)
   }

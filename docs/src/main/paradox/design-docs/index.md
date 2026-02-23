@@ -13,8 +13,11 @@ This section collects implementation design documents for Bosatsu.
 * [Well-Typed Statement Generator Design](well_typed_statement_generator_design.md)
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.md)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.md)
+* [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.md)
+* [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
 * [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.md)
+* [`recur ... by int_decrease` Design](recur_int_decrease_design.md)
 @@@
 
 ## Browse design docs
@@ -27,8 +30,11 @@ This section collects implementation design documents for Bosatsu.
 * [Well-Typed Statement Generator Design](well_typed_statement_generator_design.html)
 * [Quantifier Evidence on `TypedExpr.Annotation`](quantifier-evidence-design.html)
 * [Issue 1718: Instantiate/Pushdown Unification Plan](issue_1718_instantiate_pushdown_unification_plan.html)
+* [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.html)
+* [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.html)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
 * [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.html)
+* [`recur ... by int_decrease` Design](recur_int_decrease_design.html)
 
 ## Notes
 

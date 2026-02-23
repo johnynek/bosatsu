@@ -4,9 +4,7 @@
     raise_error: ProgExt.raise_error,
     flat_map: ProgExt.flat_map,
     recover: ProgExt.recover,
-    apply_fix: ProgExt.apply_fix,
-    read_env: ProgExt.read_env,
-    remap_env: ProgExt.remap_env
+    apply_fix: ProgExt.apply_fix
   },
   Bosatsu/IO/Std: {
     println_impl: ProgExt.println,

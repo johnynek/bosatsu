@@ -108,4 +108,5 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       }
     }
   }
+
 }

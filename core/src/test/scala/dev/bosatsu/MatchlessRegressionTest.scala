@@ -80,6 +80,104 @@ class MatchlessRegressionTest extends munit.FunSuite {
         0
     }
 
+  private def countSelfRecursiveCalls(expr: Matchless.Expr[Unit]): Int = {
+    def loopBool(
+        b: Matchless.BoolExpr[Unit],
+        activeRecNames: Set[Identifier.Bindable]
+    ): Int =
+      b match {
+        case Matchless.EqualsLit(expr, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.EqualsNat(expr, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.And(left, right) =>
+          loopBool(left, activeRecNames) + loopBool(right, activeRecNames)
+        case Matchless.CheckVariant(expr, _, _, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.SetMut(_, expr) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value, activeRecNames) + loopBool(in, activeRecNames)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in, activeRecNames)
+        case Matchless.TrueConst =>
+          0
+      }
+
+    def loopExpr(
+        e: Matchless.Expr[Unit],
+        activeRecNames: Set[Identifier.Bindable]
+    ): Int =
+      e match {
+        case Matchless.Lambda(captures, recursiveName, args, body) =>
+          val argNames = args.toList.toSet
+          val recNamesInLambda = activeRecNames -- argNames
+          val recNamesInBody =
+            recursiveName match {
+              case Some(fnName) if !argNames(fnName) => recNamesInLambda + fnName
+              case _                                  => recNamesInLambda
+            }
+          captures.map(loopExpr(_, recNamesInLambda)).sum +
+            loopExpr(body, recNamesInBody)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond, activeRecNames) + loopExpr(effectExpr, activeRecNames)
+        case Matchless.App(fn, args) =>
+          val headCallsSelf = fn match {
+            case Matchless.Local(fnName) if activeRecNames(fnName) => 1
+            case _                                                 => 0
+          }
+          headCallsSelf + loopExpr(fn, activeRecNames) + args.toList
+            .map(loopExpr(_, activeRecNames))
+            .sum
+        case Matchless.Let(Right(name), value, in) =>
+          loopExpr(value, activeRecNames) + loopExpr(in, activeRecNames - name)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value, activeRecNames) + loopExpr(in, activeRecNames)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in, activeRecNames)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond, activeRecNames) +
+            loopExpr(thenExpr, activeRecNames) +
+            loopExpr(elseExpr, activeRecNames)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond, activeRecNames) + loopExpr(thenExpr, activeRecNames)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of, activeRecNames)
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopExpr(arg, activeRecNames)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopExpr(arg, activeRecNames)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat =>
+          0
+      }
+
+    loopExpr(expr, Set.empty)
+  }
+
+  test("polymorphic recursion lowers to while in Matchless without self-calls") {
+    TestUtils.checkMatchless("""
+struct Box[a](box: a)
+
+enum Nat: Z, S(n: Nat)
+
+def box_more[a](n: Nat, b: Box[a]) -> Nat:
+  recur n:
+    case Z: Z
+    case S(n): box_more(n, Box(b))
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("box_more"))
+      val whileCount = countWhileExprs(expr)
+      assertEquals(whileCount, 1, expr.toString)
+      val selfCallCount = countSelfRecursiveCalls(expr)
+      assertEquals(selfCallCount, 0, expr.toString)
+    }
+  }
+
   test("matrix match does not duplicate large terminal fallback") {
     TestUtils.checkMatchless("""
 enum L:
