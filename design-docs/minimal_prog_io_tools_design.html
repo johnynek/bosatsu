@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Minimal IO Functions for Basic Tools (core_alpha + Prog) · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsudesign-docs/minimal_prog_io_tools_design.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../js/page.js"></script>
+<script type="text/javascript" src="../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../js/groups.js"></script>
+<script type="text/javascript" src="../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-88ed0cf6*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-88ed0cf6*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../design-docs/index.html">Design Docs</a></li>
+  <li>Minimal IO Functions for Basic Tools (<code>core_alpha</code> + <code>Prog</code>)</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#minimal-io-functions-for-basic-tools-core-alpha-prog-" name="minimal-io-functions-for-basic-tools-core-alpha-prog-" class="anchor"><span class="anchor-link"></span></a>Minimal IO Functions for Basic Tools (<code>core_alpha</code> + <code>Prog</code>)</h1>
+<p>Status: proposed<br/>Date: 2026-02-20<br/>Issue: <a href="https://github.com/johnynek/bosatsu/issues/1744">https://github.com/johnynek/bosatsu/issues/1744</a><br/>PR: <a href="https://github.com/johnynek/bosatsu/pull/1745">https://github.com/johnynek/bosatsu/pull/1745</a></p>
+<h2><a href="#problem" name="problem" class="anchor"><span class="anchor-link"></span></a>Problem</h2>
+<p><code>core_alpha</code> currently exposes only <code>Bosatsu/IO/Std</code> (<code>print</code>, <code>println</code>, stderr variants, and <code>read_stdin_utf8_bytes</code>).</p>
+<p>That is enough for simple CLI output/input, but not enough for basic tool-building tasks (files, directories, process spawning, env lookup, and time/sleep).</p>
+<p>The target API is a minimal core IO surface adapted to Bosatsu style and implemented uniformly on JVM evaluator runtime, transpiled Python runtime, and C runtime.</p>
+<h2><a href="#decision-summary" name="decision-summary" class="anchor"><span class="anchor-link"></span></a>Decision Summary</h2>
+<ol>
+  <li>Add a new package <code>Bosatsu/IO/Core</code> in <code>core_alpha</code> containing the file/process/env/time primitives and related IO types.</li>
+  <li>Keep <code>Bosatsu/Prog</code> as the single effect boundary; every effectful operation returns <code>Prog[IOError, a]</code>.</li>
+  <li>Keep <code>Bosatsu/IO/Error::IOError</code> as the shared error channel.</li>
+  <li>Keep <code>argv</code> at the <code>Main</code> boundary (<code>Main(args -&gt; ...)</code>) and do not duplicate it in <code>Bosatsu/IO/Core</code>.</li>
+  <li>Represent <code>Path</code> as an opaque Bosatsu <code>struct Path(to_String: String)</code> and export <code>path_sep</code> + path helpers.</li>
+  <li>Represent <code>Instant</code>/<code>Duration</code> as opaque Bosatsu structs backed by nanosecond <code>Int</code> fields.</li>
+  <li>Keep <code>Bosatsu/IO/Std</code> source-compatible and add <code>read_line</code> and <code>read_all_stdin</code>.</li>
+  <li>Do not add direct <code>exit</code> to <code>Bosatsu/IO/Core</code>; model termination with <code>Main</code> return codes and explicit result types.</li>
+</ol>
+<h2><a href="#where-in-core-alpha" name="where-in-core-alpha" class="anchor"><span class="anchor-link"></span></a>Where in <code>core_alpha</code></h2>
+<h3><a href="#new-package" name="new-package" class="anchor"><span class="anchor-link"></span></a>New package</h3>
+<ol>
+  <li><code>test_workspace/Bosatsu/IO/Core.bosatsu</code></li>
+</ol>
+<h3><a href="#existing-package-updates" name="existing-package-updates" class="anchor"><span class="anchor-link"></span></a>Existing package updates</h3>
+<ol>
+  <li><code>test_workspace/Bosatsu/IO/Std.bosatsu</code>: wrappers over <code>Core</code> (<code>stdout</code>, <code>stderr</code>, <code>write_text</code>, <code>read_text</code>, <code>flush</code>) plus <code>read_line</code> and <code>read_all_stdin</code>.</li>
+  <li><code>test_workspace/core_alpha_conf.json</code>: add <code>Bosatsu/IO/Core</code> to <code>exported_packages</code>.</li>
+</ol>
+<h3><a href="#runtime-implementation-files" name="runtime-implementation-files" class="anchor"><span class="anchor-link"></span></a>Runtime implementation files</h3>
+<ol>
+  <li>JVM evaluator: <code>core/src/main/scala/dev/bosatsu/Predef.scala</code></li>
+  <li>Python runtime: <code>test_workspace/ProgExt.py</code>, <code>test_workspace/Prog.bosatsu_externals</code></li>
+  <li>C runtime: new <code>c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c</code> and <code>.h</code>, plus <code>c_runtime/Makefile</code></li>
+</ol>
+<h2><a href="#bosatsu-api-shape-adapted-" name="bosatsu-api-shape-adapted-" class="anchor"><span class="anchor-link"></span></a>Bosatsu API Shape (adapted)</h2>
+<p>Naming follows current stdlib style (<code>snake_case</code>), except where a type name appears in the identifier (<code>string_to_Path</code>, <code>path_to_String</code>). <code>Bosatsu/IO/Core</code> exports externals directly (no duplicated <code>*_impl</code> wrappers).</p>
+<pre class="prettyprint"><code class="language-bosatsu">package Bosatsu/IO/Core
+
+from Bosatsu/Prog import Prog
+from Bosatsu/IO/Error import IOError
+
+export (
+  Path,
+  path_sep,
+  string_to_Path,
+  path_to_String,
+  path_join,
+  path_parent,
+  path_file_name,
+  Handle,
+  Process,
+  Instant,
+  Duration,
+  FileKind(),
+  FileStat(),
+  OpenMode(),
+  Stdio(),
+  StdioConfig(),
+  SpawnResult(),
+  stdin,
+  stdout,
+  stderr,
+  read_text,
+  write_text,
+  flush,
+  close,
+  open_file,
+  list_dir,
+  stat,
+  mkdir,
+  remove,
+  rename,
+  get_env,
+  spawn,
+  wait,
+  now_wall,
+  now_mono,
+  sleep,
+)
+
+external path_sep: String
+
+# Opaque in public API because constructor is not exported.
+struct Path(to_String: String)
+
+# Lift/projection helpers stay in Bosatsu so callers only depend on Path.
+# `None` means the input is not a valid cross-platform path in the
+# portable profile described below.
+def string_to_Path(s: String) -&gt; Option[Path]
+def path_to_String(path: Path) -&gt; String
+def path_join(base: Path, child: Path) -&gt; Path
+def path_parent(path: Path) -&gt; Option[Path]
+def path_file_name(path: Path) -&gt; Option[String]
+
+external struct Handle
+external struct Process
+
+# Opaque in public API because constructors are not exported.
+struct Instant(epoch_nanos: Int)
+struct Duration(to_nanos: Int)
+
+enum FileKind:
+  File
+  Dir
+  Symlink
+  Other
+
+struct FileStat(kind: FileKind, size_bytes: Int, mtime: Instant)
+
+enum OpenMode:
+  Read
+  WriteTruncate
+  Append
+
+enum Stdio:
+  Inherit
+  Pipe
+  Null
+  UseHandle(handle: Handle)
+
+struct StdioConfig(stdin: Stdio, stdout: Stdio, stderr: Stdio)
+
+struct SpawnResult(
+  proc: Process,
+  stdin: Option[Handle],
+  stdout: Option[Handle],
+  stderr: Option[Handle],
+)
+
+external stdin: Handle
+external stdout: Handle
+external stderr: Handle
+
+external def read_text(h: Handle, max_chars: Int) -&gt; Prog[IOError, Option[String]]
+external def write_text(h: Handle, s: String) -&gt; Prog[IOError, Unit]
+external def flush(h: Handle) -&gt; Prog[IOError, Unit]
+external def close(h: Handle) -&gt; Prog[IOError, Unit]
+external def open_file(path: Path, mode: OpenMode) -&gt; Prog[IOError, Handle]
+external def list_dir(path: Path) -&gt; Prog[IOError, List[Path]]
+external def stat(path: Path) -&gt; Prog[IOError, Option[FileStat]]
+external def mkdir(path: Path, recursive: Bool) -&gt; Prog[IOError, Unit]
+external def remove(path: Path, recursive: Bool) -&gt; Prog[IOError, Unit]
+external def rename(from: Path, to: Path) -&gt; Prog[IOError, Unit]
+external def get_env(name: String) -&gt; Prog[IOError, Option[String]]
+external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Prog[IOError, SpawnResult]
+external def wait(p: Process) -&gt; Prog[IOError, Int]
+external now_wall: Prog[IOError, Instant]
+external now_mono: Prog[IOError, Duration]
+external def sleep(d: Duration) -&gt; Prog[IOError, Unit]
+</code></pre>
+<h2><a href="#path-representation-tradeoff" name="path-representation-tradeoff" class="anchor"><span class="anchor-link"></span></a>Path representation tradeoff</h2>
+<ol>
+  <li>Chosen shape: native <code>struct Path(to_String: String)</code> with hidden constructor, plus <code>path_sep</code> and helper APIs.</li>
+  <li>Advantage: callers manipulate <code>Path</code> values without runtime-specific wrapper allocation.</li>
+  <li>Cost: runtime implementations still convert <code>Path.to_String</code> to platform-native path objects at IO call boundaries.</li>
+  <li>Alternative considered: <code>external struct Path</code> parsed once per value. That can reduce repeated conversion but increases runtime payload complexity and portability risk.</li>
+  <li>Follow-up option: if profiling shows conversion overhead, keep the same surface API and switch internals to <code>external struct Path</code>.</li>
+</ol>
+<h2><a href="#path-parsing-and-cross-platform-behavior" name="path-parsing-and-cross-platform-behavior" class="anchor"><span class="anchor-link"></span></a>Path parsing and cross-platform behavior</h2>
+<ol>
+  <li><code>string_to_Path: String -&gt; Option[Path]</code> is intentionally partial because not every <code>String</code> can be used as a path on every target runtime.</li>
+  <li>POSIX baseline: pathnames are slash-separated byte sequences; <code>NUL</code> is not allowed, slash is the separator, null pathname is invalid, and exactly two leading slashes have implementation-defined meaning.</li>
+  <li>Java baseline (<code>java.nio.file.FileSystem.getPath</code>): parsing is implementation-dependent, uses platform path rules, and throws <code>InvalidPathException</code> for rejected strings (for example, <code>NUL</code> on UNIX).</li>
+  <li>Python baseline (<code>pathlib</code>): <code>PurePath</code> parsing is lexical (no filesystem access), while concrete IO operations apply host filesystem validation later.</li>
+  <li>To get deterministic behavior across macOS, Linux/Unix, and Windows, <code>string_to_Path</code> uses a Bosatsu-level portable parser instead of delegating directly to host-native parsing.</li>
+  <li>Parsing policy:</li>
+  <li>Accept separators <code>/</code> and <code>\</code> in input; normalize stored <code>Path.to_String</code> to <code>/</code>.</li>
+  <li>Accept roots in these forms: relative (<code>a/b</code>), POSIX absolute (<code>/a/b</code>), Windows drive absolute (<code>C:/a/b</code>), UNC (<code>//server/share/a</code>).</li>
+  <li>Reject Windows drive-relative form (<code>C:tmp/file</code>) because meaning depends on per-drive current directory.</li>
+  <li>Reject Windows device namespace prefixes (<code>\\\\?\\</code>, <code>\\\\.\\</code>) in v1.</li>
+  <li>Reject ambiguous POSIX-like paths that start with exactly <code>//</code> unless they parse as UNC with non-empty server/share components.</li>
+  <li>Reject strings containing <code>NUL</code> (<code>\\u0000</code>) or control characters <code>\\u0001..\\u001F</code>.</li>
+  <li>Reject path components containing Windows-reserved characters <code>&lt; &gt; : &quot; | ? *</code> (except the drive colon in <code>C:/...</code>).</li>
+  <li>Reject Windows reserved device names as components (case-insensitive): <code>CON</code>, <code>PRN</code>, <code>AUX</code>, <code>NUL</code>, <code>COM1..COM9</code>, <code>LPT1..LPT9</code> (including with extensions like <code>NUL.txt</code>).</li>
+  <li>Reject components with trailing space or trailing dot to avoid Windows shell/API mismatch.</li>
+  <li>Keep <code>.</code> and <code>..</code> as lexical components; do not resolve symlinks or normalize away <code>..</code> at parse time.</li>
+  <li>Do not enforce <code>PATH_MAX</code>/<code>NAME_MAX</code> at parse time; those checks remain runtime/filesystem specific.</li>
+  <li><code>path_join(base: Path, child: Path) -&gt; Path</code> stays total because both inputs are already validated <code>Path</code> values.</li>
+  <li>Why <code>Option[Path]</code> instead of total <code>String -&gt; Path</code>: parsing failure is expected for non-portable or malformed inputs, and callers can handle <code>None</code> without exceptions in pure code.</li>
+  <li>Representative rejected inputs:</li>
+  <li><code>&quot;&quot;</code> (empty string)</li>
+  <li><code>&quot;a\u0000b&quot;</code></li>
+  <li><code>&quot;C:tmp\\x&quot;</code></li>
+  <li><code>&quot;foo/&lt;bar&gt;&quot;</code></li>
+  <li><code>&quot;NUL.txt&quot;</code></li>
+  <li><code>&quot;dir/ends-with-dot.&quot;</code></li>
+  <li>Representative accepted flow:</li>
+  <li><code>string_to_Path(&quot;src&quot;) -&gt; Some(child)</code></li>
+  <li><code>string_to_Path(&quot;/tmp&quot;) -&gt; Some(base)</code></li>
+  <li><code>path_join(base, child) -&gt; /tmp/src</code></li>
+  <li><code>path_join</code>, <code>path_parent</code>, and <code>path_file_name</code> are lexical Bosatsu helpers (not externals); runtime-specific path handling is required only at IO call boundaries such as <code>open_file</code>, <code>stat</code>, and <code>list_dir</code>.</li>
+  <li>References:</li>
+  <li>POSIX pathname definition and resolution: <a href="https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html#tag_03_271">https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html#tag_03_271</a>, <a href="https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_11">https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_11</a></li>
+  <li>Java parsing contract (<code>FileSystem.getPath</code>): <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/FileSystem.html#getPath(java.lang.String,java.lang.String...)">https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/FileSystem.html#getPath(java.lang.String,java.lang.String...)</a></li>
+  <li>Python <code>pathlib</code> lexical behavior and flavor differences: <a href="https://docs.python.org/3/library/pathlib.html">https://docs.python.org/3/library/pathlib.html</a></li>
+  <li>Windows naming constraints: <a href="https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file">https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file</a></li>
+</ol>
+<h2><a href="#process-termination-tradeoff" name="process-termination-tradeoff" class="anchor"><span class="anchor-link"></span></a>Process termination tradeoff</h2>
+<ol>
+  <li>This design intentionally omits direct <code>exit</code> from <code>Bosatsu/IO/Core</code>.</li>
+  <li>Abrupt process termination from inside arbitrary <code>Prog</code> code makes cleanup and structured error handling less safe.</li>
+  <li>Preferred pattern: return status from <code>Main</code> (<code>Prog[err, Int]</code>), or encode early termination in program types such as <code>Prog[IOError, Result[Int, a]]</code>.</li>
+</ol>
+<h2><a href="#mapping-from-the-requested-primitives" name="mapping-from-the-requested-primitives" class="anchor"><span class="anchor-link"></span></a>Mapping from the requested primitives</h2>
+<ol>
+  <li><code>stdin</code> -&gt; <code>Bosatsu/IO/Core::stdin</code></li>
+  <li><code>stdout</code> -&gt; <code>Bosatsu/IO/Core::stdout</code></li>
+  <li><code>stderr</code> -&gt; <code>Bosatsu/IO/Core::stderr</code></li>
+  <li><code>readText</code> -&gt; <code>read_text</code></li>
+  <li><code>writeText</code> -&gt; <code>write_text</code></li>
+  <li><code>flush</code> -&gt; <code>flush</code></li>
+  <li><code>close</code> -&gt; <code>close</code></li>
+  <li><code>openFile</code> -&gt; <code>open_file</code></li>
+  <li><code>listDir</code> -&gt; <code>list_dir</code></li>
+  <li><code>stat</code> -&gt; <code>stat</code></li>
+  <li><code>mkdir</code> -&gt; <code>mkdir</code></li>
+  <li><code>remove</code> -&gt; <code>remove</code></li>
+  <li><code>rename</code> -&gt; <code>rename</code></li>
+  <li><code>argv</code> -&gt; <code>Main(args -&gt; ...)</code> argument list (not duplicated in <code>Bosatsu/IO/Core</code>)</li>
+  <li><code>getEnv</code> -&gt; <code>get_env</code></li>
+  <li><code>exit</code> -&gt; intentionally omitted; use <code>Main</code> return codes and typed early-termination (<code>Result[Int, a]</code>) instead</li>
+  <li><code>spawn</code> -&gt; <code>spawn</code></li>
+  <li><code>wait</code> -&gt; <code>wait</code></li>
+  <li><code>nowWall</code> -&gt; <code>now_wall</code></li>
+  <li><code>nowMono</code> -&gt; <code>now_mono</code></li>
+  <li><code>sleep</code> -&gt; <code>sleep</code></li>
+</ol>
+<h2><a href="#type-mapping-in-bosatsu-predef-core-alpha" name="type-mapping-in-bosatsu-predef-core-alpha" class="anchor"><span class="anchor-link"></span></a>Type mapping in Bosatsu / Predef / core_alpha</h2>
+<ol>
+  <li><code>String</code>, <code>Int</code>, <code>Bool</code>, <code>List[a]</code>, <code>Option[a]</code>, <code>Unit</code> map to existing <code>Bosatsu/Predef</code> builtins.</li>
+  <li><code>Path</code> maps to opaque <code>struct Path(to_String: String)</code> in <code>Bosatsu/IO/Core</code> with helpers (<code>string_to_Path</code>, <code>path_to_String</code>, <code>path_join</code>, <code>path_parent</code>, <code>path_file_name</code>) and external <code>path_sep</code>.</li>
+  <li><code>Int64 sizeBytes</code> maps to <code>Int</code> (Bosatsu <code>Int</code> is arbitrary precision; runtimes convert native 64-bit values).</li>
+  <li><code>Instant</code> maps to opaque <code>struct Instant(epoch_nanos: Int)</code>.</li>
+  <li><code>Duration</code> maps to opaque <code>struct Duration(to_nanos: Int)</code>.</li>
+  <li><code>FileKind</code>, <code>FileStat</code>, <code>OpenMode</code>, <code>Stdio</code>, <code>StdioConfig</code>, <code>SpawnResult</code> are new <code>enum</code>/<code>struct</code> types in <code>Bosatsu/IO/Core</code>.</li>
+  <li><code>Handle</code> and <code>Process</code> map to opaque <code>external struct</code> types in <code>Bosatsu/IO/Core</code>.</li>
+  <li>Program entrypoint args use <code>Bosatsu/Prog::Main(run: List[String] -&gt; forall err. Prog[err, Int])</code>.</li>
+  <li>Constructors for <code>Path</code>, <code>Instant</code>, and <code>Duration</code> are intentionally hidden from consumers (type exported, constructor not exported).</li>
+</ol>
+<h2><a href="#runtime-semantics-shared-contract-" name="runtime-semantics-shared-contract-" class="anchor"><span class="anchor-link"></span></a>Runtime semantics (shared contract)</h2>
+<ol>
+  <li><code>read_text</code> returns <code>None</code> only for EOF; otherwise <code>Some(chunk)</code> where chunk length is <code>1..max_chars</code>.</li>
+  <li><code>read_text(max_chars &lt;= 0)</code> returns <code>InvalidArgument</code>.</li>
+  <li><code>list_dir</code> returns child paths sorted by <code>path_to_String</code> for deterministic behavior.</li>
+  <li><code>stat</code> returns <code>None</code> for missing path, <code>Some(FileStat(...))</code> otherwise.</li>
+  <li><code>stat.kind</code> is <code>Symlink</code> when path itself is a symlink (<code>lstat</code>-style classification).</li>
+  <li><code>remove(recursive = true)</code> removes directory trees without following symlinks.</li>
+  <li><code>spawn</code> never invokes a shell; <code>cmd</code> + <code>args</code> are executed directly.</li>
+  <li><code>wait</code> is idempotent: once complete, repeated waits return the same exit code.</li>
+  <li>Time precision is nanoseconds.</li>
+  <li><code>now_wall</code> returns a wall-clock timestamp value (<code>Instant</code>) whose intended encoding is UNIX epoch nanoseconds.</li>
+  <li><code>now_mono</code> returns a monotonic elapsed-time reading (<code>Duration</code>) and is not affected by wall-clock changes.</li>
+  <li><code>sleep</code> consumes <code>Duration</code> in nanoseconds and returns <code>InvalidArgument</code> for negative durations.</li>
+</ol>
+<h2><a href="#bosatsu-io-std-additions" name="bosatsu-io-std-additions" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/IO/Std</code> additions</h2>
+<ol>
+  <li>Add <code>read_line: Prog[IOError, Option[String]]</code>.</li>
+  <li>Add <code>read_all_stdin: Prog[IOError, String]</code>.</li>
+  <li><code>read_line</code> blocks until newline (<code>\n</code>) or EOF; returns <code>None</code> only when EOF is reached before reading any characters.</li>
+  <li><code>read_line</code> strips trailing line ending (<code>\n</code> or <code>\r\n</code>) from returned text.</li>
+  <li><code>read_all_stdin</code> reads until EOF (stdin stream closed), not merely until &ldquo;nothing currently available&rdquo;.</li>
+  <li>Both functions are implemented in <code>Bosatsu/IO/Std</code> via repeated <code>Bosatsu/IO/Core::read_text(stdin, chunk_size)</code>.</li>
+</ol>
+<h2><a href="#java-python-c-implementation-plan" name="java-python-c-implementation-plan" class="anchor"><span class="anchor-link"></span></a>Java/Python/C implementation plan</h2>
+<h3><a href="#jvm-predef-scala-" name="jvm-predef-scala-" class="anchor"><span class="anchor-link"></span></a>JVM (<code>Predef.scala</code>)</h3>
+<ol>
+  <li>Extend <code>jvmExternals</code> with all <code>Bosatsu/IO/Core</code> symbols.</li>
+  <li>Add internal runtime objects:</li>
+  <li><code>HandleValue</code> (<code>stdin</code>, <code>stdout</code>, <code>stderr</code>, file, child pipe read/write)</li>
+  <li><code>ProcessValue</code> (wrap <code>java.lang.Process</code>, cached exit status)</li>
+  <li>Implement IO effects using <code>prog_effect</code> dispatch:</li>
+  <li>Files: <code>java.nio.file.Files</code> + <code>java.io</code> streams</li>
+  <li>Process: <code>ProcessBuilder</code> + redirected streams</li>
+  <li>Env: <code>System.getenv</code></li>
+  <li>Path conversion: convert <code>Path.to_String</code> to <code>java.nio.file.Path</code> at each filesystem call</li>
+  <li>Wall clock: <code>java.time.Instant.now()</code> converted to epoch nanoseconds</li>
+  <li>Monotonic clock: <code>System.nanoTime()</code></li>
+  <li>Sleep: <code>Thread.sleep</code>/<code>LockSupport.parkNanos</code> from duration nanoseconds</li>
+  <li>Keep existing <code>ProgRunResult</code> testability by preserving capture-mode behavior for stdio when run under evaluator tests.</li>
+</ol>
+<h3><a href="#python-progext-py-externals-map-" name="python-progext-py-externals-map-" class="anchor"><span class="anchor-link"></span></a>Python (<code>ProgExt.py</code> + externals map)</h3>
+<ol>
+  <li>Add runtime classes for <code>Handle</code> and <code>Process</code> wrapper values (<code>Path</code>/<code>Instant</code>/<code>Duration</code> remain Bosatsu struct values).</li>
+  <li>Add new <code>ProgExt</code> constructors returning <code>effect(...)</code> thunks for each primitive.</li>
+  <li>Implement using stdlib:</li>
+  <li>Files/dirs/stat/remove/rename/path ops: <code>os</code>, <code>pathlib</code>, <code>shutil</code></li>
+  <li>Spawn/wait/pipes: <code>subprocess.Popen</code></li>
+  <li>Wall clock: <code>time.time_ns</code></li>
+  <li>Monotonic clock: <code>time.monotonic_ns</code></li>
+  <li>Sleep: <code>time.sleep(nanos / 1_000_000_000.0)</code></li>
+  <li>Env: <code>os.environ.get</code></li>
+  <li>Update <code>test_workspace/Prog.bosatsu_externals</code> for <code>Bosatsu/IO/Core</code> symbol remapping.</li>
+</ol>
+<h3><a href="#c-c-runtime-" name="c-c-runtime-" class="anchor"><span class="anchor-link"></span></a>C (<code>c_runtime</code>)</h3>
+<ol>
+  <li>Add <code>bosatsu_ext_Bosatsu_l_IO_l_Core.c/.h</code> and include in build/install targets.</li>
+  <li>Represent opaque runtime handles/processes as <code>alloc_external(...)</code> payloads (<code>Path</code>/<code>Instant</code>/<code>Duration</code> stay Bosatsu struct values).</li>
+  <li>Implement using POSIX APIs first (same approach as current IO/Error errno mapping):</li>
+  <li>Files/dirs/stat/remove/rename/path ops: <code>open/fopen</code>, <code>readdir</code>, <code>lstat</code>, <code>mkdir</code>, <code>unlink/rmdir</code>, <code>rename</code></li>
+  <li>Spawn/wait/pipes: <code>fork/execvp/pipe/waitpid</code> (or <code>posix_spawn</code> variant)</li>
+  <li>Wall clock: <code>clock_gettime(CLOCK_REALTIME, ...)</code></li>
+  <li>Monotonic clock: <code>clock_gettime(CLOCK_MONOTONIC, ...)</code></li>
+  <li>Sleep: <code>nanosleep</code></li>
+  <li>Env: <code>getenv</code></li>
+  <li>Reuse and extend current errno-to-<code>IOError</code> mapper (<code>c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Std.c</code>) into shared helpers for <code>IO/Core</code>.</li>
+</ol>
+<h2><a href="#compatibility-and-migration" name="compatibility-and-migration" class="anchor"><span class="anchor-link"></span></a>Compatibility and migration</h2>
+<ol>
+  <li><code>Bosatsu/IO/Std</code> remains source-compatible.</li>
+  <li>Existing <code>print</code>/<code>println</code> behavior is preserved.</li>
+  <li>New code can choose either high-level <code>IO/Std</code> or low-level <code>IO/Core</code>.</li>
+  <li><code>argv</code> remains available at the <code>Main(args -&gt; ...)</code> boundary.</li>
+  <li>Program termination should flow through <code>Main</code> return codes rather than <code>IO/Core::exit</code>.</li>
+  <li>This design assumes the post-#1748 <code>Bosatsu/Prog</code> shape (<code>Prog[err, res]</code> with no reader env).</li>
+</ol>
+<h2><a href="#tests-and-conformance" name="tests-and-conformance" class="anchor"><span class="anchor-link"></span></a>Tests and conformance</h2>
+<ol>
+  <li>Add package-level evaluator tests in <code>core/src/test/scala/dev/bosatsu/EvaluationTest.scala</code> for each primitive family.</li>
+  <li>Add Python transpile + execute tests using <code>Prog.bosatsu_externals</code> mappings.</li>
+  <li>Add C transpile + runtime tests linked against <code>c_runtime</code> for file/process/time operations.</li>
+  <li>Add cross-runtime parity tests for:</li>
+  <li>EOF semantics</li>
+  <li>error tag parity (<code>IOError</code> variants)</li>
+  <li>spawn stdio pipe behavior</li>
+  <li>wall/monotonic clock semantics</li>
+  <li>sleep minimum behavior</li>
+</ol>
+<h2><a href="#rollout" name="rollout" class="anchor"><span class="anchor-link"></span></a>Rollout</h2>
+<ol>
+  <li>Land this design doc.</li>
+  <li>Open issue: <code>add minimal set of IO functions for basic tools</code>.</li>
+  <li>Implement <code>Bosatsu/IO/Core</code> + runtime bindings in JVM/Python/C.</li>
+  <li>Rebase <code>Bosatsu/IO/Std</code> on <code>IO/Core</code> wrappers and add <code>read_line</code> / <code>read_all_stdin</code>.</li>
+  <li>Regenerate core_alpha docs and release a new <code>core_alpha</code> version.</li>
+</ol>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/minimal_prog_io_tools_design.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../design-docs/recur_int_decrease_design.html"><code>recur ... by int_decrease</code> Design</a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../design-docs/minimal_prog_io_tools_design.html#minimal-io-functions-for-basic-tools-core-alpha-prog-" class="header">Minimal IO Functions for Basic Tools (<code>core_alpha</code> + <code>Prog</code>)</a></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../js/magellan.js"></script>
+
+<style type="text/css">@import "../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-88ed0cf6-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
