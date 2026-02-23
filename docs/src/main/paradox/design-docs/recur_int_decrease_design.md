@@ -218,6 +218,52 @@ For each recursive call in a `by int_decrease` region:
 
 If either fails, emit recursion error at call site.
 
+## Follow-up: Lexicographic `int_decrease` for Tuple Targets
+The v1 design intentionally starts with one target (`recur i by int_decrease`).
+As a follow-up, we should extend this to match existing tuple-recursion
+semantics (`recur (x, y, ...)`) using lexicographic decrease.
+
+### Intended syntax (follow-up)
+```bosatsu
+recur (x, y) by int_decrease:
+recur (x, y, z) by int_decrease:
+```
+
+### Intended proof rule
+For target tuple `(x1, x2, ..., xn)` and recursive arguments
+`(x1_next, x2_next, ..., xn_next)`, require:
+1. non-negativity side conditions for integer measure components:
+   1. `PC => x1_next >= 0`
+   2. ...
+   3. `PC => xn_next >= 0`
+2. strict lexicographic decrease:
+   1. `PC => (x1_next < x1) OR`
+   2. `      (x1_next = x1 AND x2_next < x2) OR`
+   3. `      ... OR`
+   4. `      (x1_next = x1 AND ... AND x(n-1)_next = x(n-1) AND xn_next < xn)`
+
+This is the direct integer analogue of current `recur (x, y, ...)` ordering.
+
+### SMT shape
+The backend can emit one implication per recursive call:
+1. `PC => LexLess(nextTuple, currentTuple)`
+2. optional split into smaller obligations (prefix-equality + strict-decrease
+   cases) for better diagnostics.
+
+This remains in standard linear integer arithmetic and is close in complexity to
+the unary v1 obligations.
+
+### Implementation impact (follow-up)
+Expected work is moderate:
+1. parser/AST shape checks: allow tuple targets with `by int_decrease`,
+2. typed extraction: map tuple target indices to recursive call arguments,
+3. obligation generation: build `LexLess` formula over `Int` tuples,
+4. diagnostics: report which lexicographic branch failed, with model output.
+
+### Planning note
+This extension should be tracked as the next strategy enhancement after v1 so
+`by int_decrease` aligns with the language model of existing tuple `recur`.
+
 ## Worked Example: `TypedExpr` -> SMT-LIB
 This section shows how much machinery is needed if we only support
 `by int_decrease` and linear integer constraints.
@@ -549,6 +595,8 @@ Diagnostic content:
 7. Add `PackageError` plumbing and diagnostics.
 8. Add `int_loop` as normal Bosatsu definition in predef, keep external behind temporary flag during migration.
 9. Remove external once tests pass and perf is acceptable.
+10. Follow-up: add tuple-target lexicographic `by int_decrease` to match
+    `recur (x, y, ...)` semantics.
 
 ## Test Plan
 1. Parser tests:
