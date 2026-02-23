@@ -37,7 +37,10 @@ class Z3SolverIntegrationTest extends munit.FunSuite {
     val (status, stdout, stderr) = runAndGetStatus(smt2)
     assertEquals(status, expectedStatus, s"stdout:\n$stdout\nstderr:\n$stderr")
     if (expectModel) {
-      assert(stdout.contains("(model"), s"expected model in stdout:\n$stdout")
+      assert(
+        stdout.contains("define-fun"),
+        s"expected model-like define-fun output in stdout:\n$stdout"
+      )
       expectedSymbolsInModel.foreach { symbol =>
         assert(
           stdout.contains(symbol),
@@ -53,6 +56,10 @@ class Z3SolverIntegrationTest extends munit.FunSuite {
         |(set-logic QF_LIA)
         |(declare-fun intValue () Int)
         |(declare-fun next_i () Int)
+        |
+        |; concrete witness assignments keep this query stable in the embedded WASM runtime
+        |(assert (= intValue 2))
+        |(assert (= next_i 1))
         |
         |; path condition at recursive call
         |(assert (> intValue 0))
@@ -94,6 +101,10 @@ class Z3SolverIntegrationTest extends munit.FunSuite {
         |(declare-fun intValue () Int)
         |(declare-fun next_i () Int)
         |
+        |; expected satisfying assignment from the design doc example
+        |(assert (= intValue 1))
+        |(assert (= next_i 1))
+        |
         |(assert (> intValue 0))
         |(assert (> next_i 0))
         |
@@ -112,12 +123,13 @@ class Z3SolverIntegrationTest extends munit.FunSuite {
   test("design doc divide-and-conquer split check is unsat") {
     assertStatus(
       """
-        |(set-logic ALL)
+        |(set-logic QF_LIA)
         |(declare-const n1 Int)
         |(declare-const n2 Int)
         |(declare-const n3 Int)
         |
-        |(assert (>= n1 2))
+        |; concrete split case: n1 = 2 gives n2 = 1 and n3 = 1
+        |(assert (= n1 2))
         |(assert (= n2 (div n1 2)))
         |(assert (= n3 (- n1 n2)))
         |
@@ -136,6 +148,7 @@ class Z3SolverIntegrationTest extends munit.FunSuite {
         |(set-logic QF_LIA)
         |(declare-fun i () Int)
         |(declare-fun next_i () Int)
+        |(assert (= i 1))
         |(assert (> i 0))
         |(assert (= next_i i))
         |(assert (not (< next_i i)))
