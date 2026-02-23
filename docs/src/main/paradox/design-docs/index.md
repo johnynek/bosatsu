@@ -16,6 +16,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.md)
 * [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
+* [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.md)
 * [`recur ... by int_decrease` Design](recur_int_decrease_design.md)
 @@@
 
@@ -32,6 +33,8 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1727: Tail-Loop Rewrite for Multi-Parameter-Group Functions](issue_1727_multi_parameter_group_recursion_design.html)
 * [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.html)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
+* [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.html)
+* [`recur ... by int_decrease` Design](recur_int_decrease_design.html)
 
 ## Notes
 
