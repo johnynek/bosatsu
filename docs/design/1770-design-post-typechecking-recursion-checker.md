@@ -5,18 +5,19 @@ touch_paths:
   - docs/design/1770-design-post-typechecking-recursion-checker.md
   - core/src/main/scala/dev/bosatsu/Package.scala
   - core/src/main/scala/dev/bosatsu/PackageError.scala
-  - core/src/main/scala/dev/bosatsu/TypedExprRecursionCheck.scala
   - core/src/main/scala/dev/bosatsu/RecursionCheck.scala
+  - core/src/main/scala/dev/bosatsu/TypedExprRecursionCheck.scala
   - core/src/main/scala/dev/bosatsu/DefRecursionCheck.scala
   - core/src/test/scala/dev/bosatsu/LegacyDefRecursionCheck.scala
   - core/src/test/scala/dev/bosatsu/TypedExprRecursionCheckTest.scala
   - core/src/test/scala/dev/bosatsu/TypedExprRecursionParityTest.scala
-  - core/src/test/scala/dev/bosatsu/WellTypedTests.scala
   - core/src/test/scala/dev/bosatsu/DefRecursionCheckTest.scala
+  - core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala
+  - core/src/test/scala/dev/bosatsu/WellTypedTests.scala
   - docs/src/main/paradox/recursion.md
 depends_on: []
 estimated_size: M
-generated_at: 2026-02-24T00:29:33Z
+generated_at: 2026-02-24T00:36:05Z
 ---
 
 # Design post-typechecking Recursion checker
@@ -25,222 +26,155 @@ _Issue: #1770 (https://github.com/johnynek/bosatsu/issues/1770)_
 
 ## Summary
 
-Design to move recursion checking from syntax-level `Declaration` to post-typechecking `TypedExpr`, with a typed-strategy architecture that preserves current structural/lexicographic behavior, enables cleaner `Int` recursion support for #1760, and migrates the legacy checker into test-only differential validation against WellTypedGen.
+Move recursion validation from syntax `Declaration` to post-typechecking `TypedExpr`, introduce a shared recursion error/strategy model, and migrate safely via legacy differential testing (including WellTypedGen) before enabling typed `Int` and future enum-order decrease strategies.
 
-# Issue 1770: Post-Typechecking Recursion Checker
+# Design post-typechecking Recursion checker
 
 Status: proposed  
 Date: 2026-02-24  
-Issue: https://github.com/johnynek/bosatsu/issues/1770  
+Issue: #1770 (https://github.com/johnynek/bosatsu/issues/1770)  
 Base branch: `main`
 
-## Problem
-Today recursion legality is checked by `DefRecursionCheck` over `Declaration` syntax before type inference. This has three core drawbacks:
+## Problem statement
+Today recursion legality is checked by `DefRecursionCheck` on `Declaration` before `Infer.typeCheckLets` in `Package.inferBodyUnopt`. That creates three core problems:
+1. The checker has no resolved type information.
+2. #1760 (`Int` recursion) is forced toward syntax-level strategy encoding.
+3. The checker is tied to source syntax, while later compiler phases operate on `TypedExpr`.
 
-1. No type information at the recursion-check point, so strategy selection cannot use the scrutinee type.
-2. `Int` recursion support (issue #1760) must encode extra syntax/metadata early, instead of using resolved types.
-3. The checker is bound to pre-desugared syntax rather than the typed IR (`TypedExpr`) that later phases actually consume.
-
-Issue #1770 asks to move recursion checking post-typechecking on `TypedExpr`, and to analyze safety/benefits of that move.
+Issue #1770 asks to move recursion checking post-typechecking on `TypedExpr`, discuss benefits and risks, and define a migration plan with parity against the legacy checker.
 
 ## Goals
-
-1. Make post-typechecking recursion validation authoritative.
-2. Preserve current acceptance/rejection behavior for existing structural and tuple-lexicographic recursion.
-3. Keep diagnostics source-anchored and comparable to current messages.
-4. Introduce a typed strategy-selection point so `Int` targets can use an `int_decrease` strategy naturally (for #1760).
-5. Enable future expansion of “smaller” (including enum-constructor ordering) without reworking parser-level logic.
-6. Move the current checker to test-only oracle use and prove agreement on `WellTypedGen` programs.
+1. Make a typed recursion checker authoritative in the production pipeline.
+2. Preserve current behavior for structural and tuple-lexicographic recursion.
+3. Keep recursion diagnostics source-anchored and close to current messages.
+4. Add a typed strategy-selection hook so `Int` targets can map cleanly to `int_decrease` in #1760.
+5. Keep the current checker in test scope as a legacy oracle and verify parity on WellTypedGen programs.
+6. Define a safe future path for broader notions of smaller such as enum-constructor ordering.
 
 ## Non-goals
+1. Do not implement the full #1760 proof engine in this issue.
+2. Do not change parser surface syntax in this issue.
+3. Do not change codegen or runtime behavior in this issue.
+4. Do not enable enum-ordinal decrease by default in this issue.
 
-1. No immediate change to parser surface syntax in this issue.
-2. No full SMT/solver integration in this issue.
-3. No change to runtime/codegen from this issue alone.
-4. No broad redesign of `TypedExpr` normalization or loop lowering.
-
-## Current Pipeline
+## Current pipeline
 In `Package.inferBodyUnopt` today:
+1. `SourceConverter.toProgram` builds `Expr[Declaration]` lets.
+2. `DefRecursionCheck.checkStatement` runs on source `Statement`.
+3. `TotalityCheck` and unused-let checks run on source expressions.
+4. `Infer.typeCheckLets` produces typed lets (`TypedExpr[Declaration]`).
+5. Lowering and normalization run later.
 
-1. Source conversion (`Statement` -> `Expr[Declaration]` lets).
-2. `DefRecursionCheck` on syntax statements.
-3. Source `TotalityCheck`.
-4. Type inference (`Infer.typeCheckLets`) to `TypedExpr[Declaration]`.
-5. Normalization/lowering in later stages.
+Recursion checking happens before type information is available.
 
-Recursion checking therefore happens before types are known.
+## Proposed pipeline
+1. Keep source conversion, totality, and unused-let checks as-is.
+2. Remove production use of `DefRecursionCheck` from `Package.inferBodyUnopt`.
+3. After successful `Infer.typeCheckLets`, run `TypedExprRecursionCheck` on typed lets.
+4. Map typed recursion failures through `PackageError.RecursionError`.
+5. Continue with existing lowering and normalization unchanged.
 
-## Proposed Pipeline
+Net effect: recursion validity moves to post-typechecking and pre-lowering.
 
-1. Keep source conversion, source totality, and inference ordering.
-2. Remove `DefRecursionCheck` from production compile path.
-3. After successful inference, run `TypedExprRecursionCheck` on typed lets.
-4. Map typed recursion errors through `PackageError.RecursionError`.
-5. Continue with existing normalization/lowering pipeline unchanged.
+## Architecture and modules
+### 1. `RecursionCheck` shared model
+Add `core/src/main/scala/dev/bosatsu/RecursionCheck.scala` with:
+1. Checker-neutral `Error` ADT equivalent to current recursion errors.
+2. Shared diagnostics text and region behavior.
+3. Strategy model for target components: `Structural`, `IntDecrease`, `EnumOrdinal` (future and gated).
 
-Concretely this is a post-inference check in `Package.scala`, before the existing return of unoptimized typed program.
+`PackageError.RecursionError` should depend on `RecursionCheck.Error`, not `DefRecursionCheck.RecursionError`.
 
-## Architecture
+### 2. `TypedExprRecursionCheck`
+Add `core/src/main/scala/dev/bosatsu/TypedExprRecursionCheck.scala`.
 
-### 1. New checker module
-Add `TypedExprRecursionCheck` in main code. Input:
-
+Inputs:
 1. Package name.
-2. Full type environment (`TypeEnv[Kind.Arg]`) for constructor-family metadata.
-3. Typed lets: `List[(Bindable, RecursionKind, TypedExpr[Declaration])]`.
+2. Full `TypeEnv[Kind.Arg]`.
+3. Typed lets list: `List[(Bindable, RecursionKind, TypedExpr[Declaration])]`.
 
 Output:
-
 1. `ValidatedNel[RecursionCheck.Error, Unit]`.
 
-### 2. Shared recursion error algebra
-Introduce a checker-neutral error ADT (for example `RecursionCheck.Error`) in main. Keep message text and region behavior aligned with current `DefRecursionCheck.RecursionError` semantics so diagnostics remain stable.
+The checker traverses recursive definitions in typed IR (top-level and nested recursive lets), mirroring current recursion invariants.
 
-`PackageError.RecursionError` should depend on this neutral ADT, not directly on `DefRecursionCheck`.
+### 3. Legacy checker relocation for parity
+Move current syntax checker logic to `core/src/test/scala/dev/bosatsu/LegacyDefRecursionCheck.scala` and keep it only for differential testing during migration.
 
-### 3. Typed strategy abstraction
-Add strategy classification per recur target component:
+## Typed checker algorithm
+1. Find each recursive binding (`RecursionKind.Recursive`) and recover parameter groups from typed lambda shape, peeling `Generic` and `Annotation` wrappers.
+2. Track checker state analogous to legacy checker (`TopLevel`, `InDef`, `InDefRecurred`, `InRecurBranch`) so existing invariants are preserved.
+3. Detect recur-sites from typed matches by reading node tags: a typed `Match` is a recur-site when its tag is `Declaration.Match(RecursionKind.Recursive, target, ...)`.
+4. Resolve recur target names to parameter positions and reject invalid, duplicate, or local targets with equivalent error semantics.
+5. Select a strategy per recur target component from normalized target type: `Int` chooses `IntDecrease`; all other types choose `Structural` for parity baseline.
+6. For each branch, compute branch-local decrease evidence: single target uses `pattern.substructures`; tuple target uses component-wise evidence from tuple branch patterns, or empty evidence when shape does not align.
+7. For each recursive self-call in a recur-branch, classify each target argument as `Equal`, `Smaller`, or `Other` according to the component strategy, then apply lexicographic acceptance where the first non-equal component must be `Smaller`.
+8. Validate nested recursive calls inside call arguments, matching current behavior.
+9. Keep current constraints around illegal shadowing, unexpected `recur`, and `recur` with no recursive call.
 
-1. `Structural` (current behavior).
-2. `IntDecrease` (typed hook for #1760).
-3. `EnumOrdinal` (future extension, off by default initially).
+## Why post-typechecking helps #1760
+Typed checking allows strategy selection by actual type instead of syntax:
+1. A recur target of type `Int` can automatically select `IntDecrease`.
+2. #1760 can avoid noisy syntax-only strategy markers in common cases.
+3. The first migration step can keep parity semantics and install the typed strategy hook; strict integer decrease obligations can then be added in #1760 on top of this architecture.
 
-Strategy is selected from target type information after typechecking.
+## Future extension: enum-constructor ordering as smaller
+Potential follow-up after parity:
+1. For enum constructors `C0, C1, ..., Cn` in declaration order, define `rank(Ci) = i`.
+2. In a branch that proves value is `Ci`, allow recursive call arguments proven to be constructor `Cj` with `j < i` as a decrease witness.
+3. Combine this with existing structural and lexicographic rules and keep strictness.
+4. Gate the feature initially.
 
-## Typed Checker Algorithm
-The checker keeps the same high-level invariants as the current checker, but evaluated on `TypedExpr`.
+Safety rationale: constructor rank over a finite enum is well-founded. Risk comes from over-approximating proof, so implementation must require typed proof of constructor identity before using rank.
 
-### A. Identify recursion context
-For each recursive top-level let binding:
+## Differential testing plan
+### 1. Unit tests for typed checker
+Add `TypedExprRecursionCheckTest` with positive and negative cases mirroring legacy recursion tests.
 
-1. Recover function parameter groups from the typed lambda shape.
-2. Traverse the function body with a state machine (`TopLevel`, `InDef`, `InDefRecurred`, `InRecurBranch`) analogous to current logic.
+### 2. Property parity against legacy checker
+Add `TypedExprRecursionParityTest`:
+1. Generate programs via `WellTypedGen` phase1 through phase4.
+2. Run legacy checker on source statements.
+3. Typecheck and run typed checker on resulting typed lets.
+4. Assert pass or fail agreement.
+5. Report mismatches with minimal repro output.
 
-### B. Detect `recur` matches in typed tree
-`TypedExpr.Match` does not store recursion kind directly, but tags are `Declaration`. A match is a recur-site when its tag is `Declaration.Match(RecursionKind.Recursive, target, ...)`.
+### 3. Curated regression corpus
+Reuse recursion-heavy cases from `DefRecursionCheckTest` and key diagnostics from `ErrorMessageTest`, because WellTypedGen has limited recursion-shape coverage today.
 
-This allows migration without changing core typed AST shape.
+## Acceptance criteria
+1. `Package.scala` no longer runs `DefRecursionCheck` in production typechecking.
+2. `TypedExprRecursionCheck` runs post-inference and blocks invalid recursion.
+3. `PackageError.RecursionError` wraps shared `RecursionCheck.Error`.
+4. Legacy checker code exists in test scope as `LegacyDefRecursionCheck` and is not required by production pipeline.
+5. Differential parity tests pass for WellTypedGen phase1 through phase4 in CI.
+6. Curated recursion regressions match existing accept or reject behavior for structural and tuple lexicographic recursion.
+7. Strategy-selection tests show `Int` targets are detected as `IntDecrease` candidates.
+8. User docs note that recursion validation is now post-typechecking.
 
-### C. Resolve recur target and strategy
-At recur-site:
+## Risks and mitigations
+1. Risk: inference failures now prevent recursion diagnostics from being produced in the same run.
+Mitigation: document ordering change and keep diagnostics quality high when recursion checker runs.
 
-1. Resolve target names to function parameter positions.
-2. Validate target shape (name or tuple of names, no duplicates, must refer to parameters).
-3. Select strategy per target component from resolved type:
-4. If normalized type is `Int`, choose `IntDecrease`.
-5. Otherwise choose `Structural` for MVP parity.
-
-### D. Branch-local decrease evidence
-For each branch:
-
-1. Compute allowed structural names via typed pattern `substructures` (same rule as current checker).
-2. For tuple targets, compute evidence component-wise from tuple pattern branches.
-3. Track reachable names for lambda-argument propagation exactly as current checker does in single-target mode.
-
-### E. Validate recursive calls
-For each self-call in recur-branch:
-
-1. Extract call arguments at target positions.
-2. Classify each target component as `Equal`, `Smaller`, or `Other` using its selected strategy.
-3. Apply lexicographic acceptance: some component must be `Smaller`, all prior components must be `Equal`.
-4. Reject otherwise.
-5. Recurse into call arguments to validate nested recursive calls (same as current behavior).
-
-## #1760 Improvement Path (`Int`-driven strategy)
-Moving to typed checking enables cleaner syntax because strategy can be inferred from type:
-
-1. If recur target type is `Int`, use `IntDecrease` automatically.
-2. This removes the need for syntax-level strategy annotations in many cases.
-3. The checker can still stay conservative until full obligations are implemented.
-
-This provides the architectural slot needed by #1760 while keeping parser churn minimal.
-
-## Future Extension: Enum Constructor Ordering as “Smaller”
-With typed env metadata, we can safely discuss broader decrease relations.
-
-Proposed optional extension:
-
-1. For enum type `E` with constructors in declaration order `C0, C1, ..., Cn`.
-2. In branch matching `Ci(...)`, allow recursive calls on values proven to be constructor `Cj` where `j < i` as a decrease witness.
-3. Keep existing substructure decrease as primary rule.
-
-Example in issue body: for `Nat = Zero | Succ(prev)`, in `Succ(p)` branch, `Zero` could be considered smaller by constructor rank.
-
-Safety rationale: finite constructor rank is a well-founded order. This must remain strict and type-aligned to preserve totality.
-
-This is explicitly future-facing and should be feature-gated initially.
-
-## Moving Legacy Checker to `test/` and Differential Validation
-
-### Plan
-
-1. Move (or copy then remove) current `DefRecursionCheck` implementation into test scope as `LegacyDefRecursionCheck`.
-2. Add a parity test harness that runs both checkers on the same programs.
-3. Keep legacy checker as oracle for migration confidence only.
-
-### Differential suite
-
-1. `WellTypedGen` parity property:
-2. Generate well-typed programs via phase1..phase4 configs.
-3. Run legacy syntax checker on statements.
-4. Run typed checker after inference.
-5. Assert agreement on pass/fail.
-
-And add curated regression parity:
-
-1. Existing recursion-focused samples from `DefRecursionCheckTest` and error-message snapshots.
-2. Compare acceptance and key diagnostic text.
-
-Note: `WellTypedGen` currently has limited recursion shape coverage, so curated recursion corpus remains necessary.
-
-## Acceptance Criteria
-
-1. Production pipeline no longer invokes syntax-phase `DefRecursionCheck` from `Package.scala`.
-2. `TypedExprRecursionCheck` runs post-inference and blocks invalid recursion with `PackageError.RecursionError`.
-3. Existing structural and tuple-lexicographic recursion behavior matches current checker on regression corpus.
-4. Differential tests show legacy/new checker agreement for all `WellTypedGen` generated programs executed in CI.
-5. Legacy checker lives in test scope only (or main copy removed after parity stabilization).
-6. New strategy-selection tests prove `Int` targets are recognized as `IntDecrease` candidates.
-7. Documentation notes recursion validation now occurs post-typechecking.
-
-## Risks and Mitigations
-
-1. Risk: recursion diagnostics disappear when type inference fails first.
-Mitigation: document ordering change; keep error text high quality for inferred programs; preserve curated syntax tests where useful.
-
-2. Risk: relying on `Declaration` tags in `TypedExpr.Match` is brittle.
-Mitigation: run checker immediately post-inference before rewriting; add fallback plan to add explicit recur marker in typed AST if needed later.
+2. Risk: recur-site detection via `Declaration` tags in typed matches is brittle.
+Mitigation: run checker immediately after inference; if fragility appears, add an explicit typed recur marker in a follow-up.
 
 3. Risk: behavior drift from legacy checker.
-Mitigation: differential tests (WellTypedGen + curated recursion suite) before switching default path.
+Mitigation: mandatory differential tests (property plus curated corpus) before switching production path.
 
-4. Risk: performance overhead from another typed-tree traversal.
-Mitigation: single linear traversal per recursive let; cache target-position resolution and type normalization.
+4. Risk: extra typed-tree traversal cost.
+Mitigation: single linear traversal per recursive definition with cached target-position and normalized-type lookups.
 
-5. Risk: enum-order extension could be over-permissive if done naïvely.
-Mitigation: keep extension disabled by default and require strict typed proof of constructor rank decrease.
+5. Risk: enum-ordinal extension could admit unsound decreases if proof is too permissive.
+Mitigation: keep feature disabled by default and require explicit typed constructor proof.
 
-## Rollout Notes
-
-1. Stage 1: add shared recursion error ADT and implement `TypedExprRecursionCheck` in shadow mode (tests only).
-2. Stage 2: dual-run checker in tests; validate parity against legacy checker.
-3. Stage 3: switch production pipeline to typed checker.
-4. Stage 4: move legacy checker to test-only path and keep parity tests.
-5. Stage 5: add #1760 behavior on top of typed strategy selection (`IntDecrease`).
-6. Stage 6: evaluate optional enum-ordinal decrease extension behind a guarded flag.
-
-## Likely Implementation Touch Points
-
-1. `core/src/main/scala/dev/bosatsu/Package.scala`
-2. `core/src/main/scala/dev/bosatsu/PackageError.scala`
-3. `core/src/main/scala/dev/bosatsu/TypedExprRecursionCheck.scala` (new)
-4. `core/src/main/scala/dev/bosatsu/RecursionCheck.scala` (new shared errors/strategy)
-5. `core/src/test/scala/dev/bosatsu/LegacyDefRecursionCheck.scala` (new/moved)
-6. `core/src/test/scala/dev/bosatsu/TypedExprRecursionCheckTest.scala` (new)
-7. `core/src/test/scala/dev/bosatsu/TypedExprRecursionParityTest.scala` (new)
-8. `core/src/test/scala/dev/bosatsu/WellTypedTests.scala`
-9. `core/src/test/scala/dev/bosatsu/DefRecursionCheckTest.scala`
-10. `docs/src/main/paradox/recursion.md`
+## Rollout plan
+1. Stage 1: introduce `RecursionCheck` shared ADT and implement `TypedExprRecursionCheck` in test-only shadow mode.
+2. Stage 2: add legacy versus typed parity tests and fix mismatches.
+3. Stage 3: switch production pipeline in `Package.scala` to typed recursion checking.
+4. Stage 4: move syntax checker implementation to test-only (`LegacyDefRecursionCheck`) and remove production dependency.
+5. Stage 5: implement #1760 obligations using the `IntDecrease` strategy path.
+6. Stage 6: evaluate optional enum-ordinal decrease behind a guarded flag.
 
 ## Decision
-Proceed with post-typechecking recursion validation as the authoritative checker, keep strict parity with current behavior first, and use typed strategy hooks to enable a cleaner #1760 implementation and future enum-order decrease exploration.
+Proceed with post-typechecking recursion checking on `TypedExpr` as the authoritative path, enforce strict parity first, and use typed strategy hooks to cleanly unlock #1760 and later decrease-relation extensions.
