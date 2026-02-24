@@ -3023,14 +3023,18 @@ tests = TestSuite("array eval", [
     )
   }
 
-  test("prog and io/std externals evaluate and run recursively") {
-    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
-    val ioErrorPack =
-      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
-    val ioStdPack =
-      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
+  if (Platform.isScalaJvm)
+    test("prog and io/std externals evaluate and run recursively") {
+      val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+      val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      val ioErrorPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+      val ioCorePack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+      val ioStdPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
 
-    val progRunPack = """
+      val progRunPack = """
 package ProgRun
 
 from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
@@ -3062,36 +3066,36 @@ main = Main(args -> (
 )
 """
 
-    testInferred(
-      List(progPack, ioErrorPack, ioStdPack, progRunPack),
-      "ProgRun",
-      { (pm, mainPack) =>
-        val ev =
-          library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
-        val (mainEval, _) =
-          ev.evaluateMainValue(mainPack)
-            .fold(err => fail(err.toString), identity)
+      testInferred(
+        List(progPack, charPack, ioErrorPack, ioCorePack, ioStdPack, progRunPack),
+        "ProgRun",
+        { (pm, mainPack) =>
+          val ev =
+            library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+          val (mainEval, _) =
+            ev.evaluateMainValue(mainPack)
+              .fold(err => fail(err.toString), identity)
 
-        val run =
-          PredefImpl.runProgMain(
-            mainEval.value,
-            List("one", "two"),
-            "\u00E9xyz"
+          val run =
+            PredefImpl.runProgMain(
+              mainEval.value,
+              List("one", "two"),
+              "\u00E9xyz"
+            )
+
+          run.result match {
+            case Right(VInt(i)) => assertEquals(i.intValue, 0)
+            case other          => fail(s"unexpected prog result: $other")
+          }
+
+          assertEquals(
+            run.stdout,
+            "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
           )
-
-        run.result match {
-          case Right(VInt(i)) => assertEquals(i.intValue, 0)
-          case other          => fail(s"unexpected prog result: $other")
+          assertEquals(run.stderr, "args=2\n")
         }
-
-        assertEquals(
-          run.stdout,
-          "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
-        )
-        assertEquals(run.stderr, "args=2\n")
-      }
-    )
-  }
+      )
+    }
 
   test(
     "default-backed constructor calls work across package boundaries with partial fields and stable record-field order"

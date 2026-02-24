@@ -1,6 +1,14 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
+import java.io.{
+  BufferedReader,
+  BufferedWriter,
+  InputStreamReader,
+  OutputStreamWriter,
+  Reader,
+  Writer
+}
 import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.charset.{
@@ -8,7 +16,23 @@ import java.nio.charset.{
   CodingErrorAction,
   StandardCharsets
 }
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.{
+  AccessDeniedException,
+  DirectoryNotEmptyException,
+  FileAlreadyExistsException,
+  Files,
+  InvalidPathException,
+  LinkOption,
+  NoSuchFileException,
+  NotDirectoryException,
+  OpenOption,
+  Path => JPath,
+  Paths,
+  StandardOpenOption
+}
 import java.util.Locale
+import scala.util.control.NonFatal
 import scala.util.DynamicVariable
 object Predef {
 
@@ -32,11 +56,113 @@ object Predef {
     PackageName.parts("Bosatsu", "Num", "Float64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
-  private def ioStdPackageName: PackageName =
-    PackageName.parts("Bosatsu", "IO", "Std")
+  private def ioCorePackageName: PackageName =
+    PackageName.parts("Bosatsu", "IO", "Core")
+
+  private def addIoCoreExternals(externals: Externals): Externals =
+    if (Platform.isScalaJvm) {
+      externals
+        .add(
+          ioCorePackageName,
+          "path_sep",
+          FfiCall.Const(PredefImpl.core_path_sep)
+        )
+        .add(ioCorePackageName, "stdin", FfiCall.Const(PredefImpl.core_stdin))
+        .add(
+          ioCorePackageName,
+          "stdout",
+          FfiCall.Const(PredefImpl.core_stdout)
+        )
+        .add(
+          ioCorePackageName,
+          "stderr",
+          FfiCall.Const(PredefImpl.core_stderr)
+        )
+        .add(
+          ioCorePackageName,
+          "read_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_read_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "write_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "flush",
+          FfiCall.Fn1(PredefImpl.prog_core_flush(_))
+        )
+        .add(
+          ioCorePackageName,
+          "close",
+          FfiCall.Fn1(PredefImpl.prog_core_close(_))
+        )
+        .add(
+          ioCorePackageName,
+          "open_file",
+          FfiCall.Fn2(PredefImpl.prog_core_open_file(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "list_dir",
+          FfiCall.Fn1(PredefImpl.prog_core_list_dir(_))
+        )
+        .add(
+          ioCorePackageName,
+          "stat",
+          FfiCall.Fn1(PredefImpl.prog_core_stat(_))
+        )
+        .add(
+          ioCorePackageName,
+          "mkdir",
+          FfiCall.Fn2(PredefImpl.prog_core_mkdir(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "remove",
+          FfiCall.Fn2(PredefImpl.prog_core_remove(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "rename",
+          FfiCall.Fn2(PredefImpl.prog_core_rename(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "get_env",
+          FfiCall.Fn1(PredefImpl.prog_core_get_env(_))
+        )
+        .add(
+          ioCorePackageName,
+          "spawn",
+          FfiCall.Fn3(PredefImpl.prog_core_spawn(_, _, _))
+        )
+        .add(
+          ioCorePackageName,
+          "wait",
+          FfiCall.Fn1(PredefImpl.prog_core_wait(_))
+        )
+        .add(
+          ioCorePackageName,
+          "now_wall",
+          FfiCall.Const(PredefImpl.prog_core_now_wall)
+        )
+        .add(
+          ioCorePackageName,
+          "now_mono",
+          FfiCall.Const(PredefImpl.prog_core_now_mono)
+        )
+        .add(
+          ioCorePackageName,
+          "sleep",
+          FfiCall.Fn1(PredefImpl.prog_core_sleep(_))
+        )
+    } else externals
 
   val jvmExternals: Externals =
-    Externals.empty
+    addIoCoreExternals(
+      Externals.empty
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
@@ -317,31 +443,7 @@ object Predef {
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
-      .add(
-        ioStdPackageName,
-        "print_impl",
-        FfiCall.Fn1(PredefImpl.prog_print(_))
-      )
-      .add(
-        ioStdPackageName,
-        "println_impl",
-        FfiCall.Fn1(PredefImpl.prog_println(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_err_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_err(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_errln_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_errln(_))
-      )
-      .add(
-        ioStdPackageName,
-        "read_stdin_utf8_bytes_impl",
-        FfiCall.Fn1(PredefImpl.prog_read_stdin_utf8_bytes(_))
-      )
+    )
 }
 
 object PredefImpl {
@@ -667,18 +769,6 @@ object PredefImpl {
   private def ioerror_invalid_utf8(context: String): Value =
     ioerror_known(IOErrorTagInvalidUtf8, context)
 
-  private def asString(v: Value): String =
-    v match {
-      case Str(s) => s
-      case other  => sys.error(s"type error, expected String: $other")
-    }
-
-  private def asInt(v: Value): BigInteger =
-    v match {
-      case VInt(i) => i
-      case other   => sys.error(s"type error, expected Int: $other")
-    }
-
   private def prog_effect(arg: Value, fn: Value => Value): Value =
     SumValue(
       ProgTagEffect,
@@ -701,48 +791,6 @@ object PredefImpl {
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
-
-  def prog_print(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_println(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stdout.append(asString(v))
-          runtime.stdout.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_err(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_errln(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stderr.append(asString(v))
-          runtime.stderr.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
 
   private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
     val decoder =
@@ -842,26 +890,967 @@ object PredefImpl {
         }
     }
 
-  def prog_read_stdin_utf8_bytes(size: Value): Value =
-    prog_effect(
-      size,
-      v => {
-        val requested = asInt(v)
-        val ioResult = currentProgRuntime.value match {
-          case Some(runtime) => read_utf8_chunk(runtime, requested)
-          case None          =>
-            if (requested.signum < 0)
-              Left(
-                ioerror_invalid_argument(
-                  s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
-                )
-              )
-            else Right("")
-        }
+  private val IOErrorTagNotFound = 0
+  private val IOErrorTagAccessDenied = 1
+  private val IOErrorTagAlreadyExists = 2
+  private val IOErrorTagNotDirectory = 3
+  private val IOErrorTagNotEmpty = 5
+  private val IOErrorTagBadFileDescriptor = 14
+  private val IOErrorTagInterrupted = 15
+  private val IOErrorTagBrokenPipe = 18
+  private val IOErrorTagUnsupported = 19
+  private val IOErrorTagOther = 20
 
-        ioResult match {
-          case Right(str) => prog_pure(Str(str))
+  private val OneBillionBI = BigInteger.valueOf(1000000000L)
+  private val OneMillionBI = BigInteger.valueOf(1000000L)
+  private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
+
+  private sealed trait HandleValue derives CanEqual
+  private case object HandleStdin extends HandleValue
+  private case object HandleStdout extends HandleValue
+  private case object HandleStderr extends HandleValue
+  private final case class ReaderHandle(
+      reader: Reader,
+      var closed: Boolean = false
+  ) extends HandleValue
+  private final case class WriterHandle(
+      writer: Writer,
+      var closed: Boolean = false
+  ) extends HandleValue
+
+  final case class ProcessValue(
+      process: java.lang.Process,
+      var cachedExitCode: Option[Int]
+  )
+
+  private val defaultPathSep: String =
+    if (Platform.detectOs() eq OsPlatformId.Windows) "\\"
+    else "/"
+
+  val core_path_sep: Value = Str(defaultPathSep)
+  val core_stdin: Value = ExternalValue(HandleStdin)
+  val core_stdout: Value = ExternalValue(HandleStdout)
+  val core_stderr: Value = ExternalValue(HandleStderr)
+
+  private lazy val systemStdinReader: BufferedReader =
+    new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
+
+  private def normalizePathString(raw: String): String =
+    raw.replace('\\', '/')
+
+  private def instantValueFromNanos(nanos: BigInteger): Value =
+    ProductValue.single(VInt(nanos))
+
+  private def durationValueFromNanos(nanos: BigInteger): Value =
+    ProductValue.single(VInt(nanos))
+
+  private def fileKindValue(kindTag: Int): Value =
+    SumValue(kindTag, UnitValue)
+
+  private def ioerror_other(
+      context: String,
+      code: Int,
+      message: String
+  ): Value =
+    SumValue(
+      IOErrorTagOther,
+      ProductValue.fromList(Str(context) :: VInt(code) :: Str(message) :: Nil)
+    )
+
+  private def ioerror_from_throwable(context: String, t: Throwable): Value =
+    t match {
+      case _: NoSuchFileException =>
+        ioerror_known(IOErrorTagNotFound, context)
+      case _: AccessDeniedException | _: SecurityException =>
+        ioerror_known(IOErrorTagAccessDenied, context)
+      case _: FileAlreadyExistsException =>
+        ioerror_known(IOErrorTagAlreadyExists, context)
+      case _: NotDirectoryException =>
+        ioerror_known(IOErrorTagNotDirectory, context)
+      case _: DirectoryNotEmptyException =>
+        ioerror_known(IOErrorTagNotEmpty, context)
+      case _: java.nio.channels.NonReadableChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.nio.channels.NonWritableChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.nio.channels.ClosedChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.io.EOFException =>
+        ioerror_known(IOErrorTagBrokenPipe, context)
+      case _: java.io.InterruptedIOException =>
+        ioerror_known(IOErrorTagInterrupted, context)
+      case _: UnsupportedOperationException =>
+        ioerror_known(IOErrorTagUnsupported, context)
+      case _: InvalidPathException =>
+        ioerror_invalid_argument(context)
+      case _: IllegalArgumentException =>
+        ioerror_invalid_argument(context)
+      case _: CharacterCodingException =>
+        ioerror_invalid_utf8(context)
+      case other =>
+        ioerror_other(
+          context,
+          0,
+          Option(other.getMessage).getOrElse(other.getClass.getSimpleName)
+        )
+    }
+
+  private def asPathString(path: Value): Either[Value, String] =
+    path match {
+      case p: ProductValue if p.values.length == 1 =>
+        p.get(0) match {
+          case Str(s) => Right(s)
+          case _ =>
+            Left(ioerror_invalid_argument("invalid Path value"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument("invalid Path value"))
+    }
+
+  private def asJavaPath(path: Value, context: String): Either[Value, JPath] =
+    asPathString(path).flatMap { raw =>
+      try Right(Paths.get(raw))
+      catch {
+        case _: InvalidPathException =>
+          Left(ioerror_invalid_argument(context))
+      }
+    }
+
+  private def asHandleValue(v: Value): Either[Value, HandleValue] =
+    v match {
+      case ExternalValue(h: HandleValue) => Right(h)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Handle"))
+    }
+
+  private def asProcessValue(v: Value): Either[Value, ProcessValue] =
+    v match {
+      case ExternalValue(p: ProcessValue) => Right(p)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Process"))
+    }
+
+  private def asBool(v: Value): Either[Value, Boolean] =
+    v match {
+      case s: SumValue if s.variant == 1 && (s.value == UnitValue) => Right(true)
+      case s: SumValue if s.variant == 0 && (s.value == UnitValue) => Right(false)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Bool"))
+    }
+
+  private def asStringList(v: Value): Either[Value, List[String]] =
+    Value.VList.unapply(v) match {
+      case None =>
+        Left(ioerror_invalid_argument("expected List[String]"))
+      case Some(items) =>
+        items.foldRight(Right(Nil): Either[Value, List[String]]) { (item, acc) =>
+          for {
+            tail <- acc
+            str <- item match {
+              case Str(s) => Right(s)
+              case _      =>
+                Left(ioerror_invalid_argument("expected List[String]"))
+            }
+          } yield str :: tail
+        }
+    }
+
+  private def asOpenModeTag(v: Value): Either[Value, Int] =
+    v match {
+      case s: SumValue =>
+        if ((s.variant >= 0) && (s.variant <= 2)) Right(s.variant)
+        else Left(ioerror_invalid_argument("invalid OpenMode value"))
+      case _ =>
+        Left(ioerror_invalid_argument("invalid OpenMode value"))
+    }
+
+  private def asDurationNanos(v: Value): Either[Value, BigInteger] =
+    v match {
+      case p: ProductValue if p.values.length == 1 =>
+        p.get(0) match {
+          case VInt(i) => Right(i)
+          case _       =>
+            Left(ioerror_invalid_argument("invalid Duration value"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument("invalid Duration value"))
+    }
+
+  private def optionValue(v: Option[Value]): Value =
+    v match {
+      case Some(value) => VOption.some(value)
+      case None        => VOption.none
+    }
+
+  private def readFromReader(
+      reader: Reader,
+      maxChars: Int,
+      context: String
+  ): Either[Value, Option[String]] =
+    try {
+      val buffer = new Array[Char](maxChars)
+      val count = reader.read(buffer, 0, maxChars)
+      if (count <= 0) Right(None)
+      else Right(Some(new String(buffer, 0, count)))
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def writeToWriter(
+      writer: Writer,
+      text: String,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      writer.write(text)
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def flushWriter(writer: Writer, context: String): Either[Value, Unit] =
+    try {
+      writer.flush()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def closeReader(reader: Reader, context: String): Either[Value, Unit] =
+    try {
+      reader.close()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def closeWriter(writer: Writer, context: String): Either[Value, Unit] =
+    try {
+      writer.close()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def prog_effect2(
+      a: Value,
+      b: Value,
+      fn: (Value, Value) => Value
+  ): Value =
+    prog_effect(
+      Value.Tuple(a, b),
+      {
+        case p: ProductValue if p.values.length == 2 =>
+          fn(p.get(0), p.get(1))
+        case other =>
+          sys.error(s"invalid effect2 payload: $other")
+      }
+    )
+
+  private def prog_effect3(
+      a: Value,
+      b: Value,
+      c: Value,
+      fn: (Value, Value, Value) => Value
+  ): Value =
+    prog_effect(
+      Value.Tuple(a, b, c),
+      {
+        case p: ProductValue if p.values.length == 3 =>
+          fn(p.get(0), p.get(1), p.get(2))
+        case other =>
+          sys.error(s"invalid effect3 payload: $other")
+      }
+    )
+
+  private def core_read_utf8_impl(
+      handleValue: Value,
+      maxCharsValue: Value
+  ): Either[Value, Option[String]] =
+    for {
+      handle <- asHandleValue(handleValue)
+      maxCharsBI <- maxCharsValue match {
+        case VInt(i) => Right(i)
+        case _       => Left(ioerror_invalid_argument("expected Int for max_chars"))
+      }
+      maxChars <- {
+        if (maxCharsBI.signum <= 0)
+          Left(ioerror_invalid_argument("read_utf8 max_chars must be > 0"))
+        else if (maxCharsBI.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
+        else Right(maxCharsBI.intValue)
+      }
+      result <- handle match {
+        case HandleStdin =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              read_utf8_chunk(runtime, maxCharsBI).map { chunk =>
+                if (chunk.isEmpty) None else Some(chunk)
+              }
+            case None =>
+              readFromReader(systemStdinReader, maxChars, "reading from stdin")
+          }
+        case ReaderHandle(reader, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
+          else readFromReader(reader, maxChars, "reading utf8 from handle")
+        case HandleStdout | HandleStderr | WriterHandle(_, _) =>
+          Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
+      }
+    } yield result
+
+  private def core_write_utf8_impl(
+      handleValue: Value,
+      textValue: Value
+  ): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      text <- textValue match {
+        case Str(s) => Right(s)
+        case _      => Left(ioerror_invalid_argument("expected String for write_utf8"))
+      }
+      _ <- handle match {
+        case HandleStdout =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              runtime.stdout.append(text)
+              Right(())
+            case None =>
+              try {
+                System.out.print(text)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("writing to stdout", t))
+              }
+          }
+        case HandleStderr =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              runtime.stderr.append(text)
+              Right(())
+            case None =>
+              try {
+                System.err.print(text)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("writing to stderr", t))
+              }
+          }
+        case WriterHandle(writer, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
+          else writeToWriter(writer, text, "writing utf8 to handle")
+        case HandleStdin | ReaderHandle(_, _) =>
+          Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+      }
+    } yield ()
+
+  private def core_flush_impl(handleValue: Value): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      _ <- handle match {
+        case HandleStdout =>
+          currentProgRuntime.value match {
+            case Some(_) => Right(())
+            case None    =>
+              try {
+                System.out.flush()
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("flushing stdout", t))
+              }
+          }
+        case HandleStderr =>
+          currentProgRuntime.value match {
+            case Some(_) => Right(())
+            case None    =>
+              try {
+                System.err.flush()
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("flushing stderr", t))
+              }
+          }
+        case WriterHandle(writer, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "flushing closed handle"))
+          else flushWriter(writer, "flushing handle")
+        case HandleStdin | ReaderHandle(_, _) =>
+          Right(())
+      }
+    } yield ()
+
+  private def core_close_impl(handleValue: Value): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      _ <- handle match {
+        case HandleStdin | HandleStdout | HandleStderr =>
+          Right(())
+        case rh @ ReaderHandle(reader, closed) =>
+          if (closed) Right(())
+          else closeReader(reader, "closing handle").map { _ =>
+            rh.closed = true
+          }
+        case wh @ WriterHandle(writer, closed) =>
+          if (closed) Right(())
+          else closeWriter(writer, "closing handle").map { _ =>
+            wh.closed = true
+          }
+      }
+    } yield ()
+
+  private def basicFileStatValue(attrs: BasicFileAttributes): Value = {
+    val kindTag =
+      if (attrs.isSymbolicLink) 2
+      else if (attrs.isRegularFile) 0
+      else if (attrs.isDirectory) 1
+      else 3
+    val mtimeInstant = attrs.lastModifiedTime.toInstant
+    val mtimeNanos =
+      BigInteger
+        .valueOf(mtimeInstant.getEpochSecond)
+        .multiply(OneBillionBI)
+        .add(BigInteger.valueOf(mtimeInstant.getNano.toLong))
+    ProductValue.fromList(
+      fileKindValue(kindTag) ::
+        VInt(BigInteger.valueOf(attrs.size)) ::
+        instantValueFromNanos(mtimeNanos) :: Nil
+    )
+  }
+
+  private def removePathRecursive(path: JPath): Either[Value, Unit] =
+    try {
+      val attrs = Files.readAttributes(
+        path,
+        classOf[BasicFileAttributes],
+        LinkOption.NOFOLLOW_LINKS
+      )
+      if (attrs.isDirectory && !attrs.isSymbolicLink) {
+        val directory = Files.newDirectoryStream(path)
+        try {
+          val iterator = directory.iterator()
+          while (iterator.hasNext) {
+            removePathRecursive(iterator.next()) match {
+              case Left(err) => return Left(err)
+              case Right(_)  => ()
+            }
+          }
+        } finally {
+          directory.close()
+        }
+        Files.delete(path)
+      } else {
+        Files.delete(path)
+      }
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(s"removing path: ${path.toString}", t))
+    }
+
+  private def stdioMode(
+      value: Value,
+      streamName: String
+  ): Either[Value, Int] =
+    value match {
+      case s: SumValue =>
+        s.variant match {
+          case 0 | 1 | 2 => Right(s.variant)
+          case 3          =>
+            Left(
+              ioerror_known(
+                IOErrorTagUnsupported,
+                s"spawn ${streamName}: UseHandle is unsupported in JVM evaluator"
+              )
+            )
+          case _          =>
+            Left(ioerror_invalid_argument(s"invalid Stdio value for ${streamName}"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument(s"invalid Stdio value for ${streamName}"))
+    }
+
+  private def spawnResultValue(
+      processValue: ProcessValue,
+      stdinHandle: Option[HandleValue],
+      stdoutHandle: Option[HandleValue],
+      stderrHandle: Option[HandleValue]
+  ): Value =
+    ProductValue.fromList(
+      ExternalValue(processValue) ::
+        optionValue(stdinHandle.map(ExternalValue(_))) ::
+        optionValue(stdoutHandle.map(ExternalValue(_))) ::
+        optionValue(stderrHandle.map(ExternalValue(_))) :: Nil
+    )
+
+  def prog_core_read_utf8(handle: Value, maxChars: Value): Value =
+    prog_effect2(
+      handle,
+      maxChars,
+      (h, n) =>
+        core_read_utf8_impl(h, n) match {
+          case Right(result) =>
+            prog_pure(
+              optionValue(result.map(Str(_)))
+            )
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_write_utf8(handle: Value, text: Value): Value =
+    prog_effect2(
+      handle,
+      text,
+      (h, t) =>
+        core_write_utf8_impl(h, t) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_flush(handle: Value): Value =
+    prog_effect(
+      handle,
+      h =>
+        core_flush_impl(h) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_close(handle: Value): Value =
+    prog_effect(
+      handle,
+      h =>
+        core_close_impl(h) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_open_file(path: Value, mode: Value): Value =
+    prog_effect2(
+      path,
+      mode,
+      (pathValue, modeValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for open_file")
+          modeTag <- asOpenModeTag(modeValue)
+          handle <- {
+            try {
+              modeTag match {
+                case 0 =>
+                  Right(
+                    ExternalValue(
+                      ReaderHandle(
+                        Files.newBufferedReader(javaPath, StandardCharsets.UTF_8)
+                      )
+                    )
+                  )
+                case 1 =>
+                  val options: Array[OpenOption] = Array(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+                  )
+                  Right(
+                    ExternalValue(
+                      WriterHandle(
+                        Files.newBufferedWriter(
+                          javaPath,
+                          StandardCharsets.UTF_8,
+                          options*
+                        )
+                      )
+                    )
+                  )
+                case 2 =>
+                  val options: Array[OpenOption] = Array(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND,
+                    StandardOpenOption.WRITE
+                  )
+                  Right(
+                    ExternalValue(
+                      WriterHandle(
+                        Files.newBufferedWriter(
+                          javaPath,
+                          StandardCharsets.UTF_8,
+                          options*
+                        )
+                      )
+                    )
+                  )
+                case _ =>
+                  Left(ioerror_invalid_argument("invalid OpenMode value"))
+              }
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("open_file", t))
+            }
+          }
+        } yield handle
+
+        result match {
+          case Right(handleOut) => prog_pure(handleOut)
+          case Left(err)        => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_list_dir(path: Value): Value =
+    prog_effect(
+      path,
+      pathValue => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for list_dir")
+          children <- {
+            try {
+              val stream = Files.list(javaPath)
+              try {
+                val iterator = stream.iterator()
+                val builder = List.newBuilder[String]
+                while (iterator.hasNext) {
+                  builder += normalizePathString(iterator.next().toString)
+                }
+                Right(builder.result().sorted.map(str => ProductValue.single(Str(str))))
+              } finally {
+                stream.close()
+              }
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("list_dir", t))
+            }
+          }
+        } yield Value.VList(children)
+
+        result match {
+          case Right(paths) => prog_pure(paths)
+          case Left(err)    => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_stat(path: Value): Value =
+    prog_effect(
+      path,
+      pathValue => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for stat")
+          statValue <- {
+            try {
+              val attrs = Files.readAttributes(
+                javaPath,
+                classOf[BasicFileAttributes],
+                LinkOption.NOFOLLOW_LINKS
+              )
+              Right(Some(basicFileStatValue(attrs)))
+            } catch {
+              case _: NoSuchFileException =>
+                Right(None)
+              case NonFatal(t)            =>
+                Left(ioerror_from_throwable("stat", t))
+            }
+          }
+        } yield optionValue(statValue)
+
+        result match {
+          case Right(v)   => prog_pure(v)
           case Left(err)  => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_mkdir(path: Value, recursive: Value): Value =
+    prog_effect2(
+      path,
+      recursive,
+      (pathValue, recursiveValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for mkdir")
+          recursiveFlag <- asBool(recursiveValue)
+          _ <- {
+            try {
+              if (recursiveFlag) Files.createDirectories(javaPath)
+              else Files.createDirectory(javaPath)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("mkdir", t))
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_remove(path: Value, recursive: Value): Value =
+    prog_effect2(
+      path,
+      recursive,
+      (pathValue, recursiveValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for remove")
+          recursiveFlag <- asBool(recursiveValue)
+          _ <- {
+            if (recursiveFlag) removePathRecursive(javaPath)
+            else {
+              try {
+                Files.delete(javaPath)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("remove", t))
+              }
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_rename(from: Value, to: Value): Value =
+    prog_effect2(
+      from,
+      to,
+      (fromValue, toValue) => {
+        val result = for {
+          fromPath <- asJavaPath(fromValue, "invalid source path for rename")
+          toPath <- asJavaPath(toValue, "invalid destination path for rename")
+          _ <- {
+            try {
+              Files.move(fromPath, toPath)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("rename", t))
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_get_env(name: Value): Value =
+    prog_effect(
+      name,
+      n =>
+        n match {
+          case Str(s) =>
+            prog_pure(optionValue(Option(System.getenv(s)).map(Str(_))))
+          case _      =>
+            prog_raise_error(ioerror_invalid_argument("get_env expects String"))
+        }
+    )
+
+  def prog_core_spawn(cmd: Value, args: Value, stdio: Value): Value =
+    prog_effect3(
+      cmd,
+      args,
+      stdio,
+      (cmdValue, argsValue, stdioValue) => {
+        val result = for {
+          cmdStr <- cmdValue match {
+            case Str(s) => Right(s)
+            case _      => Left(ioerror_invalid_argument("spawn command must be String"))
+          }
+          argList <- asStringList(argsValue)
+          stdioModes <- stdioValue match {
+            case p: ProductValue if p.values.length == 3 =>
+              for {
+                inMode <- stdioMode(p.get(0), "stdin")
+                outMode <- stdioMode(p.get(1), "stdout")
+                errMode <- stdioMode(p.get(2), "stderr")
+              } yield (inMode, outMode, errMode)
+            case _ =>
+              Left(ioerror_invalid_argument("invalid StdioConfig value"))
+          }
+          spawnResult <- {
+            val (stdinMode, stdoutMode, stderrMode) = stdioModes
+            try {
+              val command = new java.util.ArrayList[String]()
+              command.add(cmdStr)
+              argList.foreach(command.add)
+              val pb = new java.lang.ProcessBuilder(command)
+
+              stdinMode match {
+                case 0 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+              stdoutMode match {
+                case 0 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+              stderrMode match {
+                case 0 => pb.redirectError(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectError(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectError(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+
+              val process = pb.start()
+              val processValue = ProcessValue(process, None)
+              val stdinHandle =
+                if (stdinMode == 1)
+                  Some(
+                    WriterHandle(
+                      new BufferedWriter(
+                        new OutputStreamWriter(
+                          process.getOutputStream,
+                          StandardCharsets.UTF_8
+                        )
+                      )
+                    )
+                  )
+                else None
+              val stdoutHandle =
+                if (stdoutMode == 1)
+                  Some(
+                    ReaderHandle(
+                      new BufferedReader(
+                        new InputStreamReader(
+                          process.getInputStream,
+                          StandardCharsets.UTF_8
+                        )
+                      )
+                    )
+                  )
+                else None
+              val stderrHandle =
+                if (stderrMode == 1)
+                  Some(
+                    ReaderHandle(
+                      new BufferedReader(
+                        new InputStreamReader(
+                          process.getErrorStream,
+                          StandardCharsets.UTF_8
+                        )
+                      )
+                    )
+                  )
+                else None
+
+              Right(
+                spawnResultValue(processValue, stdinHandle, stdoutHandle, stderrHandle)
+              )
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("spawn", t))
+            }
+          }
+        } yield spawnResult
+
+        result match {
+          case Right(v)   => prog_pure(v)
+          case Left(err)  => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_wait(process: Value): Value =
+    prog_effect(
+      process,
+      p => {
+        val result = for {
+          procValue <- asProcessValue(p)
+          exitCode <- procValue.cachedExitCode match {
+            case Some(code) => Right(code)
+            case None       =>
+              try {
+                val code = procValue.process.waitFor()
+                procValue.cachedExitCode = Some(code)
+                Right(code)
+              } catch {
+                case _: InterruptedException =>
+                  Thread.currentThread().interrupt()
+                  Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
+                case NonFatal(t)             =>
+                  Left(ioerror_from_throwable("wait", t))
+              }
+          }
+        } yield exitCode
+
+        result match {
+          case Right(code) => prog_pure(VInt(code))
+          case Left(err)   => prog_raise_error(err)
+        }
+      }
+    )
+
+  private def nowWallEpochNanos(): BigInteger = {
+    val instant = java.time.Instant.now()
+    BigInteger
+      .valueOf(instant.getEpochSecond)
+      .multiply(OneBillionBI)
+      .add(BigInteger.valueOf(instant.getNano.toLong))
+  }
+
+  val prog_core_now_wall: Value =
+    prog_effect(UnitValue, _ => prog_pure(instantValueFromNanos(nowWallEpochNanos())))
+
+  val prog_core_now_mono: Value =
+    prog_effect(
+      UnitValue,
+      _ => prog_pure(durationValueFromNanos(BigInteger.valueOf(System.nanoTime())))
+    )
+
+  def prog_core_sleep(duration: Value): Value =
+    prog_effect(
+      duration,
+      d => {
+        val result = for {
+          nanos <- asDurationNanos(d)
+          _ <- {
+            if (nanos.signum < 0)
+              Left(ioerror_invalid_argument("sleep duration must be non-negative"))
+            else {
+              val millisBI = nanos.divide(OneMillionBI)
+              val extraNanos = nanos.remainder(OneMillionBI).intValue
+              val millis =
+                if (millisBI.compareTo(LongMaxBI) > 0) Long.MaxValue
+                else millisBI.longValue
+              try {
+                Thread.sleep(millis, extraNanos)
+                Right(())
+              } catch {
+                case _: InterruptedException =>
+                  Thread.currentThread().interrupt()
+                  Left(ioerror_known(IOErrorTagInterrupted, "sleep interrupted"))
+                case NonFatal(t)             =>
+                  Left(ioerror_from_throwable("sleep", t))
+              }
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
         }
       }
     )
