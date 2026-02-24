@@ -59,8 +59,110 @@ object Predef {
   private def ioCorePackageName: PackageName =
     PackageName.parts("Bosatsu", "IO", "Core")
 
+  private def addIoCoreExternals(externals: Externals): Externals =
+    if (Platform.isScalaJvm) {
+      externals
+        .add(
+          ioCorePackageName,
+          "path_sep",
+          FfiCall.Const(PredefImpl.core_path_sep)
+        )
+        .add(ioCorePackageName, "stdin", FfiCall.Const(PredefImpl.core_stdin))
+        .add(
+          ioCorePackageName,
+          "stdout",
+          FfiCall.Const(PredefImpl.core_stdout)
+        )
+        .add(
+          ioCorePackageName,
+          "stderr",
+          FfiCall.Const(PredefImpl.core_stderr)
+        )
+        .add(
+          ioCorePackageName,
+          "read_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_read_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "write_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "flush",
+          FfiCall.Fn1(PredefImpl.prog_core_flush(_))
+        )
+        .add(
+          ioCorePackageName,
+          "close",
+          FfiCall.Fn1(PredefImpl.prog_core_close(_))
+        )
+        .add(
+          ioCorePackageName,
+          "open_file",
+          FfiCall.Fn2(PredefImpl.prog_core_open_file(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "list_dir",
+          FfiCall.Fn1(PredefImpl.prog_core_list_dir(_))
+        )
+        .add(
+          ioCorePackageName,
+          "stat",
+          FfiCall.Fn1(PredefImpl.prog_core_stat(_))
+        )
+        .add(
+          ioCorePackageName,
+          "mkdir",
+          FfiCall.Fn2(PredefImpl.prog_core_mkdir(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "remove",
+          FfiCall.Fn2(PredefImpl.prog_core_remove(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "rename",
+          FfiCall.Fn2(PredefImpl.prog_core_rename(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "get_env",
+          FfiCall.Fn1(PredefImpl.prog_core_get_env(_))
+        )
+        .add(
+          ioCorePackageName,
+          "spawn",
+          FfiCall.Fn3(PredefImpl.prog_core_spawn(_, _, _))
+        )
+        .add(
+          ioCorePackageName,
+          "wait",
+          FfiCall.Fn1(PredefImpl.prog_core_wait(_))
+        )
+        .add(
+          ioCorePackageName,
+          "now_wall",
+          FfiCall.Const(PredefImpl.prog_core_now_wall)
+        )
+        .add(
+          ioCorePackageName,
+          "now_mono",
+          FfiCall.Const(PredefImpl.prog_core_now_mono)
+        )
+        .add(
+          ioCorePackageName,
+          "sleep",
+          FfiCall.Fn1(PredefImpl.prog_core_sleep(_))
+        )
+    } else externals
+
   val jvmExternals: Externals =
-    Externals.empty
+    addIoCoreExternals(
+      Externals.empty
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
@@ -341,94 +443,7 @@ object Predef {
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
-      .add(
-        ioCorePackageName,
-        "path_sep",
-        FfiCall.Const(PredefImpl.core_path_sep)
-      )
-      .add(ioCorePackageName, "stdin", FfiCall.Const(PredefImpl.core_stdin))
-      .add(ioCorePackageName, "stdout", FfiCall.Const(PredefImpl.core_stdout))
-      .add(ioCorePackageName, "stderr", FfiCall.Const(PredefImpl.core_stderr))
-      .add(
-        ioCorePackageName,
-        "read_utf8",
-        FfiCall.Fn2(PredefImpl.prog_core_read_utf8(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "write_utf8",
-        FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "flush",
-        FfiCall.Fn1(PredefImpl.prog_core_flush(_))
-      )
-      .add(
-        ioCorePackageName,
-        "close",
-        FfiCall.Fn1(PredefImpl.prog_core_close(_))
-      )
-      .add(
-        ioCorePackageName,
-        "open_file",
-        FfiCall.Fn2(PredefImpl.prog_core_open_file(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "list_dir",
-        FfiCall.Fn1(PredefImpl.prog_core_list_dir(_))
-      )
-      .add(
-        ioCorePackageName,
-        "stat",
-        FfiCall.Fn1(PredefImpl.prog_core_stat(_))
-      )
-      .add(
-        ioCorePackageName,
-        "mkdir",
-        FfiCall.Fn2(PredefImpl.prog_core_mkdir(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "remove",
-        FfiCall.Fn2(PredefImpl.prog_core_remove(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "rename",
-        FfiCall.Fn2(PredefImpl.prog_core_rename(_, _))
-      )
-      .add(
-        ioCorePackageName,
-        "get_env",
-        FfiCall.Fn1(PredefImpl.prog_core_get_env(_))
-      )
-      .add(
-        ioCorePackageName,
-        "spawn",
-        FfiCall.Fn3(PredefImpl.prog_core_spawn(_, _, _))
-      )
-      .add(
-        ioCorePackageName,
-        "wait",
-        FfiCall.Fn1(PredefImpl.prog_core_wait(_))
-      )
-      .add(
-        ioCorePackageName,
-        "now_wall",
-        FfiCall.Const(PredefImpl.prog_core_now_wall)
-      )
-      .add(
-        ioCorePackageName,
-        "now_mono",
-        FfiCall.Const(PredefImpl.prog_core_now_mono)
-      )
-      .add(
-        ioCorePackageName,
-        "sleep",
-        FfiCall.Fn1(PredefImpl.prog_core_sleep(_))
-      )
+    )
 }
 
 object PredefImpl {
@@ -908,7 +923,11 @@ object PredefImpl {
       var cachedExitCode: Option[Int]
   )
 
-  val core_path_sep: Value = Str(java.io.File.separator)
+  private val defaultPathSep: String =
+    if (Platform.detectOs() eq OsPlatformId.Windows) "\\"
+    else "/"
+
+  val core_path_sep: Value = Str(defaultPathSep)
   val core_stdin: Value = ExternalValue(HandleStdin)
   val core_stdout: Value = ExternalValue(HandleStdout)
   val core_stderr: Value = ExternalValue(HandleStderr)
