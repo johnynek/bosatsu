@@ -1280,7 +1280,7 @@ object PackageError {
 
   case class RecursionError(
       pack: PackageName,
-      err: DefRecursionCheck.RecursionError
+      err: RecursionCheck.Error
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],

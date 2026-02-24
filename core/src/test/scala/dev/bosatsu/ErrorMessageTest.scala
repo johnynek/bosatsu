@@ -567,6 +567,8 @@ main = fn
     evalFail(List("""
 package A
 
+def parse_loop(x): x
+
 def parse_loopTypo(x):
   recur x:
     case 0: parse_loop(x)
@@ -611,6 +613,7 @@ main = fn
 package A
 
 def fn(x):
+  y = x
   recur y:
     case y: 0
 
@@ -621,7 +624,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,47)\n"
+        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(33,55)\n"
       )
       ()
     }
@@ -675,7 +678,7 @@ package A
 def fn(x, y):
   match x:
     case 0: y
-    case x: fn(x - 1, y + 1)
+    case x: fn(x, y)
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
@@ -684,7 +687,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,79)\n"
+        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,71)\n"
       )
       ()
     }

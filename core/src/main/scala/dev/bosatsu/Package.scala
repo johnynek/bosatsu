@@ -382,16 +382,6 @@ object Package {
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
-          /*
-           * Check that all recursion is allowable
-           */
-          val defRecursionCheck: ValidatedNel[PackageError, Unit] =
-            stmts
-              .traverse_(DefRecursionCheck.checkStatement(_))
-              .leftMap { badRecursions =>
-                badRecursions.map(PackageError.RecursionError(p, _))
-              }
-
           val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
           /*
@@ -417,9 +407,9 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
-          val totalityCheck =
+          val totalityCheck: ValidatedNel[PackageError, Unit] =
             lets
-              .traverse { case (_, _, expr) =>
+              .traverse_ { case (_, _, expr) =>
                 TotalityCheck(fullTypeEnv).checkExpr(expr)
               }
               .leftMap { errs =>
@@ -450,29 +440,47 @@ object Package {
               tn
             }.toSet
 
-          val inferenceEither = Infer
+          val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+
+          val inferenceEither
+              : Either[
+                NonEmptyList[PackageError],
+                (
+                    TypeEnv[Kind.Arg],
+                    Program[
+                      TypeEnv[Kind.Arg],
+                      TypedExpr[Declaration],
+                      List[Statement]
+                    ]
+                )
+              ] = Infer
             .typeCheckLets(p, lets, theseExternals)
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
               fullTypeEnv.toKindMap
             )
-            .map { lets =>
-              (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
-            }
-            .left
-            .map(
-              PackageError.TypeErrorIn(
-                _,
-                p,
-                lets,
-                theseExternals,
-                letNameRegions,
-                localTypeNames
+            .leftMap { tpeErr =>
+              NonEmptyList.one[PackageError](
+                PackageError.TypeErrorIn(
+                  tpeErr,
+                  p,
+                  lets,
+                  theseExternals,
+                  letNameRegions,
+                  localTypeNames
+                )
               )
-            )
+            }
+            .flatMap { typedLets =>
+              TypedExprRecursionCheck
+                .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                .leftMap(_.map(err => PackageError.RecursionError(p, err): PackageError).toNonEmptyList)
+                .toEither
+                .map(_ => (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts)))
+            }
 
-          val checkUnusedLets =
+          val checkUnusedLets: ValidatedNel[PackageError, Unit] =
             lets
               .traverse_ { case (_, _, expr) =>
                 UnusedLetCheck.check(expr)
@@ -489,13 +497,12 @@ object Package {
            * error accumulation
            */
           val checks = List(
-            defRecursionCheck,
             checkUnusedLets,
             totalityCheck
           ).sequence_
 
           val inference =
-            Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+            Validated.fromEither(inferenceEither)
 
           Parallel[[A] =>> Ior[NonEmptyList[PackageError], A]]
             .parProductR(checks.toIor)(inference.toIor)
