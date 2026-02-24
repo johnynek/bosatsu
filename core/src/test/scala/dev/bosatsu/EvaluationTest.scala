@@ -3025,8 +3025,11 @@ tests = TestSuite("array eval", [
 
   test("prog and io/std externals evaluate and run recursively") {
     val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
     val ioErrorPack =
       Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+    val ioCorePack =
+      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
     val ioStdPack =
       Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
 
@@ -3063,7 +3066,7 @@ main = Main(args -> (
 """
 
     testInferred(
-      List(progPack, ioErrorPack, ioStdPack, progRunPack),
+      List(progPack, charPack, ioErrorPack, ioCorePack, ioStdPack, progRunPack),
       "ProgRun",
       { (pm, mainPack) =>
         val ev =
