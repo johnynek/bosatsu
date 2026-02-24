@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-77af0698*
+0.0.0+1-4041bad6*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-77af0698*
+0.0.0+1-4041bad6*
 </div>
 </div>
 <div class="nav-toc">
@@ -157,6 +157,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>
   <p>These value-level restrictions are only part of totality. Bosatsu also  restricts recursive types to covariant positions (issue #104:  <a href="https://github.com/johnynek/bosatsu/issues/104)">https://github.com/johnynek/bosatsu/issues/104)</a>, so type-level recursion is  also constrained to preserve totality.</p></li>
 </ol>
+<p>Recursion validation runs after typechecking on typed IR, and before typed normalization/rewrite phases. This keeps recursion diagnostics anchored to source tags while preserving a clear trust boundary before optimization.</p>
 <p>Tuple targets are useful for nested-recursive definitions where one argument is allowed to reset or increase only after an earlier argument decreases.</p>
 <h2><a href="#pattern-1-structural-recursion-on-lists" name="pattern-1-structural-recursion-on-lists" class="anchor"><span class="anchor-link"></span></a>Pattern 1: Structural Recursion On Lists</h2>
 <p>This is the most common pattern. Recur directly on the list and call the same function on a tail.</p>
@@ -417,7 +418,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-77af0698-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-4041bad6-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
