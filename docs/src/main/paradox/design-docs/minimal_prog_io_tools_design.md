@@ -299,7 +299,7 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
    4. Monotonic clock: `clock_gettime(CLOCK_MONOTONIC, ...)`
    5. Sleep: `nanosleep`
    6. Env: `getenv`
-4. Reuse and extend current errno-to-`IOError` mapper (`c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Std.c`) into shared helpers for `IO/Core`.
+4. Reuse and extend current errno-to-`IOError` mapper (`c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c`) into shared helpers for `IO/Core`.
 
 ## Compatibility and migration
 1. `Bosatsu/IO/Std` remains source-compatible.

@@ -28,7 +28,6 @@ cp c_runtime/*.h "$tmp_dir"/
 cp c_runtime/bosatsu_runtime.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Predef.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Prog.c "$tmp_dir"/
-cp c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Std.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Collection_l_Array.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.c "$tmp_dir"/
@@ -51,7 +50,6 @@ fi
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_runtime.c" -o "$tmp_dir/bosatsu_runtime.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o"
-cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o"
@@ -61,7 +59,6 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/test_exe" \
   "$tmp_dir/bosatsu_runtime.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
-  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
@@ -83,7 +80,6 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/ls_exe" \
   "$tmp_dir/bosatsu_runtime.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
-  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Std.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
