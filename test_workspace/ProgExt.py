@@ -8,7 +8,11 @@
 
 import errno as _errno
 import os
+import shutil
+import stat as _stat
+import subprocess
 import sys
+import time
 from typing import Optional, Tuple, Union
 
 def pure(a): return (0, a)
@@ -99,6 +103,422 @@ def _ioerror_from_errno(err: Optional[int], context: str):
     if hasattr(_errno, "ENOTSUP") and err == _errno.ENOTSUP:
         return _ioerr(_IOERR_UNSUPPORTED, context)
     return _ioerror_other(context, err, os.strerror(err))
+
+
+_none = (0,)
+def _some(value): return (1, value)
+
+class _CoreHandle:
+    __slots__ = ("stream", "readable", "writable", "closeable", "closed")
+
+    def __init__(self, stream, readable: bool, writable: bool, closeable: bool):
+        self.stream = stream
+        self.readable = readable
+        self.writable = writable
+        self.closeable = closeable
+        self.closed = False
+
+class _CoreProcess:
+    __slots__ = ("process", "exit_code")
+
+    def __init__(self, process):
+        self.process = process
+        self.exit_code = None
+
+def _invalid_argument(context: str):
+    return _ioerr(_IOERR_INVALID_ARGUMENT, context)
+
+def _bad_file_descriptor(context: str):
+    return _ioerr(_IOERR_BAD_FILE_DESCRIPTOR, context)
+
+def _unsupported(context: str):
+    return _ioerr(_IOERR_UNSUPPORTED, context)
+
+def _to_path_string(path_value):
+    if isinstance(path_value, str):
+        return path_value
+    if isinstance(path_value, tuple) and len(path_value) >= 1 and isinstance(path_value[0], str):
+        # Backward-compatible shape; current transpiler represents struct-1 as identity.
+        return path_value[0]
+    raise ValueError(f"invalid Path value: {path_value!r}")
+
+def _normalize_path(path: str) -> str:
+    return path.replace("\\", "/")
+
+def _to_duration_nanos(duration_value):
+    if isinstance(duration_value, int):
+        return int(duration_value)
+    if isinstance(duration_value, tuple) and len(duration_value) >= 1:
+        # Backward-compatible shape; current transpiler represents struct-1 as identity.
+        return int(duration_value[0])
+    raise ValueError(f"invalid Duration value: {duration_value!r}")
+
+def _to_bool(v) -> bool:
+    if v is True or v is False:
+        return bool(v)
+    if isinstance(v, tuple) and len(v) >= 1:
+        if v[0] == 1:
+            return True
+        if v[0] == 0:
+            return False
+    return bool(v)
+
+def _as_handle(value):
+    if isinstance(value, _CoreHandle):
+        return value
+    return None
+
+def _open_mode_tag(mode):
+    if isinstance(mode, tuple) and len(mode) >= 1:
+        return mode[0]
+    raise ValueError(f"invalid OpenMode value: {mode!r}")
+
+def _stdio_tag(stdio):
+    if isinstance(stdio, tuple) and len(stdio) >= 1:
+        return stdio[0]
+    raise ValueError(f"invalid Stdio value: {stdio!r}")
+
+def _bosatsu_list_to_pylist(lst):
+    out = []
+    current = lst
+    while isinstance(current, tuple) and len(current) >= 1 and current[0] == 1:
+        out.append(current[1])
+        current = current[2]
+    return out
+
+def _kind_from_lstat(st):
+    mode = st.st_mode
+    if _stat.S_ISREG(mode):
+        return (0,)  # File
+    if _stat.S_ISDIR(mode):
+        return (1,)  # Dir
+    if _stat.S_ISLNK(mode):
+        return (2,)  # Symlink
+    return (3,)      # Other
+
+# Bosatsu/IO/Core externals
+path_sep = os.sep
+stdin_handle = _CoreHandle(sys.stdin, readable=True, writable=False, closeable=False)
+stdout_handle = _CoreHandle(sys.stdout, readable=False, writable=True, closeable=False)
+stderr_handle = _CoreHandle(sys.stderr, readable=False, writable=True, closeable=False)
+
+def read_text(handle, max_chars):
+    def fn():
+        if max_chars <= 0:
+            return raise_error(_invalid_argument(f"read_text max_chars must be > 0, got {max_chars}"))
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("read_text on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("reading closed handle"))
+        if not h.readable:
+            return raise_error(_bad_file_descriptor("reading from non-readable handle"))
+
+        try:
+            chunk = h.stream.read(max_chars)
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "reading text"))
+
+        if chunk is None or chunk == "":
+            return pure(_none)
+
+        if isinstance(chunk, bytes):
+            try:
+                chunk = chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                return raise_error(_ioerr(_IOERR_INVALID_UTF8, "decoding bytes from handle"))
+        elif not isinstance(chunk, str):
+            chunk = str(chunk)
+
+        if chunk == "":
+            return pure(_none)
+        return pure(_some(chunk))
+
+    return effect(fn)
+
+def write_text(handle, text):
+    def fn():
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("write_text on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("writing closed handle"))
+        if not h.writable:
+            return raise_error(_bad_file_descriptor("writing to non-writable handle"))
+        try:
+            h.stream.write(text)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "writing text"))
+
+    return effect(fn)
+
+def flush_handle(handle):
+    def fn():
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("flush on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("flushing closed handle"))
+        if not h.writable:
+            return _pure_unit
+        try:
+            h.stream.flush()
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "flushing handle"))
+
+    return effect(fn)
+
+def close_handle(handle):
+    def fn():
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("close on non-handle value"))
+        if h.closed:
+            return _pure_unit
+        if not h.closeable:
+            h.closed = True
+            return _pure_unit
+        try:
+            h.stream.close()
+            h.closed = True
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "closing handle"))
+
+    return effect(fn)
+
+def open_file(path, mode):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+            mode_tag = _open_mode_tag(mode)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            if mode_tag == 0:
+                stream = open(path_s, "r", encoding="utf-8", newline="")
+                return pure(_CoreHandle(stream, readable=True, writable=False, closeable=True))
+            if mode_tag == 1:
+                stream = open(path_s, "w", encoding="utf-8", newline="")
+                return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
+            if mode_tag == 2:
+                stream = open(path_s, "a", encoding="utf-8", newline="")
+                return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
+            return raise_error(_invalid_argument(f"unknown OpenMode tag: {mode_tag}"))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"opening file: {path_s}"))
+
+    return effect(fn)
+
+def list_dir(path):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            children = []
+            for name in os.listdir(path_s):
+                child = _normalize_path(os.path.join(path_s, name))
+                children.append(child)
+            children.sort()
+            return pure(py_to_bosatsu_list(children))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"listing directory: {path_s}"))
+
+    return effect(fn)
+
+def stat_path(path):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            st = os.lstat(path_s)
+        except FileNotFoundError:
+            return pure(_none)
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"stating path: {path_s}"))
+
+        kind = _kind_from_lstat(st)
+        mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+        file_stat = (kind, int(st.st_size), int(mtime_ns))
+        return pure(_some(file_stat))
+
+    return effect(fn)
+
+def mkdir_path(path, recursive):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            if _to_bool(recursive):
+                os.makedirs(path_s)
+            else:
+                os.mkdir(path_s)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"creating directory: {path_s}"))
+
+    return effect(fn)
+
+def remove_path(path, recursive):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        recursive_flag = _to_bool(recursive)
+        try:
+            if recursive_flag:
+                if os.path.isdir(path_s) and not os.path.islink(path_s):
+                    shutil.rmtree(path_s)
+                else:
+                    os.remove(path_s)
+            else:
+                if os.path.isdir(path_s) and not os.path.islink(path_s):
+                    os.rmdir(path_s)
+                else:
+                    os.remove(path_s)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"removing path: {path_s}"))
+
+    return effect(fn)
+
+def rename_path(path_from, path_to):
+    def fn():
+        try:
+            from_s = _to_path_string(path_from)
+            to_s = _to_path_string(path_to)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            os.rename(from_s, to_s)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"renaming path: {from_s} -> {to_s}"))
+
+    return effect(fn)
+
+def get_env(name):
+    def fn():
+        value = os.environ.get(name)
+        if value is None:
+            return pure(_none)
+        return pure(_some(value))
+
+    return effect(fn)
+
+def _stdio_to_popen_arg(stdio, stream_name: str):
+    tag = _stdio_tag(stdio)
+    if tag == 0:  # Inherit
+        return (None, None)
+    if tag == 1:  # Pipe
+        return (subprocess.PIPE, "pipe")
+    if tag == 2:  # Null
+        return (subprocess.DEVNULL, None)
+    if tag == 3:  # UseHandle
+        if len(stdio) < 2:
+            raise ValueError(f"invalid UseHandle for {stream_name}")
+        h = _as_handle(stdio[1])
+        if h is None:
+            raise ValueError(f"invalid handle for {stream_name}")
+        if h.closed:
+            raise ValueError(f"closed handle for {stream_name}")
+        if stream_name == "stdin" and (not h.readable):
+            raise ValueError("stdin handle must be readable")
+        if stream_name != "stdin" and (not h.writable):
+            raise ValueError(f"{stream_name} handle must be writable")
+        return (h.stream, None)
+    raise ValueError(f"unknown Stdio tag: {tag}")
+
+def spawn_process(cmd, args, stdio):
+    def fn():
+        if not isinstance(stdio, tuple) or len(stdio) < 3:
+            return raise_error(_invalid_argument("invalid StdioConfig value"))
+
+        try:
+            py_args = [str(a) for a in _bosatsu_list_to_pylist(args)]
+            stdin_arg, stdin_mode = _stdio_to_popen_arg(stdio[0], "stdin")
+            stdout_arg, stdout_mode = _stdio_to_popen_arg(stdio[1], "stdout")
+            stderr_arg, stderr_mode = _stdio_to_popen_arg(stdio[2], "stderr")
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        try:
+            proc = subprocess.Popen(
+                [cmd, *py_args],
+                stdin=stdin_arg,
+                stdout=stdout_arg,
+                stderr=stderr_arg,
+                text=True,
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"spawning process: {cmd}"))
+
+        process_value = _CoreProcess(proc)
+        spawn_stdin = _none
+        spawn_stdout = _none
+        spawn_stderr = _none
+
+        if stdin_mode == "pipe" and proc.stdin is not None:
+            spawn_stdin = _some(_CoreHandle(proc.stdin, readable=False, writable=True, closeable=True))
+        if stdout_mode == "pipe" and proc.stdout is not None:
+            spawn_stdout = _some(_CoreHandle(proc.stdout, readable=True, writable=False, closeable=True))
+        if stderr_mode == "pipe" and proc.stderr is not None:
+            spawn_stderr = _some(_CoreHandle(proc.stderr, readable=True, writable=False, closeable=True))
+
+        # SpawnResult(proc, stdin, stdout, stderr)
+        return pure((process_value, spawn_stdin, spawn_stdout, spawn_stderr))
+
+    return effect(fn)
+
+def wait_process(proc_value):
+    def fn():
+        if not isinstance(proc_value, _CoreProcess):
+            return raise_error(_invalid_argument("wait expects a process handle"))
+        if proc_value.exit_code is not None:
+            return pure(int(proc_value.exit_code))
+        try:
+            code = proc_value.process.wait()
+            proc_value.exit_code = int(code)
+            return pure(int(code))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "waiting on process"))
+
+    return effect(fn)
+
+def sleep_for(duration):
+    def fn():
+        try:
+            nanos = _to_duration_nanos(duration)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+        if nanos < 0:
+            return raise_error(_invalid_argument(f"sleep duration must be >= 0, got {nanos}"))
+        try:
+            time.sleep(nanos / 1_000_000_000.0)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "sleep"))
+
+    return effect(fn)
+
+now_wall = effect(lambda: pure(int(time.time_ns())))
+now_mono = effect(lambda: pure(int(time.monotonic_ns())))
 
 
 def println(s):

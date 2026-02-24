@@ -1,42 +1,96 @@
 package Bosatsu/IO/Std
 
-from Bosatsu/Prog import Prog, pure, recover, ignore_err, await
+from Bosatsu/Prog import Prog, pure, recover, ignore_err, await, recursive
 from Bosatsu/IO/Error import IOError, error_to_String
+from Bosatsu/IO/Core import stdin, stdout, stderr, read_text, write_text, flush
 
-export println, print, print_err, print_errln, read_stdin_utf8_bytes, show_error
+export (
+  println,
+  print,
+  print_err,
+  print_errln,
+  read_stdin_utf8_bytes,
+  read_line,
+  read_all_stdin,
+  show_error,
+)
 
 # Write a string plus newline to standard output.
-external println_impl: String -> Prog[IOError, Unit]
-# Write a string to standard output.
-external print_impl: String -> Prog[IOError, Unit]
-# Write a string to standard error.
-external print_err_impl: String -> Prog[IOError, Unit]
-# Write a string plus newline to standard error.
-external print_errln_impl: String -> Prog[IOError, Unit]
-
-# Read about n bytes from stdin (may read up to n + 4 to finish a UTF-8 codepoint).
-# n=0 behaves like n=1; empty string indicates EOF.
-external read_stdin_utf8_bytes_impl: Int -> Prog[IOError, String]
-
-# Print a line to standard output.
 def println(str: String) -> Prog[IOError, Unit]:
-  println_impl(str)
+  (
+    _ <- write_text(stdout, "${str}\n").await()
+    flush(stdout)
+  )
 
-# Print text to standard output.
+# Write text to standard output.
 def print(str: String) -> Prog[IOError, Unit]:
-  print_impl(str)
+  (
+    _ <- write_text(stdout, str).await()
+    flush(stdout)
+  )
 
-# Print text to standard error.
+# Write text to standard error.
 def print_err(str: String) -> Prog[IOError, Unit]:
-  print_err_impl(str)
+  (
+    _ <- write_text(stderr, str).await()
+    flush(stderr)
+  )
 
-# Print a line to standard error.
+# Write a string plus newline to standard error.
 def print_errln(str: String) -> Prog[IOError, Unit]:
-  print_errln_impl(str)
+  (
+    _ <- write_text(stderr, "${str}\n").await()
+    flush(stderr)
+  )
 
 # Read UTF-8 text from standard input.
+# n=0 behaves like n=1; empty string indicates EOF.
 def read_stdin_utf8_bytes(n: Int) -> Prog[IOError, String]:
-  read_stdin_utf8_bytes_impl(n)
+  read_text(stdin, n).await(chunk ->
+    match chunk:
+      case Some(s): pure(s)
+      case None: pure("")
+  )
+
+def trim_trailing_cr(s: String) -> String:
+  match s.rpartition_String("\r"):
+    case Some((prefix, suffix)):
+      if suffix matches "":
+        prefix
+      else:
+        s
+    case None:
+      s
+
+# Read a single line from stdin.
+# Returns None only if EOF is reached before reading any characters.
+read_line: Prog[IOError, Option[String]] =
+  recursive(rec -> acc ->
+    read_text(stdin, 1).await(chunk ->
+      match chunk:
+        case None:
+          if acc matches "":
+            pure(None)
+          else:
+            pure(Some(trim_trailing_cr(acc)))
+        case Some(piece):
+          match piece.partition_String("\n"):
+            case Some((before, _)):
+              pure(Some(trim_trailing_cr("${acc}${before}")))
+            case None:
+              rec("${acc}${piece}")
+    )
+  )("")
+
+# Read all UTF-8 text from stdin until EOF.
+read_all_stdin: Prog[IOError, String] =
+  recursive(rec -> acc ->
+    read_text(stdin, 4096).await(chunk ->
+      match chunk:
+        case None: pure(acc)
+        case Some(piece): rec("${acc}${piece}")
+    )
+  )("")
 
 # Render IOError to stderr and recover with a default value.
 def show_error[res](prog: Prog[IOError, res], default: res) -> forall e. Prog[e, res]:

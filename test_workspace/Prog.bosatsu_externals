@@ -6,6 +6,28 @@
     recover: ProgExt.recover,
     apply_fix: ProgExt.apply_fix
   },
+  Bosatsu/IO/Core: {
+    path_sep: ProgExt.path_sep,
+    stdin: ProgExt.stdin_handle,
+    stdout: ProgExt.stdout_handle,
+    stderr: ProgExt.stderr_handle,
+    read_text: ProgExt.read_text,
+    write_text: ProgExt.write_text,
+    flush: ProgExt.flush_handle,
+    close: ProgExt.close_handle,
+    open_file: ProgExt.open_file,
+    list_dir: ProgExt.list_dir,
+    stat: ProgExt.stat_path,
+    mkdir: ProgExt.mkdir_path,
+    remove: ProgExt.remove_path,
+    rename: ProgExt.rename_path,
+    get_env: ProgExt.get_env,
+    spawn: ProgExt.spawn_process,
+    wait: ProgExt.wait_process,
+    now_wall: ProgExt.now_wall,
+    now_mono: ProgExt.now_mono,
+    sleep: ProgExt.sleep_for
+  },
   Bosatsu/IO/Std: {
     println_impl: ProgExt.println,
     print_impl: ProgExt.print_stdout,
