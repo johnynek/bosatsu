@@ -7,217 +7,217 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/Package.scala
   - core/src/main/scala/dev/bosatsu/PackageError.scala
   - core/src/main/scala/dev/bosatsu/Inhabitedness.scala
-  - core/src/main/scala/dev/bosatsu/rankn/Infer.scala
   - core/src/test/scala/dev/bosatsu/TypedTotalityTest.scala
-  - core/src/test/scala/dev/bosatsu/TotalityTest.scala
   - core/src/test/scala/dev/bosatsu/WellTypedGen.scala
-  - core/src/test/scala/dev/bosatsu/TestUtils.scala
+  - core/src/test/scala/dev/bosatsu/TotalityTest.scala
   - core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala
-  - core/src/test/scala/dev/bosatsu/EvaluationTest.scala
+  - core/src/test/scala/dev/bosatsu/TestUtils.scala
 depends_on: []
 estimated_size: M
-generated_at: 2026-02-24T00:26:00Z
+generated_at: 2026-02-24T00:32:34Z
 ---
 
-# Issue 1769 Design: Refactoring TotalityCheck to run on TypedExpr[Declaration]
+# Issue 1769 Design: Refactor TotalityCheck to TypedExpr[Declaration]
 
 _Issue: #1769 (https://github.com/johnynek/bosatsu/issues/1769)_
 
 ## Summary
 
-Migrate totality checking from untyped Expr to TypedExpr[Declaration], use scrutinee-type-aware and inhabitedness-aware coverage, and add typed generator-based tests via WellTypedGen so missing impossible branches are allowed while preserving conservative behavior for unknown cases.
+Moves totality checking to typed expressions, uses scrutinee-type and inhabitedness data from #1729 to prune impossible coverage/unreachable branches conservatively, and adds a typed test strategy with WellTypedGen-backed generators.
 
-# Issue 1769: Refactoring TotalityCheck to run on TypedExpr[Declaration]
+---
+issue: 1769
+title: Design refactoring TotalityCheck to run on TypedExpr[Declaration]
+status: proposed
+---
 
-Status: proposed  
-Date: 2026-02-24  
-Issue: https://github.com/johnynek/bosatsu/issues/1769
+# Design: Refactor TotalityCheck to run on TypedExpr[Declaration]
 
-## Problem statement
+## Context
 
-Totality checking currently runs in `Package` before rank-n inference, on `Expr[Declaration]`. That means the checker does not have the inferred scrutinee type at each match site.
+Today `TotalityCheck` runs on `Expr[Declaration]` in `Package.inferBodyUnopt` before rank-n inference. As a result it does not have the inferred scrutinee type at each match site, and it cannot use `Inhabitedness.check` / `Inhabitedness.checkMatch` from #1729 to prune impossible coverage.
 
-This causes three practical limits:
+`Infer.typeCheckPattern` already builds well-typed match patterns in `TypedExpr.Match`, so totality can run after inference on typed trees.
 
-1. Coverage logic is pattern-list based, not scrutinee-type based.
-2. The checker cannot directly use inhabitedness analysis from #1729.
-3. The checker keeps defensive pattern-validity work that inference already guarantees once patterns are typed.
+## Goals
 
-The goal of this issue is to move totality checking to `TypedExpr[Declaration]` so we can use fully typed match patterns plus scrutinee type information.
-
-## Current state
-
-1. `core/src/main/scala/dev/bosatsu/TotalityCheck.scala` checks `Expr[A]` matches, computes missing branches from `top = _`, and reports unreachable branches by coverage shadowing.
-2. `core/src/main/scala/dev/bosatsu/rankn/Infer.scala` already produces typed patterns in `TypedExpr.Match` via `typeCheckPattern`.
-3. `core/src/main/scala/dev/bosatsu/Inhabitedness.scala` (from #1729) can classify both types and matchability as `Inhabited`, `Uninhabited`, or `Unknown`.
-4. `core/src/main/scala/dev/bosatsu/Package.scala` currently runs totality pre-inference.
-
-## Design goals
-
-1. Run totality checking on `TypedExpr[Declaration]`.
-2. Use scrutinee type at each match site.
-3. Use #1729 inhabitedness results to allow missing branches that are provably unmatchable.
-4. Mark provably unmatchable branches as unreachable.
-5. Keep conservative behavior when inhabitedness result is `Unknown`.
-6. Keep diagnostics and guard semantics stable.
-7. Add typed-pattern generator coverage for tests.
+1. Run totality on `TypedExpr[Declaration]`.
+2. Use `arg.getType` at each match.
+3. Treat branches proven `Uninhabited` by #1729 as unreachable.
+4. Allow missing branches to be omitted when they are proven unmatchable.
+5. Keep conservative behavior for `Unknown`.
+6. Keep guard semantics unchanged.
+7. Expand tests to use well-typed generated patterns and environments.
 
 ## Non-goals
 
-1. Rewriting pattern set algebra internals.
+1. Rewriting pattern set algebra (`SetOps`) in this issue.
 2. Solving all `Unknown` inhabitedness cases.
-3. Adding per-pattern region tracking (existing #132 follow-up).
-4. Changing guard semantics.
+3. Changing parser/source-converter pattern syntax.
+4. Reworking diagnostics unrelated to totality.
 
 ## Answers to issue questions
 
-### Can TotalityCheck be simplified with typed patterns and types?
+### Can TotalityCheck be simplified once patterns are fully typed?
 
-Yes, incrementally.
+Yes.
 
-1. Constructor existence and arity checks become inference responsibilities once checker input is typed.
-2. Typed input removes the need to reason about random mixed-type pattern sets in totality-path tests.
-3. Structural ambiguity checks that inference does not currently enforce (multi-splice list patterns and adjacent string globs) can remain initially to preserve user-facing diagnostics, then be moved later to inference if desired.
+- Constructor existence and constructor arity validation are already guaranteed by `Infer.typeCheckPattern`; totality no longer needs to be the primary owner of those checks.
+- Totality can focus on coverage and reachability over typed patterns.
+- Keep only structural lint that inference does not currently enforce (adjacent string globs, multi-splice list patterns), so user-facing diagnostics remain stable.
 
 ### Does #1729 have enough information to identify unmatchable branches?
 
-Yes for definitive cases.
+Yes, for definitive cases.
 
-1. `Inhabitedness.checkMatch(scrutineeType, pattern, env)` gives `Uninhabited` for branches that cannot match.
-2. `Inhabitedness.check(scrutineeType, env)` can make the whole match domain empty.
-3. `Unknown` must remain conservative and should not be treated as unmatchable.
+- `Inhabitedness.check(scrutineeType, env)` identifies fully uninhabited scrutinee domains.
+- `Inhabitedness.checkMatch(scrutineeType, pattern, env)` identifies definitely unmatchable branches.
+- Any `Unknown` or validation failure must stay conservative and be treated as potentially matchable.
 
 ## Proposed architecture
 
-### 1. Typed totality entrypoint
+### 1) Typed totality traversal
 
-1. Refactor totality traversal to operate on `TypedExpr[A]`.
-2. Keep current pattern set-ops machinery for `intersection`, `difference`, `missingBranches`.
-3. Update totality error payloads to reference typed match data (or equivalent metadata containing tag, branches, and guard presence).
+Refactor `TotalityCheck.checkExpr` to traverse `TypedExpr[A]` and handle `TypedExpr.Match`.
+`ExprError` payloads should point at `TypedExpr.Match[A]` (or equivalent match metadata with `tag`, `branches`, and `arg`).
 
-### 2. Matchability classification per branch
+Traversal remains recursive over annotations, lambdas, apps, lets, loops, recur, guards, and branch bodies.
+
+### 2) Match analysis algorithm
 
 For each `TypedExpr.Match(arg, branches, tag)`:
 
-1. Let `scrutineeType = arg.getType`.
-2. For each branch pattern, call `Inhabitedness.checkMatch(scrutineeType, pattern, env)`.
-3. Map result to checker behavior:
-4. `Uninhabited`: branch is definitely unmatchable.
-5. `Inhabited`: branch is matchable.
-6. `Unknown` or validation failure: treat as conservatively matchable.
+1. Compute `scrutineeType = arg.getType`.
+2. Compute `scrutineeState = Inhabitedness.check(scrutineeType, env)`.
+3. For each branch pattern, compute `branchState = Inhabitedness.checkMatch(scrutineeType, pattern, env)`.
+4. Classify branch state:
+- `Uninhabited`: definitely impossible.
+- `Inhabited`: definitely possible.
+- `Unknown` or check error: conservatively possible.
+5. Coverage set for missing-branch analysis:
+- only unguarded branches
+- excluding definitely impossible branches.
+6. Missing set:
+- if `scrutineeState == Uninhabited`, missing is empty (vacuously total).
+- otherwise compute with existing set algebra: `missingBranches(_ :: Nil, coverage)`.
+- then drop any missing pattern `p` where `checkMatch(scrutineeType, p, env) == Uninhabited`.
+7. Unreachable set:
+- branch is unreachable if it is definitely impossible, or
+- it is shadowed by prior unguarded branches that are not definitely impossible.
 
-### 3. Domain-aware missing-branch computation
+This keeps current ordered semantics and adds typed impossibility pruning.
 
-At each typed match:
+### 3) Validation split
 
-1. Build initial domain from scrutinee type.
-2. If `Inhabitedness.check(scrutineeType, env) == Uninhabited`, domain is empty and missing list is empty.
-3. Otherwise, for scrutinee root constructors, build wildcard constructor patterns and classify each with `checkMatch`.
-4. Subtract only definitely unmatchable constructor patterns from the domain.
-5. Compute missing branches against unguarded branches that are not definitely unmatchable.
+- Keep structural pattern validation in totality for now (`InvalidStrPat`, `MultipleSplicesInPattern`).
+- Move constructor/arity invalid-pattern reporting out of normal totality flow (inference already enforces it).
+- If defensive handling is retained internally, it should not change user-visible behavior for well-typed programs.
 
-This is the key behavior change that allows missing impossible branches.
+### 4) Pipeline change in Package
 
-### 4. Unreachable branch computation
+In `Package.inferBodyUnopt`:
 
-A branch is unreachable when either condition holds:
-
-1. It is definitely unmatchable from inhabitedness.
-2. It is shadowed by prior unguarded, matchable coverage.
-
-This preserves existing ordered-coverage semantics and adds typed impossibility reachability.
-
-### 5. Validation split
-
-1. Inference validates typing and constructor arity.
-2. Totality keeps only structural ambiguity checks that inference currently does not reject.
-3. Optional follow-up: move those structural checks into `Infer.typeCheckPattern` and remove them from totality.
-
-### 6. Pipeline move in Package
-
-1. Remove untyped totality from pre-inference checks.
-2. Run inference first to produce typed lets.
-3. Run totality on typed lets (`TypedExpr[Declaration]`) before normalization.
-4. Map errors to existing `PackageError.TotalityCheckError`.
-5. Def-recursion and unused-let checks remain as current pre-inference checks.
+1. Keep pre-inference checks (`DefRecursionCheck`, `UnusedLetCheck`) as-is.
+2. Run inference to obtain `TypedExpr[Declaration]`.
+3. Run typed totality on inferred lets.
+4. Map totality errors to `PackageError.TotalityCheckError`.
+5. Preserve error accumulation semantics for independent checks; if inference fails, typed totality is skipped.
 
 ## Implementation plan
 
-1. Refactor checker API and traversal in `core/src/main/scala/dev/bosatsu/TotalityCheck.scala`.
-2. Wire post-inference typed totality execution in `core/src/main/scala/dev/bosatsu/Package.scala`.
-3. Update error rendering plumbing in `core/src/main/scala/dev/bosatsu/PackageError.scala`.
-4. Add helper(s) in `core/src/main/scala/dev/bosatsu/Inhabitedness.scala` if constructor-level reachability extraction is factored there.
-5. If structural pattern checks move, update `core/src/main/scala/dev/bosatsu/rankn/Infer.scala`.
-6. Add dedicated typed totality regressions in `core/src/test/scala/dev/bosatsu/TypedTotalityTest.scala`.
-7. Keep `core/src/test/scala/dev/bosatsu/TotalityTest.scala` focused on set-algebra laws and typed-compatible properties.
-8. Update error-construction tests in `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala`.
-9. Add package-level regressions in `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`.
+1. `core/src/main/scala/dev/bosatsu/TotalityCheck.scala`
+- Add typed traversal and match analyzer.
+- Update `ExprError`/`NonTotalMatch`/`UnreachableBranches` to typed match payloads.
+- Integrate inhabitedness-based branch classification.
+- Keep existing set-ops core (`difference`, `intersection`, `missingBranches`).
 
-## Testing plan
+2. `core/src/main/scala/dev/bosatsu/Package.scala`
+- Remove pre-inference call to untyped totality.
+- Insert typed totality pass after successful inference.
 
-### Deterministic regressions
+3. `core/src/main/scala/dev/bosatsu/PackageError.scala`
+- Update references from `Expr.Match` to `TypedExpr.Match` in totality error rendering.
+- Keep message text stable.
 
-1. Missing impossible constructor branch is accepted.
-2. Explicit impossible constructor branch is reported unreachable.
-3. Guarded branches still do not count toward totality.
-4. Uninhabited scrutinee type yields vacuous totality behavior.
-5. Existing invalid list/string pattern diagnostics are preserved.
+4. `core/src/test/scala/dev/bosatsu/TypedTotalityTest.scala` (new)
+- Add deterministic typed match regressions for impossible branches, guards, and unreachable detection.
 
-### Property tests with well-typed patterns
+5. `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala`
+- Update/extend tests so totality diagnostics still render correctly with typed match payloads.
 
-Current random pattern generation in `TotalityTest` uses untyped random patterns. For this issue, add typed generators.
+6. `core/src/test/scala/dev/bosatsu/WellTypedGen.scala`
+- Add helpers to produce totality samples:
+  - generated `TypeEnv`
+  - selected scrutinee type from that env
+  - typed pattern sets/branches (including optional impossible branches).
 
-Extend `core/src/test/scala/dev/bosatsu/WellTypedGen.scala` with typed pattern-set sampling:
+7. `core/src/test/scala/dev/bosatsu/TotalityTest.scala`
+- Keep set-algebra law tests.
+- Add properties that consume well-typed samples instead of mixed untyped pattern domains.
 
-1. Generate a `TypeEnv[Kind.Arg]` from generated statements using existing finalize path.
-2. Generate scrutinee types from that environment.
-3. Generate pattern sets constrained by the scrutinee type.
-4. Include both reachable and intentionally unmatchable patterns.
-5. Optionally infer synthetic matches and extract compiler-produced typed patterns to guarantee well-typedness.
+8. `core/src/test/scala/dev/bosatsu/TestUtils.scala` (if needed)
+- Add helper(s) to compile source and extract typed lets/matches for tests.
 
-Suggested sample payload for tests:
+## Testing strategy
 
-`PatternSetSample(typeEnv, scrutineeType, branches)`
+### Deterministic regression tests
 
-Core properties:
+1. Missing impossible constructor branch is not required for totality.
+2. Explicit impossible branch is reported in `UnreachableBranches`.
+3. Guarded branch does not count toward coverage (unchanged).
+4. Uninhabited scrutinee type yields vacuous totality.
+5. Existing string/list structural invalid-pattern errors are unchanged.
 
-1. Adding checker-reported missing patterns yields total coverage.
-2. Branches proven unmatchable by inhabitedness do not contribute to missing requirements.
-3. `Unknown` inhabitedness never triggers pruning.
+### Property tests with well-typed generation
+
+Current `TotalityTest` random patterns are not guaranteed to be well-typed.
+Add typed coverage generation using `WellTypedGen`:
+
+1. Generate statements and derived `TypeEnv`.
+2. Pick scrutinee types from generated env.
+3. Generate branch patterns constrained by scrutinee type.
+4. Classify patterns with inhabitedness and inject both reachable and impossible cases.
+5. Check properties:
+- adding reported missing branches makes coverage total;
+- impossible branches are excluded from missing requirements;
+- `Unknown` never causes pruning.
 
 ## Acceptance criteria
 
-1. `Package` runs totality on `TypedExpr[Declaration]` only.
-2. Totality logic uses `arg.getType` at every `TypedExpr.Match`.
-3. Missing branches exclude definitely unmatchable cases proven by inhabitedness.
-4. Definitely unmatchable branches are reported as unreachable.
-5. `Unknown` inhabitedness remains conservative.
+1. `TotalityCheck` runs on `TypedExpr[Declaration]` in package compilation.
+2. Every match check uses `arg.getType`.
+3. Branches proven `Uninhabited` are reported unreachable.
+4. Missing branches proven `Uninhabited` are not required.
+5. `Unknown` states remain conservative.
 6. Guard behavior is unchanged.
-7. Existing list/string structural-pattern diagnostics are unchanged.
-8. New deterministic typed-totality regressions pass.
+7. Existing structural invalid-pattern diagnostics remain unchanged.
+8. New typed totality deterministic tests pass.
 9. New well-typed generator-based properties pass.
-10. Existing totality, evaluation, and error-message tests continue to pass.
+10. Existing totality/error-message/evaluation test suites continue to pass.
 
 ## Risks and mitigations
 
-1. Risk: totality diagnostics now depend on inference success.
-2. Mitigation: keep this as an explicit pipeline behavior change and preserve other pre-inference checks.
-3. Risk: performance regression from repeated inhabitedness checks.
-4. Mitigation: memoize per-match `check` and `checkMatch` computations.
-5. Risk: incorrect pruning in uncertain cases.
-6. Mitigation: prune only on definitive `Uninhabited`, never on `Unknown`.
-7. Risk: generator complexity or flakiness.
-8. Mitigation: bound depth/branch counts and keep deterministic regression tests as primary safety net.
+1. Risk: behavior changes when inference fails (typed totality cannot run).
+- Mitigation: keep pre-inference checks independent and accumulated.
+
+2. Risk: performance overhead from repeated `checkMatch`.
+- Mitigation: memoize per-match `(scrutineeType, pattern.unbind)` state.
+
+3. Risk: false pruning from uncertain inhabitedness.
+- Mitigation: prune only on definitive `Uninhabited`; treat `Unknown` and check errors as matchable.
+
+4. Risk: generator instability/flaky property tests.
+- Mitigation: bound depth/branch count; keep deterministic regressions as primary correctness guard.
 
 ## Rollout notes
 
-1. Phase 1: implement typed checker path and tests while keeping old helper APIs where needed.
-2. Phase 2: switch `Package` to typed totality path.
-3. Phase 3: remove dead untyped totality invocation and simplify compatibility code.
-4. Phase 4: optional follow-up to move remaining structural pattern checks fully into inference.
+1. Phase 1: add typed totality API and tests while leaving old path available behind internal compatibility.
+2. Phase 2: switch `Package` to typed totality pass.
+3. Phase 3: delete obsolete untyped totality traversal.
+4. Phase 4: optional follow-up to move remaining structural pattern lint fully into inference.
 
-## Out of scope for this issue
+## Out-of-scope follow-ups
 
-1. Per-pattern precise regions.
-2. Major rewrite of `SetOps` pattern algebra.
-3. Completeness improvements for all inhabitedness `Unknown` cases.
+1. Rich per-pattern region tracking (#132).
+2. Full `Unknown` reduction in inhabitedness.
+3. Large rewrite of pattern set algebra.
