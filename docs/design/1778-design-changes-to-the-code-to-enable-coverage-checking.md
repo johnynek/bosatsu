@@ -149,10 +149,11 @@ This avoids losing hash when reading a `.bosatsu_package` and later reassembling
 Add source metadata to Matchless expression nodes.
 
 1. Introduce `Matchless.SourceInfo(packageHashIdent: String, region: Region)`.
-2. Extend Matchless expression/boolean nodes to carry optional `sourceInfo`.
+2. Extend Matchless expression/boolean nodes to carry required `sourceInfo` (no `Option` in the AST).
 3. During lowering from `TypedExpr`, attach source info from current package hash + current expression region.
-4. For synthetic helper nodes created during lowering/optimization, inherit the nearest dominating source info.
-5. When inlining across packages (#1315), retain original source info on moved nodes.
+4. If provenance is unavailable (for example legacy decoded artifacts), use a sentinel `SourceInfo(emptyHashIdent, Region(0, 0))`, where `emptyHashIdent` is the hash ident for empty source bytes.
+5. For synthetic helper nodes created during lowering/optimization, inherit the nearest dominating source info before falling back to the sentinel.
+6. When inlining across packages (#1315), retain original source info on moved nodes.
 
 Important constraint:
 
@@ -166,7 +167,8 @@ Interfaces must stay minimal and deterministic.
 1. New fields are only in `Package` and `TypedExpr`; `Interface` schema is unchanged.
 2. `interfaceToProto` must continue to serialize only type/export surface.
 3. Tests must assert semantically equivalent interfaces remain byte-identical even when implementation source hash/regions differ.
-4. Interface-only libraries (`internal_packages = []`) must contain no source hash/region metadata.
+4. Add a ScalaCheck property asserting that for any fully compiled package, permuting any sequence-typed implementation data (for example bindings and type-environment entry order) does not change the serialized interface bytes or their hash.
+5. Interface-only libraries (`internal_packages = []`) must contain no source hash/region metadata.
 
 ## Implementation Plan
 
@@ -177,10 +179,11 @@ Interfaces must stay minimal and deterministic.
 5. Update `ProtoConverter.typedExprToProto` and decode path to map optional regions.
 6. Update `ProtoConverter.packageToProto` and decode path to map optional package hash.
 7. Update `PlatformIO` read/write signatures and implementations where needed so decoded package metadata is preserved (JVM + JS platforms).
-8. Add Matchless `SourceInfo` and propagate it through lowering in `Matchless.fromLet` and through package compilation in `MatchlessFromTypedExpr.compile`.
-9. Ensure transformations in `Matchless` preserve `sourceInfo` when rewriting nodes.
-10. Keep interface code paths explicitly metadata-free.
-11. Add tests for compatibility, determinism, and Matchless source-info propagation.
+8. Add Matchless `SourceInfo` as required provenance on expression/boolean nodes and propagate it through lowering in `Matchless.fromLet` and through package compilation in `MatchlessFromTypedExpr.compile`.
+9. Add sentinel provenance defaults (`emptyHashIdent`, `Region(0, 0)`) for legacy or otherwise missing origins.
+10. Ensure transformations in `Matchless` preserve `sourceInfo` when rewriting nodes.
+11. Keep interface code paths explicitly metadata-free.
+12. Add tests for compatibility, determinism, and Matchless source-info propagation.
 
 ## Testing Strategy
 
@@ -196,13 +199,15 @@ Interfaces must stay minimal and deterministic.
 
 1. Interface serialization does not include source hash/region fields.
 2. Two compilations with identical public API but changed implementation body produce byte-identical interface protobuf bytes.
-3. Interface-only library assembly contains no implementation metadata.
+3. ScalaCheck property: for fully compiled packages, any permutation of sequence-typed implementation data (binding names, type-environment items, and similar order-insensitive sequences) preserves serialized interface bytes and hash.
+4. Interface-only library assembly contains no implementation metadata.
 
 ### Matchless Tests
 
-1. Lowering attaches source info on expression nodes when package hash and region are available.
-2. Cross-package inlining preserves original package hash on inlined nodes.
-3. Existing Matchless optimization/regression suites remain green with metadata-carrying nodes.
+1. Lowering attaches source info on expression nodes when package hash and region are available and uses sentinel values when they are not.
+2. Matchless expression/boolean AST constructors and rewrites always produce nodes with `sourceInfo` (no missingness).
+3. Cross-package inlining preserves original package hash on inlined nodes.
+4. Existing Matchless optimization/regression suites remain green with metadata-carrying nodes.
 
 ### Platform Read/Write Tests
 
@@ -216,9 +221,9 @@ Interfaces must stay minimal and deterministic.
 3. `ProtoConverter` writes `Package.sourceHash` exactly once per implementation package when available.
 4. Legacy compiled artifacts without new fields decode successfully.
 5. Interfaces remain schema-minimal and do not carry source hash or region metadata.
-6. Interface protobuf output remains deterministic and suitable for cache keys.
-7. Matchless nodes can carry `(packageHash, region)` source info.
-8. Matchless lowering populates source info from typed-expression provenance.
+6. Interface protobuf output remains deterministic and suitable for cache keys, including ScalaCheck permutation-invariance checks over sequence-typed implementation data.
+7. Matchless expression/boolean nodes always carry `(packageHash, region)` source info (required field, no `Option`).
+8. Matchless lowering populates source info from typed-expression provenance and uses sentinel values for missing legacy provenance.
 9. Inlined Matchless nodes retain original package hash provenance.
 10. `lib assemble` / package read-write flows preserve source hash metadata rather than dropping it.
 11. Tests explicitly cover “interface-only libraries contain no source metadata”.
@@ -230,7 +235,7 @@ Interfaces must stay minimal and deterministic.
 Mitigation: perform refactor mechanically in one pass; add compatibility helpers where possible; run full Matchless regression suites.
 
 2. Risk: Memory overhead from per-node source info in Matchless.
-Mitigation: keep source info optional; reuse package-hash strings; avoid attaching metadata in interface-only paths.
+Mitigation: do not copy hash payloads per node; store references to already-built package-hash values, rely on small region payload size, and keep only a small number of hashes in scope at once.
 
 3. Risk: Interface cache-key regressions if source metadata leaks.
 Mitigation: keep `Interface` schema unchanged; add byte-level determinism tests.
