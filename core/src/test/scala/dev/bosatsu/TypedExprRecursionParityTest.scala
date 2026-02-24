@@ -52,6 +52,9 @@ class TypedExprRecursionParityTest extends munit.ScalaCheckSuite with ParTest {
   }
 
   private def assertParity(cfg: WellTypedGen.Config) =
+    // TODO: WellTypedGen likely under-generates accepted recursive defs,
+    // so this parity property mostly exercises "both reject" paths today.
+    // Add positive recursive cases to WellTypedGen in a follow-up PR.
     forAll(WellTypedGen.wellTypedProgramGen(cfg)) { program =>
       val source = renderStatements(program.statements)
       val legacy = legacyPass(program.statements)

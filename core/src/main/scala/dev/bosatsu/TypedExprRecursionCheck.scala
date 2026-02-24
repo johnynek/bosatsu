@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.data.{NonEmptyList, StateT, Validated, ValidatedNec, ValidatedNel}
+import cats.data.{NonEmptyChain, NonEmptyList, StateT, Validated, ValidatedNec}
 import cats.implicits._
 import dev.bosatsu.rankn.{Type, TypeEnv}
 
@@ -8,7 +8,7 @@ import Identifier.Bindable
 
 object TypedExprRecursionCheck {
 
-  type Res = ValidatedNel[RecursionCheck.Error, Unit]
+  type Res[+A] = ValidatedNec[RecursionCheck.Error, A]
 
   def topLevelDefArgs(
       stmts: List[Statement]
@@ -34,11 +34,9 @@ object TypedExprRecursionCheck {
     // `fullTypeEnv` is passed to keep this API ready for typed decrease
     // strategies (for example Int decrease) in follow-up work.
     val _ = fullTypeEnv
-    lets
-      .traverse_ { case (name, rec, expr) =>
-        Impl.checkTopLevelLet(pack, name, rec, expr, topLevelDefs.get(name))
-      }
-      .leftMap(cats.data.NonEmptyChain.fromNonEmptyList)
+    lets.traverse_ { case (name, rec, expr) =>
+      Impl.checkTopLevelLet(pack, name, rec, expr, topLevelDefs.get(name))
+    }
   }
 
   private object Impl {
@@ -46,7 +44,7 @@ object TypedExprRecursionCheck {
     import RecursionCheck.ArgLexOrder.*
     import TypedExpr._
 
-    val unitValid: Res = Validated.valid(())
+    val unitValid: Res[Unit] = Validated.valid(())
 
     case class RecurTargetItem(group: Int, index: Int, paramName: Bindable)
         derives CanEqual
@@ -265,24 +263,24 @@ object TypedExprRecursionCheck {
         targetItemsByName: Map[Bindable, RecurTargetItem],
         d: Declaration,
         argsMessage: String
-    ): ValidatedNel[RecursionCheck.Error, RecurTargetItem] =
+    ): Res[RecurTargetItem] =
       d match {
         case Declaration.Var(b: Bindable) if locals(b) =>
-          Validated.invalidNel(
+          Validated.invalidNec(
             RecursionCheck.RecurNotOnArg(recur.region, fnname, argsMessage)
           )
         case Declaration.Var(b: Bindable) =>
           targetItemsByName
             .get(b)
-            .toValidNel(
+            .toValidNec(
               RecursionCheck.RecurNotOnArg(recur.region, fnname, argsMessage)
             )
         case Declaration.Var(_) =>
-          Validated.invalidNel(
+          Validated.invalidNec(
             RecursionCheck.RecurNotOnArg(recur.region, fnname, argsMessage)
           )
         case _ =>
-          Validated.invalidNel(
+          Validated.invalidNec(
             RecursionCheck.RecurTargetInvalid(fnname, d.region)
           )
       }
@@ -295,7 +293,7 @@ object TypedExprRecursionCheck {
         args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
         m: Declaration.Match,
         locals: Set[Bindable]
-    ): ValidatedNel[RecursionCheck.Error, RecurTarget] = {
+    ): Res[RecurTarget] = {
       import Declaration._
       val targetItemsByName = getRecurTargetItemsByName(args)
       val argsMessage = argsRepr(args)
@@ -303,7 +301,7 @@ object TypedExprRecursionCheck {
       def checkDuplicates(
           target: RecurTarget,
           sourceItems: NonEmptyList[Declaration]
-      ): ValidatedNel[RecursionCheck.Error, RecurTarget] = {
+      ): Res[RecurTarget] = {
         val (_, errorsRev) =
           target.iterator
             .zip(sourceItems.iterator)
@@ -322,7 +320,8 @@ object TypedExprRecursionCheck {
             }
 
         NonEmptyList.fromList(errorsRev.reverse) match {
-          case Some(errs) => Validated.invalid(errs)
+          case Some(errs) =>
+            Validated.invalid(NonEmptyChain.fromNonEmptyList(errs))
           case None       => Validated.valid(target)
         }
       }
@@ -338,7 +337,7 @@ object TypedExprRecursionCheck {
             argsMessage
           ).map(NonEmptyList.one)
         case TupleCons(Nil) =>
-          Validated.invalidNel(
+          Validated.invalidNec(
             RecursionCheck.RecurTargetInvalid(fnname, m.arg.region)
           )
         case TupleCons(h :: tail) =>
@@ -356,7 +355,7 @@ object TypedExprRecursionCheck {
             )
             .andThen(checkDuplicates(_, sourceItems))
         case _ =>
-          Validated.invalidNel(
+          Validated.invalidNec(
             RecursionCheck.RecurTargetInvalid(fnname, m.arg.region)
           )
       }
@@ -519,7 +518,7 @@ object TypedExprRecursionCheck {
         allowedPerTarget: NonEmptyList[Set[Bindable]],
         callArgsByTarget: NonEmptyList[TypedExpr[Declaration]],
         region: Region
-    ): Res =
+    ): Res[Unit] =
       if (
         RecursionCheck.isLexicographicallySmaller(
           target,
@@ -530,7 +529,7 @@ object TypedExprRecursionCheck {
         unitValid
       else {
         val targetParams = target.map(_.paramName)
-        Validated.invalidNel(
+        Validated.invalidNec(
           RecursionCheck.RecursionNotLexicographic(fnname, targetParams, region)
         )
       }
@@ -547,8 +546,8 @@ object TypedExprRecursionCheck {
         bs: Iterable[Bindable],
         region: Region
     )(
-        next: ValidatedNel[RecursionCheck.Error, A]
-    ): ValidatedNel[RecursionCheck.Error, A] = {
+        next: Res[A]
+    ): Res[A] = {
       val outerSet = state.outerDefNames
       if (outerSet.isEmpty) next
       else {
@@ -557,7 +556,9 @@ object TypedExprRecursionCheck {
         ) match {
           case Some(nel) =>
             Validated.invalid(
-              nel.map(RecursionCheck.IllegalShadow(_, region))
+              NonEmptyChain.fromNonEmptyList(
+                nel.map(RecursionCheck.IllegalShadow(_, region))
+              )
             )
           case None =>
             next
@@ -572,7 +573,7 @@ object TypedExprRecursionCheck {
      * to a sequential (Monadic) State tracking, and can only accumulate errors
      * until we hit the first one.
      */
-    type ErrorOr[A] = Either[NonEmptyList[RecursionCheck.Error], A]
+    type ErrorOr[A] = Either[NonEmptyChain[RecursionCheck.Error], A]
     type St[A] = StateT[ErrorOr, State, A]
 
     implicit val parallelSt: cats.Parallel[St] = {
@@ -594,7 +595,7 @@ object TypedExprRecursionCheck {
                   // just skip and merge
                   fn2(state) match {
                     case Right(_)   => Left(nel1)
-                    case Left(nel2) => Left(nel1 ::: nel2)
+                    case Left(nel2) => Left(nel1 ++ nel2)
                   }
               }
           })
@@ -605,10 +606,10 @@ object TypedExprRecursionCheck {
     // Scala has trouble inferring types like St, so we make these typed
     // helper functions to use below.
     private def failSt[A](err: RecursionCheck.Error): St[A] =
-      StateT.liftF(Left(NonEmptyList.of(err)))
+      StateT.liftF(Left(NonEmptyChain.one(err)))
     private val getSt: St[State] = StateT.get
     private def setSt(s: State): St[Unit] = StateT.set(s)
-    private def toSt[A](v: ValidatedNel[RecursionCheck.Error, A]): St[A] =
+    private def toSt[A](v: Res[A]): St[A] =
       StateT.liftF(v.toEither)
     private def pureSt[A](a: A): St[A] = StateT.pure(a)
     private val unitSt: St[Unit] = pureSt(())
@@ -737,15 +738,12 @@ object TypedExprRecursionCheck {
           argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
             case Some((nm, groups)) =>
               if (nm == irb.defname) {
-                val targetArgsV: ValidatedNel[
-                  RecursionCheck.Error,
-                  NonEmptyList[TypedExpr[Declaration]]
-                ] =
+                val targetArgsV: Res[NonEmptyList[TypedExpr[Declaration]]] =
                   inrec.target.traverse { targetItem =>
                     groups
                       .get(targetItem.group.toLong)
                       .flatMap(_.get(targetItem.index.toLong))
-                      .toValidNel(RecursionCheck.NotEnoughRecurArgs(nm, region))
+                      .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
                   }
 
                 val allArgs = groups.iterator.flatMap(_.iterator).toList
@@ -959,7 +957,9 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         state: State,
         expr: TypedExpr[Declaration]
-    ): Res =
+    ): Res[Unit] =
+      // Expression traversal uses StateT[Either, ...] because recur-state updates
+      // are sequential; convert back to ValidatedNec at this API boundary.
       Validated.fromEither(
         checkExpr(currentPackage, expr, WrapperScope.Empty).as(()).runA(state)
       )
@@ -1000,7 +1000,7 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         expr: TypedExpr[Declaration],
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]]
-    ): Res =
+    ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>
           checkExprV(currentPackage, state, expr)
@@ -1041,7 +1041,8 @@ object TypedExprRecursionCheck {
             // Note a def can't change the state:
             // we either have a valid nested def, or we don't,
             // but that can't change the state of the outer def
-            // that is calling this.
+            // that is calling this. We use Either in St for sequential state,
+            // then convert to ValidatedNec at this boundary.
             Validated.fromEither(st.runA(state))
           }
       }
@@ -1052,7 +1053,7 @@ object TypedExprRecursionCheck {
         rec: RecursionKind,
         expr: TypedExpr[Declaration],
         sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]]
-    ): Res = {
+    ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
       if (shouldCheckAsDef)
         checkDef(currentPackage, TopLevel, name, expr, sourceArgs)

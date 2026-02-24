@@ -42,3 +42,8 @@ This repository is mostly Scala 3 compiler and tooling code. These are the codin
 2. The Scala build is strict: warnings are treated as errors (`-Werror`) with additional warning flags in `build.sbt`.
 3. `core` is compiled with `-Yexplicit-nulls`.
 4. Generated ScalaPB sources in `src_managed` have a narrow warning suppression; handwritten code stays under strict warning rules.
+
+## Scala conventions
+
+1. Do not use fully qualified names in normal code or tests; import symbols at the top of the file.
+2. Prefer `cats.data.ValidatedNec` over `cats.data.ValidatedNel` for better asymptotic performance.

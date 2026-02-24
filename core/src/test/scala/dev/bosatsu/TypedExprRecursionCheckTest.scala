@@ -1,7 +1,7 @@
 package dev.bosatsu
 
-import cats.data.Validated
-import cats.data.NonEmptyList
+import cats.Show
+import cats.data.{NonEmptyList, Validated}
 import IorMethods.IorExtension
 
 class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
@@ -9,7 +9,7 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
 
   private def formatErrors(
       source: String,
-      errs: cats.data.NonEmptyList[PackageError]
+      errs: NonEmptyList[PackageError]
   ): String = {
     val sm = Map(pack -> (LocationMap(source), "<test>"))
     errs.toList
@@ -19,10 +19,10 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
 
   private def recursionErrorsOf(
       source: String
-  ): Either[cats.data.NonEmptyList[PackageError], Unit] = {
+  ): Either[NonEmptyList[PackageError], Unit] = {
     val stmts = TestUtils.statementsOf(source)
     val parsed = Package.fromStatements(pack, stmts)
-    given cats.Show[String] = cats.Show.fromToString
+    given Show[String] = Show.fromToString
     PackageMap
       .typeCheckParsed(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
