@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-bc4cf3ac*
+0.0.0+1-d3e7e2b1*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-bc4cf3ac*
+0.0.0+1-d3e7e2b1*
 </div>
 </div>
 <div class="nav-toc">
@@ -122,32 +122,42 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>public dependencies: <code>Bosatsu/IO/Error</code>, <code>Bosatsu/Prog</code></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
-  <li>Values: <a href="#value-print"><code>print</code></a>, <a href="#value-print-err"><code>print_err</code></a>, <a href="#value-print-errln"><code>print_errln</code></a>, <a href="#value-println"><code>println</code></a>, <a href="#value-read-stdin-utf8-bytes"><code>read_stdin_utf8_bytes</code></a>, <a href="#value-show-error"><code>show_error</code></a></li>
+  <li>Values: <a href="#value-print"><code>print</code></a>, <a href="#value-print-err"><code>print_err</code></a>, <a href="#value-print-errln"><code>print_errln</code></a>, <a href="#value-println"><code>println</code></a>, <a href="#value-read-all-stdin"><code>read_all_stdin</code></a>, <a href="#value-read-line"><code>read_line</code></a>, <a href="#value-read-stdin-utf8-bytes"><code>read_stdin_utf8_bytes</code></a>, <a href="#value-show-error"><code>show_error</code></a></li>
 </ul>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-print"></a>
 <h3><a href="#print" name="print" class="anchor"><span class="anchor-link"></span></a><code>print</code></h3>
-<p>Print text to standard output.</p>
+<p>Write text to standard output.</p>
 <pre class="prettyprint"><code class="language-bosatsu">def print(str: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-print-err"></a>
 <h3><a href="#print-err" name="print-err" class="anchor"><span class="anchor-link"></span></a><code>print_err</code></h3>
-<p>Print text to standard error.</p>
+<p>Write text to standard error.</p>
 <pre class="prettyprint"><code class="language-bosatsu">def print_err(str: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-print-errln"></a>
 <h3><a href="#print-errln" name="print-errln" class="anchor"><span class="anchor-link"></span></a><code>print_errln</code></h3>
-<p>Print a line to standard error.</p>
+<p>Write a string plus newline to standard error.</p>
 <pre class="prettyprint"><code class="language-bosatsu">def print_errln(str: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-println"></a>
 <h3><a href="#println" name="println" class="anchor"><span class="anchor-link"></span></a><code>println</code></h3>
-<p>Print a line to standard output.</p>
+<p>Write a string plus newline to standard output.</p>
 <pre class="prettyprint"><code class="language-bosatsu">def println(str: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+</code></pre>
+<a id="value-read-all-stdin"></a>
+<h3><a href="#read-all-stdin" name="read-all-stdin" class="anchor"><span class="anchor-link"></span></a><code>read_all_stdin</code></h3>
+<p>Read all UTF-8 text from stdin until EOF.</p>
+<pre class="prettyprint"><code class="language-bosatsu">read_all_stdin: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, String]
+</code></pre>
+<a id="value-read-line"></a>
+<h3><a href="#read-line" name="read-line" class="anchor"><span class="anchor-link"></span></a><code>read_line</code></h3>
+<p>Read a single line from stdin. Returns None only if EOF is reached before reading any characters.</p>
+<pre class="prettyprint"><code class="language-bosatsu">read_line: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
 </code></pre>
 <a id="value-read-stdin-utf8-bytes"></a>
 <h3><a href="#read-stdin-utf8-bytes" name="read-stdin-utf8-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_stdin_utf8_bytes</code></h3>
-<p>Read UTF-8 text from standard input.</p>
+<p>Read UTF-8 text from standard input. n=0 behaves like n=1; empty string indicates EOF.</p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_stdin_utf8_bytes(n: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, String]
 </code></pre>
 <a id="value-show-error"></a>
@@ -237,7 +247,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-bc4cf3ac-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d3e7e2b1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
