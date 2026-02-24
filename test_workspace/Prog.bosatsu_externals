@@ -11,8 +11,8 @@
     stdin: ProgExt.stdin_handle,
     stdout: ProgExt.stdout_handle,
     stderr: ProgExt.stderr_handle,
-    read_text: ProgExt.read_text,
-    write_text: ProgExt.write_text,
+    read_utf8: ProgExt.read_utf8,
+    write_utf8: ProgExt.write_utf8,
     flush: ProgExt.flush_handle,
     close: ProgExt.close_handle,
     open_file: ProgExt.open_file,
@@ -27,12 +27,5 @@
     now_wall: ProgExt.now_wall,
     now_mono: ProgExt.now_mono,
     sleep: ProgExt.sleep_for
-  },
-  Bosatsu/IO/Std: {
-    println_impl: ProgExt.println,
-    print_impl: ProgExt.print_stdout,
-    print_err_impl: ProgExt.print_err,
-    print_errln_impl: ProgExt.print_errln,
-    read_stdin_utf8_bytes_impl: ProgExt.read_stdin_utf8_bytes
   }
 }

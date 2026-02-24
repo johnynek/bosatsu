@@ -1,4 +1,10 @@
 #!/bin/sh
+set -eu
+
+check_lib_eval_output() {
+  output="$1"
+  printf '%s\n' "$output" | grep -Eq '^Main \{ run: <fn arity=1> \}: Bosatsu/Prog::Main$'
+}
 
 sbt cli/assembly
 time ./bosatsuj tool test \
@@ -12,8 +18,9 @@ time ./bosatsuj lib fetch \
   --repo_root . \
   --name core_alpha
 
-time ./bosatsuj lib eval \
+ls_output=$(./bosatsuj lib eval \
   --repo_root . \
   --name core_alpha \
   --main Bosatsu/LsExample \
-  --color none > /dev/null
+  --color none)
+check_lib_eval_output "$ls_output"

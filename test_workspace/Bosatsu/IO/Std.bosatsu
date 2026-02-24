@@ -2,7 +2,7 @@ package Bosatsu/IO/Std
 
 from Bosatsu/Prog import Prog, pure, recover, ignore_err, await, recursive
 from Bosatsu/IO/Error import IOError, error_to_String
-from Bosatsu/IO/Core import stdin, stdout, stderr, read_text, write_text, flush
+from Bosatsu/IO/Core import stdin, stdout, stderr, read_utf8, write_utf8, flush
 
 export (
   println,
@@ -18,35 +18,39 @@ export (
 # Write a string plus newline to standard output.
 def println(str: String) -> Prog[IOError, Unit]:
   (
-    _ <- write_text(stdout, "${str}\n").await()
+    _ <- write_utf8(stdout, "${str}\n").await()
     flush(stdout)
   )
 
 # Write text to standard output.
 def print(str: String) -> Prog[IOError, Unit]:
   (
-    _ <- write_text(stdout, str).await()
+    _ <- write_utf8(stdout, str).await()
     flush(stdout)
   )
 
 # Write text to standard error.
 def print_err(str: String) -> Prog[IOError, Unit]:
   (
-    _ <- write_text(stderr, str).await()
+    _ <- write_utf8(stderr, str).await()
     flush(stderr)
   )
 
 # Write a string plus newline to standard error.
 def print_errln(str: String) -> Prog[IOError, Unit]:
   (
-    _ <- write_text(stderr, "${str}\n").await()
+    _ <- write_utf8(stderr, "${str}\n").await()
     flush(stderr)
   )
 
 # Read UTF-8 text from standard input.
 # n=0 behaves like n=1; empty string indicates EOF.
 def read_stdin_utf8_bytes(n: Int) -> Prog[IOError, String]:
-  read_text(stdin, n).await(chunk ->
+  size = if n matches 0:
+    1
+  else:
+    n
+  read_utf8(stdin, size).await(chunk ->
     match chunk:
       case Some(s): pure(s)
       case None: pure("")
@@ -62,35 +66,38 @@ def trim_trailing_cr(s: String) -> String:
     case None:
       s
 
+def concat_rev_chunks(rev_chunks: List[String]) -> String:
+  concat_String(rev_chunks.reverse())
+
 # Read a single line from stdin.
 # Returns None only if EOF is reached before reading any characters.
 read_line: Prog[IOError, Option[String]] =
-  recursive(rec -> acc ->
-    read_text(stdin, 1).await(chunk ->
+  recursive(rec -> rev_chunks ->
+    read_utf8(stdin, 1).await(chunk ->
       match chunk:
         case None:
-          if acc matches "":
+          if rev_chunks matches []:
             pure(None)
           else:
-            pure(Some(trim_trailing_cr(acc)))
+            pure(Some(trim_trailing_cr(concat_rev_chunks(rev_chunks))))
         case Some(piece):
           match piece.partition_String("\n"):
             case Some((before, _)):
-              pure(Some(trim_trailing_cr("${acc}${before}")))
+              pure(Some(trim_trailing_cr(concat_rev_chunks([before, *rev_chunks]))))
             case None:
-              rec("${acc}${piece}")
+              rec([piece, *rev_chunks])
     )
-  )("")
+  )([])
 
 # Read all UTF-8 text from stdin until EOF.
 read_all_stdin: Prog[IOError, String] =
-  recursive(rec -> acc ->
-    read_text(stdin, 4096).await(chunk ->
+  recursive(rec -> rev_chunks ->
+    read_utf8(stdin, 4096).await(chunk ->
       match chunk:
-        case None: pure(acc)
-        case Some(piece): rec("${acc}${piece}")
+        case None: pure(concat_rev_chunks(rev_chunks))
+        case Some(piece): rec([piece, *rev_chunks])
     )
-  )("")
+  )([])
 
 # Render IOError to stderr and recover with a default value.
 def show_error[res](prog: Prog[IOError, res], default: res) -> forall e. Prog[e, res]:

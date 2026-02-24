@@ -202,13 +202,13 @@ stdin_handle = _CoreHandle(sys.stdin, readable=True, writable=False, closeable=F
 stdout_handle = _CoreHandle(sys.stdout, readable=False, writable=True, closeable=False)
 stderr_handle = _CoreHandle(sys.stderr, readable=False, writable=True, closeable=False)
 
-def read_text(handle, max_chars):
+def read_utf8(handle, max_chars):
     def fn():
         if max_chars <= 0:
-            return raise_error(_invalid_argument(f"read_text max_chars must be > 0, got {max_chars}"))
+            return raise_error(_invalid_argument(f"read_utf8 max_chars must be > 0, got {max_chars}"))
         h = _as_handle(handle)
         if h is None:
-            return raise_error(_bad_file_descriptor("read_text on non-handle value"))
+            return raise_error(_bad_file_descriptor("read_utf8 on non-handle value"))
         if h.closed:
             return raise_error(_bad_file_descriptor("reading closed handle"))
         if not h.readable:
@@ -217,7 +217,7 @@ def read_text(handle, max_chars):
         try:
             chunk = h.stream.read(max_chars)
         except OSError as exc:
-            return raise_error(_ioerror_from_errno(exc.errno, "reading text"))
+            return raise_error(_ioerror_from_errno(exc.errno, "reading utf8"))
 
         if chunk is None or chunk == "":
             return pure(_none)
@@ -236,11 +236,11 @@ def read_text(handle, max_chars):
 
     return effect(fn)
 
-def write_text(handle, text):
+def write_utf8(handle, text):
     def fn():
         h = _as_handle(handle)
         if h is None:
-            return raise_error(_bad_file_descriptor("write_text on non-handle value"))
+            return raise_error(_bad_file_descriptor("write_utf8 on non-handle value"))
         if h.closed:
             return raise_error(_bad_file_descriptor("writing closed handle"))
         if not h.writable:
@@ -249,7 +249,7 @@ def write_text(handle, text):
             h.stream.write(text)
             return _pure_unit
         except OSError as exc:
-            return raise_error(_ioerror_from_errno(exc.errno, "writing text"))
+            return raise_error(_ioerror_from_errno(exc.errno, "writing utf8"))
 
     return effect(fn)
 

@@ -6,8 +6,8 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stdin();
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stdout();
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stderr();
 
-BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__text(BValue h, BValue max_chars);
-BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__text(BValue h, BValue s);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(BValue h, BValue max_chars);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__utf8(BValue h, BValue s);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(BValue h);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_close(BValue h);
 

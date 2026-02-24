@@ -4,8 +4,6 @@ from Bosatsu/Prog import Prog
 from Bosatsu/IO/Error import IOError
 from Bosatsu/Char import (
   string_to_Char_List,
-  char_List_to_Int_List,
-  int_List_to_String,
   char_to_Int,
   is_ascii_alpha,
   to_ascii_lower_case,
@@ -33,8 +31,8 @@ export (
   stdin,
   stdout,
   stderr,
-  read_text,
-  write_text,
+  read_utf8,
+  write_utf8,
   flush,
   close,
   open_file,
@@ -62,11 +60,6 @@ external struct Process
 # Opaque outside this package because constructors are not exported.
 struct Instant(epoch_nanos: Int)
 struct Duration(to_nanos: Int)
-
-def id_prog[a](p: Prog[IOError, a]) -> Prog[IOError, a]:
-  p
-
-_ = id_prog
 
 enum FileKind:
   File
@@ -100,8 +93,8 @@ external stdin: Handle
 external stdout: Handle
 external stderr: Handle
 
-external def read_text(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
-external def write_text(h: Handle, s: String) -> Prog[IOError, Unit]
+external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
+external def write_utf8(h: Handle, s: String) -> Prog[IOError, Unit]
 external def flush(h: Handle) -> Prog[IOError, Unit]
 external def close(h: Handle) -> Prog[IOError, Unit]
 external def open_file(path: Path, mode: OpenMode) -> Prog[IOError, Handle]
@@ -116,6 +109,8 @@ external def wait(p: Process) -> Prog[IOError, Int]
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
+
+_ = now_mono
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
@@ -134,24 +129,19 @@ def orb(left: Bool, right: Bool) -> Bool:
     right
 
 def starts_with_slash(s: String) -> Bool:
-  match s:
-    case "/${_}" | "/": True
-    case _: False
+  s matches "/${_}" | "/"
 
 def ends_with_slash(s: String) -> Bool:
-  match s:
-    case "${_}/": True
-    case _: False
+  s matches "${_}/"
 
 def is_drive_prefix(component: String) -> Bool:
   match component:
-    case "$.{drive}:" if is_ascii_alpha(drive): True
+    case "$.{drive}:": is_ascii_alpha(drive)
     case _: False
 
 def is_drive_absolute(s: String) -> Bool:
   match s:
-    case "$.{drive}:/${_}" if is_ascii_alpha(drive): True
-    case "$.{drive}:/" if is_ascii_alpha(drive): True
+    case "$.{drive}:/${_}": is_ascii_alpha(drive)
     case _: False
 
 def is_drive_relative(s: String) -> Bool:
@@ -162,7 +152,7 @@ def is_drive_relative(s: String) -> Bool:
 
 def is_drive_root(s: String) -> Bool:
   match s:
-    case "$.{drive}:/" if is_ascii_alpha(drive): True
+    case "$.{drive}:/": is_ascii_alpha(drive)
     case _: False
 
 def has_control_char(chars: List[Char]) -> Bool:
@@ -186,12 +176,13 @@ def replace_backslashes(chars: List[Char]) -> List[Char]:
       [h1, *replace_backslashes(t)]
 
 def chars_to_String(chars: List[Char]) -> String:
-  match int_List_to_String(char_List_to_Int_List(chars)):
-    case Some(s): s
-    case None: ""
+  concat_String(["$.{c}" for c in chars])
 
 def normalize_separators(s: String) -> String:
-  chars_to_String(replace_backslashes(string_to_Char_List(s)))
+  match s.partition_String("\\"):
+    case None: s
+    case Some(_):
+      chars_to_String(replace_backslashes(string_to_Char_List(s)))
 
 def is_forbidden_component_char(c: Char) -> Bool:
   match char_to_Int(c):
@@ -284,6 +275,8 @@ def has_trailing_space_or_dot(component: String) -> Bool:
 
 def valid_component(component: String) -> Bool:
   if component matches "":
+    True
+  elif component matches "." | "..":
     True
   elif is_drive_prefix(component):
     True

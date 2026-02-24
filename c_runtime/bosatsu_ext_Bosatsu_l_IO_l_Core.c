@@ -503,7 +503,7 @@ static int bsts_remove_recursive_impl(const char *path)
   return unlink(path);
 }
 
-static BValue bsts_core_read_text_effect(BValue pair)
+static BValue bsts_core_read_utf8_effect(BValue pair)
 {
   BValue handle_value = get_struct_index(pair, 0);
   BValue max_chars_value = get_struct_index(pair, 1);
@@ -524,7 +524,7 @@ static BValue bsts_core_read_text_effect(BValue pair)
   if (!bsts_int_arg_positive(max_chars_value, &max_chars))
   {
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_invalid_argument("read_text max_chars must be > 0"));
+        bsts_ioerror_invalid_argument("read_utf8 max_chars must be > 0"));
   }
 
   char *buf = (char *)malloc((size_t)max_chars + 1);
@@ -544,7 +544,7 @@ static BValue bsts_core_read_text_effect(BValue pair)
       return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
     }
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "reading text"));
+        bsts_ioerror_from_errno_default(errno, "reading utf8"));
   }
 
   if (!bsts_utf8_is_valid_prefix(buf, (int)read_count))
@@ -559,7 +559,7 @@ static BValue bsts_core_read_text_effect(BValue pair)
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(text));
 }
 
-static BValue bsts_core_write_text_effect(BValue pair)
+static BValue bsts_core_write_utf8_effect(BValue pair)
 {
   BValue handle_value = get_struct_index(pair, 0);
   BValue text_value = get_struct_index(pair, 1);
@@ -584,7 +584,7 @@ static BValue bsts_core_write_text_effect(BValue pair)
     if (wrote < view.len)
     {
       return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-          bsts_ioerror_from_errno_default(errno, "writing text"));
+          bsts_ioerror_from_errno_default(errno, "writing utf8"));
     }
   }
 
@@ -1084,14 +1084,14 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stderr()
   return bsts_core_make_handle(BSTS_HANDLE_STDERR, stderr, 0, 1, 0);
 }
 
-BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__text(BValue h, BValue max_chars)
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(BValue h, BValue max_chars)
 {
-  return bsts_prog_effect2(h, max_chars, bsts_core_read_text_effect);
+  return bsts_prog_effect2(h, max_chars, bsts_core_read_utf8_effect);
 }
 
-BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__text(BValue h, BValue s)
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__utf8(BValue h, BValue s)
 {
-  return bsts_prog_effect2(h, s, bsts_core_write_text_effect);
+  return bsts_prog_effect2(h, s, bsts_core_write_utf8_effect);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(BValue h)

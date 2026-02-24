@@ -56,8 +56,6 @@ object Predef {
     PackageName.parts("Bosatsu", "Num", "Float64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
-  private def ioStdPackageName: PackageName =
-    PackageName.parts("Bosatsu", "IO", "Std")
   private def ioCorePackageName: PackageName =
     PackageName.parts("Bosatsu", "IO", "Core")
 
@@ -344,31 +342,6 @@ object Predef {
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
       .add(
-        ioStdPackageName,
-        "print_impl",
-        FfiCall.Fn1(PredefImpl.prog_print(_))
-      )
-      .add(
-        ioStdPackageName,
-        "println_impl",
-        FfiCall.Fn1(PredefImpl.prog_println(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_err_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_err(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_errln_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_errln(_))
-      )
-      .add(
-        ioStdPackageName,
-        "read_stdin_utf8_bytes_impl",
-        FfiCall.Fn1(PredefImpl.prog_read_stdin_utf8_bytes(_))
-      )
-      .add(
         ioCorePackageName,
         "path_sep",
         FfiCall.Const(PredefImpl.core_path_sep)
@@ -378,13 +351,13 @@ object Predef {
       .add(ioCorePackageName, "stderr", FfiCall.Const(PredefImpl.core_stderr))
       .add(
         ioCorePackageName,
-        "read_text",
-        FfiCall.Fn2(PredefImpl.prog_core_read_text(_, _))
+        "read_utf8",
+        FfiCall.Fn2(PredefImpl.prog_core_read_utf8(_, _))
       )
       .add(
         ioCorePackageName,
-        "write_text",
-        FfiCall.Fn2(PredefImpl.prog_core_write_text(_, _))
+        "write_utf8",
+        FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
       )
       .add(
         ioCorePackageName,
@@ -781,18 +754,6 @@ object PredefImpl {
   private def ioerror_invalid_utf8(context: String): Value =
     ioerror_known(IOErrorTagInvalidUtf8, context)
 
-  private def asString(v: Value): String =
-    v match {
-      case Str(s) => s
-      case other  => sys.error(s"type error, expected String: $other")
-    }
-
-  private def asInt(v: Value): BigInteger =
-    v match {
-      case VInt(i) => i
-      case other   => sys.error(s"type error, expected Int: $other")
-    }
-
   private def prog_effect(arg: Value, fn: Value => Value): Value =
     SumValue(
       ProgTagEffect,
@@ -815,48 +776,6 @@ object PredefImpl {
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
-
-  def prog_print(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_println(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stdout.append(asString(v))
-          runtime.stdout.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_err(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_errln(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stderr.append(asString(v))
-          runtime.stderr.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
 
   private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
     val decoder =
@@ -955,30 +874,6 @@ object PredefImpl {
             }
         }
     }
-
-  def prog_read_stdin_utf8_bytes(size: Value): Value =
-    prog_effect(
-      size,
-      v => {
-        val requested = asInt(v)
-        val ioResult = currentProgRuntime.value match {
-          case Some(runtime) => read_utf8_chunk(runtime, requested)
-          case None          =>
-            if (requested.signum < 0)
-              Left(
-                ioerror_invalid_argument(
-                  s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
-                )
-              )
-            else Right("")
-        }
-
-        ioResult match {
-          case Right(str) => prog_pure(Str(str))
-          case Left(err)  => prog_raise_error(err)
-        }
-      }
-    )
 
   private val IOErrorTagNotFound = 0
   private val IOErrorTagAccessDenied = 1
@@ -1254,7 +1149,7 @@ object PredefImpl {
       }
     )
 
-  private def core_read_text_impl(
+  private def core_read_utf8_impl(
       handleValue: Value,
       maxCharsValue: Value
   ): Either[Value, Option[String]] =
@@ -1266,7 +1161,7 @@ object PredefImpl {
       }
       maxChars <- {
         if (maxCharsBI.signum <= 0)
-          Left(ioerror_invalid_argument("read_text max_chars must be > 0"))
+          Left(ioerror_invalid_argument("read_utf8 max_chars must be > 0"))
         else if (maxCharsBI.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
         else Right(maxCharsBI.intValue)
       }
@@ -1283,13 +1178,13 @@ object PredefImpl {
         case ReaderHandle(reader, closed) =>
           if (closed)
             Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
-          else readFromReader(reader, maxChars, "reading text from handle")
+          else readFromReader(reader, maxChars, "reading utf8 from handle")
         case HandleStdout | HandleStderr | WriterHandle(_, _) =>
           Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
       }
     } yield result
 
-  private def core_write_text_impl(
+  private def core_write_utf8_impl(
       handleValue: Value,
       textValue: Value
   ): Either[Value, Unit] =
@@ -1297,7 +1192,7 @@ object PredefImpl {
       handle <- asHandleValue(handleValue)
       text <- textValue match {
         case Str(s) => Right(s)
-        case _      => Left(ioerror_invalid_argument("expected String for write_text"))
+        case _      => Left(ioerror_invalid_argument("expected String for write_utf8"))
       }
       _ <- handle match {
         case HandleStdout =>
@@ -1331,7 +1226,7 @@ object PredefImpl {
         case WriterHandle(writer, closed) =>
           if (closed)
             Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
-          else writeToWriter(writer, text, "writing text to handle")
+          else writeToWriter(writer, text, "writing utf8 to handle")
         case HandleStdin | ReaderHandle(_, _) =>
           Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
       }
@@ -1477,12 +1372,12 @@ object PredefImpl {
         optionValue(stderrHandle.map(ExternalValue(_))) :: Nil
     )
 
-  def prog_core_read_text(handle: Value, maxChars: Value): Value =
+  def prog_core_read_utf8(handle: Value, maxChars: Value): Value =
     prog_effect2(
       handle,
       maxChars,
       (h, n) =>
-        core_read_text_impl(h, n) match {
+        core_read_utf8_impl(h, n) match {
           case Right(result) =>
             prog_pure(
               optionValue(result.map(Str(_)))
@@ -1492,12 +1387,12 @@ object PredefImpl {
         }
     )
 
-  def prog_core_write_text(handle: Value, text: Value): Value =
+  def prog_core_write_utf8(handle: Value, text: Value): Value =
     prog_effect2(
       handle,
       text,
       (h, t) =>
-        core_write_text_impl(h, t) match {
+        core_write_utf8_impl(h, t) match {
           case Right(_)  => prog_pure(UnitValue)
           case Left(err) => prog_raise_error(err)
         }
