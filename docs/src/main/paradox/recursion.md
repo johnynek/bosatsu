@@ -68,6 +68,10 @@ At a high level:
    https://github.com/johnynek/bosatsu/issues/104), so type-level recursion is
    also constrained to preserve totality.
 
+Recursion validation runs after typechecking on typed IR, and before typed
+normalization/rewrite phases. This keeps recursion diagnostics anchored to
+source tags while preserving a clear trust boundary before optimization.
+
 Tuple targets are useful for nested-recursive definitions where one argument is
 allowed to reset or increase only after an earlier argument decreases.
 

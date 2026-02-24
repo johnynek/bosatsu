@@ -341,7 +341,7 @@ final class SourceConverter(
         )
 
         (inExpr, lambda).parMapN { (in, lam) =>
-          // We rely on DefRecursionCheck to rule out bad recursions
+          // We rely on TypedExprRecursionCheck (post-typechecking) to rule out bad recursions
           val boundName = defstmt.name
           val rec =
             if (UnusedLetCheck.freeBound(lam).contains(boundName))
@@ -420,8 +420,8 @@ final class SourceConverter(
         success(resolveToVar(ident, decl, bound, topBound))
       case Match(_, arg, branches) =>
         /*
-         * The recursion kind is only there for DefRecursionCheck, once
-         * that passes, the expr only cares if lets are recursive or not
+         * The recursion kind on source match tags is used by
+         * TypedExprRecursionCheck before lowering/normalization.
          */
         def stripGuardWrappers(
             expr: Expr[Declaration]
@@ -2253,7 +2253,7 @@ final class SourceConverter(
             )
 
           val r = lam.map { (l: Expr[Declaration]) =>
-            // We rely on DefRecursionCheck to rule out bad recursions
+            // We rely on TypedExprRecursionCheck (post-typechecking) to rule out bad recursions
             val rec =
               if (UnusedLetCheck.freeBound(l).contains(boundName))
                 RecursionKind.Recursive
