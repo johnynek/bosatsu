@@ -189,18 +189,30 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         args.toList.parTraverse_(validateParsedPattern)
       case Declaration.LeftApply(arg, _, _, _) =>
         validateParsedPattern(arg)
+      case Declaration.Comment(_) | Declaration.CommentNB(_) =>
+        validUnit
+      case Declaration.Annotation(_, _) |
+          Declaration.Apply(_, _, _) |
+          Declaration.ApplyOp(_, _, _) |
+          Declaration.Literal(_) |
+          Declaration.IfElse(_, _) |
+          Declaration.Ternary(_, _, _) |
+          Declaration.TupleCons(_) |
+          Declaration.Var(_) |
+          Declaration.StringDecl(_) =>
+        // These can lower into a Match but do not carry parsed-pattern binders.
+        validUnit
       case Declaration.ListDecl(ListLang.Comprehension(_, binding, _, _)) =>
         validateParsedPattern(binding)
+      case Declaration.ListDecl(ListLang.Cons(_)) =>
+        validUnit
       case Declaration.DictDecl(ListLang.Comprehension(_, binding, _, _)) =>
         validateParsedPattern(binding)
-      case Declaration.ListDecl(_) | Declaration.DictDecl(_) =>
+      case Declaration.DictDecl(ListLang.Cons(_)) =>
         validUnit
       case Declaration.Parens(of) =>
         validateParsedMatchTag(of)
-      case Declaration.IfElse(_, _) | Declaration.Ternary(_, _, _) =>
-        // These lower to bool constructor matches and carry no parsed pattern.
-        validUnit
-      case _: Declaration.RecordConstructor =>
+      case Declaration.RecordConstructor(_, _, _) =>
         validUnit
       case other =>
         sys.error(s"unexpected declaration: $other")
