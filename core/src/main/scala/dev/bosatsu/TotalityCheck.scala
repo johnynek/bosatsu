@@ -242,131 +242,143 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         case _                                                 => false
       }
 
-    expr match {
-      case Annotation(e, _, _)                           => checkExpr(e)
-      case Generic(_, e)                                 => checkExpr(e)
-      case AnnotatedLambda(_, e, _)                      => checkExpr(e)
-      case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
-        Validated.valid(())
-      case App(fn, args, _, _)     =>
-        checkExpr(fn) *> args.traverse_(checkExpr)
-      case Let(_, e1, e2, _, _)    => checkExpr(e1) *> checkExpr(e2)
-      case Loop(args, body, _)     =>
-        args.traverse_ { case (_, init) => checkExpr(init) } *> checkExpr(body)
-      case Recur(args, _, _)       =>
-        args.traverse_(checkExpr)
-      case matchExpr @ Match(arg, branches, _) =>
-        val argA: TypedExpr[Declaration] = arg
-        val branchesA: NonEmptyList[TypedExpr.Branch[Declaration]] = branches
-        val scrutineeType = arg.getType
-        val uninhabitedMemo =
-          MutHashMap.empty[Pattern[Cons, Type], Boolean]
-        def isDefinitelyUninhabited(
-            p: Pattern[Cons, Type]
-        ): Boolean =
-          uninhabitedMemo.getOrElseUpdate(
-            p,
-            definitelyUninhabited(
-              Inhabitedness.checkMatch(scrutineeType, p, inEnv)
+    def loop(
+        expr: TypedExpr[Declaration]
+    ): ValidatedNel[ExprError[Declaration], Unit] =
+      expr match {
+        case Annotation(e, _, _)      => loop(e)
+        case Generic(_, e)            => loop(e)
+        case AnnotatedLambda(_, e, _) => loop(e)
+        case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
+          Validated.valid(())
+        case App(fn, args, _, _) =>
+          loop(fn) *> args.traverse_(loop)
+        case Let(_, e1, e2, _, _) =>
+          loop(e1) *> loop(e2)
+        case Loop(args, body, _) =>
+          args.traverse_ { case (_, init) => loop(init) } *> loop(body)
+        case Recur(args, _, _) =>
+          args.traverse_(loop)
+        case matchExpr @ Match(arg, branches, _) =>
+          val argA: TypedExpr[Declaration] = arg
+          val branchesA: NonEmptyList[TypedExpr.Branch[Declaration]] = branches
+          val scrutineeType0 = arg.getType
+          val freeScrutineeVars = Type.freeBoundTyVars(scrutineeType0 :: Nil).distinct
+          val scrutineeType =
+            Type.exists(
+              freeScrutineeVars.map(v => (v, Kind.Type)),
+              scrutineeType0
             )
-          )
-
-        val isUninhabitedScrutinee =
-          definitelyUninhabited(
-            Inhabitedness.check(scrutineeType, inEnv)
-          )
-        val allPatterns = branchesA.toList.map(_.pattern)
-        val unguardedPatterns = branchesA.toList.collect {
-          case branch if branch.guard.isEmpty => branch.pattern
-        }
-        val parsedValidation: Res[Unit] =
-          validateParsedMatchTag(matchExpr.tag)
-        val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
-          parsedValidation
-            .parProductR(allPatterns.parTraverse_(validatePattern))
-            .leftMap { nel =>
-              nel.map(err =>
-                InvalidPattern(matchExpr, err): ExprError[Declaration]
+          val uninhabitedMemo =
+            MutHashMap.empty[Pattern[Cons, Type], Boolean]
+          def isDefinitelyUninhabited(
+              p: Pattern[Cons, Type]
+          ): Boolean =
+            uninhabitedMemo.getOrElseUpdate(
+              p,
+              definitelyUninhabited(
+                Inhabitedness.checkMatch(scrutineeType, p, inEnv)
               )
-            }
-            .toValidated
+            )
 
-        val argAndBranchExprs = argA :: branchesA.toList.flatMap { branch =>
-          branch.guard.toList ::: (branch.expr :: Nil)
-        }
-        val recursion: ValidatedNel[ExprError[Declaration], Unit] =
-          argAndBranchExprs.traverse_(checkExpr)
-
-        val matchCoverage: ValidatedNel[ExprError[Declaration], Unit] =
-          // We must use andThen here because missing/unreachable assumes each
-          // pattern is structurally valid. Running set operations first can
-          // produce misleading diagnostics or throw.
-          patternsValidated.andThen { _ =>
-            val missing: ValidatedNel[ExprError[Declaration], Unit] = {
-              val mis =
-                if (isUninhabitedScrutinee) Nil
-                else
-                  patternSetOps
-                    .missingBranches(topList, unguardedPatterns)
-                    .filterNot(isDefinitelyUninhabited)
-              NonEmptyList.fromList(mis) match {
-                case Some(nel) =>
-                  Validated.invalidNel(
-                    NonTotalMatch(matchExpr, nel): ExprError[Declaration]
-                  )
-                case None => Validated.valid(())
-              }
-            }
-
-            val unreachable: ValidatedNel[ExprError[Declaration], Unit] = {
-              val unr = {
-                @annotation.tailrec
-                def loop(
-                    rem: List[TypedExpr.Branch[Declaration]],
-                    covered: List[Pattern[Cons, Type]],
-                    acc: List[Pattern[Cons, Type]]
-                ): List[Pattern[Cons, Type]] =
-                  rem match {
-                    case Nil            => acc.reverse
-                    case branch :: tail =>
-                      val isUnreachable = fromList(covered) match {
-                        case None      => false
-                        case Some(cov) =>
-                          patternSetOps
-                            .difference(branch.pattern, cov)
-                            .isEmpty
-                      }
-                      val covered1 =
-                        if (branch.guard.isEmpty) branch.pattern :: covered
-                        else covered
-                      val acc1 =
-                        if (isUnreachable) branch.pattern :: acc
-                        else acc
-                      loop(tail, covered1, acc1)
-                  }
-                loop(branchesA.toList, Nil, Nil)
-              }
-              NonEmptyList.fromList(unr) match {
-                case Some(nel) =>
-                  Validated.invalidNel(
-                    UnreachableBranches(
-                      matchExpr,
-                      nel
-                    ): ExprError[Declaration]
-                  )
-                case None => Validated.valid(())
-              }
-            }
-
-            missing *> unreachable
+          val isUninhabitedScrutinee =
+            definitelyUninhabited(
+              Inhabitedness.check(scrutineeType, inEnv)
+            )
+          val allPatterns = branchesA.toList.map(_.pattern)
+          val unguardedPatterns = branchesA.toList.collect {
+            case branch if branch.guard.isEmpty => branch.pattern
           }
+          val parsedValidation: Res[Unit] =
+            validateParsedMatchTag(matchExpr.tag)
+          val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
+            parsedValidation
+              .parProductR(allPatterns.parTraverse_(validatePattern))
+              .leftMap { nel =>
+                nel.map(err =>
+                  InvalidPattern(matchExpr, err): ExprError[Declaration]
+                )
+              }
+              .toValidated
 
-        (recursion *> matchCoverage).leftMap { errs =>
+          val argAndBranchExprs = argA :: branchesA.toList.flatMap { branch =>
+            branch.guard.toList ::: (branch.expr :: Nil)
+          }
+          val recursion: ValidatedNel[ExprError[Declaration], Unit] =
+            argAndBranchExprs.traverse_(loop)
+
+          val matchCoverage: ValidatedNel[ExprError[Declaration], Unit] =
+            // We must use andThen here because missing/unreachable assumes each
+            // pattern is structurally valid. Running set operations first can
+            // produce misleading diagnostics or throw.
+            patternsValidated.andThen { _ =>
+              val missing: ValidatedNel[ExprError[Declaration], Unit] = {
+                val mis =
+                  if (isUninhabitedScrutinee) Nil
+                  else
+                    patternSetOps
+                      .missingBranches(topList, unguardedPatterns)
+                      .filterNot(isDefinitelyUninhabited)
+                NonEmptyList.fromList(mis) match {
+                  case Some(nel) =>
+                    Validated.invalidNel(
+                      NonTotalMatch(matchExpr, nel): ExprError[Declaration]
+                    )
+                  case None => Validated.valid(())
+                }
+              }
+
+              val unreachable: ValidatedNel[ExprError[Declaration], Unit] = {
+                val unr = {
+                  @annotation.tailrec
+                  def loop(
+                      rem: List[TypedExpr.Branch[Declaration]],
+                      covered: List[Pattern[Cons, Type]],
+                      acc: List[Pattern[Cons, Type]]
+                  ): List[Pattern[Cons, Type]] =
+                    rem match {
+                      case Nil            => acc.reverse
+                      case branch :: tail =>
+                        val isUnreachable = fromList(covered) match {
+                          case None      => false
+                          case Some(cov) =>
+                            patternSetOps
+                              .difference(branch.pattern, cov)
+                              .isEmpty
+                        }
+                        val covered1 =
+                          if (branch.guard.isEmpty) branch.pattern :: covered
+                          else covered
+                        val acc1 =
+                          if (isUnreachable) branch.pattern :: acc
+                          else acc
+                        loop(tail, covered1, acc1)
+                    }
+                  loop(branchesA.toList, Nil, Nil)
+                }
+                NonEmptyList.fromList(unr) match {
+                  case Some(nel) =>
+                    Validated.invalidNel(
+                      UnreachableBranches(
+                        matchExpr,
+                        nel
+                      ): ExprError[Declaration]
+                    )
+                  case None => Validated.valid(())
+                }
+              }
+
+              missing *> unreachable
+            }
+
+          (recursion *> matchCoverage).leftMap { errs =>
             val errList = errs.toList
             // distinct can't reduce to 0
             NonEmptyList.fromListUnsafe(errList.distinct)
           }
-    }
+      }
+
+    loop(expr)
   }
 
   private val topList = WildCard :: Nil

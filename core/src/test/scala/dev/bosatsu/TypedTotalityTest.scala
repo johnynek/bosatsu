@@ -27,6 +27,21 @@ class TypedTotalityTest extends munit.FunSuite {
       }
     }
 
+  private def assertNonTotal(statement: String, letName: String): Unit =
+    checkEnvExpr(statement) { (env, lets) =>
+      val expr = findLetExpr(lets, letName)
+      TotalityCheck(env).checkExpr(expr) match {
+        case Validated.Invalid(errs) =>
+          val hasNonTotal = errs.exists {
+            case TotalityCheck.NonTotalMatch(_, _) => true
+            case _                                 => false
+          }
+          assert(hasNonTotal, errs.toList.mkString(", "))
+        case Validated.Valid(()) =>
+          fail("expected non-total match error")
+      }
+    }
+
   test("Result[Never, Value] with only Ok branch is total") {
     assertTotal(
       """#
@@ -87,16 +102,29 @@ def vacuous(z: Never) -> Never:
     )
   }
 
-  test("forall scrutinee pattern binding typechecks") {
-    checkEnvExpr("""#
+  test("forall scrutinee with phantom branch parameter is not total") {
+    assertNonTotal(
+      """#
 enum Result[e, r]: Err(err: r), Ok(ok: r)
 
 def is_good(res: forall e. Result[e, r]) -> r:
   Ok(ok) = res
   ok
-""") { (_, lets) =>
-      val hasIsGood = lets.exists(_._1 == Name("is_good"))
-      assert(hasIsGood)
-    }
+""",
+      "is_good"
+    )
+  }
+
+  test("forall scrutinee can prove totality when existential branch carries e") {
+    assertTotal(
+      """#
+enum Result[e, r]: Err(err: e), Ok(ok: r)
+
+def is_good(res: forall e. Result[e, r]) -> r:
+  Ok(ok) = res
+  ok
+""",
+      "is_good"
+    )
   }
 }
