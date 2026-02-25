@@ -41,6 +41,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def evalLets(
       thisPack: PackageName,
+      sourceHashIdent: String,
       lets: List[(Bindable, RecursionKind, TypedExpr[T])]
   ): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr[Unit])] =
@@ -49,7 +50,15 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           lets
             .traverse { case (name, rec, te) =>
               Matchless
-                .fromLet((), name, rec, te, gdr, c)
+                .fromLet(
+                  from = (),
+                  name = name,
+                  rec = rec,
+                  te = te,
+                  sourceHashIdent = sourceHashIdent,
+                  variantOf = gdr,
+                  makeAnon = c
+                )
                 .map((name, _))
             }
         }
@@ -72,7 +81,11 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     envCache.getOrElseUpdate(
       packName, {
         val pack = pm.toMap(packName)
-        externalEnv(pack) ++ evalLets(packName, pack.lets)
+        val sourceHashIdent =
+          Package
+            .sourceHashIdentOf(pack)
+            .getOrElse(Matchless.SourceInfo.emptyHashIdent)
+        externalEnv(pack) ++ evalLets(packName, sourceHashIdent, pack.lets)
       }
     )
 

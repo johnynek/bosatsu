@@ -140,6 +140,15 @@ object Package {
   ]
   type Inferred = Typed[Declaration]
 
+  /** Optional metadata attached to implementation packages.
+    * We keep the original Program#from payload for existing tooling and add
+    * package-level provenance needed by coverage.
+    */
+  final case class TypedMetadata(
+      originalFrom: Any,
+      sourceHashIdent: Option[String]
+  )
+
   type Header =
     (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
 
@@ -232,6 +241,30 @@ object Package {
 
   def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
+
+  def sourceHashIdentOf[A](inferred: Typed[A]): Option[String] =
+    inferred.program._1.from match {
+      case TypedMetadata(_, sourceHashIdent) => sourceHashIdent
+      case _                                 => None
+    }
+
+  def withSourceHashIdent[A](
+      inferred: Typed[A],
+      sourceHashIdent: Option[String]
+  ): Typed[A] = {
+    val prog = inferred.program._1
+    val originalFrom = prog.from match {
+      case TypedMetadata(from, _) => from
+      case other                  => other
+    }
+    val nextFrom =
+      sourceHashIdent match {
+        case Some(_) => TypedMetadata(originalFrom, sourceHashIdent)
+        case None    => originalFrom
+      }
+
+    inferred.copy(program = (prog.copy(from = nextFrom), inferred.program._2))
+  }
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))

@@ -18,7 +18,7 @@ class MemoryMain[G[_]](
 
   def runWith(
       files: Iterable[(Chain[String], String)],
-      packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
+      packages: Iterable[(Chain[String], List[Package.Typed[Any]])] = Nil,
       interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
   )(
       cmd: List[String]
@@ -42,7 +42,7 @@ object MemoryMain {
   sealed abstract class FileContent
   object FileContent {
     case class Str(str: String) extends FileContent
-    case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
+    case class Packages(ps: List[Package.Typed[Any]]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
     case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
   }
@@ -137,7 +137,7 @@ object MemoryMain {
 
     def from[G[_]](
         files: Iterable[(Chain[String], String)],
-        packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
+        packages: Iterable[(Chain[String], List[Package.Typed[Any]])] = Nil,
         interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
     )(implicit G: MonadError[G, Throwable]): G[State] =
       for {
@@ -319,7 +319,7 @@ object MemoryMain {
         else None
       }
 
-      def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]] =
+      def readPackages(paths: List[Path]): F[List[Package.Typed[Any]]] =
         StateT
           .get[G, MemoryMain.State]
           .flatMap { files =>
@@ -329,7 +329,7 @@ object MemoryMain {
                   case Some(Right(MemoryMain.FileContent.Packages(res))) =>
                     moduleIOMonad.pure(res)
                   case other =>
-                    moduleIOMonad.raiseError[List[Package.Typed[Unit]]](
+                    moduleIOMonad.raiseError[List[Package.Typed[Any]]](
                       new Exception(s"expect Packages content, found: $other")
                     )
                 }

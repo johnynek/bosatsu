@@ -1,8 +1,9 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.Eq
+import cats.{Eq, Foldable}
 import cats.data.NonEmptyList
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -107,7 +108,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield cats.Functor[TypedExpr].map(res)(_ => ())
     }
 
     forAll(
@@ -148,7 +149,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield cats.Functor[TypedExpr].map(res)(_ => ())
     }
 
     testFn(loopExpr)
@@ -195,7 +196,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield cats.Functor[TypedExpr].map(res)(_ => ())
     }
 
     testFn(guardedMatch)
@@ -248,7 +249,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       p.traverse(ProtoConverter.packageToProto)
     def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
       ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
-        p.sortBy(_.name)
+        p.sortBy(_.name).map(_.void)
       }
 
     val tf = Package.typedFunctor
@@ -279,7 +280,7 @@ bar = 1
         p.traverse(ProtoConverter.packageToProto)
       def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
         ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
-          p.sortBy(_.name)
+          p.sortBy(_.name).map(_.void)
         }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
@@ -501,6 +502,64 @@ main = dep_value
       case Failure(err) => fail(s"failed to decode legacy interface: $err")
     }
     assertEquals(firstConstructorDefaultType(decodedLegacy), None)
+  }
+
+  private def tagRegion(tag: Any): Option[Region] =
+    tag match {
+      case r: Region        => Some(r)
+      case Some(r: Region) => Some(r)
+      case _                => None
+    }
+
+  private def exprHasRegionTag(te: TypedExpr[Any]): Boolean =
+    Foldable[TypedExpr].exists(te)(tag => tagRegion(tag).nonEmpty)
+
+  test("package proto preserves source hash and typed expression regions") {
+    val region = Region(11, 19)
+    val hashIdent = Algo.hashBytes[Algo.Blake3]("hello".getBytes("UTF-8")).toIdent
+
+    forAll(Generators.genPackage(Gen.const(region), 3)) { packMap =>
+      val packs = packMap.values.toList
+      if (packs.nonEmpty) {
+        val pack = Package.withSourceHashIdent(packs.head, Some(hashIdent))
+        val roundTripped = for {
+          protoPack <- ProtoConverter.packageToProto(pack)
+          decoded <- ProtoConverter.packagesFromProto(Nil, protoPack :: Nil)
+        } yield (protoPack, decoded._2.head)
+
+        assert(roundTripped.isSuccess, roundTripped.toString)
+        val (protoPack, decodedPack) = roundTripped.get
+        assertEquals(Package.sourceHashIdentOf(decodedPack), Some(hashIdent))
+
+        val protoHasRegion = protoPack.expressions.exists(_.region.nonEmpty)
+        val decodedHasRegion =
+          decodedPack.lets.exists { case (_, _, te) =>
+            exprHasRegionTag(te)
+          }
+        assertEquals(decodedHasRegion, protoHasRegion)
+      }
+    }
+  }
+
+  test("package proto decodes missing source hash and regions as absent") {
+    val region = Region(1, 2)
+    forAll(Generators.genPackage(Gen.const(region), 2)) { packMap =>
+      val packs = packMap.values.toList
+      if (packs.nonEmpty) {
+        val protoPackTry = ProtoConverter.packageToProto(packs.head)
+        assert(protoPackTry.isSuccess, protoPackTry.toString)
+
+        val legacyPack = protoPackTry.get.copy(
+          sourceHash = None,
+          expressions = protoPackTry.get.expressions.map(_.copy(region = None))
+        )
+
+        val decoded = ProtoConverter.packagesFromProto(Nil, legacyPack :: Nil)
+        assert(decoded.isSuccess, decoded.toString)
+        val decodedPack = decoded.get._2.head
+        assertEquals(Package.sourceHashIdentOf(decodedPack), None)
+      }
+    }
   }
 
 }

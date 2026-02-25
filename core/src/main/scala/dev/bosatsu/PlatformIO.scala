@@ -58,7 +58,7 @@ trait PlatformIO[F[_], Path] {
       case None    => moduleIOMonad.raiseError(new Exception(msg))
     }
 
-  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
+  def readPackages(paths: List[Path]): F[List[Package.Typed[Any]]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 

@@ -320,6 +320,11 @@ message MatchExpr {
   repeated Branch branches = 2;
 }
 
+message Region {
+  int32 start = 1;
+  int32 end = 2;
+}
+
 message TypedExpr {
   oneof value {
     GenericExpr genericExpr = 1;
@@ -333,6 +338,7 @@ message TypedExpr {
     LoopExpr loopExpr = 9;
     RecurExpr recurExpr = 10;
   }
+  Region region = 11;
 }
 
 message Let {
@@ -344,6 +350,10 @@ message Let {
 message ExternalDef {
   int32 name = 1;
   int32 typeOf = 2;
+}
+
+message PackageSourceHash {
+  string ident = 1;
 }
 
 message Package {
@@ -358,6 +368,7 @@ message Package {
   repeated ExportedName exports = 8;
   repeated Let lets = 9;
   repeated ExternalDef externalDefs = 10;
+  PackageSourceHash sourceHash = 11;
 }
 
 message Packages {

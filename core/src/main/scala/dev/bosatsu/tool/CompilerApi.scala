@@ -11,6 +11,7 @@ import dev.bosatsu.{
   Par
 }
 import dev.bosatsu.LocationMap.Colorize
+import dev.bosatsu.hashing.Algo
 import org.typelevel.paiges.Doc
 
 import dev.bosatsu.IorMethods.IorExtension
@@ -85,6 +86,12 @@ object CompilerApi {
       packsString = packs.map { case ((path, lm), parsed) =>
         ((platformIO.pathToString(path), lm), parsed)
       }
+      sourceHashes = packs.map { case ((_, lm), parsed) =>
+        val hash = Algo
+          .hashBytes[Algo.Blake3](lm.fromString.getBytes("UTF-8"))
+          .toIdent
+        (parsed.name, hash)
+      }.toList.toMap
       checked =
         PackageMap.typeCheckParsed[String](packsString, ifs, "predef", compileOptions)
       // TODO, we could use applicative, to report both duplicate packages and the other
@@ -92,11 +99,20 @@ object CompilerApi {
       res <-
         checked.strictToValidated match {
           case Validated.Valid(p) =>
+            val withHashes =
+              PackageMap.fromIterable(
+                p.toMap.valuesIterator.map { pack =>
+                  val sourceHashOpt =
+                    if (pack.name == PackageName.PredefName) None
+                    else sourceHashes.get(pack.name)
+                  Package.withSourceHashIdent(pack, sourceHashOpt)
+                }.toList
+              )
             val pathToName: NonEmptyList[(Path, PackageName)] =
               packs.map { case ((path, _), p) =>
                 (path, p.name)
               }
-            moduleIOMonad.pure((p, pathToName))
+            moduleIOMonad.pure((withHashes, pathToName))
           case Validated.Invalid(errs) =>
             val sourceMap = PackageMap.buildSourceMap(packs)
             moduleIOMonad.raiseError(

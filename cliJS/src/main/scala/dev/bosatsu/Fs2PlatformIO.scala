@@ -207,7 +207,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
         }
       }
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Typed[Any]]] =
     paths
       .parTraverse { path =>
         for {

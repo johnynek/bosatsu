@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.{Monad, Monoid, Order}
 import cats.data.{Chain, NonEmptyList, WriterT}
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
@@ -10,7 +11,36 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
-  sealed abstract class Expr[+A] derives CanEqual
+  case class SourceInfo(packageHashIdent: String, region: Region)
+  object SourceInfo {
+    val emptyRegion: Region = Region(0, 0)
+    val emptyHashIdent: String =
+      Algo.hashBytes[Algo.Blake3](Array.emptyByteArray).toIdent
+    val empty: SourceInfo = SourceInfo(emptyHashIdent, emptyRegion)
+  }
+
+  private val sourceInfoTable =
+    new java.util.WeakHashMap[AnyRef, SourceInfo]()
+
+  private def isSharedSingleton(value: AnyRef): Boolean =
+    (value eq ZeroNat) || (value eq SuccNat) || (value eq TrueConst)
+
+  private def updateSourceInfo(value: AnyRef, sourceInfo: SourceInfo): Unit =
+    sourceInfoTable.synchronized {
+      if (!isSharedSingleton(value)) {
+        sourceInfoTable.put(value, sourceInfo): Unit
+      }
+    }
+
+  private def lookupSourceInfo(value: AnyRef): SourceInfo =
+    sourceInfoTable.synchronized {
+      Option(sourceInfoTable.get(value)).getOrElse(SourceInfo.empty)
+    }
+
+  sealed abstract class Expr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo =
+      lookupSourceInfo(this)
+  }
   object Expr {
     private def exprTag[A](expr: Expr[A]): Int =
       expr match {
@@ -1102,6 +1132,9 @@ object Matchless {
   // evaluating these CAN have side effects of mutating LocalAnon
   // variables.
   sealed abstract class BoolExpr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo =
+      lookupSourceInfo(this)
+
     final def &&[A1 >: A](that: BoolExpr[A1]): BoolExpr[A1] =
       (this, that) match {
         case (TrueConst, r) => r
@@ -1851,18 +1884,102 @@ object Matchless {
       case NonEmptyList(h0, h1 :: t)   => h0 :: stopAt(NonEmptyList(h1, t))(fn)
     }
 
+  private def sourceRegionFromTag(tag: Any): Option[Region] =
+    tag match {
+      case r: Region        => Some(r)
+      case Some(r: Region) => Some(r)
+      case d: Declaration   => Some(d.region)
+      case _                => None
+    }
+
+  private def annotateSourceInfoExpr[A](
+      expr: Expr[A],
+      sourceInfo: SourceInfo
+  ): Unit = {
+    updateSourceInfo(expr, sourceInfo)
+    expr match {
+      case Lambda(captures, _, _, body) =>
+        captures.foreach(annotateSourceInfoExpr(_, sourceInfo))
+        annotateSourceInfoExpr(body, sourceInfo)
+      case WhileExpr(cond, effectExpr, _) =>
+        annotateSourceInfoBool(cond, sourceInfo)
+        annotateSourceInfoExpr(effectExpr, sourceInfo)
+      case App(fn, args) =>
+        annotateSourceInfoExpr(fn, sourceInfo)
+        args.toList.foreach(annotateSourceInfoExpr(_, sourceInfo))
+      case Let(_, value, in) =>
+        annotateSourceInfoExpr(value, sourceInfo)
+        annotateSourceInfoExpr(in, sourceInfo)
+      case LetMut(_, span) =>
+        annotateSourceInfoExpr(span, sourceInfo)
+      case If(cond, thenExpr, elseExpr) =>
+        annotateSourceInfoBool(cond, sourceInfo)
+        annotateSourceInfoExpr(thenExpr, sourceInfo)
+        annotateSourceInfoExpr(elseExpr, sourceInfo)
+      case Always(cond, thenExpr) =>
+        annotateSourceInfoBool(cond, sourceInfo)
+        annotateSourceInfoExpr(thenExpr, sourceInfo)
+      case PrevNat(of) =>
+        annotateSourceInfoExpr(of, sourceInfo)
+      case ge: GetEnumElement[?] =>
+        annotateSourceInfoExpr(ge.arg, sourceInfo)
+      case gs: GetStructElement[?] =>
+        annotateSourceInfoExpr(gs.arg, sourceInfo)
+      case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
+          LocalAnonMut(_) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+          SuccNat | ZeroNat =>
+        ()
+    }
+  }
+
+  private def annotateSourceInfoBool[A](
+      boolExpr: BoolExpr[A],
+      sourceInfo: SourceInfo
+  ): Unit = {
+    updateSourceInfo(boolExpr, sourceInfo)
+    boolExpr match {
+      case EqualsLit(expr, _) =>
+        annotateSourceInfoExpr(expr, sourceInfo)
+      case EqualsNat(expr, _) =>
+        annotateSourceInfoExpr(expr, sourceInfo)
+      case And(left, right) =>
+        annotateSourceInfoBool(left, sourceInfo)
+        annotateSourceInfoBool(right, sourceInfo)
+      case CheckVariant(expr, _, _, _) =>
+        annotateSourceInfoExpr(expr, sourceInfo)
+      case SetMut(_, expr) =>
+        annotateSourceInfoExpr(expr, sourceInfo)
+      case LetBool(_, value, in) =>
+        annotateSourceInfoExpr(value, sourceInfo)
+        annotateSourceInfoBool(in, sourceInfo)
+      case LetMutBool(_, in) =>
+        annotateSourceInfoBool(in, sourceInfo)
+      case TrueConst =>
+        ()
+    }
+  }
+
+  private def withSourceInfo[A](
+      expr: Expr[A],
+      sourceInfo: SourceInfo
+  ): Expr[A] = {
+    annotateSourceInfoExpr(expr, sourceInfo)
+    expr
+  }
+
   // same as fromLet below, but uses RefSpace
   def fromLet[A, B: Order](
       from: B,
       name: Bindable,
       rec: RecursionKind,
-      te: TypedExpr[A]
+      te: TypedExpr[A],
+      sourceHashIdent: String = SourceInfo.emptyHashIdent
   )(
       variantOf: (PackageName, Constructor) => Option[DataRepr]
   ): Expr[B] =
     (for {
       c <- RefSpace.allocCounter
-      expr <- fromLet(from, name, rec, te, variantOf, c)
+      expr <- fromLet(from, name, rec, te, sourceHashIdent, variantOf, c)
     } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
@@ -1871,6 +1988,7 @@ object Matchless {
       name: Bindable,
       rec: RecursionKind,
       te: TypedExpr[A],
+      sourceHashIdent: String,
       variantOf: (PackageName, Constructor) => Option[DataRepr],
       makeAnon: F[Long]
   ): F[Expr[B]] = {
@@ -4087,8 +4205,14 @@ object Matchless {
       }
     }
 
+    val rootSourceInfo = SourceInfo(
+      sourceHashIdent,
+      sourceRegionFromTag(te.tag).getOrElse(SourceInfo.emptyRegion)
+    )
+
     loopLetVal(name, te, rec, LambdaState(None, Map.empty))
       .map(reuseConstructors(_))
+      .map(withSourceInfo(_, rootSourceInfo))
   }
 
   // toy matcher to see the structure
