@@ -57,12 +57,15 @@
 
 ### Checkpoint 2
 - Change:
-  - Investigated additional hotspots (`LongMap` mutations/lookups, dynamic dispatch stubs) with async-profiler.
-  - No further low-risk changes produced a clear significant gain beyond checkpoint 1.
+  - Small integer fast-path cleanup in `Predef` arithmetic (`addInt`, `subInt`, `mulInt`) to avoid duplicate `longValue` extraction in overflow checks.
+  - JSON runtime compatibility fix for new int representation in `ValueToJson`:
+    - `Bosatsu/Json::JInt` encoding now accepts both `java.lang.Integer` and `java.math.BigInteger`.
+    - JSON integer decoding for `Int` and `Bosatsu/Json::JInt` now uses `VInt(...)` to normalize into the mixed int representation.
 - Relative perf vs previous:
-  - No additional checkpoint-worthy improvement.
+  - No measured throughput change (correctness/cleanup checkpoint).
 - Test status:
-  - N/A (no extra commit-worthy change).
+  - `sbt coreJVM/test`: passed (1368 passed, 0 failed).
+  - `sbt cli/test`: passed (57 passed, 0 failed).
 
 ### Checkpoint 3
 - Change:

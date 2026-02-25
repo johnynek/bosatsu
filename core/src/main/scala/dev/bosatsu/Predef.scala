@@ -483,9 +483,11 @@ object PredefImpl {
   private def addInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
     (a, b) match {
       case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val sum = ai.longValue() + bi.longValue()
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val sum = aiL + biL
         if (sum >= MinIntLong && sum <= MaxIntLong) intValue(sum.toInt)
-        else BigInteger.valueOf(ai.longValue()).add(BigInteger.valueOf(bi.longValue()))
+        else BigInteger.valueOf(aiL).add(BigInteger.valueOf(biL))
       case _ =>
         intFromBigInteger(Value.intToBigInteger(a).add(Value.intToBigInteger(b)))
     }
@@ -493,10 +495,12 @@ object PredefImpl {
   private def subInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
     (a, b) match {
       case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val diff = ai.longValue() - bi.longValue()
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val diff = aiL - biL
         if (diff >= MinIntLong && diff <= MaxIntLong) intValue(diff.toInt)
-        else BigInteger.valueOf(ai.longValue()).subtract(
-            BigInteger.valueOf(bi.longValue())
+        else BigInteger.valueOf(aiL).subtract(
+            BigInteger.valueOf(biL)
           )
       case _ =>
         intFromBigInteger(
@@ -507,10 +511,12 @@ object PredefImpl {
   private def mulInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
     (a, b) match {
       case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val prod = ai.longValue() * bi.longValue()
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val prod = aiL * biL
         if (prod >= MinIntLong && prod <= MaxIntLong) intValue(prod.toInt)
-        else BigInteger.valueOf(ai.longValue()).multiply(
-            BigInteger.valueOf(bi.longValue())
+        else BigInteger.valueOf(aiL).multiply(
+            BigInteger.valueOf(biL)
           )
       case _ =>
         intFromBigInteger(

@@ -397,6 +397,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   }
                 case s: SumValue if s.variant == 3 =>
                   s.value.values match {
+                    case Array(ExternalValue(v: java.lang.Integer)) =>
+                      Right(Json.JNumberStr(v.toString))
                     case Array(ExternalValue(v: BigInteger)) =>
                       Right(Json.JNumberStr(v.toString))
                     case _ =>
@@ -671,7 +673,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             Eval.later(tpe match {
               case Type.IntType => {
                 case Json.JBigInteger(b) =>
-                  Right(ExternalValue(b))
+                  Right(VInt(b))
                 case other =>
                   Left(IllTypedJson(revPath.reverse, tpe, other))
               }
@@ -813,7 +815,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       Right(
                         SumValue(
                           3,
-                          ProductValue.single(ExternalValue(new BigInteger(str)))
+                          ProductValue.single(VInt(new BigInteger(str)))
                         )
                       )
                     else
