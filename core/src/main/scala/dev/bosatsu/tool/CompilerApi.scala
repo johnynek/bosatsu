@@ -55,7 +55,12 @@ object CompilerApi {
 
         if (useInternalPredef) {
           platformIO.moduleIOMonad.pure(
-            (PackageMap.fromIterable(PackageMap.predefCompiled :: Nil), Nil)
+            (
+              PackageMap.fromIterable(
+                PackageMap.predefCompiledForMode(compileOptions.mode) :: Nil
+              ),
+              Nil
+            )
           )
         } else {
           platformIO.moduleIOMonad.pure((PackageMap.empty, Nil))

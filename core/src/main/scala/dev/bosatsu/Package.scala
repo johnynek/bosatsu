@@ -510,9 +510,25 @@ object Package {
     }
   }
 
-  /** The parsed representation of the predef.
-    */
-  lazy val predefPackage: Package.Parsed =
+  private val todoName = Identifier.Name("todo")
+  private val todoArgName = Identifier.Name("ignore")
+
+  private val todoStatement: Statement.ExternalDef =
+    Statement.ExternalDef(
+      name = todoName,
+      typeArgs = None,
+      params =
+        (todoArgName, TypeRef.TypeVar("x")) :: Nil,
+      result = TypeRef.TypeForAll(
+        NonEmptyList.one((TypeRef.TypeVar("a"), None)),
+        TypeRef.TypeVar("a")
+      )
+    )(Region(0, 1))
+
+  private val todoExport: ExportedName.Binding[Unit] =
+    ExportedName.Binding(todoName, ())
+
+  private lazy val predefEmitPackage: Package.Parsed =
     parser(None).parse(Predef.predefString) match {
       case Right((_, pack)) =>
         // Make function defs:
@@ -551,6 +567,24 @@ object Package {
         System.err.println(errorMsg)
         sys.error(errorMsg)
     }
+
+  private lazy val predefTypeCheckPackage: Package.Parsed =
+    predefEmitPackage.copy(
+      // `todo` is type-check only: it has no runtime implementation.
+      exports = todoExport :: predefEmitPackage.exports,
+      program = todoStatement :: predefEmitPackage.program
+    )
+
+  def predefPackageForMode(mode: CompileOptions.Mode): Package.Parsed =
+    mode match {
+      case CompileOptions.Mode.Emit          => predefEmitPackage
+      case CompileOptions.Mode.TypeCheckOnly => predefTypeCheckPackage
+    }
+
+  /** The parsed representation of the runtime predef.
+    */
+  lazy val predefPackage: Package.Parsed =
+    predefPackageForMode(CompileOptions.Mode.Emit)
 
   implicit val documentPackage: Document[Package.Typed[Any]] =
     new Document[Package.Typed[Any]] {
