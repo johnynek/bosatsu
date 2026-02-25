@@ -5,6 +5,7 @@ import cats.data.{Chain, NonEmptyList, WriterT}
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
+import scala.collection.mutable
 
 import Identifier.{Bindable, Constructor}
 
@@ -19,8 +20,19 @@ object Matchless {
     val empty: SourceInfo = SourceInfo(emptyHashIdent, emptyRegion)
   }
 
+  private final class RefKey(val value: AnyRef) {
+    override def hashCode: Int =
+      System.identityHashCode(value)
+
+    override def equals(that: Any): Boolean =
+      that match {
+        case r: RefKey => value eq r.value
+        case _         => false
+      }
+  }
+
   private val sourceInfoTable =
-    new java.util.WeakHashMap[AnyRef, SourceInfo]()
+    mutable.HashMap.empty[RefKey, SourceInfo]
 
   private def isSharedSingleton(value: AnyRef): Boolean =
     (value eq ZeroNat) || (value eq SuccNat) || (value eq TrueConst)
@@ -28,13 +40,13 @@ object Matchless {
   private def updateSourceInfo(value: AnyRef, sourceInfo: SourceInfo): Unit =
     sourceInfoTable.synchronized {
       if (!isSharedSingleton(value)) {
-        sourceInfoTable.put(value, sourceInfo): Unit
+        sourceInfoTable.update(new RefKey(value), sourceInfo)
       }
     }
 
   private def lookupSourceInfo(value: AnyRef): SourceInfo =
     sourceInfoTable.synchronized {
-      Option(sourceInfoTable.get(value)).getOrElse(SourceInfo.empty)
+      sourceInfoTable.get(new RefKey(value)).getOrElse(SourceInfo.empty)
     }
 
   sealed abstract class Expr[+A] derives CanEqual {
