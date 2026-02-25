@@ -1,8 +1,10 @@
 package dev.bosatsu
 
 import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
+import scala.concurrent.duration.DurationInt
 
 class Z3SolverIntegrationTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
 
   private def parseFirstStatus(stdout: String): Option[String] =
     stdout.linesIterator
