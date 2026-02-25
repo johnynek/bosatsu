@@ -149,7 +149,14 @@ val left: Indy[(MatchMode, NonBinding)] =
 Operationally, this means:
 1. `def loop(x): ...` still parses as a definition name because it goes through identifier parsing, not `matchP`.
 2. `loop x:` in recursion-header position is parsed as `MatchMode.Loop`.
-3. `loop x` without `:` in a context expecting recursion header is a syntax error (with parser hints), not a silent fallback to variable parsing.
+3. `loop` as a local value/binder name is also legal, for example:
+
+```bosatsu
+loop = x -> fn(x)
+loop(12)
+```
+
+4. `loop x` without `:` in a context expecting recursion header is a syntax error (with parser hints), not a silent fallback to variable parsing.
 
 ### 2. Typed recursion checker integration
 Extend `TypedExprRecursionCheck` so `Loop` and `Recur` both enter recursive checking paths. Existing recur-target legality, lexicographic checks, and shadowing checks stay unchanged.
@@ -204,6 +211,7 @@ This preserves the existing trust boundary: recursion legality is validated befo
    2. `TypedExprRecursionCheckTest.scala`: allow tail-recursive `loop`; reject non-tail-recursive `loop`; verify `recur` still allows non-tail recursion; verify tuple `loop` still uses existing lexicographic rules; verify `def loop(...)` remains legal.
    3. `ErrorMessageTest.scala`: assert new diagnostic text.
    4. `LegacyDefRecursionCheck.scala` and `WellTypedGen.scala`: mechanical updates for the new declaration match-mode type so test code compiles.
+   5. `ParserTest.scala`: explicitly verify `loop = x -> fn(x); loop(12)` parses to ordinary binding + apply.
 6. In docs:
    1. `docs/src/main/paradox/recursion.md`: add `loop` semantics and examples.
    2. `docs/src/main/paradox/language_guide.md`: document when to use `recur` vs `loop`.
@@ -212,7 +220,8 @@ This preserves the existing trust boundary: recursion legality is validated befo
 1. Parser coverage:
    1. `loop x:` and `loop (a, b):` parse and pretty-print.
    2. `def loop(x): ...` still parses.
-   3. malformed `loop` headers produce useful parse hints.
+   3. `loop = x -> fn(x)` and `loop(12)` still parse as normal value binding/application.
+   4. malformed `loop` headers produce useful parse hints.
 2. Recursion checker coverage:
    1. Tail-recursive accumulator loop succeeds.
    2. Non-tail recursion in branch result (`Succ(f(x))`) fails in `loop`.
