@@ -571,6 +571,53 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     loop(expr, Nil)
   }
 
+  private def canonicalRecLoop(
+      runMut: Matchless.LocalAnonMut,
+      resultMut: Matchless.LocalAnonMut,
+      effectExpr: Matchless.Expr[Unit]
+  ): Matchless.Expr[Unit] =
+    Matchless.Always(
+      Matchless.SetMut(runMut, Matchless.TrueExpr),
+      Matchless.WhileExpr(
+        Matchless.isTrueExpr(runMut),
+        effectExpr,
+        resultMut
+      )
+    )
+
+  private def firstWhileEffect(
+      expr: Matchless.Expr[Unit]
+  ): Option[Matchless.Expr[Unit]] = {
+    def loop(e: Matchless.Expr[Unit]): Option[Matchless.Expr[Unit]] =
+      e match {
+        case Matchless.WhileExpr(_, effectExpr, _) =>
+          Some(effectExpr)
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.iterator.map(loop).collectFirst {
+            case Some(found) => found
+          }.orElse(loop(body))
+        case Matchless.App(fn, args) =>
+          loop(fn).orElse(
+            args.iterator.map(loop).collectFirst { case Some(found) => found }
+          )
+        case Matchless.Let(_, value, in) =>
+          loop(value).orElse(loop(in))
+        case Matchless.LetMut(_, in) =>
+          loop(in)
+        case Matchless.If(_, thenExpr, elseExpr) =>
+          loop(thenExpr).orElse(loop(elseExpr))
+        case Matchless.Always(_, thenExpr) =>
+          loop(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loop(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[?]) =>
+          None
+      }
+
+    loop(expr)
+  }
+
   test("Matchless.Expr order is lawful") {
     forAll(genMatchlessExpr, genMatchlessExpr, genMatchlessExpr) { (a, b, c) =>
       OrderingLaws.forOrder(a, b, c)
@@ -1236,6 +1283,450 @@ x = 1
     val optimized = Matchless.reuseConstructors(input)
 
     assertEquals(optimized, input)
+  }
+
+  test("Matchless.Expr helper predicates are directly testable") {
+    val runMut = Matchless.LocalAnonMut(9000L)
+    val nested: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Matchless.WhileExpr(
+          Matchless.TrueConst,
+          Matchless.UnitExpr,
+          runMut
+        ) :: Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(Identifier.Name("arg")),
+        body = Matchless.UnitExpr
+      )
+    val mutableRead: Matchless.Expr[Unit] =
+      Matchless.GetStructElement(Matchless.LocalAnonMut(77L), 0, 1)
+
+    assertEquals(Matchless.Expr.containsWhileExpr(nested), true)
+    assertEquals(Matchless.Expr.containsWhileExpr(Matchless.UnitExpr), false)
+    assertEquals(Matchless.Expr.readsMutable(mutableRead), true)
+    assertEquals(Matchless.Expr.readsMutable(Matchless.LocalAnon(77L)), false)
+  }
+
+  test("Matchless.Expr and Matchless.BoolExpr reference helpers respect shadowing") {
+    val target = Identifier.Name("target")
+    val other = Identifier.Name("other")
+
+    val directCond: Matchless.BoolExpr[Unit] =
+      Matchless.EqualsLit(Matchless.Local(target), Lit.fromInt(1))
+    val shadowedCond: Matchless.BoolExpr[Unit] =
+      Matchless.LetBool(
+        Right(target),
+        Matchless.Literal(Lit.fromInt(1)),
+        Matchless.EqualsLit(Matchless.Local(target), Lit.fromInt(1))
+      )
+    assertEquals(Matchless.BoolExpr.referencesBindable(directCond, target), true)
+    assertEquals(Matchless.BoolExpr.referencesBindable(shadowedCond, target), false)
+
+    val directExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(other),
+        NonEmptyList.one(Matchless.Local(target))
+      )
+    val shadowedExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(target),
+        Matchless.Literal(Lit.fromInt(0)),
+        directExpr
+      )
+    assertEquals(Matchless.Expr.referencesBindable(directExpr, target), true)
+    assertEquals(Matchless.Expr.referencesBindable(shadowedExpr, target), false)
+    assertEquals(Matchless.Expr.usesBinding(directExpr, Right(target)), true)
+    assertEquals(Matchless.Expr.usesBinding(shadowedExpr, Right(target)), false)
+  }
+
+  test("Matchless.Expr.referencesLocalAnon respects shadowing") {
+    val target = Matchless.LocalAnon(42L)
+    val directExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(1),
+        NonEmptyList.one(Matchless.LocalAnon(target.ident))
+      )
+    val shadowedExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Left(target),
+        Matchless.Literal(Lit.fromInt(0)),
+        Matchless.LocalAnon(target.ident)
+      )
+
+    assertEquals(Matchless.Expr.referencesLocalAnon(directExpr, target.ident), true)
+    assertEquals(
+      Matchless.Expr.referencesLocalAnon(shadowedExpr, target.ident),
+      false
+    )
+    assertEquals(Matchless.Expr.usesBinding(directExpr, Left(target)), true)
+    assertEquals(Matchless.Expr.usesBinding(shadowedExpr, Left(target)), false)
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets hoists invariant leading lets from canonical recursion loops"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1000L)
+    val resultMut = Matchless.LocalAnonMut(1001L)
+    val z = Identifier.Name("z")
+    val heavyName = Identifier.Name("hoist_heavy")
+    val heavyCall: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Global((), TestUtils.testPackage, heavyName),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(100)))
+      )
+    val effectExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(z),
+        heavyCall,
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(z))
+        )
+      )
+    val input = canonicalRecLoop(runMut, resultMut, effectExpr)
+
+    Matchless.hoistInvariantLoopLets(input) match {
+      case Matchless.Let(
+            Right(`z`),
+            `heavyCall`,
+            Matchless.Always(
+              Matchless.SetMut(`runMut`, Matchless.TrueExpr),
+              Matchless.WhileExpr(loopCond, loopEffect, `resultMut`)
+            )
+          ) =>
+        assertEquals(loopCond, Matchless.isTrueExpr(runMut))
+        assertEquals(
+          loopEffect,
+          Matchless.App(
+            Matchless.MakeStruct(1),
+            NonEmptyList.one(Matchless.Local(z))
+          )
+        )
+      case other =>
+        fail(s"expected hoisted loop-invariant let, found: $other")
+    }
+  }
+
+  test("Matchless.hoistInvariantLoopLets hoists non-trivial constructor allocations") {
+    val runMut = Matchless.LocalAnonMut(1005L)
+    val resultMut = Matchless.LocalAnonMut(1006L)
+    val z = Identifier.Name("z")
+    val allocated: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList.of(Matchless.Literal(Lit.fromInt(1)), Matchless.TrueExpr)
+      )
+    val effectExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(z),
+        allocated,
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(z))
+        )
+      )
+    val input = canonicalRecLoop(runMut, resultMut, effectExpr)
+
+    Matchless.hoistInvariantLoopLets(input) match {
+      case Matchless.Let(
+            Right(`z`),
+            `allocated`,
+            Matchless.Always(
+              Matchless.SetMut(`runMut`, Matchless.TrueExpr),
+              Matchless.WhileExpr(_, loopEffect, `resultMut`)
+            )
+          ) =>
+        assertEquals(
+          loopEffect,
+          Matchless.App(
+            Matchless.MakeStruct(1),
+            NonEmptyList.one(Matchless.Local(z))
+          )
+        )
+      case other =>
+        fail(s"expected constructor allocation to hoist, found: $other")
+    }
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets hoists dependent leading lets together"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1010L)
+    val resultMut = Matchless.LocalAnonMut(1011L)
+    val a = Identifier.Name("a")
+    val b = Identifier.Name("b")
+    val fName = Identifier.Name("dep_f")
+    val gName = Identifier.Name("dep_g")
+    val firstCall: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Global((), TestUtils.testPackage, fName),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(5)))
+      )
+    val secondCall: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Global((), TestUtils.testPackage, gName),
+        NonEmptyList.one(Matchless.Local(a))
+      )
+    val effectExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(a),
+        firstCall,
+        Matchless.Let(
+          Right(b),
+          secondCall,
+          Matchless.App(
+            Matchless.MakeStruct(2),
+            NonEmptyList.of(Matchless.Local(a), Matchless.Local(b))
+          )
+        )
+      )
+    val input = canonicalRecLoop(runMut, resultMut, effectExpr)
+
+    Matchless.hoistInvariantLoopLets(input) match {
+      case Matchless.Let(
+            Right(`a`),
+            `firstCall`,
+            Matchless.Let(
+              Right(`b`),
+              `secondCall`,
+              Matchless.Always(
+                Matchless.SetMut(`runMut`, Matchless.TrueExpr),
+                Matchless.WhileExpr(_, loopEffect, `resultMut`)
+              )
+            )
+          ) =>
+        assertEquals(
+          loopEffect,
+          Matchless.App(
+            Matchless.MakeStruct(2),
+            NonEmptyList.of(Matchless.Local(a), Matchless.Local(b))
+          )
+        )
+      case other =>
+        fail(s"expected dependent lets hoisted in order, found: $other")
+    }
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets does not hoist cheap aliases, mutable reads, or side-effectful values"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1020L)
+    val resultMut = Matchless.LocalAnonMut(1021L)
+    val x = Identifier.Name("x")
+    val z = Identifier.Name("z")
+    val sideName = Identifier.Name("side")
+    val sideResult = Matchless.LocalAnonMut(89L)
+
+    val cheapAliasInput = canonicalRecLoop(
+      runMut,
+      resultMut,
+      Matchless.Let(
+        Right(z),
+        Matchless.Local(x),
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(z))
+        )
+      )
+    )
+    assertEquals(Matchless.hoistInvariantLoopLets(cheapAliasInput), cheapAliasInput)
+
+    val mutableReadInput = canonicalRecLoop(
+      runMut,
+      resultMut,
+      Matchless.Let(
+        Right(z),
+        Matchless.GetStructElement(Matchless.LocalAnonMut(77L), 0, 1),
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(z))
+        )
+      )
+    )
+    assertEquals(
+      Matchless.hoistInvariantLoopLets(mutableReadInput),
+      mutableReadInput
+    )
+
+    val sideEffectInput = canonicalRecLoop(
+      runMut,
+      resultMut,
+      Matchless.Let(
+        Right(sideName),
+        Matchless.WhileExpr(Matchless.TrueConst, Matchless.UnitExpr, sideResult),
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(sideName))
+        )
+      )
+    )
+    assertEquals(
+      Matchless.hoistInvariantLoopLets(sideEffectInput),
+      sideEffectInput
+    )
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets does not hoist lets that capture mutable refs in lambdas"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1030L)
+    val resultMut = Matchless.LocalAnonMut(1031L)
+    val fnName = Identifier.Name("fn")
+    val argName = Identifier.Name("arg")
+    val mutRef = Matchless.LocalAnonMut(500L)
+    val lambdaValue: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = mutRef :: Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(argName),
+        body = mutRef
+      )
+    val input = canonicalRecLoop(
+      runMut,
+      resultMut,
+      Matchless.Let(
+        Right(fnName),
+        lambdaValue,
+        Matchless.App(
+          Matchless.Local(fnName),
+          NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+        )
+      )
+    )
+
+    assertEquals(Matchless.hoistInvariantLoopLets(input), input)
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets does not hoist lets inside conditional branches"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1035L)
+    val resultMut = Matchless.LocalAnonMut(1036L)
+    val z = Identifier.Name("z")
+    val branchCall: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Global((), TestUtils.testPackage, Identifier.Name("branch_call")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(42)))
+      )
+    val branchExpr: Matchless.Expr[Unit] =
+      Matchless.If(
+        Matchless.TrueConst,
+        Matchless.Let(
+          Right(z),
+          branchCall,
+          Matchless.App(
+            Matchless.MakeStruct(1),
+            NonEmptyList.one(Matchless.Local(z))
+          )
+        ),
+        Matchless.UnitExpr
+      )
+    val input = canonicalRecLoop(runMut, resultMut, branchExpr)
+
+    assertEquals(Matchless.hoistInvariantLoopLets(input), input)
+  }
+
+  test(
+    "Matchless.hoistInvariantLoopLets only rewrites canonical recursion-loop conditions"
+  ) {
+    val runMut = Matchless.LocalAnonMut(1040L)
+    val resultMut = Matchless.LocalAnonMut(1041L)
+    val z = Identifier.Name("z")
+    val heavyName = Identifier.Name("hoist_cond")
+    val heavyCall: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Global((), TestUtils.testPackage, heavyName),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(10)))
+      )
+    val effectExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(z),
+        heavyCall,
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Local(z))
+        )
+      )
+    val nonCanonicalLoop: Matchless.Expr[Unit] =
+      Matchless.Always(
+        Matchless.SetMut(runMut, Matchless.TrueExpr),
+        Matchless.WhileExpr(
+          Matchless.And(
+            Matchless.isTrueExpr(runMut),
+            Matchless.EqualsLit(Matchless.Local(z), Lit.fromInt(0))
+          ),
+          effectExpr,
+          resultMut
+        )
+      )
+
+    assertEquals(Matchless.hoistInvariantLoopLets(nonCanonicalLoop), nonCanonicalLoop)
+  }
+
+  test("Matchless.fromLet hoists invariant loop lets out of WhileExpr effects") {
+    val intType = rankn.Type.IntType
+    val loopArg = Identifier.Name("loop_arg")
+    val hoisted = Identifier.Name("hoisted")
+    val heavyName = Identifier.Name("loop_heavy")
+    val heavyType = rankn.Type.Fun(NonEmptyList.one(intType), intType)
+    val heavyGlobal =
+      TypedExpr.Global(TestUtils.testPackage, heavyName, heavyType, ())
+    val heavyCall =
+      TypedExpr.App(
+        heavyGlobal,
+        NonEmptyList.one(intLit(100)),
+        intType,
+        ()
+      )
+    val loopArgExpr = TypedExpr.Local(loopArg, intType, ())
+    val hoistedLocal = TypedExpr.Local(hoisted, intType, ())
+    val loopBody =
+      TypedExpr.Let(
+        hoisted,
+        heavyCall,
+        TypedExpr.Match(
+          loopArgExpr,
+          NonEmptyList.of(
+            TypedExpr.Branch(
+              Pattern.Literal(Lit.fromInt(0)),
+              None,
+              hoistedLocal
+            ),
+            TypedExpr.Branch(
+              Pattern.WildCard,
+              None,
+              TypedExpr.Recur(NonEmptyList.one(loopArgExpr), intType, ())
+            )
+          ),
+          ()
+        ),
+        RecursionKind.NonRecursive,
+        ()
+      )
+    val loopExpr =
+      TypedExpr.Loop(
+        NonEmptyList.one((loopArg, intLit(1))),
+        loopBody,
+        ()
+      )
+
+    val lowered =
+      Matchless.fromLet(
+        (),
+        Identifier.Name("loop_hoist_out"),
+        RecursionKind.NonRecursive,
+        loopExpr
+      )(fnFromTypeEnv(rankn.TypeEnv.empty))
+
+    val whileEffect =
+      firstWhileEffect(lowered).getOrElse(
+        fail(s"expected loop lowering to contain WhileExpr: $lowered")
+      )
+    assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, heavyName), 1)
+    assertEquals(
+      countGlobalCalls(whileEffect, TestUtils.testPackage, heavyName),
+      0
+    )
   }
 
   test(
