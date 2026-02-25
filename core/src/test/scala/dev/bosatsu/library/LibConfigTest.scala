@@ -11,10 +11,12 @@ import dev.bosatsu.{
   PackageMap,
   PackageName,
   Par,
+  ProtoConverter,
   Referant
 }
 import dev.bosatsu.IorMethods.IorExtension
 import scala.concurrent.duration.DurationInt
+import scala.util.{Failure, Success}
 
 class LibConfigTest extends munit.FunSuite {
   override val munitTimeout = 90.seconds
@@ -168,5 +170,40 @@ class LibConfigTest extends munit.FunSuite {
   test("lib init defaults all_packages to .*") {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     assertEquals(conf.allPackages.map(_.asString), List(".*"))
+  }
+
+  test("interface-only libraries contain no implementation source metadata") {
+    val ifacePack = iface(PackageName.parts("Iface", "Only"))
+    val ifaceProto = ProtoConverter.interfaceToProto(ifacePack) match {
+      case Success(value) => value
+      case Failure(err)   => fail(s"failed to encode interface: $err")
+    }
+    val libProto = proto.Library(
+      name = "iface-only",
+      descriptor = Some(proto.LibDescriptor(version = Some(Version(1, 0, 0).toProto))),
+      exportedIfaces = ifaceProto :: Nil,
+      internalPackages = Nil
+    )
+
+    assertEquals(libProto.internalPackages, Nil)
+    assert(
+      libProto.internalPackages.forall(_.sourceHash.isEmpty),
+      "interface-only library should not carry package source hashes"
+    )
+    assert(
+      libProto.internalPackages.forall(_.expressions.forall(_.region.isEmpty)),
+      "interface-only library should not carry expression regions"
+    )
+
+    val decoded = ProtoConverter.packagesFromProto(
+      libProto.exportedIfaces,
+      libProto.internalPackages
+    ) match {
+      case Success(value) => value
+      case Failure(err)   => fail(s"failed to decode interface-only library: $err")
+    }
+    val (ifaces, packs) = decoded
+    assert(ifaces.exists(_.name == ifacePack.name))
+    assertEquals(packs, Nil)
   }
 }

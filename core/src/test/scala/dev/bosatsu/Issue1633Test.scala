@@ -202,7 +202,11 @@ main = parse_value(" null")
               _,
               Matchless.Lambda(captures, _, _, _)
             ) =>
-          assertEquals(captures, Matchless.Local(capturedBName) :: Nil)
+          captures match {
+            case Matchless.Local(`capturedBName`) :: Nil => ()
+            case other =>
+              fail(s"unexpected lambda captures: $other")
+          }
         case other =>
           fail(s"unexpected parse_value lowering shape: $other")
       }

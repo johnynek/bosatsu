@@ -226,7 +226,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
       packagePaths: List[Path]
-  ): IO[(List[Package.Interface], List[Package.Typed[Unit]])] =
+  ): IO[(List[Package.Interface], List[Package.Typed[Any]])] =
     (
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
@@ -242,7 +242,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     readInterfacesAndPackages(paths, Nil).map(_._1)
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Typed[Any]]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =

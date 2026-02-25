@@ -6,11 +6,48 @@ import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
+import scala.util.DynamicVariable
 
 import cats.implicits._
 
 object Matchless {
-  sealed abstract class Expr[+A] derives CanEqual
+  final case class SourceInfo(packageHashIdent: String, region: Region)
+      derives CanEqual
+
+  object SourceInfo {
+    val empty: SourceInfo =
+      SourceInfo(Package.emptySourceHashIdent, Region(0, 0))
+
+    private val currentSourceInfo =
+      new DynamicVariable[SourceInfo](empty)
+
+    def current: SourceInfo =
+      currentSourceInfo.value
+
+    def withCurrent[A](sourceInfo: SourceInfo)(fn: => A): A =
+      currentSourceInfo.withValue(sourceInfo)(fn)
+
+    private def regionFromTag(tag: Any): Option[Region] =
+      tag match {
+        case r: Region         => Some(r)
+        case d: Declaration    => Some(HasRegion.region(d))
+        case Some(r: Region)   => Some(r)
+        case _                 => None
+      }
+
+    def fromTag(
+        packageHashIdent: String,
+        tag: Any,
+        fallback: SourceInfo
+    ): SourceInfo =
+      regionFromTag(tag)
+        .map(SourceInfo(packageHashIdent, _))
+        .getOrElse(fallback)
+  }
+
+  sealed abstract class Expr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo
+  }
   object Expr {
     private def exprTag[A](expr: Expr[A]): Int =
       expr match {
@@ -449,12 +486,21 @@ object Matchless {
       captures: List[Expr[A]],
       recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
-      body: Expr[A]
+      body: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends Expr[A] {
     def recursionKind: RecursionKind =
       RecursionKind.recursive(recursiveName.isDefined)
 
     def arity: Int = args.length
+  }
+  object Lambda {
+    def unapply[A](
+        lam: Lambda[A]
+    ): Some[(List[Expr[A]], Option[Bindable], NonEmptyList[Bindable], Expr[
+      A
+    ])] =
+      Some((lam.captures, lam.recursiveName, lam.args, lam.body))
   }
 
   // This is a while loop, the result of which is result and the body is evaluated
@@ -462,42 +508,90 @@ object Matchless {
   case class WhileExpr[A](
       cond: BoolExpr[A],
       effectExpr: Expr[A],
-      result: LocalAnonMut
+      result: LocalAnonMut,
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends Expr[A]
+  object WhileExpr {
+    def unapply[A](e: WhileExpr[A]): Some[(BoolExpr[A], Expr[A], LocalAnonMut)] =
+      Some((e.cond, e.effectExpr, e.result))
+  }
 
-  case class Global[A](from: A, pack: PackageName, name: Bindable)
+  case class Global[A](
+      from: A,
+      pack: PackageName,
+      name: Bindable,
+      sourceInfo: SourceInfo = SourceInfo.current
+  )
       extends CheapExpr[A]
+  object Global {
+    def unapply[A](g: Global[A]): Some[(A, PackageName, Bindable)] =
+      Some((g.from, g.pack, g.name))
+  }
 
   // these are immutable (but can be shadowed)
-  case class Local(arg: Bindable) extends CheapExpr[Nothing]
-  case class ClosureSlot(idx: Int) extends CheapExpr[Nothing]
+  case class Local(arg: Bindable, sourceInfo: SourceInfo = SourceInfo.current)
+      extends CheapExpr[Nothing]
+  object Local {
+    def unapply(local: Local): Some[Bindable] = Some(local.arg)
+  }
+  case class ClosureSlot(idx: Int, sourceInfo: SourceInfo = SourceInfo.current)
+      extends CheapExpr[Nothing]
+  object ClosureSlot {
+    def unapply(cs: ClosureSlot): Some[Int] = Some(cs.idx)
+  }
   // these are is a separate namespace from Expr
-  case class LocalAnon(ident: Long) extends CheapExpr[Nothing]
+  case class LocalAnon(
+      ident: Long,
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends CheapExpr[Nothing]
+  object LocalAnon {
+    def unapply(la: LocalAnon): Some[Long] = Some(la.ident)
+  }
   // these are mutable variables that can be updated while evaluating an BoolExpr
-  case class LocalAnonMut(ident: Long) extends CheapExpr[Nothing]
+  case class LocalAnonMut(
+      ident: Long,
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends CheapExpr[Nothing]
+  object LocalAnonMut {
+    def unapply(lam: LocalAnonMut): Some[Long] = Some(lam.ident)
+  }
 
   // we aggregate all the applications to potentially make dispatch more efficient
   // note fn is never an App
-  case class App[A](fn: Expr[A], arg: NonEmptyList[Expr[A]]) extends Expr[A]
+  case class App[A](
+      fn: Expr[A],
+      arg: NonEmptyList[Expr[A]],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends Expr[A]
+  object App {
+    def unapply[A](app: App[A]): Some[(Expr[A], NonEmptyList[Expr[A]])] =
+      Some((app.fn, app.arg))
+  }
   case class Let[A](
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
-      in: Expr[A]
+      in: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends Expr[A]
 
   object Let {
+    def unapply[A](let: Let[A]): Some[
+      (Either[LocalAnon, Bindable], Expr[A], Expr[A])
+    ] =
+      Some((let.arg, let.expr, let.in))
+
     def apply[A](arg: Bindable, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
       in match {
         case Local(a) if a == arg => expr
-        case _                    => Let(Right(arg), expr, in)
+        case _                    => Let(Right(arg), expr, in, in.sourceInfo)
       }
 
     def apply[A](arg: LocalAnon, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
       in match {
         case LocalAnon(id) if id == arg.ident => expr
-        case _                                => Let(Left(arg), expr, in)
+        case _                                => Let(Left(arg), expr, in, in.sourceInfo)
       }
 
     def bindAll[A](
@@ -505,17 +599,17 @@ object Matchless {
         in: Expr[A]
     ): Expr[A] =
       binds.foldRight(in) { case ((arg, value), acc) =>
-        Let(arg, value, acc)
+        Let(arg, value, acc, acc.sourceInfo)
       }
 
     def bindNamed[A](binds: List[(Bindable, Expr[A])], in: Expr[A]): Expr[A] =
       binds.foldRight(in) { case ((arg, value), acc) =>
-        Let(arg, value, acc)
+        Let(Right(arg), value, acc, acc.sourceInfo)
       }
 
     def bindAnons[A](binds: List[(LocalAnon, Expr[A])], in: Expr[A]): Expr[A] =
       binds.foldRight(in) { case ((arg, value), acc) =>
-        Let(arg, value, acc)
+        Let(Left(arg), value, acc, acc.sourceInfo)
       }
   }
 
@@ -1528,7 +1622,11 @@ object Matchless {
     StackSafe.onStackOverflow(recurExpr(expr))(expr)
   }
 
-  case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
+  case class LetMut[A](
+      name: LocalAnonMut,
+      span: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
       span match {
@@ -1539,17 +1637,27 @@ object Matchless {
           (NonEmptyList.one(name), notLetMut)
       }
   }
-  case class Literal(lit: Lit) extends CheapExpr[Nothing]
+  object LetMut {
+    def unapply[A](letMut: LetMut[A]): Some[(LocalAnonMut, Expr[A])] =
+      Some((letMut.name, letMut.span))
+  }
+  case class Literal(lit: Lit, sourceInfo: SourceInfo = SourceInfo.current)
+      extends CheapExpr[Nothing]
+  object Literal {
+    def unapply(literal: Literal): Some[Lit] = Some(literal.lit)
+  }
 
   // these result in Int values which are also used as booleans
   // evaluating these CAN have side effects of mutating LocalAnon
   // variables.
   sealed abstract class BoolExpr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo
     final def &&[A1 >: A](that: BoolExpr[A1]): BoolExpr[A1] =
       (this, that) match {
         case (TrueConst, r) => r
         case (l, TrueConst) => l
-        case _              => And(this, that)
+        case _              =>
+          And(this, that, sourceInfo = this.sourceInfo)
       }
   }
   object BoolExpr {
@@ -1675,33 +1783,89 @@ object Matchless {
         }
   }
   // returns 1 if it does, else 0
-  case class EqualsLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
-  case class EqualsNat[A](expr: CheapExpr[A], nat: DataRepr.Nat)
-      extends BoolExpr[A]
+  case class EqualsLit[A](
+      expr: CheapExpr[A],
+      lit: Lit,
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends BoolExpr[A]
+  object EqualsLit {
+    def unapply[A](eq: EqualsLit[A]): Some[(CheapExpr[A], Lit)] =
+      Some((eq.expr, eq.lit))
+  }
+  case class EqualsNat[A](
+      expr: CheapExpr[A],
+      nat: DataRepr.Nat,
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends BoolExpr[A]
+  object EqualsNat {
+    def unapply[A](eq: EqualsNat[A]): Some[(CheapExpr[A], DataRepr.Nat)] =
+      Some((eq.expr, eq.nat))
+  }
   // 1 if both are > 0
-  case class And[A](e1: BoolExpr[A], e2: BoolExpr[A]) extends BoolExpr[A]
+  case class And[A](
+      e1: BoolExpr[A],
+      e2: BoolExpr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends BoolExpr[A]
+  object And {
+    def unapply[A](and: And[A]): Some[(BoolExpr[A], BoolExpr[A])] =
+      Some((and.e1, and.e2))
+  }
   // checks if variant matches, and if so, writes to
   // a given mut
   case class CheckVariant[A](
       expr: CheapExpr[A],
       expect: Int,
       size: Int,
-      famArities: List[Int]
+      famArities: List[Int],
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends BoolExpr[A]
+  object CheckVariant {
+    def unapply[A](cv: CheckVariant[A]): Some[(CheapExpr[A], Int, Int, List[Int])] =
+      Some((cv.expr, cv.expect, cv.size, cv.famArities))
+  }
   // set the mutable variable to the given expr and return true
-  case class SetMut[A](target: LocalAnonMut, expr: Expr[A]) extends BoolExpr[A]
-  case object TrueConst extends BoolExpr[Nothing]
+  case class SetMut[A](
+      target: LocalAnonMut,
+      expr: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends BoolExpr[A]
+  object SetMut {
+    def unapply[A](setMut: SetMut[A]): Some[(LocalAnonMut, Expr[A])] =
+      Some((setMut.target, setMut.expr))
+  }
+  case object TrueConst extends BoolExpr[Nothing] {
+    val sourceInfo: SourceInfo = SourceInfo.empty
+  }
   case class LetBool[A](
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
-      in: BoolExpr[A]
+      in: BoolExpr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends BoolExpr[A]
+  object LetBool {
+    def unapply[A](letBool: LetBool[A]): Some[
+      (Either[LocalAnon, Bindable], Expr[A], BoolExpr[A])
+    ] =
+      Some((letBool.arg, letBool.expr, letBool.in))
+  }
 
-  case class LetMutBool[A](name: LocalAnonMut, span: BoolExpr[A])
+  case class LetMutBool[A](
+      name: LocalAnonMut,
+      span: BoolExpr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  )
       extends BoolExpr[A]
   object LetMutBool {
+    def unapply[A](
+        letMutBool: LetMutBool[A]
+    ): Some[(LocalAnonMut, BoolExpr[A])] =
+      Some((letMutBool.name, letMutBool.span))
+
     def apply[A](lst: List[LocalAnonMut], span: BoolExpr[A]): BoolExpr[A] =
-      lst.foldRight(span)(LetMutBool(_, _))
+      lst.foldRight(span) { case (anon, acc) =>
+        LetMutBool(anon, acc, acc.sourceInfo)
+      }
   }
 
   def hasSideEffect(bx: BoolExpr[Any]): Boolean =
@@ -1739,7 +1903,12 @@ object Matchless {
         true
     }
 
-  case class If[A](cond: BoolExpr[A], thenExpr: Expr[A], elseExpr: Expr[A])
+  case class If[A](
+      cond: BoolExpr[A],
+      thenExpr: Expr[A],
+      elseExpr: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  )
       extends Expr[A] {
     def flatten: (NonEmptyList[(BoolExpr[A], Expr[A])], Expr[A]) = {
       def combine(expr: Expr[A]): (List[(BoolExpr[A], Expr[A])], Expr[A]) =
@@ -1754,8 +1923,19 @@ object Matchless {
       (NonEmptyList((cond, thenExpr), rest), last)
     }
   }
-  case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A]) extends Expr[A]
+  object If {
+    def unapply[A](ifExpr: If[A]): Some[(BoolExpr[A], Expr[A], Expr[A])] =
+      Some((ifExpr.cond, ifExpr.thenExpr, ifExpr.elseExpr))
+  }
+  case class Always[A](
+      cond: BoolExpr[A],
+      thenExpr: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends Expr[A]
   object Always {
+    def unapply[A](alwaysExpr: Always[A]): Some[(BoolExpr[A], Expr[A])] =
+      Some((alwaysExpr.cond, alwaysExpr.thenExpr))
+
     object SetChain {
       // a common pattern is Always(SetMut(m, e), r)
       def unapply[A](
@@ -1783,17 +1963,51 @@ object Matchless {
       arg: CheapExpr[A],
       variant: Int,
       index: Int,
-      size: Int
+      size: Int,
+      sourceInfo: SourceInfo = SourceInfo.current
   ) extends CheapExpr[A]
-  case class GetStructElement[A](arg: CheapExpr[A], index: Int, size: Int)
+  object GetEnumElement {
+    def unapply[A](
+        getEnumElement: GetEnumElement[A]
+    ): Some[(CheapExpr[A], Int, Int, Int)] =
+      Some(
+        (
+          getEnumElement.arg,
+          getEnumElement.variant,
+          getEnumElement.index,
+          getEnumElement.size
+        )
+      )
+  }
+  case class GetStructElement[A](
+      arg: CheapExpr[A],
+      index: Int,
+      size: Int,
+      sourceInfo: SourceInfo = SourceInfo.current
+  )
       extends CheapExpr[A]
+  object GetStructElement {
+    def unapply[A](
+        getStructElement: GetStructElement[A]
+    ): Some[(CheapExpr[A], Int, Int)] =
+      Some((getStructElement.arg, getStructElement.index, getStructElement.size))
+  }
 
   sealed abstract class ConsExpr extends Expr[Nothing] {
     def arity: Int
   }
   // we need to compile calls to constructors into these
-  case class MakeEnum(variant: Int, arity: Int, famArities: List[Int])
+  case class MakeEnum(
+      variant: Int,
+      arity: Int,
+      famArities: List[Int],
+      sourceInfo: SourceInfo = SourceInfo.current
+  )
       extends ConsExpr
+  object MakeEnum {
+    def unapply(makeEnum: MakeEnum): Some[(Int, Int, List[Int])] =
+      Some((makeEnum.variant, makeEnum.arity, makeEnum.famArities))
+  }
 
   private val boolFamArities = 0 :: 0 :: Nil
   private val listFamArities = 0 :: 2 :: Nil
@@ -1825,16 +2039,30 @@ object Matchless {
     def tail[A](arg: CheapExpr[A]): CheapExpr[A] =
       GetEnumElement(arg, 1, 1, 2)
   }
-  case class MakeStruct(arity: Int) extends ConsExpr
+  case class MakeStruct(
+      arity: Int,
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends ConsExpr
+  object MakeStruct {
+    def unapply(makeStruct: MakeStruct): Some[Int] = Some(makeStruct.arity)
+  }
   case object ZeroNat extends ConsExpr {
+    val sourceInfo: SourceInfo = SourceInfo.empty
     def arity = 0
   }
   // this is the function Nat -> Nat
   case object SuccNat extends ConsExpr {
+    val sourceInfo: SourceInfo = SourceInfo.empty
     def arity = 1
   }
 
-  case class PrevNat[A](of: Expr[A]) extends Expr[A]
+  case class PrevNat[A](
+      of: Expr[A],
+      sourceInfo: SourceInfo = SourceInfo.current
+  ) extends Expr[A]
+  object PrevNat {
+    def unapply[A](prevNat: PrevNat[A]): Some[Expr[A]] = Some(prevNat.of)
+  }
 
   private inline def maybeMemoWith[F[_]: Monad, A, R](
       arg: Expr[A],
@@ -2340,14 +2568,51 @@ object Matchless {
   )(
       variantOf: (PackageName, Constructor) => Option[DataRepr]
   ): Expr[B] =
+    fromLet(
+      from,
+      Package.emptySourceHashIdent,
+      name,
+      rec,
+      te
+    )(variantOf)
+
+  def fromLet[A, B: Order](
+      from: B,
+      packageHashIdent: String,
+      name: Bindable,
+      rec: RecursionKind,
+      te: TypedExpr[A]
+  )(
+      variantOf: (PackageName, Constructor) => Option[DataRepr]
+  ): Expr[B] =
     (for {
       c <- RefSpace.allocCounter
-      expr <- fromLet(from, name, rec, te, variantOf, c)
+      expr <- fromLet(from, packageHashIdent, name, rec, te, variantOf, c)
     } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
   def fromLet[F[_]: Monad, A, B: Order](
       from: B,
+      name: Bindable,
+      rec: RecursionKind,
+      te: TypedExpr[A],
+      variantOf: (PackageName, Constructor) => Option[DataRepr],
+      makeAnon: F[Long]
+  ): F[Expr[B]] =
+    fromLet(
+      from,
+      Package.emptySourceHashIdent,
+      name,
+      rec,
+      te,
+      variantOf,
+      makeAnon
+    )
+
+  // we need a TypeEnv to inline the creation of structs and variants
+  def fromLet[F[_]: Monad, A, B: Order](
+      from: B,
+      packageHashIdent: String,
       name: Bindable,
       rec: RecursionKind,
       te: TypedExpr[A],
@@ -2364,6 +2629,12 @@ object Matchless {
         case NonEmptyList((Nil, TrueConst, Nil), Nil) => true
         case _                                        => false
       }
+
+    def sourceInfoForTag(
+        tag: Any,
+        fallback: SourceInfo
+    ): SourceInfo =
+      SourceInfo.fromTag(packageHashIdent, tag, fallback)
 
     val emptyExpr: Expr[B] =
       empty match {
@@ -2662,11 +2933,12 @@ object Matchless {
         name: Bindable,
         e: TypedExpr[A],
         rec: RecursionKind,
-        slots: LambdaState
+        slots: LambdaState,
+        fallbackInfo: SourceInfo
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
-          loop(e, slots.inLet(name)).flatMap {
+          loop(e, slots.inLet(name), fallbackInfo).flatMap {
             case fn @ Lambda(captures, Some(fnName), args, body)
                 if fnName == name =>
               // TypedExpr lowering keeps polymorphic recursion in lambda form to
@@ -2695,7 +2967,7 @@ object Matchless {
                 s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
               )
           }
-        case RecursionKind.NonRecursive => loop(e, slots)
+        case RecursionKind.NonRecursive => loop(e, slots, fallbackInfo)
       }
 
     def recurToSelfCall(
@@ -2795,81 +3067,100 @@ object Matchless {
           n
       }
 
-    def loop(te: TypedExpr[A], slots: LambdaState): F[Expr[B]] =
-      te match {
-        case TypedExpr.Generic(_, expr)              => loop(expr, slots)
-        case TypedExpr.Annotation(term, _, _)        => loop(term, slots)
-        case TypedExpr.AnnotatedLambda(args, res, _) =>
-          val frees = TypedExpr.freeVars(te :: Nil)
-          val (slots1, captures) = slots.lambdaFrees(frees)
-          loop(res, slots1.unname).map(
-            Lambda(captures, slots.name, args.map(_._1), _)
-          )
-        case TypedExpr.Global(pack, cons @ Constructor(_), _, _) =>
-          Monad[F].pure(variantOf(pack, cons) match {
-            case Some(dr) =>
-              dr match {
-                case DataRepr.Enum(v, a, f) => MakeEnum(v, a, f)
-                case DataRepr.Struct(a)     => MakeStruct(a)
-                case DataRepr.NewType       => MakeStruct(1)
-                case DataRepr.ZeroNat       => ZeroNat
-                case DataRepr.SuccNat       => SuccNat
-              }
-            // $COVERAGE-OFF$
-            case None =>
-              throw new IllegalStateException(
-                s"could not find $cons in global data types"
-              )
-            // $COVERAGE-ON$
-          })
-        case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
-          Monad[F].pure(Global(from, pack, notCons))
-        case TypedExpr.Local(bind, _, _) =>
-          Monad[F].pure(slots(bind))
-        case TypedExpr.App(fn, as, _, _) =>
-          (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
-            .mapN(applyArgs(_, _))
-        case TypedExpr.Loop(args, body, _) =>
-          val avoid: Set[Bindable] =
-            TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
-              slots.names
-          val loopName = freshSyntheticNames("loop", 1, avoid).head
-          val loopArgs = args.map { case (n, arg) =>
-            (n, arg.getType)
-          }
-          val loopType = Type.Fun(loopArgs.map(_._2), body.getType)
-          val body1 =
-            recurToSelfCall(loopName, loopType, body, inNestedLoop = false)
-          (
-            loop(body1, slots),
-            args.traverse { case (_, init) => loop(init, slots) }
-          ).tupled
-            .flatMap { case (bodyExpr, initVals) =>
-              buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
+    def loop(
+        te: TypedExpr[A],
+        slots: LambdaState,
+        fallbackInfo: SourceInfo
+    ): F[Expr[B]] = {
+      val currentSourceInfo = sourceInfoForTag(te.tag, fallbackInfo)
+      SourceInfo.withCurrent(currentSourceInfo) {
+        te match {
+          case TypedExpr.Generic(_, expr) =>
+            loop(expr, slots, currentSourceInfo)
+          case TypedExpr.Annotation(term, _, _) =>
+            loop(term, slots, currentSourceInfo)
+          case TypedExpr.AnnotatedLambda(args, res, _) =>
+            val frees = TypedExpr.freeVars(te :: Nil)
+            val (slots1, captures) = slots.lambdaFrees(frees)
+            loop(res, slots1.unname, currentSourceInfo).map(
+              Lambda(captures, slots.name, args.map(_._1), _)
+            )
+          case TypedExpr.Global(pack, cons @ Constructor(_), _, _) =>
+            Monad[F].pure(variantOf(pack, cons) match {
+              case Some(dr) =>
+                dr match {
+                  case DataRepr.Enum(v, a, f) => MakeEnum(v, a, f)
+                  case DataRepr.Struct(a)     => MakeStruct(a)
+                  case DataRepr.NewType       => MakeStruct(1)
+                  case DataRepr.ZeroNat       => ZeroNat
+                  case DataRepr.SuccNat       => SuccNat
+                }
+              // $COVERAGE-OFF$
+              case None =>
+                throw new IllegalStateException(
+                  s"could not find $cons in global data types"
+                )
+              // $COVERAGE-ON$
+            })
+          case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
+            Monad[F].pure(Global(from, pack, notCons))
+          case TypedExpr.Local(bind, _, _) =>
+            Monad[F].pure(slots(bind))
+          case TypedExpr.App(fn, as, _, _) =>
+            (
+              loop(fn, slots.unname, currentSourceInfo),
+              as.traverse(loop(_, slots.unname, currentSourceInfo))
+            ).mapN(applyArgs(_, _))
+          case TypedExpr.Loop(args, body, _) =>
+            val avoid: Set[Bindable] =
+              TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
+                slots.names
+            val loopName = freshSyntheticNames("loop", 1, avoid).head
+            val loopArgs = args.map { case (n, arg) =>
+              (n, arg.getType)
             }
-        case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r, slots.unname), loop(in, slots))
-            .mapN(Let(a, _, _))
-        case TypedExpr.Recur(_, _, _) =>
-          // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
-          sys.error(
-            s"unreachable raw recur in Matchless lowering: ${te.repr.render(80)}"
-          )
-        case TypedExpr.Literal(lit, _, _)      => Monad[F].pure(Literal(lit))
-        case TypedExpr.Match(arg, branches, _) =>
-          (
-            loop(arg, slots.unname),
-            branches.traverse { branch =>
-              (
-                branch.guard.traverse(loop(_, slots.unname)),
-                loop(branch.expr, slots.unname)
-              ).mapN { (guard, te) =>
-                MatchBranch(branch.pattern, guard, te)
+            val loopType = Type.Fun(loopArgs.map(_._2), body.getType)
+            val body1 =
+              recurToSelfCall(loopName, loopType, body, inNestedLoop = false)
+            (
+              loop(body1, slots, currentSourceInfo),
+              args.traverse { case (_, init) =>
+                loop(init, slots, currentSourceInfo)
               }
-            }
-          ).tupled
-            .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
+            ).tupled
+              .flatMap { case (bodyExpr, initVals) =>
+                buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
+              }
+          case TypedExpr.Let(a, e, in, r, _) =>
+            (
+              loopLetVal(a, e, r, slots.unname, currentSourceInfo),
+              loop(in, slots, currentSourceInfo)
+            ).mapN(Let(a, _, _))
+          case TypedExpr.Recur(_, _, _) =>
+            // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
+            sys.error(
+              s"unreachable raw recur in Matchless lowering: ${te.repr.render(80)}"
+            )
+          case TypedExpr.Literal(lit, _, _) =>
+            Monad[F].pure(Literal(lit))
+          case TypedExpr.Match(arg, branches, _) =>
+            (
+              loop(arg, slots.unname, currentSourceInfo),
+              branches.traverse { branch =>
+                (
+                  branch.guard.traverse(
+                    loop(_, slots.unname, currentSourceInfo)
+                  ),
+                  loop(branch.expr, slots.unname, currentSourceInfo)
+                ).mapN { (guard, te) =>
+                  MatchBranch(branch.pattern, guard, te)
+                }
+              }
+            ).tupled
+              .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
+        }
       }
+    }
 
     /*
      * A simple pattern is either:
@@ -4563,9 +4854,17 @@ object Matchless {
       }
     }
 
-    loopLetVal(name, te, rec, LambdaState(None, Map.empty))
-      .map(hoistInvariantLoopLets(_))
-      .map(reuseConstructors(_))
+    loopLetVal(name, te, rec, LambdaState(None, Map.empty), SourceInfo.empty)
+      .map { expr =>
+        SourceInfo.withCurrent(expr.sourceInfo) {
+          hoistInvariantLoopLets(expr)
+        }
+      }
+      .map { expr =>
+        SourceInfo.withCurrent(expr.sourceInfo) {
+          reuseConstructors(expr)
+        }
+      }
   }
 
   // toy matcher to see the structure

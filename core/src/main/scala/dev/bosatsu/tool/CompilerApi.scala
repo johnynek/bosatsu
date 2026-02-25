@@ -10,6 +10,7 @@ import dev.bosatsu.{
   PackageName,
   Par
 }
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.LocationMap.Colorize
 import org.typelevel.paiges.Doc
 
@@ -101,7 +102,24 @@ object CompilerApi {
               packs.map { case ((path, _), p) =>
                 (path, p.name)
               }
-            moduleIOMonad.pure((p, pathToName))
+            val sourceHashByName: Map[PackageName, String] =
+              packs.iterator.map { case ((_, lm), parsed) =>
+                val hash =
+                  Algo.hashBytes[Algo.Blake3](lm.fromString.getBytes("UTF-8"))
+                (parsed.name, hash.toIdent(using Algo.blake3Algo))
+              }.toMap
+
+            val withSourceHashes =
+              p.copy(
+                toMap = p.toMap.map { case (pn, typedPack) =>
+                  pn -> Package.withSourceHashIdent(
+                    typedPack,
+                    sourceHashByName.get(pn)
+                  )
+                }
+              )
+
+            moduleIOMonad.pure((withSourceHashes, pathToName))
           case Validated.Invalid(errs) =>
             val sourceMap = PackageMap.buildSourceMap(packs)
             moduleIOMonad.raiseError(

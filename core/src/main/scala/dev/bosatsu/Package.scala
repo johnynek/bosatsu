@@ -6,6 +6,7 @@ import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
+import dev.bosatsu.hashing.Algo
 
 import rankn._
 import Parser.{spaces, Combinators}
@@ -139,6 +140,38 @@ object Package {
     TypedProgram[T]
   ]
   type Inferred = Typed[Declaration]
+
+  final case class SourceMetadata(
+      from: Any,
+      sourceHashIdent: Option[String]
+  )
+
+  private def sourceMetadata(from: Any): SourceMetadata =
+    from match {
+      case sm: SourceMetadata => sm
+      case other              => SourceMetadata(other, None)
+    }
+
+  def sourceHashIdent[A](pack: Typed[A]): Option[String] =
+    sourceMetadata(pack.program._1.from).sourceHashIdent
+
+  def withSourceHashIdent[A](
+      pack: Typed[A],
+      hashIdent: Option[String]
+  ): Typed[A] = {
+    val (prog, impMap) = pack.program
+    val sm = sourceMetadata(prog.from)
+    pack.copy(
+      program = (
+        prog.copy(from = sm.copy(sourceHashIdent = hashIdent)),
+        impMap
+      )
+    )
+  }
+
+  val emptySourceHashIdent: String =
+    Algo.hashBytes[Algo.Blake3](Array.emptyByteArray)
+      .toIdent(using Algo.blake3Algo)
 
   type Header =
     (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])

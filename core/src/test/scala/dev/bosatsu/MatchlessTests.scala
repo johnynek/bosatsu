@@ -6,8 +6,10 @@ import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 
 import Identifier.{Bindable, Constructor}
+import dev.bosatsu.hashing.Algo
 import rankn.DataRepr
 
+import java.math.BigInteger
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
@@ -57,6 +59,43 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
       assertEquals(run(), run())
     }
+  }
+
+  test("matchless.fromLet uses package hash and region when provenance exists") {
+    val hashIdent =
+      Algo.hashBytes[Algo.Blake3]("matchless-source".getBytes("UTF-8"))
+        .toIdent(using Algo.blake3Algo)
+    val region = Region(3, 8)
+    val expr = TypedExpr.Literal(Lit.fromInt(1), rankn.Type.IntType, region)
+    val variantOf = fnFromTypeEnv(rankn.TypeEnv.empty)
+    val lowered =
+      Matchless.fromLet(
+        (),
+        hashIdent,
+        Identifier.Name("x"),
+        RecursionKind.NonRecursive,
+        expr
+      )(variantOf)
+
+    assertEquals(lowered.sourceInfo, Matchless.SourceInfo(hashIdent, region))
+  }
+
+  test("matchless.fromLet uses sentinel source info when provenance is missing") {
+    val hashIdent =
+      Algo.hashBytes[Algo.Blake3]("missing-provenance".getBytes("UTF-8"))
+        .toIdent(using Algo.blake3Algo)
+    val expr = TypedExpr.Literal(Lit.fromInt(1), rankn.Type.IntType, ())
+    val variantOf = fnFromTypeEnv(rankn.TypeEnv.empty)
+    val lowered =
+      Matchless.fromLet(
+        (),
+        hashIdent,
+        Identifier.Name("x"),
+        RecursionKind.NonRecursive,
+        expr
+      )(variantOf)
+
+    assertEquals(lowered.sourceInfo, Matchless.SourceInfo.empty)
   }
 
   lazy val genMatchlessExpr: Gen[Matchless.Expr[Unit]] =
@@ -779,7 +818,13 @@ x = 1
       val map = binds(TestUtils.testPackage).toMap
 
       assert(map.contains(Identifier.Name("x")))
-      assertEquals(map(Identifier.Name("x")), Matchless.Literal(Lit(1)))
+      map(Identifier.Name("x")) match {
+        case Matchless.Literal(Lit.Integer(i))
+            if i.equals(BigInteger.ONE) =>
+          ()
+        case other =>
+          fail(s"unexpected compiled form for x: $other")
+      }
     }
   }
 

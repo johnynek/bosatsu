@@ -3,6 +3,7 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
 import cats.data.NonEmptyList
+import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -18,6 +19,12 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   private given Eq[Package.Typed[Unit]] =
     // Safe: Package.Typed[Unit] is immutable and uses structural equals.
     Eq.fromUniversalEquals
+
+  private def stripTypedProvenance[A](pack: Package.Typed[A]): Package.Typed[Unit] = {
+    val noExprTags = Package.typedFunctor.map(pack)(_ => ())
+    Package.setProgramFrom(noExprTags, ())
+  }
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 100 else 10
@@ -107,7 +114,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield res.asInstanceOf[TypedExpr[Unit]]
     }
 
     forAll(
@@ -148,7 +155,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield res.asInstanceOf[TypedExpr[Unit]]
     }
 
     testFn(loopExpr)
@@ -195,7 +202,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           res <- expr.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
-        } yield res
+        } yield res.asInstanceOf[TypedExpr[Unit]]
     }
 
     testFn(guardedMatch)
@@ -248,10 +255,9 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       p.traverse(ProtoConverter.packageToProto)
     def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
       ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
-        p.sortBy(_.name)
+        p.sortBy(_.name).map(stripTypedProvenance(_))
       }
 
-    val tf = Package.typedFunctor
     TestUtils.testInferred(
       List(
         """package Foo
@@ -264,9 +270,7 @@ bar = 1
       "Foo",
       (packs, _) =>
         law(
-          packs.toMap.values.toList.sortBy(_.name).map { pt =>
-            Package.setProgramFrom(tf.void(pt), ())
-          },
+          packs.toMap.values.toList.sortBy(_.name).map(stripTypedProvenance(_)),
           ser,
           deser
         )
@@ -279,10 +283,10 @@ bar = 1
         p.traverse(ProtoConverter.packageToProto)
       def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
         ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
-          p.sortBy(_.name)
+          p.sortBy(_.name).map(stripTypedProvenance(_))
         }
 
-      val packList = packMap.toList.sortBy(_._1).map(_._2)
+      val packList = packMap.toList.sortBy(_._1).map(_._2).map(stripTypedProvenance(_))
       law(packList, ser, deser)
     }
   }
@@ -501,6 +505,214 @@ main = dep_value
       case Failure(err) => fail(s"failed to decode legacy interface: $err")
     }
     assertEquals(firstConstructorDefaultType(decodedLegacy), None)
+  }
+
+  test("package proto preserves typed expression regions when present") {
+    TestUtils.testInferred(
+      List(
+        """package Proto/Regions
+          |
+          |export one
+          |
+          |one = 1
+          |""".stripMargin
+      ),
+      "Proto/Regions",
+      (packs, _) => {
+        val pack = packs.toMap(PackageName.parts("Proto", "Regions"))
+        val protoPack = ProtoConverter.packageToProto(pack) match {
+          case Success(p)   => p
+          case Failure(err) => fail(s"failed to encode package: $err")
+        }
+        assert(
+          protoPack.expressions.exists(_.region.nonEmpty),
+          "expected serialized expressions to include regions"
+        )
+
+        val decoded = ProtoConverter.packagesFromProto(Nil, protoPack :: Nil) match {
+          case Success((_, ps)) =>
+            ps.find(_.name == pack.name).getOrElse(fail("missing decoded package"))
+          case Failure(err) => fail(s"failed to decode package: $err")
+        }
+
+        assert(
+          decoded.lets.exists { case (_, _, te) =>
+            te.tag.isInstanceOf[Region]
+          },
+          "expected at least one decoded let expression to carry a Region tag"
+        )
+      }
+    )
+  }
+
+  test("package proto decodes missing expression regions as absent provenance") {
+    TestUtils.testInferred(
+      List(
+        """package Proto/LegacyRegions
+          |
+          |export one
+          |
+          |one = 1
+          |""".stripMargin
+      ),
+      "Proto/LegacyRegions",
+      (packs, _) => {
+        val pack = packs.toMap(PackageName.parts("Proto", "LegacyRegions"))
+        val protoPack = ProtoConverter.packageToProto(pack) match {
+          case Success(p)   => p
+          case Failure(err) => fail(s"failed to encode package: $err")
+        }
+        val legacyProto =
+          protoPack.copy(expressions = protoPack.expressions.map(_.copy(region = None)))
+
+        val decoded = ProtoConverter.packagesFromProto(Nil, legacyProto :: Nil) match {
+          case Success((_, ps)) =>
+            ps.find(_.name == pack.name).getOrElse(fail("missing decoded package"))
+          case Failure(err) => fail(s"failed to decode legacy package: $err")
+        }
+
+        assert(
+          decoded.lets.forall { case (_, _, te) =>
+            !te.tag.isInstanceOf[Region]
+          },
+          "legacy expression payloads should decode without Region tags"
+        )
+      }
+    )
+  }
+
+  test("package proto round-trips source hash") {
+    TestUtils.testInferred(
+      List(
+        """package Proto/Hash
+          |
+          |export one
+          |
+          |one = 1
+          |""".stripMargin
+      ),
+      "Proto/Hash",
+      (packs, _) => {
+        val pack = packs.toMap(PackageName.parts("Proto", "Hash"))
+        val hashIdent =
+          Algo.hashBytes[Algo.Blake3]("hash-source".getBytes("UTF-8"))
+            .toIdent(using Algo.blake3Algo)
+        val withHash = Package.withSourceHashIdent(pack, Some(hashIdent))
+
+        val protoPack = ProtoConverter.packageToProto(withHash) match {
+          case Success(p)   => p
+          case Failure(err) => fail(s"failed to encode package: $err")
+        }
+        assertEquals(protoPack.sourceHash.map(_.ident), Some(hashIdent))
+
+        val decoded = ProtoConverter.packagesFromProto(Nil, protoPack :: Nil) match {
+          case Success((_, ps)) =>
+            ps.find(_.name == pack.name).getOrElse(fail("missing decoded package"))
+          case Failure(err) => fail(s"failed to decode package: $err")
+        }
+        assertEquals(Package.sourceHashIdent(decoded), Some(hashIdent))
+      }
+    )
+  }
+
+  test("package proto decodes missing source hash as None") {
+    TestUtils.testInferred(
+      List(
+        """package Proto/NoHash
+          |
+          |export one
+          |
+          |one = 1
+          |""".stripMargin
+      ),
+      "Proto/NoHash",
+      (packs, _) => {
+        val pack = packs.toMap(PackageName.parts("Proto", "NoHash"))
+        val protoPack = ProtoConverter.packageToProto(pack) match {
+          case Success(p)   => p
+          case Failure(err) => fail(s"failed to encode package: $err")
+        }
+        val legacyProto = protoPack.copy(sourceHash = None)
+        val decoded = ProtoConverter.packagesFromProto(Nil, legacyProto :: Nil) match {
+          case Success((_, ps)) =>
+            ps.find(_.name == pack.name).getOrElse(fail("missing decoded package"))
+          case Failure(err) => fail(s"failed to decode legacy package: $err")
+        }
+        assertEquals(Package.sourceHashIdent(decoded), None)
+      }
+    )
+  }
+
+  test("package proto rejects invalid source hash identifiers") {
+    val bad = proto.Package(
+      strings = List("Proto/BadHash"),
+      packageName = 1,
+      sourceHash = Some(proto.PackageSourceHash("not-a-hash-ident"))
+    )
+
+    val decoded = ProtoConverter.packagesFromProto(Nil, bad :: Nil)
+    assert(decoded.isFailure, s"expected decode failure, got: $decoded")
+  }
+
+  test("interface bytes are stable across implementation changes") {
+    def ifaceBytes(src: String): Array[Byte] = {
+      var bytes = Array.emptyByteArray
+      TestUtils.testInferred(
+        src :: Nil,
+        "Proto/Determinism",
+        (packs, _) => {
+          val pack = packs.toMap(PackageName.parts("Proto", "Determinism"))
+          val iface = pack.toIface
+          bytes = ProtoConverter.interfaceToProto(iface) match {
+            case Success(p)   => p.toByteArray
+            case Failure(err) => fail(s"failed to encode interface: $err")
+          }
+        }
+      )
+      bytes
+    }
+
+    val srcA =
+      """package Proto/Determinism
+        |
+        |export id
+        |
+        |def id(x: Int) -> Int:
+        |  x
+        |""".stripMargin
+    val srcB =
+      """package Proto/Determinism
+        |
+        |export id
+        |
+        |def id(x: Int) -> Int:
+        |  if True:
+        |    x
+        |  else:
+        |    x
+        |""".stripMargin
+
+    assertEquals(ifaceBytes(srcA).toList, ifaceBytes(srcB).toList)
+  }
+
+  test("interface bytes are invariant to let-order permutations") {
+    forAll(Generators.genPackage(Gen.const(()), 6)) { packMap =>
+      packMap.values.foreach { pack =>
+        val reversed =
+          pack.copy(
+            program = (pack.program._1.copy(lets = pack.lets.reverse), pack.program._2)
+          )
+        val iface0 = ProtoConverter.interfaceToProto(pack.toIface) match {
+          case Success(i)   => i.toByteArray.toList
+          case Failure(err) => fail(s"failed to encode baseline interface: $err")
+        }
+        val iface1 = ProtoConverter.interfaceToProto(reversed.toIface) match {
+          case Success(i)   => i.toByteArray.toList
+          case Failure(err) => fail(s"failed to encode permuted interface: $err")
+        }
+        assertEquals(iface0, iface1)
+      }
+    }
   }
 
 }

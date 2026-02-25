@@ -47,6 +47,10 @@ object MatchlessFromTypedExpr {
         val lets = pack.lets
 
         Par.start {
+          val packageHashIdent =
+            Package
+              .sourceHashIdent(pack)
+              .getOrElse(Package.emptySourceHashIdent)
           val exprs: List[(Bindable, Matchless.Expr[K])] =
             rankn.RefSpace.allocCounter
               .flatMap { c =>
@@ -54,7 +58,15 @@ object MatchlessFromTypedExpr {
                   .traverse { case (name, rec, te) =>
                     // TODO: add from so we can resolve packages correctly
                     Matchless
-                      .fromLet(from, name, rec, te, variantOf, c)
+                      .fromLet(
+                        from,
+                        packageHashIdent,
+                        name,
+                        rec,
+                        te,
+                        variantOf,
+                        c
+                      )
                       .map((name, _))
                   }
               }
