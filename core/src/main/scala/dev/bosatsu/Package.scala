@@ -407,14 +407,6 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
-          val totalityCheck: ValidatedNel[PackageError, Unit] =
-            lets
-              .traverse_ { case (_, _, expr) =>
-                TotalityCheck(fullTypeEnv).checkExpr(expr)
-              }
-              .leftMap { errs =>
-                errs.map(PackageError.TotalityCheckError(p, _))
-              }
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
@@ -473,11 +465,28 @@ object Package {
               )
             }
             .flatMap { typedLets =>
-              TypedExprRecursionCheck
+              val recursionCheck: ValidatedNel[PackageError, Unit] =
+                TypedExprRecursionCheck
                 .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-                .leftMap(_.map(err => PackageError.RecursionError(p, err): PackageError).toNonEmptyList)
+                .leftMap(
+                  _.map(err => PackageError.RecursionError(p, err): PackageError)
+                    .toNonEmptyList
+                )
+
+              val totalityCheck: ValidatedNel[PackageError, Unit] =
+                typedLets
+                  .traverse_ { case (_, _, expr) =>
+                    TotalityCheck(fullTypeEnv).checkExpr(expr)
+                  }
+                  .leftMap { errs =>
+                    errs.map(PackageError.TotalityCheckError(p, _))
+                  }
+
+              (recursionCheck, totalityCheck)
+                .mapN { (_, _) =>
+                  (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
+                }
                 .toEither
-                .map(_ => (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts)))
             }
 
           val checkUnusedLets: ValidatedNel[PackageError, Unit] =
@@ -496,16 +505,11 @@ object Package {
            * warning: if we refactor this from validated, we need parMap on Ior to get this
            * error accumulation
            */
-          val checks = List(
-            checkUnusedLets,
-            totalityCheck
-          ).sequence_
-
           val inference =
             Validated.fromEither(inferenceEither)
 
           Parallel[[A] =>> Ior[NonEmptyList[PackageError], A]]
-            .parProductR(checks.toIor)(inference.toIor)
+            .parProductR(checkUnusedLets.toIor)(inference.toIor)
         }
     }
   }

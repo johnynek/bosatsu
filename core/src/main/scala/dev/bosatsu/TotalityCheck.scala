@@ -10,6 +10,7 @@ import dev.bosatsu.graph.Memoize.memoizeDagHashed
 
 import rankn.{Type, TypeEnv}
 import Pattern._
+import scala.collection.mutable.{HashMap => MutHashMap}
 
 import Identifier.{Bindable, Constructor}
 import dev.bosatsu.rankn.DefinedType
@@ -41,16 +42,16 @@ object TotalityCheck {
   case class InvalidStrPat(pat: StrPat, env: TypeEnv[Any]) extends Error
 
   sealed abstract class ExprError[A] {
-    def matchExpr: Expr.Match[A]
+    def matchExpr: TypedExpr.Match[A]
   }
   case class NonTotalMatch[A](
-      matchExpr: Expr.Match[A],
+      matchExpr: TypedExpr.Match[A],
       missing: NonEmptyList[Pattern[Cons, Type]]
   ) extends ExprError[A]
-  case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error)
+  case class InvalidPattern[A](matchExpr: TypedExpr.Match[A], err: Error)
       extends ExprError[A]
   case class UnreachableBranches[A](
-      matchExpr: Expr.Match[A],
+      matchExpr: TypedExpr.Match[A],
       branches: NonEmptyList[Pattern[Cons, Type]]
   ) extends ExprError[A]
 }
@@ -64,7 +65,7 @@ object TotalityCheck {
   * similarly, some things are ill-typed: `1 - 'foo'` doesn't make any sense.
   * Those two patterns don't describe the same type.
   */
-case class TotalityCheck(inEnv: TypeEnv[Any]) {
+case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   import TotalityCheck._
 
   /** Constructors must match all items to be legal
@@ -97,10 +98,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     p match {
       case lp @ ListPat(_) =>
         val parts = lp.parts
-        val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
-          case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
-          case _                                       => false
-        }
+        val twoAdj = lp.toSeqPattern.hasAdjacentWildcards
         val outer =
           if (!twoAdj) validUnit
           else Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
@@ -111,117 +109,276 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case _                => validUnit
           }
 
-        (outer, inners).parMapN((_, _) => ())
+        outer.parProductL(inners)
 
       case sp @ StrPat(_) =>
         val simp = sp.toSeqPattern
-        def hasAdjacentWild[A](seq: SeqPattern[A]): Boolean =
-          seq match {
-            case SeqPattern.Empty                       => false
-            case SeqPattern.Cat(SeqPart.Wildcard, tail) =>
-              tail match {
-                case SeqPattern.Cat(SeqPart.Wildcard, _) => true
-                case notStartWild => hasAdjacentWild(notStartWild)
-              }
-            case SeqPattern.Cat(_, tail) => hasAdjacentWild(tail)
-          }
-        if (!hasAdjacentWild(simp)) validUnit
+        if (!simp.hasAdjacentWildcards) validUnit
         else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
 
       case PositionalStruct(name, args) =>
         // This is total if the struct has a single constructor AND each of the patterns is total
         val argCheck = args.parTraverse_(validatePattern)
         val nameCheck = checkArity(name, args.size, p)
-        (nameCheck, argCheck).parMapN((_, _) => ())
-
-      case _ => validUnit
+        nameCheck.parProductL(argCheck)
+      case Named(_, inner) =>
+        validatePattern(inner)
+      case Annotation(inner, _) =>
+        validatePattern(inner)
+      case Union(head, rest) =>
+        (head :: rest.toList).parTraverse_(validatePattern)
+      case Var(_) | WildCard | Literal(_) =>
+        validUnit
     }
 
-  /** Check that an expression, and all inner expressions, are total, or return
-    * a NonEmptyList of matches that are not total
+  private val placeholderListPattern: ListPat[Cons, Type] =
+    Pattern.ListPat(Nil)
+
+  /** Some structural pattern lint information is only available on the parsed
+    * patterns carried by Declaration tags.
     */
-  def checkExpr[A](expr: Expr[A]): ValidatedNel[ExprError[A], Unit] = {
-    import Expr._
-    expr match {
-      case Annotation(e, _, _)                           => checkExpr(e)
-      case Generic(_, e)                                 => checkExpr(e)
-      case Lambda(_, e, _)                               => checkExpr(e)
-      case Global(_, _, _) | Local(_, _) | Literal(_, _) => Validated.valid(())
-      case App(fn, args, _)     => checkExpr(fn) *> args.traverse_(checkExpr)
-      case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
-      case m @ Match(arg, branches, _) =>
-        val allPatterns = branches.toList.map(_.pattern)
-        val unguardedPatterns = branches.toList.collect {
-          case branch if branch.guard.isEmpty => branch.pattern
-        }
-        allPatterns
-          .parTraverse_(validatePattern)
-          .leftMap { nel =>
-            nel.map(InvalidPattern(m, _))
+  private def validateParsedPattern(p: Pattern.Parsed): Res[Unit] =
+    p match {
+      case lp @ Pattern.ListPat(parts) =>
+        val twoAdj = lp.toSeqPattern.hasAdjacentWildcards
+        val outer =
+          if (!twoAdj) validUnit
+          else
+            Left(
+              NonEmptyList(
+                MultipleSplicesInPattern(placeholderListPattern, inEnv),
+                Nil
+              )
+            )
+        val inners: Res[Unit] =
+          parts.parTraverse_ {
+            case Pattern.ListPart.Item(item) => validateParsedPattern(item)
+            case _                           => validUnit
           }
-          .toValidated
-          .andThen { _ =>
-            // if the patterns are good, then we check them for totality
-            val argAndBranchExprs = arg :: branches.toList.flatMap { branch =>
-              branch.guard.toList ::: (branch.expr :: Nil)
-            }
-            val recursion = argAndBranchExprs.traverse_(checkExpr)
+        outer.parProductL(inners)
 
-            val missing: ValidatedNel[ExprError[A], Unit] = {
-              val mis =
-                patternSetOps.missingBranches(topList, unguardedPatterns)
-              NonEmptyList.fromList(mis) match {
-                case Some(nel) =>
-                  Validated.invalidNel(NonTotalMatch(m, nel): ExprError[A])
-                case None => Validated.valid(())
-              }
-            }
+      case sp @ Pattern.StrPat(_) =>
+        val simp = sp.toSeqPattern
+        if (!simp.hasAdjacentWildcards) validUnit
+        else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
 
-            val unreachable: ValidatedNel[ExprError[A], Unit] = {
-              val unr = {
-                @annotation.tailrec
-                def loop(
-                    rem: List[Expr.Branch[A]],
-                    covered: List[Pattern[Cons, Type]],
-                    acc: List[Pattern[Cons, Type]]
-                ): List[Pattern[Cons, Type]] =
-                  rem match {
-                    case Nil            => acc.reverse
-                    case branch :: tail =>
-                      val isUnreachable = fromList(covered) match {
-                        case None      => false
-                        case Some(cov) =>
-                          patternSetOps
-                            .difference(branch.pattern, cov)
-                            .isEmpty
-                      }
-                      val covered1 =
-                        if (branch.guard.isEmpty) branch.pattern :: covered
-                        else covered
-                      val acc1 =
-                        if (isUnreachable) branch.pattern :: acc
-                        else acc
-                      loop(tail, covered1, acc1)
-                  }
-                loop(branches.toList, Nil, Nil)
-              }
-              NonEmptyList.fromList(unr) match {
-                case Some(nel) =>
-                  Validated.invalidNel(
-                    UnreachableBranches(m, nel): ExprError[A]
-                  )
-                case None => Validated.valid(())
-              }
-            }
+      case Pattern.PositionalStruct(_, args) =>
+        args.parTraverse_(validateParsedPattern)
+      case Pattern.Named(_, inner) =>
+        validateParsedPattern(inner)
+      case Pattern.Annotation(inner, _) =>
+        validateParsedPattern(inner)
+      case Pattern.Union(head, rest) =>
+        (head :: rest.toList).parTraverse_(validateParsedPattern)
+      case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
+        validUnit
+    }
 
-            missing *> unreachable *> recursion
+  private def validateParsedMatchTag(tag: Declaration): Res[Unit] =
+    tag match {
+      case Declaration.Match(_, _, cases) =>
+        cases.get.toList.parTraverse_(branch =>
+          validateParsedPattern(branch.pattern)
+        )
+      case Declaration.Matches(_, pat) =>
+        validateParsedPattern(pat)
+      case Declaration.Binding(BindingStatement(pat, _, _)) =>
+        validateParsedPattern(pat)
+      case Declaration.DefFn(defstmt) =>
+        defstmt.args.toList.flatMap(_.toList).parTraverse_(validateParsedPattern)
+      case Declaration.Lambda(args, _) =>
+        args.toList.parTraverse_(validateParsedPattern)
+      case Declaration.LeftApply(arg, _, _, _) =>
+        validateParsedPattern(arg)
+      case Declaration.Comment(comment) =>
+        validateParsedMatchTag(comment.on.padded)
+      case Declaration.CommentNB(comment) =>
+        validateParsedMatchTag(comment.on.padded)
+      case Declaration.Parens(of) =>
+        validateParsedMatchTag(of)
+      case Declaration.IfElse(_, _) | Declaration.Ternary(_, _, _) =>
+        // These parse forms are lowered to bool constructor matches.
+        validUnit
+      case Declaration.Apply(_, _, _) =>
+        // Some lowered matches retain their original call-site declaration.
+        validUnit
+      case Declaration.Literal(_) | Declaration.TupleCons(_) =>
+        // Generated programs can produce match tags that keep these source forms.
+        validUnit
+      case Declaration.Var(_) =>
+        // Pattern bindings (`pat = expr`) lower to matches tagged by the RHS declaration.
+        validUnit
+      case Declaration.RecordConstructor(_, _, _) =>
+        // Record update desugaring can create a typed match with this outer tag.
+        validUnit
+      case Declaration.ListDecl(ListLang.Comprehension(_, binding, _, _)) =>
+        validateParsedPattern(binding)
+      case Declaration.DictDecl(ListLang.Comprehension(_, binding, _, _)) =>
+        validateParsedPattern(binding)
+      case Declaration.ListDecl(ListLang.Cons(_)) | Declaration.DictDecl(
+            ListLang.Cons(_)
+          ) =>
+        validUnit
+      case other =>
+        sys.error(s"unexpected declaration: $other")
+    }
+
+  /** Check that a typed expression, and all inner expressions, are total, or
+    * return a NonEmptyList of matches that are not total
+    */
+  def checkExpr(
+      expr: TypedExpr[Declaration]
+  ): ValidatedNel[ExprError[Declaration], Unit] = {
+    import TypedExpr._
+
+    def definitelyUninhabited(
+        r: Inhabitedness.Result[Inhabitedness.State]
+    ): Boolean =
+      r match {
+        // We only trust definitive Uninhabited here. Any quantifier-sensitive
+        // or unknown case stays potentially inhabited, which keeps pruning
+        // conservative and sound.
+        case Validated.Valid(Inhabitedness.State.Uninhabited) => true
+        case _                                                 => false
+      }
+
+    def loop(
+        expr: TypedExpr[Declaration]
+    ): ValidatedNel[ExprError[Declaration], Unit] =
+      expr match {
+        case Annotation(e, _, _)      => loop(e)
+        case Generic(_, e)            => loop(e)
+        case AnnotatedLambda(_, e, _) => loop(e)
+        case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
+          Validated.valid(())
+        case App(fn, args, _, _) =>
+          loop(fn) *> args.traverse_(loop)
+        case Let(_, e1, e2, _, _) =>
+          loop(e1) *> loop(e2)
+        case Loop(args, body, _) =>
+          args.traverse_ { case (_, init) => loop(init) } *> loop(body)
+        case Recur(args, _, _) =>
+          args.traverse_(loop)
+        case matchExpr @ Match(arg, branches, _) =>
+          val argA: TypedExpr[Declaration] = arg
+          val branchesA: NonEmptyList[TypedExpr.Branch[Declaration]] = branches
+          val scrutineeType0 = arg.getType
+          val freeScrutineeVars = Type.freeBoundTyVars(scrutineeType0 :: Nil).distinct
+          val scrutineeType =
+            Type.exists(
+              freeScrutineeVars.map(v => (v, Kind.Type)),
+              scrutineeType0
+            )
+          val uninhabitedMemo =
+            MutHashMap.empty[Pattern[Cons, Type], Boolean]
+          def isDefinitelyUninhabited(
+              p: Pattern[Cons, Type]
+          ): Boolean =
+            uninhabitedMemo.getOrElseUpdate(
+              p,
+              definitelyUninhabited(
+                Inhabitedness.checkMatch(scrutineeType, p, inEnv)
+              )
+            )
+
+          val isUninhabitedScrutinee =
+            definitelyUninhabited(
+              Inhabitedness.check(scrutineeType, inEnv)
+            )
+          val allPatterns = branchesA.toList.map(_.pattern)
+          val unguardedPatterns = branchesA.toList.collect {
+            case branch if branch.guard.isEmpty => branch.pattern
           }
-          .leftMap { errs =>
+          val parsedValidation: Res[Unit] =
+            validateParsedMatchTag(matchExpr.tag)
+          val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
+            parsedValidation
+              .parProductR(allPatterns.parTraverse_(validatePattern))
+              .leftMap { nel =>
+                nel.map(err =>
+                  InvalidPattern(matchExpr, err): ExprError[Declaration]
+                )
+              }
+              .toValidated
+
+          val argAndBranchExprs = argA :: branchesA.toList.flatMap { branch =>
+            branch.guard.toList ::: (branch.expr :: Nil)
+          }
+          val recursion: ValidatedNel[ExprError[Declaration], Unit] =
+            argAndBranchExprs.traverse_(loop)
+
+          val matchCoverage: ValidatedNel[ExprError[Declaration], Unit] =
+            // We must use andThen here because missing/unreachable assumes each
+            // pattern is structurally valid. Running set operations first can
+            // produce misleading diagnostics or throw.
+            patternsValidated.andThen { _ =>
+              val missing: ValidatedNel[ExprError[Declaration], Unit] = {
+                val mis =
+                  if (isUninhabitedScrutinee) Nil
+                  else
+                    patternSetOps
+                      .missingBranches(topList, unguardedPatterns)
+                      .filterNot(isDefinitelyUninhabited)
+                NonEmptyList.fromList(mis) match {
+                  case Some(nel) =>
+                    Validated.invalidNel(
+                      NonTotalMatch(matchExpr, nel): ExprError[Declaration]
+                    )
+                  case None => Validated.valid(())
+                }
+              }
+
+              val unreachable: ValidatedNel[ExprError[Declaration], Unit] = {
+                val unr = {
+                  @annotation.tailrec
+                  def loop(
+                      rem: List[TypedExpr.Branch[Declaration]],
+                      covered: List[Pattern[Cons, Type]],
+                      acc: List[Pattern[Cons, Type]]
+                  ): List[Pattern[Cons, Type]] =
+                    rem match {
+                      case Nil            => acc.reverse
+                      case branch :: tail =>
+                        val isUnreachable = fromList(covered) match {
+                          case None      => false
+                          case Some(cov) =>
+                            patternSetOps
+                              .difference(branch.pattern, cov)
+                              .isEmpty
+                        }
+                        val covered1 =
+                          if (branch.guard.isEmpty) branch.pattern :: covered
+                          else covered
+                        val acc1 =
+                          if (isUnreachable) branch.pattern :: acc
+                          else acc
+                        loop(tail, covered1, acc1)
+                    }
+                  loop(branchesA.toList, Nil, Nil)
+                }
+                NonEmptyList.fromList(unr) match {
+                  case Some(nel) =>
+                    Validated.invalidNel(
+                      UnreachableBranches(
+                        matchExpr,
+                        nel
+                      ): ExprError[Declaration]
+                    )
+                  case None => Validated.valid(())
+                }
+              }
+
+              missing *> unreachable
+            }
+
+          (recursion *> matchCoverage).leftMap { errs =>
             val errList = errs.toList
             // distinct can't reduce to 0
             NonEmptyList.fromListUnsafe(errList.distinct)
           }
-    }
+      }
+
+    loop(expr)
   }
 
   private val topList = WildCard :: Nil
