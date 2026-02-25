@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import java.math.{BigInteger, BigDecimal}
+import java.util.Locale
 import org.typelevel.paiges.Doc
 import cats.parse.{Parser0 => P0, Parser => P, Numbers}
 import cats.{Eq, Show}
@@ -17,6 +18,117 @@ sealed abstract class Json derives CanEqual {
 
 object Json {
   import Doc.text
+
+  // YAML core-schema parsers can coerce these plain scalars into non-strings.
+  // Keep them quoted so YAML and JSON output stay semantically aligned.
+  private val yamlAmbiguousScalars: Set[String] =
+    Set("true", "false", "null", "yes", "no", "on", "off")
+
+  private def isYamlPlainStartChar(c: Char): Boolean =
+    c.isLetter || c == '_' || c == '/'
+
+  private def isYamlPlainChar(c: Char): Boolean =
+    c.isLetterOrDigit || c == '_' || c == '-' || c == '.' || c == '/'
+
+  private def needsYamlUnicodeEscape(c: Char): Boolean = {
+    val codePoint = c.toInt
+    (codePoint < 0x20) ||
+    (codePoint == 0x7f) ||
+    (0x80 <= codePoint && codePoint < 0xa0) ||
+    Character.isSurrogate(c)
+  }
+
+  private def appendHex4(sb: java.lang.StringBuilder, c: Char): Unit = {
+    val hex = c.toInt.toHexString
+    var idx = hex.length
+    while (idx < 4) {
+      sb.append('0')
+      idx += 1
+    }
+    sb.append(hex): Unit
+  }
+
+  private def yamlEscapeQuoted(str: String): String = {
+    val sb = new java.lang.StringBuilder
+    var idx = 0
+    while (idx < str.length) {
+      val c = str.charAt(idx)
+      c match {
+        case '"'  => sb.append("\\\"")
+        case '\\' => sb.append("\\\\")
+        case '\b' => sb.append("\\b")
+        case '\f' => sb.append("\\f")
+        case '\n' => sb.append("\\n")
+        case '\r' => sb.append("\\r")
+        case '\t' => sb.append("\\t")
+        case _ =>
+          if (needsYamlUnicodeEscape(c)) {
+            sb.append("\\u")
+            appendHex4(sb, c)
+          } else {
+            sb.append(c)
+          }
+      }
+      idx += 1
+    }
+    sb.toString
+  }
+
+  private def yamlQuotedStringDoc(str: String): Doc =
+    Doc.char('"') + Doc.text(yamlEscapeQuoted(str)) + Doc.char('"')
+
+  // conservative plain-scalar rules keep values parse-stable across YAML implementations
+  private def safePlainYamlString(str: String): Boolean =
+    str.nonEmpty &&
+      !str.exists(_.isWhitespace) &&
+      parserFile.parseAll(str).isLeft &&
+      !yamlAmbiguousScalars(str.toLowerCase(Locale.ROOT)) &&
+      isYamlPlainStartChar(str.head) &&
+      str.forall(isYamlPlainChar)
+
+  private def yamlStringDoc(str: String): Doc =
+    if (safePlainYamlString(str)) text(str)
+    else yamlQuotedStringDoc(str)
+
+  private def hasNestedYamlContent(j: Json): Boolean =
+    j match {
+      case JArray(items) => items.nonEmpty
+      case JObject(items) =>
+        items.nonEmpty
+      case _ => false
+    }
+
+  private def yamlItemDoc(j: Json): Doc = {
+    val valueDoc = toYamlDoc(j)
+    if (hasNestedYamlContent(j)) Doc.char('-') + (Doc.line + valueDoc).nested(2)
+    else Doc.text("- ") + valueDoc
+  }
+
+  private def yamlFieldDoc(key: String, value: Json): Doc = {
+    val keyDoc = yamlStringDoc(key)
+    val valueDoc = toYamlDoc(value)
+    if (hasNestedYamlContent(value))
+      keyDoc + Doc.char(':') + (Doc.line + valueDoc).nested(2)
+    else keyDoc + Doc.text(": ") + valueDoc
+  }
+
+  def toYamlDoc(j: Json): Doc =
+    j match {
+      case JString(str)     => yamlStringDoc(str)
+      case JNumberStr(str)  => text(str)
+      case JBool.True       => text("true")
+      case JBool.False      => text("false")
+      case JNull            => text("null")
+      case JArray(toVector) =>
+        if (toVector.isEmpty) emptyArray
+        else Doc.intercalate(Doc.line, toVector.map(yamlItemDoc))
+      case jobj @ JObject(items) =>
+        if (items.isEmpty) emptyDict
+        else Doc.intercalate(Doc.line, jobj.keys.map(k => yamlFieldDoc(k, jobj.toMap(k))))
+    }
+
+  def renderYaml(j: Json): String =
+    toYamlDoc(j).render(80)
 
   final case class JString(str: String) extends Json {
     override def render = "\"%s\"".format(JsonStringUtil.escape('"', str))
