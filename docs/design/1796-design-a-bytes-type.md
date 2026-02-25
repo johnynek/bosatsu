@@ -98,6 +98,7 @@ Issue #1796 asks for:
 5. Add binary IO functions in `Bosatsu/IO/Core` using existing `Handle`.
 6. Keep runtime-intensive loops inside external functions where mutability is safe and hidden.
 7. Keep Python `bytes`/`memoryview` similarity where it does not conflict with Bosatsu style priorities.
+8. Support `Bytes` in `ValueToJson` and `ValueToDoc` as lists of ints in `0..255`.
 
 ## Non-goals
 
@@ -285,7 +286,7 @@ from Bosatsu/IO/Bytes import Bytes
 external def read_bytes(h: Handle, max_bytes: Int) -> Prog[IOError, Option[Bytes]]
 external def write_bytes(h: Handle, bytes: Bytes) -> Prog[IOError, Unit]
 external def read_all_bytes(h: Handle, chunk_size: Int) -> Prog[IOError, Bytes]
-external def copy_bytes(src: Handle, dst: Handle, chunk_size: Int) -> Prog[IOError, Int]
+external def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -> Prog[IOError, Int]
 ```
 
 Semantics:
@@ -296,9 +297,13 @@ Semantics:
    3. otherwise returns `Some(chunk)` with `1..max_bytes` bytes
 2. `write_bytes` writes the full provided view or returns error.
 3. `read_all_bytes` reads to EOF and returns a single `Bytes` value.
-4. `copy_bytes` copies `src` to `dst` until EOF and returns transferred byte count.
+4. `copy_bytes` copies bytes from `src` to `dst` and returns transferred byte count:
+   1. `max_total = None` copies until EOF
+   2. `max_total = Some(n)` copies at most `n` bytes total
+   3. `max_total = Some(n)` with `n < 0` -> `InvalidArgument`
+   4. `max_total = Some(0)` returns `0` without reading or writing
 
-Why include `read_all_bytes` and `copy_bytes` as externals:
+Why include `read_all_bytes` and bounded `copy_bytes` as externals:
 
 1. They keep high-volume mutable loops on the runtime side.
 2. They avoid repeated Bosatsu-level recursion and chunk list accumulation.
@@ -351,7 +356,7 @@ This split keeps the API pure while still leveraging runtime mutability where it
 5. Implement Python runtime support in `ProgExt.py` and `Prog.bosatsu_externals`.
 6. Implement C runtime support with new `IO/Bytes` extension files and Makefile wiring.
 7. Add tests for bytes semantics and binary IO behavior.
-8. Add JSON/doc rendering support for `Bytes` (optional in scope but recommended for parity with existing external `Array` support in tooling).
+8. Add `ValueToJson`/`ValueToDoc` support for `Bytes`, rendered as arrays/lists of ints in `0..255`.
 
 ## Testing strategy
 
@@ -369,11 +374,11 @@ This split keeps the API pure while still leveraging runtime mutability where it
 1. Add JVM evaluator test in `EvaluationTest.scala` similar to existing array external test.
 2. Add binary file round-trip tests (`write_bytes` then `read_all_bytes`).
 3. Add partial read tests for `read_bytes` chunking.
-4. Add `copy_bytes` transfer count test.
+4. Add `copy_bytes` transfer count tests for both unbounded (`None`) and bounded (`Some(n)`) modes.
 
 ### Tooling conversion tests
 
-1. If `ValueToJson`/`ValueToDoc` support is included, add `ToolAndLibCommandTest` coverage for `Bytes` JSON write/apply.
+1. Add `ToolAndLibCommandTest` coverage for `Bytes` JSON write/apply, asserting `Bytes` renders as JSON arrays of ints in `0..255`.
 2. Assert invalid JSON ints outside `0..255` are rejected when decoding to `Bytes`.
 
 ### Cross-runtime parity
@@ -390,11 +395,12 @@ This split keeps the API pure while still leveraging runtime mutability where it
 5. `to_Array_Int` exists and returns unsigned `Int` values in `0..255`.
 6. `slice_Bytes` is O(1) view creation and follows Array-style bounds behavior.
 7. `Bosatsu/IO/Core` exports `read_bytes` and `write_bytes` using `Handle`.
-8. `Bosatsu/IO/Core` also exports `read_all_bytes` and `copy_bytes` as large-grain external operations.
+8. `Bosatsu/IO/Core` also exports `read_all_bytes` and bounded `copy_bytes(src, dst, chunk_size, max_total)` as large-grain external operations.
 9. JVM evaluator, Python runtime, and C runtime all implement `Bosatsu/IO/Bytes` externals.
 10. Binary read/write tests pass for at least JVM evaluator and Python transpile path; C runtime tests pass where currently available in CI.
 11. Existing text IO APIs remain source-compatible.
 12. No API exposes mutable byte storage to Bosatsu code.
+13. `ValueToJson` and `ValueToDoc` support `Bytes` and render as lists of ints in `0..255`.
 
 ## Risks and mitigations
 
@@ -411,7 +417,7 @@ This split keeps the API pure while still leveraging runtime mutability where it
    Mitigation: keep high-throughput operations (`concat`, `find`, `copy`, `read_all`) external and loop-native.
 
 5. Risk: incompatibility in JSON/doc tooling for new external type.
-   Mitigation: include `ValueToJson`/`ValueToDoc` updates in same rollout or explicitly gate/omit Bytes in json apply/write paths until added.
+   Mitigation: include `ValueToJson`/`ValueToDoc` updates in the same rollout and lock behavior with explicit tooling tests.
 
 6. Risk: behavior differences when mixing text and binary reads/writes on the same handle.
    Mitigation: document that mixed-mode use is undefined in v1 and recommend one mode per handle lifecycle.
