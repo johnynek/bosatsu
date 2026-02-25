@@ -3,7 +3,7 @@ package dev.bosatsu
 import cats.Functor
 import cats.data.{Ior, NonEmptyList}
 import cats.syntax.all._
-import dev.bosatsu.rankn.{ParsedTypeEnv, Type}
+import dev.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import org.scalacheck.Gen
 import MonadGen.genMonad
 
@@ -82,6 +82,10 @@ object WellTypedGen {
       statements: List[Statement],
       expected: Map[Identifier.Bindable, Type],
       typeEnv: rankn.TypeEnv[Kind.Arg]
+  )
+  final case class TypedMatchCase(
+      typeEnv: rankn.TypeEnv[Kind.Arg],
+      matchExpr: TypedExpr.Match[Declaration]
   )
 
   final case class ValSig(name: Identifier, sigma: Type)
@@ -1213,4 +1217,74 @@ object WellTypedGen {
 
   def wellTypedProgramGen(phase: Phase): Gen[WellTypedProgram] =
     wellTypedProgramGen(Config.forPhase(phase))
+
+  private def inferTypedProgram(
+      program: WellTypedProgram
+  ): Option[
+    (
+        rankn.TypeEnv[Kind.Arg],
+        Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
+    )
+  ] =
+    Package.inferBodyUnopt(program.packageName, Nil, program.statements) match {
+      case Ior.Right(res)   => Some(res)
+      case Ior.Both(_, res) => Some(res)
+      case Ior.Left(_)      => None
+    }
+
+  private def allMatches(
+      expr: TypedExpr[Declaration]
+  ): List[TypedExpr.Match[Declaration]] =
+    expr match {
+      case TypedExpr.Generic(_, in) =>
+        allMatches(in)
+      case TypedExpr.Annotation(in, _, _) =>
+        allMatches(in)
+      case TypedExpr.AnnotatedLambda(_, in, _) =>
+        allMatches(in)
+      case TypedExpr.App(fn, args, _, _) =>
+        allMatches(fn) ::: args.toList.flatMap(allMatches)
+      case TypedExpr.Let(_, ex, in, _, _) =>
+        allMatches(ex) ::: allMatches(in)
+      case TypedExpr.Loop(args, body, _) =>
+        args.toList.flatMap { case (_, init) => allMatches(init) } ::: allMatches(
+          body
+        )
+      case TypedExpr.Recur(args, _, _) =>
+        args.toList.flatMap(allMatches)
+      case m @ TypedExpr.Match(arg, branches, _) =>
+        val matchExpr = m.asInstanceOf[TypedExpr.Match[Declaration]]
+        matchExpr :: (
+          allMatches(arg) ::: branches.toList.flatMap { branch =>
+            branch.guard.toList.flatMap(allMatches) ::: allMatches(branch.expr)
+          }
+        )
+      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+          TypedExpr.Literal(_, _, _) =>
+        Nil
+    }
+
+  def typedMatchCaseGen(cfg: Config): Gen[TypedMatchCase] = {
+    def loop: Gen[TypedMatchCase] =
+      wellTypedProgramGen(cfg).flatMap { program =>
+        inferTypedProgram(program)
+          .flatMap { case (typeEnv, typedProgram) =>
+            NonEmptyList
+              .fromList(typedProgram.lets.flatMap { case (_, _, expr) =>
+                allMatches(expr)
+              })
+              .map(matches => (typeEnv, matches))
+          } match {
+          case Some((typeEnv, matches)) =>
+            Gen.oneOf(matches.toList).map(TypedMatchCase(typeEnv, _))
+          case None =>
+            Gen.lzy(loop)
+        }
+      }
+
+    loop
+  }
+
+  def typedMatchCaseGen(phase: Phase): Gen[TypedMatchCase] =
+    typedMatchCaseGen(Config.forPhase(phase))
 }

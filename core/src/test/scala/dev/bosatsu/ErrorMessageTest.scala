@@ -532,7 +532,7 @@ package A
 
 enum Foo: Bar(a), Baz(b)
 
-main = match Bar(a):
+main = match Bar(0):
   case Baz(b): b
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
       assertEquals(
@@ -2204,38 +2204,34 @@ main = xxfoo
   }
 
   test(
-    "unknown constructor in totality diagnostics suggests nearest constructors"
+    "totality internal invariant violations render as internal compiler errors"
   ) {
     val pack = PackageName.parts("P")
-    val known = Identifier.Constructor("JNull")
     val miss = Identifier.Constructor("JNul")
-    val jsonDt = rankn.DefinedType[Nothing](
-      packageName = pack,
-      name = TypeName(Identifier.Constructor("Json")),
-      annotatedTypeParams = Nil,
-      constructors = List(rankn.ConstructorFn(known, Nil))
-    )
-    val typeEnv = rankn.TypeEnv.fromDefinitions(List(jsonDt))
     given Region = Region(0, 1)
     val tag = Declaration.Var(Identifier.Name("x"))
     val pat: Pattern[(PackageName, Identifier.Constructor), rankn.Type] =
       Pattern.PositionalStruct((pack, miss), Nil)
-    val lit = Expr.Literal[Declaration](Lit.Integer(0L), tag)
-    val matchExpr = Expr.Match(
+    val lit =
+      TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
+    val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(Expr.Branch(pat, None, lit)),
+      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(
       pack,
-      TotalityCheck.InvalidPattern(
+      TotalityCheck.InternalInvariantViolation(
         matchExpr,
-        TotalityCheck.UnknownConstructor((pack, miss), pat, typeEnv)
+        s"internal invariant violation: unknown constructor ${miss.sourceCodeRepr}"
       )
     )
     val message = totalityErr.message(Map.empty, Colorize.None)
-    assert(message.contains("Unknown constructor `JNul`."))
-    assert(message.contains("Did you mean constructor `JNull`?"))
+    assert(message.contains("internal compiler error in totality checker"), message)
+    assert(
+      message.contains("internal invariant violation: unknown constructor JNul"),
+      message
+    )
   }
 
   test(

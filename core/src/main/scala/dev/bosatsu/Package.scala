@@ -407,14 +407,34 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
-          val totalityCheck: ValidatedNel[PackageError, Unit] =
-            lets
-              .traverse_ { case (_, _, expr) =>
-                TotalityCheck(fullTypeEnv).checkExpr(expr)
-              }
-              .leftMap { errs =>
-                errs.map(PackageError.TotalityCheckError(p, _))
-              }
+          val structuralPatternCheckByLet: List[
+            (Identifier.Bindable, ValidatedNel[PackageError, Unit])
+          ] =
+            lets.map { case (name, _, expr) =>
+              val check =
+                TotalityCheck(fullTypeEnv)
+                  .checkExprPatterns(expr)
+                  .leftMap(
+                    _.map { case (tag, err) =>
+                      PackageError.TotalityCheckError(
+                        p,
+                        TotalityCheck.InvalidPattern(
+                          TotalityCheck.syntheticMatch(tag),
+                          err
+                        )
+                      ): PackageError
+                    }
+                  )
+              (name, check)
+            }
+
+          val letsWithStructuralPatternIssues: Set[Identifier.Bindable] =
+            structuralPatternCheckByLet.collect {
+              case (name, check) if check.isInvalid => name
+            }.toSet
+
+          val structuralPatternCheck: ValidatedNel[PackageError, Unit] =
+            structuralPatternCheckByLet.traverse_(_._2)
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
@@ -473,11 +493,28 @@ object Package {
               )
             }
             .flatMap { typedLets =>
-              TypedExprRecursionCheck
-                .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-                .leftMap(_.map(err => PackageError.RecursionError(p, err): PackageError).toNonEmptyList)
+              val typedTotalityCheck: ValidatedNel[PackageError, Unit] =
+                typedLets
+                  .filterNot { case (name, _, _) =>
+                    letsWithStructuralPatternIssues(name)
+                  }
+                  .traverse_ { case (_, _, expr) =>
+                    TotalityCheck(fullTypeEnv).checkExpr(expr)
+                  }
+                  .leftMap(_.map(PackageError.TotalityCheckError(p, _)))
+
+              val typedRecursionCheck: ValidatedNel[PackageError, Unit] =
+                TypedExprRecursionCheck
+                  .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                  .leftMap(
+                    _.map(err => PackageError.RecursionError(p, err): PackageError).toNonEmptyList
+                  )
+
+              (typedTotalityCheck, typedRecursionCheck)
+                .mapN((_, _) =>
+                  (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
+                )
                 .toEither
-                .map(_ => (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts)))
             }
 
           val checkUnusedLets: ValidatedNel[PackageError, Unit] =
@@ -498,7 +535,7 @@ object Package {
            */
           val checks = List(
             checkUnusedLets,
-            totalityCheck
+            structuralPatternCheck
           ).sequence_
 
           val inference =

@@ -1,12 +1,15 @@
 package dev.bosatsu
 
 import cats.Eq
+import cats.data.Validated
 import cats.implicits._
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
+import org.scalacheck.Test
 
 import dev.bosatsu.set.{SetOps, SetOpsLaws, Rel}
+import dev.bosatsu.Inhabitedness.State
 
 import rankn._
 
@@ -109,6 +112,23 @@ enum Bool: False, True
   val PredefTotalityCheck = TotalityCheck(predefTE)
   val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
     PredefTotalityCheck.patternSetOps
+
+  private def totalityErrors(
+      typeEnv: TypeEnv[Kind.Arg],
+      expr: TypedExpr[Declaration]
+  ): List[TotalityCheck.ExprError[Declaration]] =
+    TotalityCheck(typeEnv).checkExpr(expr) match {
+      case Validated.Valid(())   => Nil
+      case Validated.Invalid(ne) => ne.toList
+    }
+
+  private def definitelyUninhabited(
+      result: Inhabitedness.Result[State]
+  ): Boolean =
+    result match {
+      case Validated.Valid(State.Uninhabited) => true
+      case _                                  => false
+    }
 
   override def genItem: Gen[Pattern[(PackageName, Constructor), Type]] =
     genPattern
@@ -887,5 +907,66 @@ enum Either: Left(l), Right(r)
 
       assertEquals(setOps.relate(normp, p), Rel.Same)
     }
+  }
+
+  test("typed totality accepts generated well-typed match cases") {
+    val prop =
+      forAll(WellTypedGen.typedMatchCaseGen(WellTypedGen.Config.phase4)) {
+        typedCase =>
+          totalityErrors(typedCase.typeEnv, typedCase.matchExpr).isEmpty
+      }
+
+    val minSuccessful = if (Platform.isScalaJvm) 40 else 8
+    val result =
+      Test.check(
+        scalaCheckTestParameters.withMinSuccessfulTests(minSuccessful),
+        prop
+      )
+
+    assert(result.passed, result.toString)
+  }
+
+  test("typed totality missing branches are never definitely uninhabited") {
+    val prop =
+      forAll(WellTypedGen.typedMatchCaseGen(WellTypedGen.Config.phase4)) {
+        typedCase =>
+          val branches = typedCase.matchExpr.branches.toList
+          val droppedCases =
+            if (branches.lengthCompare(1) > 0) {
+              branches.indices.toList.flatMap { idx =>
+                NonEmptyList
+                  .fromList(branches.patch(idx, Nil, 1))
+                  .map { kept =>
+                    typedCase.matchExpr.copy(branches = kept)
+                  }
+              }
+            } else Nil
+
+          val missingPatterns = droppedCases.flatMap { expr =>
+            totalityErrors(typedCase.typeEnv, expr).flatMap {
+              case TotalityCheck.NonTotalMatch(_, missing) => missing.toList
+              case _                                        => Nil
+            }
+          }
+
+          missingPatterns.forall { pat =>
+            !definitelyUninhabited(
+              Inhabitedness.checkMatch(
+                typedCase.matchExpr.arg.getType,
+                pat,
+                typedCase.typeEnv
+              )
+            )
+          }
+      }
+
+    val minSuccessful = if (Platform.isScalaJvm) 30 else 6
+    val result =
+      Test.check(
+        scalaCheckTestParameters.withMinSuccessfulTests(minSuccessful),
+        prop
+      )
+
+    assert(result.passed, result.toString)
   }
 }

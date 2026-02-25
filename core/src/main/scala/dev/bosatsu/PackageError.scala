@@ -1187,25 +1187,6 @@ object PackageError {
         case TotalityCheck.InvalidPattern(_, err) =>
           import TotalityCheck._
           err match {
-            case ArityMismatch((_, n), _, _, exp, found) =>
-              Doc.text(
-                s"arity mismatch: ${n.sourceCodeRepr} expected $exp parameters, found $found"
-              )
-            case UnknownConstructor((_, n), _, env) =>
-              val near = NameSuggestion
-                .nearest(
-                  n,
-                  env.typeConstructors.keysIterator.map { case (p, c) =>
-                    val pri =
-                      if (p == pack) NameSuggestion.ScopePriority.SamePackage
-                      else NameSuggestion.ScopePriority.Imported
-                    NameSuggestion.Candidate(c, c, pri)
-                  }.toList,
-                  3
-                )
-                .map(_.value)
-              Doc.text("Unknown constructor ") + quoted(n) + Doc.char('.') +
-                nearestConstructorsDoc(near)
             case InvalidStrPat(pat, _) =>
               Doc.text(s"invalid string pattern: ") +
                 Document[Pattern.Parsed].document(pat) +
@@ -1217,6 +1198,9 @@ object PackageError {
                 "multiple splices in pattern, only one per match allowed"
               )
           }
+        case TotalityCheck.InternalInvariantViolation(_, msg) =>
+          Doc.text("internal compiler error in totality checker: ") +
+            Doc.text(msg)
       }
       val prefix = sourceMap.headLine(pack, Some(region))
       val doc = prefix + Doc.hardLine +
