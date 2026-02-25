@@ -62,7 +62,8 @@ class JsonJawnTest extends munit.ScalaCheckSuite {
       Json.JString("has whitespace").render
     )
 
-    List("yes", "Yes", "NO", "on", "Off").foreach { value =>
+    List("yes", "Yes", "NO", "on", "Off", "True", "FALSE", "Null").foreach {
+      value =>
       assertEquals(Json.renderYaml(Json.JString(value)), Json.JString(value).render)
     }
   }

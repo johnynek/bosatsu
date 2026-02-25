@@ -19,8 +19,10 @@ sealed abstract class Json derives CanEqual {
 object Json {
   import Doc.text
 
-  private val yamlBoolLikeScalars: Set[String] =
-    Set("yes", "no", "on", "off")
+  // YAML core-schema parsers can coerce these plain scalars into non-strings.
+  // Keep them quoted so YAML and JSON output stay semantically aligned.
+  private val yamlAmbiguousScalars: Set[String] =
+    Set("true", "false", "null", "yes", "no", "on", "off")
 
   private def isYamlPlainStartChar(c: Char): Boolean =
     c.isLetter || c == '_' || c == '/'
@@ -80,7 +82,7 @@ object Json {
     str.nonEmpty &&
       !str.exists(_.isWhitespace) &&
       parserFile.parseAll(str).isLeft &&
-      !yamlBoolLikeScalars(str.toLowerCase(Locale.ROOT)) &&
+      !yamlAmbiguousScalars(str.toLowerCase(Locale.ROOT)) &&
       isYamlPlainStartChar(str.head) &&
       str.forall(isYamlPlainChar)
 
