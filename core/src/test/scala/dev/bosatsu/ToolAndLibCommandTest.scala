@@ -2044,6 +2044,7 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 
@@ -2894,6 +2895,7 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 

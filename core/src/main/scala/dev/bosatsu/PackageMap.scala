@@ -654,8 +654,7 @@ object PackageMap {
 
   /** Backward compatible runtime predef handle.
     */
-  val predefCompiled: Package.Inferred =
-    predefCompiledForMode(CompileOptions.Mode.Emit)
+  def predefCompiled: Package.Inferred = predefCompiledEmit
 
   private def predefImportsFromExports(
       exports: List[ExportedName[Referant[Kind.Arg]]]

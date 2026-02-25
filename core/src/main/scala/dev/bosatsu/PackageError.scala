@@ -73,6 +73,16 @@ object PackageError {
             .grouped + Doc.char('?')
     }
 
+  private def checkModeTodoHint(name: Identifier): Doc =
+    name match {
+      case b: Identifier.Bindable if b.asString == "todo" =>
+        Doc.hardLine + Doc.text(
+          "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
+        )
+      case _ =>
+        Doc.empty
+    }
+
   private def nearestConstructorsDoc(
       suggestions: List[Identifier.Constructor]
   ): Doc =
@@ -716,7 +726,7 @@ object PackageError {
                     didYouMeanDoc(candidates) + occurrenceDoc(
                       "name",
                       occurrences
-                    ) + Doc.hardLine + ctx,
+                    ) + checkModeTodoHint(name) + Doc.hardLine + ctx,
                   Some(region)
                 )
             }
