@@ -52,6 +52,37 @@ sealed abstract class Value derives CanEqual {
 }
 
 object Value {
+  type BosatsuInt = java.lang.Integer | BigInteger
+
+  private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
+  private val MinIntBI = BigInteger.valueOf(Int.MinValue.toLong)
+
+  private[bosatsu] def intFromBigInteger(v: BigInteger): BosatsuInt =
+    if (v.compareTo(MinIntBI) >= 0 && v.compareTo(MaxIntBI) <= 0)
+      java.lang.Integer.valueOf(v.intValue())
+    else v
+
+  private[bosatsu] def intToBigInteger(v: BosatsuInt): BigInteger =
+    v match {
+      case i: java.lang.Integer => BigInteger.valueOf(i.longValue())
+      case bi: BigInteger       => bi
+    }
+
+  private[bosatsu] def intCompare(a: BosatsuInt, b: BosatsuInt): Int =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        java.lang.Integer.compare(ai.intValue(), bi.intValue())
+      case (ai: java.lang.Integer, bi: BigInteger) =>
+        BigInteger.valueOf(ai.longValue()).compareTo(bi)
+      case (ai: BigInteger, bi: java.lang.Integer) =>
+        ai.compareTo(BigInteger.valueOf(bi.longValue()))
+      case (ai: BigInteger, bi: BigInteger) =>
+        ai.compareTo(bi)
+    }
+
+  private[bosatsu] def intEq(a: BosatsuInt, b: BosatsuInt): Boolean =
+    intCompare(a, b) == 0
+
   final class ProductValue(val values: Array[Value]) extends Value {
     override lazy val hashCode =
       scala.util.hashing.MurmurHash3.arrayHash(values)
@@ -79,6 +110,23 @@ object Value {
     def fromList(vs: List[Value]): ProductValue =
       if (vs.isEmpty) UnitValue
       else new ProductValue(vs.toArray)
+
+    def fromNonEmptyList(vs: NonEmptyList[Value]): ProductValue =
+      vs.tail match {
+        case Nil =>
+          single(vs.head)
+        case _ =>
+          val arr = new Array[Value](vs.length)
+          arr(0) = vs.head
+          var idx = 1
+          var rem = vs.tail
+          while (rem.nonEmpty) {
+            arr(idx) = rem.head
+            idx = idx + 1
+            rem = rem.tail
+          }
+          new ProductValue(arr)
+      }
 
     def unapplySeq(v: Value): Option[Seq[Value]] =
       v match {
@@ -166,18 +214,23 @@ object Value {
   def fromLit(l: Lit): Value =
     l match {
       case Lit.Str(s)     => ExternalValue(s)
-      case Lit.Integer(i) => ExternalValue(i)
+      case Lit.Integer(i) => VInt(i)
       case c @ Lit.Chr(_) => ExternalValue(c.asStr)
       case f: Lit.Float64 => ExternalValue(java.lang.Double.valueOf(f.toDouble))
     }
 
   object VInt {
-    def apply(v: Int): Value = apply(BigInt(v))
-    def apply(v: BigInt): Value = ExternalValue(v.bigInteger)
+    def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
+    def apply(v: BigInt): Value = apply(v.bigInteger)
+    def apply(v: BigInteger): Value = ExternalValue(intFromBigInteger(v))
     def unapply(v: Value): Option[BigInteger] =
       v match {
-        case ExternalValue(v: BigInteger) => Some(v)
-        case _                            => None
+        case ExternalValue(v: java.lang.Integer) =>
+          Some(BigInteger.valueOf(v.longValue()))
+        case ExternalValue(v: BigInteger) =>
+          Some(v)
+        case _ =>
+          None
       }
   }
 

@@ -1,9 +1,8 @@
 package dev.bosatsu
 
-import cats.{Eval, Functor, Applicative, Eq}
+import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
-import cats.syntax.eq._
 import java.math.BigInteger
 import scala.collection.immutable.LongMap
 
@@ -50,7 +49,7 @@ object MatchlessToValue {
           } else
             // arity > 1
             FnValue { args =>
-              val prod = ProductValue.fromList(args.toList)
+              val prod = ProductValue.fromNonEmptyList(args)
               SumValue(variant, prod)
             }
         case MakeStruct(arity) =>
@@ -58,7 +57,7 @@ object MatchlessToValue {
           else if (arity == 1) FnValue.identity
           else
             FnValue { args =>
-              ProductValue.fromList(args.toList)
+              ProductValue.fromNonEmptyList(args)
             }
         case ZeroNat => zeroNat
         case SuccNat => succNat
@@ -89,8 +88,56 @@ object MatchlessToValue {
       def get(): Value = value
     }
 
+    sealed abstract class LocalEnv derives CanEqual {
+      def get(b: Bindable): Eval[Value]
+      def updated(b: Bindable, v: Eval[Value]): LocalEnv =
+        LocalEnv.Node(b, v, this)
+
+      def prependAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): LocalEnv = {
+        val b = bs.iterator
+        val v = vs.iterator
+        var env: LocalEnv = this
+        while (b.hasNext) {
+          env = LocalEnv.Node(b.next(), Eval.now(v.next()), env)
+        }
+        env
+      }
+
+      def keySet: Set[Bindable]
+    }
+
+    object LocalEnv {
+      case object Empty extends LocalEnv {
+        def get(b: Bindable): Eval[Value] =
+          sys.error(s"missing local binding: $b")
+        val keySet: Set[Bindable] = Set.empty
+      }
+
+      final case class Node(
+          name: Bindable,
+          value: Eval[Value],
+          tail: LocalEnv
+      ) extends LocalEnv {
+        def get(b: Bindable): Eval[Value] = {
+          @annotation.tailrec
+          def loop(env: LocalEnv): Eval[Value] =
+            env match {
+              case Node(n, v, t) =>
+                if (n == b) v
+                else loop(t)
+              case LocalEnv.Empty =>
+                sys.error(s"missing local binding: $b")
+            }
+
+          loop(this)
+        }
+
+        lazy val keySet: Set[Bindable] = tail.keySet + name
+      }
+    }
+
     final case class Scope(
-        locals: Map[Bindable, Eval[Value]],
+        locals: LocalEnv,
         anon: LongMap[Value],
         muts: LongMap[Cell],
         slots: Vector[Value],
@@ -108,13 +155,7 @@ object MatchlessToValue {
         copy(muts = muts.updated(idx, new Cell))
 
       def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope = {
-        val b = bs.iterator
-        val v = vs.iterator
-        var local1 = locals
-        while (b.hasNext) {
-          local1 = local1.updated(b.next(), Eval.now(v.next()))
-        }
-        copy(locals = local1)
+        copy(locals = locals.prependAll(bs, vs))
       }
 
       def debugString: String =
@@ -133,7 +174,7 @@ object MatchlessToValue {
     object Scope {
       def empty(): Scope =
         Scope(
-          Map.empty,
+          LocalEnv.Empty,
           LongMap.empty,
           LongMap.empty,
           Vector.empty,
@@ -142,7 +183,7 @@ object MatchlessToValue {
 
       def capture(it: Vector[Value], dbg: DebugStr = new DebugStr): Scope =
         Scope(
-          Map.empty,
+          LocalEnv.Empty,
           LongMap.empty,
           LongMap.empty,
           it,
@@ -208,10 +249,28 @@ object MatchlessToValue {
     }
 
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
+      private def valueEquals(left: Any, right: Any): Boolean =
+        (left, right) match {
+          case (li: java.lang.Integer, ri: BigInteger) =>
+            BigInteger.valueOf(li.longValue()) == ri
+          case (li: BigInteger, ri: java.lang.Integer) =>
+            li == BigInteger.valueOf(ri.longValue())
+          case _ =>
+            java.util.Objects.equals(
+              left.asInstanceOf[AnyRef],
+              right.asInstanceOf[AnyRef]
+            )
+        }
+
+      private def isZeroNat(external: Any): Boolean =
+        external match {
+          case i: java.lang.Integer => i.intValue() == 0
+          case bi: BigInteger       => bi.signum == 0
+          case _                    => false
+        }
+
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
-        given Eq[Any] = Eq.fromUniversalEquals
-
         ix match {
           case EqualsLit(expr, lit) =>
             loop(expr).map { e =>
@@ -233,9 +292,7 @@ object MatchlessToValue {
                     // $COVERAGE-ON$
                   }
                 case _ =>
-                  val litAny = lit.unboxToAny
-                  // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
-                  external === litAny
+                  valueEquals(external, lit.unboxToAny)
               }
             }
 
@@ -244,15 +301,11 @@ object MatchlessToValue {
 
             if (zeroOrSucc.isZero)
               natF.map { v =>
-                val external = v.asExternal.toAny
-                // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
-                external === BigInteger.ZERO
+                isZeroNat(v.asExternal.toAny)
               }
             else
               natF.map { v =>
-                val external = v.asExternal.toAny
-                // Safe: Matchless values come from typechecked code, so equals only compares compatible values.
-                external =!= BigInteger.ZERO
+                !isZeroNat(v.asExternal.toAny)
               }
 
           case TrueConst     => Static(true)
@@ -360,7 +413,7 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)        => Dynamic(_.locals(b).value)
+          case Local(b)        => Dynamic(_.locals.get(b).value)
           case LocalAnon(a)    => Dynamic(_.anon(a))
           case LocalAnonMut(m) =>
             Dynamic { s =>

@@ -266,6 +266,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
+              case ExternalValue(v: java.lang.Integer) =>
+                Right(Json.JNumberStr(v.toString))
               case ExternalValue(v: BigInteger) =>
                 Right(Json.JNumberStr(v.toString))
               // $COVERAGE-OFF$this should be unreachable
