@@ -532,7 +532,7 @@ package A
 
 enum Foo: Bar(a), Baz(b)
 
-main = match Bar(a):
+main = match Bar(1):
   case Baz(b): b
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
       assertEquals(
@@ -2220,10 +2220,11 @@ main = xxfoo
     val tag = Declaration.Var(Identifier.Name("x"))
     val pat: Pattern[(PackageName, Identifier.Constructor), rankn.Type] =
       Pattern.PositionalStruct((pack, miss), Nil)
-    val lit = Expr.Literal[Declaration](Lit.Integer(0L), tag)
-    val matchExpr = Expr.Match(
+    val lit =
+      TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
+    val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(Expr.Branch(pat, None, lit)),
+      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(
