@@ -2002,6 +2002,51 @@ main = depBox
     }
   }
 
+  test("tool check accepts todo but tool show rejects it") {
+    val src =
+      """package Todo/Foo
+|
+|main = todo(1)
+|""".stripMargin
+    val files = List(
+      Chain("src", "Todo", "Foo.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu"
+      )
+    ) match {
+      case Right(Output.CompileOut(_, _, _)) => ()
+      case Right(other)                      => fail(s"unexpected output: $other")
+      case Left(err)                         => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu",
+        "--value",
+        "Todo/Foo::main"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
+    }
+  }
+
   test("lib deps list text output includes public and private sections") {
     val files = baseLibFiles("main = 1\n")
 
@@ -2829,6 +2874,26 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("previous not in cas"), msg)
+    }
+  }
+
+  test("lib check accepts todo but lib show rejects it") {
+    val files = baseLibFiles("main = todo(1)\n")
+
+    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+      case Right(Output.Basic(_, _)) => ()
+      case Right(other)              => fail(s"unexpected output: $other")
+      case Left(err)                 => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
     }
   }
 

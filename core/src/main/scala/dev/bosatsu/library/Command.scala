@@ -1296,7 +1296,7 @@ object Command {
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.NoOptimize
+                CompileOptions.TypeCheckOnly
               )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
