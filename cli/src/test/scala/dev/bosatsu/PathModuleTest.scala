@@ -228,6 +228,24 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("tool test search with json write --yaml") {
+    val out = run(
+      "tool json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu --yaml"
+        .split("\\s+")
+        .toSeq*
+    )
+    out match {
+      case Output.Basic(doc, _) =>
+        val rendered = doc.render(120)
+        assert(rendered.contains("value: true"), rendered)
+        assert(
+          rendered.contains("message: \"got the right string\""),
+          rendered
+        )
+      case other => fail(s"expected yaml output: $other")
+    }
+  }
+
   test("tool test search json apply") {
     val cmd =
       "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
