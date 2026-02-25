@@ -1085,6 +1085,466 @@ object Matchless {
     StackSafe.onStackOverflow(recurExpr(expr, init)._1)(expr)
   }
 
+  private val HoistInvariantLoopLetsMinWeight: Int = 4
+
+  // Hoist loop-invariant leading lets out of canonical recursion loops.
+  private[bosatsu] def hoistInvariantLoopLets[A](expr: Expr[A]): Expr[A] = {
+    def letBinds(
+        binds: List[(Either[LocalAnon, Bindable], Expr[A])],
+        in: Expr[A]
+    ): Expr[A] =
+      binds.foldRight(in) { case ((arg, value), acc) =>
+        Let(arg, value, acc)
+      }
+
+    def exprWeight(expr: Expr[A]): Int = {
+      def loopExpr(e: Expr[A]): Int =
+        e match {
+          case Lambda(captures, _, _, body) =>
+            1 + captures.iterator.map(loopExpr).sum + loopExpr(body)
+          case WhileExpr(cond, effectExpr, _) =>
+            2 + loopBool(cond) + loopExpr(effectExpr)
+          case App(fn, args) =>
+            2 + loopExpr(fn) + args.iterator.map(loopExpr).sum
+          case Let(_, value, in) =>
+            1 + loopExpr(value) + loopExpr(in)
+          case LetMut(_, in) =>
+            1 + loopExpr(in)
+          case If(cond, thenExpr, elseExpr) =>
+            1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case Always(cond, thenExpr) =>
+            1 + loopBool(cond) + loopExpr(thenExpr)
+          case PrevNat(of) =>
+            1 + loopExpr(of)
+          case _: CheapExpr[?] | MakeEnum(_, _, _) | MakeStruct(_) | ZeroNat |
+              SuccNat =>
+            1
+        }
+
+      def loopBool(b: BoolExpr[A]): Int =
+        b match {
+          case EqualsLit(expr, _) =>
+            1 + loopExpr(expr)
+          case EqualsNat(expr, _) =>
+            1 + loopExpr(expr)
+          case And(left, right) =>
+            1 + loopBool(left) + loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            1 + loopExpr(expr)
+          case SetMut(_, value) =>
+            1 + loopExpr(value)
+          case LetBool(_, value, in) =>
+            1 + loopExpr(value) + loopBool(in)
+          case LetMutBool(_, in) =>
+            1 + loopBool(in)
+          case TrueConst =>
+            1
+        }
+
+      loopExpr(expr)
+    }
+
+    def containsWhileExpr(ex: Expr[A]): Boolean = {
+      def loopExpr(e: Expr[A]): Boolean =
+        e match {
+          case WhileExpr(_, _, _) =>
+            true
+          case Lambda(captures, _, _, body) =>
+            captures.exists(loopExpr) || loopExpr(body)
+          case App(fn, args) =>
+            loopExpr(fn) || args.exists(loopExpr)
+          case Let(_, value, in) =>
+            loopExpr(value) || loopExpr(in)
+          case LetMut(_, in) =>
+            loopExpr(in)
+          case If(cond, thenExpr, elseExpr) =>
+            loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+          case Always(cond, thenExpr) =>
+            loopBool(cond) || loopExpr(thenExpr)
+          case PrevNat(of) =>
+            loopExpr(of)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg)
+          case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
+              LocalAnonMut(_) | Literal(_) | MakeEnum(_, _, _) |
+              MakeStruct(_) | SuccNat | ZeroNat =>
+            false
+        }
+
+      def loopBool(b: BoolExpr[A]): Boolean =
+        b match {
+          case EqualsLit(expr, _) =>
+            loopExpr(expr)
+          case EqualsNat(expr, _) =>
+            loopExpr(expr)
+          case And(left, right) =>
+            loopBool(left) || loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr)
+          case SetMut(_, value) =>
+            loopExpr(value)
+          case LetBool(_, value, in) =>
+            loopExpr(value) || loopBool(in)
+          case LetMutBool(_, in) =>
+            loopBool(in)
+          case TrueConst =>
+            false
+        }
+
+      loopExpr(ex)
+    }
+
+    def readsMutableExpr(ex: Expr[A]): Boolean = {
+      def loopExpr(e: Expr[A]): Boolean =
+        e match {
+          case LocalAnonMut(_) =>
+            true
+          case Lambda(captures, _, _, body) =>
+            captures.exists(loopExpr) || loopExpr(body)
+          case WhileExpr(cond, effectExpr, _) =>
+            loopBool(cond) || loopExpr(effectExpr)
+          case App(fn, args) =>
+            loopExpr(fn) || args.exists(loopExpr)
+          case Let(_, value, in) =>
+            loopExpr(value) || loopExpr(in)
+          case LetMut(_, in) =>
+            loopExpr(in)
+          case If(cond, thenExpr, elseExpr) =>
+            loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+          case Always(cond, thenExpr) =>
+            loopBool(cond) || loopExpr(thenExpr)
+          case PrevNat(of) =>
+            loopExpr(of)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg)
+          case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
+              Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+              ZeroNat =>
+            false
+        }
+
+      def loopBool(b: BoolExpr[A]): Boolean =
+        b match {
+          case EqualsLit(expr, _) =>
+            loopExpr(expr)
+          case EqualsNat(expr, _) =>
+            loopExpr(expr)
+          case And(left, right) =>
+            loopBool(left) || loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr)
+          case SetMut(_, value) =>
+            loopExpr(value)
+          case LetBool(_, value, in) =>
+            loopExpr(value) || loopBool(in)
+          case LetMutBool(_, in) =>
+            loopBool(in)
+          case TrueConst =>
+            false
+        }
+
+      loopExpr(ex)
+    }
+
+    def referencesBindable(expr: Expr[A], target: Bindable): Boolean = {
+      def loopExpr(e: Expr[A], isShadowed: Boolean): Boolean =
+        e match {
+          case Local(name) =>
+            !isShadowed && (name == target)
+          case Lambda(captures, recName, args, body) =>
+            captures.exists(loopExpr(_, isShadowed)) || {
+              val bodyShadowed =
+                isShadowed || recName.contains(target) || args.exists(
+                  _ == target
+                )
+              loopExpr(body, bodyShadowed)
+            }
+          case WhileExpr(cond, effectExpr, _) =>
+            loopBool(cond, isShadowed) || loopExpr(effectExpr, isShadowed)
+          case App(fn, args) =>
+            loopExpr(fn, isShadowed) || args.exists(loopExpr(_, isShadowed))
+          case Let(arg, value, in) =>
+            loopExpr(value, isShadowed) || {
+              val inShadowed =
+                arg match {
+                  case Right(name) if name == target => true
+                  case _                             => isShadowed
+                }
+              loopExpr(in, inShadowed)
+            }
+          case LetMut(_, in) =>
+            loopExpr(in, isShadowed)
+          case If(cond, thenExpr, elseExpr) =>
+            loopBool(cond, isShadowed) || loopExpr(
+              thenExpr,
+              isShadowed
+            ) || loopExpr(elseExpr, isShadowed)
+          case Always(cond, thenExpr) =>
+            loopBool(cond, isShadowed) || loopExpr(thenExpr, isShadowed)
+          case PrevNat(of) =>
+            loopExpr(of, isShadowed)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg, isShadowed)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg, isShadowed)
+          case ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+              Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) |
+              MakeStruct(_) | SuccNat | ZeroNat =>
+            false
+        }
+
+      def loopBool(b: BoolExpr[A], isShadowed: Boolean): Boolean =
+        b match {
+          case EqualsLit(expr, _) =>
+            loopExpr(expr, isShadowed)
+          case EqualsNat(expr, _) =>
+            loopExpr(expr, isShadowed)
+          case And(left, right) =>
+            loopBool(left, isShadowed) || loopBool(right, isShadowed)
+          case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr, isShadowed)
+          case SetMut(_, value) =>
+            loopExpr(value, isShadowed)
+          case LetBool(arg, value, in) =>
+            loopExpr(value, isShadowed) || {
+              val inShadowed =
+                arg match {
+                  case Right(name) if name == target => true
+                  case _                             => isShadowed
+                }
+              loopBool(in, inShadowed)
+            }
+          case LetMutBool(_, in) =>
+            loopBool(in, isShadowed)
+          case TrueConst =>
+            false
+        }
+
+      loopExpr(expr, isShadowed = false)
+    }
+
+    def referencesBindableInBool(
+        cond: BoolExpr[A],
+        target: Bindable
+    ): Boolean =
+      referencesBindable(Always(cond, UnitExpr), target)
+
+    def referencesLocalAnon(expr: Expr[A], target: Long): Boolean = {
+      def loopExpr(e: Expr[A], isShadowed: Boolean): Boolean =
+        e match {
+          case LocalAnon(id) =>
+            !isShadowed && (id == target)
+          case Lambda(captures, _, _, body) =>
+            captures.exists(loopExpr(_, isShadowed)) || loopExpr(body, isShadowed)
+          case WhileExpr(cond, effectExpr, _) =>
+            loopBool(cond, isShadowed) || loopExpr(effectExpr, isShadowed)
+          case App(fn, args) =>
+            loopExpr(fn, isShadowed) || args.exists(loopExpr(_, isShadowed))
+          case Let(arg, value, in) =>
+            loopExpr(value, isShadowed) || {
+              val inShadowed =
+                arg match {
+                  case Left(LocalAnon(id)) if id == target => true
+                  case _                                   => isShadowed
+                }
+              loopExpr(in, inShadowed)
+            }
+          case LetMut(_, in) =>
+            loopExpr(in, isShadowed)
+          case If(cond, thenExpr, elseExpr) =>
+            loopBool(cond, isShadowed) || loopExpr(
+              thenExpr,
+              isShadowed
+            ) || loopExpr(elseExpr, isShadowed)
+          case Always(cond, thenExpr) =>
+            loopBool(cond, isShadowed) || loopExpr(thenExpr, isShadowed)
+          case PrevNat(of) =>
+            loopExpr(of, isShadowed)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg, isShadowed)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg, isShadowed)
+          case Local(_) | ClosureSlot(_) | LocalAnonMut(_) | Global(_, _, _) |
+              Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+              ZeroNat =>
+            false
+        }
+
+      def loopBool(b: BoolExpr[A], isShadowed: Boolean): Boolean =
+        b match {
+          case EqualsLit(expr, _) =>
+            loopExpr(expr, isShadowed)
+          case EqualsNat(expr, _) =>
+            loopExpr(expr, isShadowed)
+          case And(left, right) =>
+            loopBool(left, isShadowed) || loopBool(right, isShadowed)
+          case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr, isShadowed)
+          case SetMut(_, value) =>
+            loopExpr(value, isShadowed)
+          case LetBool(arg, value, in) =>
+            loopExpr(value, isShadowed) || {
+              val inShadowed =
+                arg match {
+                  case Left(LocalAnon(id)) if id == target => true
+                  case _                                   => isShadowed
+                }
+              loopBool(in, inShadowed)
+            }
+          case LetMutBool(_, in) =>
+            loopBool(in, isShadowed)
+          case TrueConst =>
+            false
+        }
+
+      loopExpr(expr, isShadowed = false)
+    }
+
+    def usesBinding(expr: Expr[A], arg: Either[LocalAnon, Bindable]): Boolean =
+      arg match {
+        case Right(name) =>
+          referencesBindable(expr, name)
+        case Left(LocalAnon(id)) =>
+          referencesLocalAnon(expr, id)
+      }
+
+    def isTriviallyCheap(value: Expr[A]): Boolean =
+      value match {
+        case _: CheapExpr[?] =>
+          true
+        case cons: ConsExpr =>
+          cons.arity == 0
+        case App(fn: ConsExpr, args) =>
+          args.forall {
+            case _: CheapExpr[?] => true
+            case _               => false
+          }
+        case _ =>
+          false
+      }
+
+    def canHoist(
+        loopCond: BoolExpr[A],
+        arg: Either[LocalAnon, Bindable],
+        value: Expr[A],
+        in: Expr[A]
+    ): Boolean = {
+      val noShadowingHazard =
+        arg match {
+          case Right(name) =>
+            !referencesBindableInBool(loopCond, name)
+          case Left(_) =>
+            true
+        }
+
+      noShadowingHazard &&
+      usesBinding(in, arg) &&
+      !hasSideEffect(value) &&
+      !readsMutableExpr(value) &&
+      !containsWhileExpr(value) &&
+      !isTriviallyCheap(value) &&
+      (exprWeight(value) >= HoistInvariantLoopLetsMinWeight)
+    }
+
+    @annotation.tailrec
+    def collectHoistedPrefix(
+        loopCond: BoolExpr[A],
+        effectExpr: Expr[A],
+        revAcc: List[(Either[LocalAnon, Bindable], Expr[A])]
+    ): (List[(Either[LocalAnon, Bindable], Expr[A])], Expr[A]) =
+      effectExpr match {
+        case Let(arg, value, in) if canHoist(loopCond, arg, value, in) =>
+          collectHoistedPrefix(loopCond, in, (arg, value) :: revAcc)
+        case _ =>
+          (revAcc.reverse, effectExpr)
+      }
+
+    def rewriteCanonicalRecursionLoop(
+        condExpr: BoolExpr[A],
+        thenExpr: Expr[A]
+    ): Expr[A] =
+      (condExpr, thenExpr) match {
+        case (
+              setCond @ SetMut(condMut, TrueExpr),
+              WhileExpr(loopCond, effectExpr, result)
+            ) if loopCond == isTrueExpr(condMut) =>
+          val (hoisted, residualEffect) =
+            collectHoistedPrefix(loopCond, effectExpr, Nil)
+          if (hoisted.isEmpty) Always(setCond, thenExpr)
+          else
+            letBinds(
+              hoisted,
+              Always(setCond, WhileExpr(loopCond, residualEffect, result))
+            )
+        case _ =>
+          Always(condExpr, thenExpr)
+      }
+
+    def recurBool(b: BoolExpr[A]): BoolExpr[A] =
+      b match {
+        case EqualsLit(expr, lit) =>
+          EqualsLit(recurExprCheap(expr), lit)
+        case EqualsNat(expr, nat) =>
+          EqualsNat(recurExprCheap(expr), nat)
+        case And(left, right) =>
+          And(recurBool(left), recurBool(right))
+        case CheckVariant(expr, expect, size, famArities) =>
+          CheckVariant(recurExprCheap(expr), expect, size, famArities)
+        case SetMut(target, value) =>
+          SetMut(target, recurExpr(value))
+        case LetBool(arg, value, in) =>
+          LetBool(arg, recurExpr(value), recurBool(in))
+        case LetMutBool(name, in) =>
+          LetMutBool(name, recurBool(in))
+        case TrueConst =>
+          TrueConst
+      }
+
+    def recurExprCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      recurExpr(ex) match {
+        case ch: CheapExpr[A] => ch
+        case notCheap         =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"expected cheap expression when hoisting loop lets, got: $notCheap"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def recurExpr(ex: Expr[A]): Expr[A] =
+      ex match {
+        case Lambda(captures, recursiveName, args, body) =>
+          Lambda(captures.map(recurExpr), recursiveName, args, recurExpr(body))
+        case WhileExpr(cond, effectExpr, result) =>
+          WhileExpr(recurBool(cond), recurExpr(effectExpr), result)
+        case App(fn, args) =>
+          App(recurExpr(fn), args.map(recurExpr))
+        case Let(arg, value, in) =>
+          Let(arg, recurExpr(value), recurExpr(in))
+        case LetMut(name, span) =>
+          LetMut(name, recurExpr(span))
+        case If(cond, thenExpr, elseExpr) =>
+          If(recurBool(cond), recurExpr(thenExpr), recurExpr(elseExpr))
+        case Always(cond, thenExpr) =>
+          rewriteCanonicalRecursionLoop(recurBool(cond), recurExpr(thenExpr))
+        case PrevNat(of) =>
+          PrevNat(recurExpr(of))
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+            Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+            SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+            GetStructElement(_, _, _) =>
+          ex
+      }
+
+    // This pass is a pure optimization. If recursion gets too deep, keep
+    // semantics by returning the original expression.
+    StackSafe.onStackOverflow(recurExpr(expr))(expr)
+  }
+
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
@@ -4088,6 +4548,7 @@ object Matchless {
     }
 
     loopLetVal(name, te, rec, LambdaState(None, Map.empty))
+      .map(hoistInvariantLoopLets(_))
       .map(reuseConstructors(_))
   }
 
