@@ -98,10 +98,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
     p match {
       case lp @ ListPat(_) =>
         val parts = lp.parts
-        val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
-          case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
-          case _                                       => false
-        }
+        val twoAdj = lp.toSeqPattern.hasAdjacentWildcards
         val outer =
           if (!twoAdj) validUnit
           else Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
@@ -112,7 +109,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
             case _                => validUnit
           }
 
-        (outer, inners).parMapN((_, _) => ())
+        outer.parProductL(inners)
 
       case sp @ StrPat(_) =>
         val simp = sp.toSeqPattern
@@ -123,9 +120,15 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         // This is total if the struct has a single constructor AND each of the patterns is total
         val argCheck = args.parTraverse_(validatePattern)
         val nameCheck = checkArity(name, args.size, p)
-        (nameCheck, argCheck).parMapN((_, _) => ())
-
-      case _ => validUnit
+        nameCheck.parProductL(argCheck)
+      case Named(_, inner) =>
+        validatePattern(inner)
+      case Annotation(inner, _) =>
+        validatePattern(inner)
+      case Union(head, rest) =>
+        (head :: rest.toList).parTraverse_(validatePattern)
+      case Var(_) | WildCard | Literal(_) =>
+        validUnit
     }
 
   private val placeholderListPattern: ListPat[Cons, Type] =
@@ -137,10 +140,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   private def validateParsedPattern(p: Pattern.Parsed): Res[Unit] =
     p match {
       case lp @ Pattern.ListPat(parts) =>
-        val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
-          case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
-          case _                                       => false
-        }
+        val twoAdj = lp.toSeqPattern.hasAdjacentWildcards
         val outer =
           if (!twoAdj) validUnit
           else
@@ -155,7 +155,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
             case Pattern.ListPart.Item(item) => validateParsedPattern(item)
             case _                           => validUnit
           }
-        (outer, inners).parMapN((_, _) => ())
+        outer.parProductL(inners)
 
       case sp @ Pattern.StrPat(_) =>
         val simp = sp.toSeqPattern
@@ -170,7 +170,8 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         validateParsedPattern(inner)
       case Pattern.Union(head, rest) =>
         (head :: rest.toList).parTraverse_(validateParsedPattern)
-      case _ => validUnit
+      case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
+        validUnit
     }
 
   private def validateParsedMatchTag(tag: Declaration): Res[Unit] =
@@ -189,30 +190,34 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         args.toList.parTraverse_(validateParsedPattern)
       case Declaration.LeftApply(arg, _, _, _) =>
         validateParsedPattern(arg)
-      case Declaration.Comment(_) | Declaration.CommentNB(_) =>
+      case Declaration.Comment(comment) =>
+        validateParsedMatchTag(comment.on.padded)
+      case Declaration.CommentNB(comment) =>
+        validateParsedMatchTag(comment.on.padded)
+      case Declaration.Parens(of) =>
+        validateParsedMatchTag(of)
+      case Declaration.IfElse(_, _) | Declaration.Ternary(_, _, _) =>
+        // These parse forms are lowered to bool constructor matches.
         validUnit
-      case Declaration.Annotation(_, _) |
-          Declaration.Apply(_, _, _) |
-          Declaration.ApplyOp(_, _, _) |
-          Declaration.Literal(_) |
-          Declaration.IfElse(_, _) |
-          Declaration.Ternary(_, _, _) |
-          Declaration.TupleCons(_) |
-          Declaration.Var(_) |
-          Declaration.StringDecl(_) =>
-        // These can lower into a Match but do not carry parsed-pattern binders.
+      case Declaration.Apply(_, _, _) =>
+        // Some lowered matches retain their original call-site declaration.
+        validUnit
+      case Declaration.Literal(_) | Declaration.TupleCons(_) =>
+        // Generated programs can produce match tags that keep these source forms.
+        validUnit
+      case Declaration.Var(_) =>
+        // Pattern bindings (`pat = expr`) lower to matches tagged by the RHS declaration.
+        validUnit
+      case Declaration.RecordConstructor(_, _, _) =>
+        // Record update desugaring can create a typed match with this outer tag.
         validUnit
       case Declaration.ListDecl(ListLang.Comprehension(_, binding, _, _)) =>
         validateParsedPattern(binding)
-      case Declaration.ListDecl(ListLang.Cons(_)) =>
-        validUnit
       case Declaration.DictDecl(ListLang.Comprehension(_, binding, _, _)) =>
         validateParsedPattern(binding)
-      case Declaration.DictDecl(ListLang.Cons(_)) =>
-        validUnit
-      case Declaration.Parens(of) =>
-        validateParsedMatchTag(of)
-      case Declaration.RecordConstructor(_, _, _) =>
+      case Declaration.ListDecl(ListLang.Cons(_)) | Declaration.DictDecl(
+            ListLang.Cons(_)
+          ) =>
         validUnit
       case other =>
         sys.error(s"unexpected declaration: $other")
@@ -221,7 +226,9 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   /** Check that a typed expression, and all inner expressions, are total, or
     * return a NonEmptyList of matches that are not total
     */
-  def checkExpr[A](expr: TypedExpr[A]): ValidatedNel[ExprError[A], Unit] = {
+  def checkExpr(
+      expr: TypedExpr[Declaration]
+  ): ValidatedNel[ExprError[Declaration], Unit] = {
     import TypedExpr._
 
     def definitelyUninhabited(
@@ -236,23 +243,21 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       }
 
     expr match {
-      case Annotation(e, _, _)                           => checkExpr[A](e)
-      case Generic(_, e)                                 => checkExpr[A](e)
-      case AnnotatedLambda(_, e, _)                      => checkExpr[A](e)
+      case Annotation(e, _, _)                           => checkExpr(e)
+      case Generic(_, e)                                 => checkExpr(e)
+      case AnnotatedLambda(_, e, _)                      => checkExpr(e)
       case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
         Validated.valid(())
       case App(fn, args, _, _)     =>
-        checkExpr[A](fn) *> args.traverse_(checkExpr[A])
-      case Let(_, e1, e2, _, _)    => checkExpr[A](e1) *> checkExpr[A](e2)
+        checkExpr(fn) *> args.traverse_(checkExpr)
+      case Let(_, e1, e2, _, _)    => checkExpr(e1) *> checkExpr(e2)
       case Loop(args, body, _)     =>
-        args.traverse_ { case (_, init) => checkExpr[A](init) } *> checkExpr[A](
-          body
-        )
+        args.traverse_ { case (_, init) => checkExpr(init) } *> checkExpr(body)
       case Recur(args, _, _)       =>
-        args.traverse_(checkExpr[A])
+        args.traverse_(checkExpr)
       case matchExpr @ Match(arg, branches, _) =>
-        val argA: TypedExpr[A] = arg
-        val branchesA: NonEmptyList[TypedExpr.Branch[A]] = branches
+        val argA: TypedExpr[Declaration] = arg
+        val branchesA: NonEmptyList[TypedExpr.Branch[Declaration]] = branches
         val scrutineeType = arg.getType
         val uninhabitedMemo =
           MutHashMap.empty[Pattern[Cons, Type], Boolean]
@@ -274,49 +279,50 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         val unguardedPatterns = branchesA.toList.collect {
           case branch if branch.guard.isEmpty => branch.pattern
         }
-        val parsedValidation: Res[Unit] = matchExpr.tag match {
-          case d: Declaration => validateParsedMatchTag(d)
-          case _              => validUnit
-        }
-        val patternsValidated: ValidatedNel[ExprError[A], Unit] =
-          (parsedValidation, allPatterns.parTraverse_(validatePattern))
-            .parMapN((_, _) => ())
+        val parsedValidation: Res[Unit] =
+          validateParsedMatchTag(matchExpr.tag)
+        val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
+          parsedValidation
+            .parProductR(allPatterns.parTraverse_(validatePattern))
             .leftMap { nel =>
-              nel.map(err => InvalidPattern(matchExpr, err): ExprError[A])
+              nel.map(err =>
+                InvalidPattern(matchExpr, err): ExprError[Declaration]
+              )
             }
             .toValidated
 
         val argAndBranchExprs = argA :: branchesA.toList.flatMap { branch =>
           branch.guard.toList ::: (branch.expr :: Nil)
         }
-        val recursion: ValidatedNel[ExprError[A], Unit] =
-          argAndBranchExprs.traverse_(checkExpr[A])
+        val recursion: ValidatedNel[ExprError[Declaration], Unit] =
+          argAndBranchExprs.traverse_(checkExpr)
 
-        val matchCoverage: ValidatedNel[ExprError[A], Unit] =
-          // missing/unreachable assume structurally valid patterns.
+        val matchCoverage: ValidatedNel[ExprError[Declaration], Unit] =
+          // We must use andThen here because missing/unreachable assumes each
+          // pattern is structurally valid. Running set operations first can
+          // produce misleading diagnostics or throw.
           patternsValidated.andThen { _ =>
-            val missing: ValidatedNel[ExprError[A], Unit] = {
+            val missing: ValidatedNel[ExprError[Declaration], Unit] = {
               val mis =
                 if (isUninhabitedScrutinee) Nil
-                else {
-                  val maybeMissing =
-                    patternSetOps.missingBranches(topList, unguardedPatterns)
-                  maybeMissing.filterNot(isDefinitelyUninhabited)
-                }
+                else
+                  patternSetOps
+                    .missingBranches(topList, unguardedPatterns)
+                    .filterNot(isDefinitelyUninhabited)
               NonEmptyList.fromList(mis) match {
                 case Some(nel) =>
                   Validated.invalidNel(
-                    NonTotalMatch(matchExpr, nel): ExprError[A]
+                    NonTotalMatch(matchExpr, nel): ExprError[Declaration]
                   )
                 case None => Validated.valid(())
               }
             }
 
-            val unreachable: ValidatedNel[ExprError[A], Unit] = {
+            val unreachable: ValidatedNel[ExprError[Declaration], Unit] = {
               val unr = {
                 @annotation.tailrec
                 def loop(
-                    rem: List[TypedExpr.Branch[A]],
+                    rem: List[TypedExpr.Branch[Declaration]],
                     covered: List[Pattern[Cons, Type]],
                     acc: List[Pattern[Cons, Type]]
                 ): List[Pattern[Cons, Type]] =
@@ -343,7 +349,10 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
               NonEmptyList.fromList(unr) match {
                 case Some(nel) =>
                   Validated.invalidNel(
-                    UnreachableBranches(matchExpr, nel): ExprError[A]
+                    UnreachableBranches(
+                      matchExpr,
+                      nel
+                    ): ExprError[Declaration]
                   )
                 case None => Validated.valid(())
               }
