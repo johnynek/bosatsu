@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3efd1f4c*
+0.0.0+1-0a58a6bc*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3efd1f4c*
+0.0.0+1-0a58a6bc*
 </div>
 </div>
 <div class="nav-toc">
@@ -131,15 +131,22 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </ol>
 <pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
 </code></pre>
+<ol>
+  <li>Generate YAML output for the same value (optional):</li>
+</ol>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
+</code></pre>
 <h2><a href="#command-reference" name="command-reference" class="anchor"><span class="anchor-link"></span></a>Command reference</h2>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--output &lt;path&gt;]
+<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--yaml] [--output &lt;path&gt;]
 </code></pre>
 <p>Common flags:</p>
 <ul>
   <li><code>--name</code>: library name from your <code>bosatsu_libs.json</code></li>
   <li><code>--main</code>: package/value to evaluate and encode</li>
-  <li><code>--output</code>: write JSON to a file instead of stdout</li>
+  <li><code>--yaml</code>: emit YAML output (default remains JSON)</li>
+  <li><code>--output</code>: write JSON/YAML to a file instead of stdout</li>
 </ul>
+<p>When <code>--yaml</code> is not set, <code>lib json</code> still emits JSON exactly as before.</p>
 <h2><a href="#encoding-shape" name="encoding-shape" class="anchor"><span class="anchor-link"></span></a>Encoding shape</h2>
 <p><code>lib json</code> uses type-directed encoding:</p>
 <ul>
@@ -288,7 +295,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3efd1f4c-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-0a58a6bc-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
