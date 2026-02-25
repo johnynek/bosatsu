@@ -7,6 +7,7 @@ import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
+import dev.bosatsu.hashing.{Algo, HashValue}
 import rankn._
 import Parser.{spaces, Combinators}
 
@@ -149,6 +150,9 @@ object Package {
       sourceHashIdent: Option[String]
   )
 
+  private lazy val predefSourceHashValue: HashValue[Algo.Blake3] =
+    Algo.hashBytes[Algo.Blake3](Predef.predefString.getBytes("UTF-8"))
+
   type Header =
     (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
 
@@ -248,6 +252,24 @@ object Package {
       case _                                 => None
     }
 
+  def sourceHashFromIdent(ident: String): Option[HashValue[Algo.Blake3]] =
+    ident.stripPrefix(s"${Algo.blake3Algo.name}:") match {
+      case hex
+          if (hex.length == Algo.blake3Algo.hexLen) &&
+            hex.forall(ch =>
+              (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
+            ) =>
+        Some(HashValue[Algo.Blake3](hex))
+      case _ =>
+        None
+    }
+
+  def sourceHashOf[A](inferred: Typed[A]): Option[HashValue[Algo.Blake3]] =
+    sourceHashIdentOf(inferred).flatMap(sourceHashFromIdent)
+
+  def predefSourceHash: HashValue[Algo.Blake3] =
+    predefSourceHashValue
+
   def withSourceHashIdent[A](
       inferred: Typed[A],
       sourceHashIdent: Option[String]
@@ -265,6 +287,12 @@ object Package {
 
     inferred.copy(program = (prog.copy(from = nextFrom), inferred.program._2))
   }
+
+  def withSourceHash[A](
+      inferred: Typed[A],
+      sourceHash: Option[HashValue[Algo.Blake3]]
+  ): Typed[A] =
+    withSourceHashIdent(inferred, sourceHash.map(_.toIdent))
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))

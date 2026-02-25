@@ -21,17 +21,17 @@ class MatchlessSourceInfoTest extends munit.FunSuite {
     }
 
   test("Matchless.fromLet attaches source info from region + package hash") {
-    val hashIdent = Algo.hashBytes[Algo.Blake3]("abc".getBytes("UTF-8")).toIdent
+    val hash = Algo.hashBytes[Algo.Blake3]("abc".getBytes("UTF-8"))
     val expr = TypedExpr.Literal(Lit.fromInt(1), Type.IntType, Region(7, 9))
     val lowered = Matchless.fromLet(
       from = (),
       name = Identifier.Name("x"),
       rec = RecursionKind.NonRecursive,
       te = expr,
-      sourceHashIdent = hashIdent
+      sourceHash = hash
     )(anyVariant)
 
-    assertEquals(lowered.sourceInfo.packageHashIdent, hashIdent)
+    assertEquals(lowered.sourceInfo.packageHash, hash)
     assertEquals(lowered.sourceInfo.region, Region(7, 9))
   }
 

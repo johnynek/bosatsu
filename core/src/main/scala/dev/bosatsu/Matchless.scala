@@ -2,56 +2,26 @@ package dev.bosatsu
 
 import cats.{Monad, Monoid, Order}
 import cats.data.{Chain, NonEmptyList, WriterT}
-import dev.bosatsu.hashing.Algo
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.pattern.StrPart
 import dev.bosatsu.rankn.{DataRepr, Type, RefSpace}
-import scala.collection.mutable
 
 import Identifier.{Bindable, Constructor}
 
 import cats.implicits._
 
 object Matchless {
-  case class SourceInfo(packageHashIdent: String, region: Region)
+  case class SourceInfo(packageHash: HashValue[Algo.Blake3], region: Region)
   object SourceInfo {
     val emptyRegion: Region = Region(0, 0)
-    val emptyHashIdent: String =
-      Algo.hashBytes[Algo.Blake3](Array.emptyByteArray).toIdent
-    val empty: SourceInfo = SourceInfo(emptyHashIdent, emptyRegion)
+    val emptyHash: HashValue[Algo.Blake3] =
+      Algo.hashBytes[Algo.Blake3](Array.emptyByteArray)
+    val empty: SourceInfo = SourceInfo(emptyHash, emptyRegion)
+    given SourceInfo = empty
   }
 
-  private final class RefKey(val value: AnyRef) {
-    override def hashCode: Int =
-      System.identityHashCode(value)
-
-    override def equals(that: Any): Boolean =
-      that match {
-        case r: RefKey => value eq r.value
-        case _         => false
-      }
-  }
-
-  private val sourceInfoTable =
-    mutable.HashMap.empty[RefKey, SourceInfo]
-
-  private def isSharedSingleton(value: AnyRef): Boolean =
-    (value eq ZeroNat) || (value eq SuccNat) || (value eq TrueConst)
-
-  private def updateSourceInfo(value: AnyRef, sourceInfo: SourceInfo): Unit =
-    sourceInfoTable.synchronized {
-      if (!isSharedSingleton(value)) {
-        sourceInfoTable.update(new RefKey(value), sourceInfo)
-      }
-    }
-
-  private def lookupSourceInfo(value: AnyRef): SourceInfo =
-    sourceInfoTable.synchronized {
-      sourceInfoTable.get(new RefKey(value)).getOrElse(SourceInfo.empty)
-    }
-
-  sealed abstract class Expr[+A] derives CanEqual {
-    def sourceInfo: SourceInfo =
-      lookupSourceInfo(this)
+  sealed trait Expr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo
   }
   object Expr {
     private def exprTag[A](expr: Expr[A]): Int =
@@ -246,7 +216,8 @@ object Matchless {
       recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
       body: Expr[A]
-  ) extends Expr[A] {
+  )(using override val sourceInfo: SourceInfo)
+      extends Expr[A] {
     def recursionKind: RecursionKind =
       RecursionKind.recursive(recursiveName.isDefined)
 
@@ -259,27 +230,36 @@ object Matchless {
       cond: BoolExpr[A],
       effectExpr: Expr[A],
       result: LocalAnonMut
-  ) extends Expr[A]
+  )(using override val sourceInfo: SourceInfo)
+      extends Expr[A]
 
   case class Global[A](from: A, pack: PackageName, name: Bindable)
+      (using override val sourceInfo: SourceInfo)
       extends CheapExpr[A]
 
   // these are immutable (but can be shadowed)
-  case class Local(arg: Bindable) extends CheapExpr[Nothing]
-  case class ClosureSlot(idx: Int) extends CheapExpr[Nothing]
+  case class Local(arg: Bindable)(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[Nothing]
+  case class ClosureSlot(idx: Int)(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[Nothing]
   // these are is a separate namespace from Expr
-  case class LocalAnon(ident: Long) extends CheapExpr[Nothing]
+  case class LocalAnon(ident: Long)(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[Nothing]
   // these are mutable variables that can be updated while evaluating an BoolExpr
-  case class LocalAnonMut(ident: Long) extends CheapExpr[Nothing]
+  case class LocalAnonMut(ident: Long)(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[Nothing]
 
   // we aggregate all the applications to potentially make dispatch more efficient
   // note fn is never an App
-  case class App[A](fn: Expr[A], arg: NonEmptyList[Expr[A]]) extends Expr[A]
+  case class App[A](fn: Expr[A], arg: NonEmptyList[Expr[A]])(
+      using override val sourceInfo: SourceInfo
+  ) extends Expr[A]
   case class Let[A](
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
       in: Expr[A]
-  ) extends Expr[A]
+  )(using override val sourceInfo: SourceInfo)
+      extends Expr[A]
 
   object Let {
     def apply[A](arg: Bindable, expr: Expr[A], in: Expr[A]): Expr[A] =
@@ -1127,7 +1107,9 @@ object Matchless {
     StackSafe.onStackOverflow(recurExpr(expr, init)._1)(expr)
   }
 
-  case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
+  case class LetMut[A](name: LocalAnonMut, span: Expr[A])(
+      using override val sourceInfo: SourceInfo
+  ) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
       span match {
@@ -1138,15 +1120,14 @@ object Matchless {
           (NonEmptyList.one(name), notLetMut)
       }
   }
-  case class Literal(lit: Lit) extends CheapExpr[Nothing]
+  case class Literal(lit: Lit)(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[Nothing]
 
   // these result in Int values which are also used as booleans
   // evaluating these CAN have side effects of mutating LocalAnon
   // variables.
-  sealed abstract class BoolExpr[+A] derives CanEqual {
-    def sourceInfo: SourceInfo =
-      lookupSourceInfo(this)
-
+  sealed trait BoolExpr[+A] derives CanEqual {
+    def sourceInfo: SourceInfo
     final def &&[A1 >: A](that: BoolExpr[A1]): BoolExpr[A1] =
       (this, that) match {
         case (TrueConst, r) => r
@@ -1240,11 +1221,16 @@ object Matchless {
     }
   }
   // returns 1 if it does, else 0
-  case class EqualsLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
+  case class EqualsLit[A](expr: CheapExpr[A], lit: Lit)(
+      using override val sourceInfo: SourceInfo
+  ) extends BoolExpr[A]
   case class EqualsNat[A](expr: CheapExpr[A], nat: DataRepr.Nat)
+      (using override val sourceInfo: SourceInfo)
       extends BoolExpr[A]
   // 1 if both are > 0
-  case class And[A](e1: BoolExpr[A], e2: BoolExpr[A]) extends BoolExpr[A]
+  case class And[A](e1: BoolExpr[A], e2: BoolExpr[A])(
+      using override val sourceInfo: SourceInfo
+  ) extends BoolExpr[A]
   // checks if variant matches, and if so, writes to
   // a given mut
   case class CheckVariant[A](
@@ -1252,17 +1238,24 @@ object Matchless {
       expect: Int,
       size: Int,
       famArities: List[Int]
-  ) extends BoolExpr[A]
+  )(using override val sourceInfo: SourceInfo)
+      extends BoolExpr[A]
   // set the mutable variable to the given expr and return true
-  case class SetMut[A](target: LocalAnonMut, expr: Expr[A]) extends BoolExpr[A]
-  case object TrueConst extends BoolExpr[Nothing]
+  case class SetMut[A](target: LocalAnonMut, expr: Expr[A])(
+      using override val sourceInfo: SourceInfo
+  ) extends BoolExpr[A]
+  case object TrueConst extends BoolExpr[Nothing] {
+    override val sourceInfo: SourceInfo = SourceInfo.empty
+  }
   case class LetBool[A](
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
       in: BoolExpr[A]
-  ) extends BoolExpr[A]
+  )(using override val sourceInfo: SourceInfo)
+      extends BoolExpr[A]
 
   case class LetMutBool[A](name: LocalAnonMut, span: BoolExpr[A])
+      (using override val sourceInfo: SourceInfo)
       extends BoolExpr[A]
   object LetMutBool {
     def apply[A](lst: List[LocalAnonMut], span: BoolExpr[A]): BoolExpr[A] =
@@ -1305,6 +1298,7 @@ object Matchless {
     }
 
   case class If[A](cond: BoolExpr[A], thenExpr: Expr[A], elseExpr: Expr[A])
+      (using override val sourceInfo: SourceInfo)
       extends Expr[A] {
     def flatten: (NonEmptyList[(BoolExpr[A], Expr[A])], Expr[A]) = {
       def combine(expr: Expr[A]): (List[(BoolExpr[A], Expr[A])], Expr[A]) =
@@ -1319,7 +1313,9 @@ object Matchless {
       (NonEmptyList((cond, thenExpr), rest), last)
     }
   }
-  case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A]) extends Expr[A]
+  case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A])(
+      using override val sourceInfo: SourceInfo
+  ) extends Expr[A]
   object Always {
     object SetChain {
       // a common pattern is Always(SetMut(m, e), r)
@@ -1349,8 +1345,10 @@ object Matchless {
       variant: Int,
       index: Int,
       size: Int
-  ) extends CheapExpr[A]
+  )(using override val sourceInfo: SourceInfo)
+      extends CheapExpr[A]
   case class GetStructElement[A](arg: CheapExpr[A], index: Int, size: Int)
+      (using override val sourceInfo: SourceInfo)
       extends CheapExpr[A]
 
   sealed abstract class ConsExpr extends Expr[Nothing] {
@@ -1358,6 +1356,7 @@ object Matchless {
   }
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int, famArities: List[Int])
+      (using override val sourceInfo: SourceInfo)
       extends ConsExpr
 
   private val boolFamArities = 0 :: 0 :: Nil
@@ -1390,16 +1389,20 @@ object Matchless {
     def tail[A](arg: CheapExpr[A]): CheapExpr[A] =
       GetEnumElement(arg, 1, 1, 2)
   }
-  case class MakeStruct(arity: Int) extends ConsExpr
+  case class MakeStruct(arity: Int)(using override val sourceInfo: SourceInfo)
+      extends ConsExpr
   case object ZeroNat extends ConsExpr {
+    override val sourceInfo: SourceInfo = SourceInfo.empty
     def arity = 0
   }
   // this is the function Nat -> Nat
   case object SuccNat extends ConsExpr {
+    override val sourceInfo: SourceInfo = SourceInfo.empty
     def arity = 1
   }
 
-  case class PrevNat[A](of: Expr[A]) extends Expr[A]
+  case class PrevNat[A](of: Expr[A])(using override val sourceInfo: SourceInfo)
+      extends Expr[A]
 
   private inline def maybeMemoWith[F[_]: Monad, A, R](
       arg: Expr[A],
@@ -1904,80 +1907,179 @@ object Matchless {
       case _                => None
     }
 
-  private def annotateSourceInfoExpr[A](
+  private def withSourceInfoLocalAnon(
+      arg: LocalAnon,
+      sourceInfo: SourceInfo
+  ): LocalAnon = {
+    given SourceInfo = sourceInfo
+    LocalAnon(arg.ident)
+  }
+
+  private def withSourceInfoLocalAnonMut(
+      arg: LocalAnonMut,
+      sourceInfo: SourceInfo
+  ): LocalAnonMut = {
+    given SourceInfo = sourceInfo
+    LocalAnonMut(arg.ident)
+  }
+
+  private def withSourceInfoCheap[A](
+      expr: CheapExpr[A],
+      sourceInfo: SourceInfo
+  ): CheapExpr[A] =
+    withSourceInfoExpr(expr, sourceInfo) match {
+      case ch: CheapExpr[A] => ch
+      case notCheap         =>
+        // $COVERAGE-OFF$
+        sys.error(
+          s"invariant violation: expected cheap expression while attaching source info, got: $notCheap"
+        )
+      // $COVERAGE-ON$
+    }
+
+  private def withSourceInfoExpr[A](
       expr: Expr[A],
       sourceInfo: SourceInfo
-  ): Unit = {
-    updateSourceInfo(expr, sourceInfo)
+  ): Expr[A] = {
+    given SourceInfo = sourceInfo
     expr match {
-      case Lambda(captures, _, _, body) =>
-        captures.foreach(annotateSourceInfoExpr(_, sourceInfo))
-        annotateSourceInfoExpr(body, sourceInfo)
-      case WhileExpr(cond, effectExpr, _) =>
-        annotateSourceInfoBool(cond, sourceInfo)
-        annotateSourceInfoExpr(effectExpr, sourceInfo)
+      case Lambda(captures, recursiveName, args, body) =>
+        Lambda(
+          captures.map(withSourceInfoExpr(_, sourceInfo)),
+          recursiveName,
+          args,
+          withSourceInfoExpr(body, sourceInfo)
+        )
+      case WhileExpr(cond, effectExpr, result) =>
+        WhileExpr(
+          withSourceInfoBool(cond, sourceInfo),
+          withSourceInfoExpr(effectExpr, sourceInfo),
+          withSourceInfoLocalAnonMut(result, sourceInfo)
+        )
+      case Global(from, pack, name) =>
+        Global(from, pack, name)
+      case Local(arg) =>
+        Local(arg)
+      case ClosureSlot(idx) =>
+        ClosureSlot(idx)
+      case LocalAnon(ident) =>
+        LocalAnon(ident)
+      case LocalAnonMut(ident) =>
+        LocalAnonMut(ident)
       case App(fn, args) =>
-        annotateSourceInfoExpr(fn, sourceInfo)
-        args.toList.foreach(annotateSourceInfoExpr(_, sourceInfo))
-      case Let(_, value, in) =>
-        annotateSourceInfoExpr(value, sourceInfo)
-        annotateSourceInfoExpr(in, sourceInfo)
-      case LetMut(_, span) =>
-        annotateSourceInfoExpr(span, sourceInfo)
+        App(
+          withSourceInfoExpr(fn, sourceInfo),
+          args.map(withSourceInfoExpr(_, sourceInfo))
+        )
+      case Let(arg, value, in) =>
+        val arg1 =
+          arg match {
+            case Left(localAnon) =>
+              Left(withSourceInfoLocalAnon(localAnon, sourceInfo))
+            case right @ Right(_) =>
+              right
+          }
+
+        Let(
+          arg1,
+          withSourceInfoExpr(value, sourceInfo),
+          withSourceInfoExpr(in, sourceInfo)
+        )
+      case LetMut(name, span) =>
+        LetMut(
+          withSourceInfoLocalAnonMut(name, sourceInfo),
+          withSourceInfoExpr(span, sourceInfo)
+        )
       case If(cond, thenExpr, elseExpr) =>
-        annotateSourceInfoBool(cond, sourceInfo)
-        annotateSourceInfoExpr(thenExpr, sourceInfo)
-        annotateSourceInfoExpr(elseExpr, sourceInfo)
+        If(
+          withSourceInfoBool(cond, sourceInfo),
+          withSourceInfoExpr(thenExpr, sourceInfo),
+          withSourceInfoExpr(elseExpr, sourceInfo)
+        )
       case Always(cond, thenExpr) =>
-        annotateSourceInfoBool(cond, sourceInfo)
-        annotateSourceInfoExpr(thenExpr, sourceInfo)
+        Always(
+          withSourceInfoBool(cond, sourceInfo),
+          withSourceInfoExpr(thenExpr, sourceInfo)
+        )
+      case GetEnumElement(arg, variant, index, size) =>
+        GetEnumElement(
+          withSourceInfoCheap(arg, sourceInfo),
+          variant,
+          index,
+          size
+        )
+      case GetStructElement(arg, index, size) =>
+        GetStructElement(withSourceInfoCheap(arg, sourceInfo), index, size)
+      case Literal(lit) =>
+        Literal(lit)
+      case MakeEnum(variant, arity, famArities) =>
+        MakeEnum(variant, arity, famArities)
+      case MakeStruct(arity) =>
+        MakeStruct(arity)
+      case ZeroNat =>
+        ZeroNat
+      case SuccNat =>
+        SuccNat
       case PrevNat(of) =>
-        annotateSourceInfoExpr(of, sourceInfo)
-      case ge: GetEnumElement[?] =>
-        annotateSourceInfoExpr(ge.arg, sourceInfo)
-      case gs: GetStructElement[?] =>
-        annotateSourceInfoExpr(gs.arg, sourceInfo)
-      case Local(_) | Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) |
-          LocalAnonMut(_) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
-          SuccNat | ZeroNat =>
-        ()
+        PrevNat(withSourceInfoExpr(of, sourceInfo))
     }
   }
 
-  private def annotateSourceInfoBool[A](
+  private def withSourceInfoBool[A](
       boolExpr: BoolExpr[A],
       sourceInfo: SourceInfo
-  ): Unit = {
-    updateSourceInfo(boolExpr, sourceInfo)
+  ): BoolExpr[A] = {
+    given SourceInfo = sourceInfo
     boolExpr match {
-      case EqualsLit(expr, _) =>
-        annotateSourceInfoExpr(expr, sourceInfo)
-      case EqualsNat(expr, _) =>
-        annotateSourceInfoExpr(expr, sourceInfo)
+      case EqualsLit(expr, lit) =>
+        EqualsLit(withSourceInfoCheap(expr, sourceInfo), lit)
+      case EqualsNat(expr, nat) =>
+        EqualsNat(withSourceInfoCheap(expr, sourceInfo), nat)
       case And(left, right) =>
-        annotateSourceInfoBool(left, sourceInfo)
-        annotateSourceInfoBool(right, sourceInfo)
-      case CheckVariant(expr, _, _, _) =>
-        annotateSourceInfoExpr(expr, sourceInfo)
-      case SetMut(_, expr) =>
-        annotateSourceInfoExpr(expr, sourceInfo)
-      case LetBool(_, value, in) =>
-        annotateSourceInfoExpr(value, sourceInfo)
-        annotateSourceInfoBool(in, sourceInfo)
-      case LetMutBool(_, in) =>
-        annotateSourceInfoBool(in, sourceInfo)
+        And(
+          withSourceInfoBool(left, sourceInfo),
+          withSourceInfoBool(right, sourceInfo)
+        )
+      case CheckVariant(expr, expect, size, famArities) =>
+        CheckVariant(
+          withSourceInfoCheap(expr, sourceInfo),
+          expect,
+          size,
+          famArities
+        )
+      case SetMut(target, expr) =>
+        SetMut(
+          withSourceInfoLocalAnonMut(target, sourceInfo),
+          withSourceInfoExpr(expr, sourceInfo)
+        )
+      case LetBool(arg, value, in) =>
+        val arg1 =
+          arg match {
+            case Left(localAnon) =>
+              Left(withSourceInfoLocalAnon(localAnon, sourceInfo))
+            case right @ Right(_) =>
+              right
+          }
+        LetBool(
+          arg1,
+          withSourceInfoExpr(value, sourceInfo),
+          withSourceInfoBool(in, sourceInfo)
+        )
+      case LetMutBool(name, in) =>
+        LetMutBool(
+          withSourceInfoLocalAnonMut(name, sourceInfo),
+          withSourceInfoBool(in, sourceInfo)
+        )
       case TrueConst =>
-        ()
+        TrueConst
     }
   }
 
   private def withSourceInfo[A](
       expr: Expr[A],
       sourceInfo: SourceInfo
-  ): Expr[A] = {
-    annotateSourceInfoExpr(expr, sourceInfo)
-    expr
-  }
+  ): Expr[A] =
+    withSourceInfoExpr(expr, sourceInfo)
 
   // same as fromLet below, but uses RefSpace
   def fromLet[A, B: Order](
@@ -1985,13 +2087,13 @@ object Matchless {
       name: Bindable,
       rec: RecursionKind,
       te: TypedExpr[A],
-      sourceHashIdent: String = SourceInfo.emptyHashIdent
+      sourceHash: HashValue[Algo.Blake3] = SourceInfo.emptyHash
   )(
       variantOf: (PackageName, Constructor) => Option[DataRepr]
   ): Expr[B] =
     (for {
       c <- RefSpace.allocCounter
-      expr <- fromLet(from, name, rec, te, sourceHashIdent, variantOf, c)
+      expr <- fromLet(from, name, rec, te, sourceHash, variantOf, c)
     } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
@@ -2000,7 +2102,7 @@ object Matchless {
       name: Bindable,
       rec: RecursionKind,
       te: TypedExpr[A],
-      sourceHashIdent: String,
+      sourceHash: HashValue[Algo.Blake3],
       variantOf: (PackageName, Constructor) => Option[DataRepr],
       makeAnon: F[Long]
   ): F[Expr[B]] = {
@@ -4218,7 +4320,7 @@ object Matchless {
     }
 
     val rootSourceInfo = SourceInfo(
-      sourceHashIdent,
+      sourceHash,
       sourceRegionFromTag(te.tag).getOrElse(SourceInfo.emptyRegion)
     )
 

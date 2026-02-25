@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Eval
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.rankn.Type
 import scala.collection.mutable.{Map => MMap}
 
@@ -41,7 +42,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def evalLets(
       thisPack: PackageName,
-      sourceHashIdent: String,
+      sourceHash: HashValue[Algo.Blake3],
       lets: List[(Bindable, RecursionKind, TypedExpr[T])]
   ): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr[Unit])] =
@@ -55,7 +56,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                   name = name,
                   rec = rec,
                   te = te,
-                  sourceHashIdent = sourceHashIdent,
+                  sourceHash = sourceHash,
                   variantOf = gdr,
                   makeAnon = c
                 )
@@ -81,11 +82,11 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     envCache.getOrElseUpdate(
       packName, {
         val pack = pm.toMap(packName)
-        val sourceHashIdent =
+        val sourceHash =
           Package
-            .sourceHashIdentOf(pack)
-            .getOrElse(Matchless.SourceInfo.emptyHashIdent)
-        externalEnv(pack) ++ evalLets(packName, sourceHashIdent, pack.lets)
+            .sourceHashOf(pack)
+            .getOrElse(Matchless.SourceInfo.emptyHash)
+        externalEnv(pack) ++ evalLets(packName, sourceHash, pack.lets)
       }
     )
 

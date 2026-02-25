@@ -87,11 +87,13 @@ object CompilerApi {
         ((platformIO.pathToString(path), lm), parsed)
       }
       sourceHashes = packs.map { case ((_, lm), parsed) =>
-        val hash = Algo
-          .hashBytes[Algo.Blake3](lm.fromString.getBytes("UTF-8"))
-          .toIdent
+        val hash =
+          Algo.hashBytes[Algo.Blake3](lm.fromString.getBytes("UTF-8"))
         (parsed.name, hash)
       }.toList.toMap
+      useInternalPredef =
+        !ifs.exists(_.name == PackageName.PredefName)
+      predefSourceHash = Package.predefSourceHash
       checked =
         PackageMap.typeCheckParsed[String](packsString, ifs, "predef", compileOptions)
       // TODO, we could use applicative, to report both duplicate packages and the other
@@ -102,10 +104,11 @@ object CompilerApi {
             val withHashes =
               PackageMap.fromIterable(
                 p.toMap.valuesIterator.map { pack =>
-                  val sourceHashOpt =
-                    if (pack.name == PackageName.PredefName) None
+                  val sourceHash =
+                    if (pack.name == PackageName.PredefName && useInternalPredef)
+                      Some(predefSourceHash)
                     else sourceHashes.get(pack.name)
-                  Package.withSourceHashIdent(pack, sourceHashOpt)
+                  Package.withSourceHash(pack, sourceHash)
                 }.toList
               )
             val pathToName: NonEmptyList[(Path, PackageName)] =

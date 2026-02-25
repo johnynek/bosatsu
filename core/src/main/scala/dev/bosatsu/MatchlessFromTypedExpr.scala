@@ -45,10 +45,10 @@ object MatchlessFromTypedExpr {
     val allItemsList = pm.toMap.toList
       .traverse { case (pname, pack) =>
         val lets = pack.lets
-        val sourceHashIdent =
+        val sourceHash =
           Package
-            .sourceHashIdentOf(pack)
-            .getOrElse(Matchless.SourceInfo.emptyHashIdent)
+            .sourceHashOf(pack)
+            .getOrElse(Matchless.SourceInfo.emptyHash)
 
         Par.start {
           val exprs: List[(Bindable, Matchless.Expr[K])] =
@@ -63,7 +63,7 @@ object MatchlessFromTypedExpr {
                         name = name,
                         rec = rec,
                         te = te,
-                        sourceHashIdent = sourceHashIdent,
+                        sourceHash = sourceHash,
                         variantOf = variantOf,
                         makeAnon = c
                       )
