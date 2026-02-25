@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Eq
 import cats.implicits._
 import cats.data.NonEmptyList
+import cats.Functor
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -97,8 +98,19 @@ class TotalityTest
   def showPatsU(pats: List[Pattern[(PackageName, Constructor), Type]]): String =
     showPats(pats.map(_.unbind))
 
-  def typeEnvOf(str: String): TypeEnv[Option[Kind.Arg]] =
-    TestUtils.typeEnvOf(PackageName.PredefName, str)
+  private def toKinded(
+      te: TypeEnv[Option[Kind.Arg]]
+  ): TypeEnv[Kind.Arg] = {
+    val defs = te.allDefinedTypes.map(
+      Functor[rankn.DefinedType].map(_) { opt =>
+        opt.getOrElse(Kind.invariantTypeArg)
+      }
+    )
+    TypeEnv.fromDefinitions(defs)
+  }
+
+  def typeEnvOf(str: String): TypeEnv[Kind.Arg] =
+    toKinded(TestUtils.typeEnvOf(PackageName.PredefName, str))
 
   val predefTE = typeEnvOf("""#
 struct Unit
@@ -199,7 +211,7 @@ enum Bool: False, True
   }
 
   def notTotal(
-      te: TypeEnv[Any],
+      te: TypeEnv[Kind.Arg],
       pats: List[Pattern[(PackageName, Constructor), Type]],
       testMissing: Boolean = true
   ): Unit = {
@@ -221,7 +233,7 @@ enum Bool: False, True
   }
 
   def testTotality(
-      te: TypeEnv[Any],
+      te: TypeEnv[Kind.Arg],
       pats: List[Pattern[(PackageName, Constructor), Type]],
       tight: Boolean = false
   )(implicit loc: munit.Location) = {

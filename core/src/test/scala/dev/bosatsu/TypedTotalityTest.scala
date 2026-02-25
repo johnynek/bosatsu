@@ -65,6 +65,9 @@ class TypedTotalityTest extends munit.FunSuite {
   private def decl(name: String): Declaration =
     Declaration.Var(Name(name))
 
+  private def matchTag(name: String): Declaration =
+    Declaration.Matches(Declaration.Var(Name(name)), Pattern.WildCard)
+
   private def intExpr(i: Long, tag: Declaration): TypedExpr[Declaration] =
     TypedExpr.Literal(Lit.Integer(i), Type.IntType, tag)
 
@@ -77,10 +80,11 @@ class TypedTotalityTest extends munit.FunSuite {
       Pattern.PositionalStruct((pack, Constructor("Ok")), Pattern.WildCard :: Nil)
     val scrutinee =
       TypedExpr.Local(Name("x"), resultExprType(neverType, Type.IntType), tag)
+    val mTag = matchTag("m0")
     val m = TypedExpr.Match(
       scrutinee,
       NonEmptyList.one(TypedExpr.Branch(okPat, None, intExpr(1L, tag))),
-      tag
+      mTag
     )
 
     TotalityCheck(typeEnv).checkExpr(m) match {
@@ -95,13 +99,14 @@ class TypedTotalityTest extends munit.FunSuite {
       Pattern.PositionalStruct((pack, Constructor("Ok")), Pattern.WildCard :: Nil)
     val scrutinee =
       TypedExpr.Local(Name("y"), resultExprType(Type.IntType, Type.IntType), tag)
+    val mTag = matchTag("m1")
     val m = TypedExpr.Match(
       scrutinee,
       NonEmptyList.of(
         TypedExpr.Branch(Pattern.WildCard, None, intExpr(0L, tag)),
         TypedExpr.Branch(okPat, None, intExpr(1L, tag))
       ),
-      tag
+      mTag
     )
 
     TotalityCheck(typeEnv).checkExpr(m) match {
@@ -120,6 +125,7 @@ class TypedTotalityTest extends munit.FunSuite {
   test("definitively uninhabited scrutinee is vacuously total") {
     val tag = decl("z")
     val scrutinee = TypedExpr.Local(Name("z"), neverType, tag)
+    val mTag = matchTag("m2")
     val m = TypedExpr.Match(
       scrutinee,
       NonEmptyList.one(
@@ -129,7 +135,7 @@ class TypedTotalityTest extends munit.FunSuite {
           intExpr(0L, tag)
         )
       ),
-      tag
+      mTag
     )
 
     TotalityCheck(typeEnv).checkExpr(m) match {
