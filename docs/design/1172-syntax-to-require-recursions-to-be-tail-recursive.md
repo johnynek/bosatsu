@@ -119,6 +119,38 @@ Changes:
 3. Keep `Declaration.keywords` unchanged so `loop` remains usable as an identifier outside header context.
 4. Update parser-hint header keyword recognition to include `loop` for better missing-colon hints.
 
+#### Parser shape for contextual `loop` (concrete)
+`loop` must be accepted as a normal name (for example `def loop(x): ...`) while still being parsed as recursion-header syntax in `loop <target>:` positions. The parser strategy is:
+1. Keep the existing `varP` / identifier path unchanged (`loop` is not globally reserved).
+2. In `matchP`, extend only the header parser (`matchKindParser`) with `loop`, so contextual interpretation happens only where a recursion header is already expected.
+3. After consuming the keyword, commit to parsing a recursion header target and trailing colon without backtracking to plain variable parsing.
+4. Restrict backtracking/`soft` usage to the keyword disambiguation boundary, not the whole declaration.
+
+Sketch (intended shape, not exact final code):
+
+```scala
+val recurHeaderP: P[MatchMode] =
+  kwSpace("match").as(MatchMode.Match)
+    .orElse(kwSpace("recur").as(MatchMode.Recur))
+    .orElse(kwSpace("loop").as(MatchMode.Loop))
+
+val recurTargetP: Indy[NonBinding] =
+  // existing branch-arg parser: single nonbinding or tuple form
+  arg
+
+val left: Indy[(MatchMode, NonBinding)] =
+  // commit after recognized header keyword so `loop ...` here is not reparsed
+  // as a plain variable expression
+  Indy.lift(recurHeaderP).cutThen(recurTargetP).cutLeftP(maybeSpace)
+
+// block parser then requires trailing ':' and branch list, as today
+```
+
+Operationally, this means:
+1. `def loop(x): ...` still parses as a definition name because it goes through identifier parsing, not `matchP`.
+2. `loop x:` in recursion-header position is parsed as `MatchMode.Loop`.
+3. `loop x` without `:` in a context expecting recursion header is a syntax error (with parser hints), not a silent fallback to variable parsing.
+
 ### 2. Typed recursion checker integration
 Extend `TypedExprRecursionCheck` so `Loop` and `Recur` both enter recursive checking paths. Existing recur-target legality, lexicographic checks, and shadowing checks stay unchanged.
 
