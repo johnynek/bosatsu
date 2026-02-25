@@ -21,7 +21,7 @@ _Issue: #537 (https://github.com/johnynek/bosatsu/issues/537)_
 
 ## Summary
 
-Adds an opt-in `--yaml` output mode to both `tool json` and `lib json` commands while keeping JSON as the default. The plan introduces `toYamlDoc` on the existing `Json` ADT (no new runtime dependency), uses conservative plain-scalar rules for readable YAML, wires the flag through write/apply/traverse flows, and validates behavior with ScalaCheck YAML-vs-JSON semantic parity tests plus command-level regression tests.
+Adds an opt-in `--yaml` output mode to both `tool json` and `lib json` commands while keeping JSON as the default. The plan introduces `Json.toYamlDoc(j: Json): Doc` on the existing `Json` companion object (no new runtime dependency), uses conservative plain-scalar rules for readable YAML, wires the flag through write/apply/traverse flows, and validates behavior with ScalaCheck YAML-vs-JSON semantic parity tests plus command-level regression tests.
 
 ---
 issue: 537
@@ -47,7 +47,7 @@ Status: proposed
 
 ## Summary
 
-Add YAML output support to existing JSON commands by introducing a `--yaml` flag on both `tool json` and `lib json` subcommands. Keep JSON as the default output format. Implement YAML rendering directly on the existing `Json` ADT (`toYamlDoc`) without adding new runtime dependencies.
+Add YAML output support to existing JSON commands by introducing a `--yaml` flag on both `tool json` and `lib json` subcommands. Keep JSON as the default output format. Implement YAML rendering directly on the existing `Json` ADT via companion-object API (`Json.toYamlDoc(j: Json): Doc`) without adding new runtime dependencies.
 
 This follows the issue direction:
 1. `--yaml` is available on JSON commands in both command families.
@@ -80,8 +80,8 @@ Bosatsu currently emits JSON for `write`, `apply`, and `traverse` outputs. JSON 
 ### 1. Extend `Json` with YAML rendering
 
 Add YAML rendering entry points in `core/src/main/scala/dev/bosatsu/Json.scala`:
-1. `def toYamlDoc: Doc`
-2. `def renderYaml: String` (convenience wrapper around `toYamlDoc`)
+1. `def toYamlDoc(j: Json): Doc` on `object Json`
+2. Optional helper `def renderYaml(j: Json): String` can remain a thin wrapper around `toYamlDoc` if needed for tests or call-site ergonomics.
 
 The renderer remains pure and dependency-free, using existing `paiges` `Doc` composition.
 
@@ -92,7 +92,8 @@ Use a conservative plain-scalar rule for strings:
 2. The string is non-empty.
 3. The string contains no whitespace.
 4. The string is not parseable as any JSON value via `Json.parserFile`.
-5. The string characters are in a safe plain-scalar subset to avoid YAML syntax ambiguity.
+5. The lowercase form is not one of `yes`, `no`, `on`, or `off` (case-insensitive guard for YAML boolean-like scalars).
+6. The string characters are in a safe plain-scalar subset to avoid YAML syntax ambiguity.
 
 Render quoted (JSON-style double-quoted escaping) otherwise.
 
@@ -116,8 +117,9 @@ Add a `--yaml` boolean option to JSON command modes in:
 
 Behavior:
 1. Default path remains unchanged and returns `Output.JsonOutput`.
-2. With `--yaml`, the same computed `Json` value is emitted as `Output.Basic(json.toYamlDoc, outputPath)`.
+2. With `--yaml`, the same computed `Json` value is emitted as `Output.Basic(Json.toYamlDoc(json), outputPath)`.
 3. Applies uniformly to `write`, `apply`, and `traverse`.
+4. `--yaml` only changes output rendering; command input remains JSON and CLI help text for `--json_input` / `--json_string` should state that clearly.
 
 Rationale:
 1. No `Output` ADT migration is needed.
@@ -135,8 +137,8 @@ Update `docs/src/main/paradox/generating_json.md`:
 
 1. Implement `Json.toYamlDoc` and `Json.renderYaml` in `Json.scala`.
 2. Add plain-scalar safety helpers in `Json.scala` and keep them intentionally conservative.
-3. Add `--yaml` option parsing in `tool_command/JsonCommand.scala` and branch output emission accordingly.
-4. Add `--yaml` option parsing in `library/Command.scala` and branch output emission accordingly.
+3. Add `--yaml` option parsing in `tool_command/JsonCommand.scala`, update help text to clarify input is JSON-only, and branch output emission accordingly.
+4. Add `--yaml` option parsing in `library/Command.scala`, update help text to clarify input is JSON-only, and branch output emission accordingly.
 5. Add/extend command tests in `ToolAndLibCommandTest.scala` for `--yaml` write/apply/traverse behavior and default compatibility.
 6. Add CLI integration coverage in `PathModuleTest.scala` for at least one `tool json write --yaml` path.
 7. Extend `cli/src/test/scala/dev/bosatsu/JsonTest.scala` with ScalaCheck YAML-vs-JSON semantic parity using existing Jackson YAML test parser.
@@ -149,7 +151,7 @@ Update `docs/src/main/paradox/generating_json.md`:
 In `cli/src/test/scala/dev/bosatsu/JsonTest.scala`:
 1. Generate `Json` values using existing `GenJson`.
 2. Parse `json.render` with JSON parser (`ObjectMapper`).
-3. Parse `json.renderYaml` (or `json.toYamlDoc.render(...)`) with YAML parser (`YAMLFactory`).
+3. Parse `Json.toYamlDoc(json).render(...)` (or `Json.renderYaml(json)`) with YAML parser (`YAMLFactory`).
 4. Assert parsed trees are equal for all generated cases.
 
 ### Deterministic renderer tests
@@ -158,6 +160,7 @@ Add specific assertions for string quoting behavior:
 1. Safe identifier-like strings are unquoted.
 2. Strings like `true`, `false`, `null`, numeric text, and JSON-shaped literals remain quoted.
 3. Strings with whitespace remain quoted.
+4. Dangerous YAML boolean-like strings `yes`, `no`, `on`, `off` (including mixed/upper case variants) remain quoted.
 
 ### Command-level tests
 
@@ -172,12 +175,14 @@ Add specific assertions for string quoting behavior:
 2. `lib json write|apply|traverse` accepts `--yaml`.
 3. Without `--yaml`, output behavior and test expectations remain unchanged.
 4. With `--yaml`, outputs are valid YAML for all JSON values generated by existing encoders.
-5. YAML output is produced by new `Json.toYamlDoc` logic in core, not by a runtime YAML dependency.
+5. YAML output is produced by new `Json.toYamlDoc(j: Json)` logic in core, not by a runtime YAML dependency.
 6. Safe non-ambiguous strings may be unquoted; ambiguous strings remain quoted.
-7. ScalaCheck parity test proves YAML parse tree equals JSON parse tree across generated `Json` values.
-8. Command tests cover both tool and lib paths with `--yaml`.
-9. User docs mention `--yaml` and default JSON behavior.
-10. No new non-test YAML dependency is introduced.
+7. Case-insensitive `yes` / `no` / `on` / `off` string values are always quoted in YAML output.
+8. ScalaCheck parity test proves YAML parse tree equals JSON parse tree across generated `Json` values.
+9. Command tests cover both tool and lib paths with `--yaml`.
+10. CLI help explicitly states that apply/traverse input flags remain JSON-only.
+11. User docs mention `--yaml` and default JSON behavior.
+12. No new non-test YAML dependency is introduced.
 
 ## Risks and Mitigations
 
