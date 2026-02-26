@@ -2652,9 +2652,7 @@ test = Assertion(True, "")
 enum Nat: NZero, NSucc(n: Nat)
 
 def call(a):
-    # TODO it's weird that removing the [a] breaks this
-    # if a type isn't mentioned in an outer scope, we should assume it's local
-    def poly_rec[a](count: Nat, a: a) -> a:
+    def poly_rec(count: Nat, a: a) -> a:
         recur count:
             case NZero: a
             case NSucc(prev):
