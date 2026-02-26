@@ -883,6 +883,28 @@ _ = some_expression
 
 That makes the intent explicit to readers and to the compiler.
 
+## Type-check-only `todo`
+When iterating on larger changes, you may know the arguments you need but not
+yet know the final implementation. In check-only mode, Bosatsu includes:
+```
+def todo[a](a: a) -> forall b. b
+```
+
+`todo` consumes a value (often a tuple of values you plan to use) and can stand
+in for any return type so the rest of your code can still typecheck:
+```
+def big_hard_function(a: Arg1, b: Arg2) -> Result:
+  todo((a, b))
+```
+
+This is useful for an "always-be-compiling" workflow: keep moving from one
+typechecking state to the next, then remove placeholders incrementally.
+
+`todo` is intentionally unsound, so it is only available in check-only commands
+(`tool check` and `lib check`). Commands that emit or execute outputs
+(`show`/`json`/`eval`/`build`/`transpile`/`test`) do not include `todo`, so
+those commands fail until all `todo` calls are removed.
+
 ## Testing
 Bosatsu tests are regular values of type `Bosatsu/Predef::Test`.
 `Bosatsu/Predef` defines:
