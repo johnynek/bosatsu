@@ -2,6 +2,7 @@ package Bosatsu/IO/Core
 
 from Bosatsu/Prog import Prog
 from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Bytes import Bytes
 from Bosatsu/Char import (
   string_to_Char_List,
   char_to_Int,
@@ -33,6 +34,10 @@ export (
   stderr,
   read_utf8,
   write_utf8,
+  read_bytes,
+  write_bytes,
+  read_all_bytes,
+  copy_bytes,
   flush,
   close,
   open_file,
@@ -95,6 +100,10 @@ external stderr: Handle
 
 external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
 external def write_utf8(h: Handle, s: String) -> Prog[IOError, Unit]
+external def read_bytes(h: Handle, max_bytes: Int) -> Prog[IOError, Option[Bytes]]
+external def write_bytes(h: Handle, bytes: Bytes) -> Prog[IOError, Unit]
+external def read_all_bytes(h: Handle, chunk_size: Int) -> Prog[IOError, Bytes]
+external def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -> Prog[IOError, Int]
 external def flush(h: Handle) -> Prog[IOError, Unit]
 external def close(h: Handle) -> Prog[IOError, Unit]
 external def open_file(path: Path, mode: OpenMode) -> Prog[IOError, Handle]
@@ -111,6 +120,8 @@ external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
 
 _ = now_mono
+bytes_identity = (b: Bytes) -> b
+_ = bytes_identity
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d

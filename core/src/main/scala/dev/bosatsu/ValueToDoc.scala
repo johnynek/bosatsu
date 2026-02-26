@@ -18,6 +18,11 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bytesTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "IO", "Bytes"),
+      TypeName("Bytes")
+    )
   private val progTypeConst: Type.Const.Defined =
     Type.Const.Defined(
       PackageName.parts("Bosatsu", "Prog"),
@@ -180,6 +185,25 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       inners
                     ) + Doc.lineOrEmpty).aligned + Doc.char(']')
                   }
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
+            case Type.TyConst(`bytesTypeConst`) =>
+              {
+                case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                  val items = List.newBuilder[Doc]
+                  var idx = 0
+                  while (idx < bytes.len) {
+                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                    items += Doc.str(intValue)
+                    idx = idx + 1
+                  }
+                  val docs = items.result()
+                  Right(
+                    Doc.char('[') + (Doc.lineOrEmpty + commaBlock(
+                      docs
+                    ) + Doc.lineOrEmpty).aligned + Doc.char(']')
+                  )
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }

@@ -2,9 +2,14 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 import java.io.{
+  BufferedInputStream,
+  BufferedOutputStream,
   BufferedReader,
   BufferedWriter,
+  ByteArrayOutputStream,
+  InputStream,
   InputStreamReader,
+  OutputStream,
   OutputStreamWriter,
   Reader,
   Writer
@@ -56,8 +61,85 @@ object Predef {
     PackageName.parts("Bosatsu", "Num", "Float64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
+  private def ioBytesPackageName: PackageName =
+    PackageName.parts("Bosatsu", "IO", "Bytes")
   private def ioCorePackageName: PackageName =
     PackageName.parts("Bosatsu", "IO", "Core")
+
+  private def addIoBytesExternals(externals: Externals): Externals =
+    if (Platform.isScalaJvm) {
+      externals
+        .add(
+          ioBytesPackageName,
+          "empty_Bytes",
+          FfiCall.Const(PredefImpl.emptyBytes)
+        )
+        .add(
+          ioBytesPackageName,
+          "from_List_Int",
+          FfiCall.Fn1(PredefImpl.from_List_Int(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "from_Array_Int",
+          FfiCall.Fn1(PredefImpl.from_Array_Int(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "to_List_Int",
+          FfiCall.Fn1(PredefImpl.to_List_Int(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "to_Array_Int",
+          FfiCall.Fn1(PredefImpl.to_Array_Int(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "size_Bytes",
+          FfiCall.Fn1(PredefImpl.size_Bytes(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "get_map_Bytes",
+          FfiCall.Fn4(PredefImpl.get_map_Bytes(_, _, _, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "get_or_Bytes",
+          FfiCall.Fn3(PredefImpl.get_or_Bytes(_, _, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "foldl_Bytes",
+          FfiCall.Fn3(PredefImpl.foldl_Bytes(_, _, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "concat_all_Bytes",
+          FfiCall.Fn1(PredefImpl.concat_all_Bytes(_))
+        )
+        .add(
+          ioBytesPackageName,
+          "slice_Bytes",
+          FfiCall.Fn3(PredefImpl.slice_Bytes(_, _, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "starts_with_Bytes",
+          FfiCall.Fn2(PredefImpl.starts_with_Bytes(_, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "ends_with_Bytes",
+          FfiCall.Fn2(PredefImpl.ends_with_Bytes(_, _))
+        )
+        .add(
+          ioBytesPackageName,
+          "find_Bytes",
+          FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
+        )
+    } else externals
 
   private def addIoCoreExternals(externals: Externals): Externals =
     if (Platform.isScalaJvm) {
@@ -87,6 +169,26 @@ object Predef {
           ioCorePackageName,
           "write_utf8",
           FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "read_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_read_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "write_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_write_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "read_all_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_read_all_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "copy_bytes",
+          FfiCall.Fn4(PredefImpl.prog_core_copy_bytes(_, _, _, _))
         )
         .add(
           ioCorePackageName,
@@ -162,7 +264,8 @@ object Predef {
 
   val jvmExternals: Externals =
     addIoCoreExternals(
-      Externals.empty
+      addIoBytesExternals(
+        Externals.empty
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
@@ -443,6 +546,7 @@ object Predef {
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
+      )
     )
 }
 
@@ -457,9 +561,18 @@ object PredefImpl {
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
 
+  final case class BytesValue(data: Array[Byte], offset: Int, len: Int) {
+    Require(offset >= 0, s"offset must be >= 0: $offset")
+    Require(len >= 0, s"len must be >= 0: $len")
+    Require(offset + len <= data.length, s"invalid view ($offset, $len)")
+  }
+
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
   val emptyArray: Value = ExternalValue(EmptyArrayRepr)
+  private val EmptyBytesData: Array[Byte] = Array.emptyByteArray
+  private val EmptyBytesRepr: BytesValue = BytesValue(EmptyBytesData, 0, 0)
+  val emptyBytes: Value = ExternalValue(EmptyBytesRepr)
 
   private val MinIntLong = Int.MinValue.toLong
   private val MaxIntLong = Int.MaxValue.toLong
@@ -674,6 +787,21 @@ object PredefImpl {
         sys.error(s"expected array external value, found: $other")
       // $COVERAGE-ON$
     }
+
+  private def asBytes(a: Value): BytesValue =
+    a.asExternal.toAny match {
+      case bytes: BytesValue => bytes
+      case other             =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected bytes external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
+  private def normalizeByte(intValue: Value.BosatsuInt): Byte =
+    (Value.intToBigInteger(intValue).intValue() & 0xff).toByte
+
+  private def byteToIntValue(byte: Byte): Value =
+    VInt(byte.toInt & 0xff)
 
   def add(a: Value, b: Value): Value =
     ExternalValue(addInt(intRaw(a), intRaw(b)))
@@ -1004,10 +1132,12 @@ object PredefImpl {
   private case object HandleStderr extends HandleValue
   private final case class ReaderHandle(
       reader: Reader,
+      input: Option[InputStream],
       var closed: Boolean = false
   ) extends HandleValue
   private final case class WriterHandle(
       writer: Writer,
+      output: Option[OutputStream],
       var closed: Boolean = false
   ) extends HandleValue
 
@@ -1027,6 +1157,7 @@ object PredefImpl {
 
   private lazy val systemStdinReader: BufferedReader =
     new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
+  private lazy val systemStdinBytes: InputStream = System.in
 
   private def normalizePathString(raw: String): String =
     raw.replace('\\', '/')
@@ -1169,6 +1300,32 @@ object PredefImpl {
         Left(ioerror_invalid_argument("invalid Duration value"))
     }
 
+  private def asInt(value: Value, context: String): Either[Value, BigInteger] =
+    value match {
+      case VInt(i) => Right(i)
+      case _       => Left(ioerror_invalid_argument(context))
+    }
+
+  private def asPositiveIntBounded(
+      value: Value,
+      context: String
+  ): Either[Value, Int] =
+    asInt(value, context).flatMap { bi =>
+      if (bi.signum <= 0) Left(ioerror_invalid_argument(context))
+      else if (bi.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
+      else Right(bi.intValue)
+    }
+
+  private def asOptionInt(
+      value: Value,
+      context: String
+  ): Either[Value, Option[BigInteger]] =
+    value match {
+      case VOption(None)          => Right(None)
+      case VOption(Some(VInt(i))) => Right(Some(i))
+      case _                      => Left(ioerror_invalid_argument(context))
+    }
+
   private def optionValue(v: Option[Value]): Value =
     v match {
       case Some(value) => VOption.some(value)
@@ -1190,6 +1347,26 @@ object PredefImpl {
         Left(ioerror_from_throwable(context, t))
     }
 
+  private def readFromInputStream(
+      stream: InputStream,
+      maxBytes: Int,
+      context: String
+  ): Either[Value, Option[BytesValue]] =
+    try {
+      val buffer = new Array[Byte](maxBytes)
+      val count = stream.read(buffer, 0, maxBytes)
+      if (count <= 0) Right(None)
+      else {
+        val bytes =
+          if (count == maxBytes) buffer
+          else java.util.Arrays.copyOf(buffer, count)
+        Right(Some(BytesValue(bytes, 0, bytes.length)))
+      }
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
   private def writeToWriter(
       writer: Writer,
       text: String,
@@ -1197,6 +1374,19 @@ object PredefImpl {
   ): Either[Value, Unit] =
     try {
       writer.write(text)
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def writeToOutputStream(
+      output: OutputStream,
+      bytes: BytesValue,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      if (bytes.len > 0) output.write(bytes.data, bytes.offset, bytes.len)
       Right(())
     } catch {
       case NonFatal(t) =>
@@ -1261,6 +1451,241 @@ object PredefImpl {
       }
     )
 
+  private def bytesValue(bytes: BytesValue): Value =
+    if (bytes.len == 0) emptyBytes
+    else ExternalValue(bytes)
+
+  private def core_read_bytes_from_handle(
+      handle: HandleValue,
+      maxBytes: Int
+  ): Either[Value, Option[BytesValue]] =
+    handle match {
+      case HandleStdin =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            val read = runtimeRead(runtime, maxBytes)
+            if (read.isEmpty) Right(None)
+            else Right(Some(BytesValue(read, 0, read.length)))
+          case None =>
+            readFromInputStream(
+              systemStdinBytes,
+              maxBytes,
+              "reading bytes from stdin"
+            )
+        }
+      case ReaderHandle(_, _, true) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
+      case ReaderHandle(_, Some(input), false) =>
+        readFromInputStream(input, maxBytes, "reading bytes from handle")
+      case ReaderHandle(_, None, false) =>
+        Left(
+          ioerror_known(
+            IOErrorTagBadFileDescriptor,
+            "reading bytes from non-binary handle"
+          )
+        )
+      case HandleStdout | HandleStderr | WriterHandle(_, _, _) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
+    }
+
+  private def core_write_bytes_to_handle(
+      handle: HandleValue,
+      bytes: BytesValue
+  ): Either[Value, Unit] =
+    handle match {
+      case HandleStdout =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            runtime.stdout.append(
+              new String(
+                bytes.data,
+                bytes.offset,
+                bytes.len,
+                StandardCharsets.UTF_8
+              )
+            )
+            Right(())
+          case None =>
+            try {
+              if (bytes.len > 0) System.out.write(bytes.data, bytes.offset, bytes.len)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("writing bytes to stdout", t))
+            }
+        }
+      case HandleStderr =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            runtime.stderr.append(
+              new String(
+                bytes.data,
+                bytes.offset,
+                bytes.len,
+                StandardCharsets.UTF_8
+              )
+            )
+            Right(())
+          case None =>
+            try {
+              if (bytes.len > 0) System.err.write(bytes.data, bytes.offset, bytes.len)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("writing bytes to stderr", t))
+            }
+        }
+      case WriterHandle(_, _, true) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
+      case WriterHandle(_, Some(output), false) =>
+        writeToOutputStream(output, bytes, "writing bytes to handle")
+      case WriterHandle(_, None, false) =>
+        Left(
+          ioerror_known(
+            IOErrorTagBadFileDescriptor,
+            "writing bytes to non-binary handle"
+          )
+        )
+      case HandleStdin | ReaderHandle(_, _, _) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+    }
+
+  private def core_read_bytes_impl(
+      handleValue: Value,
+      maxBytesValue: Value
+  ): Either[Value, Option[BytesValue]] =
+    for {
+      handle <- asHandleValue(handleValue)
+      maxBytes <- asPositiveIntBounded(
+        maxBytesValue,
+        "read_bytes max_bytes must be > 0"
+      )
+      result <- core_read_bytes_from_handle(handle, maxBytes)
+    } yield result
+
+  private def core_write_bytes_impl(
+      handleValue: Value,
+      bytesValue: Value
+  ): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      bytes <- bytesValue match {
+        case ExternalValue(_: BytesValue) => Right(asBytes(bytesValue))
+        case _ =>
+          Left(ioerror_invalid_argument("expected Bytes for write_bytes"))
+      }
+      _ <- core_write_bytes_to_handle(handle, bytes)
+    } yield ()
+
+  private def core_read_all_bytes_impl(
+      handleValue: Value,
+      chunkSizeValue: Value
+  ): Either[Value, BytesValue] =
+    for {
+      handle <- asHandleValue(handleValue)
+      chunkSize <- asPositiveIntBounded(
+        chunkSizeValue,
+        "read_all_bytes chunk_size must be > 0"
+      )
+      result <- {
+        val out = new ByteArrayOutputStream()
+        var done = false
+        var err: Option[Value] = None
+
+        while (!done && err.isEmpty) {
+          core_read_bytes_from_handle(handle, chunkSize) match {
+            case Left(e) =>
+              err = Some(e)
+            case Right(None) =>
+              done = true
+            case Right(Some(chunk)) =>
+              if (chunk.len > 0)
+                out.write(chunk.data, chunk.offset, chunk.len)
+          }
+        }
+
+        err match {
+          case Some(e) => Left(e)
+          case None    =>
+            val data = out.toByteArray
+            if (data.isEmpty) Right(EmptyBytesRepr)
+            else Right(BytesValue(data, 0, data.length))
+        }
+      }
+    } yield result
+
+  private def core_copy_bytes_impl(
+      srcValue: Value,
+      dstValue: Value,
+      chunkSizeValue: Value,
+      maxTotalValue: Value
+  ): Either[Value, BigInteger] =
+    for {
+      src <- asHandleValue(srcValue)
+      dst <- asHandleValue(dstValue)
+      chunkSize <- asPositiveIntBounded(
+        chunkSizeValue,
+        "copy_bytes chunk_size must be > 0"
+      )
+      maxTotal <- asOptionInt(
+        maxTotalValue,
+        "copy_bytes max_total must be Option[Int]"
+      )
+      _ <- maxTotal match {
+        case Some(i) if i.signum < 0 =>
+          Left(ioerror_invalid_argument("copy_bytes max_total must be >= 0"))
+        case _                       => Right(())
+      }
+      copied <- {
+        maxTotal match {
+          case Some(i) if i.signum == 0 =>
+            Right(BigInteger.ZERO)
+          case _ =>
+            var done = false
+            var total = BigInteger.ZERO
+            var err: Option[Value] = None
+
+            while (!done && err.isEmpty) {
+              val toRead =
+                maxTotal match {
+                  case Some(limit) =>
+                    val remaining = limit.subtract(total)
+                    if (remaining.signum <= 0) {
+                      done = true
+                      0
+                    } else {
+                      val maxChunk = BigInteger.valueOf(chunkSize.toLong)
+                      if (remaining.compareTo(maxChunk) >= 0) chunkSize
+                      else remaining.intValue
+                    }
+                  case None => chunkSize
+                }
+
+              if (!done && toRead > 0) {
+                core_read_bytes_from_handle(src, toRead) match {
+                  case Left(e) =>
+                    err = Some(e)
+                  case Right(None) =>
+                    done = true
+                  case Right(Some(chunk)) =>
+                    core_write_bytes_to_handle(dst, chunk) match {
+                      case Left(e) =>
+                        err = Some(e)
+                      case Right(_) =>
+                        total = total.add(BigInteger.valueOf(chunk.len.toLong))
+                    }
+                }
+              }
+            }
+
+            err match {
+              case Some(e) => Left(e)
+              case None    => Right(total)
+            }
+        }
+      }
+    } yield copied
+
   private def core_read_utf8_impl(
       handleValue: Value,
       maxCharsValue: Value
@@ -1287,11 +1712,11 @@ object PredefImpl {
             case None =>
               readFromReader(systemStdinReader, maxChars, "reading from stdin")
           }
-        case ReaderHandle(reader, closed) =>
+        case ReaderHandle(reader, _, closed) =>
           if (closed)
             Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
           else readFromReader(reader, maxChars, "reading utf8 from handle")
-        case HandleStdout | HandleStderr | WriterHandle(_, _) =>
+        case HandleStdout | HandleStderr | WriterHandle(_, _, _) =>
           Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
       }
     } yield result
@@ -1335,11 +1760,11 @@ object PredefImpl {
                   Left(ioerror_from_throwable("writing to stderr", t))
               }
           }
-        case WriterHandle(writer, closed) =>
+        case WriterHandle(writer, _, closed) =>
           if (closed)
             Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
           else writeToWriter(writer, text, "writing utf8 to handle")
-        case HandleStdin | ReaderHandle(_, _) =>
+        case HandleStdin | ReaderHandle(_, _, _) =>
           Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
       }
     } yield ()
@@ -1372,11 +1797,11 @@ object PredefImpl {
                   Left(ioerror_from_throwable("flushing stderr", t))
               }
           }
-        case WriterHandle(writer, closed) =>
+        case WriterHandle(writer, _, closed) =>
           if (closed)
             Left(ioerror_known(IOErrorTagBadFileDescriptor, "flushing closed handle"))
           else flushWriter(writer, "flushing handle")
-        case HandleStdin | ReaderHandle(_, _) =>
+        case HandleStdin | ReaderHandle(_, _, _) =>
           Right(())
       }
     } yield ()
@@ -1387,12 +1812,12 @@ object PredefImpl {
       _ <- handle match {
         case HandleStdin | HandleStdout | HandleStderr =>
           Right(())
-        case rh @ ReaderHandle(reader, closed) =>
+        case rh @ ReaderHandle(reader, _, closed) =>
           if (closed) Right(())
           else closeReader(reader, "closing handle").map { _ =>
             rh.closed = true
           }
-        case wh @ WriterHandle(writer, closed) =>
+        case wh @ WriterHandle(writer, _, closed) =>
           if (closed) Right(())
           else closeWriter(writer, "closing handle").map { _ =>
             wh.closed = true
@@ -1510,6 +1935,62 @@ object PredefImpl {
         }
     )
 
+  def prog_core_read_bytes(handle: Value, maxBytes: Value): Value =
+    prog_effect2(
+      handle,
+      maxBytes,
+      (h, n) =>
+        core_read_bytes_impl(h, n) match {
+          case Right(result) =>
+            prog_pure(optionValue(result.map(bytesValue)))
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_write_bytes(handle: Value, bytes: Value): Value =
+    prog_effect2(
+      handle,
+      bytes,
+      (h, b) =>
+        core_write_bytes_impl(h, b) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_read_all_bytes(handle: Value, chunkSize: Value): Value =
+    prog_effect2(
+      handle,
+      chunkSize,
+      (h, c) =>
+        core_read_all_bytes_impl(h, c) match {
+          case Right(result) =>
+            prog_pure(bytesValue(result))
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_copy_bytes(
+      src: Value,
+      dst: Value,
+      chunkSize: Value,
+      maxTotal: Value
+  ): Value =
+    prog_effect(
+      Value.Tuple(src, dst, chunkSize, maxTotal),
+      {
+        case p: ProductValue if p.values.length == 4 =>
+          core_copy_bytes_impl(p.get(0), p.get(1), p.get(2), p.get(3)) match {
+            case Right(count) => prog_pure(VInt(count))
+            case Left(err)    => prog_raise_error(err)
+          }
+        case other =>
+          sys.error(s"invalid effect payload for copy_bytes: $other")
+      }
+    )
+
   def prog_core_flush(handle: Value): Value =
     prog_effect(
       handle,
@@ -1542,10 +2023,15 @@ object PredefImpl {
             try {
               modeTag match {
                 case 0 =>
+                  val input =
+                    new BufferedInputStream(Files.newInputStream(javaPath))
                   Right(
                     ExternalValue(
                       ReaderHandle(
-                        Files.newBufferedReader(javaPath, StandardCharsets.UTF_8)
+                        new BufferedReader(
+                          new InputStreamReader(input, StandardCharsets.UTF_8)
+                        ),
+                        Some(input)
                       )
                     )
                   )
@@ -1555,14 +2041,17 @@ object PredefImpl {
                     StandardOpenOption.TRUNCATE_EXISTING,
                     StandardOpenOption.WRITE
                   )
+                  val output =
+                    new BufferedOutputStream(
+                      Files.newOutputStream(javaPath, options*)
+                    )
                   Right(
                     ExternalValue(
                       WriterHandle(
-                        Files.newBufferedWriter(
-                          javaPath,
-                          StandardCharsets.UTF_8,
-                          options*
-                        )
+                        new BufferedWriter(
+                          new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                        ),
+                        Some(output)
                       )
                     )
                   )
@@ -1572,14 +2061,17 @@ object PredefImpl {
                     StandardOpenOption.APPEND,
                     StandardOpenOption.WRITE
                   )
+                  val output =
+                    new BufferedOutputStream(
+                      Files.newOutputStream(javaPath, options*)
+                    )
                   Right(
                     ExternalValue(
                       WriterHandle(
-                        Files.newBufferedWriter(
-                          javaPath,
-                          StandardCharsets.UTF_8,
-                          options*
-                        )
+                        new BufferedWriter(
+                          new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                        ),
+                        Some(output)
                       )
                     )
                   )
@@ -1809,44 +2301,50 @@ object PredefImpl {
               val process = pb.start()
               val processValue = ProcessValue(process, None)
               val stdinHandle =
-                if (stdinMode == 1)
+                if (stdinMode == 1) {
+                  val processStdin = process.getOutputStream
                   Some(
                     WriterHandle(
                       new BufferedWriter(
                         new OutputStreamWriter(
-                          process.getOutputStream,
+                          processStdin,
                           StandardCharsets.UTF_8
                         )
-                      )
+                      ),
+                      Some(processStdin)
                     )
                   )
-                else None
+                } else None
               val stdoutHandle =
-                if (stdoutMode == 1)
+                if (stdoutMode == 1) {
+                  val processStdout = process.getInputStream
                   Some(
                     ReaderHandle(
                       new BufferedReader(
                         new InputStreamReader(
-                          process.getInputStream,
+                          processStdout,
                           StandardCharsets.UTF_8
                         )
-                      )
+                      ),
+                      Some(processStdout)
                     )
                   )
-                else None
+                } else None
               val stderrHandle =
-                if (stderrMode == 1)
+                if (stderrMode == 1) {
+                  val processStderr = process.getErrorStream
                   Some(
                     ReaderHandle(
                       new BufferedReader(
                         new InputStreamReader(
-                          process.getErrorStream,
+                          processStderr,
                           StandardCharsets.UTF_8
                         )
-                      )
+                      ),
+                      Some(processStderr)
                     )
                   )
-                else None
+                } else None
 
               Right(
                 spawnResultValue(processValue, stdinHandle, stdoutHandle, stderrHandle)
@@ -2115,6 +2613,267 @@ object PredefImpl {
 
   private def copyView(arr: ArrayValue): Array[Value] =
     java.util.Arrays.copyOfRange(arr.data, arr.offset, arr.offset + arr.len)
+
+  def from_List_Int(items: Value): Value = {
+    var current = items
+    var count = 0
+
+    while (current != VList.VNil) {
+      current match {
+        case VList.Cons(_, tail) =>
+          count = count + 1
+          current = tail
+        case other =>
+          // $COVERAGE-OFF$
+          sys.error(s"type error: expected list, found $other")
+        // $COVERAGE-ON$
+      }
+    }
+
+    if (count <= 0) emptyBytes
+    else {
+      val data = new Array[Byte](count)
+      current = items
+      var idx = 0
+
+      while (current != VList.VNil) {
+        current match {
+          case VList.Cons(head, tail) =>
+            data(idx) = normalizeByte(intRaw(head))
+            idx = idx + 1
+            current = tail
+          case other =>
+            // $COVERAGE-OFF$
+            sys.error(s"type error: expected list, found $other")
+          // $COVERAGE-ON$
+        }
+      }
+
+      ExternalValue(BytesValue(data, 0, count))
+    }
+  }
+
+  def from_Array_Int(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) emptyBytes
+    else {
+      val data = new Array[Byte](arr.len)
+      var idx = 0
+      while (idx < arr.len) {
+        data(idx) = normalizeByte(intRaw(arr.data(arr.offset + idx)))
+        idx = idx + 1
+      }
+      ExternalValue(BytesValue(data, 0, arr.len))
+    }
+  }
+
+  def to_List_Int(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    var idx = bytes.len - 1
+    var res: Value = VList.VNil
+    while (idx >= 0) {
+      res = VList.Cons(byteToIntValue(bytes.data(bytes.offset + idx)), res)
+      idx = idx - 1
+    }
+    res
+  }
+
+  def to_Array_Int(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    if (bytes.len <= 0) emptyArray
+    else {
+      val data = new Array[Value](bytes.len)
+      var idx = 0
+      while (idx < bytes.len) {
+        data(idx) = byteToIntValue(bytes.data(bytes.offset + idx))
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(data, 0, bytes.len))
+    }
+  }
+
+  def size_Bytes(bytesValue: Value): Value =
+    VInt(asBytes(bytesValue).len)
+
+  def get_map_Bytes(
+      bytesValue: Value,
+      index: Value,
+      default: Value,
+      fn: Value
+  ): Value = {
+    val bytes = asBytes(bytesValue)
+    inRangeIndex(i(index), bytes.len) match {
+      case Some(idx) =>
+        fn.asFn(
+          NonEmptyList(byteToIntValue(bytes.data(bytes.offset + idx)), Nil)
+        )
+      case None =>
+        default.asFn(NonEmptyList(UnitValue, Nil))
+    }
+  }
+
+  def get_or_Bytes(bytesValue: Value, index: Value, default: Value): Value =
+    get_map_Bytes(bytesValue, index, default, FnValue.identity)
+
+  def foldl_Bytes(bytesValue: Value, init: Value, fn: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    while (idx < bytes.len) {
+      acc = fnT(
+        NonEmptyList(
+          acc,
+          byteToIntValue(bytes.data(bytes.offset + idx)) :: Nil
+        )
+      )
+      idx = idx + 1
+    }
+    acc
+  }
+
+  def concat_all_Bytes(chunks: Value): Value = {
+    val parts = List.newBuilder[BytesValue]
+    var total = 0L
+    var current = chunks
+
+    while (current != VList.VNil) {
+      current match {
+        case VList.Cons(head, tail) =>
+          val bytes = asBytes(head)
+          parts += bytes
+          total = total + bytes.len.toLong
+          current = tail
+        case other =>
+          // $COVERAGE-OFF$
+          sys.error(s"type error: expected list, found $other")
+        // $COVERAGE-ON$
+      }
+    }
+
+    if (total <= 0L || total > Int.MaxValue.toLong) emptyBytes
+    else {
+      val totalInt = total.toInt
+      val data = new Array[Byte](totalInt)
+      var offset = 0
+      parts.result().iterator.foreach { bytes =>
+        if (bytes.len > 0) {
+          java.lang.System.arraycopy(
+            bytes.data,
+            bytes.offset,
+            data,
+            offset,
+            bytes.len
+          )
+          offset = offset + bytes.len
+        }
+      }
+      ExternalValue(BytesValue(data, 0, totalInt))
+    }
+  }
+
+  def slice_Bytes(bytesValue: Value, start: Value, end: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val lenBI = BigInteger.valueOf(bytes.len.toLong)
+    val startBI = {
+      val raw = i(start)
+      if (raw.signum < 0) BigInteger.ZERO else raw
+    }
+    val endBI = {
+      val raw = i(end)
+      if (raw.compareTo(lenBI) > 0) lenBI else raw
+    }
+
+    val valid =
+      startBI.signum >= 0 &&
+        endBI.signum >= 0 &&
+        startBI.compareTo(endBI) <= 0 &&
+        endBI.compareTo(lenBI) <= 0
+
+    if (!valid) emptyBytes
+    else {
+      val sliceLenBI = endBI.subtract(startBI)
+      if (sliceLenBI.signum <= 0) emptyBytes
+      else {
+        val startIdx = startBI.intValue()
+        val sliceLen = sliceLenBI.intValue()
+        ExternalValue(BytesValue(bytes.data, bytes.offset + startIdx, sliceLen))
+      }
+    }
+  }
+
+  def starts_with_Bytes(bytesValue: Value, prefixValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val prefix = asBytes(prefixValue)
+    if (prefix.len > bytes.len) False
+    else {
+      var idx = 0
+      var equal = true
+      while (idx < prefix.len && equal) {
+        if (bytes.data(bytes.offset + idx) != prefix.data(prefix.offset + idx))
+          equal = false
+        idx = idx + 1
+      }
+      bool(equal)
+    }
+  }
+
+  def ends_with_Bytes(bytesValue: Value, suffixValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val suffix = asBytes(suffixValue)
+    if (suffix.len > bytes.len) False
+    else {
+      val start = bytes.len - suffix.len
+      var idx = 0
+      var equal = true
+      while (idx < suffix.len && equal) {
+        if (
+          bytes.data(bytes.offset + start + idx) != suffix.data(
+            suffix.offset + idx
+          )
+        ) equal = false
+        idx = idx + 1
+      }
+      bool(equal)
+    }
+  }
+
+  def find_Bytes(bytesValue: Value, needleValue: Value, start: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val needle = asBytes(needleValue)
+    val lenBI = BigInteger.valueOf(bytes.len.toLong)
+    val startRaw = i(start)
+    val startClamped =
+      if (startRaw.signum < 0) BigInteger.ZERO
+      else if (startRaw.compareTo(lenBI) > 0) lenBI
+      else startRaw
+
+    if (needle.len == 0) VInt(startClamped)
+    else {
+      val startIdx = startClamped.intValue
+      val maxStart = bytes.len - needle.len
+      if (startIdx > maxStart) VInt(-1)
+      else {
+        var idx = startIdx
+        var found = -1
+        while (idx <= maxStart && found < 0) {
+          var subIdx = 0
+          var matches = true
+          while (subIdx < needle.len && matches) {
+            if (
+              bytes.data(bytes.offset + idx + subIdx) != needle.data(
+                needle.offset + subIdx
+              )
+            ) matches = false
+            subIdx = subIdx + 1
+          }
+          if (matches) found = idx
+          else idx = idx + 1
+        }
+        VInt(found)
+      }
+    }
+  }
 
   def tabulate_Array(size: Value, fn: Value): Value = {
     val sizeBI = i(size)

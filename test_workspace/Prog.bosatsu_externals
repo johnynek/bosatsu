@@ -13,6 +13,10 @@
     stderr: ProgExt.stderr_handle,
     read_utf8: ProgExt.read_utf8,
     write_utf8: ProgExt.write_utf8,
+    read_bytes: ProgExt.read_bytes,
+    write_bytes: ProgExt.write_bytes,
+    read_all_bytes: ProgExt.read_all_bytes,
+    copy_bytes: ProgExt.copy_bytes,
     flush: ProgExt.flush_handle,
     close: ProgExt.close_handle,
     open_file: ProgExt.open_file,
@@ -27,5 +31,21 @@
     now_wall: ProgExt.now_wall,
     now_mono: ProgExt.now_mono,
     sleep: ProgExt.sleep_for
+  },
+  Bosatsu/IO/Bytes: {
+    empty_Bytes: ProgExt.empty_Bytes,
+    from_List_Int: ProgExt.from_List_Int,
+    from_Array_Int: ProgExt.from_Array_Int,
+    to_List_Int: ProgExt.to_List_Int,
+    to_Array_Int: ProgExt.to_Array_Int,
+    size_Bytes: ProgExt.size_Bytes,
+    get_map_Bytes: ProgExt.get_map_Bytes,
+    get_or_Bytes: ProgExt.get_or_Bytes,
+    foldl_Bytes: ProgExt.foldl_Bytes,
+    concat_all_Bytes: ProgExt.concat_all_Bytes,
+    slice_Bytes: ProgExt.slice_Bytes,
+    starts_with_Bytes: ProgExt.starts_with_Bytes,
+    ends_with_Bytes: ProgExt.ends_with_Bytes,
+    find_Bytes: ProgExt.find_Bytes
   }
 }

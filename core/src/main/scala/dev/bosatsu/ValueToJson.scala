@@ -18,6 +18,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bytesTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "IO", "Bytes"),
+      TypeName("Bytes")
+    )
   private val bosatsuJsonTypeConst: Type.Const.Defined =
     Type.Const.Defined(PackageName.parts("Bosatsu", "Json"), TypeName("Json"))
   private val optionalTypeConst: Type.Const.Defined =
@@ -143,6 +148,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case _ if working.contains(t)                                    => ()
         case Type.IntType | Type.Float64Type | Type.StrType | Type.CharType |
             Type.BoolType | Type.UnitType =>
+          ()
+        case Type.TyConst(`bytesTypeConst`) =>
           ()
         case Type.TyApply(Type.TyConst(`arrayTypeConst`), inner) =>
           loop(inner, t :: revPath, t :: working)
@@ -497,6 +504,20 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       .slice(arr.offset, arr.offset + arr.len)
                       .toList
                   values.traverse(inner).map(items => Json.JArray(items.toVector))
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
+            case Type.TyConst(`bytesTypeConst`) =>
+              {
+                case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                  val items = Vector.newBuilder[Json]
+                  var idx = 0
+                  while (idx < bytes.len) {
+                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                    items += Json.JNumberStr(intValue.toString)
+                    idx = idx + 1
+                  }
+                  Right(Json.JArray(items.result()))
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
@@ -897,6 +918,39 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     items.toVector.traverse(inner).map { values =>
                       val data = values.toArray
                       ExternalValue(PredefImpl.ArrayValue(data, 0, data.length))
+                    }
+                  case other =>
+                    Left(IllTypedJson(revPath.reverse, tpe, other))
+                }
+              case Type.TyConst(`bytesTypeConst`) =>
+                {
+                  case Json.JArray(items) =>
+                    val data = new Array[Byte](items.length)
+                    var idx = 0
+                    var invalid: Option[Json] = None
+                    while (idx < items.length && invalid.isEmpty) {
+                      items(idx) match {
+                        case Json.JBigInteger(bi)
+                            if bi.signum >= 0 &&
+                              bi.compareTo(BigInteger.valueOf(255L)) <= 0 =>
+                          data(idx) = (bi.intValue & 0xff).toByte
+                          idx = idx + 1
+                        case other =>
+                          invalid = Some(other)
+                      }
+                    }
+
+                    invalid match {
+                      case Some(bad) =>
+                        Left(IllTypedJson(revPath.reverse, tpe, bad))
+                      case None      =>
+                        if (data.isEmpty) Right(PredefImpl.emptyBytes)
+                        else
+                          Right(
+                            ExternalValue(
+                              PredefImpl.BytesValue(data, 0, data.length)
+                            )
+                          )
                     }
                   case other =>
                     Left(IllTypedJson(revPath.reverse, tpe, other))

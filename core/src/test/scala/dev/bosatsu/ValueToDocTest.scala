@@ -160,6 +160,34 @@ enum MyNat: Z, S(prev: MyNat)
     }
   }
 
+  test("render Bytes external values") {
+    val conv = ValueToDoc(_ => None)
+    val bytesType =
+      Type.const(PackageName.parts("Bosatsu", "IO", "Bytes"), TypeName("Bytes"))
+    val bytes = Value.ExternalValue(
+      PredefImpl.BytesValue(Array[Byte](0.toByte, 10.toByte, 255.toByte), 0, 3)
+    )
+
+    conv.toDoc(bytesType)(bytes) match {
+      case Right(doc) => assertEquals(doc.render(80), "[0, 10, 255]")
+      case Left(err)  => fail(s"failed to render bytes: $err")
+    }
+  }
+
+  test("bytes rendering reports ill-typed runtime values") {
+    val conv = ValueToDoc(_ => None)
+    val bytesType =
+      Type.const(PackageName.parts("Bosatsu", "IO", "Bytes"), TypeName("Bytes"))
+
+    conv.toDoc(bytesType)(Value.UnitValue) match {
+      case Left(_)    => ()
+      case Right(doc) =>
+        fail(
+          s"expected ill-typed bytes rendering failure, got ${doc.render(80)}"
+        )
+    }
+  }
+
   test("render Prog as opaque value") {
     val conv = ValueToDoc(_ => None)
     val progType = Type.TyApply(

@@ -1,0 +1,106 @@
+package Bosatsu/IO/Bytes
+
+from Bosatsu/Collection/Array import Array, from_List_Array, to_List_Array
+from Bosatsu/List import eq_List
+
+export (
+  Bytes,
+  empty_Bytes,
+  from_List_Int,
+  from_Array_Int,
+  to_List_Int,
+  to_Array_Int,
+  size_Bytes,
+  get_map_Bytes,
+  get_or_Bytes,
+  get_Bytes,
+  foldl_Bytes,
+  concat_all_Bytes,
+  slice_Bytes,
+  starts_with_Bytes,
+  ends_with_Bytes,
+  find_Bytes,
+  index_in_range_Bytes,
+)
+
+external struct Bytes
+
+external empty_Bytes: Bytes
+external def from_List_Int(ints: List[Int]) -> Bytes
+external def from_Array_Int(ints: Array[Int]) -> Bytes
+external def to_List_Int(bytes: Bytes) -> List[Int]
+external def to_Array_Int(bytes: Bytes) -> Array[Int]
+external def size_Bytes(bytes: Bytes) -> Int
+external def get_map_Bytes[a](bytes: Bytes, idx: Int, default: Unit -> a, fn: Int -> a) -> a
+external def get_or_Bytes(bytes: Bytes, idx: Int, default: Unit -> Int) -> Int
+external def foldl_Bytes[a](bytes: Bytes, init: a, fn: (a, Int) -> a) -> a
+external def concat_all_Bytes(chunks: List[Bytes]) -> Bytes
+external def slice_Bytes(bytes: Bytes, start: Int, end: Int) -> Bytes
+external def starts_with_Bytes(bytes: Bytes, prefix: Bytes) -> Bool
+external def ends_with_Bytes(bytes: Bytes, suffix: Bytes) -> Bool
+external def find_Bytes(bytes: Bytes, needle: Bytes, start: Int) -> Int
+
+def get_Bytes(bytes: Bytes, idx: Int) -> Option[Int]:
+  get_map_Bytes(bytes, idx, _ -> None, i -> Some(i))
+
+def index_in_range_Bytes(bytes: Bytes, idx: Int) -> Bool:
+  if cmp_Int(idx, 0) matches LT:
+    False
+  else:
+    cmp_Int(idx, size_Bytes(bytes)) matches LT
+
+########
+## test code below
+########
+
+def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
+  eq_List(eq_Int)(left, right)
+
+norm_source = [-1, 0, 1, 255, 256, 257, -257]
+norm_expected = [255, 0, 1, 255, 0, 1, 255]
+norm_bytes = from_List_Int(norm_source)
+base = from_List_Int([1, 2, 3, 4, 5])
+needle = from_List_Int([3, 4])
+
+tests = TestSuite("Bytes tests", [
+  Assertion(size_Bytes(empty_Bytes) matches 0, "empty size"),
+  Assertion(eq_int_list(to_List_Int(empty_Bytes), []), "empty to list"),
+  Assertion(eq_int_list(to_List_Int(norm_bytes), norm_expected), "from_List_Int normalizes low bits"),
+  Assertion(
+    eq_int_list(
+      to_List_Int(from_Array_Int(from_List_Array(norm_source))),
+      norm_expected
+    ),
+    "from_Array_Int normalizes low bits"
+  ),
+  Assertion(
+    eq_int_list(to_List_Array(to_Array_Int(norm_bytes)), norm_expected),
+    "to_Array_Int roundtrip"
+  ),
+  Assertion(get_Bytes(base, 0) matches Some(1), "get first"),
+  Assertion(get_Bytes(base, -1) matches None, "get out of range"),
+  Assertion(get_or_Bytes(base, 10, _ -> 99) matches 99, "get_or fallback"),
+  Assertion(foldl_Bytes(base, 0, add) matches 15, "foldl add"),
+  Assertion(eq_int_list(to_List_Int(slice_Bytes(base, 1, 4)), [2, 3, 4]), "slice middle"),
+  Assertion(eq_int_list(to_List_Int(slice_Bytes(base, -2, 2)), [1, 2]), "slice clamps start"),
+  Assertion(eq_int_list(to_List_Int(slice_Bytes(base, 3, 99)), [4, 5]), "slice clamps end"),
+  Assertion(eq_int_list(to_List_Int(slice_Bytes(base, 3, 3)), []), "slice empty"),
+  Assertion(eq_int_list(to_List_Int(slice_Bytes(base, 4, 1)), []), "slice invalid order"),
+  Assertion(starts_with_Bytes(base, from_List_Int([1, 2])), "starts_with true"),
+  Assertion(starts_with_Bytes(base, from_List_Int([2])) matches False, "starts_with false"),
+  Assertion(ends_with_Bytes(base, from_List_Int([4, 5])), "ends_with true"),
+  Assertion(ends_with_Bytes(base, from_List_Int([4])) matches False, "ends_with false"),
+  Assertion(find_Bytes(base, needle, 0) matches 2, "find present"),
+  Assertion(find_Bytes(base, needle, 3) matches -1, "find after match"),
+  Assertion(find_Bytes(base, from_List_Int([]), -3) matches 0, "find empty needle clamps start"),
+  Assertion(find_Bytes(base, from_List_Int([]), 99) matches 5, "find empty needle at end"),
+  Assertion(
+    eq_int_list(
+      to_List_Int(concat_all_Bytes([from_List_Int([1]), from_List_Int([2, 3]), empty_Bytes])),
+      [1, 2, 3]
+    ),
+    "concat_all"
+  ),
+  Assertion(index_in_range_Bytes(base, 0), "index in range"),
+  Assertion(index_in_range_Bytes(base, 5) matches False, "index out of range"),
+])
