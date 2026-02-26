@@ -338,7 +338,7 @@ lazy val core =
 
 lazy val coreJVM =
   core.jvm.settings(
-    libraryDependencies += "dev.bosatsu" %% "scalawasiz3" % "0.0.6" % Test
+    libraryDependencies += "dev.bosatsu" %% "scalawasiz3" % "0.0.7" % Test
   )
 lazy val coreJS =
   core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
