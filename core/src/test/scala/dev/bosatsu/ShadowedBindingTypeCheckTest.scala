@@ -21,6 +21,14 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     Declaration.Var(Identifier.Name(s"tag_$offset"))
   }
 
+  private def lambdaTagAt(
+      args: NonEmptyList[Pattern.Parsed],
+      offset: Int
+  ): Declaration = {
+    given Region = Region(offset, offset + 1)
+    Declaration.Lambda(args, Declaration.Var(Identifier.Name(s"lambda_body_$offset")))
+  }
+
   private def intLit(value: Int, offset: Int): TypedExpr[Declaration] =
     TypedExpr.Literal(Lit.fromInt(value), Type.IntType, tagAt(offset))
 
@@ -97,24 +105,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         }
     }
 
-  test("let shadow with same type passes") {
-    val mainExpr =
-      let(
-        x,
-        intLit(2, 20),
-        local(x, Type.IntType, 21),
-        RecursionKind.NonRecursive,
-        19
-      )
-    assertValid(
-      List(
-        (x, RecursionKind.NonRecursive, intLit(1, 10)),
-        (main, RecursionKind.NonRecursive, mainExpr)
-      )
-    )
-  }
-
-  test("let shadow with different type fails") {
+  test("top-level shadowing by locals is allowed") {
     val mainExpr =
       let(
         x,
@@ -123,22 +114,6 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         RecursionKind.NonRecursive,
         19
       )
-    val err =
-      singleError(
-        List(
-          (x, RecursionKind.NonRecursive, intLit(1, 10)),
-          (main, RecursionKind.NonRecursive, mainExpr)
-        )
-      )
-    assertEquals(err.name, x)
-    assertEquals(err.previous.tpe, Type.IntType)
-    assertEquals(err.current.tpe, Type.StrType)
-    assertEquals(err.current.site, BindingSite.LetBinding)
-  }
-
-  test("lambda arg shadow same type passes") {
-    val mainExpr =
-      lambda(x, Type.IntType, local(x, Type.IntType, 30), 29)
     assertValid(
       List(
         (x, RecursionKind.NonRecursive, intLit(1, 10)),
@@ -147,36 +122,89 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     )
   }
 
-  test("lambda arg shadow different type fails") {
-    val mainExpr =
-      lambda(x, Type.StrType, local(x, Type.StrType, 30), 29)
-    val err =
-      singleError(
-        List(
-          (x, RecursionKind.NonRecursive, intLit(1, 10)),
-          (main, RecursionKind.NonRecursive, mainExpr)
-        )
+  test("let shadow with same type passes") {
+    val expr =
+      let(
+        x,
+        intLit(1, 20),
+        let(
+          x,
+          intLit(2, 22),
+          local(x, Type.IntType, 23),
+          RecursionKind.NonRecursive,
+          21
+        ),
+        RecursionKind.NonRecursive,
+        19
       )
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
+  }
+
+  test("let shadow with different type fails") {
+    val expr =
+      let(
+        x,
+        intLit(1, 20),
+        let(
+          x,
+          strLit("two", 22),
+          local(x, Type.StrType, 23),
+          RecursionKind.NonRecursive,
+          21
+        ),
+        RecursionKind.NonRecursive,
+        19
+      )
+    val err = singleError(List((main, RecursionKind.NonRecursive, expr)))
     assertEquals(err.name, x)
     assertEquals(err.previous.tpe, Type.IntType)
     assertEquals(err.current.tpe, Type.StrType)
-    assertEquals(err.current.site, BindingSite.LambdaArg)
+    assertEquals(err.current.site, BindingSite.LetBinding)
+  }
+
+  test("lambda arg shadow same type passes") {
+    val expr =
+      let(
+        x,
+        intLit(1, 20),
+        lambda(x, Type.IntType, local(x, Type.IntType, 30), 29),
+        RecursionKind.NonRecursive,
+        19
+      )
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
+  }
+
+  test("let shadowing lambda argument with a different type fails") {
+    val lamBody =
+      let(
+        x,
+        strLit("two", 30),
+        local(x, Type.StrType, 31),
+        RecursionKind.NonRecursive,
+        29
+      )
+    val expr = lambda(x, Type.IntType, lamBody, 28)
+    val err = singleError(List((main, RecursionKind.NonRecursive, expr)))
+    assertEquals(err.name, x)
+    assertEquals(err.previous.tpe, Type.IntType)
+    assertEquals(err.current.tpe, Type.StrType)
+    assertEquals(err.current.site, BindingSite.LetBinding)
   }
 
   test("loop binder shadow different type fails") {
     val loopExpr =
-      TypedExpr.Loop(
-        NonEmptyList.one((x, intLit(1, 40))),
-        local(x, Type.IntType, 41),
-        tagAt(39)
+      let(
+        x,
+        strLit("outer", 40),
+        TypedExpr.Loop(
+          NonEmptyList.one((x, intLit(1, 41))),
+          local(x, Type.IntType, 42),
+          tagAt(39)
+        ),
+        RecursionKind.NonRecursive,
+        38
       )
-    val err =
-      singleError(
-        List(
-          (x, RecursionKind.NonRecursive, strLit("outer", 10)),
-          (main, RecursionKind.NonRecursive, loopExpr)
-        )
-      )
+    val err = singleError(List((main, RecursionKind.NonRecursive, loopExpr)))
     assertEquals(err.name, x)
     assertEquals(err.previous.tpe, Type.StrType)
     assertEquals(err.current.tpe, Type.IntType)
@@ -189,19 +217,36 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       None,
       local(x, Type.StrType, 51)
     )
-    val matchExpr =
-      TypedExpr.Match(intLit(1, 50), NonEmptyList.one(branch), tagAt(49))
-    val err =
-      singleError(
-        List(
-          (x, RecursionKind.NonRecursive, intLit(1, 10)),
-          (main, RecursionKind.NonRecursive, matchExpr)
-        )
+    val expr =
+      let(
+        x,
+        intLit(1, 49),
+        TypedExpr.Match(intLit(1, 50), NonEmptyList.one(branch), tagAt(48)),
+        RecursionKind.NonRecursive,
+        47
       )
+    val err = singleError(List((main, RecursionKind.NonRecursive, expr)))
     assertEquals(err.name, x)
     assertEquals(err.previous.tpe, Type.IntType)
     assertEquals(err.current.tpe, Type.StrType)
     assertEquals(err.current.site, BindingSite.PatternBinding)
+  }
+
+  test("match pattern binder may shadow lambda arguments") {
+    val branch = TypedExpr.Branch(
+      Pattern.Annotation(Pattern.Var(x), Type.StrType),
+      None,
+      local(x, Type.StrType, 56)
+    )
+    val expr =
+      lambda(
+        x,
+        Type.IntType,
+        TypedExpr.Match(local(x, Type.IntType, 55), NonEmptyList.one(branch), tagAt(54)),
+        53
+      )
+
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
   }
 
   test("recursive let binder is in scope for rhs") {
@@ -234,41 +279,85 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
   }
 
   test("quantified alpha-equivalent shadows pass") {
-    val mainExpr =
+    val expr =
       let(
         id,
-        asType(polyIdB, 70),
-        local(id, polyIdB, 71),
+        asType(polyIdA, 70),
+        let(
+          id,
+          asType(polyIdB, 72),
+          local(id, polyIdB, 73),
+          RecursionKind.NonRecursive,
+          71
+        ),
         RecursionKind.NonRecursive,
         69
       )
-    assertValid(
-      List(
-        (id, RecursionKind.NonRecursive, asType(polyIdA, 10)),
-        (main, RecursionKind.NonRecursive, mainExpr)
-      )
-    )
+
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
   }
 
   test("quantified non-equivalent shadows fail") {
-    val mainExpr =
+    val expr =
       let(
         id,
-        asType(intToInt, 80),
-        local(id, intToInt, 81),
+        asType(polyIdA, 80),
+        let(
+          id,
+          asType(intToInt, 82),
+          local(id, intToInt, 83),
+          RecursionKind.NonRecursive,
+          81
+        ),
         RecursionKind.NonRecursive,
         79
       )
-    val err =
-      singleError(
-        List(
-          (id, RecursionKind.NonRecursive, asType(polyIdA, 10)),
-          (main, RecursionKind.NonRecursive, mainExpr)
-        )
-      )
+
+    val err = singleError(List((main, RecursionKind.NonRecursive, expr)))
     assertEquals(err.name, id)
     assertEquals(err.previous.tpe, polyIdA)
     assertEquals(err.current.tpe, intToInt)
     assertEquals(err.current.site, BindingSite.LetBinding)
+  }
+
+  test("wildcard source lambda args are ignored for shadow checks") {
+    val wildcardSource = lambdaTagAt(NonEmptyList.one(Pattern.WildCard), 90)
+    val wildcardLambda =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((Identifier.Name("arg_from_desugar"), Type.StrType)),
+        strLit("ok", 91),
+        wildcardSource
+      )
+
+    val expr =
+      let(
+        Identifier.Name("arg_from_desugar"),
+        intLit(1, 92),
+        wildcardLambda,
+        RecursionKind.NonRecursive,
+        89
+      )
+
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
+  }
+
+  test("synthetic binders are ignored") {
+    val syn = Identifier.synthetic("tmp")
+    val expr =
+      let(
+        syn,
+        intLit(1, 100),
+        let(
+          syn,
+          strLit("two", 102),
+          local(syn, Type.StrType, 103),
+          RecursionKind.NonRecursive,
+          101
+        ),
+        RecursionKind.NonRecursive,
+        99
+      )
+
+    assertValid(List((main, RecursionKind.NonRecursive, expr)))
   }
 }

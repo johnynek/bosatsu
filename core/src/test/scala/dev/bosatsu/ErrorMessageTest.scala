@@ -93,9 +93,8 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     val source =
       """package Shadowed
         |
-        |x = 1
-        |
         |main = (
+        |  x = 1
         |  x = "str"
         |  x
         |)
@@ -115,6 +114,9 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
           ),
           message
         )
+        assert(message.contains("previous binding context:"), message)
+        assert(message.contains("current binding context:"), message)
+        assert(message.contains("x = 1"), message)
         assert(message.contains("x = \"str\""), message)
         ()
     }
@@ -1678,7 +1680,7 @@ package Foo
 def foo[a](a: a) -> a:
   x: a = a
   def again(x: a): x
-  def and_again[b](y: b): y
+  def and_again[b](x: b): x
   and_again(again(x))
   
 test = Assertion(foo(True), "")

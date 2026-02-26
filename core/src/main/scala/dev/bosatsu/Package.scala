@@ -496,11 +496,8 @@ object Package {
                     errs.map(PackageError.TotalityCheckError(p, _))
                   }
 
-              val recursionThenShadow =
-                recursionCheck.andThen(_ => shadowedBindingTypeCheck)
-
-              (recursionThenShadow, totalityCheck)
-                .mapN { (_, _) =>
+              (recursionCheck, shadowedBindingTypeCheck, totalityCheck)
+                .mapN { (_, _, _) =>
                   (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
                 }
                 .toEither

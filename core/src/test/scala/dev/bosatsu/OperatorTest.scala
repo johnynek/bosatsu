@@ -103,7 +103,7 @@ operator *> = (x, y) -> (x, y)
 operator == = (x, y) ->
   # kind of an interesting style to make local operators
   `=*=` = eq_Int
-  `&` = (bx, by) -> by if bx else False
+  `&` = (x, y) -> y if x else False
   (((a, b), c), ((d, e), f)) = (x, y)
   (a =*= d) & (b =*= e) & (c =*= f)
 

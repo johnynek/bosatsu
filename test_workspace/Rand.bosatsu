@@ -141,7 +141,7 @@ nat30 = int_to_Nat(30)
 def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
   Rand(fn) = rand_Int
   boundary = (1 << (uints * 64)).div(high) * high
-  def next_sample(s: State, fuel: Nat) -> (State, Int):
+  def next(s: State, fuel: Nat) -> (State, Int):
     recur fuel:
         case Zero: (s, (high - 1) >> 1)
         case Succ(n):
@@ -149,11 +149,11 @@ def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
           if i.cmp_Int(boundary) matches LT:
             # this sample worked
             (s1, i.mod_Int(high))
-          else: next_sample(s1, n)
+          else: next(s1, n)
   
   # each sample has a change > 1/2 of working, so if we try 30 times
   # we have a 1 in a billion chance to just choose the mean value
-  Rand(s -> next_sample(s, nat30))
+  Rand(s -> next(s, nat30))
 
 const0 = const_Rand(0)
 
@@ -189,8 +189,8 @@ def geometric(depth: Nat, acc: Int) -> Rand[Int]:
 geometric_Int: Rand[Int] = geometric(nat30, 0)
 
 def len[a](list: List[a]) -> BinNat:
-    def loop(rest_list, acc):
-        recur rest_list:
+    def loop(list, acc):
+        recur list:
             case []: acc
             case [_, *t]: loop(t, acc.next_BinNat())
     loop(list, BZero)

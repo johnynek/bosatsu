@@ -1327,9 +1327,12 @@ object PackageError {
         List(previous.tpe, current.tpe),
         localTypeNames
       )
-      val context = lm
+      val currentContext = lm
         .showRegion(current.region, 2, errColor)
         .getOrElse(Doc.str(current.region))
+      val previousContext = lm
+        .showRegion(previous.region, 2, errColor)
+        .getOrElse(Doc.str(previous.region))
       val prefix = sourceMap.headLine(pack, Some(current.region))
       val doc =
         prefix + Doc.hardLine +
@@ -1346,7 +1349,13 @@ object PackageError {
             "hint: rename the binding or keep the same type when shadowing."
           ) +
           Doc.hardLine +
-          context
+          Doc.text("previous binding context:") +
+          Doc.hardLine +
+          previousContext +
+          Doc.hardLine +
+          Doc.text("current binding context:") +
+          Doc.hardLine +
+          currentContext
 
       doc.render(80)
     }

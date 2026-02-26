@@ -464,20 +464,20 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     def loop(tree: Tree[a]) -> Tree[a]:
         recur tree:
             case Empty: Empty
-            case Branch { size: tree_size, key, left, right, ... }:
+            case Branch { size, key, left, right, ... }:
                 match fn(item, key):
                     case EQ:
                         match right:
                             case Empty: left
                             case _:
                                 right = loop(right)
-                                branch(tree_size.sub(1), key, left, right).balance()
+                                branch(size.sub(1), key, left, right).balance()
                     case LT:
                         left = loop(left)
-                        branch(tree_size.sub(1), key, left, right).balance()
+                        branch(size.sub(1), key, left, right).balance()
                     case GT:
                         right = loop(right)
-                        branch(tree_size.sub(1), key, left, right).balance()
+                        branch(size.sub(1), key, left, right).balance()
 
     loop(tree)
 

@@ -45,8 +45,6 @@ object Predef {
 
   /** String representation of the predef
     */
-  // Loaded at compile-time so all targets (JVM/JS/native) share one embedded
-  // source string without runtime resource lookups.
   val predefString: String =
     loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
 

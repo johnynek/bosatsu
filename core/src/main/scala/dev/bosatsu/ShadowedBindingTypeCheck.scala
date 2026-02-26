@@ -6,6 +6,7 @@ import cats.syntax.all._
 
 import Identifier.Bindable
 import dev.bosatsu.rankn.Type
+import dev.bosatsu.rankn.Type.Var
 
 object ShadowedBindingTypeCheck {
 
@@ -34,6 +35,34 @@ object ShadowedBindingTypeCheck {
 
   private type Env = Map[Bindable, BoundInfo]
 
+  private final case class TypeContext(
+      renames: Map[Type.Var.Bound, Type.Var.Bound],
+      nextId: Long
+  ) {
+    def pushQuantification(
+        quant: TypedExpr.Quantification
+    ): TypeContext = {
+      val vars = quant.forallList ::: quant.existList
+      vars.foldLeft(this) { case (ctx, (bound, _)) =>
+        val fresh = Type.Var.Bound(s"_shadow_t${ctx.nextId}")
+        TypeContext(ctx.renames.updated(bound, fresh), ctx.nextId + 1L)
+      }
+    }
+
+    def canonicalize(tpe: Type): Type =
+      if (renames.isEmpty) tpe
+      else {
+        val sub: Map[Var, Type] =
+          renames.iterator.map { case (from, to) =>
+            (from: Var) -> (Type.TyVar(to): Type)
+          }.toMap
+        Type.substituteVar(tpe, sub)
+      }
+  }
+  private object TypeContext {
+    val empty: TypeContext = TypeContext(Map.empty, 0L)
+  }
+
   private val unitValid: Res[Unit] = Validated.valid(())
 
   private def addBinding(
@@ -41,19 +70,26 @@ object ShadowedBindingTypeCheck {
       name: Bindable,
       current: BoundInfo
   ): Env =
-    env.updated(name, current)
+    if (Identifier.isSynthetic(name)) env
+    else env.updated(name, current)
 
   private def checkBinding(
       env: Env,
       name: Bindable,
       current: BoundInfo
   ): Res[Unit] =
-    env.get(name) match {
-      case Some(previous) if !previous.tpe.sameAs(current.tpe) =>
-        Validated.invalidNec(Error(name, previous, current))
-      case _ =>
-        unitValid
-    }
+    if (Identifier.isSynthetic(name)) unitValid
+    else
+      env.get(name) match {
+        case Some(previous)
+            if previous.site.isInstanceOf[BindingSite.LambdaArg.type] &&
+              current.site.isInstanceOf[BindingSite.PatternBinding.type] =>
+          unitValid
+        case Some(previous) if !previous.tpe.sameAs(current.tpe) =>
+          Validated.invalidNec(Error(name, previous, current))
+        case _ =>
+          unitValid
+      }
 
   private def patternEnv(
       pattern: Pattern[(PackageName, Identifier.Constructor), Type]
@@ -72,56 +108,86 @@ object ShadowedBindingTypeCheck {
       case _                           => None
     }
 
+  private def sourceLambdaArgs(tag: Declaration): Option[List[Pattern.Parsed]] =
+    tag match {
+      case Declaration.Lambda(sourceArgs, _) =>
+        Some(sourceArgs.toList)
+      case Declaration.DefFn(
+            DefStatement(_, _, sourceArgGroups, _, _)
+          ) =>
+        Some(sourceArgGroups.toList.flatMap(_.toList))
+      case _ =>
+        None
+    }
+
   private def checkExpr(
       expr: TypedExpr[Declaration],
-      env: Env
+      env: Env,
+      tctx: TypeContext
   ): Res[Unit] =
     expr match {
-      case TypedExpr.Generic(_, in) =>
-        checkExpr(in, env)
+      case TypedExpr.Generic(quant, in) =>
+        checkExpr(in, env, tctx.pushQuantification(quant))
       case TypedExpr.Annotation(term, _, _) =>
-        checkExpr(term, env)
+        checkExpr(term, env, tctx)
       case TypedExpr.AnnotatedLambda(args, body, tag) =>
         // Pattern lambdas are desugared with synthetic lambda parameters that are
         // not source-visible names. Only direct variable parameters should
         // participate in shadow checks at the lambda-arg site.
+        // Lambda/def bodies are checked independently from outer bindings so
+        // moving code across scopes and using local continuations remains
+        // composable.
+        val lambdaOuterEnv: Env = Map.empty
         val checkableArgs: List[(Bindable, Type)] =
-          tag match {
-            case Declaration.Lambda(sourceArgs, _) =>
-              args.toList.zip(sourceArgs.toList).collect {
+          sourceLambdaArgs(tag) match {
+            case Some(sourceArgs) =>
+              args.toList.zip(sourceArgs).collect {
                 case ((name, tpe), sourceArg)
                     if directLambdaParamName(sourceArg).contains(name) =>
-                  (name, tpe)
+                  (name, tctx.canonicalize(tpe))
               }
-            case _ =>
-              args.toList
+            case None =>
+              args.toList.map { case (name, tpe) =>
+                (name, tctx.canonicalize(tpe))
+              }
           }
         val (argCheck, envWithArgs) =
-          checkableArgs.foldLeft((unitValid, env)) {
+          checkableArgs.foldLeft((unitValid, lambdaOuterEnv)) {
             case ((acc, envAcc), (name, tpe)) =>
-            val current = BoundInfo(tpe, tag.region, BindingSite.LambdaArg)
-            val nextAcc = (acc, checkBinding(envAcc, name, current)).mapN((_, _) => ())
-            (nextAcc, addBinding(envAcc, name, current))
+              val current = BoundInfo(tpe, tag.region, BindingSite.LambdaArg)
+              val nextAcc = acc *> checkBinding(envAcc, name, current)
+              (nextAcc, addBinding(envAcc, name, current))
           }
-        (argCheck, checkExpr(body, envWithArgs)).mapN((_, _) => ())
+        argCheck *> checkExpr(body, envWithArgs, tctx)
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
         unitValid
       case TypedExpr.App(fn, args, _, _) =>
-        (checkExpr(fn, env), args.traverse_(checkExpr(_, env))).mapN((_, _) => ())
+        checkExpr(fn, env, tctx) *> args.traverse_(checkExpr(_, env, tctx))
       case TypedExpr.Let(arg, rhs, body, recursive, tag) =>
-        val current = BoundInfo(rhs.getType, tag.region, BindingSite.LetBinding)
+        val current = BoundInfo(
+          tctx.canonicalize(rhs.getType),
+          tag.region,
+          BindingSite.LetBinding
+        )
         val bindCheck = checkBinding(env, arg, current)
         val rhsEnv =
           if (recursive.isRecursive) addBinding(env, arg, current)
           else env
-        val rhsCheck = checkExpr(rhs, rhsEnv)
-        val bodyCheck = checkExpr(body, addBinding(env, arg, current))
-        (bindCheck, rhsCheck, bodyCheck).mapN((_, _, _) => ())
+        val rhsCheck = checkExpr(rhs, rhsEnv, tctx)
+        val bodyCheck = checkExpr(body, addBinding(env, arg, current), tctx)
+        bindCheck *> rhsCheck *> bodyCheck
       case TypedExpr.Loop(args, body, tag) =>
-        val argChecks = args.traverse_ { case (_, init) => checkExpr(init, env) }
+        val argChecks = args.traverse_ { case (_, init) => checkExpr(init, env, tctx) }
         val loopBinds = args.toList.map { case (name, init) =>
-          (name, BoundInfo(init.getType, tag.region, BindingSite.LoopBinding))
+          (
+            name,
+            BoundInfo(
+              tctx.canonicalize(init.getType),
+              tag.region,
+              BindingSite.LoopBinding
+            )
+          )
         }
         val bindCheck =
           loopBinds.traverse_ { case (name, current) =>
@@ -131,16 +197,19 @@ object ShadowedBindingTypeCheck {
           loopBinds.foldLeft(env) { case (acc, (name, current)) =>
             addBinding(acc, name, current)
           }
-        (argChecks, bindCheck, checkExpr(body, bodyEnv)).mapN((_, _, _) => ())
+        argChecks *> bindCheck *> checkExpr(body, bodyEnv, tctx)
       case TypedExpr.Recur(args, _, _) =>
-        args.traverse_(checkExpr(_, env))
+        args.traverse_(checkExpr(_, env, tctx))
       case TypedExpr.Match(arg, branches, _) =>
-        val argCheck = checkExpr(arg, env)
+        val argCheck = checkExpr(arg, env, tctx)
         val branchCheck = branches.traverse_ { branch =>
           val bindRegion = branch.expr.tag.region
           val patternBinds = patternEnv(branch.pattern).toList.sortBy(_._1.asString)
           val currentBinds = patternBinds.map { case (name, tpe) =>
-            (name, BoundInfo(tpe, bindRegion, BindingSite.PatternBinding))
+            (
+              name,
+              BoundInfo(tctx.canonicalize(tpe), bindRegion, BindingSite.PatternBinding)
+            )
           }
           val bindCheck = currentBinds.traverse_ { case (name, current) =>
             checkBinding(env, name, current)
@@ -149,11 +218,11 @@ object ShadowedBindingTypeCheck {
             currentBinds.foldLeft(env) { case (acc, (name, current)) =>
               addBinding(acc, name, current)
             }
-          val guardCheck = branch.guard.traverse_(checkExpr(_, branchEnv))
-          val bodyCheck = checkExpr(branch.expr, branchEnv)
-          (bindCheck, guardCheck, bodyCheck).mapN((_, _, _) => ())
+          val guardCheck = branch.guard.traverse_(checkExpr(_, branchEnv, tctx))
+          val bodyCheck = checkExpr(branch.expr, branchEnv, tctx)
+          bindCheck *> guardCheck *> bodyCheck
         }
-        (argCheck, branchCheck).mapN((_, _) => ())
+        argCheck *> branchCheck
     }
 
   def checkLets(
@@ -161,19 +230,17 @@ object ShadowedBindingTypeCheck {
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
   ): Res[Unit] = {
     val _ = pack
-    lets
-      .foldLeft((Map.empty[Bindable, BoundInfo], unitValid)) {
-        case ((env, acc), (name, recursive, expr)) =>
-          val current =
-            BoundInfo(expr.getType, expr.tag.region, BindingSite.TopLevel)
-          val bindCheck = checkBinding(env, name, current)
-          val exprEnv =
-            if (recursive.isRecursive) addBinding(env, name, current)
-            else env
-          val nextAcc =
-            (acc, bindCheck, checkExpr(expr, exprEnv)).mapN((_, _, _) => ())
-          (addBinding(env, name, current), nextAcc)
-      }
-      ._2
+    lets.traverse_ { case (name, recursive, expr) =>
+      val recursiveEnv =
+        if (recursive.isRecursive) {
+          val top = BoundInfo(
+            TypeContext.empty.canonicalize(expr.getType),
+            expr.tag.region,
+            BindingSite.TopLevel
+          )
+          addBinding(Map.empty, name, top)
+        } else Map.empty[Bindable, BoundInfo]
+      checkExpr(expr, recursiveEnv, TypeContext.empty)
+    }
   }
 }
