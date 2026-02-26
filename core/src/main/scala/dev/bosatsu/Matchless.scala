@@ -17,7 +17,6 @@ object Matchless {
     val emptyHash: HashValue[Algo.Blake3] =
       Algo.hashBytes[Algo.Blake3](Array.emptyByteArray)
     val empty: SourceInfo = SourceInfo(emptyHash, emptyRegion)
-    given SourceInfo = empty
   }
 
   sealed trait Expr[+A] derives CanEqual {
@@ -462,12 +461,21 @@ object Matchless {
       recursiveName: Option[Bindable],
       args: NonEmptyList[Bindable],
       body: Expr[A]
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends Expr[A] {
     def recursionKind: RecursionKind =
       RecursionKind.recursive(recursiveName.isDefined)
 
     def arity: Int = args.length
+  }
+  object Lambda {
+    def apply[A](
+        captures: List[Expr[A]],
+        recursiveName: Option[Bindable],
+        args: NonEmptyList[Bindable],
+        body: Expr[A]
+    ): Lambda[A] =
+      new Lambda(captures, recursiveName, args, body)(SourceInfo.empty)
   }
 
   // This is a while loop, the result of which is result and the body is evaluated
@@ -476,38 +484,77 @@ object Matchless {
       cond: BoolExpr[A],
       effectExpr: Expr[A],
       result: LocalAnonMut
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends Expr[A]
+  object WhileExpr {
+    def apply[A](
+        cond: BoolExpr[A],
+        effectExpr: Expr[A],
+        result: LocalAnonMut
+    ): WhileExpr[A] =
+      new WhileExpr(cond, effectExpr, result)(SourceInfo.empty)
+  }
 
   case class Global[A](from: A, pack: PackageName, name: Bindable)
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[A]
+  object Global {
+    def apply[A](from: A, pack: PackageName, name: Bindable): Global[A] =
+      new Global(from, pack, name)(SourceInfo.empty)
+  }
 
   // these are immutable (but can be shadowed)
-  case class Local(arg: Bindable)(using override val sourceInfo: SourceInfo)
+  case class Local(arg: Bindable)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[Nothing]
-  case class ClosureSlot(idx: Int)(using override val sourceInfo: SourceInfo)
+  object Local {
+    def apply(arg: Bindable): Local =
+      new Local(arg)(SourceInfo.empty)
+  }
+  case class ClosureSlot(idx: Int)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[Nothing]
+  object ClosureSlot {
+    def apply(idx: Int): ClosureSlot =
+      new ClosureSlot(idx)(SourceInfo.empty)
+  }
   // these are is a separate namespace from Expr
-  case class LocalAnon(ident: Long)(using override val sourceInfo: SourceInfo)
+  case class LocalAnon(ident: Long)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[Nothing]
+  object LocalAnon {
+    def apply(ident: Long): LocalAnon =
+      new LocalAnon(ident)(SourceInfo.empty)
+  }
   // these are mutable variables that can be updated while evaluating an BoolExpr
-  case class LocalAnonMut(ident: Long)(using override val sourceInfo: SourceInfo)
+  case class LocalAnonMut(ident: Long)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[Nothing]
+  object LocalAnonMut {
+    def apply(ident: Long): LocalAnonMut =
+      new LocalAnonMut(ident)(SourceInfo.empty)
+  }
 
   // we aggregate all the applications to potentially make dispatch more efficient
   // note fn is never an App
   case class App[A](fn: Expr[A], arg: NonEmptyList[Expr[A]])(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends Expr[A]
+  object App {
+    def apply[A](fn: Expr[A], arg: NonEmptyList[Expr[A]]): App[A] =
+      new App(fn, arg)(SourceInfo.empty)
+  }
   case class Let[A](
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
       in: Expr[A]
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends Expr[A]
 
   object Let {
+    def apply[A](
+        arg: Either[LocalAnon, Bindable],
+        expr: Expr[A],
+        in: Expr[A]
+    ): Let[A] =
+      new Let(arg, expr, in)(SourceInfo.empty)
+
     def apply[A](arg: Bindable, expr: Expr[A], in: Expr[A]): Expr[A] =
       // don't create let x = y in x, just return y
       in match {
@@ -593,9 +640,9 @@ object Matchless {
         case PrevNat(of) =>
           PrevNat(loopExpr(of))
         case ge: GetEnumElement[?] =>
-          ge.copy(arg = loopCheap(ge.arg))
+          ge.copy(arg = loopCheap(ge.arg))(ge.sourceInfo)
         case gs: GetStructElement[?] =>
-          gs.copy(arg = loopCheap(gs.arg))
+          gs.copy(arg = loopCheap(gs.arg))(gs.sourceInfo)
         case Local(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
             Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
             ZeroNat =>
@@ -1551,7 +1598,7 @@ object Matchless {
   }
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A])(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends Expr[A] {
     // often we have several LetMut at once, return all them
     def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
@@ -1563,8 +1610,16 @@ object Matchless {
           (NonEmptyList.one(name), notLetMut)
       }
   }
-  case class Literal(lit: Lit)(using override val sourceInfo: SourceInfo)
+  object LetMut {
+    def apply[A](name: LocalAnonMut, span: Expr[A]): LetMut[A] =
+      new LetMut(name, span)(SourceInfo.empty)
+  }
+  case class Literal(lit: Lit)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[Nothing]
+  object Literal {
+    def apply(lit: Lit): Literal =
+      new Literal(lit)(SourceInfo.empty)
+  }
 
   // these result in Int values which are also used as booleans
   // evaluating these CAN have side effects of mutating LocalAnon
@@ -1702,15 +1757,27 @@ object Matchless {
   }
   // returns 1 if it does, else 0
   case class EqualsLit[A](expr: CheapExpr[A], lit: Lit)(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends BoolExpr[A]
+  object EqualsLit {
+    def apply[A](expr: CheapExpr[A], lit: Lit): EqualsLit[A] =
+      new EqualsLit(expr, lit)(SourceInfo.empty)
+  }
   case class EqualsNat[A](expr: CheapExpr[A], nat: DataRepr.Nat)
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends BoolExpr[A]
+  object EqualsNat {
+    def apply[A](expr: CheapExpr[A], nat: DataRepr.Nat): EqualsNat[A] =
+      new EqualsNat(expr, nat)(SourceInfo.empty)
+  }
   // 1 if both are > 0
   case class And[A](e1: BoolExpr[A], e2: BoolExpr[A])(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends BoolExpr[A]
+  object And {
+    def apply[A](e1: BoolExpr[A], e2: BoolExpr[A]): And[A] =
+      new And(e1, e2)(SourceInfo.empty)
+  }
   // checks if variant matches, and if so, writes to
   // a given mut
   case class CheckVariant[A](
@@ -1718,12 +1785,25 @@ object Matchless {
       expect: Int,
       size: Int,
       famArities: List[Int]
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends BoolExpr[A]
+  object CheckVariant {
+    def apply[A](
+        expr: CheapExpr[A],
+        expect: Int,
+        size: Int,
+        famArities: List[Int]
+    ): CheckVariant[A] =
+      new CheckVariant(expr, expect, size, famArities)(SourceInfo.empty)
+  }
   // set the mutable variable to the given expr and return true
   case class SetMut[A](target: LocalAnonMut, expr: Expr[A])(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends BoolExpr[A]
+  object SetMut {
+    def apply[A](target: LocalAnonMut, expr: Expr[A]): SetMut[A] =
+      new SetMut(target, expr)(SourceInfo.empty)
+  }
   case object TrueConst extends BoolExpr[Nothing] {
     override val sourceInfo: SourceInfo = SourceInfo.empty
   }
@@ -1731,13 +1811,24 @@ object Matchless {
       arg: Either[LocalAnon, Bindable],
       expr: Expr[A],
       in: BoolExpr[A]
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends BoolExpr[A]
+  object LetBool {
+    def apply[A](
+        arg: Either[LocalAnon, Bindable],
+        expr: Expr[A],
+        in: BoolExpr[A]
+    ): LetBool[A] =
+      new LetBool(arg, expr, in)(SourceInfo.empty)
+  }
 
   case class LetMutBool[A](name: LocalAnonMut, span: BoolExpr[A])
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends BoolExpr[A]
   object LetMutBool {
+    def apply[A](name: LocalAnonMut, span: BoolExpr[A]): LetMutBool[A] =
+      new LetMutBool(name, span)(SourceInfo.empty)
+
     def apply[A](lst: List[LocalAnonMut], span: BoolExpr[A]): BoolExpr[A] =
       lst.foldRight(span)(LetMutBool(_, _))
   }
@@ -1778,7 +1869,7 @@ object Matchless {
     }
 
   case class If[A](cond: BoolExpr[A], thenExpr: Expr[A], elseExpr: Expr[A])
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends Expr[A] {
     def flatten: (NonEmptyList[(BoolExpr[A], Expr[A])], Expr[A]) = {
       def combine(expr: Expr[A]): (List[(BoolExpr[A], Expr[A])], Expr[A]) =
@@ -1793,10 +1884,21 @@ object Matchless {
       (NonEmptyList((cond, thenExpr), rest), last)
     }
   }
+  object If {
+    def apply[A](
+        cond: BoolExpr[A],
+        thenExpr: Expr[A],
+        elseExpr: Expr[A]
+    ): If[A] =
+      new If(cond, thenExpr, elseExpr)(SourceInfo.empty)
+  }
   case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A])(
-      using override val sourceInfo: SourceInfo
+      override val sourceInfo: SourceInfo = SourceInfo.empty
   ) extends Expr[A]
   object Always {
+    def apply[A](cond: BoolExpr[A], thenExpr: Expr[A]): Always[A] =
+      new Always(cond, thenExpr)(SourceInfo.empty)
+
     object SetChain {
       // a common pattern is Always(SetMut(m, e), r)
       def unapply[A](
@@ -1825,19 +1927,40 @@ object Matchless {
       variant: Int,
       index: Int,
       size: Int
-  )(using override val sourceInfo: SourceInfo)
+  )(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[A]
+  object GetEnumElement {
+    def apply[A](
+        arg: CheapExpr[A],
+        variant: Int,
+        index: Int,
+        size: Int
+    ): GetEnumElement[A] =
+      new GetEnumElement(arg, variant, index, size)(SourceInfo.empty)
+  }
   case class GetStructElement[A](arg: CheapExpr[A], index: Int, size: Int)
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends CheapExpr[A]
+  object GetStructElement {
+    def apply[A](
+        arg: CheapExpr[A],
+        index: Int,
+        size: Int
+    ): GetStructElement[A] =
+      new GetStructElement(arg, index, size)(SourceInfo.empty)
+  }
 
   sealed abstract class ConsExpr extends Expr[Nothing] {
     def arity: Int
   }
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int, famArities: List[Int])
-      (using override val sourceInfo: SourceInfo)
+      (override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends ConsExpr
+  object MakeEnum {
+    def apply(variant: Int, arity: Int, famArities: List[Int]): MakeEnum =
+      new MakeEnum(variant, arity, famArities)(SourceInfo.empty)
+  }
 
   private val boolFamArities = 0 :: 0 :: Nil
   private val listFamArities = 0 :: 2 :: Nil
@@ -1869,8 +1992,12 @@ object Matchless {
     def tail[A](arg: CheapExpr[A]): CheapExpr[A] =
       GetEnumElement(arg, 1, 1, 2)
   }
-  case class MakeStruct(arity: Int)(using override val sourceInfo: SourceInfo)
+  case class MakeStruct(arity: Int)(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends ConsExpr
+  object MakeStruct {
+    def apply(arity: Int): MakeStruct =
+      new MakeStruct(arity)(SourceInfo.empty)
+  }
   case object ZeroNat extends ConsExpr {
     override val sourceInfo: SourceInfo = SourceInfo.empty
     def arity = 0
@@ -1881,8 +2008,12 @@ object Matchless {
     def arity = 1
   }
 
-  case class PrevNat[A](of: Expr[A])(using override val sourceInfo: SourceInfo)
+  case class PrevNat[A](of: Expr[A])(override val sourceInfo: SourceInfo = SourceInfo.empty)
       extends Expr[A]
+  object PrevNat {
+    def apply[A](of: Expr[A]): PrevNat[A] =
+      new PrevNat(of)(SourceInfo.empty)
+  }
 
   private inline def maybeMemoWith[F[_]: Monad, A, R](
       arg: Expr[A],
@@ -2390,18 +2521,14 @@ object Matchless {
   private def withSourceInfoLocalAnon(
       arg: LocalAnon,
       sourceInfo: SourceInfo
-  ): LocalAnon = {
-    given SourceInfo = sourceInfo
-    LocalAnon(arg.ident)
-  }
+  ): LocalAnon =
+    LocalAnon(arg.ident)(sourceInfo)
 
   private def withSourceInfoLocalAnonMut(
       arg: LocalAnonMut,
       sourceInfo: SourceInfo
-  ): LocalAnonMut = {
-    given SourceInfo = sourceInfo
-    LocalAnonMut(arg.ident)
-  }
+  ): LocalAnonMut =
+    LocalAnonMut(arg.ident)(sourceInfo)
 
   private def withSourceInfoCheap[A](
       expr: CheapExpr[A],
@@ -2420,8 +2547,7 @@ object Matchless {
   private def withSourceInfoExpr[A](
       expr: Expr[A],
       sourceInfo: SourceInfo
-  ): Expr[A] = {
-    given SourceInfo = sourceInfo
+  ): Expr[A] =
     expr match {
       case Lambda(captures, recursiveName, args, body) =>
         Lambda(
@@ -2429,28 +2555,28 @@ object Matchless {
           recursiveName,
           args,
           withSourceInfoExpr(body, sourceInfo)
-        )
+        )(sourceInfo)
       case WhileExpr(cond, effectExpr, result) =>
         WhileExpr(
           withSourceInfoBool(cond, sourceInfo),
           withSourceInfoExpr(effectExpr, sourceInfo),
           withSourceInfoLocalAnonMut(result, sourceInfo)
-        )
+        )(sourceInfo)
       case Global(from, pack, name) =>
-        Global(from, pack, name)
+        Global(from, pack, name)(sourceInfo)
       case Local(arg) =>
-        Local(arg)
+        Local(arg)(sourceInfo)
       case ClosureSlot(idx) =>
-        ClosureSlot(idx)
+        ClosureSlot(idx)(sourceInfo)
       case LocalAnon(ident) =>
-        LocalAnon(ident)
+        LocalAnon(ident)(sourceInfo)
       case LocalAnonMut(ident) =>
-        LocalAnonMut(ident)
+        LocalAnonMut(ident)(sourceInfo)
       case App(fn, args) =>
         App(
           withSourceInfoExpr(fn, sourceInfo),
           args.map(withSourceInfoExpr(_, sourceInfo))
-        )
+        )(sourceInfo)
       case Let(arg, value, in) =>
         val arg1 =
           arg match {
@@ -2464,74 +2590,72 @@ object Matchless {
           arg1,
           withSourceInfoExpr(value, sourceInfo),
           withSourceInfoExpr(in, sourceInfo)
-        )
+        )(sourceInfo)
       case LetMut(name, span) =>
         LetMut(
           withSourceInfoLocalAnonMut(name, sourceInfo),
           withSourceInfoExpr(span, sourceInfo)
-        )
+        )(sourceInfo)
       case If(cond, thenExpr, elseExpr) =>
         If(
           withSourceInfoBool(cond, sourceInfo),
           withSourceInfoExpr(thenExpr, sourceInfo),
           withSourceInfoExpr(elseExpr, sourceInfo)
-        )
+        )(sourceInfo)
       case Always(cond, thenExpr) =>
         Always(
           withSourceInfoBool(cond, sourceInfo),
           withSourceInfoExpr(thenExpr, sourceInfo)
-        )
+        )(sourceInfo)
       case GetEnumElement(arg, variant, index, size) =>
         GetEnumElement(
           withSourceInfoCheap(arg, sourceInfo),
           variant,
           index,
           size
-        )
+        )(sourceInfo)
       case GetStructElement(arg, index, size) =>
-        GetStructElement(withSourceInfoCheap(arg, sourceInfo), index, size)
+        GetStructElement(withSourceInfoCheap(arg, sourceInfo), index, size)(sourceInfo)
       case Literal(lit) =>
-        Literal(lit)
+        Literal(lit)(sourceInfo)
       case MakeEnum(variant, arity, famArities) =>
-        MakeEnum(variant, arity, famArities)
+        MakeEnum(variant, arity, famArities)(sourceInfo)
       case MakeStruct(arity) =>
-        MakeStruct(arity)
+        MakeStruct(arity)(sourceInfo)
       case ZeroNat =>
         ZeroNat
       case SuccNat =>
         SuccNat
       case PrevNat(of) =>
-        PrevNat(withSourceInfoExpr(of, sourceInfo))
+        PrevNat(withSourceInfoExpr(of, sourceInfo))(sourceInfo)
     }
-  }
 
   private def withSourceInfoBool[A](
       boolExpr: BoolExpr[A],
       sourceInfo: SourceInfo
-  ): BoolExpr[A] = {
-    given SourceInfo = sourceInfo
+  ): BoolExpr[A] =
     boolExpr match {
       case EqualsLit(expr, lit) =>
-        EqualsLit(withSourceInfoCheap(expr, sourceInfo), lit)
+        EqualsLit(withSourceInfoCheap(expr, sourceInfo), lit)(sourceInfo)
       case EqualsNat(expr, nat) =>
-        EqualsNat(withSourceInfoCheap(expr, sourceInfo), nat)
+        EqualsNat(withSourceInfoCheap(expr, sourceInfo), nat)(sourceInfo)
       case And(left, right) =>
         And(
           withSourceInfoBool(left, sourceInfo),
           withSourceInfoBool(right, sourceInfo)
-        )
+        )(sourceInfo)
       case CheckVariant(expr, expect, size, famArities) =>
         CheckVariant(
           withSourceInfoCheap(expr, sourceInfo),
           expect,
           size,
           famArities
-        )
+        )(sourceInfo)
       case SetMut(target, expr) =>
         SetMut(
           withSourceInfoLocalAnonMut(target, sourceInfo),
           withSourceInfoExpr(expr, sourceInfo)
-        )
+        )(sourceInfo)
       case LetBool(arg, value, in) =>
         val arg1 =
           arg match {
@@ -2544,16 +2668,15 @@ object Matchless {
           arg1,
           withSourceInfoExpr(value, sourceInfo),
           withSourceInfoBool(in, sourceInfo)
-        )
+        )(sourceInfo)
       case LetMutBool(name, in) =>
         LetMutBool(
           withSourceInfoLocalAnonMut(name, sourceInfo),
           withSourceInfoBool(in, sourceInfo)
-        )
+        )(sourceInfo)
       case TrueConst =>
         TrueConst
     }
-  }
 
   private def withSourceInfo[A](
       expr: Expr[A],
@@ -2709,9 +2832,9 @@ object Matchless {
           }
         case PrevNat(n)            => PrevNat(substituteLocals(m, n))
         case ge: GetEnumElement[?] =>
-          ge.copy(arg = substituteLocalsCheap(m, ge.arg))
+          ge.copy(arg = substituteLocalsCheap(m, ge.arg))(ge.sourceInfo)
         case gs: GetStructElement[?] =>
-          gs.copy(arg = substituteLocalsCheap(m, gs.arg))
+          gs.copy(arg = substituteLocalsCheap(m, gs.arg))(gs.sourceInfo)
         case Lambda(c, r, as, b) =>
           val m1 = m -- as.toList
           val b1 = substituteLocals(m1, b)
