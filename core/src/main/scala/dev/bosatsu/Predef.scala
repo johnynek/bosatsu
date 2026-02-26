@@ -67,79 +67,77 @@ object Predef {
     PackageName.parts("Bosatsu", "IO", "Core")
 
   private def addIoBytesExternals(externals: Externals): Externals =
-    if (Platform.isScalaJvm) {
-      externals
-        .add(
-          ioBytesPackageName,
-          "empty_Bytes",
-          FfiCall.Const(PredefImpl.emptyBytes)
-        )
-        .add(
-          ioBytesPackageName,
-          "from_List_Int",
-          FfiCall.Fn1(PredefImpl.from_List_Int(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "from_Array_Int",
-          FfiCall.Fn1(PredefImpl.from_Array_Int(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "to_List_Int",
-          FfiCall.Fn1(PredefImpl.to_List_Int(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "to_Array_Int",
-          FfiCall.Fn1(PredefImpl.to_Array_Int(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "size_Bytes",
-          FfiCall.Fn1(PredefImpl.size_Bytes(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "get_map_Bytes",
-          FfiCall.Fn4(PredefImpl.get_map_Bytes(_, _, _, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "get_or_Bytes",
-          FfiCall.Fn3(PredefImpl.get_or_Bytes(_, _, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "foldl_Bytes",
-          FfiCall.Fn3(PredefImpl.foldl_Bytes(_, _, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "concat_all_Bytes",
-          FfiCall.Fn1(PredefImpl.concat_all_Bytes(_))
-        )
-        .add(
-          ioBytesPackageName,
-          "slice_Bytes",
-          FfiCall.Fn3(PredefImpl.slice_Bytes(_, _, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "starts_with_Bytes",
-          FfiCall.Fn2(PredefImpl.starts_with_Bytes(_, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "ends_with_Bytes",
-          FfiCall.Fn2(PredefImpl.ends_with_Bytes(_, _))
-        )
-        .add(
-          ioBytesPackageName,
-          "find_Bytes",
-          FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
-        )
-    } else externals
+    externals
+      .add(
+        ioBytesPackageName,
+        "empty_Bytes",
+        FfiCall.Const(PredefImpl.emptyBytes)
+      )
+      .add(
+        ioBytesPackageName,
+        "from_List_Int",
+        FfiCall.Fn1(PredefImpl.from_List_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "from_Array_Int",
+        FfiCall.Fn1(PredefImpl.from_Array_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "to_List_Int",
+        FfiCall.Fn1(PredefImpl.to_List_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "to_Array_Int",
+        FfiCall.Fn1(PredefImpl.to_Array_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "size_Bytes",
+        FfiCall.Fn1(PredefImpl.size_Bytes(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "get_map_Bytes",
+        FfiCall.Fn4(PredefImpl.get_map_Bytes(_, _, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "get_or_Bytes",
+        FfiCall.Fn3(PredefImpl.get_or_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "foldl_Bytes",
+        FfiCall.Fn3(PredefImpl.foldl_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "concat_all_Bytes",
+        FfiCall.Fn1(PredefImpl.concat_all_Bytes(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "slice_Bytes",
+        FfiCall.Fn3(PredefImpl.slice_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "starts_with_Bytes",
+        FfiCall.Fn2(PredefImpl.starts_with_Bytes(_, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "ends_with_Bytes",
+        FfiCall.Fn2(PredefImpl.ends_with_Bytes(_, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "find_Bytes",
+        FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
+      )
 
   private def addIoCoreExternals(externals: Externals): Externals =
     if (Platform.isScalaJvm) {

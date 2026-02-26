@@ -288,7 +288,8 @@ def to_Array_Int(bytes_value):
     b = _as_bosatsu_bytes(bytes_value)
     if b is None:
         raise ValueError(f"invalid Bytes value: {bytes_value!r}")
-    return list(_bytes_view_slice(b))
+    view = _bytes_view_slice(b)
+    return (tuple(view), 0, len(view))
 
 def size_Bytes(bytes_value):
     b = _as_bosatsu_bytes(bytes_value)
