@@ -412,7 +412,7 @@ def find_Bytes(bytes_value, needle_value, start):
         return -1
     return int(found - b.offset)
 
-def uft8_bytes_from_String(str_value):
+def utf8_bytes_from_String(str_value):
     data = str_value.encode("utf-8")
     if len(data) == 0:
         return empty_Bytes
@@ -428,7 +428,7 @@ def utf8_bytes_to_String(bytes_value):
     except UnicodeDecodeError:
         return _none
 
-def utf_Char_at(bytes_value, idx):
+def utf8_Char_at(bytes_value, idx):
     b = _as_bosatsu_bytes(bytes_value)
     if b is None:
         raise ValueError("invalid Bytes value")

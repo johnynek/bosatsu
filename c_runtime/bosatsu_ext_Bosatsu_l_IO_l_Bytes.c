@@ -500,8 +500,14 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_find__Bytes(BValue bytes, BValue needle,
   return bsts_integer_from_int(-1);
 }
 
-BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_uft8__bytes__from__String(BValue str)
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__from__String(BValue str)
 {
+  // Tiny strings (<= 5 bytes) are immediate values and their byte view points
+  // into the current stack slot, so we must copy those bytes.
+  enum
+  {
+    BSTS_TINY_STRING_MAX_LEN = 5
+  };
   size_t raw_len = bsts_string_utf8_len_ref(&str);
   if (raw_len == 0)
   {
@@ -514,9 +520,15 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_uft8__bytes__from__String(BValue str)
 
   int len = (int)raw_len;
   const char *src = bsts_string_utf8_bytes_ref(&str);
-  uint8_t *data = bsts_bytes_alloc_data(len);
-  memcpy(data, src, (size_t)len);
-  return bsts_bytes_wrap(data, 0, len);
+  if (raw_len <= (size_t)BSTS_TINY_STRING_MAX_LEN)
+  {
+    uint8_t *data = bsts_bytes_alloc_data(len);
+    memcpy(data, src, (size_t)len);
+    return bsts_bytes_wrap(data, 0, len);
+  }
+
+  // For non-tiny strings we can share the UTF-8 storage without copying.
+  return bsts_bytes_wrap((uint8_t *)src, 0, len);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__to__String(BValue bytes)
@@ -540,10 +552,12 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__to__String(BValue bytes)
     idx += width;
   }
 
-  return alloc_enum1(1, bsts_string_from_utf8_bytes_copy((size_t)b->len, (const char *)data));
+  // This constructor shares storage for long strings and only copies for
+  // small inline string representations.
+  return alloc_enum1(1, bsts_string_from_utf8_bytes_static((size_t)b->len, (const char *)data));
 }
 
-BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf__Char__at(BValue bytes, BValue index)
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__Char__at(BValue bytes, BValue index)
 {
   BSTS_Bytes *b = bsts_bytes_unbox(bytes);
   if (!bsts_bytes_index_in_range(index, b->len))

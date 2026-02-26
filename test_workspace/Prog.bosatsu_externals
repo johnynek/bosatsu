@@ -47,8 +47,8 @@
     starts_with_Bytes: ProgExt.starts_with_Bytes,
     ends_with_Bytes: ProgExt.ends_with_Bytes,
     find_Bytes: ProgExt.find_Bytes,
-    uft8_bytes_from_String: ProgExt.uft8_bytes_from_String,
+    utf8_bytes_from_String: ProgExt.utf8_bytes_from_String,
     utf8_bytes_to_String: ProgExt.utf8_bytes_to_String,
-    utf_Char_at: ProgExt.utf_Char_at
+    utf8_Char_at: ProgExt.utf8_Char_at
   }
 }

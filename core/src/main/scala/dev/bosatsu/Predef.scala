@@ -140,8 +140,8 @@ object Predef {
       )
       .add(
         ioBytesPackageName,
-        "uft8_bytes_from_String",
-        FfiCall.Fn1(PredefImpl.uft8_bytes_from_String(_))
+        "utf8_bytes_from_String",
+        FfiCall.Fn1(PredefImpl.utf8_bytes_from_String(_))
       )
       .add(
         ioBytesPackageName,
@@ -150,8 +150,8 @@ object Predef {
       )
       .add(
         ioBytesPackageName,
-        "utf_Char_at",
-        FfiCall.Fn2(PredefImpl.utf_Char_at(_, _))
+        "utf8_Char_at",
+        FfiCall.Fn2(PredefImpl.utf8_Char_at(_, _))
       )
 
   private def addIoCoreExternals(externals: Externals): Externals =
@@ -2945,7 +2945,7 @@ object PredefImpl {
     }
   }
 
-  def uft8_bytes_from_String(strValue: Value): Value =
+  def utf8_bytes_from_String(strValue: Value): Value =
     strValue match {
       case Value.Str(str) =>
         val utf8 = str.getBytes(StandardCharsets.UTF_8)
@@ -2965,7 +2965,7 @@ object PredefImpl {
     }
   }
 
-  def utf_Char_at(bytesValue: Value, index: Value): Value = {
+  def utf8_Char_at(bytesValue: Value, index: Value): Value = {
     val bytes = asBytes(bytesValue)
     inRangeIndex(i(index), bytes.len) match {
       case Some(idx) =>

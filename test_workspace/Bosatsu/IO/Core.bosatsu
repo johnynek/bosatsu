@@ -119,7 +119,13 @@ external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
 
-_ = (_: Bytes) -> now_mono
+# Keep these type imports marked as used for the Bosatsu import checker.
+_ = now_mono
+
+def bytes_identity_for_import(b: Bytes) -> Bytes:
+  b
+
+_ = bytes_identity_for_import
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d

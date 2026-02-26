@@ -27,6 +27,6 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_slice__Bytes(BValue bytes, BValue start,
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_starts__with__Bytes(BValue bytes, BValue prefix);
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_ends__with__Bytes(BValue bytes, BValue suffix);
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_find__Bytes(BValue bytes, BValue needle, BValue start);
-BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_uft8__bytes__from__String(BValue str);
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__from__String(BValue str);
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__to__String(BValue bytes);
-BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf__Char__at(BValue bytes, BValue index);
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__Char__at(BValue bytes, BValue index);

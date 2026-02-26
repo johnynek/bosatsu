@@ -20,9 +20,9 @@ export (
   starts_with_Bytes,
   ends_with_Bytes,
   find_Bytes,
-  uft8_bytes_from_String,
+  utf8_bytes_from_String,
   utf8_bytes_to_String,
-  utf_Char_at,
+  utf8_Char_at,
   index_in_range_Bytes,
 )
 
@@ -42,9 +42,9 @@ external def slice_Bytes(bytes: Bytes, start: Int, end: Int) -> Bytes
 external def starts_with_Bytes(bytes: Bytes, prefix: Bytes) -> Bool
 external def ends_with_Bytes(bytes: Bytes, suffix: Bytes) -> Bool
 external def find_Bytes(bytes: Bytes, needle: Bytes, start: Int) -> Int
-external def uft8_bytes_from_String(str: String) -> Bytes
+external def utf8_bytes_from_String(str: String) -> Bytes
 external def utf8_bytes_to_String(bytes: Bytes) -> Option[String]
-external def utf_Char_at(bytes: Bytes, idx: Int) -> Option[Char]
+external def utf8_Char_at(bytes: Bytes, idx: Int) -> Option[Char]
 
 def get_Bytes(bytes: Bytes, idx: Int) -> Option[Int]:
   get_map_Bytes(bytes, idx, _ -> None, i -> Some(i))
@@ -67,7 +67,7 @@ norm_expected = [255, 0, 1, 255, 0, 1, 255]
 norm_bytes = from_List_Int(norm_source)
 base = from_List_Int([1, 2, 3, 4, 5])
 needle = from_List_Int([3, 4])
-utf8_sample = uft8_bytes_from_String("Aé🙂")
+utf8_sample = utf8_bytes_from_String("Aé🙂")
 
 tests = TestSuite("Bytes tests", [
   Assertion(size_Bytes(empty_Bytes) matches 0, "empty size"),
@@ -101,14 +101,14 @@ tests = TestSuite("Bytes tests", [
   Assertion(find_Bytes(base, needle, 3) matches -1, "find after match"),
   Assertion(find_Bytes(base, from_List_Int([]), -3) matches 0, "find empty needle clamps start"),
   Assertion(find_Bytes(base, from_List_Int([]), 99) matches 5, "find empty needle at end"),
-  Assertion(utf8_bytes_to_String(uft8_bytes_from_String("hello-µ")) matches Some("hello-µ"), "utf8 roundtrip"),
+  Assertion(utf8_bytes_to_String(utf8_bytes_from_String("hello-µ")) matches Some("hello-µ"), "utf8 roundtrip"),
   Assertion(utf8_bytes_to_String(from_List_Int([255])) matches None, "invalid utf8 to string"),
-  Assertion(utf_Char_at(utf8_sample, 0) matches Some(.'A'), "utf char at ascii"),
-  Assertion(utf_Char_at(utf8_sample, 1) matches Some(.'é'), "utf char at multibyte"),
-  Assertion(utf_Char_at(utf8_sample, 2) matches None, "utf char at continuation byte"),
-  Assertion(utf_Char_at(utf8_sample, 3) matches Some(.'🙂'), "utf char at four-byte codepoint"),
-  Assertion(utf_Char_at(utf8_sample, 4) matches None, "utf char continuation in four-byte codepoint"),
-  Assertion(utf_Char_at(utf8_sample, 9) matches None, "utf char out of range"),
+  Assertion(utf8_Char_at(utf8_sample, 0) matches Some(.'A'), "utf char at ascii"),
+  Assertion(utf8_Char_at(utf8_sample, 1) matches Some(.'é'), "utf char at multibyte"),
+  Assertion(utf8_Char_at(utf8_sample, 2) matches None, "utf char at continuation byte"),
+  Assertion(utf8_Char_at(utf8_sample, 3) matches Some(.'🙂'), "utf char at four-byte codepoint"),
+  Assertion(utf8_Char_at(utf8_sample, 4) matches None, "utf char continuation in four-byte codepoint"),
+  Assertion(utf8_Char_at(utf8_sample, 9) matches None, "utf char out of range"),
   Assertion(
     eq_int_list(
       to_List_Int(concat_all_Bytes([from_List_Int([1]), from_List_Int([2, 3]), empty_Bytes])),
