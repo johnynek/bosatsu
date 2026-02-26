@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-520fd9f6*
+0.0.0+1-5dddb206*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-520fd9f6*
+0.0.0+1-5dddb206*
 </div>
 </div>
 <div class="nav-toc">
@@ -119,11 +119,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-io-core" name="bosatsu-io-core" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/IO/Core</code></h1>
-<p>public dependencies: <code>Bosatsu/IO/Error</code>, <code>Bosatsu/Prog</code></p>
+<p>public dependencies: <code>Bosatsu/IO/Bytes</code>, <code>Bosatsu/IO/Error</code>, <code>Bosatsu/Prog</code></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
   <li>Types: <a href="#type-duration"><code>Duration</code></a>, <a href="#type-filekind"><code>FileKind</code></a>, <a href="#type-filestat"><code>FileStat</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="#type-instant"><code>Instant</code></a>, <a href="#type-openmode"><code>OpenMode</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="#type-process"><code>Process</code></a>, <a href="#type-spawnresult"><code>SpawnResult</code></a>, <a href="#type-stdio"><code>Stdio</code></a>, <a href="#type-stdioconfig"><code>StdioConfig</code></a></li>
-  <li>Values: <a href="#value-close"><code>close</code></a>, <a href="#value-duration-to-nanos"><code>duration_to_nanos</code></a>, <a href="#value-flush"><code>flush</code></a>, <a href="#value-get-env"><code>get_env</code></a>, <a href="#value-list-dir"><code>list_dir</code></a>, <a href="#value-mkdir"><code>mkdir</code></a>, <a href="#value-now-mono"><code>now_mono</code></a>, <a href="#value-now-wall"><code>now_wall</code></a>, <a href="#value-open-file"><code>open_file</code></a>, <a href="#value-path-file-name"><code>path_file_name</code></a>, <a href="#value-path-join"><code>path_join</code></a>, <a href="#value-path-parent"><code>path_parent</code></a>, <a href="#value-path-sep"><code>path_sep</code></a>, <a href="#value-path-to-string"><code>path_to_String</code></a>, <a href="#value-read-utf8"><code>read_utf8</code></a>, <a href="#value-remove"><code>remove</code></a>, <a href="#value-rename"><code>rename</code></a>, <a href="#value-sleep"><code>sleep</code></a>, <a href="#value-spawn"><code>spawn</code></a>, <a href="#value-stat"><code>stat</code></a>, <a href="#value-stderr"><code>stderr</code></a>, <a href="#value-stdin"><code>stdin</code></a>, <a href="#value-stdout"><code>stdout</code></a>, <a href="#value-string-to-path"><code>string_to_Path</code></a>, <a href="#value-wait"><code>wait</code></a>, <a href="#value-write-utf8"><code>write_utf8</code></a></li>
+  <li>Values: <a href="#value-close"><code>close</code></a>, <a href="#value-copy-bytes"><code>copy_bytes</code></a>, <a href="#value-duration-to-nanos"><code>duration_to_nanos</code></a>, <a href="#value-flush"><code>flush</code></a>, <a href="#value-get-env"><code>get_env</code></a>, <a href="#value-list-dir"><code>list_dir</code></a>, <a href="#value-mkdir"><code>mkdir</code></a>, <a href="#value-now-mono"><code>now_mono</code></a>, <a href="#value-now-wall"><code>now_wall</code></a>, <a href="#value-open-file"><code>open_file</code></a>, <a href="#value-path-file-name"><code>path_file_name</code></a>, <a href="#value-path-join"><code>path_join</code></a>, <a href="#value-path-parent"><code>path_parent</code></a>, <a href="#value-path-sep"><code>path_sep</code></a>, <a href="#value-path-to-string"><code>path_to_String</code></a>, <a href="#value-read-all-bytes"><code>read_all_bytes</code></a>, <a href="#value-read-bytes"><code>read_bytes</code></a>, <a href="#value-read-utf8"><code>read_utf8</code></a>, <a href="#value-remove"><code>remove</code></a>, <a href="#value-rename"><code>rename</code></a>, <a href="#value-sleep"><code>sleep</code></a>, <a href="#value-spawn"><code>spawn</code></a>, <a href="#value-stat"><code>stat</code></a>, <a href="#value-stderr"><code>stderr</code></a>, <a href="#value-stdin"><code>stdin</code></a>, <a href="#value-stdout"><code>stdout</code></a>, <a href="#value-string-to-path"><code>string_to_Path</code></a>, <a href="#value-wait"><code>wait</code></a>, <a href="#value-write-bytes"><code>write_bytes</code></a>, <a href="#value-write-utf8"><code>write_utf8</code></a></li>
 </ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
 <a id="type-duration"></a>
@@ -209,6 +209,10 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#close" name="close" class="anchor"><span class="anchor-link"></span></a><code>close</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def close(h: Handle) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
+<a id="value-copy-bytes"></a>
+<h3><a href="#copy-bytes" name="copy-bytes" class="anchor"><span class="anchor-link"></span></a><code>copy_bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
+</code></pre>
 <a id="value-duration-to-nanos"></a>
 <h3><a href="#duration-to-nanos" name="duration-to-nanos" class="anchor"><span class="anchor-link"></span></a><code>duration_to_nanos</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def duration_to_nanos(d: Duration) -&gt; Int
@@ -261,6 +265,14 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#path-to-string" name="path-to-string" class="anchor"><span class="anchor-link"></span></a><code>path_to_String</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def path_to_String(path: Path) -&gt; String
 </code></pre>
+<a id="value-read-all-bytes"></a>
+<h3><a href="#read-all-bytes" name="read-all-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_all_bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def read_all_bytes(h: Handle, chunk_size: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Bosatsu/IO/Bytes::Bytes]
+</code></pre>
+<a id="value-read-bytes"></a>
+<h3><a href="#read-bytes" name="read-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def read_bytes(h: Handle, max_bytes: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Bosatsu/IO/Bytes::Bytes]]
+</code></pre>
 <a id="value-read-utf8"></a>
 <h3><a href="#read-utf8" name="read-utf8" class="anchor"><span class="anchor-link"></span></a><code>read_utf8</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def read_utf8(h: Handle, max_chars: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
@@ -304,6 +316,10 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <a id="value-wait"></a>
 <h3><a href="#wait" name="wait" class="anchor"><span class="anchor-link"></span></a><code>wait</code></h3>
 <pre class="prettyprint"><code class="language-bosatsu">def wait(p: Process) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
+</code></pre>
+<a id="value-write-bytes"></a>
+<h3><a href="#write-bytes" name="write-bytes" class="anchor"><span class="anchor-link"></span></a><code>write_bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def write_bytes(h: Handle, bytes: Bosatsu/IO/Bytes::Bytes) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-write-utf8"></a>
 <h3><a href="#write-utf8" name="write-utf8" class="anchor"><span class="anchor-link"></span></a><code>write_utf8</code></h3>
@@ -390,7 +406,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-520fd9f6-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5dddb206-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

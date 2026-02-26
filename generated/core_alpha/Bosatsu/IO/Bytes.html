@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>Bosatsu/IO/Bytes · Bosatsu Documentation</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='paradox docs'/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/IO/Bytes.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="../../../../lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="../../../../js/page.js"></script>
+<script type="text/javascript" src="../../../../js/warnOldVersion.js"></script>
+<script type="text/javascript" src="../../../../js/groups.js"></script>
+<script type="text/javascript" src="../../../../js/snippets.js"></script>
+<link rel="stylesheet" type="text/css" href="../../../../lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="../../../../css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="../../../../images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="../../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-5dddb206*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../../../../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="../../../../index.html">Bosatsu Documentation</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="../../../../index.html" >
+<span class="home-icon">⌂</span>Bosatsu Documentation
+</a>
+<div class="version-number">
+0.0.0+1-5dddb206*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="../../../../design-docs/index.html" class="page">Design Docs</a></li>
+  <li><a href="../../../../getting_started.html" class="page">Getting started (new repo)</a></li>
+  <li><a href="../../../../language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="../../../../recursion.html" class="page">Recursion in Bosatsu</a></li>
+  <li><a href="../../../../generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="../../../../debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
+  <li><a href="../../../../debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="../../../../transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="../../../../generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+<div class="nav-breadcrumbs">
+<ul>
+  <li><a href="../../../../index.html">Bosatsu Documentation</a></li>
+  <li><a href="../../../../generated/core_alpha/index.html">Core Alpha API</a></li>
+  <li><code>Bosatsu/IO/Bytes</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#bosatsu-io-bytes" name="bosatsu-io-bytes" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/IO/Bytes</code></h1>
+<p>public dependencies: <code>Bosatsu/Collection/Array</code></p>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-bytes"><code>Bytes</code></a></li>
+  <li>Values: <a href="#value-concat-all-bytes"><code>concat_all_Bytes</code></a>, <a href="#value-empty-bytes"><code>empty_Bytes</code></a>, <a href="#value-ends-with-bytes"><code>ends_with_Bytes</code></a>, <a href="#value-find-bytes"><code>find_Bytes</code></a>, <a href="#value-foldl-bytes"><code>foldl_Bytes</code></a>, <a href="#value-from-array-int"><code>from_Array_Int</code></a>, <a href="#value-from-list-int"><code>from_List_Int</code></a>, <a href="#value-get-bytes"><code>get_Bytes</code></a>, <a href="#value-get-map-bytes"><code>get_map_Bytes</code></a>, <a href="#value-get-or-bytes"><code>get_or_Bytes</code></a>, <a href="#value-index-in-range-bytes"><code>index_in_range_Bytes</code></a>, <a href="#value-size-bytes"><code>size_Bytes</code></a>, <a href="#value-slice-bytes"><code>slice_Bytes</code></a>, <a href="#value-starts-with-bytes"><code>starts_with_Bytes</code></a>, <a href="#value-to-array-int"><code>to_Array_Int</code></a>, <a href="#value-to-list-int"><code>to_List_Int</code></a>, <a href="#value-utf8-char-at"><code>utf8_Char_at</code></a>, <a href="#value-utf8-bytes-from-string"><code>utf8_bytes_from_String</code></a>, <a href="#value-utf8-bytes-to-string"><code>utf8_bytes_to_String</code></a></li>
+</ul>
+<h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-bytes"></a>
+<h3><a href="#bytes" name="bytes" class="anchor"><span class="anchor-link"></span></a><code>Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Bytes
+</code></pre>
+<h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-concat-all-bytes"></a>
+<h3><a href="#concat-all-bytes" name="concat-all-bytes" class="anchor"><span class="anchor-link"></span></a><code>concat_all_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def concat_all_Bytes(chunks: List[Bytes]) -&gt; Bytes
+</code></pre>
+<a id="value-empty-bytes"></a>
+<h3><a href="#empty-bytes" name="empty-bytes" class="anchor"><span class="anchor-link"></span></a><code>empty_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">empty_Bytes: Bytes
+</code></pre>
+<a id="value-ends-with-bytes"></a>
+<h3><a href="#ends-with-bytes" name="ends-with-bytes" class="anchor"><span class="anchor-link"></span></a><code>ends_with_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def ends_with_Bytes(bytes: Bytes, suffix: Bytes) -&gt; Bool
+</code></pre>
+<a id="value-find-bytes"></a>
+<h3><a href="#find-bytes" name="find-bytes" class="anchor"><span class="anchor-link"></span></a><code>find_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def find_Bytes(bytes: Bytes, needle: Bytes, start: Int) -&gt; Int
+</code></pre>
+<a id="value-foldl-bytes"></a>
+<h3><a href="#foldl-bytes" name="foldl-bytes" class="anchor"><span class="anchor-link"></span></a><code>foldl_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def foldl_Bytes[a](bytes: Bytes, init: a, fn: (a, Int) -&gt; a) -&gt; a
+</code></pre>
+<a id="value-from-array-int"></a>
+<h3><a href="#from-array-int" name="from-array-int" class="anchor"><span class="anchor-link"></span></a><code>from_Array_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def from_Array_Int(ints: Bosatsu/Collection/Array::Array[Int]) -&gt; Bytes
+</code></pre>
+<a id="value-from-list-int"></a>
+<h3><a href="#from-list-int" name="from-list-int" class="anchor"><span class="anchor-link"></span></a><code>from_List_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def from_List_Int(ints: List[Int]) -&gt; Bytes
+</code></pre>
+<a id="value-get-bytes"></a>
+<h3><a href="#get-bytes" name="get-bytes" class="anchor"><span class="anchor-link"></span></a><code>get_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def get_Bytes(bytes: Bytes, idx: Int) -&gt; Option[Int]
+</code></pre>
+<a id="value-get-map-bytes"></a>
+<h3><a href="#get-map-bytes" name="get-map-bytes" class="anchor"><span class="anchor-link"></span></a><code>get_map_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def get_map_Bytes[a](bytes: Bytes, idx: Int, default: (()) -&gt; a, fn: Int -&gt; a) -&gt; a
+</code></pre>
+<a id="value-get-or-bytes"></a>
+<h3><a href="#get-or-bytes" name="get-or-bytes" class="anchor"><span class="anchor-link"></span></a><code>get_or_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def get_or_Bytes(bytes: Bytes, idx: Int, default: (()) -&gt; Int) -&gt; Int
+</code></pre>
+<a id="value-index-in-range-bytes"></a>
+<h3><a href="#index-in-range-bytes" name="index-in-range-bytes" class="anchor"><span class="anchor-link"></span></a><code>index_in_range_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def index_in_range_Bytes(bytes: Bytes, idx: Int) -&gt; Bool
+</code></pre>
+<a id="value-size-bytes"></a>
+<h3><a href="#size-bytes" name="size-bytes" class="anchor"><span class="anchor-link"></span></a><code>size_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def size_Bytes(bytes: Bytes) -&gt; Int
+</code></pre>
+<a id="value-slice-bytes"></a>
+<h3><a href="#slice-bytes" name="slice-bytes" class="anchor"><span class="anchor-link"></span></a><code>slice_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def slice_Bytes(bytes: Bytes, start: Int, end: Int) -&gt; Bytes
+</code></pre>
+<a id="value-starts-with-bytes"></a>
+<h3><a href="#starts-with-bytes" name="starts-with-bytes" class="anchor"><span class="anchor-link"></span></a><code>starts_with_Bytes</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def starts_with_Bytes(bytes: Bytes, prefix: Bytes) -&gt; Bool
+</code></pre>
+<a id="value-to-array-int"></a>
+<h3><a href="#to-array-int" name="to-array-int" class="anchor"><span class="anchor-link"></span></a><code>to_Array_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def to_Array_Int(bytes: Bytes) -&gt; Bosatsu/Collection/Array::Array[Int]
+</code></pre>
+<a id="value-to-list-int"></a>
+<h3><a href="#to-list-int" name="to-list-int" class="anchor"><span class="anchor-link"></span></a><code>to_List_Int</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def to_List_Int(bytes: Bytes) -&gt; List[Int]
+</code></pre>
+<a id="value-utf8-char-at"></a>
+<h3><a href="#utf8-char-at" name="utf8-char-at" class="anchor"><span class="anchor-link"></span></a><code>utf8_Char_at</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def utf8_Char_at(bytes: Bytes, idx: Int) -&gt; Option[Char]
+</code></pre>
+<a id="value-utf8-bytes-from-string"></a>
+<h3><a href="#utf8-bytes-from-string" name="utf8-bytes-from-string" class="anchor"><span class="anchor-link"></span></a><code>utf8_bytes_from_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def utf8_bytes_from_String(str: String) -&gt; Bytes
+</code></pre>
+<a id="value-utf8-bytes-to-string"></a>
+<h3><a href="#utf8-bytes-to-string" name="utf8-bytes-to-string" class="anchor"><span class="anchor-link"></span></a><code>utf8_bytes_to_String</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def utf8_bytes_to_String(bytes: Bytes) -&gt; Option[String]
+</code></pre>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/IO/Bytes.md">here</a>.
+</div>
+
+<div class="nav-next">
+<p><strong>Next:</strong> <a href="../../../../generated/core_alpha/Bosatsu/IO/Core.html"><code>Bosatsu/IO/Core</code></a></p>
+</div>
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../../generated/core_alpha/Bosatsu/IO/Bytes.html#bosatsu-io-bytes" class="header"><code>Bosatsu/IO/Bytes</code></a></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2026</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="../../../../lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="../../../../js/magellan.js"></script>
+
+<style type="text/css">@import "../../../../lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5dddb206-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+
+
+</html>
