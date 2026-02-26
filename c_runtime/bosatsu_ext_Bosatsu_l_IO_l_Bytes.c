@@ -120,6 +120,98 @@ static BValue bsts_bool(_Bool b)
   return alloc_enum0(0);
 }
 
+static _Bool bsts_decode_utf8_code_point(
+    const uint8_t *data,
+    int len,
+    int idx,
+    int *code_point,
+    int *width)
+{
+  if (idx < 0 || idx >= len)
+  {
+    return 0;
+  }
+
+  int b0 = (int)data[idx];
+  if (b0 <= 0x7f)
+  {
+    *code_point = b0;
+    *width = 1;
+    return 1;
+  }
+
+  if ((b0 & 0xe0) == 0xc0)
+  {
+    if (idx + 2 > len)
+    {
+      return 0;
+    }
+    int b1 = (int)data[idx + 1];
+    if ((b1 & 0xc0) != 0x80)
+    {
+      return 0;
+    }
+    int cp = ((b0 & 0x1f) << 6) | (b1 & 0x3f);
+    if (cp < 0x80)
+    {
+      return 0;
+    }
+    *code_point = cp;
+    *width = 2;
+    return 1;
+  }
+
+  if ((b0 & 0xf0) == 0xe0)
+  {
+    if (idx + 3 > len)
+    {
+      return 0;
+    }
+    int b1 = (int)data[idx + 1];
+    int b2 = (int)data[idx + 2];
+    if ((b1 & 0xc0) != 0x80 || (b2 & 0xc0) != 0x80)
+    {
+      return 0;
+    }
+    int cp = ((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f);
+    if (cp < 0x800 || (cp >= 0xd800 && cp <= 0xdfff))
+    {
+      return 0;
+    }
+    *code_point = cp;
+    *width = 3;
+    return 1;
+  }
+
+  if ((b0 & 0xf8) == 0xf0)
+  {
+    if (idx + 4 > len)
+    {
+      return 0;
+    }
+    int b1 = (int)data[idx + 1];
+    int b2 = (int)data[idx + 2];
+    int b3 = (int)data[idx + 3];
+    if ((b1 & 0xc0) != 0x80 || (b2 & 0xc0) != 0x80 || (b3 & 0xc0) != 0x80)
+    {
+      return 0;
+    }
+    int cp = ((b0 & 0x07) << 18) |
+             ((b1 & 0x3f) << 12) |
+             ((b2 & 0x3f) << 6) |
+             (b3 & 0x3f);
+    if (cp < 0x10000 || cp > 0x10ffff)
+    {
+      return 0;
+    }
+    *code_point = cp;
+    *width = 4;
+    return 1;
+  }
+
+  return 0;
+}
+
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_empty__Bytes()
 {
   return bsts_bytes_empty();
@@ -406,4 +498,66 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_find__Bytes(BValue bytes, BValue needle,
   }
 
   return bsts_integer_from_int(-1);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_uft8__bytes__from__String(BValue str)
+{
+  size_t raw_len = bsts_string_utf8_len_ref(&str);
+  if (raw_len == 0)
+  {
+    return bsts_bytes_empty();
+  }
+  if (raw_len > (size_t)INT_MAX)
+  {
+    return bsts_bytes_empty();
+  }
+
+  int len = (int)raw_len;
+  const char *src = bsts_string_utf8_bytes_ref(&str);
+  uint8_t *data = bsts_bytes_alloc_data(len);
+  memcpy(data, src, (size_t)len);
+  return bsts_bytes_wrap(data, 0, len);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf8__bytes__to__String(BValue bytes)
+{
+  BSTS_Bytes *b = bsts_bytes_unbox(bytes);
+  if (b->len == 0)
+  {
+    return alloc_enum1(1, bsts_string_from_utf8_bytes_static(0, NULL));
+  }
+
+  const uint8_t *data = b->data + b->offset;
+  int idx = 0;
+  while (idx < b->len)
+  {
+    int cp = 0;
+    int width = 0;
+    if (!bsts_decode_utf8_code_point(data, b->len, idx, &cp, &width))
+    {
+      return alloc_enum0(0);
+    }
+    idx += width;
+  }
+
+  return alloc_enum1(1, bsts_string_from_utf8_bytes_copy((size_t)b->len, (const char *)data));
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_utf__Char__at(BValue bytes, BValue index)
+{
+  BSTS_Bytes *b = bsts_bytes_unbox(bytes);
+  if (!bsts_bytes_index_in_range(index, b->len))
+  {
+    return alloc_enum0(0);
+  }
+
+  int idx = (int)bsts_integer_to_int32(index);
+  int cp = 0;
+  int width = 0;
+  if (!bsts_decode_utf8_code_point(b->data + b->offset, b->len, idx, &cp, &width))
+  {
+    return alloc_enum0(0);
+  }
+
+  return alloc_enum1(1, bsts_char_from_code_point(cp));
 }

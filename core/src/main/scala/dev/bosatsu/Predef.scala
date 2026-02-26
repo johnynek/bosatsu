@@ -138,6 +138,21 @@ object Predef {
         "find_Bytes",
         FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
       )
+      .add(
+        ioBytesPackageName,
+        "uft8_bytes_from_String",
+        FfiCall.Fn1(PredefImpl.uft8_bytes_from_String(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "utf8_bytes_to_String",
+        FfiCall.Fn1(PredefImpl.utf8_bytes_to_String(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "utf_Char_at",
+        FfiCall.Fn2(PredefImpl.utf_Char_at(_, _))
+      )
 
   private def addIoCoreExternals(externals: Externals): Externals =
     if (Platform.isScalaJvm) {
@@ -1011,18 +1026,75 @@ object PredefImpl {
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
 
-  private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
+  private def decodeUtf8Slice(
+      bytes: Array[Byte],
+      offset: Int,
+      len: Int
+  ): Option[String] = {
     val decoder =
       StandardCharsets.UTF_8
         .newDecoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
 
-    try Some(decoder.decode(ByteBuffer.wrap(bytes)).toString)
+    try Some(decoder.decode(ByteBuffer.wrap(bytes, offset, len)).toString)
     catch {
       case _: CharacterCodingException => None
     }
   }
+
+  private def decodeUtf8(bytes: Array[Byte]): Option[String] =
+    decodeUtf8Slice(bytes, 0, bytes.length)
+
+  private def utf8CharAt(bytes: BytesValue, idx: Int): Option[String] =
+    if (idx < 0 || idx >= bytes.len) None
+    else {
+      val start = bytes.offset + idx
+      val b0 = bytes.data(start).toInt & 0xff
+
+      def continuation(offset: Int): Option[Int] = {
+        val b = bytes.data(start + offset).toInt & 0xff
+        if ((b & 0xc0) == 0x80) Some(b) else None
+      }
+
+      val codePoint =
+        if ((b0 & 0x80) == 0) Some(b0)
+        else if ((b0 & 0xe0) == 0xc0) {
+          if (idx + 2 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              cp = ((b0 & 0x1f) << 6) | (b1 & 0x3f)
+              if cp >= 0x80
+            } yield cp
+        } else if ((b0 & 0xf0) == 0xe0) {
+          if (idx + 3 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              b2 <- continuation(2)
+              cp = ((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)
+              if cp >= 0x800
+              if cp < 0xd800 || cp > 0xdfff
+            } yield cp
+        } else if ((b0 & 0xf8) == 0xf0) {
+          if (idx + 4 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              b2 <- continuation(2)
+              b3 <- continuation(3)
+              cp = ((b0 & 0x07) << 18) |
+                ((b1 & 0x3f) << 12) |
+                ((b2 & 0x3f) << 6) |
+                (b3 & 0x3f)
+              if cp >= 0x10000
+              if cp <= 0x10ffff
+            } yield cp
+        } else None
+
+      codePoint.map(cp => new String(Character.toChars(cp)))
+    }
 
   private def runtimeRead(
       runtime: ProgRuntimeState,
@@ -2870,6 +2942,39 @@ object PredefImpl {
         }
         VInt(found)
       }
+    }
+  }
+
+  def uft8_bytes_from_String(strValue: Value): Value =
+    strValue match {
+      case Value.Str(str) =>
+        val utf8 = str.getBytes(StandardCharsets.UTF_8)
+        if (utf8.isEmpty) emptyBytes
+        else ExternalValue(BytesValue(utf8, 0, utf8.length))
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def utf8_bytes_to_String(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    decodeUtf8Slice(bytes.data, bytes.offset, bytes.len) match {
+      case Some(str) => VOption.some(Value.Str(str))
+      case None      => VOption.none
+    }
+  }
+
+  def utf_Char_at(bytesValue: Value, index: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    inRangeIndex(i(index), bytes.len) match {
+      case Some(idx) =>
+        utf8CharAt(bytes, idx) match {
+          case Some(char) => VOption.some(Value.Str(char))
+          case None       => VOption.none
+        }
+      case None      =>
+        VOption.none
     }
   }
 

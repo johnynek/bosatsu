@@ -169,7 +169,7 @@ enum MyNat: Z, S(prev: MyNat)
     )
 
     conv.toDoc(bytesType)(bytes) match {
-      case Right(doc) => assertEquals(doc.render(80), "[0, 10, 255]")
+      case Right(doc) => assertEquals(doc.render(80), "<00 0a ff>")
       case Left(err)  => fail(s"failed to render bytes: $err")
     }
   }

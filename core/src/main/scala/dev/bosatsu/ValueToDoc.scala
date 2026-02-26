@@ -191,19 +191,22 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.TyConst(`bytesTypeConst`) =>
               {
                 case ExternalValue(bytes: PredefImpl.BytesValue) =>
-                  val items = List.newBuilder[Doc]
+                  val out = new java.lang.StringBuilder
+                  out.append('<')
                   var idx = 0
                   while (idx < bytes.len) {
                     val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
-                    items += Doc.str(intValue)
+                    if (idx > 0) {
+                      out.append(' '): Unit
+                    }
+                    if (intValue < 0x10) {
+                      out.append('0'): Unit
+                    }
+                    out.append(java.lang.Integer.toHexString(intValue))
                     idx = idx + 1
                   }
-                  val docs = items.result()
-                  Right(
-                    Doc.char('[') + (Doc.lineOrEmpty + commaBlock(
-                      docs
-                    ) + Doc.lineOrEmpty).aligned + Doc.char(']')
-                  )
+                  out.append('>')
+                  Right(Doc.text(out.toString))
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }

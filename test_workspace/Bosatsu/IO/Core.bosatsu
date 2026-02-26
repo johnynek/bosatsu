@@ -119,9 +119,7 @@ external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
 
-_ = now_mono
-bytes_identity = (b: Bytes) -> b
-_ = bytes_identity
+_ = (_: Bytes) -> now_mono
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d

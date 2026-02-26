@@ -412,6 +412,75 @@ def find_Bytes(bytes_value, needle_value, start):
         return -1
     return int(found - b.offset)
 
+def uft8_bytes_from_String(str_value):
+    data = str_value.encode("utf-8")
+    if len(data) == 0:
+        return empty_Bytes
+    return _BosatsuBytes(data, 0, len(data))
+
+def utf8_bytes_to_String(bytes_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError("invalid Bytes value")
+    view = _bytes_view_slice(b)
+    try:
+        return _some(view.decode("utf-8"))
+    except UnicodeDecodeError:
+        return _none
+
+def utf_Char_at(bytes_value, idx):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError("invalid Bytes value")
+
+    i = int(idx)
+    if i < 0 or i >= b.length:
+        return _none
+
+    start = b.offset + i
+    end = b.offset + b.length
+    data = b.data
+    b0 = int(data[start])
+
+    if b0 <= 0x7F:
+        codepoint = b0
+    elif (b0 & 0xE0) == 0xC0:
+        if start + 2 > end:
+            return _none
+        b1 = int(data[start + 1])
+        if (b1 & 0xC0) != 0x80:
+            return _none
+        codepoint = ((b0 & 0x1F) << 6) | (b1 & 0x3F)
+        if codepoint < 0x80:
+            return _none
+    elif (b0 & 0xF0) == 0xE0:
+        if start + 3 > end:
+            return _none
+        b1 = int(data[start + 1])
+        b2 = int(data[start + 2])
+        if (b1 & 0xC0) != 0x80 or (b2 & 0xC0) != 0x80:
+            return _none
+        codepoint = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+        if codepoint < 0x800 or (0xD800 <= codepoint <= 0xDFFF):
+            return _none
+    elif (b0 & 0xF8) == 0xF0:
+        if start + 4 > end:
+            return _none
+        b1 = int(data[start + 1])
+        b2 = int(data[start + 2])
+        b3 = int(data[start + 3])
+        if ((b1 & 0xC0) != 0x80 or
+                (b2 & 0xC0) != 0x80 or
+                (b3 & 0xC0) != 0x80):
+            return _none
+        codepoint = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+        if codepoint < 0x10000 or codepoint > 0x10FFFF:
+            return _none
+    else:
+        return _none
+
+    return _some(chr(codepoint))
+
 # Bosatsu/IO/Core externals
 path_sep = os.sep
 stdin_handle = _CoreHandle(sys.stdin, readable=True, writable=False, closeable=False)
