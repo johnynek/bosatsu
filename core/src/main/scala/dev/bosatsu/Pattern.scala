@@ -5,7 +5,6 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import dev.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
-import dev.bosatsu.rankn.Type
 import java.util.regex.{Pattern => RegexPattern}
 
 import Parser.{Combinators, maybeSpace, MaybeTupleOrParens}
@@ -300,6 +299,26 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
           Pattern.PositionalStruct(_, _) =>
         None
     }
+
+  def typesIn: List[T] =
+    this match {
+      case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+          Pattern.StrPat(_) =>
+        Nil
+      case Pattern.Named(_, inner) =>
+        inner.typesIn
+      case Pattern.Annotation(inner, tpe) =>
+        tpe :: inner.typesIn
+      case Pattern.PositionalStruct(_, params) =>
+        params.flatMap(_.typesIn)
+      case Pattern.ListPat(parts) =>
+        parts.toList.flatMap {
+          case Pattern.ListPart.Item(inner) => inner.typesIn
+          case _                            => Nil
+        }
+      case Pattern.Union(head, tail) =>
+        head.typesIn ::: tail.toList.flatMap(_.typesIn)
+    }
 }
 
 object Pattern {
@@ -432,32 +451,6 @@ object Pattern {
     Pattern.ListPat(ListPart.WildList :: Nil)
 
   type Parsed = Pattern[StructKind, TypeRef]
-
-  def patternTypeVars(
-      pat: Parsed
-  ): List[Type.Var.Bound] = {
-    def loop(p: Parsed): List[Type.Var.Bound] =
-      p match {
-        case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
-            Pattern.StrPat(_) =>
-          Nil
-        case Pattern.Named(_, inner) =>
-          loop(inner)
-        case Pattern.Annotation(inner, tpe) =>
-          TypeRef.freeTypeRefVars(tpe).map(_.toBoundVar) ::: loop(inner)
-        case Pattern.PositionalStruct(_, params) =>
-          params.flatMap(loop)
-        case Pattern.ListPat(parts) =>
-          parts.toList.flatMap {
-            case Pattern.ListPart.Item(inner) => loop(inner)
-            case _                            => Nil
-          }
-        case Pattern.Union(head, tail) =>
-          loop(head) ::: tail.toList.flatMap(loop)
-      }
-
-    loop(pat)
-  }
 
   /** Flatten a pattern out such that there are no top-level unions
     */

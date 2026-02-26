@@ -959,7 +959,9 @@ final class SourceConverter(
     val argVars =
       ds.args.iterator
         .flatMap(_.toList.iterator)
-        .flatMap(Pattern.patternTypeVars)
+        .flatMap(_.typesIn)
+        .flatMap(TypeRef.freeTypeRefVars)
+        .map(_.toBoundVar)
     val retVars =
       ds.retType.iterator
         .flatMap(TypeRef.freeTypeRefVars(_).iterator)
