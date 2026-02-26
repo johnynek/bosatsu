@@ -1988,6 +1988,87 @@ main = depBox
     }
   }
 
+  test("tool json write/apply/traverse support --yaml output") {
+    val writeSrc =
+      """main = [1, 2]
+"""
+    val fnSrc =
+      """main = (x) -> x.add(1)
+"""
+    val writeFiles = List(Chain("src", "Json", "Foo.bosatsu") -> writeSrc)
+    val fnFiles = List(Chain("src", "Json", "Foo.bosatsu") -> fnSrc)
+
+    module.runWith(writeFiles)(
+      List(
+        "tool",
+        "json",
+        "write",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 1\n- 2")
+      case Right(other) =>
+        fail(s"expected yaml write output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "tool",
+        "json",
+        "apply",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml",
+        "--json_string",
+        "[41]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "42")
+      case Right(other) =>
+        fail(s"expected yaml apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "tool",
+        "json",
+        "traverse",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml",
+        "--json_string",
+        "[[1], [4]]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 2\n- 5")
+      case Right(other) =>
+        fail(s"expected yaml traverse output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool check without inputs reports a cli error") {
     module.runWith(Nil)(List("tool", "check")) match {
       case Right(out) =>
@@ -1999,6 +2080,52 @@ main = depBox
           module.mainExceptionToString(err).nonEmpty,
           show"expected CliException: $msg"
         )
+    }
+  }
+
+  test("tool check accepts todo but tool show rejects it") {
+    val src =
+      """package Todo/Foo
+|
+|main = todo(1)
+|""".stripMargin
+    val files = List(
+      Chain("src", "Todo", "Foo.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu"
+      )
+    ) match {
+      case Right(Output.CompileOut(_, _, _)) => ()
+      case Right(other)                      => fail(s"unexpected output: $other")
+      case Left(err)                         => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu",
+        "--value",
+        "Todo/Foo::main"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 
@@ -2218,6 +2345,81 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("require an array for traverse"), msg)
+    }
+  }
+
+  test("lib json write/apply/traverse support --yaml output") {
+    val writeSrc =
+      """main = [1, 2]
+"""
+    val fnSrc =
+      """main = (x) -> x.add(1)
+"""
+    val writeFiles = baseLibFiles(writeSrc)
+    val fnFiles = baseLibFiles(fnSrc)
+
+    module.runWith(writeFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 1\n- 2")
+      case Right(other) =>
+        fail(s"expected yaml write output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml",
+        "--json_string",
+        "[41]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "42")
+      case Right(other) =>
+        fail(s"expected yaml apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "lib",
+        "json",
+        "traverse",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml",
+        "--json_string",
+        "[[1], [4]]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 2\n- 5")
+      case Right(other) =>
+        fail(s"expected yaml traverse output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
     }
   }
 
@@ -2829,6 +3031,27 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("previous not in cas"), msg)
+    }
+  }
+
+  test("lib check accepts todo but lib show rejects it") {
+    val files = baseLibFiles("main = todo(1)\n")
+
+    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+      case Right(Output.Basic(_, _)) => ()
+      case Right(other)              => fail(s"unexpected output: $other")
+      case Left(err)                 => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 

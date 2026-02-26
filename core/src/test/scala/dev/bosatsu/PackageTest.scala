@@ -28,6 +28,23 @@ class PackageTest extends munit.FunSuite with ParTest {
   def parseUnit(ss: Iterable[String]) =
     resolveThenInfer(ss.map(parse(_)))
 
+  def typeCheckParsed(
+      ps: List[Package.Parsed],
+      compileOptions: CompileOptions
+  ): ValidatedNel[PackageError, PackageMap.Inferred] = {
+    val withPaths = ps.zipWithIndex.map { case (pack, idx) =>
+      ((idx.toString, LocationMap("")), pack)
+    }
+    PackageMap
+      .typeCheckParsed(
+        NonEmptyList.fromList(withPaths).get,
+        Nil,
+        "predef",
+        compileOptions
+      )
+      .strictToValidated
+  }
+
   def valid[A, B](v: Validated[A, B]) =
     v match {
       case Validated.Valid(_)     => ()
@@ -329,5 +346,32 @@ main = helper
 
     assert(!defsOf(optimized).contains("helper"), defsOf(optimized).toString)
     assert(defsOf(noOpt).contains("helper"), defsOf(noOpt).toString)
+  }
+
+  test("type-check mode includes todo from internal predef") {
+    val pack = parse("""
+package Foo
+
+main = todo(42)
+""")
+
+    valid(typeCheckParsed(pack :: Nil, CompileOptions.TypeCheckOnly))
+    invalid(typeCheckParsed(pack :: Nil, CompileOptions.Default))
+  }
+
+  test("internal predef exports todo only in type-check mode") {
+    val emitExports =
+      PackageMap
+        .predefCompiledForMode(CompileOptions.Mode.Emit)
+        .exports
+        .map(_.name.asString)
+    val typeCheckExports =
+      PackageMap
+        .predefCompiledForMode(CompileOptions.Mode.TypeCheckOnly)
+        .exports
+        .map(_.name.asString)
+
+    assert(!emitExports.contains("todo"), emitExports.toString)
+    assert(typeCheckExports.contains("todo"), typeCheckExports.toString)
   }
 }

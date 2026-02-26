@@ -307,108 +307,128 @@ object Inhabitedness {
         pattern: Pattern[(PackageName, Constructor), Type],
         varState: Map[Type.Var.Bound, State],
         seen: Set[Type]
-    ): State =
-      pattern match {
-        case Pattern.WildCard | Pattern.Var(_) =>
-          checkType(scrutinee, varState, seen)
-        case Pattern.Named(_, pat) =>
-          checkPattern(scrutinee, pat, varState, seen)
-        case Pattern.Annotation(pat, tpe) =>
-          if (definitelyDisjoint(scrutinee, tpe)) Uninhabited
-          else {
-            val scrState = checkType(scrutinee, varState, seen)
-            lazy val annState = checkType(tpe, varState, seen)
-            lazy val patState = checkPattern(tpe, pat, varState, seen)
+    ): State = {
+      val scrutineeNorm = scrutinee.normalize
 
-            if (
-              (scrState == Uninhabited) || (annState == Uninhabited) || (patState == Uninhabited)
-            ) Uninhabited
-            else if (
-              (scrState == Inhabited) && (annState == Inhabited) &&
-                (patState == Inhabited) && definitelySameHead(scrutinee, tpe)
-            ) Inhabited
-            else Unknown
-          }
-        case Pattern.Union(head, rest) =>
-          State.orStates(
-            (head :: rest.toList).map(checkPattern(scrutinee, _, varState, seen))
+      scrutineeNorm match {
+        case Type.ForAll(vars, in) =>
+          evaluateQuantifier(
+            vars.toList,
+            vs => checkPattern(in, pattern, vs, seen),
+            isForAll = true,
+            varState
           )
-        case Pattern.Literal(lit)      =>
-          if (scrutinee.sameAs(Type.getTypeOf(lit))) Inhabited
-          else Uninhabited
-        case _: Pattern.StrPat =>
-          if (scrutinee.sameAs(Type.StrType)) Inhabited
-          else Uninhabited
-        case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, EmptyListCons, NonEmptyListCons) match {
-            case Right(asStruct) =>
-              checkPattern(scrutinee, asStruct, varState, seen)
-            case Left((_, suffix)) =>
-              // Prefix-glob list patterns (for example: `*_, p1, p2`) do not
-              // lower to a simple cons spine. We still know they require a list
-              // scrutinee and each explicit item in the suffix to be matchable
-              // against the list element type. We use that to prove definite
-              // `Uninhabited` cases; otherwise we stay conservative with `Unknown`.
-              checkType(scrutinee, varState, seen) match {
-                case Uninhabited => Uninhabited
-                case scrState =>
-                  listElementType(scrutinee) match {
-                    case None => Unknown
-                    case Some(itemType) =>
-                      val itemStates =
-                        suffix.toList.collect { case Pattern.ListPart.Item(itemPat) =>
-                          checkPattern(itemType, itemPat, varState, seen)
-                        }
-                      if (itemStates.contains(Uninhabited)) Uninhabited
-                      else if ((scrState == Inhabited) && itemStates.forall(_ == Inhabited))
-                        // We only conclude Inhabited when the scrutinee is known inhabited.
-                        Inhabited
-                      else Unknown
+        case Type.Exists(vars, in) =>
+          evaluateQuantifier(
+            vars.toList,
+            vs => checkPattern(in, pattern, vs, seen),
+            isForAll = false,
+            varState
+          )
+        case _ =>
+          pattern match {
+            case Pattern.WildCard | Pattern.Var(_) =>
+              checkType(scrutineeNorm, varState, seen)
+            case Pattern.Named(_, pat) =>
+              checkPattern(scrutineeNorm, pat, varState, seen)
+            case Pattern.Annotation(pat, tpe) =>
+              if (definitelyDisjoint(scrutineeNorm, tpe)) Uninhabited
+              else {
+                val scrState = checkType(scrutineeNorm, varState, seen)
+                lazy val annState = checkType(tpe, varState, seen)
+                lazy val patState = checkPattern(tpe, pat, varState, seen)
+
+                if (
+                  (scrState == Uninhabited) || (annState == Uninhabited) || (patState == Uninhabited)
+                ) Uninhabited
+                else if (
+                  (scrState == Inhabited) && (annState == Inhabited) &&
+                    (patState == Inhabited) && definitelySameHead(scrutineeNorm, tpe)
+                ) Inhabited
+                else Unknown
+              }
+            case Pattern.Union(head, rest) =>
+              State.orStates(
+                (head :: rest.toList).map(checkPattern(scrutineeNorm, _, varState, seen))
+              )
+            case Pattern.Literal(lit)      =>
+              if (scrutineeNorm.sameAs(Type.getTypeOf(lit))) Inhabited
+              else Uninhabited
+            case _: Pattern.StrPat =>
+              if (scrutineeNorm.sameAs(Type.StrType)) Inhabited
+              else Uninhabited
+            case lp @ Pattern.ListPat(_) =>
+              Pattern.ListPat.toPositionalStruct(lp, EmptyListCons, NonEmptyListCons) match {
+                case Right(asStruct) =>
+                  checkPattern(scrutineeNorm, asStruct, varState, seen)
+                case Left((_, suffix)) =>
+                  // Prefix-glob list patterns (for example: `*_, p1, p2`) do not
+                  // lower to a simple cons spine. We still know they require a list
+                  // scrutinee and each explicit item in the suffix to be matchable
+                  // against the list element type. We use that to prove definite
+                  // `Uninhabited` cases; otherwise we stay conservative with `Unknown`.
+                  checkType(scrutineeNorm, varState, seen) match {
+                    case Uninhabited => Uninhabited
+                    case scrState =>
+                      listElementType(scrutineeNorm) match {
+                        case None => Unknown
+                        case Some(itemType) =>
+                          val itemStates =
+                            suffix.toList.collect { case Pattern.ListPart.Item(itemPat) =>
+                              checkPattern(itemType, itemPat, varState, seen)
+                            }
+                          if (itemStates.contains(Uninhabited)) Uninhabited
+                          else if ((scrState == Inhabited) && itemStates.forall(_ == Inhabited))
+                            // We only conclude Inhabited when the scrutinee is known inhabited.
+                            Inhabited
+                          else Unknown
+                      }
                   }
               }
-          }
-        case Pattern.PositionalStruct(cons, params) =>
-          env.getConstructor(cons._1, cons._2) match {
-            case None =>
-              Unknown
-            case Some((dt, cfn)) =>
-              val (scrRoot, scrArgs) = Type.unapplyAll(scrutinee.normalize)
-              scrRoot match {
-                case tc @ Type.TyConst(_) if tc.sameAs(dt.toTypeTyConst) =>
-                  val tparams = dt.typeParams
-                  if (tparams.lengthCompare(scrArgs.length) != 0) Unknown
-                  else if (cfn.args.size != params.size) Unknown
-                  else {
-                    val paramSub: Map[Type.Var, Type] =
-                      tparams.iterator
-                        .zip(scrArgs.iterator)
-                        .map { case (v, arg) => (v: Type.Var) -> arg }
-                        .toMap
-
-                    val fieldTypes =
-                      cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
-                    evaluateQuantifier(
-                      cfn.exists.map { case (b, ka) => (b, ka.kind) },
-                      vs => {
-                        State.andStates(
-                          fieldTypes.iterator
-                            .zip(params.iterator)
-                            .map { case (fieldType, pat) =>
-                              checkPattern(fieldType, pat, vs, seen)
-                            }
-                            .toList
-                        )
-                      },
-                      isForAll = false,
-                      varState
-                    )
-                  }
-                case _: Type.TyConst =>
-                  Uninhabited
-                case _ =>
+            case Pattern.PositionalStruct(cons, params) =>
+              env.getConstructor(cons._1, cons._2) match {
+                case None =>
                   Unknown
+                case Some((dt, cfn)) =>
+                  val (scrRoot, scrArgs) = Type.unapplyAll(scrutineeNorm)
+                  scrRoot match {
+                    case tc @ Type.TyConst(_) if tc.sameAs(dt.toTypeTyConst) =>
+                      val tparams = dt.typeParams
+                      if (tparams.lengthCompare(scrArgs.length) != 0) Unknown
+                      else if (cfn.args.size != params.size) Unknown
+                      else {
+                        val paramSub: Map[Type.Var, Type] =
+                          tparams.iterator
+                            .zip(scrArgs.iterator)
+                            .map { case (v, arg) => (v: Type.Var) -> arg }
+                            .toMap
+
+                        val fieldTypes =
+                          cfn.args.map(arg => Type.substituteVar(arg.tpe, paramSub))
+                        evaluateQuantifier(
+                          cfn.exists.map { case (b, ka) => (b, ka.kind) },
+                          vs => {
+                            State.andStates(
+                              fieldTypes.iterator
+                                .zip(params.iterator)
+                                .map { case (fieldType, pat) =>
+                                  checkPattern(fieldType, pat, vs, seen)
+                                }
+                                .toList
+                            )
+                          },
+                          isForAll = false,
+                          varState
+                        )
+                      }
+                    case _: Type.TyConst =>
+                      Uninhabited
+                    case _ =>
+                      Unknown
+                  }
               }
           }
       }
+    }
   }
 }

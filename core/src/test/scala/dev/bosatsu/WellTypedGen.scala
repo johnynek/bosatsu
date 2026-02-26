@@ -327,7 +327,28 @@ object WellTypedGen {
         (accRev.reverse, other)
     }
 
+  private def allKnownCtorKinds(ctx: Ctx): Map[Type.TyConst, Kind] = {
+    val scalarKinds = baseTypes.iterator.map(_ -> Kind.Type)
+    val containerKinds = Iterator(
+      Type.OptionType -> Kind(Kind.Type.co),
+      Type.ListType -> Kind(Kind.Type.co),
+      Type.DictType -> Kind(Kind.Type.in, Kind.Type.co)
+    )
+    val localKinds = ctx.localTypeCtors.iterator.map(sig => sig.tpe -> sig.kind)
+    (scalarKinds ++ containerKinds ++ Type.FnType.FnKinds.iterator ++ Type.Tuple.Kinds.iterator ++ localKinds).toMap
+  }
+
+  private def kindSubsumes(
+      ctx: Ctx,
+      expected: Kind,
+      candidate: Type
+  ): Boolean = {
+    val kindOf = Type.kindOfOption(allKnownCtorKinds(ctx).get)
+    kindOf(candidate).exists(actual => Kind.leftSubsumesRight(expected, actual))
+  }
+
   private def instantiatedFnArgsForGoal(
+      ctx: Ctx,
       sigma: Type,
       goal: Type
   ): Option[List[Type]] = {
@@ -339,7 +360,10 @@ object WellTypedGen {
         } else {
           val vars = bounds.iterator.map(_._1).toSet
           mapTemplateVars(vars, res, goal).flatMap { sub =>
-            if (sub.size != bounds.size) None
+            val kindsOk = bounds.forall { case (b, kind) =>
+              sub.get(b).exists(kindSubsumes(ctx, kind, _))
+            }
+            if (sub.size != bounds.size || !kindsOk) None
             else {
               val env: Map[Type.Var, Type] =
                 sub.iterator.map { case (b, tpe) =>
@@ -803,7 +827,7 @@ object WellTypedGen {
       if (depth <= 1 || isFunctionType(goal)) Vector.empty
       else ctx.vals.toVector.take(12)
     val byApplyCandidates = applyFns.flatMap { fn =>
-      instantiatedFnArgsForGoal(fn.sigma, goal).toVector.flatMap { args =>
+      instantiatedFnArgsForGoal(ctx, fn.sigma, goal).toVector.flatMap { args =>
         args
           .traverse(t => genExpr(ctx, t, applyArgDepth, cfg))
           .map { argExprGens =>

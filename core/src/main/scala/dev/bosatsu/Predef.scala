@@ -461,10 +461,101 @@ object PredefImpl {
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
   val emptyArray: Value = ExternalValue(EmptyArrayRepr)
 
-  private def i(a: Value): BigInteger =
+  private val MinIntLong = Int.MinValue.toLong
+  private val MaxIntLong = Int.MaxValue.toLong
+
+  private def intValue(i: Int): java.lang.Integer =
+    java.lang.Integer.valueOf(i)
+
+  private def intRaw(a: Value): Value.BosatsuInt =
     a match {
-      case VInt(bi) => bi
-      case _        => sys.error(s"expected integer: $a")
+      case ExternalValue(v: java.lang.Integer) => v
+      case ExternalValue(v: BigInteger)        => v
+      case _                                   => sys.error(s"expected integer: $a")
+    }
+
+  private def intFromBigInteger(bi: BigInteger): Value.BosatsuInt =
+    Value.intFromBigInteger(bi)
+
+  private def i(a: Value): BigInteger =
+    Value.intToBigInteger(intRaw(a))
+
+  private def addInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val sum = aiL + biL
+        if (sum >= MinIntLong && sum <= MaxIntLong) intValue(sum.toInt)
+        else BigInteger.valueOf(aiL).add(BigInteger.valueOf(biL))
+      case _ =>
+        intFromBigInteger(Value.intToBigInteger(a).add(Value.intToBigInteger(b)))
+    }
+
+  private def subInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val diff = aiL - biL
+        if (diff >= MinIntLong && diff <= MaxIntLong) intValue(diff.toInt)
+        else BigInteger.valueOf(aiL).subtract(
+            BigInteger.valueOf(biL)
+          )
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).subtract(Value.intToBigInteger(b))
+        )
+    }
+
+  private def mulInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val prod = aiL * biL
+        if (prod >= MinIntLong && prod <= MaxIntLong) intValue(prod.toInt)
+        else BigInteger.valueOf(aiL).multiply(
+            BigInteger.valueOf(biL)
+          )
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).multiply(Value.intToBigInteger(b))
+        )
+    }
+
+  private def andInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() & bi.intValue())
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).and(Value.intToBigInteger(b))
+        )
+    }
+
+  private def orInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() | bi.intValue())
+      case _ =>
+        intFromBigInteger(Value.intToBigInteger(a).or(Value.intToBigInteger(b)))
+    }
+
+  private def xorInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() ^ bi.intValue())
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).xor(Value.intToBigInteger(b))
+        )
+    }
+
+  private def notInt(a: Value.BosatsuInt): Value.BosatsuInt =
+    a match {
+      case ai: java.lang.Integer => intValue(~ai.intValue())
+      case _                     => intFromBigInteger(Value.intToBigInteger(a).not())
     }
 
   private def d(a: Value): Double =
@@ -585,7 +676,7 @@ object PredefImpl {
     }
 
   def add(a: Value, b: Value): Value =
-    VInt(i(a).add(i(b)))
+    ExternalValue(addInt(intRaw(a), intRaw(b)))
 
   def addf(a: Value, b: Value): Value =
     vf(d(a) + d(b))
@@ -623,23 +714,22 @@ object PredefImpl {
     vf(d(a) / d(b))
 
   def sub(a: Value, b: Value): Value =
-    VInt(i(a).subtract(i(b)))
+    ExternalValue(subInt(intRaw(a), intRaw(b)))
 
   def subf(a: Value, b: Value): Value =
     vf(d(a) - d(b))
 
   def mul(a: Value, b: Value): Value =
-    VInt(i(a).multiply(i(b)))
+    ExternalValue(mulInt(intRaw(a), intRaw(b)))
 
   def timesf(a: Value, b: Value): Value =
     vf(d(a) * d(b))
 
   def eq_Int(a: Value, b: Value): Value =
-    // since we have already typechecked, standard equals works
-    if (a == b) True else False
+    if (Value.intEq(intRaw(a), intRaw(b))) True else False
 
   def cmp_Int(a: Value, b: Value): Value =
-    Comparison.fromInt(i(a).compareTo(i(b)))
+    Comparison.fromInt(Value.intCompare(intRaw(a), intRaw(b)))
 
   def cmp_Float64(a: Value, b: Value): Value =
     Comparison.fromInt(compareFloat64Total(d(a), d(b)))
@@ -702,7 +792,10 @@ object PredefImpl {
     else Value.VOption.none
   }
   def int_to_Float64(a: Value): Value =
-    vf(i(a).doubleValue())
+    intRaw(a) match {
+      case i: java.lang.Integer => vf(i.doubleValue())
+      case bi: BigInteger       => vf(bi.doubleValue())
+    }
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))
@@ -1998,16 +2091,16 @@ object PredefImpl {
     VInt(shiftLeft(i(a), i(b)))
 
   def and_Int(a: Value, b: Value): Value =
-    VInt(i(a).and(i(b)))
+    ExternalValue(andInt(intRaw(a), intRaw(b)))
 
   def or_Int(a: Value, b: Value): Value =
-    VInt(i(a).or(i(b)))
+    ExternalValue(orInt(intRaw(a), intRaw(b)))
 
   def xor_Int(a: Value, b: Value): Value =
-    VInt(i(a).xor(i(b)))
+    ExternalValue(xorInt(intRaw(a), intRaw(b)))
 
   def not_Int(a: Value): Value =
-    VInt(i(a).not())
+    ExternalValue(notInt(intRaw(a)))
 
   private def toIntExactIfRepresentable(v: BigInteger): Option[Int] = {
     val minInt = BigInteger.valueOf(Int.MinValue.toLong)
@@ -2074,7 +2167,7 @@ object PredefImpl {
   }
 
   def size_Array(array: Value): Value =
-    VInt(BigInt(asArray(array).len))
+    VInt(asArray(array).len)
 
   def get_map_Array(
       array: Value,
@@ -2249,7 +2342,10 @@ object PredefImpl {
   }
 
   final def int_to_String(intValue: Value): Value =
-    Value.Str(i(intValue).toString)
+    intRaw(intValue) match {
+      case i: java.lang.Integer => Value.Str(i.toString)
+      case bi: BigInteger       => Value.Str(bi.toString)
+    }
 
   final def string_to_Int(strValue: Value): Value = {
     val str = strValue match {

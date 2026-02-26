@@ -49,6 +49,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
+              case ExternalValue(v: java.lang.Integer) =>
+                Right(Doc.str(v))
               case ExternalValue(v: BigInteger) =>
                 Right(Doc.str(v))
               case other =>

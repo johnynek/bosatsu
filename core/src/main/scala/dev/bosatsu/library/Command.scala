@@ -1296,7 +1296,7 @@ object Command {
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.NoOptimize
+                CompileOptions.TypeCheckOnly
               )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
@@ -1537,25 +1537,41 @@ object Command {
 
       val input: Opts[JsonInput] =
         Opts
-          .option[P]("json_input", help = "json input path")
+          .option[P](
+            "json_input",
+            help = "json input path (JSON only; --yaml changes output format only)"
+          )
           .map(JsonInput.FromPath(_))
           .orElse(
             Opts
-              .option[String]("json_string", help = "json string argument")
+              .option[String](
+                "json_string",
+                help = "json string argument (JSON only; --yaml changes output format only)"
+              )
               .map(JsonInput.FromString(_))
           )
 
       val applyInput = input.map(JsonMode.Apply(_))
       val traverseInput = input.map(JsonMode.Traverse(_))
 
+      def outputFor(json: Json, yamlOut: Boolean, output: Option[P]): Output[P] =
+        if (yamlOut) Output.Basic(Json.toYamlDoc(json), output)
+        else Output.JsonOutput(json, output)
+
       def runMode(modeOpt: Opts[JsonMode]): Opts[F[Output[P]]] =
         (
           ConfigConf.opts,
           modeOpt,
+          Opts
+            .flag(
+              "yaml",
+              help = "emit YAML output; --json_input and --json_string remain JSON-only"
+            )
+            .orFalse,
           mainOpt,
           outputOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, mode, target, output, colorize) =>
+        ).mapN { (fcc, mode, yamlOut, target, output, colorize) =>
           def showError[A](prefix: String, str: String, idx: Int): F[A] = {
             val errMsg0 = str.substring(idx + 1)
             val errMsg =
@@ -1659,7 +1675,7 @@ object Command {
                           // $COVERAGE-ON$
                           case Right(j) =>
                             moduleIOMonad.pure(
-                              Output.JsonOutput(j, output): Output[P]
+                              outputFor(j, yamlOut, output): Output[P]
                             )
                         }
                     }
@@ -1699,7 +1715,7 @@ object Command {
                                     )
                                   )
                               }
-                              .map(j => Output.JsonOutput(j, output): Output[P])
+                              .map(j => outputFor(j, yamlOut, output): Output[P])
                         }
                     }
 
@@ -1748,8 +1764,9 @@ object Command {
                                   )
                               }
                               .map(v =>
-                                Output.JsonOutput(
+                                outputFor(
                                   Json.JArray(v.toVector),
+                                  yamlOut,
                                   output
                                 ): Output[P]
                               )

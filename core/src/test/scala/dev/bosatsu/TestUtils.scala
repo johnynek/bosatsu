@@ -121,6 +121,75 @@ object TestUtils {
     }
   }
 
+  def checkEnvExpr[A](
+      statement: String
+  )(
+      fn: (
+          TypeEnv[Kind.Arg],
+          List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]
+      ) => A
+  ): A = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val sourceConverted =
+      SourceConverter.toProgram(testPackage, Nil, stmts) match {
+        case Ior.Right(prog)   => prog
+        case Ior.Both(_, prog) => prog
+        case Ior.Left(errs)    =>
+          fail(s"source conversion failed: ${errs.toList.mkString(", ")}")
+      }
+
+    val Program((importedTypeEnv, parsedTypeEnv0), lets, _, _) = sourceConverted
+    val parsedTypeEnv =
+      KindFormula
+        .solveShapesAndKinds(
+          importedTypeEnv,
+          parsedTypeEnv0.allDefinedTypes.reverse
+        ) match {
+        case Ior.Right(inferred)   =>
+          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+        case Ior.Both(_, inferred) =>
+          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+        case Ior.Left(errs)        =>
+          fail(s"kind inference failed: ${errs.toList.mkString(", ")}")
+      }
+
+    val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
+    val fullTypeEnv = importedTypeEnv ++ typeEnv
+    val withFqn = fullTypeEnv.referencedPackages.iterator.flatMap { p =>
+      fullTypeEnv.localValuesOf(p).iterator.map { case (n, t) =>
+        ((Option(p), n), t)
+      }
+    }
+      .toMap
+
+    val extDefRegions: Map[Identifier.Bindable, Region] =
+      stmts.iterator.collect { case ed: Statement.ExternalDef =>
+        ed.name -> ed.region
+      }.toMap
+    val theseExternals =
+      parsedTypeEnv.externalDefs.collect {
+        case (pack, b, t) if pack == testPackage =>
+          val region = extDefRegions.getOrElse(b, Region(0, 1))
+          (b, (t, region))
+      }.toMap
+
+    val typedLetsEither =
+      Infer
+        .typeCheckLets(testPackage, lets, theseExternals)
+        .runFully(
+          withFqn,
+          importedTypeEnv.typeConstructors ++ typeEnv.typeConstructors,
+          fullTypeEnv.toKindMap
+        )
+    val typedLets =
+      typedLetsEither.fold(
+        err => fail(s"type inference failed: $err"),
+        identity
+      )
+
+    fn(fullTypeEnv, typedLets)
+  }
+
   def checkPackageMap[A](
       statement: String
   )(
