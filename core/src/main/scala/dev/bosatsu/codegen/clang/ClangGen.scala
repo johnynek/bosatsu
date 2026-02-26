@@ -753,8 +753,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   Nil,
                   None,
                   named,
-                  applyArgs(makeEnum, named.map(Local(_)))
-                )
+                  applyArgs(makeEnum, named.map(Local(_)(makeEnum.sourceInfo)))
+                )(makeEnum.sourceInfo)
               )
             }
           case MakeStruct(arity) =>
@@ -777,8 +777,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 Nil,
                 None,
                 NonEmptyList.one(arg),
-                applyArgs(SuccNat, NonEmptyList.one(Local(arg)))
-              )
+                applyArgs(SuccNat, NonEmptyList.one(Local(arg)(SuccNat.sourceInfo)))
+              )(SuccNat.sourceInfo)
             )
           case PrevNat(of) =>
             innerToValue(of).flatMap { argVL =>
