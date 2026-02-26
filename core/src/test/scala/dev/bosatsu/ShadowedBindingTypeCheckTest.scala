@@ -127,8 +127,8 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     )
   }
 
-  test("let shadowing lambda argument with a different type is allowed") {
-    positiveCheck(
+  test("let shadowing lambda argument with a different type fails") {
+    negativeCheck(
       """
       enum I: One, Two
 
@@ -140,7 +140,13 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         fn(One)
       )
       """
-    )
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("x"))
+      assertEquals(err.current.site, BindingSite.LetBinding)
+      assert(msg.contains("shadowed binding `x` changes type."), msg)
+      assert(msg.contains("previous type: I"), msg)
+      assert(msg.contains("current type: String"), msg)
+    }
   }
 
   test("match pattern binder shadow different type fails") {
@@ -164,8 +170,8 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     }
   }
 
-  test("pattern binding can shadow a lambda arg with a different type") {
-    positiveCheck(
+  test("pattern binding cannot shadow a lambda arg with a different type") {
+    negativeCheck(
       """
       struct Tup(a, b)
       enum Either[a]: Left(a: a), Right(a: a)
@@ -180,11 +186,15 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
 
       main = 1
       """
-    )
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("e"))
+      assertEquals(err.current.site, BindingSite.PatternBinding)
+      assert(msg.contains("shadowed binding `e` changes type."), msg)
+    }
   }
 
-  test("nested pattern binding can reuse the outer argument name with a new type") {
-    positiveCheck(
+  test("nested pattern binding cannot reuse the outer argument name with a new type") {
+    negativeCheck(
       """
       struct Box[x: *](a: x)
       struct One
@@ -198,7 +208,11 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
 
       main = process(y)
       """
-    )
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("o"))
+      assertEquals(err.current.site, BindingSite.PatternBinding)
+      assert(msg.contains("shadowed binding `o` changes type."), msg)
+    }
   }
 
   test("nested lambda args can shadow outer lambda args with different types") {
@@ -226,6 +240,75 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
           `&`(1, 2)
         )
         outer(Tup(1, 2), Tup(3, 4))
+      )
+      """
+    )
+  }
+
+  // Lint-only policy note:
+  // For an unannotated `def keep(x): ...`, the parameter `x` starts as a free type
+  // variable during inference. Rebinding `x` in the body should be lint-illegal in
+  // both cases below (`x = 2` and `x = "two"`), even if call sites later constrain
+  // the function to an apparently matching concrete type.
+  test("let shadowing def parameter with same-looking type still fails") {
+    negativeCheck(
+      """
+      def keep(x):
+        x = 2
+        x
+
+      main = keep(1)
+      """
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("x"))
+      assertEquals(err.current.site, BindingSite.LetBinding)
+      assert(msg.contains("shadowed binding `x` changes type."), msg)
+    }
+  }
+
+  test("let shadowing def parameter with a different type fails") {
+    negativeCheck(
+      """
+      def keep(x):
+        x = "two"
+        x
+
+      main = keep(1)
+      """
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("x"))
+      assertEquals(err.current.site, BindingSite.LetBinding)
+      assert(msg.contains("shadowed binding `x` changes type."), msg)
+      assert(msg.contains("previous type: Int"), msg)
+      assert(msg.contains("current type: String"), msg)
+    }
+  }
+
+  test("pattern binding shadowing def parameter with a different type fails") {
+    negativeCheck(
+      """
+      struct Tup(a, b)
+
+      def proj(x):
+        match x:
+          case Tup(x, _): x
+
+      main = proj(Tup(1, 2))
+      """
+    ) { (err, msg) =>
+      assertEquals(err.name, bindable("x"))
+      assertEquals(err.current.site, BindingSite.PatternBinding)
+      assert(msg.contains("shadowed binding `x` changes type."), msg)
+    }
+  }
+
+  test("def parameter can shadow an outer local with a different type") {
+    positiveCheck(
+      """
+      main = (
+        x = 1
+        def render(x): x
+        render("ok")
       )
       """
     )
