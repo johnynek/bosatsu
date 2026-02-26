@@ -210,8 +210,11 @@ object TestUtils {
         val normalized =
           normalizeWithRewriteValidation(testPackage, fullTypeEnv, program)
         normalized.lets.foreach { case (_, _, te) => assertValid(te) }
+        val normalizedWithMetadata = normalized.copy(
+          from = Package.TypedMetadata(normalized.from, None)
+        )
         val pack: Package.Typed[Declaration] =
-          Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
+          Package(testPackage, Nil, Nil, (normalizedWithMetadata, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
           PackageMap.empty + pack + PackageMap.predefCompiled
         assertPackageMapTypeConnections(pm, "optimized")

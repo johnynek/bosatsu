@@ -119,7 +119,7 @@ object PackageMap {
         Program[
           TypeEnv[Kind.Arg],
           TypedExpr[T],
-          Any
+          Package.TypedMetadata
         ],
         ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
     )

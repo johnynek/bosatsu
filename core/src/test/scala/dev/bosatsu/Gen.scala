@@ -1766,11 +1766,16 @@ object Generators {
     def genProg(
         pn: PackageName,
         imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]]
-    ): Gen[Program[rankn.TypeEnv[Kind.Arg], TypedExpr[A], Any]] =
+    ): Gen[Program[
+      rankn.TypeEnv[Kind.Arg],
+      TypedExpr[A],
+      Package.TypedMetadata
+    ]] =
       genTypeEnv(pn, imps)
         .runS((rankn.TypeEnv.empty, Set.empty))
         .flatMap { case (te, b) =>
-          genLets(te, b).map(Program(te, _, b.toList.sorted, ()))
+          genLets(te, b)
+            .map(Program(te, _, b.toList.sorted, Package.TypedMetadata((), None)))
         }
 
     /*
@@ -1778,7 +1783,11 @@ object Generators {
      */
     def genExports(
         pn: PackageName,
-        p: Program[rankn.TypeEnv[Kind.Arg], TypedExpr[A], Any]
+        p: Program[
+          rankn.TypeEnv[Kind.Arg],
+          TypedExpr[A],
+          Package.TypedMetadata
+        ]
     ): Gen[List[ExportedName[Referant[Kind.Arg]]]] = {
       def expnames: List[ExportedName[Referant[Kind.Arg]]] =
         p.lets.map { case (n, _, te) =>

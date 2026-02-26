@@ -6,7 +6,6 @@ import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
-import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeEnv}
 import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
@@ -71,14 +70,36 @@ object ProtoConverter {
     def toRegion(tag: A): Option[Region]
   }
   object TagToRegion extends LowPriorityTagToRegion {
-    given tagToRegionAny: TagToRegion[Any] with {
-      def toRegion(tag: Any): Option[Region] =
-        tag match {
-          case r: Region        => Some(r)
-          case Some(r: Region) => Some(r)
-          case d: Declaration   => Some(d.region)
-          case _                => None
-        }
+    given tagToRegionRegion: TagToRegion[Region] with {
+      def toRegion(tag: Region): Option[Region] = Some(tag)
+    }
+
+    given tagToRegionDeclaration: TagToRegion[Declaration] with {
+      def toRegion(tag: Declaration): Option[Region] = Some(tag.region)
+    }
+
+    given tagToRegionOption[A](using
+        tr: TagToRegion[A]
+    ): TagToRegion[Option[A]] with {
+      def toRegion(tag: Option[A]): Option[Region] =
+        tag.flatMap(tr.toRegion)
+    }
+
+    given tagToRegionTuple2[A, B](using
+        ta: TagToRegion[A],
+        tb: TagToRegion[B]
+    ): TagToRegion[(A, B)] with {
+      def toRegion(tag: (A, B)): Option[Region] =
+        ta.toRegion(tag._1).orElse(tb.toRegion(tag._2))
+    }
+
+    given tagToRegionTuple3[A, B, C](using
+        ta: TagToRegion[A],
+        tb: TagToRegion[B],
+        tc: TagToRegion[C]
+    ): TagToRegion[(A, B, C)] with {
+      def toRegion(tag: (A, B, C)): Option[Region] =
+        ta.toRegion(tag._1).orElse(tb.toRegion(tag._2)).orElse(tc.toRegion(tag._3))
     }
 
     given hasRegionTagToRegion[A](using hr: HasRegion[A]): TagToRegion[A] with {
@@ -1816,15 +1837,13 @@ object ProtoConverter {
       ident: String,
       context: => String
   ): Try[String] =
-    Algo.parseIdent.parseAll(ident) match {
-      case Right(_)  => Success(ident)
-      case Left(err) =>
-        Failure(
-          new Exception(
-            s"invalid package source hash ident $ident in $context: $err"
-          )
+    if (Package.sourceHashFromIdent(ident).isDefined) Success(ident)
+    else
+      Failure(
+        new Exception(
+          s"invalid package source hash ident $ident in $context"
         )
-    }
+      )
 
   def toBindable(str: String): Try[Bindable] =
     tryParse(Identifier.bindableWithSynthetic, str)
@@ -1907,7 +1926,7 @@ object ProtoConverter {
       pack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[Any])],
       exts: List[(Bindable, Type)]
-  ): DTab[Program[TypeEnv[Kind.Arg], TypedExpr[Any], Any]] =
+  ): DTab[Program[TypeEnv[Kind.Arg], TypedExpr[Any], Package.TypedMetadata]] =
     ReaderT
       .ask[Try, DecodeState]
       .map { ds =>
@@ -1919,7 +1938,7 @@ object ProtoConverter {
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
           te.addExternalValue(pack, b, t)
         }
-        Program(te, lets, exts.map(_._1), ())
+        Program(te, lets, exts.map(_._1), Package.TypedMetadata((), None))
       }
 
   def iname(p: proto.Interface): String =

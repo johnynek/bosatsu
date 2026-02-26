@@ -128,7 +128,7 @@ object Package {
     ]
 
   type TypedProgram[T] = (
-      Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+      Program[TypeEnv[Kind.Arg], TypedExpr[T], TypedMetadata],
       ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
   )
   type Typed[T] = Package[
@@ -141,14 +141,37 @@ object Package {
   ]
   type Inferred = Typed[Declaration]
 
-  /** Optional metadata attached to implementation packages.
-    * We keep the original Program#from payload for existing tooling and add
-    * package-level provenance needed by coverage.
+  trait HashSourceHash[A] {
+    def sourceHash(from: A): Option[HashValue[Algo.Blake3]]
+    def withSourceHash(
+        from: A,
+        sourceHash: Option[HashValue[Algo.Blake3]]
+    ): A
+  }
+
+  object HashSourceHash {
+    def apply[A](using hsh: HashSourceHash[A]): HashSourceHash[A] = hsh
+  }
+
+  /** Metadata attached to implementation packages.
+    * `originalFrom` keeps the previous `Program#from` payload for tooling that
+    * needs source statements, while `sourceHash` stores package provenance.
     */
   final case class TypedMetadata(
       originalFrom: Any,
-      sourceHashIdent: Option[String]
+      sourceHash: Option[HashValue[Algo.Blake3]]
   )
+
+  given typedMetadataHashSourceHash: HashSourceHash[TypedMetadata] with {
+    def sourceHash(from: TypedMetadata): Option[HashValue[Algo.Blake3]] =
+      from.sourceHash
+
+    def withSourceHash(
+        from: TypedMetadata,
+        sourceHash: Option[HashValue[Algo.Blake3]]
+    ): TypedMetadata =
+      from.copy(sourceHash = sourceHash)
+  }
 
   private lazy val predefSourceHashValue: HashValue[Algo.Blake3] =
     Algo.hashBytes[Algo.Blake3](Predef.predefString.getBytes("UTF-8"))
@@ -247,25 +270,17 @@ object Package {
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
   def sourceHashIdentOf[A](inferred: Typed[A]): Option[String] =
-    inferred.program._1.from match {
-      case TypedMetadata(_, sourceHashIdent) => sourceHashIdent
-      case _                                 => None
-    }
+    sourceHashOf(inferred).map(_.toIdent)
 
   def sourceHashFromIdent(ident: String): Option[HashValue[Algo.Blake3]] =
-    ident.stripPrefix(s"${Algo.blake3Algo.name}:") match {
-      case hex
-          if (hex.length == Algo.blake3Algo.hexLen) &&
-            hex.forall(ch =>
-              (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
-            ) =>
-        Some(HashValue[Algo.Blake3](hex))
-      case _ =>
-        None
-    }
+    Algo
+      .parseHashValue(Algo.blake3Algo)
+      .parseAll(ident)
+      .toOption
+      .map(parsed => HashValue[Algo.Blake3](parsed.value.hex))
 
   def sourceHashOf[A](inferred: Typed[A]): Option[HashValue[Algo.Blake3]] =
-    sourceHashIdentOf(inferred).flatMap(sourceHashFromIdent)
+    HashSourceHash[TypedMetadata].sourceHash(inferred.program._1.from)
 
   def predefSourceHash: HashValue[Algo.Blake3] =
     predefSourceHashValue
@@ -273,29 +288,28 @@ object Package {
   def withSourceHashIdent[A](
       inferred: Typed[A],
       sourceHashIdent: Option[String]
-  ): Typed[A] = {
-    val prog = inferred.program._1
-    val originalFrom = prog.from match {
-      case TypedMetadata(from, _) => from
-      case other                  => other
-    }
-    val nextFrom =
-      sourceHashIdent match {
-        case Some(_) => TypedMetadata(originalFrom, sourceHashIdent)
-        case None    => originalFrom
-      }
-
-    inferred.copy(program = (prog.copy(from = nextFrom), inferred.program._2))
-  }
+  ): Typed[A] =
+    withSourceHash(inferred, sourceHashIdent.flatMap(sourceHashFromIdent))
 
   def withSourceHash[A](
       inferred: Typed[A],
       sourceHash: Option[HashValue[Algo.Blake3]]
-  ): Typed[A] =
-    withSourceHashIdent(inferred, sourceHash.map(_.toIdent))
+  ): Typed[A] = {
+    val prog = inferred.program._1
+    val nextFrom = HashSourceHash[TypedMetadata].withSourceHash(
+      prog.from,
+      sourceHash
+    )
+    inferred.copy(program = (prog.copy(from = nextFrom), inferred.program._2))
+  }
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
-    t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
+    t.copy(program = (
+      t.program._1.copy(
+        from = t.program._1.from.copy(originalFrom = newFrom)
+      ),
+      t.program._2
+    ))
 
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =
