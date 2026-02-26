@@ -3023,14 +3023,100 @@ tests = TestSuite("array eval", [
     )
   }
 
-  test("prog and io/std externals evaluate and run recursively") {
-    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
-    val ioErrorPack =
-      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
-    val ioStdPack =
-      Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
+  test("bytes externals evaluate") {
+    runBosatsuTest(
+      List(
+        """
+package Bosatsu/Collection/Array
 
-    val progRunPack = """
+export (
+  Array,
+  from_List_Array,
+  to_List_Array,
+)
+
+external struct Array[a: +*]
+
+external def from_List_Array[a](xs: List[a]) -> Array[a]
+external def to_List_Array[a](ary: Array[a]) -> List[a]
+""",
+        """
+package Bosatsu/IO/Bytes
+
+from Bosatsu/Collection/Array import Array, from_List_Array, to_List_Array
+
+external struct Bytes
+
+external empty_Bytes: Bytes
+external def from_List_Int(ints: List[Int]) -> Bytes
+external def from_Array_Int(ints: Array[Int]) -> Bytes
+external def to_List_Int(bytes: Bytes) -> List[Int]
+external def to_Array_Int(bytes: Bytes) -> Array[Int]
+external def size_Bytes(bytes: Bytes) -> Int
+external def get_map_Bytes[a](bytes: Bytes, idx: Int, default: Unit -> a, fn: Int -> a) -> a
+external def get_or_Bytes(bytes: Bytes, idx: Int, default: Unit -> Int) -> Int
+external def foldl_Bytes[a](bytes: Bytes, init: a, fn: (a, Int) -> a) -> a
+external def concat_all_Bytes(chunks: List[Bytes]) -> Bytes
+external def slice_Bytes(bytes: Bytes, start: Int, end: Int) -> Bytes
+external def starts_with_Bytes(bytes: Bytes, prefix: Bytes) -> Bool
+external def ends_with_Bytes(bytes: Bytes, suffix: Bytes) -> Bool
+external def find_Bytes(bytes: Bytes, needle: Bytes, start: Int) -> Int
+
+def get_Bytes(bytes: Bytes, idx: Int) -> Option[Int]:
+  get_map_Bytes(bytes, idx, _ -> None, x -> Some(x))
+
+b = from_List_Int([-1, 0, 1, 255, 256, 257])
+
+tests = TestSuite("bytes eval", [
+  Assertion(to_List_Int(b) matches [255, 0, 1, 255, 0, 1], "normalize"),
+  Assertion(to_List_Array(to_Array_Int(b)) matches [255, 0, 1, 255, 0, 1], "to array"),
+  Assertion(size_Bytes(b) matches 6, "size"),
+  Assertion(get_Bytes(b, 1) matches Some(0), "get some"),
+  Assertion(get_Bytes(b, 6) matches None, "get none"),
+  Assertion(get_or_Bytes(b, 100, _ -> 7) matches 7, "get_or"),
+  Assertion(foldl_Bytes(b, 0, add) matches 512, "foldl"),
+  Assertion(to_List_Int(slice_Bytes(b, 1, 4)) matches [0, 1, 255], "slice"),
+  Assertion(starts_with_Bytes(b, from_List_Int([255, 0])), "starts_with"),
+  Assertion(ends_with_Bytes(b, from_List_Int([0, 1])), "ends_with"),
+  Assertion(find_Bytes(b, from_List_Int([1, 255]), 0) matches 2, "find"),
+  Assertion(find_Bytes(b, from_List_Int([]), -3) matches 0, "find empty"),
+  Assertion(
+    to_List_Int(concat_all_Bytes([from_List_Int([1]), from_List_Int([2, 3]), empty_Bytes])) matches [1, 2, 3],
+    "concat"
+  ),
+  Assertion(
+    to_List_Int(from_Array_Int(from_List_Array([511, -1, 0, 1]))) matches [255, 255, 0, 1],
+    "from array"
+  ),
+])
+"""
+      ),
+      "Bosatsu/IO/Bytes",
+      14
+    )
+  }
+
+  if (Platform.isScalaJvm)
+    test("prog and io/std externals evaluate and run recursively") {
+      val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+      val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      val ioErrorPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+      val bytesPack = """
+package Bosatsu/IO/Bytes
+
+export (
+  Bytes,
+)
+
+external struct Bytes
+"""
+      val ioCorePack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+      val ioStdPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Std.bosatsu")
+
+      val progRunPack = """
 package ProgRun
 
 from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
@@ -3062,36 +3148,44 @@ main = Main(args -> (
 )
 """
 
-    testInferred(
-      List(progPack, ioErrorPack, ioStdPack, progRunPack),
-      "ProgRun",
-      { (pm, mainPack) =>
-        val ev =
-          library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
-        val (mainEval, _) =
-          ev.evaluateMainValue(mainPack)
-            .fold(err => fail(err.toString), identity)
+      testInferred(
+        List(
+          progPack,
+          charPack,
+          ioErrorPack,
+          bytesPack,
+          ioCorePack,
+          ioStdPack,
+          progRunPack
+        ),
+        "ProgRun",
+        { (pm, mainPack) =>
+          val ev =
+            library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+          val (mainEval, _) =
+            ev.evaluateMainValue(mainPack)
+              .fold(err => fail(err.toString), identity)
 
-        val run =
-          PredefImpl.runProgMain(
-            mainEval.value,
-            List("one", "two"),
-            "\u00E9xyz"
+          val run =
+            PredefImpl.runProgMain(
+              mainEval.value,
+              List("one", "two"),
+              "\u00E9xyz"
+            )
+
+          run.result match {
+            case Right(VInt(i)) => assertEquals(i.intValue, 0)
+            case other          => fail(s"unexpected prog result: $other")
+          }
+
+          assertEquals(
+            run.stdout,
+            "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
           )
-
-        run.result match {
-          case Right(VInt(i)) => assertEquals(i.intValue, 0)
-          case other          => fail(s"unexpected prog result: $other")
+          assertEquals(run.stderr, "args=2\n")
         }
-
-        assertEquals(
-          run.stdout,
-          "start|stdin=\u00E9|bad=<bad>\nsum=50005000\n"
-        )
-        assertEquals(run.stderr, "args=2\n")
-      }
-    )
-  }
+      )
+    }
 
   test(
     "default-backed constructor calls work across package boundaries with partial fields and stable record-field order"

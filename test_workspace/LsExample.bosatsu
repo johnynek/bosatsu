@@ -1,0 +1,78 @@
+package Bosatsu/LsExample
+
+from Bosatsu/Prog import Prog, Main, pure, await
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  Path,
+  Duration,
+  FileKind,
+  FileStat,
+  File,
+  Dir,
+  Symlink,
+  Other,
+  string_to_Path,
+  path_to_String,
+  duration_to_nanos,
+  list_dir,
+  stat,
+  now_mono,
+)
+from Bosatsu/IO/Std import println, show_error
+
+def list_size(items: List[a], acc: Int) -> Int:
+  recur items:
+    case []: acc
+    case [_, *tail]: list_size(tail, add(acc, 1))
+
+def file_kind_to_String(kind: FileKind) -> String:
+  match kind:
+    case File: "file"
+    case Dir: "dir"
+    case Symlink: "symlink"
+    case Other: "other"
+
+def render_file_stat(path: Path, fs: FileStat) -> String:
+  FileStat { kind, size_bytes, mtime: _ } = fs
+  "[${file_kind_to_String(kind)}] ${path_to_String(path)} (${int_to_String(size_bytes)} bytes)"
+
+def render_entry(path: Path) -> Prog[IOError, String]:
+  stat(path).await(result ->
+    match result:
+      case Some(fs): pure(render_file_stat(path, fs))
+      case None: pure("[missing] ${path_to_String(path)}")
+  )
+
+def print_entries(paths: List[Path]) -> Prog[IOError, Unit]:
+  recur paths:
+    case []: pure(())
+    case [head, *tail]:
+      (
+        line <- render_entry(head).await()
+        _ <- println(line).await()
+        print_entries(tail)
+      )
+
+def elapsed_nanos(start: Duration, end: Duration) -> Int:
+  duration_to_nanos(end).sub(duration_to_nanos(start))
+
+run_ls: Prog[IOError, Unit] =
+  match string_to_Path("."):
+    case None:
+      println("could not parse current directory path")
+    case Some(current_dir):
+      (
+        start <- now_mono.await()
+        entries <- list_dir(current_dir).await()
+        _ <- println("listing ${path_to_String(current_dir)}").await()
+        _ <- print_entries(entries).await()
+        end <- now_mono.await()
+        elapsed = elapsed_nanos(start, end)
+        count = list_size(entries, 0)
+        println("listed ${int_to_String(count)} entries in ${int_to_String(elapsed)} ns")
+      )
+
+main = Main(_ -> show_error((
+  _ <- run_ls.await()
+  pure(0)
+), 1))

@@ -4,6 +4,7 @@ from Bosatsu/Json import Optional, Missing, Set
 
 export (
   action_cache,
+  action_cache_v4,
   action_codecov,
   action_checkout_v2,
   action_checkout_v4,
@@ -49,6 +50,7 @@ export (
   checkout_v2_step,
   checkout_v4_step,
   cache_step,
+  sbt_cache_fetch_step,
   setup_sbt_step,
   setup_sbt_title_step,
   setup_java_step,
@@ -106,10 +108,13 @@ struct FetchJavaWith(
   `fetch-depth`: Optional[Int] = Missing,
   distribution: Optional[String] = Missing,
   `java-version`: Optional[String] = Missing,
+  `python-version`: Optional[String] = Missing,
   token: Optional[String] = Missing,
   override_branch: Optional[String] = Missing,
   name: Optional[String] = Missing,
   path: Optional[String] = Missing,
+  key: Optional[String] = Missing,
+  `restore-keys`: Optional[String] = Missing,
 )
 
 struct JavaStrategyMatrix(java: List[String])
@@ -123,6 +128,7 @@ runner_macos_14 = "macos-14"
 action_checkout_v2 = "actions/checkout@v2.1.0"
 action_checkout_v4 = "actions/checkout@v4"
 action_cache = "coursier/cache-action@v6"
+action_cache_v4 = "actions/cache@v4"
 action_codecov = "codecov/codecov-action@v5"
 action_setup_java = "actions/setup-java@v5"
 action_setup_sbt = "sbt/setup-sbt@v1"
@@ -155,19 +161,19 @@ timeout_minutes_default = 30
 java_strategy_17 = JavaStrategy(JavaStrategyMatrix([ java_version_17 ]))
 
 transpile_python_cmd =
-  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
 
 run_python_tests_cmd =
   "PYTHONPATH=$PYTHONPATH:$(pwd)/test_workspace:$(pwd)/pyout python3 -m unittest discover pyout -v --pattern \"*.py\""
 
 tool_test_workspace_cmd =
-  "./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
+  "./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
 
 tool_test_workspace_node_cmd =
-  "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
+  "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
 
 transpile_c_cmd =
-  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
 
 def cat_lines(lines: List[String]) -> String:
   recur lines:
@@ -180,6 +186,26 @@ checkout_v2_step = Step { uses: Set(action_checkout_v2) }
 checkout_v4_step = Step { uses: Set(action_checkout_v4) }
 
 cache_step = Step { uses: Set(action_cache) }
+
+sbt_cache_fetch_step =
+  Step {
+    uses: Set(action_cache_v4),
+    name: Set("Cache sbt directories"),
+    with: Set(FetchJavaWith {
+      path: Set(cat_lines([
+        ".sbt-local",
+        "~/.ivy2/cache",
+        "~/.sbt",
+        "~/.cache/coursier",
+        "",
+      ])),
+      key: Set("sbt-\${{ runner.os }}-\${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"),
+      `restore-keys`: Set(cat_lines([
+        "sbt-\${{ runner.os }}-",
+        "",
+      ])),
+    }),
+  }
 
 setup_sbt_step = Step { uses: Set(action_setup_sbt), name: Set(install_sbt_step_name) }
 

@@ -19,17 +19,26 @@ This page focuses on `lib json` (not `tool json`).
 ./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
 ```
 
+3. Generate YAML output for the same value (optional):
+
+```bash
+./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
+```
+
 ## Command reference
 
 ```bash
-./bosatsuj lib json write [--repo_root <path>] [--name <lib_name>] --main <valueIdent> [--output <path>]
+./bosatsuj lib json write [--repo_root <path>] [--name <lib_name>] --main <valueIdent> [--yaml] [--output <path>]
 ```
 
 Common flags:
 
 - `--name`: library name from your `bosatsu_libs.json`
 - `--main`: package/value to evaluate and encode
-- `--output`: write JSON to a file instead of stdout
+- `--yaml`: emit YAML output (default remains JSON)
+- `--output`: write JSON/YAML to a file instead of stdout
+
+When `--yaml` is not set, `lib json` still emits JSON exactly as before.
 
 ## Encoding shape
 

@@ -1,6 +1,19 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
+import java.io.{
+  BufferedInputStream,
+  BufferedOutputStream,
+  BufferedReader,
+  BufferedWriter,
+  ByteArrayOutputStream,
+  InputStream,
+  InputStreamReader,
+  OutputStream,
+  OutputStreamWriter,
+  Reader,
+  Writer
+}
 import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.charset.{
@@ -8,7 +21,23 @@ import java.nio.charset.{
   CodingErrorAction,
   StandardCharsets
 }
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.{
+  AccessDeniedException,
+  DirectoryNotEmptyException,
+  FileAlreadyExistsException,
+  Files,
+  InvalidPathException,
+  LinkOption,
+  NoSuchFileException,
+  NotDirectoryException,
+  OpenOption,
+  Path => JPath,
+  Paths,
+  StandardOpenOption
+}
 import java.util.Locale
+import scala.util.control.NonFatal
 import scala.util.DynamicVariable
 object Predef {
 
@@ -32,11 +61,224 @@ object Predef {
     PackageName.parts("Bosatsu", "Num", "Float64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
-  private def ioStdPackageName: PackageName =
-    PackageName.parts("Bosatsu", "IO", "Std")
+  private def ioBytesPackageName: PackageName =
+    PackageName.parts("Bosatsu", "IO", "Bytes")
+  private def ioCorePackageName: PackageName =
+    PackageName.parts("Bosatsu", "IO", "Core")
+
+  private def addIoBytesExternals(externals: Externals): Externals =
+    externals
+      .add(
+        ioBytesPackageName,
+        "empty_Bytes",
+        FfiCall.Const(PredefImpl.emptyBytes)
+      )
+      .add(
+        ioBytesPackageName,
+        "from_List_Int",
+        FfiCall.Fn1(PredefImpl.from_List_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "from_Array_Int",
+        FfiCall.Fn1(PredefImpl.from_Array_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "to_List_Int",
+        FfiCall.Fn1(PredefImpl.to_List_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "to_Array_Int",
+        FfiCall.Fn1(PredefImpl.to_Array_Int(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "size_Bytes",
+        FfiCall.Fn1(PredefImpl.size_Bytes(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "get_map_Bytes",
+        FfiCall.Fn4(PredefImpl.get_map_Bytes(_, _, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "get_or_Bytes",
+        FfiCall.Fn3(PredefImpl.get_or_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "foldl_Bytes",
+        FfiCall.Fn3(PredefImpl.foldl_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "concat_all_Bytes",
+        FfiCall.Fn1(PredefImpl.concat_all_Bytes(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "slice_Bytes",
+        FfiCall.Fn3(PredefImpl.slice_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "starts_with_Bytes",
+        FfiCall.Fn2(PredefImpl.starts_with_Bytes(_, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "ends_with_Bytes",
+        FfiCall.Fn2(PredefImpl.ends_with_Bytes(_, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "find_Bytes",
+        FfiCall.Fn3(PredefImpl.find_Bytes(_, _, _))
+      )
+      .add(
+        ioBytesPackageName,
+        "utf8_bytes_from_String",
+        FfiCall.Fn1(PredefImpl.utf8_bytes_from_String(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "utf8_bytes_to_String",
+        FfiCall.Fn1(PredefImpl.utf8_bytes_to_String(_))
+      )
+      .add(
+        ioBytesPackageName,
+        "utf8_Char_at",
+        FfiCall.Fn2(PredefImpl.utf8_Char_at(_, _))
+      )
+
+  private def addIoCoreExternals(externals: Externals): Externals =
+    if (Platform.isScalaJvm) {
+      externals
+        .add(
+          ioCorePackageName,
+          "path_sep",
+          FfiCall.Const(PredefImpl.core_path_sep)
+        )
+        .add(ioCorePackageName, "stdin", FfiCall.Const(PredefImpl.core_stdin))
+        .add(
+          ioCorePackageName,
+          "stdout",
+          FfiCall.Const(PredefImpl.core_stdout)
+        )
+        .add(
+          ioCorePackageName,
+          "stderr",
+          FfiCall.Const(PredefImpl.core_stderr)
+        )
+        .add(
+          ioCorePackageName,
+          "read_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_read_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "write_utf8",
+          FfiCall.Fn2(PredefImpl.prog_core_write_utf8(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "read_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_read_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "write_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_write_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "read_all_bytes",
+          FfiCall.Fn2(PredefImpl.prog_core_read_all_bytes(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "copy_bytes",
+          FfiCall.Fn4(PredefImpl.prog_core_copy_bytes(_, _, _, _))
+        )
+        .add(
+          ioCorePackageName,
+          "flush",
+          FfiCall.Fn1(PredefImpl.prog_core_flush(_))
+        )
+        .add(
+          ioCorePackageName,
+          "close",
+          FfiCall.Fn1(PredefImpl.prog_core_close(_))
+        )
+        .add(
+          ioCorePackageName,
+          "open_file",
+          FfiCall.Fn2(PredefImpl.prog_core_open_file(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "list_dir",
+          FfiCall.Fn1(PredefImpl.prog_core_list_dir(_))
+        )
+        .add(
+          ioCorePackageName,
+          "stat",
+          FfiCall.Fn1(PredefImpl.prog_core_stat(_))
+        )
+        .add(
+          ioCorePackageName,
+          "mkdir",
+          FfiCall.Fn2(PredefImpl.prog_core_mkdir(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "remove",
+          FfiCall.Fn2(PredefImpl.prog_core_remove(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "rename",
+          FfiCall.Fn2(PredefImpl.prog_core_rename(_, _))
+        )
+        .add(
+          ioCorePackageName,
+          "get_env",
+          FfiCall.Fn1(PredefImpl.prog_core_get_env(_))
+        )
+        .add(
+          ioCorePackageName,
+          "spawn",
+          FfiCall.Fn3(PredefImpl.prog_core_spawn(_, _, _))
+        )
+        .add(
+          ioCorePackageName,
+          "wait",
+          FfiCall.Fn1(PredefImpl.prog_core_wait(_))
+        )
+        .add(
+          ioCorePackageName,
+          "now_wall",
+          FfiCall.Const(PredefImpl.prog_core_now_wall)
+        )
+        .add(
+          ioCorePackageName,
+          "now_mono",
+          FfiCall.Const(PredefImpl.prog_core_now_mono)
+        )
+        .add(
+          ioCorePackageName,
+          "sleep",
+          FfiCall.Fn1(PredefImpl.prog_core_sleep(_))
+        )
+    } else externals
 
   val jvmExternals: Externals =
-    Externals.empty
+    addIoCoreExternals(
+      addIoBytesExternals(
+        Externals.empty
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
@@ -317,31 +559,8 @@ object Predef {
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
-      .add(
-        ioStdPackageName,
-        "print_impl",
-        FfiCall.Fn1(PredefImpl.prog_print(_))
       )
-      .add(
-        ioStdPackageName,
-        "println_impl",
-        FfiCall.Fn1(PredefImpl.prog_println(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_err_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_err(_))
-      )
-      .add(
-        ioStdPackageName,
-        "print_errln_impl",
-        FfiCall.Fn1(PredefImpl.prog_print_errln(_))
-      )
-      .add(
-        ioStdPackageName,
-        "read_stdin_utf8_bytes_impl",
-        FfiCall.Fn1(PredefImpl.prog_read_stdin_utf8_bytes(_))
-      )
+    )
 }
 
 object PredefImpl {
@@ -355,14 +574,114 @@ object PredefImpl {
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
 
+  final case class BytesValue(data: Array[Byte], offset: Int, len: Int) {
+    Require(offset >= 0, s"offset must be >= 0: $offset")
+    Require(len >= 0, s"len must be >= 0: $len")
+    Require(offset + len <= data.length, s"invalid view ($offset, $len)")
+  }
+
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
   val emptyArray: Value = ExternalValue(EmptyArrayRepr)
+  private val EmptyBytesData: Array[Byte] = Array.emptyByteArray
+  private val EmptyBytesRepr: BytesValue = BytesValue(EmptyBytesData, 0, 0)
+  val emptyBytes: Value = ExternalValue(EmptyBytesRepr)
+
+  private val MinIntLong = Int.MinValue.toLong
+  private val MaxIntLong = Int.MaxValue.toLong
+
+  private def intValue(i: Int): java.lang.Integer =
+    java.lang.Integer.valueOf(i)
+
+  private def intRaw(a: Value): Value.BosatsuInt =
+    a match {
+      case ExternalValue(v: java.lang.Integer) => v
+      case ExternalValue(v: BigInteger)        => v
+      case _                                   => sys.error(s"expected integer: $a")
+    }
+
+  private def intFromBigInteger(bi: BigInteger): Value.BosatsuInt =
+    Value.intFromBigInteger(bi)
 
   private def i(a: Value): BigInteger =
+    Value.intToBigInteger(intRaw(a))
+
+  private def addInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val sum = aiL + biL
+        if (sum >= MinIntLong && sum <= MaxIntLong) intValue(sum.toInt)
+        else BigInteger.valueOf(aiL).add(BigInteger.valueOf(biL))
+      case _ =>
+        intFromBigInteger(Value.intToBigInteger(a).add(Value.intToBigInteger(b)))
+    }
+
+  private def subInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val diff = aiL - biL
+        if (diff >= MinIntLong && diff <= MaxIntLong) intValue(diff.toInt)
+        else BigInteger.valueOf(aiL).subtract(
+            BigInteger.valueOf(biL)
+          )
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).subtract(Value.intToBigInteger(b))
+        )
+    }
+
+  private def mulInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        val aiL = ai.longValue()
+        val biL = bi.longValue()
+        val prod = aiL * biL
+        if (prod >= MinIntLong && prod <= MaxIntLong) intValue(prod.toInt)
+        else BigInteger.valueOf(aiL).multiply(
+            BigInteger.valueOf(biL)
+          )
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).multiply(Value.intToBigInteger(b))
+        )
+    }
+
+  private def andInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() & bi.intValue())
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).and(Value.intToBigInteger(b))
+        )
+    }
+
+  private def orInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() | bi.intValue())
+      case _ =>
+        intFromBigInteger(Value.intToBigInteger(a).or(Value.intToBigInteger(b)))
+    }
+
+  private def xorInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
+    (a, b) match {
+      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
+        intValue(ai.intValue() ^ bi.intValue())
+      case _ =>
+        intFromBigInteger(
+          Value.intToBigInteger(a).xor(Value.intToBigInteger(b))
+        )
+    }
+
+  private def notInt(a: Value.BosatsuInt): Value.BosatsuInt =
     a match {
-      case VInt(bi) => bi
-      case _        => sys.error(s"expected integer: $a")
+      case ai: java.lang.Integer => intValue(~ai.intValue())
+      case _                     => intFromBigInteger(Value.intToBigInteger(a).not())
     }
 
   private def d(a: Value): Double =
@@ -482,8 +801,23 @@ object PredefImpl {
       // $COVERAGE-ON$
     }
 
+  private def asBytes(a: Value): BytesValue =
+    a.asExternal.toAny match {
+      case bytes: BytesValue => bytes
+      case other             =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected bytes external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
+  private def normalizeByte(intValue: Value.BosatsuInt): Byte =
+    (Value.intToBigInteger(intValue).intValue() & 0xff).toByte
+
+  private def byteToIntValue(byte: Byte): Value =
+    VInt(byte.toInt & 0xff)
+
   def add(a: Value, b: Value): Value =
-    VInt(i(a).add(i(b)))
+    ExternalValue(addInt(intRaw(a), intRaw(b)))
 
   def addf(a: Value, b: Value): Value =
     vf(d(a) + d(b))
@@ -521,23 +855,22 @@ object PredefImpl {
     vf(d(a) / d(b))
 
   def sub(a: Value, b: Value): Value =
-    VInt(i(a).subtract(i(b)))
+    ExternalValue(subInt(intRaw(a), intRaw(b)))
 
   def subf(a: Value, b: Value): Value =
     vf(d(a) - d(b))
 
   def mul(a: Value, b: Value): Value =
-    VInt(i(a).multiply(i(b)))
+    ExternalValue(mulInt(intRaw(a), intRaw(b)))
 
   def timesf(a: Value, b: Value): Value =
     vf(d(a) * d(b))
 
   def eq_Int(a: Value, b: Value): Value =
-    // since we have already typechecked, standard equals works
-    if (a == b) True else False
+    if (Value.intEq(intRaw(a), intRaw(b))) True else False
 
   def cmp_Int(a: Value, b: Value): Value =
-    Comparison.fromInt(i(a).compareTo(i(b)))
+    Comparison.fromInt(Value.intCompare(intRaw(a), intRaw(b)))
 
   def cmp_Float64(a: Value, b: Value): Value =
     Comparison.fromInt(compareFloat64Total(d(a), d(b)))
@@ -600,7 +933,10 @@ object PredefImpl {
     else Value.VOption.none
   }
   def int_to_Float64(a: Value): Value =
-    vf(i(a).doubleValue())
+    intRaw(a) match {
+      case i: java.lang.Integer => vf(i.doubleValue())
+      case bi: BigInteger       => vf(bi.doubleValue())
+    }
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))
@@ -667,18 +1003,6 @@ object PredefImpl {
   private def ioerror_invalid_utf8(context: String): Value =
     ioerror_known(IOErrorTagInvalidUtf8, context)
 
-  private def asString(v: Value): String =
-    v match {
-      case Str(s) => s
-      case other  => sys.error(s"type error, expected String: $other")
-    }
-
-  private def asInt(v: Value): BigInteger =
-    v match {
-      case VInt(i) => i
-      case other   => sys.error(s"type error, expected Int: $other")
-    }
-
   private def prog_effect(arg: Value, fn: Value => Value): Value =
     SumValue(
       ProgTagEffect,
@@ -702,60 +1026,75 @@ object PredefImpl {
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
 
-  def prog_print(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stdout.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_println(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stdout.append(asString(v))
-          runtime.stdout.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_err(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach(_.stderr.append(asString(v)))
-        prog_pure(UnitValue)
-      }
-    )
-
-  def prog_print_errln(str: Value): Value =
-    prog_effect(
-      str,
-      v => {
-        currentProgRuntime.value.foreach { runtime =>
-          runtime.stderr.append(asString(v))
-          runtime.stderr.append('\n')
-        }
-        prog_pure(UnitValue)
-      }
-    )
-
-  private def decodeUtf8(bytes: Array[Byte]): Option[String] = {
+  private def decodeUtf8Slice(
+      bytes: Array[Byte],
+      offset: Int,
+      len: Int
+  ): Option[String] = {
     val decoder =
       StandardCharsets.UTF_8
         .newDecoder()
         .onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT)
 
-    try Some(decoder.decode(ByteBuffer.wrap(bytes)).toString)
+    try Some(decoder.decode(ByteBuffer.wrap(bytes, offset, len)).toString)
     catch {
       case _: CharacterCodingException => None
     }
   }
+
+  private def decodeUtf8(bytes: Array[Byte]): Option[String] =
+    decodeUtf8Slice(bytes, 0, bytes.length)
+
+  private def utf8CharAt(bytes: BytesValue, idx: Int): Option[String] =
+    if (idx < 0 || idx >= bytes.len) None
+    else {
+      val start = bytes.offset + idx
+      val b0 = bytes.data(start).toInt & 0xff
+
+      def continuation(offset: Int): Option[Int] = {
+        val b = bytes.data(start + offset).toInt & 0xff
+        if ((b & 0xc0) == 0x80) Some(b) else None
+      }
+
+      val codePoint =
+        if ((b0 & 0x80) == 0) Some(b0)
+        else if ((b0 & 0xe0) == 0xc0) {
+          if (idx + 2 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              cp = ((b0 & 0x1f) << 6) | (b1 & 0x3f)
+              if cp >= 0x80
+            } yield cp
+        } else if ((b0 & 0xf0) == 0xe0) {
+          if (idx + 3 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              b2 <- continuation(2)
+              cp = ((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)
+              if cp >= 0x800
+              if cp < 0xd800 || cp > 0xdfff
+            } yield cp
+        } else if ((b0 & 0xf8) == 0xf0) {
+          if (idx + 4 > bytes.len) None
+          else
+            for {
+              b1 <- continuation(1)
+              b2 <- continuation(2)
+              b3 <- continuation(3)
+              cp = ((b0 & 0x07) << 18) |
+                ((b1 & 0x3f) << 12) |
+                ((b2 & 0x3f) << 6) |
+                (b3 & 0x3f)
+              if cp >= 0x10000
+              if cp <= 0x10ffff
+            } yield cp
+        } else None
+
+      codePoint.map(cp => new String(Character.toChars(cp)))
+    }
 
   private def runtimeRead(
       runtime: ProgRuntimeState,
@@ -842,26 +1181,1337 @@ object PredefImpl {
         }
     }
 
-  def prog_read_stdin_utf8_bytes(size: Value): Value =
+  private val IOErrorTagNotFound = 0
+  private val IOErrorTagAccessDenied = 1
+  private val IOErrorTagAlreadyExists = 2
+  private val IOErrorTagNotDirectory = 3
+  private val IOErrorTagNotEmpty = 5
+  private val IOErrorTagBadFileDescriptor = 14
+  private val IOErrorTagInterrupted = 15
+  private val IOErrorTagBrokenPipe = 18
+  private val IOErrorTagUnsupported = 19
+  private val IOErrorTagOther = 20
+
+  private val OneBillionBI = BigInteger.valueOf(1000000000L)
+  private val OneMillionBI = BigInteger.valueOf(1000000L)
+  private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
+
+  private sealed trait HandleValue derives CanEqual
+  private case object HandleStdin extends HandleValue
+  private case object HandleStdout extends HandleValue
+  private case object HandleStderr extends HandleValue
+  private final case class ReaderHandle(
+      reader: Reader,
+      input: Option[InputStream],
+      var closed: Boolean = false
+  ) extends HandleValue
+  private final case class WriterHandle(
+      writer: Writer,
+      output: Option[OutputStream],
+      var closed: Boolean = false
+  ) extends HandleValue
+
+  final case class ProcessValue(
+      process: java.lang.Process,
+      var cachedExitCode: Option[Int]
+  )
+
+  private val defaultPathSep: String =
+    if (Platform.detectOs() eq OsPlatformId.Windows) "\\"
+    else "/"
+
+  val core_path_sep: Value = Str(defaultPathSep)
+  val core_stdin: Value = ExternalValue(HandleStdin)
+  val core_stdout: Value = ExternalValue(HandleStdout)
+  val core_stderr: Value = ExternalValue(HandleStderr)
+
+  private lazy val systemStdinReader: BufferedReader =
+    new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
+  private lazy val systemStdinBytes: InputStream = System.in
+
+  private def normalizePathString(raw: String): String =
+    raw.replace('\\', '/')
+
+  private def instantValueFromNanos(nanos: BigInteger): Value =
+    ProductValue.single(VInt(nanos))
+
+  private def durationValueFromNanos(nanos: BigInteger): Value =
+    ProductValue.single(VInt(nanos))
+
+  private def fileKindValue(kindTag: Int): Value =
+    SumValue(kindTag, UnitValue)
+
+  private def ioerror_other(
+      context: String,
+      code: Int,
+      message: String
+  ): Value =
+    SumValue(
+      IOErrorTagOther,
+      ProductValue.fromList(Str(context) :: VInt(code) :: Str(message) :: Nil)
+    )
+
+  private def ioerror_from_throwable(context: String, t: Throwable): Value =
+    t match {
+      case _: NoSuchFileException =>
+        ioerror_known(IOErrorTagNotFound, context)
+      case _: AccessDeniedException | _: SecurityException =>
+        ioerror_known(IOErrorTagAccessDenied, context)
+      case _: FileAlreadyExistsException =>
+        ioerror_known(IOErrorTagAlreadyExists, context)
+      case _: NotDirectoryException =>
+        ioerror_known(IOErrorTagNotDirectory, context)
+      case _: DirectoryNotEmptyException =>
+        ioerror_known(IOErrorTagNotEmpty, context)
+      case _: java.nio.channels.NonReadableChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.nio.channels.NonWritableChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.nio.channels.ClosedChannelException =>
+        ioerror_known(IOErrorTagBadFileDescriptor, context)
+      case _: java.io.EOFException =>
+        ioerror_known(IOErrorTagBrokenPipe, context)
+      case _: java.io.InterruptedIOException =>
+        ioerror_known(IOErrorTagInterrupted, context)
+      case _: UnsupportedOperationException =>
+        ioerror_known(IOErrorTagUnsupported, context)
+      case _: InvalidPathException =>
+        ioerror_invalid_argument(context)
+      case _: IllegalArgumentException =>
+        ioerror_invalid_argument(context)
+      case _: CharacterCodingException =>
+        ioerror_invalid_utf8(context)
+      case other =>
+        ioerror_other(
+          context,
+          0,
+          Option(other.getMessage).getOrElse(other.getClass.getSimpleName)
+        )
+    }
+
+  private def asPathString(path: Value): Either[Value, String] =
+    path match {
+      case p: ProductValue if p.values.length == 1 =>
+        p.get(0) match {
+          case Str(s) => Right(s)
+          case _ =>
+            Left(ioerror_invalid_argument("invalid Path value"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument("invalid Path value"))
+    }
+
+  private def asJavaPath(path: Value, context: String): Either[Value, JPath] =
+    asPathString(path).flatMap { raw =>
+      try Right(Paths.get(raw))
+      catch {
+        case _: InvalidPathException =>
+          Left(ioerror_invalid_argument(context))
+      }
+    }
+
+  private def asHandleValue(v: Value): Either[Value, HandleValue] =
+    v match {
+      case ExternalValue(h: HandleValue) => Right(h)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Handle"))
+    }
+
+  private def asProcessValue(v: Value): Either[Value, ProcessValue] =
+    v match {
+      case ExternalValue(p: ProcessValue) => Right(p)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Process"))
+    }
+
+  private def asBool(v: Value): Either[Value, Boolean] =
+    v match {
+      case s: SumValue if s.variant == 1 && (s.value == UnitValue) => Right(true)
+      case s: SumValue if s.variant == 0 && (s.value == UnitValue) => Right(false)
+      case _ =>
+        Left(ioerror_invalid_argument("expected Bool"))
+    }
+
+  private def asStringList(v: Value): Either[Value, List[String]] =
+    Value.VList.unapply(v) match {
+      case None =>
+        Left(ioerror_invalid_argument("expected List[String]"))
+      case Some(items) =>
+        items.foldRight(Right(Nil): Either[Value, List[String]]) { (item, acc) =>
+          for {
+            tail <- acc
+            str <- item match {
+              case Str(s) => Right(s)
+              case _      =>
+                Left(ioerror_invalid_argument("expected List[String]"))
+            }
+          } yield str :: tail
+        }
+    }
+
+  private def asOpenModeTag(v: Value): Either[Value, Int] =
+    v match {
+      case s: SumValue =>
+        if ((s.variant >= 0) && (s.variant <= 2)) Right(s.variant)
+        else Left(ioerror_invalid_argument("invalid OpenMode value"))
+      case _ =>
+        Left(ioerror_invalid_argument("invalid OpenMode value"))
+    }
+
+  private def asDurationNanos(v: Value): Either[Value, BigInteger] =
+    v match {
+      case p: ProductValue if p.values.length == 1 =>
+        p.get(0) match {
+          case VInt(i) => Right(i)
+          case _       =>
+            Left(ioerror_invalid_argument("invalid Duration value"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument("invalid Duration value"))
+    }
+
+  private def asInt(value: Value, context: String): Either[Value, BigInteger] =
+    value match {
+      case VInt(i) => Right(i)
+      case _       => Left(ioerror_invalid_argument(context))
+    }
+
+  private def asPositiveIntBounded(
+      value: Value,
+      context: String
+  ): Either[Value, Int] =
+    asInt(value, context).flatMap { bi =>
+      if (bi.signum <= 0) Left(ioerror_invalid_argument(context))
+      else if (bi.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
+      else Right(bi.intValue)
+    }
+
+  private def asOptionInt(
+      value: Value,
+      context: String
+  ): Either[Value, Option[BigInteger]] =
+    value match {
+      case VOption(None)          => Right(None)
+      case VOption(Some(VInt(i))) => Right(Some(i))
+      case _                      => Left(ioerror_invalid_argument(context))
+    }
+
+  private def optionValue(v: Option[Value]): Value =
+    v match {
+      case Some(value) => VOption.some(value)
+      case None        => VOption.none
+    }
+
+  private def readFromReader(
+      reader: Reader,
+      maxChars: Int,
+      context: String
+  ): Either[Value, Option[String]] =
+    try {
+      val buffer = new Array[Char](maxChars)
+      val count = reader.read(buffer, 0, maxChars)
+      if (count <= 0) Right(None)
+      else Right(Some(new String(buffer, 0, count)))
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def readFromInputStream(
+      stream: InputStream,
+      maxBytes: Int,
+      context: String
+  ): Either[Value, Option[BytesValue]] =
+    try {
+      val buffer = new Array[Byte](maxBytes)
+      val count = stream.read(buffer, 0, maxBytes)
+      if (count <= 0) Right(None)
+      else {
+        val bytes =
+          if (count == maxBytes) buffer
+          else java.util.Arrays.copyOf(buffer, count)
+        Right(Some(BytesValue(bytes, 0, bytes.length)))
+      }
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def writeToWriter(
+      writer: Writer,
+      text: String,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      writer.write(text)
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def writeToOutputStream(
+      output: OutputStream,
+      bytes: BytesValue,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      if (bytes.len > 0) output.write(bytes.data, bytes.offset, bytes.len)
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def flushWriter(writer: Writer, context: String): Either[Value, Unit] =
+    try {
+      writer.flush()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def closeReader(reader: Reader, context: String): Either[Value, Unit] =
+    try {
+      reader.close()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def closeWriter(writer: Writer, context: String): Either[Value, Unit] =
+    try {
+      writer.close()
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def prog_effect2(
+      a: Value,
+      b: Value,
+      fn: (Value, Value) => Value
+  ): Value =
     prog_effect(
-      size,
-      v => {
-        val requested = asInt(v)
-        val ioResult = currentProgRuntime.value match {
-          case Some(runtime) => read_utf8_chunk(runtime, requested)
-          case None          =>
-            if (requested.signum < 0)
-              Left(
-                ioerror_invalid_argument(
-                  s"read_stdin_utf8_bytes negative argument: ${requested.toString}"
-                )
+      Value.Tuple(a, b),
+      {
+        case p: ProductValue if p.values.length == 2 =>
+          fn(p.get(0), p.get(1))
+        case other =>
+          sys.error(s"invalid effect2 payload: $other")
+      }
+    )
+
+  private def prog_effect3(
+      a: Value,
+      b: Value,
+      c: Value,
+      fn: (Value, Value, Value) => Value
+  ): Value =
+    prog_effect(
+      Value.Tuple(a, b, c),
+      {
+        case p: ProductValue if p.values.length == 3 =>
+          fn(p.get(0), p.get(1), p.get(2))
+        case other =>
+          sys.error(s"invalid effect3 payload: $other")
+      }
+    )
+
+  private def bytesValue(bytes: BytesValue): Value =
+    if (bytes.len == 0) emptyBytes
+    else ExternalValue(bytes)
+
+  private def core_read_bytes_from_handle(
+      handle: HandleValue,
+      maxBytes: Int
+  ): Either[Value, Option[BytesValue]] =
+    handle match {
+      case HandleStdin =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            val read = runtimeRead(runtime, maxBytes)
+            if (read.isEmpty) Right(None)
+            else Right(Some(BytesValue(read, 0, read.length)))
+          case None =>
+            readFromInputStream(
+              systemStdinBytes,
+              maxBytes,
+              "reading bytes from stdin"
+            )
+        }
+      case ReaderHandle(_, _, true) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
+      case ReaderHandle(_, Some(input), false) =>
+        readFromInputStream(input, maxBytes, "reading bytes from handle")
+      case ReaderHandle(_, None, false) =>
+        Left(
+          ioerror_known(
+            IOErrorTagBadFileDescriptor,
+            "reading bytes from non-binary handle"
+          )
+        )
+      case HandleStdout | HandleStderr | WriterHandle(_, _, _) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
+    }
+
+  private def core_write_bytes_to_handle(
+      handle: HandleValue,
+      bytes: BytesValue
+  ): Either[Value, Unit] =
+    handle match {
+      case HandleStdout =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            runtime.stdout.append(
+              new String(
+                bytes.data,
+                bytes.offset,
+                bytes.len,
+                StandardCharsets.UTF_8
               )
-            else Right("")
+            )
+            Right(())
+          case None =>
+            try {
+              if (bytes.len > 0) System.out.write(bytes.data, bytes.offset, bytes.len)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("writing bytes to stdout", t))
+            }
+        }
+      case HandleStderr =>
+        currentProgRuntime.value match {
+          case Some(runtime) =>
+            runtime.stderr.append(
+              new String(
+                bytes.data,
+                bytes.offset,
+                bytes.len,
+                StandardCharsets.UTF_8
+              )
+            )
+            Right(())
+          case None =>
+            try {
+              if (bytes.len > 0) System.err.write(bytes.data, bytes.offset, bytes.len)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("writing bytes to stderr", t))
+            }
+        }
+      case WriterHandle(_, _, true) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
+      case WriterHandle(_, Some(output), false) =>
+        writeToOutputStream(output, bytes, "writing bytes to handle")
+      case WriterHandle(_, None, false) =>
+        Left(
+          ioerror_known(
+            IOErrorTagBadFileDescriptor,
+            "writing bytes to non-binary handle"
+          )
+        )
+      case HandleStdin | ReaderHandle(_, _, _) =>
+        Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+    }
+
+  private def core_read_bytes_impl(
+      handleValue: Value,
+      maxBytesValue: Value
+  ): Either[Value, Option[BytesValue]] =
+    for {
+      handle <- asHandleValue(handleValue)
+      maxBytes <- asPositiveIntBounded(
+        maxBytesValue,
+        "read_bytes max_bytes must be > 0"
+      )
+      result <- core_read_bytes_from_handle(handle, maxBytes)
+    } yield result
+
+  private def core_write_bytes_impl(
+      handleValue: Value,
+      bytesValue: Value
+  ): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      bytes <- bytesValue match {
+        case ExternalValue(_: BytesValue) => Right(asBytes(bytesValue))
+        case _ =>
+          Left(ioerror_invalid_argument("expected Bytes for write_bytes"))
+      }
+      _ <- core_write_bytes_to_handle(handle, bytes)
+    } yield ()
+
+  private def core_read_all_bytes_impl(
+      handleValue: Value,
+      chunkSizeValue: Value
+  ): Either[Value, BytesValue] =
+    for {
+      handle <- asHandleValue(handleValue)
+      chunkSize <- asPositiveIntBounded(
+        chunkSizeValue,
+        "read_all_bytes chunk_size must be > 0"
+      )
+      result <- {
+        val out = new ByteArrayOutputStream()
+        var done = false
+        var err: Option[Value] = None
+
+        while (!done && err.isEmpty) {
+          core_read_bytes_from_handle(handle, chunkSize) match {
+            case Left(e) =>
+              err = Some(e)
+            case Right(None) =>
+              done = true
+            case Right(Some(chunk)) =>
+              if (chunk.len > 0)
+                out.write(chunk.data, chunk.offset, chunk.len)
+          }
         }
 
-        ioResult match {
-          case Right(str) => prog_pure(Str(str))
+        err match {
+          case Some(e) => Left(e)
+          case None    =>
+            val data = out.toByteArray
+            if (data.isEmpty) Right(EmptyBytesRepr)
+            else Right(BytesValue(data, 0, data.length))
+        }
+      }
+    } yield result
+
+  private def core_copy_bytes_impl(
+      srcValue: Value,
+      dstValue: Value,
+      chunkSizeValue: Value,
+      maxTotalValue: Value
+  ): Either[Value, BigInteger] =
+    for {
+      src <- asHandleValue(srcValue)
+      dst <- asHandleValue(dstValue)
+      chunkSize <- asPositiveIntBounded(
+        chunkSizeValue,
+        "copy_bytes chunk_size must be > 0"
+      )
+      maxTotal <- asOptionInt(
+        maxTotalValue,
+        "copy_bytes max_total must be Option[Int]"
+      )
+      _ <- maxTotal match {
+        case Some(i) if i.signum < 0 =>
+          Left(ioerror_invalid_argument("copy_bytes max_total must be >= 0"))
+        case _                       => Right(())
+      }
+      copied <- {
+        maxTotal match {
+          case Some(i) if i.signum == 0 =>
+            Right(BigInteger.ZERO)
+          case _ =>
+            var done = false
+            var total = BigInteger.ZERO
+            var err: Option[Value] = None
+
+            while (!done && err.isEmpty) {
+              val toRead =
+                maxTotal match {
+                  case Some(limit) =>
+                    val remaining = limit.subtract(total)
+                    if (remaining.signum <= 0) {
+                      done = true
+                      0
+                    } else {
+                      val maxChunk = BigInteger.valueOf(chunkSize.toLong)
+                      if (remaining.compareTo(maxChunk) >= 0) chunkSize
+                      else remaining.intValue
+                    }
+                  case None => chunkSize
+                }
+
+              if (!done && toRead > 0) {
+                core_read_bytes_from_handle(src, toRead) match {
+                  case Left(e) =>
+                    err = Some(e)
+                  case Right(None) =>
+                    done = true
+                  case Right(Some(chunk)) =>
+                    core_write_bytes_to_handle(dst, chunk) match {
+                      case Left(e) =>
+                        err = Some(e)
+                      case Right(_) =>
+                        total = total.add(BigInteger.valueOf(chunk.len.toLong))
+                    }
+                }
+              }
+            }
+
+            err match {
+              case Some(e) => Left(e)
+              case None    => Right(total)
+            }
+        }
+      }
+    } yield copied
+
+  private def core_read_utf8_impl(
+      handleValue: Value,
+      maxCharsValue: Value
+  ): Either[Value, Option[String]] =
+    for {
+      handle <- asHandleValue(handleValue)
+      maxCharsBI <- maxCharsValue match {
+        case VInt(i) => Right(i)
+        case _       => Left(ioerror_invalid_argument("expected Int for max_chars"))
+      }
+      maxChars <- {
+        if (maxCharsBI.signum <= 0)
+          Left(ioerror_invalid_argument("read_utf8 max_chars must be > 0"))
+        else if (maxCharsBI.compareTo(MaxIntBI) > 0) Right(Int.MaxValue)
+        else Right(maxCharsBI.intValue)
+      }
+      result <- handle match {
+        case HandleStdin =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              read_utf8_chunk(runtime, maxCharsBI).map { chunk =>
+                if (chunk.isEmpty) None else Some(chunk)
+              }
+            case None =>
+              readFromReader(systemStdinReader, maxChars, "reading from stdin")
+          }
+        case ReaderHandle(reader, _, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading closed handle"))
+          else readFromReader(reader, maxChars, "reading utf8 from handle")
+        case HandleStdout | HandleStderr | WriterHandle(_, _, _) =>
+          Left(ioerror_known(IOErrorTagBadFileDescriptor, "reading from write-only handle"))
+      }
+    } yield result
+
+  private def core_write_utf8_impl(
+      handleValue: Value,
+      textValue: Value
+  ): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      text <- textValue match {
+        case Str(s) => Right(s)
+        case _      => Left(ioerror_invalid_argument("expected String for write_utf8"))
+      }
+      _ <- handle match {
+        case HandleStdout =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              runtime.stdout.append(text)
+              Right(())
+            case None =>
+              try {
+                System.out.print(text)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("writing to stdout", t))
+              }
+          }
+        case HandleStderr =>
+          currentProgRuntime.value match {
+            case Some(runtime) =>
+              runtime.stderr.append(text)
+              Right(())
+            case None =>
+              try {
+                System.err.print(text)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("writing to stderr", t))
+              }
+          }
+        case WriterHandle(writer, _, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing closed handle"))
+          else writeToWriter(writer, text, "writing utf8 to handle")
+        case HandleStdin | ReaderHandle(_, _, _) =>
+          Left(ioerror_known(IOErrorTagBadFileDescriptor, "writing to read-only handle"))
+      }
+    } yield ()
+
+  private def core_flush_impl(handleValue: Value): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      _ <- handle match {
+        case HandleStdout =>
+          currentProgRuntime.value match {
+            case Some(_) => Right(())
+            case None    =>
+              try {
+                System.out.flush()
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("flushing stdout", t))
+              }
+          }
+        case HandleStderr =>
+          currentProgRuntime.value match {
+            case Some(_) => Right(())
+            case None    =>
+              try {
+                System.err.flush()
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("flushing stderr", t))
+              }
+          }
+        case WriterHandle(writer, _, closed) =>
+          if (closed)
+            Left(ioerror_known(IOErrorTagBadFileDescriptor, "flushing closed handle"))
+          else flushWriter(writer, "flushing handle")
+        case HandleStdin | ReaderHandle(_, _, _) =>
+          Right(())
+      }
+    } yield ()
+
+  private def core_close_impl(handleValue: Value): Either[Value, Unit] =
+    for {
+      handle <- asHandleValue(handleValue)
+      _ <- handle match {
+        case HandleStdin | HandleStdout | HandleStderr =>
+          Right(())
+        case rh @ ReaderHandle(reader, _, closed) =>
+          if (closed) Right(())
+          else closeReader(reader, "closing handle").map { _ =>
+            rh.closed = true
+          }
+        case wh @ WriterHandle(writer, _, closed) =>
+          if (closed) Right(())
+          else closeWriter(writer, "closing handle").map { _ =>
+            wh.closed = true
+          }
+      }
+    } yield ()
+
+  private def basicFileStatValue(attrs: BasicFileAttributes): Value = {
+    val kindTag =
+      if (attrs.isSymbolicLink) 2
+      else if (attrs.isRegularFile) 0
+      else if (attrs.isDirectory) 1
+      else 3
+    val mtimeInstant = attrs.lastModifiedTime.toInstant
+    val mtimeNanos =
+      BigInteger
+        .valueOf(mtimeInstant.getEpochSecond)
+        .multiply(OneBillionBI)
+        .add(BigInteger.valueOf(mtimeInstant.getNano.toLong))
+    ProductValue.fromList(
+      fileKindValue(kindTag) ::
+        VInt(BigInteger.valueOf(attrs.size)) ::
+        instantValueFromNanos(mtimeNanos) :: Nil
+    )
+  }
+
+  private def removePathRecursive(path: JPath): Either[Value, Unit] =
+    try {
+      val attrs = Files.readAttributes(
+        path,
+        classOf[BasicFileAttributes],
+        LinkOption.NOFOLLOW_LINKS
+      )
+      if (attrs.isDirectory && !attrs.isSymbolicLink) {
+        val directory = Files.newDirectoryStream(path)
+        try {
+          val iterator = directory.iterator()
+          while (iterator.hasNext) {
+            removePathRecursive(iterator.next()) match {
+              case Left(err) => return Left(err)
+              case Right(_)  => ()
+            }
+          }
+        } finally {
+          directory.close()
+        }
+        Files.delete(path)
+      } else {
+        Files.delete(path)
+      }
+      Right(())
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(s"removing path: ${path.toString}", t))
+    }
+
+  private def stdioMode(
+      value: Value,
+      streamName: String
+  ): Either[Value, Int] =
+    value match {
+      case s: SumValue =>
+        s.variant match {
+          case 0 | 1 | 2 => Right(s.variant)
+          case 3          =>
+            Left(
+              ioerror_known(
+                IOErrorTagUnsupported,
+                s"spawn ${streamName}: UseHandle is unsupported in JVM evaluator"
+              )
+            )
+          case _          =>
+            Left(ioerror_invalid_argument(s"invalid Stdio value for ${streamName}"))
+        }
+      case _ =>
+        Left(ioerror_invalid_argument(s"invalid Stdio value for ${streamName}"))
+    }
+
+  private def spawnResultValue(
+      processValue: ProcessValue,
+      stdinHandle: Option[HandleValue],
+      stdoutHandle: Option[HandleValue],
+      stderrHandle: Option[HandleValue]
+  ): Value =
+    ProductValue.fromList(
+      ExternalValue(processValue) ::
+        optionValue(stdinHandle.map(ExternalValue(_))) ::
+        optionValue(stdoutHandle.map(ExternalValue(_))) ::
+        optionValue(stderrHandle.map(ExternalValue(_))) :: Nil
+    )
+
+  def prog_core_read_utf8(handle: Value, maxChars: Value): Value =
+    prog_effect2(
+      handle,
+      maxChars,
+      (h, n) =>
+        core_read_utf8_impl(h, n) match {
+          case Right(result) =>
+            prog_pure(
+              optionValue(result.map(Str(_)))
+            )
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_write_utf8(handle: Value, text: Value): Value =
+    prog_effect2(
+      handle,
+      text,
+      (h, t) =>
+        core_write_utf8_impl(h, t) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_read_bytes(handle: Value, maxBytes: Value): Value =
+    prog_effect2(
+      handle,
+      maxBytes,
+      (h, n) =>
+        core_read_bytes_impl(h, n) match {
+          case Right(result) =>
+            prog_pure(optionValue(result.map(bytesValue)))
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_write_bytes(handle: Value, bytes: Value): Value =
+    prog_effect2(
+      handle,
+      bytes,
+      (h, b) =>
+        core_write_bytes_impl(h, b) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_read_all_bytes(handle: Value, chunkSize: Value): Value =
+    prog_effect2(
+      handle,
+      chunkSize,
+      (h, c) =>
+        core_read_all_bytes_impl(h, c) match {
+          case Right(result) =>
+            prog_pure(bytesValue(result))
+          case Left(err)     =>
+            prog_raise_error(err)
+        }
+    )
+
+  def prog_core_copy_bytes(
+      src: Value,
+      dst: Value,
+      chunkSize: Value,
+      maxTotal: Value
+  ): Value =
+    prog_effect(
+      Value.Tuple(src, dst, chunkSize, maxTotal),
+      {
+        case p: ProductValue if p.values.length == 4 =>
+          core_copy_bytes_impl(p.get(0), p.get(1), p.get(2), p.get(3)) match {
+            case Right(count) => prog_pure(VInt(count))
+            case Left(err)    => prog_raise_error(err)
+          }
+        case other =>
+          sys.error(s"invalid effect payload for copy_bytes: $other")
+      }
+    )
+
+  def prog_core_flush(handle: Value): Value =
+    prog_effect(
+      handle,
+      h =>
+        core_flush_impl(h) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_close(handle: Value): Value =
+    prog_effect(
+      handle,
+      h =>
+        core_close_impl(h) match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+    )
+
+  def prog_core_open_file(path: Value, mode: Value): Value =
+    prog_effect2(
+      path,
+      mode,
+      (pathValue, modeValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for open_file")
+          modeTag <- asOpenModeTag(modeValue)
+          handle <- {
+            try {
+              modeTag match {
+                case 0 =>
+                  val input =
+                    new BufferedInputStream(Files.newInputStream(javaPath))
+                  Right(
+                    ExternalValue(
+                      ReaderHandle(
+                        new BufferedReader(
+                          new InputStreamReader(input, StandardCharsets.UTF_8)
+                        ),
+                        Some(input)
+                      )
+                    )
+                  )
+                case 1 =>
+                  val options: Array[OpenOption] = Array(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+                  )
+                  val output =
+                    new BufferedOutputStream(
+                      Files.newOutputStream(javaPath, options*)
+                    )
+                  Right(
+                    ExternalValue(
+                      WriterHandle(
+                        new BufferedWriter(
+                          new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                        ),
+                        Some(output)
+                      )
+                    )
+                  )
+                case 2 =>
+                  val options: Array[OpenOption] = Array(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND,
+                    StandardOpenOption.WRITE
+                  )
+                  val output =
+                    new BufferedOutputStream(
+                      Files.newOutputStream(javaPath, options*)
+                    )
+                  Right(
+                    ExternalValue(
+                      WriterHandle(
+                        new BufferedWriter(
+                          new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                        ),
+                        Some(output)
+                      )
+                    )
+                  )
+                case _ =>
+                  Left(ioerror_invalid_argument("invalid OpenMode value"))
+              }
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("open_file", t))
+            }
+          }
+        } yield handle
+
+        result match {
+          case Right(handleOut) => prog_pure(handleOut)
+          case Left(err)        => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_list_dir(path: Value): Value =
+    prog_effect(
+      path,
+      pathValue => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for list_dir")
+          children <- {
+            try {
+              val stream = Files.list(javaPath)
+              try {
+                val iterator = stream.iterator()
+                val builder = List.newBuilder[String]
+                while (iterator.hasNext) {
+                  builder += normalizePathString(iterator.next().toString)
+                }
+                Right(builder.result().sorted.map(str => ProductValue.single(Str(str))))
+              } finally {
+                stream.close()
+              }
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("list_dir", t))
+            }
+          }
+        } yield Value.VList(children)
+
+        result match {
+          case Right(paths) => prog_pure(paths)
+          case Left(err)    => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_stat(path: Value): Value =
+    prog_effect(
+      path,
+      pathValue => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for stat")
+          statValue <- {
+            try {
+              val attrs = Files.readAttributes(
+                javaPath,
+                classOf[BasicFileAttributes],
+                LinkOption.NOFOLLOW_LINKS
+              )
+              Right(Some(basicFileStatValue(attrs)))
+            } catch {
+              case _: NoSuchFileException =>
+                Right(None)
+              case NonFatal(t)            =>
+                Left(ioerror_from_throwable("stat", t))
+            }
+          }
+        } yield optionValue(statValue)
+
+        result match {
+          case Right(v)   => prog_pure(v)
           case Left(err)  => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_mkdir(path: Value, recursive: Value): Value =
+    prog_effect2(
+      path,
+      recursive,
+      (pathValue, recursiveValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for mkdir")
+          recursiveFlag <- asBool(recursiveValue)
+          _ <- {
+            try {
+              if (recursiveFlag) Files.createDirectories(javaPath)
+              else Files.createDirectory(javaPath)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("mkdir", t))
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_remove(path: Value, recursive: Value): Value =
+    prog_effect2(
+      path,
+      recursive,
+      (pathValue, recursiveValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for remove")
+          recursiveFlag <- asBool(recursiveValue)
+          _ <- {
+            if (recursiveFlag) removePathRecursive(javaPath)
+            else {
+              try {
+                Files.delete(javaPath)
+                Right(())
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable("remove", t))
+              }
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_rename(from: Value, to: Value): Value =
+    prog_effect2(
+      from,
+      to,
+      (fromValue, toValue) => {
+        val result = for {
+          fromPath <- asJavaPath(fromValue, "invalid source path for rename")
+          toPath <- asJavaPath(toValue, "invalid destination path for rename")
+          _ <- {
+            try {
+              Files.move(fromPath, toPath)
+              Right(())
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("rename", t))
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_get_env(name: Value): Value =
+    prog_effect(
+      name,
+      n =>
+        n match {
+          case Str(s) =>
+            prog_pure(optionValue(Option(System.getenv(s)).map(Str(_))))
+          case _      =>
+            prog_raise_error(ioerror_invalid_argument("get_env expects String"))
+        }
+    )
+
+  def prog_core_spawn(cmd: Value, args: Value, stdio: Value): Value =
+    prog_effect3(
+      cmd,
+      args,
+      stdio,
+      (cmdValue, argsValue, stdioValue) => {
+        val result = for {
+          cmdStr <- cmdValue match {
+            case Str(s) => Right(s)
+            case _      => Left(ioerror_invalid_argument("spawn command must be String"))
+          }
+          argList <- asStringList(argsValue)
+          stdioModes <- stdioValue match {
+            case p: ProductValue if p.values.length == 3 =>
+              for {
+                inMode <- stdioMode(p.get(0), "stdin")
+                outMode <- stdioMode(p.get(1), "stdout")
+                errMode <- stdioMode(p.get(2), "stderr")
+              } yield (inMode, outMode, errMode)
+            case _ =>
+              Left(ioerror_invalid_argument("invalid StdioConfig value"))
+          }
+          spawnResult <- {
+            val (stdinMode, stdoutMode, stderrMode) = stdioModes
+            try {
+              val command = new java.util.ArrayList[String]()
+              command.add(cmdStr)
+              argList.foreach(command.add)
+              val pb = new java.lang.ProcessBuilder(command)
+
+              stdinMode match {
+                case 0 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectInput(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+              stdoutMode match {
+                case 0 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectOutput(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+              stderrMode match {
+                case 0 => pb.redirectError(java.lang.ProcessBuilder.Redirect.INHERIT)
+                case 1 => pb.redirectError(java.lang.ProcessBuilder.Redirect.PIPE)
+                case 2 => pb.redirectError(java.lang.ProcessBuilder.Redirect.DISCARD)
+                case _ => ()
+              }
+
+              val process = pb.start()
+              val processValue = ProcessValue(process, None)
+              val stdinHandle =
+                if (stdinMode == 1) {
+                  val processStdin = process.getOutputStream
+                  Some(
+                    WriterHandle(
+                      new BufferedWriter(
+                        new OutputStreamWriter(
+                          processStdin,
+                          StandardCharsets.UTF_8
+                        )
+                      ),
+                      Some(processStdin)
+                    )
+                  )
+                } else None
+              val stdoutHandle =
+                if (stdoutMode == 1) {
+                  val processStdout = process.getInputStream
+                  Some(
+                    ReaderHandle(
+                      new BufferedReader(
+                        new InputStreamReader(
+                          processStdout,
+                          StandardCharsets.UTF_8
+                        )
+                      ),
+                      Some(processStdout)
+                    )
+                  )
+                } else None
+              val stderrHandle =
+                if (stderrMode == 1) {
+                  val processStderr = process.getErrorStream
+                  Some(
+                    ReaderHandle(
+                      new BufferedReader(
+                        new InputStreamReader(
+                          processStderr,
+                          StandardCharsets.UTF_8
+                        )
+                      ),
+                      Some(processStderr)
+                    )
+                  )
+                } else None
+
+              Right(
+                spawnResultValue(processValue, stdinHandle, stdoutHandle, stderrHandle)
+              )
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("spawn", t))
+            }
+          }
+        } yield spawnResult
+
+        result match {
+          case Right(v)   => prog_pure(v)
+          case Left(err)  => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_wait(process: Value): Value =
+    prog_effect(
+      process,
+      p => {
+        val result = for {
+          procValue <- asProcessValue(p)
+          exitCode <- procValue.cachedExitCode match {
+            case Some(code) => Right(code)
+            case None       =>
+              try {
+                val code = procValue.process.waitFor()
+                procValue.cachedExitCode = Some(code)
+                Right(code)
+              } catch {
+                case _: InterruptedException =>
+                  Thread.currentThread().interrupt()
+                  Left(ioerror_known(IOErrorTagInterrupted, "wait interrupted"))
+                case NonFatal(t)             =>
+                  Left(ioerror_from_throwable("wait", t))
+              }
+          }
+        } yield exitCode
+
+        result match {
+          case Right(code) => prog_pure(VInt(code))
+          case Left(err)   => prog_raise_error(err)
+        }
+      }
+    )
+
+  private def nowWallEpochNanos(): BigInteger = {
+    val instant = java.time.Instant.now()
+    BigInteger
+      .valueOf(instant.getEpochSecond)
+      .multiply(OneBillionBI)
+      .add(BigInteger.valueOf(instant.getNano.toLong))
+  }
+
+  val prog_core_now_wall: Value =
+    prog_effect(UnitValue, _ => prog_pure(instantValueFromNanos(nowWallEpochNanos())))
+
+  val prog_core_now_mono: Value =
+    prog_effect(
+      UnitValue,
+      _ => prog_pure(durationValueFromNanos(BigInteger.valueOf(System.nanoTime())))
+    )
+
+  def prog_core_sleep(duration: Value): Value =
+    prog_effect(
+      duration,
+      d => {
+        val result = for {
+          nanos <- asDurationNanos(d)
+          _ <- {
+            if (nanos.signum < 0)
+              Left(ioerror_invalid_argument("sleep duration must be non-negative"))
+            else {
+              val millisBI = nanos.divide(OneMillionBI)
+              val extraNanos = nanos.remainder(OneMillionBI).intValue
+              val millis =
+                if (millisBI.compareTo(LongMaxBI) > 0) Long.MaxValue
+                else millisBI.longValue
+              try {
+                Thread.sleep(millis, extraNanos)
+                Right(())
+              } catch {
+                case _: InterruptedException =>
+                  Thread.currentThread().interrupt()
+                  Left(ioerror_known(IOErrorTagInterrupted, "sleep interrupted"))
+                case NonFatal(t)             =>
+                  Left(ioerror_from_throwable("sleep", t))
+              }
+            }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
         }
       }
     )
@@ -1009,16 +2659,16 @@ object PredefImpl {
     VInt(shiftLeft(i(a), i(b)))
 
   def and_Int(a: Value, b: Value): Value =
-    VInt(i(a).and(i(b)))
+    ExternalValue(andInt(intRaw(a), intRaw(b)))
 
   def or_Int(a: Value, b: Value): Value =
-    VInt(i(a).or(i(b)))
+    ExternalValue(orInt(intRaw(a), intRaw(b)))
 
   def xor_Int(a: Value, b: Value): Value =
-    VInt(i(a).xor(i(b)))
+    ExternalValue(xorInt(intRaw(a), intRaw(b)))
 
   def not_Int(a: Value): Value =
-    VInt(i(a).not())
+    ExternalValue(notInt(intRaw(a)))
 
   private def toIntExactIfRepresentable(v: BigInteger): Option[Int] = {
     val minInt = BigInteger.valueOf(Int.MinValue.toLong)
@@ -1033,6 +2683,300 @@ object PredefImpl {
 
   private def copyView(arr: ArrayValue): Array[Value] =
     java.util.Arrays.copyOfRange(arr.data, arr.offset, arr.offset + arr.len)
+
+  def from_List_Int(items: Value): Value = {
+    var current = items
+    var count = 0
+
+    while (current != VList.VNil) {
+      current match {
+        case VList.Cons(_, tail) =>
+          count = count + 1
+          current = tail
+        case other =>
+          // $COVERAGE-OFF$
+          sys.error(s"type error: expected list, found $other")
+        // $COVERAGE-ON$
+      }
+    }
+
+    if (count <= 0) emptyBytes
+    else {
+      val data = new Array[Byte](count)
+      current = items
+      var idx = 0
+
+      while (current != VList.VNil) {
+        current match {
+          case VList.Cons(head, tail) =>
+            data(idx) = normalizeByte(intRaw(head))
+            idx = idx + 1
+            current = tail
+          case other =>
+            // $COVERAGE-OFF$
+            sys.error(s"type error: expected list, found $other")
+          // $COVERAGE-ON$
+        }
+      }
+
+      ExternalValue(BytesValue(data, 0, count))
+    }
+  }
+
+  def from_Array_Int(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) emptyBytes
+    else {
+      val data = new Array[Byte](arr.len)
+      var idx = 0
+      while (idx < arr.len) {
+        data(idx) = normalizeByte(intRaw(arr.data(arr.offset + idx)))
+        idx = idx + 1
+      }
+      ExternalValue(BytesValue(data, 0, arr.len))
+    }
+  }
+
+  def to_List_Int(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    var idx = bytes.len - 1
+    var res: Value = VList.VNil
+    while (idx >= 0) {
+      res = VList.Cons(byteToIntValue(bytes.data(bytes.offset + idx)), res)
+      idx = idx - 1
+    }
+    res
+  }
+
+  def to_Array_Int(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    if (bytes.len <= 0) emptyArray
+    else {
+      val data = new Array[Value](bytes.len)
+      var idx = 0
+      while (idx < bytes.len) {
+        data(idx) = byteToIntValue(bytes.data(bytes.offset + idx))
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(data, 0, bytes.len))
+    }
+  }
+
+  def size_Bytes(bytesValue: Value): Value =
+    VInt(asBytes(bytesValue).len)
+
+  def get_map_Bytes(
+      bytesValue: Value,
+      index: Value,
+      default: Value,
+      fn: Value
+  ): Value = {
+    val bytes = asBytes(bytesValue)
+    inRangeIndex(i(index), bytes.len) match {
+      case Some(idx) =>
+        fn.asFn(
+          NonEmptyList(byteToIntValue(bytes.data(bytes.offset + idx)), Nil)
+        )
+      case None =>
+        default.asFn(NonEmptyList(UnitValue, Nil))
+    }
+  }
+
+  def get_or_Bytes(bytesValue: Value, index: Value, default: Value): Value =
+    get_map_Bytes(bytesValue, index, default, FnValue.identity)
+
+  def foldl_Bytes(bytesValue: Value, init: Value, fn: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    while (idx < bytes.len) {
+      acc = fnT(
+        NonEmptyList(
+          acc,
+          byteToIntValue(bytes.data(bytes.offset + idx)) :: Nil
+        )
+      )
+      idx = idx + 1
+    }
+    acc
+  }
+
+  def concat_all_Bytes(chunks: Value): Value = {
+    val parts = List.newBuilder[BytesValue]
+    var total = 0L
+    var current = chunks
+
+    while (current != VList.VNil) {
+      current match {
+        case VList.Cons(head, tail) =>
+          val bytes = asBytes(head)
+          parts += bytes
+          total = total + bytes.len.toLong
+          current = tail
+        case other =>
+          // $COVERAGE-OFF$
+          sys.error(s"type error: expected list, found $other")
+        // $COVERAGE-ON$
+      }
+    }
+
+    if (total <= 0L || total > Int.MaxValue.toLong) emptyBytes
+    else {
+      val totalInt = total.toInt
+      val data = new Array[Byte](totalInt)
+      var offset = 0
+      parts.result().iterator.foreach { bytes =>
+        if (bytes.len > 0) {
+          java.lang.System.arraycopy(
+            bytes.data,
+            bytes.offset,
+            data,
+            offset,
+            bytes.len
+          )
+          offset = offset + bytes.len
+        }
+      }
+      ExternalValue(BytesValue(data, 0, totalInt))
+    }
+  }
+
+  def slice_Bytes(bytesValue: Value, start: Value, end: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val lenBI = BigInteger.valueOf(bytes.len.toLong)
+    val startBI = {
+      val raw = i(start)
+      if (raw.signum < 0) BigInteger.ZERO else raw
+    }
+    val endBI = {
+      val raw = i(end)
+      if (raw.compareTo(lenBI) > 0) lenBI else raw
+    }
+
+    val valid =
+      startBI.signum >= 0 &&
+        endBI.signum >= 0 &&
+        startBI.compareTo(endBI) <= 0 &&
+        endBI.compareTo(lenBI) <= 0
+
+    if (!valid) emptyBytes
+    else {
+      val sliceLenBI = endBI.subtract(startBI)
+      if (sliceLenBI.signum <= 0) emptyBytes
+      else {
+        val startIdx = startBI.intValue()
+        val sliceLen = sliceLenBI.intValue()
+        ExternalValue(BytesValue(bytes.data, bytes.offset + startIdx, sliceLen))
+      }
+    }
+  }
+
+  def starts_with_Bytes(bytesValue: Value, prefixValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val prefix = asBytes(prefixValue)
+    if (prefix.len > bytes.len) False
+    else {
+      var idx = 0
+      var equal = true
+      while (idx < prefix.len && equal) {
+        if (bytes.data(bytes.offset + idx) != prefix.data(prefix.offset + idx))
+          equal = false
+        idx = idx + 1
+      }
+      bool(equal)
+    }
+  }
+
+  def ends_with_Bytes(bytesValue: Value, suffixValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val suffix = asBytes(suffixValue)
+    if (suffix.len > bytes.len) False
+    else {
+      val start = bytes.len - suffix.len
+      var idx = 0
+      var equal = true
+      while (idx < suffix.len && equal) {
+        if (
+          bytes.data(bytes.offset + start + idx) != suffix.data(
+            suffix.offset + idx
+          )
+        ) equal = false
+        idx = idx + 1
+      }
+      bool(equal)
+    }
+  }
+
+  def find_Bytes(bytesValue: Value, needleValue: Value, start: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    val needle = asBytes(needleValue)
+    val lenBI = BigInteger.valueOf(bytes.len.toLong)
+    val startRaw = i(start)
+    val startClamped =
+      if (startRaw.signum < 0) BigInteger.ZERO
+      else if (startRaw.compareTo(lenBI) > 0) lenBI
+      else startRaw
+
+    if (needle.len == 0) VInt(startClamped)
+    else {
+      val startIdx = startClamped.intValue
+      val maxStart = bytes.len - needle.len
+      if (startIdx > maxStart) VInt(-1)
+      else {
+        var idx = startIdx
+        var found = -1
+        while (idx <= maxStart && found < 0) {
+          var subIdx = 0
+          var matches = true
+          while (subIdx < needle.len && matches) {
+            if (
+              bytes.data(bytes.offset + idx + subIdx) != needle.data(
+                needle.offset + subIdx
+              )
+            ) matches = false
+            subIdx = subIdx + 1
+          }
+          if (matches) found = idx
+          else idx = idx + 1
+        }
+        VInt(found)
+      }
+    }
+  }
+
+  def utf8_bytes_from_String(strValue: Value): Value =
+    strValue match {
+      case Value.Str(str) =>
+        val utf8 = str.getBytes(StandardCharsets.UTF_8)
+        if (utf8.isEmpty) emptyBytes
+        else ExternalValue(BytesValue(utf8, 0, utf8.length))
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def utf8_bytes_to_String(bytesValue: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    decodeUtf8Slice(bytes.data, bytes.offset, bytes.len) match {
+      case Some(str) => VOption.some(Value.Str(str))
+      case None      => VOption.none
+    }
+  }
+
+  def utf8_Char_at(bytesValue: Value, index: Value): Value = {
+    val bytes = asBytes(bytesValue)
+    inRangeIndex(i(index), bytes.len) match {
+      case Some(idx) =>
+        utf8CharAt(bytes, idx) match {
+          case Some(char) => VOption.some(Value.Str(char))
+          case None       => VOption.none
+        }
+      case None      =>
+        VOption.none
+    }
+  }
 
   def tabulate_Array(size: Value, fn: Value): Value = {
     val sizeBI = i(size)
@@ -1085,7 +3029,7 @@ object PredefImpl {
   }
 
   def size_Array(array: Value): Value =
-    VInt(BigInt(asArray(array).len))
+    VInt(asArray(array).len)
 
   def get_map_Array(
       array: Value,
@@ -1260,7 +3204,10 @@ object PredefImpl {
   }
 
   final def int_to_String(intValue: Value): Value =
-    Value.Str(i(intValue).toString)
+    intRaw(intValue) match {
+      case i: java.lang.Integer => Value.Str(i.toString)
+      case bi: BigInteger       => Value.Str(bi.toString)
+    }
 
   final def string_to_Int(strValue: Value): Value = {
     val str = strValue match {

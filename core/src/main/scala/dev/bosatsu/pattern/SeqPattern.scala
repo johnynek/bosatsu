@@ -24,6 +24,13 @@ sealed trait SeqPattern[+A] derives CanEqual {
 
   def isEmpty: Boolean = this == Empty
 
+  def hasAdjacentWildcards: Boolean =
+    this match {
+      case Empty                           => false
+      case Cat(Wildcard, Cat(Wildcard, _)) => true
+      case Cat(_, tail)                    => tail.hasAdjacentWildcards
+    }
+
   /** Concat that SeqPattern on the right
     */
   def +[A1 >: A](that: SeqPattern[A1]): SeqPattern[A1] =

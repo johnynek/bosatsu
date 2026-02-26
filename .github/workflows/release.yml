@@ -17,7 +17,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: coursier/cache-action@v6
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
       - name: Java 17 setup
         uses: actions/setup-java@v5
         with:
@@ -73,7 +83,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: coursier/cache-action@v6
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
       - name: Java 17 setup
         uses: actions/setup-java@v5
         with:
@@ -128,7 +148,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: coursier/cache-action@v6
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
       - name: Java 17 setup
         uses: actions/setup-java@v5
         with:
@@ -177,7 +207,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: coursier/cache-action@v6
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
       - name: Java 17 setup
         uses: actions/setup-java@v5
         with:
@@ -213,7 +253,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: coursier/cache-action@v6
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

@@ -565,18 +565,26 @@ object PackageMap {
   )(implicit
       cpuEC: Par.EC
   ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
-    // if we have passed in a use supplied predef, don't use the internal one
-    val useInternalPredef = !ifs.exists { (p: Package.Interface) =>
-      p.name == PackageName.PredefName
-    }
+    val predefIface = ifs.find(_.name == PackageName.PredefName)
+    // if we have passed in a user supplied predef, don't use the internal one
+    val useInternalPredef = predefIface.isEmpty
     // Now we have completed all IO, here we do all the checks we need for correctness
     val parsed =
       if (useInternalPredef)
         withPredefA[(A, LocationMap)](
           (predefKey, LocationMap("")),
-          packs.toList
+          packs.toList,
+          compileOptions.mode
         )
-      else withPredefImportsA[(A, LocationMap)](packs.toList)
+      else {
+        val predefImports = predefIface match {
+          case Some(iface) => predefImportsFromExports(iface.exports)
+          case None        =>
+            // This should be unreachable because useInternalPredef is false.
+            predefImportsForMode(compileOptions.mode)
+        }
+        withPredefImportsA[(A, LocationMap)](packs.toList, predefImports)
+      }
 
     PackageMap
       .resolveThenInfer[A](
@@ -586,65 +594,123 @@ object PackageMap {
       )
   }
 
-  /** Here is the fully compiled Predef
-    */
-  val predefCompiled: Package.Inferred = Par.noParallelism {
-
-    // implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
-    val inferred = PackageMap
-      .resolveThenInfer(
-        ((), Package.predefPackage) :: Nil,
-        Nil,
-        CompileOptions.Default
-      )
-      .strictToValidated
-
-    inferred match {
-      case Validated.Valid(v) =>
-        v.toMap.get(PackageName.PredefName) match {
-          case None =>
-            sys.error(
-              "internal error: predef package not found after compilation"
-            )
-          case Some(inf) => inf
-        }
-      case Validated.Invalid(errs) =>
-        val map = Map(
-          PackageName.PredefName -> (
-            LocationMap(
-              Predef.predefString
-            ),
-            "<predef>"
-          )
-        )
-        errs.iterator.foreach { err =>
-          println(err.message(map, LocationMap.Colorize.None))
-        }
-        sys.error("expected no errors")
+  private def internalPredefCompileOptions(
+      mode: CompileOptions.Mode
+  ): CompileOptions =
+    mode match {
+      case CompileOptions.Mode.Emit          => CompileOptions.Default
+      case CompileOptions.Mode.TypeCheckOnly => CompileOptions.TypeCheckOnly
     }
+
+  private def compilePredefForMode(
+      mode: CompileOptions.Mode
+  ): Package.Inferred =
+    Par.noParallelism {
+      val inferred = PackageMap
+        .resolveThenInfer(
+          ((), Package.predefPackageForMode(mode)) :: Nil,
+          Nil,
+          internalPredefCompileOptions(mode)
+        )
+        .strictToValidated
+
+      inferred match {
+        case Validated.Valid(v) =>
+          v.toMap.get(PackageName.PredefName) match {
+            case None =>
+              sys.error(
+                "internal error: predef package not found after compilation"
+              )
+            case Some(inf) => inf
+          }
+        case Validated.Invalid(errs) =>
+          val map = Map(
+            PackageName.PredefName -> (
+              LocationMap(
+                Predef.predefString
+              ),
+              "<predef>"
+            )
+          )
+          errs.iterator.foreach { err =>
+            println(err.message(map, LocationMap.Colorize.None))
+          }
+          sys.error("expected no errors")
+      }
+    }
+
+  private lazy val predefCompiledEmit: Package.Inferred =
+    compilePredefForMode(CompileOptions.Mode.Emit)
+  private lazy val predefCompiledTypeCheckOnly: Package.Inferred =
+    compilePredefForMode(CompileOptions.Mode.TypeCheckOnly)
+
+  // Compile mode changes the internal predef exports (`todo` in type-check
+  // mode), so mode must be part of predef cache identity.
+  def predefCompiledForMode(mode: CompileOptions.Mode): Package.Inferred =
+    mode match {
+      case CompileOptions.Mode.Emit          => predefCompiledEmit
+      case CompileOptions.Mode.TypeCheckOnly => predefCompiledTypeCheckOnly
+    }
+
+  /** Backward compatible runtime predef handle.
+    */
+  def predefCompiled: Package.Inferred = predefCompiledEmit
+
+  private def predefImportsFromExports(
+      exports: List[ExportedName[Referant[Kind.Arg]]]
+  ): Import[PackageName, Unit] = {
+    val predefImportList = exports
+      .map(_.name)
+      .distinct
+      .sorted
+      .map(ImportedName.OriginalName(_, ()))
+    Import(PackageName.PredefName, NonEmptyList.fromList(predefImportList).get)
   }
 
-  private val predefImportList = predefCompiled.exports
-    .map(_.name)
-    .distinct
-    .sorted
-    .map(ImportedName.OriginalName(_, ()))
+  private lazy val predefImportsEmit: Import[PackageName, Unit] =
+    predefImportsFromExports(predefCompiledEmit.exports)
+  private lazy val predefImportsTypeCheckOnly: Import[PackageName, Unit] =
+    predefImportsFromExports(predefCompiledTypeCheckOnly.exports)
 
-  private val predefImports: Import[PackageName, Unit] =
-    Import(PackageName.PredefName, NonEmptyList.fromList(predefImportList).get)
+  private def predefImportsForMode(
+      mode: CompileOptions.Mode
+  ): Import[PackageName, Unit] =
+    mode match {
+      case CompileOptions.Mode.Emit          => predefImportsEmit
+      case CompileOptions.Mode.TypeCheckOnly => predefImportsTypeCheckOnly
+    }
 
   private def withPredefImportsA[A](
-      ps: List[(A, Package.Parsed)]
+      ps: List[(A, Package.Parsed)],
+      predefImports: Import[PackageName, Unit]
   ): List[(A, Package.Parsed)] =
     ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
-    Package.predefPackage :: ps.map(_.withImport(predefImports))
+    withPredef(ps, CompileOptions.Mode.Emit)
+
+  def withPredef(
+      ps: List[Package.Parsed],
+      mode: CompileOptions.Mode
+  ): List[Package.Parsed] =
+    Package.predefPackageForMode(mode) :: ps.map(_.withImport(
+      predefImportsForMode(mode)
+    ))
 
   def withPredefA[A](
       predefA: A,
       ps: List[(A, Package.Parsed)]
   ): List[(A, Package.Parsed)] =
-    (predefA, Package.predefPackage) :: withPredefImportsA(ps)
+    withPredefA(predefA, ps, CompileOptions.Mode.Emit)
+
+  def withPredefA[A](
+      predefA: A,
+      ps: List[(A, Package.Parsed)],
+      mode: CompileOptions.Mode
+  ): List[(A, Package.Parsed)] =
+    (predefA, Package.predefPackageForMode(mode)) :: withPredefImportsA(
+      ps,
+      predefImportsForMode(mode)
+    )
 
 }

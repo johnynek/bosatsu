@@ -11,6 +11,8 @@ class ValueToJsonTest extends munit.FunSuite {
     ),
     Type.IntType
   )
+  private val bytesType: Type =
+    Type.const(PackageName.parts("Bosatsu", "IO", "Bytes"), TypeName("Bytes"))
 
   test("char toJson reports ill-typed runtime values") {
     val toJson = conv.toJson(Type.CharType) match {
@@ -49,5 +51,43 @@ class ValueToJsonTest extends munit.FunSuite {
       case Right(value) =>
         fail(s"expected ill-typed Array parsing failure, got: $value")
     }
+  }
+
+  test("bytes toJson renders as json integer array") {
+    val toJson = conv.toJson(bytesType) match {
+      case Right(fn) => fn
+      case Left(err) => fail(s"expected Bytes json conversion support: $err")
+    }
+    val bytes = Value.ExternalValue(
+      PredefImpl.BytesValue(Array[Byte](0.toByte, 1.toByte, 255.toByte), 0, 3)
+    )
+    toJson(bytes) match {
+      case Right(Json.JArray(values)) =>
+        assertEquals(
+          values.toList,
+          List(
+            Json.JNumberStr("0"),
+            Json.JNumberStr("1"),
+            Json.JNumberStr("255")
+          )
+        )
+      case Right(other) =>
+        fail(s"expected bytes json array, got: $other")
+      case Left(err) =>
+        fail(s"unexpected bytes toJson failure: $err")
+    }
+  }
+
+  test("bytes toValue rejects ints outside [0,255]") {
+    val toValue = conv.toValue(bytesType) match {
+      case Right(fn) => fn
+      case Left(err) => fail(s"expected Bytes json parsing support: $err")
+    }
+
+    val tooLarge = toValue(Json.JArray(Vector(Json.JNumberStr("256"))))
+    assert(tooLarge.isLeft, tooLarge.toString)
+
+    val negative = toValue(Json.JArray(Vector(Json.JNumberStr("-1"))))
+    assert(negative.isLeft, negative.toString)
   }
 }

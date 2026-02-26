@@ -8,7 +8,7 @@ class DefRecursionCheckTest extends munit.FunSuite {
 
   def allowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(teStr)
-    stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
+    stmt.traverse_(LegacyDefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_)      => ()
       case Validated.Invalid(errs) =>
         fail(s"$errs")
@@ -17,7 +17,7 @@ class DefRecursionCheckTest extends munit.FunSuite {
 
   def disallowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(teStr)
-    stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
+    stmt.traverse_(LegacyDefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_)   => fail("expected failure")
       case Validated.Invalid(_) => ()
     }

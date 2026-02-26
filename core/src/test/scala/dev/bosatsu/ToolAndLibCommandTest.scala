@@ -1988,6 +1988,87 @@ main = depBox
     }
   }
 
+  test("tool json write/apply/traverse support --yaml output") {
+    val writeSrc =
+      """main = [1, 2]
+"""
+    val fnSrc =
+      """main = (x) -> x.add(1)
+"""
+    val writeFiles = List(Chain("src", "Json", "Foo.bosatsu") -> writeSrc)
+    val fnFiles = List(Chain("src", "Json", "Foo.bosatsu") -> fnSrc)
+
+    module.runWith(writeFiles)(
+      List(
+        "tool",
+        "json",
+        "write",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 1\n- 2")
+      case Right(other) =>
+        fail(s"expected yaml write output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "tool",
+        "json",
+        "apply",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml",
+        "--json_string",
+        "[41]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "42")
+      case Right(other) =>
+        fail(s"expected yaml apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "tool",
+        "json",
+        "traverse",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--yaml",
+        "--json_string",
+        "[[1], [4]]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 2\n- 5")
+      case Right(other) =>
+        fail(s"expected yaml traverse output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool check without inputs reports a cli error") {
     module.runWith(Nil)(List("tool", "check")) match {
       case Right(out) =>
@@ -1999,6 +2080,52 @@ main = depBox
           module.mainExceptionToString(err).nonEmpty,
           show"expected CliException: $msg"
         )
+    }
+  }
+
+  test("tool check accepts todo but tool show rejects it") {
+    val src =
+      """package Todo/Foo
+|
+|main = todo(1)
+|""".stripMargin
+    val files = List(
+      Chain("src", "Todo", "Foo.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu"
+      )
+    ) match {
+      case Right(Output.CompileOut(_, _, _)) => ()
+      case Right(other)                      => fail(s"unexpected output: $other")
+      case Left(err)                         => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Todo/Foo.bosatsu",
+        "--value",
+        "Todo/Foo::main"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 
@@ -2221,6 +2348,81 @@ main = depBox
     }
   }
 
+  test("lib json write/apply/traverse support --yaml output") {
+    val writeSrc =
+      """main = [1, 2]
+"""
+    val fnSrc =
+      """main = (x) -> x.add(1)
+"""
+    val writeFiles = baseLibFiles(writeSrc)
+    val fnFiles = baseLibFiles(fnSrc)
+
+    module.runWith(writeFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 1\n- 2")
+      case Right(other) =>
+        fail(s"expected yaml write output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml",
+        "--json_string",
+        "[41]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "42")
+      case Right(other) =>
+        fail(s"expected yaml apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    module.runWith(fnFiles)(
+      List(
+        "lib",
+        "json",
+        "traverse",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--yaml",
+        "--json_string",
+        "[[1], [4]]"
+      )
+    ) match {
+      case Right(Output.Basic(doc, _)) =>
+        assertEquals(doc.render(120), "- 2\n- 5")
+      case Right(other) =>
+        fail(s"expected yaml traverse output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("lib json write rejects unsupported function output") {
     val src =
       """main = (x: Int) -> x
@@ -2247,7 +2449,7 @@ main = depBox
     }
   }
 
-  test("lib json write supports Char and Array external values") {
+  test("lib json write supports Char, Array, and Bytes external values") {
     val charSrc =
       """main = match int_to_Char(127):
   case Some(c): c
@@ -2316,6 +2518,54 @@ external def size_Array[a](ary: Array[a]) -> Int
         )
       case Right(other) =>
         fail(s"expected array json output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val bytesSrc =
+      """from Bosatsu/IO/Bytes import from_List_Int
+|
+|main = from_List_Int([-1, 0, 1, 255, 256])
+|""".stripMargin
+    val bytesPkgSrc =
+      """package Bosatsu/IO/Bytes
+|
+|export Bytes, from_List_Int, size_Bytes
+|
+|external struct Bytes
+|external def from_List_Int(ints: List[Int]) -> Bytes
+|external def size_Bytes(bytes: Bytes) -> Int
+|""".stripMargin
+    val bytesFiles = baseLibFiles(bytesSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
+    )
+
+    module.runWith(bytesFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(
+            Vector(
+              Json.JNumberStr("255"),
+              Json.JNumberStr("0"),
+              Json.JNumberStr("1"),
+              Json.JNumberStr("255"),
+              Json.JNumberStr("0")
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected bytes json output, got: $other")
       case Left(err) =>
         fail(err.getMessage)
     }
@@ -2618,7 +2868,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json apply supports Char and Array arguments") {
+  test("lib json apply supports Char, Array, and Bytes arguments") {
     val charFnSrc =
       """main = (c: Char) -> (c, c)
 """
@@ -2705,6 +2955,76 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(s"expected array apply output, got: $other")
       case Left(err) =>
         fail(err.getMessage)
+    }
+
+    val bytesFnSrc =
+      """from Bosatsu/IO/Bytes import Bytes, to_List_Int
+|
+|main = (bs: Bytes) -> to_List_Int(bs)
+|""".stripMargin
+    val bytesPkgSrc =
+      """package Bosatsu/IO/Bytes
+|
+|export Bytes, from_List_Int, to_List_Int, size_Bytes
+|
+|external struct Bytes
+|external def from_List_Int(ints: List[Int]) -> Bytes
+|external def to_List_Int(bytes: Bytes) -> List[Int]
+|external def size_Bytes(bytes: Bytes) -> Int
+|""".stripMargin
+    val bytesFnFiles = baseLibFiles(bytesFnSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
+    )
+
+    module.runWith(bytesFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[[0,255,42]]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(
+            Vector(
+              Json.JNumberStr("0"),
+              Json.JNumberStr("255"),
+              Json.JNumberStr("42")
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected bytes apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val bytesInvalid = module.runWith(bytesFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[[256]]"
+      )
+    )
+    bytesInvalid match {
+      case Right(out) =>
+        fail(s"expected invalid bytes json input error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid input json"), msg)
     }
   }
 
@@ -2829,6 +3149,27 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("previous not in cas"), msg)
+    }
+  }
+
+  test("lib check accepts todo but lib show rejects it") {
+    val files = baseLibFiles("main = todo(1)\n")
+
+    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+      case Right(Output.Basic(_, _)) => ()
+      case Right(other)              => fail(s"unexpected output: $other")
+      case Left(err)                 => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(out) =>
+        fail(s"expected emit-mode rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("todo"), msg)
+        assert(msg.contains("only available in type-check mode"), msg)
     }
   }
 

@@ -10,6 +10,7 @@ elmui/elm-stuff/*
 # sbt specific
 .cache
 .history
+.sbt-local/
 .lib/
 dist/*
 target/

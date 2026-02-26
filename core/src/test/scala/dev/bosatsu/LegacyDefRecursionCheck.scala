@@ -20,7 +20,7 @@ import Identifier.Bindable
   *      substructures in the match position. 4. if there is a recur match,
   *      there must be at least one real recursion
   */
-object DefRecursionCheck {
+object LegacyDefRecursionCheck {
 
   type Res = ValidatedNel[RecursionError, Unit]
 

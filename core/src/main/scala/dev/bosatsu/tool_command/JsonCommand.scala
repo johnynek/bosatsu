@@ -52,6 +52,10 @@ object JsonCommand {
         }
       }
 
+    def outputFor(json: Json, yamlOut: Boolean, outputOpt: Option[Path]): Output[Path] =
+      if (yamlOut) Output.Basic(Json.toYamlDoc(json), outputOpt)
+      else Output.JsonOutput(json, outputOpt)
+
     def toJsonOpt(modeOpt: Opts[JsonMode]): Opts[F[Output[Path]]] =
       (
         commonOpts.sourcePathOpts,
@@ -60,6 +64,12 @@ object JsonCommand {
         commonOpts.publicDependencyOpts,
         commonOpts.privateDependencyOpts,
         modeOpt,
+        Opts
+          .flag(
+            "yaml",
+            help = "emit YAML output; --json_input and --json_string remain JSON-only"
+          )
+          .orFalse,
         commonOpts.mainIdentifierOpt,
         commonOpts.outputPathOpt.orNone,
         Colorize.optsConsoleDefault
@@ -71,6 +81,7 @@ object JsonCommand {
             publicDependencies,
             privateDependencies,
             mode,
+            yamlOut,
             mainPackage,
             outputOpt,
             errColor
@@ -162,7 +173,7 @@ object JsonCommand {
                               }
                             }
                             .map { fjson =>
-                              Output.JsonOutput(inject(fjson), outputOpt)
+                              outputFor(inject(fjson), yamlOut, outputOpt)
                             }
                         // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
                         case Left(valueError) =>
@@ -190,7 +201,7 @@ object JsonCommand {
                             )
                           // $COVERAGE-ON$
                           case Right(j) =>
-                            moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
+                            moduleIOMonad.pure(outputFor(j, yamlOut, outputOpt))
                         }
                     }
 
@@ -223,11 +234,17 @@ object JsonCommand {
 
     val input: Opts[JsonInput] =
       Opts
-        .option[Path]("json_input", help = "json input path")
+        .option[Path](
+          "json_input",
+          help = "json input path (JSON only; --yaml changes output format only)"
+        )
         .map(JsonInput.FromPath(_))
         .orElse(
           Opts
-            .option[String]("json_string", help = "json string argument")
+            .option[String](
+              "json_string",
+              help = "json string argument (JSON only; --yaml changes output format only)"
+            )
             .map(JsonInput.FromString(_))
         )
 

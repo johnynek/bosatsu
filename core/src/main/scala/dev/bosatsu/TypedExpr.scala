@@ -885,7 +885,7 @@ object TypedExpr {
       guard: Option[TypedExpr[T]],
       expr: TypedExpr[T]
   )
-  case class Match[T](
+  case class Match[+T](
       arg: TypedExpr[T],
       branches: NonEmptyList[Branch[T]],
       tag: T

@@ -1,0 +1,452 @@
+package Bosatsu/IO/Core
+
+from Bosatsu/Prog import Prog
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Bytes import Bytes
+from Bosatsu/Char import (
+  string_to_Char_List,
+  char_to_Int,
+  is_ascii_alpha,
+  to_ascii_lower_case,
+)
+
+export (
+  Path,
+  path_sep,
+  string_to_Path,
+  path_to_String,
+  path_join,
+  path_parent,
+  path_file_name,
+  Handle,
+  Process,
+  Instant,
+  Duration,
+  duration_to_nanos,
+  FileKind(),
+  FileStat(),
+  OpenMode(),
+  Stdio(),
+  StdioConfig(),
+  SpawnResult(),
+  stdin,
+  stdout,
+  stderr,
+  read_utf8,
+  write_utf8,
+  read_bytes,
+  write_bytes,
+  read_all_bytes,
+  copy_bytes,
+  flush,
+  close,
+  open_file,
+  list_dir,
+  stat,
+  mkdir,
+  remove,
+  rename,
+  get_env,
+  spawn,
+  wait,
+  now_wall,
+  now_mono,
+  sleep,
+)
+
+external path_sep: String
+
+# Opaque outside this package because constructor is not exported.
+struct Path(to_String: String)
+
+external struct Handle
+external struct Process
+
+# Opaque outside this package because constructors are not exported.
+struct Instant(epoch_nanos: Int)
+struct Duration(to_nanos: Int)
+
+enum FileKind:
+  File
+  Dir
+  Symlink
+  Other
+
+struct FileStat(kind: FileKind, size_bytes: Int, mtime: Instant)
+
+enum OpenMode:
+  Read
+  WriteTruncate
+  Append
+
+enum Stdio:
+  Inherit
+  Pipe
+  Null
+  UseHandle(handle: Handle)
+
+struct StdioConfig(stdin: Stdio, stdout: Stdio, stderr: Stdio)
+
+struct SpawnResult(
+  proc: Process,
+  stdin: Option[Handle],
+  stdout: Option[Handle],
+  stderr: Option[Handle],
+)
+
+external stdin: Handle
+external stdout: Handle
+external stderr: Handle
+
+external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
+external def write_utf8(h: Handle, s: String) -> Prog[IOError, Unit]
+external def read_bytes(h: Handle, max_bytes: Int) -> Prog[IOError, Option[Bytes]]
+external def write_bytes(h: Handle, bytes: Bytes) -> Prog[IOError, Unit]
+external def read_all_bytes(h: Handle, chunk_size: Int) -> Prog[IOError, Bytes]
+external def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -> Prog[IOError, Int]
+external def flush(h: Handle) -> Prog[IOError, Unit]
+external def close(h: Handle) -> Prog[IOError, Unit]
+external def open_file(path: Path, mode: OpenMode) -> Prog[IOError, Handle]
+external def list_dir(path: Path) -> Prog[IOError, List[Path]]
+external def stat(path: Path) -> Prog[IOError, Option[FileStat]]
+external def mkdir(path: Path, recursive: Bool) -> Prog[IOError, Unit]
+external def remove(path: Path, recursive: Bool) -> Prog[IOError, Unit]
+external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
+external def get_env(name: String) -> Prog[IOError, Option[String]]
+external def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Prog[IOError, SpawnResult]
+external def wait(p: Process) -> Prog[IOError, Int]
+external now_wall: Prog[IOError, Instant]
+external now_mono: Prog[IOError, Duration]
+external def sleep(d: Duration) -> Prog[IOError, Unit]
+
+# Keep these type imports marked as used for the Bosatsu import checker.
+_ = now_mono
+
+def bytes_identity_for_import(b: Bytes) -> Bytes:
+  b
+
+_ = bytes_identity_for_import
+
+def duration_to_nanos(d: Duration) -> Int:
+  Duration { to_nanos } = d
+  to_nanos
+
+def andb(left: Bool, right: Bool) -> Bool:
+  if left:
+    right
+  else:
+    False
+
+def orb(left: Bool, right: Bool) -> Bool:
+  if left:
+    True
+  else:
+    right
+
+def starts_with_slash(s: String) -> Bool:
+  s matches "/${_}" | "/"
+
+def ends_with_slash(s: String) -> Bool:
+  s matches "${_}/"
+
+def is_drive_prefix(component: String) -> Bool:
+  match component:
+    case "$.{drive}:": is_ascii_alpha(drive)
+    case _: False
+
+def is_drive_absolute(s: String) -> Bool:
+  match s:
+    case "$.{drive}:/${_}": is_ascii_alpha(drive)
+    case _: False
+
+def is_drive_relative(s: String) -> Bool:
+  match s:
+    case "$.{drive}:${rest}" if is_ascii_alpha(drive):
+      starts_with_slash(rest) matches False
+    case _: False
+
+def is_drive_root(s: String) -> Bool:
+  match s:
+    case "$.{drive}:/": is_ascii_alpha(drive)
+    case _: False
+
+def has_control_char(chars: List[Char]) -> Bool:
+  recur chars:
+    case []: False
+    case [h, *t]:
+      cp = char_to_Int(h)
+      if cmp_Int(cp, 32) matches LT:
+        True
+      else:
+        has_control_char(t)
+
+def replace_backslashes(chars: List[Char]) -> List[Char]:
+  recur chars:
+    case []: []
+    case [h, *t]:
+      h1 = if char_to_Int(h) matches 92:
+        .'/'
+      else:
+        h
+      [h1, *replace_backslashes(t)]
+
+def chars_to_String(chars: List[Char]) -> String:
+  concat_String(["$.{c}" for c in chars])
+
+def normalize_separators(s: String) -> String:
+  match s.partition_String("\\"):
+    case None: s
+    case Some(_):
+      chars_to_String(replace_backslashes(string_to_Char_List(s)))
+
+def is_forbidden_component_char(c: Char) -> Bool:
+  match char_to_Int(c):
+    case 60 | 62 | 58 | 34 | 124 | 63 | 42: True
+    case _: False
+
+def has_forbidden_component_char(chars: List[Char]) -> Bool:
+  recur chars:
+    case []: False
+    case [h, *t]:
+      if is_forbidden_component_char(h):
+        True
+      else:
+        has_forbidden_component_char(t)
+
+def split_slash(path: String) -> List[String]:
+  def loop(chars: List[Char], rev_current: List[Char], rev_parts: List[String]) -> List[String]:
+    recur chars:
+      case []:
+        [chars_to_String(rev_current.reverse()), *rev_parts].reverse()
+      case [h, *t]:
+        if char_to_Int(h) matches 47:
+          part = chars_to_String(rev_current.reverse())
+          loop(t, [], [part, *rev_parts])
+        else:
+          loop(t, [h, *rev_current], rev_parts)
+
+  loop(string_to_Char_List(path), [], [])
+
+def lower_ascii(s: String) -> String:
+  chars_to_String([to_ascii_lower_case(c) for c in string_to_Char_List(s)])
+
+def is_reserved_device(component: String) -> Bool:
+  base = match component.partition_String("."):
+    case Some((head, _)): head
+    case None: component
+
+  lowered = lower_ascii(base)
+  if lowered matches "con":
+    True
+  elif lowered matches "prn":
+    True
+  elif lowered matches "aux":
+    True
+  elif lowered matches "nul":
+    True
+  elif lowered matches "com1":
+    True
+  elif lowered matches "com2":
+    True
+  elif lowered matches "com3":
+    True
+  elif lowered matches "com4":
+    True
+  elif lowered matches "com5":
+    True
+  elif lowered matches "com6":
+    True
+  elif lowered matches "com7":
+    True
+  elif lowered matches "com8":
+    True
+  elif lowered matches "com9":
+    True
+  elif lowered matches "lpt1":
+    True
+  elif lowered matches "lpt2":
+    True
+  elif lowered matches "lpt3":
+    True
+  elif lowered matches "lpt4":
+    True
+  elif lowered matches "lpt5":
+    True
+  elif lowered matches "lpt6":
+    True
+  elif lowered matches "lpt7":
+    True
+  elif lowered matches "lpt8":
+    True
+  elif lowered matches "lpt9":
+    True
+  else:
+    False
+
+def has_trailing_space_or_dot(component: String) -> Bool:
+  match component:
+    case "${_} " | "${_}.": True
+    case _: False
+
+def valid_component(component: String) -> Bool:
+  if component matches "":
+    True
+  elif component matches "." | "..":
+    True
+  elif is_drive_prefix(component):
+    True
+  else:
+    andb(
+      has_forbidden_component_char(string_to_Char_List(component)) matches False,
+      andb(
+        has_trailing_space_or_dot(component) matches False,
+        is_reserved_device(component) matches False
+      )
+    )
+
+def valid_components_from_parts(parts: List[String]) -> Bool:
+  recur parts:
+    case []: True
+    case [h, *t]:
+      if valid_component(h):
+        valid_components_from_parts(t)
+      else:
+        False
+
+def valid_components(path: String) -> Bool:
+  valid_components_from_parts(split_slash(path))
+
+def is_unc_with_server_share(s: String) -> Bool:
+  match s:
+    case "//${rest}":
+      match rest.partition_String("/"):
+        case Some((server, share_rest)):
+          if server matches "":
+            False
+          else:
+            match share_rest.partition_String("/"):
+              case Some((share, _)):
+                if share matches "":
+                  False
+                else:
+                  True
+              case None:
+                if share_rest matches "":
+                  False
+                else:
+                  True
+        case None:
+          False
+    case _:
+      False
+
+def is_unc_root(s: String) -> Bool:
+  split_slash(s) matches ["", "", _, _]
+
+def has_device_namespace_prefix(s: String) -> Bool:
+  match s:
+    case "//?/${_}" | "//./${_}": True
+    case _: False
+
+def normalize_for_path(s: String) -> Option[String]:
+  if s matches "":
+    None
+  else:
+    normalized = normalize_separators(s)
+    if has_control_char(string_to_Char_List(normalized)):
+      None
+    elif has_device_namespace_prefix(normalized):
+      None
+    elif is_drive_relative(normalized):
+      None
+    elif andb(
+      normalized matches "//${_}",
+      is_unc_with_server_share(normalized) matches False
+    ):
+      None
+    elif valid_components(normalized) matches False:
+      None
+    else:
+      Some(normalized)
+
+def string_to_Path(s: String) -> Option[Path]:
+  match normalize_for_path(s):
+    case Some(normalized): Some(Path(normalized))
+    case None: None
+
+def path_to_String(path: Path) -> String:
+  Path { to_String } = path
+  to_String
+
+def is_absolute(path: Path) -> Bool:
+  s = path_to_String(path)
+  orb(starts_with_slash(s), orb(is_drive_absolute(s), is_unc_with_server_share(s)))
+
+def path_join(base: Path, child: Path) -> Path:
+  if is_absolute(child):
+    child
+  else:
+    bs = path_to_String(base)
+    cs = path_to_String(child)
+    if ends_with_slash(bs):
+      Path("${bs}${cs}")
+    else:
+      Path("${bs}/${cs}")
+
+def is_root_path(s: String) -> Bool:
+  if s matches "/":
+    True
+  elif is_drive_root(s):
+    True
+  elif andb(is_unc_with_server_share(s), is_unc_root(s)):
+    True
+  else:
+    False
+
+def drop_trailing_slash_non_root(s: String) -> String:
+  if is_root_path(s):
+    s
+  else:
+    def drop_leading_slashes(chars: List[Char]) -> List[Char]:
+      recur chars:
+        case []: []
+        case [h, *t]:
+          if char_to_Int(h) matches 47:
+            drop_leading_slashes(t)
+          else:
+            chars
+
+    chars_to_String(drop_leading_slashes(string_to_Char_List(s).reverse()).reverse())
+
+def path_parent(path: Path) -> Option[Path]:
+  s0 = drop_trailing_slash_non_root(path_to_String(path))
+  if is_root_path(s0):
+    None
+  else:
+    match s0.rpartition_String("/"):
+      case Some((left, _)):
+        if left matches "":
+          if starts_with_slash(s0):
+            Some(Path("/"))
+          else:
+            None
+        elif is_drive_prefix(left):
+          Some(Path("${left}/"))
+        else:
+          string_to_Path(left)
+      case None:
+        None
+
+def path_file_name(path: Path) -> Option[String]:
+  s0 = drop_trailing_slash_non_root(path_to_String(path))
+  if is_root_path(s0):
+    None
+  else:
+    match s0.rpartition_String("/"):
+      case Some((_, name)):
+        if name matches "":
+          None
+        else:
+          Some(name)
+      case None:
+        Some(s0)

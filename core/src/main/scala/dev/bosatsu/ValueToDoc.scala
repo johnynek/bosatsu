@@ -18,6 +18,11 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bytesTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "IO", "Bytes"),
+      TypeName("Bytes")
+    )
   private val progTypeConst: Type.Const.Defined =
     Type.Const.Defined(
       PackageName.parts("Bosatsu", "Prog"),
@@ -49,6 +54,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
+              case ExternalValue(v: java.lang.Integer) =>
+                Right(Doc.str(v))
               case ExternalValue(v: BigInteger) =>
                 Right(Doc.str(v))
               case other =>
@@ -178,6 +185,28 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       inners
                     ) + Doc.lineOrEmpty).aligned + Doc.char(']')
                   }
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
+            case Type.TyConst(`bytesTypeConst`) =>
+              {
+                case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                  val out = new java.lang.StringBuilder
+                  out.append('<')
+                  var idx = 0
+                  while (idx < bytes.len) {
+                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                    if (idx > 0) {
+                      out.append(' '): Unit
+                    }
+                    if (intValue < 0x10) {
+                      out.append('0'): Unit
+                    }
+                    out.append(java.lang.Integer.toHexString(intValue))
+                    idx = idx + 1
+                  }
+                  out.append('>')
+                  Right(Doc.text(out.toString))
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }

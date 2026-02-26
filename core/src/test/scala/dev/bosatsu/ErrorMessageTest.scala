@@ -532,7 +532,7 @@ package A
 
 enum Foo: Bar(a), Baz(b)
 
-main = match Bar(a):
+main = match Bar(1):
   case Baz(b): b
 """)) { case te @ PackageError.TotalityCheckError(_, _) =>
       assertEquals(
@@ -566,6 +566,8 @@ main = fn
 
     evalFail(List("""
 package A
+
+def parse_loop(x): x
 
 def parse_loopTypo(x):
   recur x:
@@ -611,6 +613,7 @@ main = fn
 package A
 
 def fn(x):
+  y = x
   recur y:
     case y: 0
 
@@ -621,7 +624,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,47)\n"
+        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(33,55)\n"
       )
       ()
     }
@@ -675,7 +678,7 @@ package A
 def fn(x, y):
   match x:
     case 0: y
-    case x: fn(x - 1, y + 1)
+    case x: fn(x, y)
 
 main = fn
 """)) { case te @ PackageError.RecursionError(_, _) =>
@@ -684,7 +687,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,79)\n"
+        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,71)\n"
       )
       ()
     }
@@ -2217,10 +2220,11 @@ main = xxfoo
     val tag = Declaration.Var(Identifier.Name("x"))
     val pat: Pattern[(PackageName, Identifier.Constructor), rankn.Type] =
       Pattern.PositionalStruct((pack, miss), Nil)
-    val lit = Expr.Literal[Declaration](Lit.Integer(0L), tag)
-    val matchExpr = Expr.Match(
+    val lit =
+      TypedExpr.Literal[Declaration](Lit.Integer(0L), rankn.Type.IntType, tag)
+    val matchExpr = TypedExpr.Match(
       lit,
-      cats.data.NonEmptyList.one(Expr.Branch(pat, None, lit)),
+      cats.data.NonEmptyList.one(TypedExpr.Branch(pat, None, lit)),
       tag
     )
     val totalityErr = PackageError.TotalityCheckError(

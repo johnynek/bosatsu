@@ -382,16 +382,6 @@ object Package {
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
-          /*
-           * Check that all recursion is allowable
-           */
-          val defRecursionCheck: ValidatedNel[PackageError, Unit] =
-            stmts
-              .traverse_(DefRecursionCheck.checkStatement(_))
-              .leftMap { badRecursions =>
-                badRecursions.map(PackageError.RecursionError(p, _))
-              }
-
           val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
           /*
@@ -417,14 +407,6 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
-          val totalityCheck =
-            lets
-              .traverse { case (_, _, expr) =>
-                TotalityCheck(fullTypeEnv).checkExpr(expr)
-              }
-              .leftMap { errs =>
-                errs.map(PackageError.TotalityCheckError(p, _))
-              }
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
@@ -450,29 +432,64 @@ object Package {
               tn
             }.toSet
 
-          val inferenceEither = Infer
+          val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+
+          val inferenceEither
+              : Either[
+                NonEmptyList[PackageError],
+                (
+                    TypeEnv[Kind.Arg],
+                    Program[
+                      TypeEnv[Kind.Arg],
+                      TypedExpr[Declaration],
+                      List[Statement]
+                    ]
+                )
+              ] = Infer
             .typeCheckLets(p, lets, theseExternals)
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
               fullTypeEnv.toKindMap
             )
-            .map { lets =>
-              (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
-            }
-            .left
-            .map(
-              PackageError.TypeErrorIn(
-                _,
-                p,
-                lets,
-                theseExternals,
-                letNameRegions,
-                localTypeNames
+            .leftMap { tpeErr =>
+              NonEmptyList.one[PackageError](
+                PackageError.TypeErrorIn(
+                  tpeErr,
+                  p,
+                  lets,
+                  theseExternals,
+                  letNameRegions,
+                  localTypeNames
+                )
               )
-            )
+            }
+            .flatMap { typedLets =>
+              val recursionCheck: ValidatedNel[PackageError, Unit] =
+                TypedExprRecursionCheck
+                .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                .leftMap(
+                  _.map(err => PackageError.RecursionError(p, err): PackageError)
+                    .toNonEmptyList
+                )
 
-          val checkUnusedLets =
+              val totalityCheck: ValidatedNel[PackageError, Unit] =
+                typedLets
+                  .traverse_ { case (_, _, expr) =>
+                    TotalityCheck(fullTypeEnv).checkExpr(expr)
+                  }
+                  .leftMap { errs =>
+                    errs.map(PackageError.TotalityCheckError(p, _))
+                  }
+
+              (recursionCheck, totalityCheck)
+                .mapN { (_, _) =>
+                  (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
+                }
+                .toEither
+            }
+
+          val checkUnusedLets: ValidatedNel[PackageError, Unit] =
             lets
               .traverse_ { case (_, _, expr) =>
                 UnusedLetCheck.check(expr)
@@ -488,24 +505,34 @@ object Package {
            * warning: if we refactor this from validated, we need parMap on Ior to get this
            * error accumulation
            */
-          val checks = List(
-            defRecursionCheck,
-            checkUnusedLets,
-            totalityCheck
-          ).sequence_
-
           val inference =
-            Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+            Validated.fromEither(inferenceEither)
 
           Parallel[[A] =>> Ior[NonEmptyList[PackageError], A]]
-            .parProductR(checks.toIor)(inference.toIor)
+            .parProductR(checkUnusedLets.toIor)(inference.toIor)
         }
     }
   }
 
-  /** The parsed representation of the predef.
-    */
-  lazy val predefPackage: Package.Parsed =
+  private val todoName = Identifier.Name("todo")
+  private val todoArgName = Identifier.Name("ignore")
+
+  private val todoStatement: Statement.ExternalDef =
+    Statement.ExternalDef(
+      name = todoName,
+      typeArgs = None,
+      params =
+        (todoArgName, TypeRef.TypeVar("x")) :: Nil,
+      result = TypeRef.TypeForAll(
+        NonEmptyList.one((TypeRef.TypeVar("a"), None)),
+        TypeRef.TypeVar("a")
+      )
+    )(Region(0, 1))
+
+  private val todoExport: ExportedName.Binding[Unit] =
+    ExportedName.Binding(todoName, ())
+
+  private lazy val predefEmitPackage: Package.Parsed =
     parser(None).parse(Predef.predefString) match {
       case Right((_, pack)) =>
         // Make function defs:
@@ -544,6 +571,24 @@ object Package {
         System.err.println(errorMsg)
         sys.error(errorMsg)
     }
+
+  private lazy val predefTypeCheckPackage: Package.Parsed =
+    predefEmitPackage.copy(
+      // `todo` is type-check only: it has no runtime implementation.
+      exports = todoExport :: predefEmitPackage.exports,
+      program = todoStatement :: predefEmitPackage.program
+    )
+
+  def predefPackageForMode(mode: CompileOptions.Mode): Package.Parsed =
+    mode match {
+      case CompileOptions.Mode.Emit          => predefEmitPackage
+      case CompileOptions.Mode.TypeCheckOnly => predefTypeCheckPackage
+    }
+
+  /** The parsed representation of the runtime predef.
+    */
+  lazy val predefPackage: Package.Parsed =
+    predefPackageForMode(CompileOptions.Mode.Emit)
 
   implicit val documentPackage: Document[Package.Typed[Any]] =
     new Document[Package.Typed[Any]] {
