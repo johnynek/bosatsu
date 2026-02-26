@@ -1662,7 +1662,8 @@ object PythonGen {
                       case n :: fn :: Nil =>
                         val tabulated = Code
                           .block(
-                            data := Code.MakeList(Nil).evalTimes(n),
+                            data := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(n),
                             idx := Code.Const.Zero,
                             Code.While(
                               idx :< n,
@@ -1886,7 +1887,8 @@ object PythonGen {
                           data := arrayData(ary),
                           offset := arrayOffset(ary),
                           size := arrayLen(ary),
-                          out := Code.MakeList(Nil).evalTimes(size),
+                          out := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(size),
                           idx := Code.Const.Zero,
                           Code.While(
                             idx :< size,
@@ -2066,7 +2068,8 @@ object PythonGen {
                               total := total.evalPlus(arrayLen(part))
                             )
                           ),
-                          data := Code.MakeList(Nil).evalTimes(total),
+                          data := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(total),
                           write := Code.Const.Zero,
                           partIdx := Code.Const.Zero,
                           Code.While(
