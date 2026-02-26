@@ -299,6 +299,26 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
           Pattern.PositionalStruct(_, _) =>
         None
     }
+
+  def typesIn: List[T] =
+    this match {
+      case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+          Pattern.StrPat(_) =>
+        Nil
+      case Pattern.Named(_, inner) =>
+        inner.typesIn
+      case Pattern.Annotation(inner, tpe) =>
+        tpe :: inner.typesIn
+      case Pattern.PositionalStruct(_, params) =>
+        params.flatMap(_.typesIn)
+      case Pattern.ListPat(parts) =>
+        parts.toList.flatMap {
+          case Pattern.ListPart.Item(inner) => inner.typesIn
+          case _                            => Nil
+        }
+      case Pattern.Union(head, tail) =>
+        head.typesIn ::: tail.toList.flatMap(_.typesIn)
+    }
 }
 
 object Pattern {
