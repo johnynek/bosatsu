@@ -4,7 +4,7 @@ x = "hello"
 y = "atticus"
 z = "mahina"
 
-def ident(x): x
+def ident(value): value
 
 def m2s(m):
     match m:
@@ -33,4 +33,3 @@ test = TestSuite("interpolation", [
     Assertion(res3, "res3"),
     Assertion(res4, "res4"),
 ])
-

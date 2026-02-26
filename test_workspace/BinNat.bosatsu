@@ -34,14 +34,14 @@ def to_Nat(b: BinNat) -> Nat:
 def to_BinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
   fns = int_loop(n, [], (n, fns) ->
-    is_even = n.and_Int(1) matches 0
-    (hfn, dec) = (n -> Even(n), n -> n.sub(1)) if is_even else (n -> Odd(n), n -> n)
+    even_bit = n.and_Int(1) matches 0
+    (hfn, dec) = (bin_n -> Even(bin_n), int_n -> int_n.sub(1)) if even_bit else (bin_n -> Odd(bin_n), int_n -> int_n)
     fns = [hfn, *fns]
     n = n.shift_right_Int(1)
     (dec(n), fns)
   )
   # Now apply all the transformations
-  fns.foldl_List(Zero, (n, fn) -> fn(n))
+  fns.foldl_List(Zero, (bin_n, fn) -> fn(bin_n))
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
@@ -305,12 +305,12 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
 
 # fibonacci using the fuel pattern
 def fib(b: BinNat) -> BinNat:
-    def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
+    def loop(n: Nat, cur: BinNat, next_value: BinNat) -> BinNat:
         recur n:
             case NatZero: cur
             case NatSucc(n):
-                sum = add_BinNat(cur, next)
-                loop(n, next, sum)
+                sum = add_BinNat(cur, next_value)
+                loop(n, next_value, sum)
     one = Odd(Zero)
     loop(to_Nat(b), one, one)
 

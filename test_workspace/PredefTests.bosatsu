@@ -266,8 +266,8 @@ def float_to_int_eq(f: Float64, expected: Int) -> Bool:
     case Some(v): eqi(v, expected)
     case None: False
 
-def int_to_float_eq(i: Int, expected: Float64) -> Bool:
-  eqf(int_to_Float64(i), expected)
+def int_to_float_eq(int_value: Int, expected: Float64) -> Bool:
+  eqf(int_to_Float64(int_value), expected)
 
 nan0 = divf(0.0, 0.0)
 huge_int = 1.shift_left_Int(2000)

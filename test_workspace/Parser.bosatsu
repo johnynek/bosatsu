@@ -29,14 +29,14 @@ def map(p, fn):
 
 def flat_map(p: Parser[a], fn: a -> Parser[b]) -> Parser[b]:
     Parser(fa) = p
-    def parse(s0):
+    def parse_fn(s0):
         match fa(s0):
             case Some((s1, a)):
                 Parser(fb) = fn(a)
                 fb(s1)
             case None: None
 
-    Parser(parse)
+    Parser(parse_fn)
 
 def one_of(ps: List[Parser[a]]) -> Parser[a]:
     recur ps:
@@ -44,17 +44,17 @@ def one_of(ps: List[Parser[a]]) -> Parser[a]:
         case [p1]: p1
         case [Parser(head_fn), *prest]:
             Parser(tail_fn) = one_of(prest)
-            def parse(s):
+            def parse_fn(s):
                 match head_fn(s):
                     case None: tail_fn(s)
                     case not_empty: not_empty
 
-            Parser(parse)
+            Parser(parse_fn)
 
 def then_parse(pa: Parser[a], pb: Parser[b]) -> Parser[(a, b)]:
     Parser(fa) = pa
     Parser(fb) = pb
-    def parse(s0):
+    def parse_fn(s0):
         match fa(s0):
             case Some((s1, a)):
                 match fb(s1):
@@ -62,7 +62,7 @@ def then_parse(pa: Parser[a], pb: Parser[b]) -> Parser[(a, b)]:
                     case None: None
             case None: None
 
-    Parser(parse)
+    Parser(parse_fn)
 
 def expect_int(i: Int) -> Parser[Int]:
   expect(int_to_String(i)).map(_ -> i)

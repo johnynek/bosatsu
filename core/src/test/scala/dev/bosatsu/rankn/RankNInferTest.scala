@@ -944,7 +944,13 @@ def use_bind(m, a, b, c):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  a1.bind(_ -> b1.bind(_ -> c1))
+  a1.bind(x1 -> (
+    _ = x1
+    b1.bind(x2 -> (
+      _ = x2
+      c1
+    ))
+  ))
 
 main = use_bind(option_monad, None, None, None)
 """,
@@ -978,7 +984,13 @@ def use_bind(a, b, c, m):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  a1.bind(_ -> b1.bind(_ -> c1))
+  a1.bind(x1 -> (
+    _ = x1
+    b1.bind(x2 -> (
+      _ = x2
+      c1
+    ))
+  ))
 
 main = use_bind(None, None, None, option_monad)
 """,
@@ -1996,8 +2008,8 @@ enum Either[a]: Left(a: a), Right(a: a)
 struct Foo
 
 def unwrap(e: exists a. Tup[Either[a], a -> Foo]):
-  Tup(e, fn) = e
-  a = match e:
+  Tup(either_value, fn) = e
+  a = match either_value:
     case Left(x): x
     case Right(y): y
   fn(a)
@@ -2307,7 +2319,7 @@ enum Opt[a]: None, Some(a: a)
 y: forall a. Box[Opt[a]] = Box(None)
 def process(o: Box[Opt[One]]) -> One: 
   match o:
-    case Box(Some(o)): o
+    case Box(Some(one_value)): one_value
     case Box(None): One
 
 z = process(y)

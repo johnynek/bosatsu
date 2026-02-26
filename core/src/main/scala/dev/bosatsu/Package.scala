@@ -473,6 +473,20 @@ object Package {
                     .toNonEmptyList
                 )
 
+              def shadowedBindingTypeCheck
+                  : ValidatedNel[PackageError, Unit] =
+                ShadowedBindingTypeCheck
+                  .checkLets(p, typedLets)
+                  .leftMap(
+                    _.map(err =>
+                      PackageError.ShadowedBindingTypeError(
+                        p,
+                        err,
+                        localTypeNames
+                      ): PackageError
+                    ).toNonEmptyList
+                  )
+
               val totalityCheck: ValidatedNel[PackageError, Unit] =
                 typedLets
                   .traverse_ { case (_, _, expr) =>
@@ -482,7 +496,10 @@ object Package {
                     errs.map(PackageError.TotalityCheckError(p, _))
                   }
 
-              (recursionCheck, totalityCheck)
+              val recursionThenShadow =
+                recursionCheck.andThen(_ => shadowedBindingTypeCheck)
+
+              (recursionThenShadow, totalityCheck)
                 .mapN { (_, _) =>
                   (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
                 }

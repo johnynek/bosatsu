@@ -92,7 +92,7 @@ x = match B(100):
     // id and x are fully resolved to top level
     checkLast("""#
 x = 1
-def id(x): x
+def id(z): z
 y = id(x)
 """)(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
 
@@ -3360,13 +3360,13 @@ foo = (
 enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
-  def go(y, z):
+  def go(y, z0):
     def loop(z):
       recur z:
         case E: y
         case NE(_, t): loop(t)
 
-    loop(z)
+    loop(z0)
 
   fn1 = z -> go(1, z)
   fn1(NE(1, NE(2, E)))
@@ -3376,13 +3376,13 @@ x = (
 enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
-  def go(y, z):
+  def go(y, z0):
     def loop(z1):
       recur z1:
         case E: y
         case NE(_, t): loop(t)
 
-    loop(z)
+    loop(z0)
 
   fn1 = z -> go(1, z)
   fn1(NE(1, NE(2, E)))

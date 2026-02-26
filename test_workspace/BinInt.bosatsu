@@ -16,27 +16,27 @@ enum BinInt:
   FromBinNat(bn: BinNat)
   BWNot(arg: BinNat)
 
-def cmp(a: BinInt, b: BinInt) -> Comparison:
-  match a:
+def cmp(lhs: BinInt, rhs: BinInt) -> Comparison:
+  match lhs:
     case FromBinNat(a):
-      match b:
+      match rhs:
         case FromBinNat(b): cmp_BinNat(a, b)
         case BWNot(_): GT
     case BWNot(a):
-      match b:
+      match rhs:
         case BWNot(b):
           # -a - 1 <> -b - 1 == (a <> b).invert
           cmp_BinNat(b, a)
         case FromBinNat(_): LT
 
-def eq(a: BinInt, b: BinInt) -> Bool:
-  match a:
+def eq(lhs: BinInt, rhs: BinInt) -> Bool:
+  match lhs:
     case FromBinNat(a): 
-      match b:
+      match rhs:
         case FromBinNat(b): eq_BinNat(a, b)
         case BWNot(_): False
     case BWNot(a):
-      match b:
+      match rhs:
         case BWNot(b): eq_BinNat(a, b)
         case FromBinNat(_): False
 
@@ -74,8 +74,8 @@ def abs(bi: BinInt) -> BinNat:
       #abs(-x - 1) = x + 1
       x.next_BinNat()
 
-def add(x: BinInt, y: BinInt) -> BinInt:
-  match (x, y):
+def add(lhs: BinInt, rhs: BinInt) -> BinInt:
+  match (lhs, rhs):
     case (FromBinNat(x), FromBinNat(y)):
       FromBinNat(x.add_BinNat(y))
     case (FromBinNat(x), BWNot(y)):

@@ -72,12 +72,12 @@ def is_even(n: Nat) -> Bool:
     loop(n, True)
 
 def div2(n: Nat) -> Nat:
-    def loop(n: Nat, acc: Nat, is_even):
+    def loop(n: Nat, acc: Nat, even_flag):
         recur n:
             case Zero: acc
             case Succ(n):
                 # (n + 1) / 2 = n/2 if n is even, else n/2 + 1
-                if is_even: loop(n, Succ(acc), False)
+                if even_flag: loop(n, Succ(acc), False)
                 else: loop(n, acc, True)
     loop(n, Zero, is_even(n))
 

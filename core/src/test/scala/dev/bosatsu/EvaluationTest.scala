@@ -1974,7 +1974,19 @@ rs_empty = new_record_set.restructure(
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
+rs0 = rs.restructure(
+  PS(row_a, PS(row_b, PS(row_c, _))) ->
+    ps(
+      row_c,
+      ps(
+        row_b,
+        ps(
+          row_a,
+          ps("Plus 2".int_field(r -> r.get(row_b).add(2)), ps_end)
+        )
+      )
+    )
+)
 
 tests = TestSuite("reordering",
   [
@@ -2075,15 +2087,15 @@ tests = TestSuite("test record",
 
 struct Foo(x, y)
 
-a = Foo(42, "42")
-x = match a:
+base_foo = Foo(42, "42")
+x = match base_foo:
   case Foo(y, _): y
 
-def add_x(a):
+def add_x(delta):
   # note x has a closure over a, but
   # evaluated here the local a might
   # shadow in the case of the bug
-  add(a, x)
+  add(delta, x)
 
 # should be 43
 y = add_x(1)
@@ -2654,12 +2666,12 @@ enum Nat: NZero, NSucc(n: Nat)
 def call(a):
     # TODO it's weird that removing the [a] breaks this
     # if a type isn't mentioned in an outer scope, we should assume it's local
-    def poly_rec[a](count: Nat, a: a) -> a:
+    def poly_rec[a](count: Nat, value: a) -> a:
         recur count:
-            case NZero: a
+            case NZero: value
             case NSucc(prev):
               # make a call with a different type
-              (_, b) = poly_rec(prev, ("foo", a))
+              (_, b) = poly_rec(prev, ("foo", value))
               b
     # call a polymorphic recursion internally to exercise different code paths
     poly_rec(NZero, a)
@@ -2766,7 +2778,7 @@ b = Item(1)
 def loop[a](box: Box[a]) -> a:
   recur box:
     case Item(a): a
-    case Next(cont): cont((box, fn) -> fn(loop(box)))
+    case Next(cont): cont((next_box, fn) -> fn(loop(next_box)))
 
 v = loop(b)
 main = v

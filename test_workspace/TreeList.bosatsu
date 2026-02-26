@@ -104,8 +104,8 @@ def eq_TreeList(fn)(a, b):
   )
   res
 
-def eq_Option(fn)(a, b):
-  match (a, b):
+def eq_Option(fn)(opt_a, opt_b):
+  match (opt_a, opt_b):
     case (Some(a), Some(b)): fn(a, b)
     case (None, None): True
     case _: False
