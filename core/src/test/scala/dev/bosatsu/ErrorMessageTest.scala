@@ -118,6 +118,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
         assert(message.contains("current binding context:"), message)
         assert(message.contains("x = 1"), message)
         assert(message.contains("x = \"str\""), message)
+        assert(!message.contains("_shadow_t"), message)
         ()
     }
   }
@@ -1680,7 +1681,7 @@ package Foo
 def foo[a](a: a) -> a:
   x: a = a
   def again(x: a): x
-  def and_again[b](x: b): x
+  def and_again[b](y: b): y
   and_again(again(x))
   
 test = Assertion(foo(True), "")

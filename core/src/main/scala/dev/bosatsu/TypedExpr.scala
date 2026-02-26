@@ -1104,6 +1104,28 @@ object TypedExpr {
       case _ => None
     }
 
+  // Recover source argument patterns for an AnnotatedLambda when available.
+  // This preserves user-written patterns for lint-style checks that should
+  // reason about source-level binders, not only desugared typed arguments.
+  def sourceLambdaArgs(
+      te: TypedExpr[Declaration]
+  ): List[Pattern.Parsed] =
+    te match {
+      case AnnotatedLambda(args, _, tag) =>
+        tag match {
+          case Declaration.Lambda(sourceArgs, _) =>
+            sourceArgs.toList
+          case Declaration.DefFn(
+                DefStatement(_, _, sourceArgGroups, _, _)
+              ) =>
+            sourceArgGroups.toList.flatMap(_.toList)
+          case _ =>
+            args.toList.map { case (name, _) => Pattern.Var(name) }
+        }
+      case _ =>
+        Nil
+    }
+
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     private inline def foreach[X](iter: Iterator[X])(inline fn: X => Unit): Unit =
       while (iter.hasNext) fn(iter.next())

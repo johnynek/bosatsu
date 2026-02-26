@@ -6,7 +6,6 @@ import cats.syntax.all._
 
 import Identifier.Bindable
 import dev.bosatsu.rankn.Type
-import dev.bosatsu.rankn.Type.Var
 
 object ShadowedBindingTypeCheck {
 
@@ -21,6 +20,7 @@ object ShadowedBindingTypeCheck {
 
   final case class BoundInfo(
       tpe: Type,
+      canonicalTpe: Type,
       region: Region,
       site: BindingSite
   )
@@ -36,7 +36,7 @@ object ShadowedBindingTypeCheck {
   private type Env = Map[Bindable, BoundInfo]
 
   private final case class TypeContext(
-      renames: Map[Type.Var.Bound, Type.Var.Bound],
+      renames: Map[Type.Var, Type.TyVar],
       nextId: Long
   ) {
     def pushQuantification(
@@ -45,19 +45,15 @@ object ShadowedBindingTypeCheck {
       val vars = quant.forallList ::: quant.existList
       vars.foldLeft(this) { case (ctx, (bound, _)) =>
         val fresh = Type.Var.Bound(s"_shadow_t${ctx.nextId}")
-        TypeContext(ctx.renames.updated(bound, fresh), ctx.nextId + 1L)
+        TypeContext(
+          ctx.renames.updated(bound, Type.TyVar(fresh)),
+          ctx.nextId + 1L
+        )
       }
     }
 
     def canonicalize(tpe: Type): Type =
-      if (renames.isEmpty) tpe
-      else {
-        val sub: Map[Var, Type] =
-          renames.iterator.map { case (from, to) =>
-            (from: Var) -> (Type.TyVar(to): Type)
-          }.toMap
-        Type.substituteVar(tpe, sub)
-      }
+      Type.substituteVar(tpe, renames)
   }
   private object TypeContext {
     val empty: TypeContext = TypeContext(Map.empty, 0L)
@@ -81,11 +77,7 @@ object ShadowedBindingTypeCheck {
     if (Identifier.isSynthetic(name)) unitValid
     else
       env.get(name) match {
-        case Some(previous)
-            if previous.site.isInstanceOf[BindingSite.LambdaArg.type] &&
-              current.site.isInstanceOf[BindingSite.PatternBinding.type] =>
-          unitValid
-        case Some(previous) if !previous.tpe.sameAs(current.tpe) =>
+        case Some(previous) if !previous.canonicalTpe.sameAs(current.canonicalTpe) =>
           Validated.invalidNec(Error(name, previous, current))
         case _ =>
           unitValid
@@ -108,18 +100,6 @@ object ShadowedBindingTypeCheck {
       case _                           => None
     }
 
-  private def sourceLambdaArgs(tag: Declaration): Option[List[Pattern.Parsed]] =
-    tag match {
-      case Declaration.Lambda(sourceArgs, _) =>
-        Some(sourceArgs.toList)
-      case Declaration.DefFn(
-            DefStatement(_, _, sourceArgGroups, _, _)
-          ) =>
-        Some(sourceArgGroups.toList.flatMap(_.toList))
-      case _ =>
-        None
-    }
-
   private def checkExpr(
       expr: TypedExpr[Declaration],
       env: Env,
@@ -134,27 +114,21 @@ object ShadowedBindingTypeCheck {
         // Pattern lambdas are desugared with synthetic lambda parameters that are
         // not source-visible names. Only direct variable parameters should
         // participate in shadow checks at the lambda-arg site.
-        // Lambda/def bodies are checked independently from outer bindings so
-        // moving code across scopes and using local continuations remains
-        // composable.
-        val lambdaOuterEnv: Env = Map.empty
+        val sourceArgs = TypedExpr.sourceLambdaArgs(expr)
         val checkableArgs: List[(Bindable, Type)] =
-          sourceLambdaArgs(tag) match {
-            case Some(sourceArgs) =>
-              args.toList.zip(sourceArgs).collect {
-                case ((name, tpe), sourceArg)
-                    if directLambdaParamName(sourceArg).contains(name) =>
-                  (name, tctx.canonicalize(tpe))
-              }
-            case None =>
-              args.toList.map { case (name, tpe) =>
-                (name, tctx.canonicalize(tpe))
-              }
+          args.toList.zip(sourceArgs).collect {
+            case ((name, tpe), sourceArg)
+                if directLambdaParamName(sourceArg).contains(name) => (name, tpe)
           }
         val (argCheck, envWithArgs) =
-          checkableArgs.foldLeft((unitValid, lambdaOuterEnv)) {
+          checkableArgs.foldLeft((unitValid, env)) {
             case ((acc, envAcc), (name, tpe)) =>
-              val current = BoundInfo(tpe, tag.region, BindingSite.LambdaArg)
+              val current = BoundInfo(
+                tpe = tpe,
+                canonicalTpe = tctx.canonicalize(tpe),
+                region = tag.region,
+                site = BindingSite.LambdaArg
+              )
               val nextAcc = acc *> checkBinding(envAcc, name, current)
               (nextAcc, addBinding(envAcc, name, current))
           }
@@ -165,10 +139,12 @@ object ShadowedBindingTypeCheck {
       case TypedExpr.App(fn, args, _, _) =>
         checkExpr(fn, env, tctx) *> args.traverse_(checkExpr(_, env, tctx))
       case TypedExpr.Let(arg, rhs, body, recursive, tag) =>
+        val tpe = rhs.getType
         val current = BoundInfo(
-          tctx.canonicalize(rhs.getType),
-          tag.region,
-          BindingSite.LetBinding
+          tpe = tpe,
+          canonicalTpe = tctx.canonicalize(tpe),
+          region = tag.region,
+          site = BindingSite.LetBinding
         )
         val bindCheck = checkBinding(env, arg, current)
         val rhsEnv =
@@ -180,12 +156,14 @@ object ShadowedBindingTypeCheck {
       case TypedExpr.Loop(args, body, tag) =>
         val argChecks = args.traverse_ { case (_, init) => checkExpr(init, env, tctx) }
         val loopBinds = args.toList.map { case (name, init) =>
+          val tpe = init.getType
           (
             name,
             BoundInfo(
-              tctx.canonicalize(init.getType),
-              tag.region,
-              BindingSite.LoopBinding
+              tpe = tpe,
+              canonicalTpe = tctx.canonicalize(tpe),
+              region = tag.region,
+              site = BindingSite.LoopBinding
             )
           )
         }
@@ -208,7 +186,12 @@ object ShadowedBindingTypeCheck {
           val currentBinds = patternBinds.map { case (name, tpe) =>
             (
               name,
-              BoundInfo(tctx.canonicalize(tpe), bindRegion, BindingSite.PatternBinding)
+              BoundInfo(
+                tpe = tpe,
+                canonicalTpe = tctx.canonicalize(tpe),
+                region = bindRegion,
+                site = BindingSite.PatternBinding
+              )
             )
           }
           val bindCheck = currentBinds.traverse_ { case (name, current) =>
@@ -233,10 +216,12 @@ object ShadowedBindingTypeCheck {
     lets.traverse_ { case (name, recursive, expr) =>
       val recursiveEnv =
         if (recursive.isRecursive) {
+          val tpe = expr.getType
           val top = BoundInfo(
-            TypeContext.empty.canonicalize(expr.getType),
-            expr.tag.region,
-            BindingSite.TopLevel
+            tpe = tpe,
+            canonicalTpe = TypeContext.empty.canonicalize(tpe),
+            region = expr.tag.region,
+            site = BindingSite.TopLevel
           )
           addBinding(Map.empty, name, top)
         } else Map.empty[Bindable, BoundInfo]

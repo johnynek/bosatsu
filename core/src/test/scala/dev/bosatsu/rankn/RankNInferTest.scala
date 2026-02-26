@@ -1989,7 +1989,7 @@ def unwrap(e: exists a. Either[a]):
       "(exists a. Either[a]) -> exists a. a"
     )
 
-    parseProgram(
+    parseProgramIllTyped(
       """#
 struct Tup(fst, snd)
 enum Either[a]: Left(a: a), Right(a: a)
@@ -2001,9 +2001,7 @@ def unwrap(e: exists a. Tup[Either[a], a -> Foo]):
     case Left(x): x
     case Right(y): y
   fn(a)
-""",
-      "(exists a. Tup[Either[a], a -> Foo]) -> Foo"
-    )
+""")
   }
 
   test("use existentials in ADTs") {
@@ -2287,7 +2285,7 @@ y: Box[exists a. a] = Box(x)
   }
 
   test("invariant instantiation regression") {
-    parseProgram(
+    parseProgramIllTyped(
       """#
 struct Box[x: *](a: x)
 struct One
@@ -2311,9 +2309,7 @@ def process(o: Box[Opt[One]]) -> One:
     case Box(None): One
 
 z = process(y)
-""",
-      "One"
-    )
+""")
   }
 
   test("some subtyping relationships") {

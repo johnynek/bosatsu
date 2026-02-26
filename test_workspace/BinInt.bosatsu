@@ -18,26 +18,26 @@ enum BinInt:
 
 def cmp(a: BinInt, b: BinInt) -> Comparison:
   match a:
-    case FromBinNat(a):
+    case FromBinNat(na):
       match b:
-        case FromBinNat(b): cmp_BinNat(a, b)
+        case FromBinNat(nb): cmp_BinNat(na, nb)
         case BWNot(_): GT
-    case BWNot(a):
+    case BWNot(na):
       match b:
-        case BWNot(b):
+        case BWNot(nb):
           # -a - 1 <> -b - 1 == (a <> b).invert
-          cmp_BinNat(b, a)
+          cmp_BinNat(nb, na)
         case FromBinNat(_): LT
 
 def eq(a: BinInt, b: BinInt) -> Bool:
   match a:
-    case FromBinNat(a): 
+    case FromBinNat(na):
       match b:
-        case FromBinNat(b): eq_BinNat(a, b)
+        case FromBinNat(nb): eq_BinNat(na, nb)
         case BWNot(_): False
-    case BWNot(a):
+    case BWNot(na):
       match b:
-        case BWNot(b): eq_BinNat(a, b)
+        case BWNot(nb): eq_BinNat(na, nb)
         case FromBinNat(_): False
 
 def binNat_to_BinInt(bn: BinNat) -> BinInt: FromBinNat(bn)
@@ -76,23 +76,23 @@ def abs(bi: BinInt) -> BinNat:
 
 def add(x: BinInt, y: BinInt) -> BinInt:
   match (x, y):
-    case (FromBinNat(x), FromBinNat(y)):
-      FromBinNat(x.add_BinNat(y))
-    case (FromBinNat(x), BWNot(y)):
+    case (FromBinNat(nx), FromBinNat(ny)):
+      FromBinNat(nx.add_BinNat(ny))
+    case (FromBinNat(nx), BWNot(ny)):
       # x + (-y - 1) = x - (y + 1)
-      ypos = y.next_BinNat()
-      match sub_Option(x, ypos):
+      ypos = ny.next_BinNat()
+      match sub_Option(nx, ypos):
         case Some(bi): FromBinNat(bi)
-        case None: FromBinNat(sub_BinNat(ypos, x)).negate()
-    case (BWNot(x), FromBinNat(y)):
+        case None: FromBinNat(sub_BinNat(ypos, nx)).negate()
+    case (BWNot(nx), FromBinNat(ny)):
       # -x - 1 + y = y - (x + 1) 
-      xpos = x.next_BinNat()
-      match sub_Option(y, xpos):
+      xpos = nx.next_BinNat()
+      match sub_Option(ny, xpos):
         case Some(bi): FromBinNat(bi)
-        case None: FromBinNat(sub_BinNat(xpos, y)).negate()
-    case (BWNot(x), BWNot(y)):
+        case None: FromBinNat(sub_BinNat(xpos, ny)).negate()
+    case (BWNot(nx), BWNot(ny)):
       # (-x - 1) + (-y - 1) == -(x + y + 1) - 1
-      BWNot(add_BinNat(x, y).next_BinNat())
+      BWNot(add_BinNat(nx, ny).next_BinNat())
 
 def sub(a: BinInt, b: BinInt) -> BinInt:
   add(a, negate(b))

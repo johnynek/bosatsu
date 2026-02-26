@@ -35,13 +35,13 @@ def to_BinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
   fns = int_loop(n, [], (n, fns) ->
     is_even = n.and_Int(1) matches 0
-    (hfn, dec) = (n -> Even(n), n -> n.sub(1)) if is_even else (n -> Odd(n), n -> n)
+    (hfn, dec) = (bn -> Even(bn), i -> i.sub(1)) if is_even else (bn -> Odd(bn), i -> i)
     fns = [hfn, *fns]
     n = n.shift_right_Int(1)
     (dec(n), fns)
   )
   # Now apply all the transformations
-  fns.foldl_List(Zero, (n, fn) -> fn(n))
+  fns.foldl_List(Zero, (bn, fn) -> fn(bn))
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
