@@ -108,6 +108,71 @@ def _ioerror_from_errno(err: Optional[int], context: str):
 _none = (0,)
 def _some(value): return (1, value)
 
+class _BosatsuBytes:
+    __slots__ = ("data", "offset", "length")
+
+    def __init__(self, data, offset: int = 0, length: Optional[int] = None):
+        if isinstance(data, memoryview):
+            data = data.tobytes()
+        elif isinstance(data, bytearray):
+            data = bytes(data)
+        elif not isinstance(data, bytes):
+            data = bytes(data)
+
+        if length is None:
+            length = len(data) - int(offset)
+
+        offset_i = int(offset)
+        length_i = int(length)
+        if offset_i < 0 or length_i < 0 or (offset_i + length_i) > len(data):
+            raise ValueError(f"invalid Bytes view ({offset_i}, {length_i}) for data length {len(data)}")
+
+        self.data = data
+        self.offset = offset_i
+        self.length = length_i
+
+def _as_bosatsu_bytes(value):
+    if isinstance(value, _BosatsuBytes):
+        return value
+    return None
+
+def _bytes_view_slice(value: _BosatsuBytes):
+    start = value.offset
+    end = value.offset + value.length
+    return value.data[start:end]
+
+def _normalize_byte_int(value: int) -> int:
+    return int(value) & 0xff
+
+def _as_optional_int(value):
+    if isinstance(value, tuple) and len(value) >= 1:
+        tag = value[0]
+        if tag == 0:
+            return (True, None)
+        if tag == 1 and len(value) >= 2:
+            try:
+                return (True, int(value[1]))
+            except Exception:
+                return (False, None)
+    return (False, None)
+
+def _array_to_pylist(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        if len(value) == 3 and isinstance(value[0], (list, tuple)):
+            data = value[0]
+            offset = int(value[1])
+            length = int(value[2])
+            return list(data[offset:offset + length])
+        return list(value)
+    if hasattr(value, "data") and hasattr(value, "offset") and hasattr(value, "len"):
+        return list(value.data[value.offset:value.offset + value.len])
+    try:
+        return list(value)
+    except TypeError as exc:
+        raise ValueError(f"invalid Array value: {value!r}") from exc
+
 class _CoreHandle:
     __slots__ = ("stream", "readable", "writable", "closeable", "closed")
 
@@ -196,6 +261,226 @@ def _kind_from_lstat(st):
         return (2,)  # Symlink
     return (3,)      # Other
 
+# Bosatsu/IO/Bytes externals
+empty_Bytes = _BosatsuBytes(b"", 0, 0)
+
+def from_List_Int(ints):
+    values = _bosatsu_list_to_pylist(ints)
+    data = bytes((_normalize_byte_int(v) for v in values))
+    if len(data) == 0:
+        return empty_Bytes
+    return _BosatsuBytes(data, 0, len(data))
+
+def from_Array_Int(ints):
+    values = _array_to_pylist(ints)
+    data = bytes((_normalize_byte_int(v) for v in values))
+    if len(data) == 0:
+        return empty_Bytes
+    return _BosatsuBytes(data, 0, len(data))
+
+def to_List_Int(bytes_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    return py_to_bosatsu_list(list(_bytes_view_slice(b)))
+
+def to_Array_Int(bytes_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    view = _bytes_view_slice(b)
+    return (tuple(view), 0, len(view))
+
+def size_Bytes(bytes_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    return int(b.length)
+
+def get_map_Bytes(bytes_value, idx, default, fn):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    i = int(idx)
+    if 0 <= i < b.length:
+        return fn(int(b.data[b.offset + i]))
+    return default(())
+
+def get_or_Bytes(bytes_value, idx, default):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    i = int(idx)
+    if 0 <= i < b.length:
+        return int(b.data[b.offset + i])
+    return default(())
+
+def foldl_Bytes(bytes_value, init, fn):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    acc = init
+    start = b.offset
+    end = b.offset + b.length
+    idx = start
+    while idx < end:
+        acc = fn(acc, int(b.data[idx]))
+        idx += 1
+    return acc
+
+def concat_all_Bytes(chunks):
+    py_chunks = _bosatsu_list_to_pylist(chunks)
+    if len(py_chunks) == 0:
+        return empty_Bytes
+    parts = []
+    total = 0
+    for chunk in py_chunks:
+        b = _as_bosatsu_bytes(chunk)
+        if b is None:
+            raise ValueError(f"invalid Bytes chunk: {chunk!r}")
+        view = _bytes_view_slice(b)
+        parts.append(view)
+        total += len(view)
+    if total == 0:
+        return empty_Bytes
+    return _BosatsuBytes(b"".join(parts), 0, total)
+
+def slice_Bytes(bytes_value, start, end):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError(f"invalid Bytes value: {bytes_value!r}")
+    size = b.length
+    start_i = int(start)
+    end_i = int(end)
+    if start_i < 0:
+        start_i = 0
+    if end_i > size:
+        end_i = size
+    if start_i < 0 or end_i < 0 or start_i > end_i or end_i > size:
+        return empty_Bytes
+    slice_len = end_i - start_i
+    if slice_len <= 0:
+        return empty_Bytes
+    return _BosatsuBytes(b.data, b.offset + start_i, slice_len)
+
+def starts_with_Bytes(bytes_value, prefix_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    p = _as_bosatsu_bytes(prefix_value)
+    if b is None or p is None:
+        raise ValueError("invalid Bytes value")
+    if p.length > b.length:
+        return False
+    start = b.offset
+    end = b.offset + p.length
+    p_start = p.offset
+    p_end = p.offset + p.length
+    return b.data[start:end] == p.data[p_start:p_end]
+
+def ends_with_Bytes(bytes_value, suffix_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    s = _as_bosatsu_bytes(suffix_value)
+    if b is None or s is None:
+        raise ValueError("invalid Bytes value")
+    if s.length > b.length:
+        return False
+    start = b.offset + (b.length - s.length)
+    end = b.offset + b.length
+    s_start = s.offset
+    s_end = s.offset + s.length
+    return b.data[start:end] == s.data[s_start:s_end]
+
+def find_Bytes(bytes_value, needle_value, start):
+    b = _as_bosatsu_bytes(bytes_value)
+    n = _as_bosatsu_bytes(needle_value)
+    if b is None or n is None:
+        raise ValueError("invalid Bytes value")
+
+    start_i = int(start)
+    if start_i < 0:
+        start_i = 0
+    if start_i > b.length:
+        start_i = b.length
+
+    if n.length == 0:
+        return int(start_i)
+
+    haystack_start = b.offset + start_i
+    haystack_end = b.offset + b.length
+    needle_bytes = n.data[n.offset:n.offset + n.length]
+    found = b.data.find(needle_bytes, haystack_start, haystack_end)
+    if found < 0:
+        return -1
+    return int(found - b.offset)
+
+def utf8_bytes_from_String(str_value):
+    data = str_value.encode("utf-8")
+    if len(data) == 0:
+        return empty_Bytes
+    return _BosatsuBytes(data, 0, len(data))
+
+def utf8_bytes_to_String(bytes_value):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError("invalid Bytes value")
+    view = _bytes_view_slice(b)
+    try:
+        return _some(view.decode("utf-8"))
+    except UnicodeDecodeError:
+        return _none
+
+def utf8_Char_at(bytes_value, idx):
+    b = _as_bosatsu_bytes(bytes_value)
+    if b is None:
+        raise ValueError("invalid Bytes value")
+
+    i = int(idx)
+    if i < 0 or i >= b.length:
+        return _none
+
+    start = b.offset + i
+    end = b.offset + b.length
+    data = b.data
+    b0 = int(data[start])
+
+    if b0 <= 0x7F:
+        codepoint = b0
+    elif (b0 & 0xE0) == 0xC0:
+        if start + 2 > end:
+            return _none
+        b1 = int(data[start + 1])
+        if (b1 & 0xC0) != 0x80:
+            return _none
+        codepoint = ((b0 & 0x1F) << 6) | (b1 & 0x3F)
+        if codepoint < 0x80:
+            return _none
+    elif (b0 & 0xF0) == 0xE0:
+        if start + 3 > end:
+            return _none
+        b1 = int(data[start + 1])
+        b2 = int(data[start + 2])
+        if (b1 & 0xC0) != 0x80 or (b2 & 0xC0) != 0x80:
+            return _none
+        codepoint = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)
+        if codepoint < 0x800 or (0xD800 <= codepoint <= 0xDFFF):
+            return _none
+    elif (b0 & 0xF8) == 0xF0:
+        if start + 4 > end:
+            return _none
+        b1 = int(data[start + 1])
+        b2 = int(data[start + 2])
+        b3 = int(data[start + 3])
+        if ((b1 & 0xC0) != 0x80 or
+                (b2 & 0xC0) != 0x80 or
+                (b3 & 0xC0) != 0x80):
+            return _none
+        codepoint = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+        if codepoint < 0x10000 or codepoint > 0x10FFFF:
+            return _none
+    else:
+        return _none
+
+    return _some(chr(codepoint))
+
 # Bosatsu/IO/Core externals
 path_sep = os.sep
 stdin_handle = _CoreHandle(sys.stdin, readable=True, writable=False, closeable=False)
@@ -246,10 +531,202 @@ def write_utf8(handle, text):
         if not h.writable:
             return raise_error(_bad_file_descriptor("writing to non-writable handle"))
         try:
-            h.stream.write(text)
+            try:
+                h.stream.write(text)
+            except TypeError:
+                h.stream.write(text.encode("utf-8"))
             return _pure_unit
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, "writing utf8"))
+
+    return effect(fn)
+
+def _binary_reader_stream(handle: _CoreHandle):
+    stream = handle.stream
+    if hasattr(stream, "buffer"):
+        stream = stream.buffer
+    if hasattr(stream, "read"):
+        return stream
+    return None
+
+def _binary_writer_stream(handle: _CoreHandle):
+    stream = handle.stream
+    if hasattr(stream, "buffer"):
+        stream = stream.buffer
+    if hasattr(stream, "write"):
+        return stream
+    return None
+
+def _read_bytes_once(handle: _CoreHandle, max_bytes: int, context: str):
+    stream = _binary_reader_stream(handle)
+    if stream is None:
+        return (False, _bad_file_descriptor("reading from non-binary handle"))
+    try:
+        chunk = stream.read(max_bytes)
+    except OSError as exc:
+        return (False, _ioerror_from_errno(exc.errno, context))
+
+    if chunk is None:
+        return (True, None)
+    if isinstance(chunk, str):
+        chunk = chunk.encode("utf-8")
+    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+        chunk = bytes(chunk)
+
+    data = bytes(chunk)
+    if len(data) == 0:
+        return (True, None)
+    return (True, _BosatsuBytes(data, 0, len(data)))
+
+def _write_bytes_all(handle: _CoreHandle, bytes_value: _BosatsuBytes, context: str):
+    stream = _binary_writer_stream(handle)
+    if stream is None:
+        return (False, _bad_file_descriptor("writing to non-binary handle"))
+
+    data = _bytes_view_slice(bytes_value)
+    offset = 0
+    total = len(data)
+    while offset < total:
+        try:
+            wrote = stream.write(data[offset:])
+        except OSError as exc:
+            return (False, _ioerror_from_errno(exc.errno, context))
+
+        if wrote is None:
+            wrote = total - offset
+        wrote_i = int(wrote)
+        if wrote_i <= 0:
+            return (False, _ioerr(_IOERR_BROKEN_PIPE, context))
+        offset += wrote_i
+
+    return (True, None)
+
+def read_bytes(handle, max_bytes):
+    def fn():
+        max_bytes_i = int(max_bytes)
+        if max_bytes_i <= 0:
+            return raise_error(_invalid_argument(f"read_bytes max_bytes must be > 0, got {max_bytes_i}"))
+
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("read_bytes on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("reading closed handle"))
+        if not h.readable:
+            return raise_error(_bad_file_descriptor("reading from non-readable handle"))
+
+        ok, result = _read_bytes_once(h, max_bytes_i, "reading bytes")
+        if not ok:
+            return raise_error(result)
+        if result is None:
+            return pure(_none)
+        return pure(_some(result))
+
+    return effect(fn)
+
+def write_bytes(handle, bytes_value):
+    def fn():
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("write_bytes on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("writing closed handle"))
+        if not h.writable:
+            return raise_error(_bad_file_descriptor("writing to non-writable handle"))
+
+        b = _as_bosatsu_bytes(bytes_value)
+        if b is None:
+            return raise_error(_invalid_argument("write_bytes expected Bytes"))
+
+        ok, err = _write_bytes_all(h, b, "writing bytes")
+        if not ok:
+            return raise_error(err)
+        return _pure_unit
+
+    return effect(fn)
+
+def read_all_bytes(handle, chunk_size):
+    def fn():
+        chunk_size_i = int(chunk_size)
+        if chunk_size_i <= 0:
+            return raise_error(_invalid_argument(f"read_all_bytes chunk_size must be > 0, got {chunk_size_i}"))
+
+        h = _as_handle(handle)
+        if h is None:
+            return raise_error(_bad_file_descriptor("read_all_bytes on non-handle value"))
+        if h.closed:
+            return raise_error(_bad_file_descriptor("reading closed handle"))
+        if not h.readable:
+            return raise_error(_bad_file_descriptor("reading from non-readable handle"))
+
+        data = bytearray()
+        while True:
+            ok, result = _read_bytes_once(h, chunk_size_i, "reading bytes")
+            if not ok:
+                return raise_error(result)
+            if result is None:
+                break
+            data.extend(_bytes_view_slice(result))
+
+        if len(data) == 0:
+            return pure(empty_Bytes)
+        return pure(_BosatsuBytes(bytes(data), 0, len(data)))
+
+    return effect(fn)
+
+def copy_bytes(src, dst, chunk_size, max_total):
+    def fn():
+        chunk_size_i = int(chunk_size)
+        if chunk_size_i <= 0:
+            return raise_error(_invalid_argument(f"copy_bytes chunk_size must be > 0, got {chunk_size_i}"))
+
+        ok_opt, max_total_i = _as_optional_int(max_total)
+        if not ok_opt:
+            return raise_error(_invalid_argument("copy_bytes max_total must be Option[Int]"))
+        if max_total_i is not None and max_total_i < 0:
+            return raise_error(_invalid_argument(f"copy_bytes max_total must be >= 0, got {max_total_i}"))
+        if max_total_i == 0:
+            return pure(0)
+
+        src_h = _as_handle(src)
+        if src_h is None:
+            return raise_error(_bad_file_descriptor("copy_bytes source is not a handle"))
+        if src_h.closed:
+            return raise_error(_bad_file_descriptor("reading closed handle"))
+        if not src_h.readable:
+            return raise_error(_bad_file_descriptor("reading from non-readable handle"))
+
+        dst_h = _as_handle(dst)
+        if dst_h is None:
+            return raise_error(_bad_file_descriptor("copy_bytes destination is not a handle"))
+        if dst_h.closed:
+            return raise_error(_bad_file_descriptor("writing closed handle"))
+        if not dst_h.writable:
+            return raise_error(_bad_file_descriptor("writing to non-writable handle"))
+
+        copied = 0
+        while True:
+            if max_total_i is not None:
+                remaining = max_total_i - copied
+                if remaining <= 0:
+                    break
+                to_read = remaining if remaining < chunk_size_i else chunk_size_i
+            else:
+                to_read = chunk_size_i
+
+            ok_read, chunk = _read_bytes_once(src_h, to_read, "reading bytes")
+            if not ok_read:
+                return raise_error(chunk)
+            if chunk is None:
+                break
+
+            ok_write, err = _write_bytes_all(dst_h, chunk, "writing bytes")
+            if not ok_write:
+                return raise_error(err)
+
+            copied += int(chunk.length)
+
+        return pure(copied)
 
     return effect(fn)
 

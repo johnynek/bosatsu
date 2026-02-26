@@ -2449,7 +2449,7 @@ main = depBox
     }
   }
 
-  test("lib json write supports Char and Array external values") {
+  test("lib json write supports Char, Array, and Bytes external values") {
     val charSrc =
       """main = match int_to_Char(127):
   case Some(c): c
@@ -2518,6 +2518,54 @@ external def size_Array[a](ary: Array[a]) -> Int
         )
       case Right(other) =>
         fail(s"expected array json output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val bytesSrc =
+      """from Bosatsu/IO/Bytes import from_List_Int
+|
+|main = from_List_Int([-1, 0, 1, 255, 256])
+|""".stripMargin
+    val bytesPkgSrc =
+      """package Bosatsu/IO/Bytes
+|
+|export Bytes, from_List_Int, size_Bytes
+|
+|external struct Bytes
+|external def from_List_Int(ints: List[Int]) -> Bytes
+|external def size_Bytes(bytes: Bytes) -> Int
+|""".stripMargin
+    val bytesFiles = baseLibFiles(bytesSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
+    )
+
+    module.runWith(bytesFiles)(
+      List(
+        "lib",
+        "json",
+        "write",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(
+            Vector(
+              Json.JNumberStr("255"),
+              Json.JNumberStr("0"),
+              Json.JNumberStr("1"),
+              Json.JNumberStr("255"),
+              Json.JNumberStr("0")
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected bytes json output, got: $other")
       case Left(err) =>
         fail(err.getMessage)
     }
@@ -2820,7 +2868,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json apply supports Char and Array arguments") {
+  test("lib json apply supports Char, Array, and Bytes arguments") {
     val charFnSrc =
       """main = (c: Char) -> (c, c)
 """
@@ -2907,6 +2955,76 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(s"expected array apply output, got: $other")
       case Left(err) =>
         fail(err.getMessage)
+    }
+
+    val bytesFnSrc =
+      """from Bosatsu/IO/Bytes import Bytes, to_List_Int
+|
+|main = (bs: Bytes) -> to_List_Int(bs)
+|""".stripMargin
+    val bytesPkgSrc =
+      """package Bosatsu/IO/Bytes
+|
+|export Bytes, from_List_Int, to_List_Int, size_Bytes
+|
+|external struct Bytes
+|external def from_List_Int(ints: List[Int]) -> Bytes
+|external def to_List_Int(bytes: Bytes) -> List[Int]
+|external def size_Bytes(bytes: Bytes) -> Int
+|""".stripMargin
+    val bytesFnFiles = baseLibFiles(bytesFnSrc) :+ (
+      Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
+    )
+
+    module.runWith(bytesFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[[0,255,42]]"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(
+          json,
+          Json.JArray(
+            Vector(
+              Json.JNumberStr("0"),
+              Json.JNumberStr("255"),
+              Json.JNumberStr("42")
+            )
+          )
+        )
+      case Right(other) =>
+        fail(s"expected bytes apply output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    val bytesInvalid = module.runWith(bytesFnFiles)(
+      List(
+        "lib",
+        "json",
+        "apply",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--json_string",
+        "[[256]]"
+      )
+    )
+    bytesInvalid match {
+      case Right(out) =>
+        fail(s"expected invalid bytes json input error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid input json"), msg)
     }
   }
 
