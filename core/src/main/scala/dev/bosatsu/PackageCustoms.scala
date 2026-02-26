@@ -145,12 +145,23 @@ object PackageCustoms {
     else {
       val usedValues = usedGlobals(pack)
 
-      val usedTypes: Set[Type.Const] =
-        pack.program._1.lets.iterator
-          .flatMap(
-            _._3.allTypes.flatMap(Type.constantsOf(_))
-          )
-          .toSet
+      val usedTypes: Set[Type.Const] = {
+        val letTypes =
+          pack.program._1.lets.iterator
+            .flatMap(
+              _._3.allTypes.flatMap(Type.constantsOf(_))
+            )
+
+        val externalTypes =
+          pack.program._1.externalDefs.iterator.flatMap { nm =>
+            pack.program._1.types
+              .getExternalValue(pack.name, nm)
+              .iterator
+              .flatMap(Type.constantsOf(_))
+          }
+
+        (letTypes ++ externalTypes).toSet
+      }
 
       val unusedValues = impValues.filterNot { tup =>
         tup match {

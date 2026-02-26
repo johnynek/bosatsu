@@ -248,6 +248,26 @@ main = 2
     invalid(resolveThenInfer(List(p3, p4)))
   }
 
+  test("type imports used in external declarations are counted as used") {
+    val p1 = parse("""
+package BytesPkg
+export Bytes
+
+external struct Bytes
+""")
+
+    val p2 = parse("""
+package UsesExternal
+from BytesPkg import Bytes
+export now, wrap
+
+external now: Bytes
+external def wrap(b: Bytes) -> Bytes
+""")
+
+    valid(resolveThenInfer(List(p1, p2)))
+  }
+
   test("default-backed record construction requires constructor export") {
     val typeOnly = parse("""
 package P1
