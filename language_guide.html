@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-65e9f6f5*
+0.0.0+1-72f95716*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-65e9f6f5*
+0.0.0+1-72f95716*
 </div>
 </div>
 <div class="nav-toc">
@@ -682,6 +682,16 @@ def foldO(oo, if_none, if_some):
 <pre><code>_ = some_expression
 </code></pre>
 <p>That makes the intent explicit to readers and to the compiler.</p>
+<h2><a href="#type-check-only-todo" name="type-check-only-todo" class="anchor"><span class="anchor-link"></span></a>Type-check-only <code>todo</code></h2>
+<p>When iterating on larger changes, you may know the arguments you need but not yet know the final implementation. In check-only mode, Bosatsu includes:</p>
+<pre><code>def todo[a](a: a) -&gt; forall b. b
+</code></pre>
+<p><code>todo</code> consumes a value (often a tuple of values you plan to use) and can stand in for any return type so the rest of your code can still typecheck:</p>
+<pre><code>def big_hard_function(a: Arg1, b: Arg2) -&gt; Result:
+  todo((a, b))
+</code></pre>
+<p>This is useful for an &ldquo;always-be-compiling&rdquo; workflow: keep moving from one typechecking state to the next, then remove placeholders incrementally.</p>
+<p><code>todo</code> is intentionally unsound, so it is only available in check-only commands (<code>tool check</code> and <code>lib check</code>). Commands that emit or execute outputs (<code>show</code>/<code>json</code>/<code>eval</code>/<code>build</code>/<code>transpile</code>/<code>test</code>) do not include <code>todo</code>, so those commands fail until all <code>todo</code> calls are removed.</p>
 <h2><a href="#testing" name="testing" class="anchor"><span class="anchor-link"></span></a>Testing</h2>
 <p>Bosatsu tests are regular values of type <code>Bosatsu/Predef::Test</code>. <code>Bosatsu/Predef</code> defines:</p>
 <ol>
@@ -836,7 +846,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-65e9f6f5-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-72f95716-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
