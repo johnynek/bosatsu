@@ -32,7 +32,7 @@ def build_all(items: List[Build[a]]) -> Build[List[a]]:
       case []: empty
       case [h, *t]:
           (rest: Build[List[a]]) = build_all(t)
-          map2_Build(h, rest, (h1, t1) -> [h1, *t1])
+          map2_Build(h, rest, (h, t) -> [h, *t])
 
 def files(fs: List[String]) -> Build[List[File]]:
     build_all([file(f) for f in fs])

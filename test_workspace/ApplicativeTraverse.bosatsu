@@ -20,7 +20,7 @@ def applicative_from_pure_map_product[f: * -> *](
   product: forall a, b. (f[a], f[b]) -> f[(a, b)]) -> Applicative[f]:
 
   def ap(fn, fa):
-    map(((afn, a)) -> afn(a), product(fn, fa))
+    map(((fn, a)) -> fn(a), product(fn, fa))
 
   def map2(fa, fb, fn):
     map(((a, b)) -> fn(a, b), product(fa, fb))
@@ -77,7 +77,7 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
   def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:
     recur lst:
       case []: ftail
-      case [h, *t]: loop(t, map(((h1, t1)) -> [h1, *t1], product(fn(h), ftail)))
+      case [h, *t]: loop(t, map(((h, t)) -> [h, *t], product(fn(h), ftail)))
 
   map(reverse, loop(lst, pure([])))
 

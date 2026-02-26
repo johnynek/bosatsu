@@ -189,8 +189,8 @@ def geometric(depth: Nat, acc: Int) -> Rand[Int]:
 geometric_Int: Rand[Int] = geometric(nat30, 0)
 
 def len[a](list: List[a]) -> BinNat:
-    def loop(rem, acc):
-        recur rem:
+    def loop(list, acc):
+        recur list:
             case []: acc
             case [_, *t]: loop(t, acc.next_BinNat())
     loop(list, BZero)

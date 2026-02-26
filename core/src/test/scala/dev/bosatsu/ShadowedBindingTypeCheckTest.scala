@@ -127,8 +127,8 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     )
   }
 
-  test("let shadowing lambda argument with a different type fails") {
-    negativeCheck(
+  test("let shadowing lambda argument with a different type is allowed") {
+    positiveCheck(
       """
       enum I: One, Two
 
@@ -140,13 +140,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         fn(One)
       )
       """
-    ) { (err, msg) =>
-      assertEquals(err.name, bindable("x"))
-      assertEquals(err.previous.site, BindingSite.LambdaArg)
-      assertEquals(err.current.site, BindingSite.LetBinding)
-      assert(msg.contains("previous type: I"), msg)
-      assert(msg.contains("current type: String"), msg)
-    }
+    )
   }
 
   test("match pattern binder shadow different type fails") {
@@ -170,8 +164,8 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     }
   }
 
-  test("pattern binding cannot shadow a lambda arg with a different type") {
-    negativeCheck(
+  test("pattern binding can shadow a lambda arg with a different type") {
+    positiveCheck(
       """
       struct Tup(a, b)
       enum Either[a]: Left(a: a), Right(a: a)
@@ -186,16 +180,11 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
 
       main = 1
       """
-    ) { (err, msg) =>
-      assertEquals(err.name, bindable("e"))
-      assertEquals(err.previous.site, BindingSite.LambdaArg)
-      assertEquals(err.current.site, BindingSite.PatternBinding)
-      assert(msg.contains("shadowed binding `e` changes type."), msg)
-    }
+    )
   }
 
-  test("nested pattern binding cannot reuse the outer argument name with a new type") {
-    negativeCheck(
+  test("nested pattern binding can reuse the outer argument name with a new type") {
+    positiveCheck(
       """
       struct Box[x: *](a: x)
       struct One
@@ -209,16 +198,11 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
 
       main = process(y)
       """
-    ) { (err, msg) =>
-      assertEquals(err.name, bindable("o"))
-      assertEquals(err.previous.site, BindingSite.LambdaArg)
-      assertEquals(err.current.site, BindingSite.PatternBinding)
-      assert(msg.contains("shadowed binding `o` changes type."), msg)
-    }
+    )
   }
 
-  test("nested lambda args cannot shadow outer lambda args with different types") {
-    negativeCheck(
+  test("nested lambda args can shadow outer lambda args with different types") {
+    positiveCheck(
       """
       main = (
         cmp = (x, y) -> (
@@ -228,17 +212,11 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         cmp(1, 1)
       )
       """
-    ) { (err, msg) =>
-      assertEquals(err.name, bindable("x"))
-      assertEquals(err.previous.site, BindingSite.LambdaArg)
-      assertEquals(err.current.site, BindingSite.LambdaArg)
-      assert(msg.contains("previous type:"), msg)
-      assert(msg.contains("current type:"), msg)
-    }
+    )
   }
 
-  test("inner lambda arg shadow from tuple to Int fails") {
-    negativeCheck(
+  test("inner lambda arg shadow from tuple to Int is allowed") {
+    positiveCheck(
       """
       struct Tup(a, b)
 
@@ -250,12 +228,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         outer(Tup(1, 2), Tup(3, 4))
       )
       """
-    ) { (err, msg) =>
-      assertEquals(err.name, bindable("x"))
-      assertEquals(err.previous.site, BindingSite.LambdaArg)
-      assertEquals(err.current.site, BindingSite.LambdaArg)
-      assert(msg.contains("shadowed binding `x` changes type."), msg)
-    }
+    )
   }
 
   test("quantified alpha-equivalent shadows pass") {
@@ -288,7 +261,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     }
   }
 
-  test("wildcard source lambda args are ignored for lambda-arg shadow checks") {
+  test("wildcard lambda args do not affect shadow checks") {
     positiveCheck(
       """
       main = (

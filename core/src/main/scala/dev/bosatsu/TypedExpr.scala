@@ -1104,27 +1104,46 @@ object TypedExpr {
       case _ => None
     }
 
+  private def sourceArgPatternsFromTag(
+      tag: Declaration
+  ): Option[List[Pattern.Parsed]] =
+    tag match {
+      case Declaration.Lambda(sourceArgs, _) =>
+        Some(sourceArgs.toList)
+      case Declaration.DefFn(
+            DefStatement(_, _, sourceArgGroups, _, _)
+          ) =>
+        Some(sourceArgGroups.toList.flatMap(_.toList))
+      case _ =>
+        None
+    }
+
   // Recover source argument patterns for an AnnotatedLambda when available.
   // This preserves user-written patterns for lint-style checks that should
   // reason about source-level binders, not only desugared typed arguments.
   def sourceLambdaArgs(
       te: TypedExpr[Declaration]
-  ): List[Pattern.Parsed] =
-    te match {
-      case AnnotatedLambda(args, _, tag) =>
-        tag match {
-          case Declaration.Lambda(sourceArgs, _) =>
-            sourceArgs.toList
-          case Declaration.DefFn(
-                DefStatement(_, _, sourceArgGroups, _, _)
-              ) =>
-            sourceArgGroups.toList.flatMap(_.toList)
-          case _ =>
-            args.toList.map { case (name, _) => Pattern.Var(name) }
-        }
-      case _ =>
-        Nil
-    }
+  ): List[Pattern.Parsed] = {
+    @annotation.tailrec
+    def loop(
+        expr: TypedExpr[Declaration],
+        outerSource: Option[List[Pattern.Parsed]]
+    ): List[Pattern.Parsed] =
+      expr match {
+        case Generic(_, in) =>
+          loop(in, outerSource.orElse(sourceArgPatternsFromTag(expr.tag)))
+        case Annotation(in, _, _) =>
+          loop(in, outerSource.orElse(sourceArgPatternsFromTag(expr.tag)))
+        case AnnotatedLambda(args, _, tag) =>
+          sourceArgPatternsFromTag(tag)
+            .orElse(outerSource)
+            .getOrElse(args.toList.map { case (name, _) => Pattern.Var(name) })
+        case _ =>
+          Nil
+      }
+
+    loop(te, None)
+  }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     private inline def foreach[X](iter: Iterator[X])(inline fn: X => Unit): Unit =

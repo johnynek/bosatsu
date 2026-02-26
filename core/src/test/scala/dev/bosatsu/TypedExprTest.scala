@@ -9,7 +9,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 import Arbitrary.arbitrary
 import Identifier.{Bindable, Constructor}
-import TestUtils.checkLast
+import TestUtils.{checkEnvExpr, checkLast}
 import rankn.{Type, NTypeGen, RefSpace}
 
 class TypedExprTest extends munit.ScalaCheckSuite {
@@ -60,7 +60,12 @@ class TypedExprTest extends munit.ScalaCheckSuite {
       statement: String,
       args: List[String]
   ): Unit =
-    checkLast(normalizeSource(statement)) { te =>
+    checkEnvExpr(normalizeSource(statement)) { (_, lets) =>
+      val te =
+        lets.lastOption match {
+          case Some((_, _, expr)) => expr
+          case None               => fail("expected at least one typed let")
+        }
       stripLambdaWrappers(te) match {
         case lam @ TypedExpr.AnnotatedLambda(_, _, _) =>
           assertEquals(
@@ -200,7 +205,7 @@ y = match x:
         _ = y
         x
       """,
-      List("x", "a")
+      List("x", "y")
     )
 
     assertLambdaArgsFromLast(
@@ -210,7 +215,7 @@ y = match x:
         match y:
           case X0: x
       """,
-      List("x", "a")
+      List("x", "y")
     )
   }
 
@@ -3459,8 +3464,8 @@ enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
   def go(y, z):
-    def loop(z1):
-      recur z1:
+    def loop(z):
+      recur z:
         case E: y
         case NE(_, t): loop(t)
 
@@ -3475,8 +3480,8 @@ enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
   def go(y, z):
-    def loop(z1):
-      recur z1:
+    def loop(z):
+      recur z:
         case E: y
         case NE(_, t): loop(t)
 
