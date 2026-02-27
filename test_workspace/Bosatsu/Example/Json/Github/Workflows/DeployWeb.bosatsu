@@ -75,7 +75,7 @@ workflow =
               "cp -a docs/target/paradox/site/main/* web_deploy",
               "cp jsui/index.html web_deploy/compiler/",
               "cp jsui/app.css web_deploy/compiler/",
-              "cp jsui/.js/target/scala-3.8.1/scalajs-bundler/main/compiler-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js",
+              "cp jsui/.js/target/scala-3.8.2/scalajs-bundler/main/compiler-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js",
               "",
             ])),
           },
