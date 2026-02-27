@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cdd572b9*
+0.0.0+1-47ec9ba4*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cdd572b9*
+0.0.0+1-47ec9ba4*
 </div>
 </div>
 <div class="nav-toc">
@@ -119,7 +119,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#recursion-in-bosatsu" name="recursion-in-bosatsu" class="anchor"><span class="anchor-link"></span></a>Recursion in Bosatsu</h1>
 <p>Bosatsu is a total language. Recursion is restricted so every <code>def</code> is guaranteed to terminate.</p>
-<p>Loops in Bosatsu are intentionally stricter than loops in most programming languages. We still support loops through <code>recur</code>, but each loop must have a decreasing structural argument (or explicit decreasing fuel) so termination is provable. This is required for the main safety goal: a sound type system we can trust.</p>
+<p>Loops in Bosatsu are intentionally stricter than loops in most programming languages. We support recursive loops through <code>recur</code> and <code>loop</code>, but each loop must have a decreasing structural argument (or explicit decreasing fuel) so termination is provable. This is required for the main safety goal: a sound type system we can trust.</p>
 <p>This page expands the short notes in the language guide with concrete patterns from examples in the bosatsu compiler repository, plus background on the fuel pattern and Bove-Capretta/domain-predicate styles.</p>
 <h2><a href="#terms-used-in-this-page" name="terms-used-in-this-page" class="anchor"><span class="anchor-link"></span></a>Terms Used In This Page</h2>
 <p>Papers in the references use a few terms repeatedly. Here is what they mean in plain language:</p>
@@ -159,6 +159,15 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </ol>
 <p>Recursion validation runs after typechecking on typed IR, and before typed normalization/rewrite phases. This keeps recursion diagnostics anchored to source tags while preserving a clear trust boundary before optimization.</p>
 <p>Tuple targets are useful for nested-recursive definitions where one argument is allowed to reset or increase only after an earlier argument decreases.</p>
+<h2><a href="#the-loop-form" name="the-loop-form" class="anchor"><span class="anchor-link"></span></a>The <code>loop</code> Form</h2>
+<p><code>loop</code> has the same termination checks as <code>recur</code>, and adds one extra requirement: every recursive self-call must be in tail position.</p>
+<p>Unlike <code>recur</code>, <code>loop</code> is also a stack-safety guarantee: accepted <code>loop</code> definitions are compiled to loops and run in constant stack space. If a recursive call is not in tail position, compilation fails.</p>
+<pre class="prettyprint"><code class="language-bosatsu">def size1(list, acc):
+  loop list:
+    case []: acc
+    case [_, *t]: size1(t, Succ(acc))
+</code></pre>
+<p>Prefer <code>loop</code> whenever possible so stack exhaustion is ruled out by the type checker/compiler. Use <code>recur</code> when recursion is terminating but intentionally non-tail (for example, <code>Succ(len(tail))</code> style code).</p>
 <h2><a href="#pattern-1-structural-recursion-on-lists" name="pattern-1-structural-recursion-on-lists" class="anchor"><span class="anchor-link"></span></a>Pattern 1: Structural Recursion On Lists</h2>
 <p>This is the most common pattern. Recur directly on the list and call the same function on a tail.</p>
 <p>In terminology above, this is structural/well-founded recursion where list shape gives the decreasing measure for free.</p>
@@ -179,7 +188,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>Same structural decrease as Pattern 1, but with accumulator state for constant stack in target runtimes that optimize tail loops.</p>
 <p>From <code>List.bosatsu</code>:</p>
 <pre class="prettyprint"><code class="language-bosatsu">def size1(list, acc):
-  recur list:
+  loop list:
     case []: acc
     case [_, *t]: size1(t, Succ(acc))
 </code></pre>
@@ -315,6 +324,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>If the recursive call is on an obvious subvalue, use structural recursion.</li>
   <li>If not, compute a bound and recurse on that fuel (<code>Nat</code> is usually easiest).</li>
   <li>If recursion uses multiple arguments, prefer <code>recur (a, b, ...)</code> and check  lexicographic decrease in that order.</li>
+  <li>Prefer <code>loop</code> whenever the algorithm can be tail-recursive, so stack  exhaustion is impossible by construction. Use <code>recur</code> only when non-tail  recursion is required.</li>
   <li>
   <p>For parsing-like string scans, either recurse on string tail directly or use  length-derived fuel.</p></li>
 </ol>
@@ -418,7 +428,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-cdd572b9-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-47ec9ba4-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
