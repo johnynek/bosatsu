@@ -1,0 +1,79 @@
+package Bosatsu/IO/CreateModeMain
+
+from Bosatsu/Prog import Prog, Main, pure, await, recover
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  Path,
+  Handle,
+  TempFile,
+  Read,
+  CreateNew,
+  string_to_Path,
+  path_join,
+  open_file,
+  create_temp_file,
+  create_temp_dir,
+  write_utf8,
+  read_utf8,
+  close,
+  remove,
+)
+from Bosatsu/IO/Std import println, show_error
+
+def andb(left: Bool, right: Bool) -> Bool:
+  if left:
+    right
+  else:
+    False
+
+def create_new_success(path: Path) -> Prog[IOError, Bool]:
+  recover(
+    open_file(path, CreateNew).await(h -> (
+      _ <- close(h).await()
+      pure(True)
+    )),
+    _ -> pure(False)
+  )
+
+def read_small(path: Path) -> Prog[IOError, String]:
+  open_file(path, Read).await(h -> (
+    chunk <- read_utf8(h, 4096).await()
+    _ <- close(h).await()
+    match chunk:
+      case Some(s): pure(s)
+      case None: pure("")
+  ))
+
+run_test: Prog[IOError, Int] =
+  match string_to_Path("create_new_lock"):
+    case Some(lock_child):
+      (
+        temp_dir <- create_temp_dir(None, "bosatsu_create_mode").await()
+        lock_path = path_join(temp_dir, lock_child)
+        first <- create_new_success(lock_path).await()
+        second <- create_new_success(lock_path).await()
+        temp_file <- create_temp_file(Some(temp_dir), "bos", ".tmp").await()
+        TempFile { path: temp_path, handle } = temp_file
+        _ <- write_utf8(handle, "hello-temp").await()
+        _ <- close(handle).await()
+        txt <- read_small(temp_path).await()
+        success = andb(first, andb(second matches False, txt matches "hello-temp"))
+        status = if success:
+          "ok"
+        else:
+          "fail"
+        exit_code = if success:
+          0
+        else:
+          1
+        _ <- remove(temp_dir, True).await()
+        _ <- println("create_mode_test:${status}").await()
+        pure(exit_code)
+      )
+    case None:
+      (
+        _ <- println("create_mode_test:fail").await()
+        pure(1)
+      )
+
+main = Main(_ -> show_error(run_test, 1))

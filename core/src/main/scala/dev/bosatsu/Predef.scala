@@ -220,6 +220,16 @@ object Predef {
         )
         .add(
           ioCorePackageName,
+          "create_temp_file",
+          FfiCall.Fn3(PredefImpl.prog_core_create_temp_file(_, _, _))
+        )
+        .add(
+          ioCorePackageName,
+          "create_temp_dir",
+          FfiCall.Fn2(PredefImpl.prog_core_create_temp_dir(_, _))
+        )
+        .add(
+          ioCorePackageName,
           "list_dir",
           FfiCall.Fn1(PredefImpl.prog_core_list_dir(_))
         )
@@ -1232,6 +1242,20 @@ object PredefImpl {
   private def normalizePathString(raw: String): String =
     raw.replace('\\', '/')
 
+  private def pathValueFromString(raw: String): Value =
+    ProductValue.single(Str(normalizePathString(raw)))
+
+  private def normalizeTempPrefix(prefix: String): String = {
+    val base =
+      if (prefix.isEmpty) "tmp"
+      else prefix
+    if (base.length >= 3) base
+    else base + ("_" * (3 - base.length))
+  }
+
+  private def isValidTempNamePart(part: String): Boolean =
+    !part.exists(ch => ch == '/' || ch == '\\' || Character.isISOControl(ch))
+
   private def instantValueFromNanos(nanos: BigInteger): Value =
     ProductValue.single(VInt(nanos))
 
@@ -1349,10 +1373,16 @@ object PredefImpl {
         }
     }
 
+  private def asString(v: Value, context: String): Either[Value, String] =
+    v match {
+      case Str(s) => Right(s)
+      case _      => Left(ioerror_invalid_argument(context))
+    }
+
   private def asOpenModeTag(v: Value): Either[Value, Int] =
     v match {
       case s: SumValue =>
-        if ((s.variant >= 0) && (s.variant <= 2)) Right(s.variant)
+        if ((s.variant >= 0) && (s.variant <= 3)) Right(s.variant)
         else Left(ioerror_invalid_argument("invalid OpenMode value"))
       case _ =>
         Left(ioerror_invalid_argument("invalid OpenMode value"))
@@ -1394,6 +1424,16 @@ object PredefImpl {
       case VOption(None)          => Right(None)
       case VOption(Some(VInt(i))) => Right(Some(i))
       case _                      => Left(ioerror_invalid_argument(context))
+    }
+
+  private def asOptionJavaPath(
+      value: Value,
+      context: String
+  ): Either[Value, Option[JPath]] =
+    value match {
+      case VOption(None)           => Right(None)
+      case VOption(Some(pathValue)) => asJavaPath(pathValue, context).map(Some(_))
+      case _                       => Left(ioerror_invalid_argument(context))
     }
 
   private def optionValue(v: Option[Value]): Value =
@@ -2145,6 +2185,25 @@ object PredefImpl {
                       )
                     )
                   )
+                case 3 =>
+                  val options: Array[OpenOption] = Array(
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE
+                  )
+                  val output =
+                    new BufferedOutputStream(
+                      Files.newOutputStream(javaPath, options*)
+                    )
+                  Right(
+                    ExternalValue(
+                      WriterHandle(
+                        new BufferedWriter(
+                          new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                        ),
+                        Some(output)
+                      )
+                    )
+                  )
                 case _ =>
                   Left(ioerror_invalid_argument("invalid OpenMode value"))
               }
@@ -2158,6 +2217,123 @@ object PredefImpl {
         result match {
           case Right(handleOut) => prog_pure(handleOut)
           case Left(err)        => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_create_temp_file(
+      dir: Value,
+      prefix: Value,
+      suffix: Value
+  ): Value =
+    prog_effect3(
+      dir,
+      prefix,
+      suffix,
+      (dirValue, prefixValue, suffixValue) => {
+        val result = for {
+          dirOpt <- asOptionJavaPath(dirValue, "invalid temp file dir")
+          rawPrefix <- asString(prefixValue, "invalid temp file prefix")
+          rawSuffix <- asString(suffixValue, "invalid temp file suffix")
+          _ <-
+            if (isValidTempNamePart(rawPrefix)) Right(())
+            else Left(ioerror_invalid_argument("invalid temp file prefix"))
+          _ <-
+            if (isValidTempNamePart(rawSuffix)) Right(())
+            else Left(ioerror_invalid_argument("invalid temp file suffix"))
+          tempPath <- {
+            try {
+              val created =
+                dirOpt match {
+                  case Some(base) =>
+                    Files.createTempFile(
+                      base,
+                      normalizeTempPrefix(rawPrefix),
+                      rawSuffix
+                    )
+                  case None       =>
+                    Files.createTempFile(
+                      normalizeTempPrefix(rawPrefix),
+                      rawSuffix
+                    )
+                }
+              Right(created)
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("create_temp_file", t))
+            }
+          }
+          tempFile <- {
+            try {
+              val output =
+                new BufferedOutputStream(
+                  Files.newOutputStream(tempPath, StandardOpenOption.WRITE)
+                )
+              val pathOut = pathValueFromString(tempPath.toString)
+              val handleOut =
+                ExternalValue(
+                  WriterHandle(
+                    new BufferedWriter(
+                      new OutputStreamWriter(output, StandardCharsets.UTF_8)
+                    ),
+                    Some(output)
+                  )
+                )
+              Right(Value.Tuple(pathOut, handleOut))
+            } catch {
+              case NonFatal(t) =>
+                try {
+                  Files.deleteIfExists(tempPath)
+                  ()
+                } catch {
+                  case NonFatal(_) => ()
+                }
+                Left(ioerror_from_throwable("create_temp_file", t))
+            }
+          }
+        } yield tempFile
+
+        result match {
+          case Right(tempFile) => prog_pure(tempFile)
+          case Left(err)       => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_create_temp_dir(
+      dir: Value,
+      prefix: Value
+  ): Value =
+    prog_effect2(
+      dir,
+      prefix,
+      (dirValue, prefixValue) => {
+        val result = for {
+          dirOpt <- asOptionJavaPath(dirValue, "invalid temp dir")
+          rawPrefix <- asString(prefixValue, "invalid temp dir prefix")
+          _ <-
+            if (isValidTempNamePart(rawPrefix)) Right(())
+            else Left(ioerror_invalid_argument("invalid temp dir prefix"))
+          tempPath <- {
+            try {
+              val created =
+                dirOpt match {
+                  case Some(base) =>
+                    Files.createTempDirectory(base, normalizeTempPrefix(rawPrefix))
+                  case None       =>
+                    Files.createTempDirectory(normalizeTempPrefix(rawPrefix))
+                }
+              Right(created)
+            } catch {
+              case NonFatal(t) =>
+                Left(ioerror_from_throwable("create_temp_dir", t))
+            }
+          }
+        } yield pathValueFromString(tempPath.toString)
+
+        result match {
+          case Right(pathOut) => prog_pure(pathOut)
+          case Left(err)      => prog_raise_error(err)
         }
       }
     )

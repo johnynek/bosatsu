@@ -25,6 +25,7 @@ export (
   duration_to_nanos,
   FileKind(),
   FileStat(),
+  TempFile(),
   OpenMode(),
   Stdio(),
   StdioConfig(),
@@ -41,6 +42,8 @@ export (
   flush,
   close,
   open_file,
+  create_temp_file,
+  create_temp_dir,
   list_dir,
   stat,
   mkdir,
@@ -74,10 +77,13 @@ enum FileKind:
 
 struct FileStat(kind: FileKind, size_bytes: Int, mtime: Instant)
 
+struct TempFile(path: Path, handle: Handle)
+
 enum OpenMode:
   Read
   WriteTruncate
   Append
+  CreateNew
 
 enum Stdio:
   Inherit
@@ -107,6 +113,8 @@ external def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Op
 external def flush(h: Handle) -> Prog[IOError, Unit]
 external def close(h: Handle) -> Prog[IOError, Unit]
 external def open_file(path: Path, mode: OpenMode) -> Prog[IOError, Handle]
+external def create_temp_file(dir: Option[Path], prefix: String, suffix: String) -> Prog[IOError, TempFile]
+external def create_temp_dir(dir: Option[Path], prefix: String) -> Prog[IOError, Path]
 external def list_dir(path: Path) -> Prog[IOError, List[Path]]
 external def stat(path: Path) -> Prog[IOError, Option[FileStat]]
 external def mkdir(path: Path, recursive: Bool) -> Prog[IOError, Unit]
@@ -118,14 +126,6 @@ external def wait(p: Process) -> Prog[IOError, Int]
 external now_wall: Prog[IOError, Instant]
 external now_mono: Prog[IOError, Duration]
 external def sleep(d: Duration) -> Prog[IOError, Unit]
-
-# Keep these type imports marked as used for the Bosatsu import checker.
-_ = now_mono
-
-def bytes_identity_for_import(b: Bytes) -> Bytes:
-  b
-
-_ = bytes_identity_for_import
 
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d

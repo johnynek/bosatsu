@@ -16,6 +16,8 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(BValue h);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_close(BValue h);
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(BValue path, BValue mode);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__file(BValue dir, BValue prefix, BValue suffix);
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__dir(BValue dir, BValue prefix);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_list__dir(BValue path);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(BValue path);
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(BValue path, BValue recursive);

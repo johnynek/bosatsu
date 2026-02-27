@@ -19,6 +19,11 @@ check_ls_output() {
   [ "$reported_count" -eq "$listed_count" ]
 }
 
+check_create_mode_output() {
+  output="$1"
+  printf '%s\n' "$output" | grep -Eq '^create_mode_test:ok$'
+}
+
 ./bosatsuj tool transpile \
   --input test_workspace/Issue1633.bosatsu \
   --package_root test_workspace/ \
@@ -29,6 +34,7 @@ cp c_runtime/bosatsu_runtime.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Predef.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Prog.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Core.c "$tmp_dir"/
+cp c_runtime/bosatsu_ext_Bosatsu_l_IO_l_Bytes.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Collection_l_Array.c "$tmp_dir"/
 cp c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.c "$tmp_dir"/
 
@@ -51,6 +57,7 @@ cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_runtime.c" -o "$tmp_dir/bosatsu_run
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o"
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Bytes.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Bytes.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.c" -o "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o"
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/output.c" -o "$tmp_dir/output.o"
@@ -60,6 +67,7 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/test_exe" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Bytes.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
   $GC_LIBS -lm
@@ -69,7 +77,9 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/test_exe" \
 ./bosatsuj tool transpile \
   --input_dir test_workspace \
   --input test_workspace/Bosatsu/IO/Error.bosatsu \
+  --input test_workspace/Bosatsu/Collection/Array.bosatsu \
   --input test_workspace/Bosatsu/IO/Core.bosatsu \
+  --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu \
   --package_root test_workspace/ \
   c --main Bosatsu/LsExample --outdir "$tmp_dir"
@@ -81,9 +91,36 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/ls_exe" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Bytes.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
   "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
   $GC_LIBS -lm
 
 ls_output=$("$tmp_dir/ls_exe")
 check_ls_output "$ls_output"
+
+./bosatsuj tool transpile \
+  --input_dir test_workspace \
+  --input test_workspace/Bosatsu/IO/Error.bosatsu \
+  --input test_workspace/Bosatsu/Collection/Array.bosatsu \
+  --input test_workspace/Bosatsu/IO/Core.bosatsu \
+  --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
+  --input test_workspace/Bosatsu/IO/Std.bosatsu \
+  --input test_workspace/Bosatsu/IO/CreateModeMain.bosatsu \
+  --package_root test_workspace/ \
+  c --main Bosatsu/IO/CreateModeMain --outdir "$tmp_dir"
+
+cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/output.c" -o "$tmp_dir/create_mode_output.o"
+cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/create_mode_exe" \
+  "$tmp_dir/create_mode_output.o" \
+  "$tmp_dir/bosatsu_runtime.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Predef.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Prog.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Core.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_IO_l_Bytes.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Collection_l_Array.o" \
+  "$tmp_dir/bosatsu_ext_Bosatsu_l_Num_l_Float64.o" \
+  $GC_LIBS -lm
+
+create_mode_output=$("$tmp_dir/create_mode_exe")
+check_create_mode_output "$create_mode_output"

@@ -12,6 +12,7 @@ import shutil
 import stat as _stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Optional, Tuple, Union
 
@@ -156,6 +157,32 @@ def _as_optional_int(value):
                 return (False, None)
     return (False, None)
 
+def _as_optional_path(value):
+    if isinstance(value, tuple) and len(value) >= 1:
+        tag = value[0]
+        if tag == 0:
+            return (True, None)
+        if tag == 1 and len(value) >= 2:
+            try:
+                return (True, _to_path_string(value[1]))
+            except ValueError:
+                return (False, None)
+    return (False, None)
+
+def _normalize_temp_prefix(prefix: str) -> str:
+    base = prefix if len(prefix) > 0 else "tmp"
+    if len(base) >= 3:
+        return base
+    return base + ("_" * (3 - len(base)))
+
+def _is_valid_temp_name_part(part: str) -> bool:
+    for ch in part:
+        if ch == "/" or ch == "\\":
+            return False
+        if ord(ch) < 32:
+            return False
+    return True
+
 def _array_to_pylist(value):
     if isinstance(value, list):
         return value
@@ -234,6 +261,8 @@ def _as_handle(value):
     return None
 
 def _open_mode_tag(mode):
+    if isinstance(mode, int):
+        return mode
     if isinstance(mode, tuple) and len(mode) >= 1:
         return mode[0]
     raise ValueError(f"invalid OpenMode value: {mode!r}")
@@ -784,9 +813,68 @@ def open_file(path, mode):
             if mode_tag == 2:
                 stream = open(path_s, "a", encoding="utf-8", newline="")
                 return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
+            if mode_tag == 3:
+                stream = open(path_s, "x", encoding="utf-8", newline="")
+                return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
             return raise_error(_invalid_argument(f"unknown OpenMode tag: {mode_tag}"))
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, f"opening file: {path_s}"))
+
+    return effect(fn)
+
+def create_temp_file(dir_opt, prefix, suffix):
+    def fn():
+        ok_dir, dir_path = _as_optional_path(dir_opt)
+        if not ok_dir:
+            return raise_error(_invalid_argument("invalid temp file dir"))
+
+        try:
+            prefix_s = str(prefix)
+            suffix_s = str(suffix)
+        except Exception:
+            return raise_error(_invalid_argument("invalid temp file prefix/suffix"))
+
+        if not _is_valid_temp_name_part(prefix_s):
+            return raise_error(_invalid_argument("invalid temp file prefix"))
+        if not _is_valid_temp_name_part(suffix_s):
+            return raise_error(_invalid_argument("invalid temp file suffix"))
+
+        try:
+            fd, path_s = tempfile.mkstemp(
+                suffix=suffix_s,
+                prefix=_normalize_temp_prefix(prefix_s),
+                dir=dir_path
+            )
+            stream = os.fdopen(fd, "w", encoding="utf-8", newline="")
+            handle = _CoreHandle(stream, readable=False, writable=True, closeable=True)
+            return pure((_normalize_path(path_s), handle))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "create_temp_file"))
+
+    return effect(fn)
+
+def create_temp_dir(dir_opt, prefix):
+    def fn():
+        ok_dir, dir_path = _as_optional_path(dir_opt)
+        if not ok_dir:
+            return raise_error(_invalid_argument("invalid temp dir"))
+
+        try:
+            prefix_s = str(prefix)
+        except Exception:
+            return raise_error(_invalid_argument("invalid temp dir prefix"))
+
+        if not _is_valid_temp_name_part(prefix_s):
+            return raise_error(_invalid_argument("invalid temp dir prefix"))
+
+        try:
+            path_s = tempfile.mkdtemp(
+                prefix=_normalize_temp_prefix(prefix_s),
+                dir=dir_path
+            )
+            return pure(_normalize_path(path_s))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, "create_temp_dir"))
 
     return effect(fn)
 
