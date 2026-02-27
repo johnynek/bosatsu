@@ -67,6 +67,39 @@ def len(lst):
 """)
   }
 
+  test("loop accepts tail-recursive structural recursion") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst, acc):
+  loop lst:
+    case []: acc
+    case [_, *tail]: len(tail, Succ(acc))
+""")
+  }
+
+  test("loop rejects non-tail recursive branch results") {
+    disallowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst):
+  loop lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+""")
+  }
+
+  test("recur continues to allow non-tail recursive branch results") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst):
+  recur lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+""")
+  }
+
   test("recur with no recursive call is rejected") {
     disallowed("""#
 def fn(x):
@@ -84,6 +117,18 @@ def ack(n, m):
     case (Zero, _): Succ(m)
     case (Succ(n_prev), Zero): ack(n_prev, Succ(Zero))
     case (Succ(n_prev), Succ(m_prev)): ack(n_prev, ack(n, m_prev))
+""")
+  }
+
+  test("tuple loop targets still allow lexicographic decrease") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def down2(n, m):
+  loop (n, m):
+    case (Zero, _): m
+    case (Succ(n_prev), Zero): down2(n_prev, Zero)
+    case (Succ(_), Succ(m_prev)): down2(n, m_prev)
 """)
   }
 
@@ -125,6 +170,16 @@ def len(lst):
 """)
   }
 
+  test("loop rejects recursive calls in guards even when decreasing") {
+    disallowed("""#
+def len(lst):
+  loop lst:
+    case []: 0
+    case [_, *tail] if len(tail) matches 0: 1
+    case [_, *_]: 2
+""")
+  }
+
   test("recur inside def with wildcard argument patterns remains valid") {
     allowed("""#
 enum Thing:
@@ -152,6 +207,28 @@ def loop[a](box: Cont[a]) -> a:
     case Next(cont_fn): cont_fn(loop)
 
 main: Int = loop(Item(1))
+""")
+  }
+
+  test("loop rejects passing recursive function values as non-tail calls") {
+    disallowed("""#
+enum Cont[a: *]:
+  Item(a: a)
+  Next(use: (Cont[a] -> a) -> a)
+
+def loop[a](box: Cont[a]) -> a:
+  loop box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(loop)
+
+main: Int = loop(Item(1))
+""")
+  }
+
+  test("def loop remains a legal function name") {
+    allowed("""#
+def loop(x): x
+main = loop(1)
 """)
   }
 }

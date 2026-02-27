@@ -390,7 +390,7 @@ final class SourceConverter(
           }
         loop(
           Match(
-            RecursionKind.NonRecursive,
+            Declaration.MatchKind.Match,
             a,
             OptIndent.same(
               NonEmptyList(
@@ -440,7 +440,7 @@ final class SourceConverter(
         success(resolveToVar(ident, decl, bound, topBound))
       case Match(_, arg, branches) =>
         /*
-         * The recursion kind on source match tags is used by
+         * The source match mode (`match`/`recur`/`loop`) on tags is used by
          * TypedExprRecursionCheck before lowering/normalization.
          */
         def stripGuardWrappers(
@@ -1904,7 +1904,7 @@ final class SourceConverter(
         def makeMatch(pat: Pattern.Parsed, res: Declaration): Declaration = {
           val resOI = OptIndent.same(res)
           Match(
-            RecursionKind.NonRecursive,
+            Declaration.MatchKind.Match,
             rhsNB,
             OptIndent.same(NonEmptyList.one(MatchBranch(pat, None, resOI)))
           )(using decl.region)

@@ -449,7 +449,7 @@ object TypedExprRecursionCheck {
         tag: Declaration
     ): Option[Declaration.Match] =
       tag match {
-        case m @ Declaration.Match(RecursionKind.Recursive, target, _) =>
+        case m @ Declaration.Match(kind, target, _) if kind.isRecursive =>
           (recurTargetNames(target), simpleMatchArgNames(currentPackage, matchArg)) match {
             case (Some(expected), Some(actual)) =>
               val sameNames =
@@ -462,6 +462,23 @@ object TypedExprRecursionCheck {
           }
         case _ =>
           None
+      }
+
+    private def checkLoopTailRecursion(
+        fnname: Bindable,
+        body: TypedExpr[Declaration],
+        recur: Declaration.Match
+    ): St[Unit] =
+      recur.kind match {
+        case Declaration.MatchKind.Loop =>
+          SelfCallKind(fnname, body) match {
+            case SelfCallKind.NonTailCall =>
+              failSt(RecursionCheck.LoopRequiresTailRecursion(fnname, recur.region))
+            case _ =>
+              unitSt
+          }
+        case _ =>
+          unitSt
       }
 
     @annotation.tailrec
@@ -1018,15 +1035,16 @@ object TypedExprRecursionCheck {
                 case InDef(_, _, _, _, _, _) =>
                   // we never hit a recur
                   unitSt
-                case InDefRecurred(_, _, _, cnt, _) if cnt > 0 =>
+                case InDefRecurred(_, _, recur, cnt, _) if cnt > 0 =>
                   // we did hit a recur
-                  unitSt
+                  checkLoopTailRecursion(fnname, body, recur)
                 case InDefRecurred(_, _, recur, 0, calledNames) =>
                   // we hit a recur, but we didn't recurse
                   failSt[Unit](
                     RecursionCheck.RecursiveDefNoRecur(
                       fnname,
                       recur.region,
+                      recur.kind,
                       likelyRenameCall(fnname, calledNames)
                     )
                   )

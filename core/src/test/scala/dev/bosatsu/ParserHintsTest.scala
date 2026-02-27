@@ -79,6 +79,24 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
+  test("missing ':' after loop header gets loop-header hint") {
+    val source =
+      """package Foo
+        |
+        |def len(lst):
+        |  loop lst
+        |    case []: 0
+        |    case [_, *tail]: len(tail)
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("missing ':' after loop header")),
+      hints.mkString("\n")
+    )
+  }
+
   test("elseif and elsif get hint to use elif") {
     List("elseif", "elsif").foreach { badElif =>
       val source =

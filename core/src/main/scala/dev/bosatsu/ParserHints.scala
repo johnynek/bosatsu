@@ -243,7 +243,7 @@ object ParserHints {
       }
 
   private val headerKeywordSet: Set[String] =
-    Set("if", "elif", "else", "def", "match", "case")
+    Set("if", "elif", "else", "def", "match", "recur", "loop", "case")
 
   private def headerFromLeading(leading: String): Option[(String, String)] = {
     val words = wordsIn(leading)

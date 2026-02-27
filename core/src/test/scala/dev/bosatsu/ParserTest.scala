@@ -1633,6 +1633,36 @@ x"""
       """x: Int = bar
 x"""
     )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop x:
+  case []: 0
+  case [_, *tail]: len(tail)"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop (a, b):
+  case (_, _): a"""
+    )
+  }
+
+  test("loop stays a normal identifier outside recursion headers") {
+    roundTrip(
+      Statement.parser,
+      """#
+def loop(x): x
+
+main = loop(12)
+"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop = x -> fn(x)
+loop(12)"""
+    )
   }
 
   test("match branch guards require space before if and commit after if") {

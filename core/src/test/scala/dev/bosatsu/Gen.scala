@@ -713,6 +713,13 @@ object Generators {
       (1, Gen.const(RecursionKind.Recursive))
     )
 
+  val genMatchKind: Gen[Declaration.MatchKind] =
+    Gen.frequency(
+      (20, Gen.const(Declaration.MatchKind.Match)),
+      (1, Gen.const(Declaration.MatchKind.Recur)),
+      (1, Gen.const(Declaration.MatchKind.Loop))
+    )
+
   def matchGen(
       argGen0: Gen[NonBinding],
       bodyGen: Gen[Declaration]
@@ -736,7 +743,7 @@ object Generators {
 
     for {
       cnt <- Gen.choose(1, 2)
-      kind <- genRecursionKind
+      kind <- genMatchKind
       expr <- argGen
       cases <- optIndent(nonEmptyN(genCase, cnt))
     } yield Match(kind, expr, cases)(using emptyRegion)
