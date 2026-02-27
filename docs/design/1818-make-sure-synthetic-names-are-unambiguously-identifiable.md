@@ -26,7 +26,7 @@ _Issue: #1818 (https://github.com/johnynek/bosatsu/issues/1818)_
 
 ## Summary
 
-Design doc proposing an explicit Synthetic identifier subtype, kind-aware identifier identity semantics, centralized synthetic fresh-name iteration, migration of internal name-generation call sites, protobuf round-trip coverage, and compatibility/rollout guidance for issue #1818.
+Design doc proposing an explicit Synthetic identifier subtype, synthetic-aware/backward-compatible identifier identity semantics, centralized synthetic fresh-name iteration, migration of internal name-generation call sites, protobuf round-trip coverage, and compatibility/rollout guidance for issue #1818.
 
 ---
 issue: 1818
@@ -59,7 +59,7 @@ Base branch: main
 
 ## Summary
 
-Add an explicit `Identifier.Synthetic` bindable kind, make identifier identity include kind and payload (not payload alone), centralize fresh synthetic-name generation under `Identifier.Bindable`, migrate compiler-internal fresh-name call sites to that API, and add protobuf round-trip tests proving synthetics and backticked underscore names remain distinct.
+Add an explicit `Identifier.Synthetic` bindable kind, make synthetic identity unambiguous while preserving current non-synthetic equality behavior, centralize fresh synthetic-name generation under `Identifier.Bindable`, migrate compiler-internal fresh-name call sites to that API, and add protobuf round-trip tests proving synthetics and backticked underscore names remain distinct.
 
 This keeps protobuf schema unchanged and preserves compatibility for valid existing artifacts. Legacy artifacts that already lost information due prior collisions are treated as best-effort decode.
 
@@ -69,14 +69,14 @@ Today synthetic names are represented as `Identifier.Name("_...")` and distingui
 
 That creates three concrete problems:
 
-1. Identifier equality and ordering are keyed by `asString` only, so `Name("_x")` and `Backticked("_x")` can collide in `Map`/`Set`/`SortedMap` paths even though they represent different source-level identities.
+1. Synthetic names are currently represented as `Name("_x")`, so they are not disjoint from user names that serialize to the same text (for example `` `_x` ``), and can collide in `Map`/`Set`/`SortedMap` paths where we need synthetic-vs-user distinction.
 2. Internal fresh-name generation is inconsistent: some paths use `Expr.nameIterator` (plain names), some build synthetic names ad hoc, and the policy is not centralized.
 3. Protobuf tests do not directly assert that underscore synthetics and backticked underscore names survive serialization/deserialization as distinct binders.
 
 ## Goals
 
 1. Represent synthetic binders as a first-class subtype.
-2. Make identifier identity unambiguous across equality, hashing, and ordering.
+2. Make synthetic identifier identity unambiguous across equality, hashing, and ordering without breaking existing non-synthetic compatibility.
 3. Standardize fresh compiler-internal naming on synthetic binders.
 4. Preserve protobuf compatibility for valid existing serialized data.
 5. Add targeted tests for parser and protobuf collision scenarios.
@@ -104,16 +104,18 @@ Compatibility note:
 
 Valid historical data that encoded synthetics as underscore tokens remains decodable. If older compilation paths already collapsed a backticked underscore name into bare underscore text, that artifact was already semantically inconsistent; decode remains deterministic but cannot perfectly recover original intent.
 
-### 2) Make identifier identity discriminated by kind
+### 2) Make identifier identity synthetic-aware and backward compatible
 
-`Identifier` currently compares by `asString` only. Replace this with kind-aware identity.
+`Identifier` currently compares by `asString` only. We should keep that behavior for non-synthetic identifiers, and only make synthetic names disjoint from everything else.
 
-1. Define an internal stable kind discriminator for each subtype (`Constructor`, `Name`, `Backticked`, `Operator`, `Synthetic`).
-2. Base `equals`, `hashCode`, and `Order` on `(kind, asString)`.
-3. Update `Hashable[Identifier]` to include kind as part of hashing input.
-4. Ensure `Ordering` and `equals` stay consistent to avoid `SortedMap`/`SortedSet` anomalies.
+Proposed equality/ordering/hash contract:
 
-Result: `Synthetic("_x")` and `Backticked("_x")` are always distinct keys in every collection type.
+1. `Synthetic(sa)` equals `Synthetic(sb)` iff `sa == sb`.
+2. `Synthetic(_)` is never equal to any non-synthetic identifier.
+3. For non-synthetic pairs (`Name`, `Backticked`, `Operator`, `Constructor`), preserve current behavior: equality/order/hash remain based on existing text identity (`asString`), so established equivalences (for example operator/backticked interop where currently relied upon) keep working.
+4. Implement the same split policy in `Order[Identifier]` and `Hashable[Identifier]` so set/map behavior remains coherent.
+
+Result: `Synthetic("_x")` and `Backticked("_x")` are always distinct keys, while pre-existing non-synthetic equality semantics remain compatible.
 
 ### 3) Centralize synthetic fresh-name iteration in `Identifier.Bindable`
 
@@ -155,7 +157,7 @@ No schema change is required.
 ## Detailed implementation plan
 
 1. Add `Identifier.Synthetic` and wire it into `Document`, parser helpers, and `Identifier.synthetic`.
-2. Change identifier equality/hash/order/hashable to discriminated semantics.
+2. Change identifier equality/hash/order/hashable to a hybrid policy: synthetic-vs-non-synthetic disjointness, non-synthetic compatibility preserved.
 3. Add `Identifier.Bindable.syntheticIterator` and filtered fresh-name helper(s).
 4. Update `Expr.nameIterator` to delegate to `Identifier.Bindable.syntheticIterator` or remove it after migration.
 5. Migrate `TypedExprLoopRecurLowering` fresh-name sites.
@@ -164,7 +166,7 @@ No schema change is required.
 8. Migrate `Matchless` fresh-name helper to shared API while preserving deterministic output behavior expected by tests.
 9. Migrate `SourceConverter` synthetic iterator usage to the same API.
 10. Verify `ProtoConverter` decode helpers continue using synthetic-aware parser entry points and adjust if needed for the new subtype.
-11. Add `Identifier` unit tests for kind-aware identity behavior.
+11. Add `Identifier` unit tests for hybrid identity behavior (synthetic disjointness plus non-synthetic compatibility).
 12. Extend parser/protobuf tests with explicit synthetic-vs-backticked underscore cases.
 13. Run full core test suite, then update any deterministic-name assertions that intentionally check generated helper names.
 
@@ -176,6 +178,7 @@ No schema change is required.
 2. `Identifier.isSynthetic` is true for `Synthetic` and legacy underscore `Name`.
 3. `bindableWithSynthetic` parses `_x` as `Synthetic` and `` `_x` `` as `Backticked`.
 4. `sourceCodeRepr` round-trips for all bindable kinds including `Synthetic`.
+5. Existing non-synthetic equivalence behavior remains intact (for example forms currently considered equal by `asString` continue to compare equal).
 
 ### Protobuf tests
 
@@ -193,7 +196,7 @@ No schema change is required.
 
 1. `Identifier` has an explicit `Synthetic` bindable subtype.
 2. `Identifier.synthetic(...)` returns `Synthetic`.
-3. Identifier equality, hashCode, ordering, and hashable all distinguish by identifier kind and payload.
+3. Identifier equality, hashCode, ordering, and hashable make `Synthetic` disjoint from non-synthetic identifiers while preserving existing non-synthetic `asString` compatibility behavior.
 4. `_foo` synthetic and `` `_foo` `` backticked names are representable simultaneously without collection-key collisions.
 5. A standard synthetic iterator exists in `Identifier.Bindable` and is used by compiler internal-name generation paths.
 6. `Expr.nameIterator` no longer drives non-synthetic internal-name allocation.
@@ -205,8 +208,8 @@ No schema change is required.
 
 ## Risks and mitigations
 
-1. Risk: changing equality/ordering can alter behavior in maps/sets beyond synthetic handling.
-Mitigation: add focused equality-order consistency tests and run full suite to catch unintended semantic changes.
+1. Risk: equality/ordering implementation could accidentally change non-synthetic behavior.
+Mitigation: encode the hybrid contract in tests (including non-synthetic compatibility checks) and run full suite to catch regressions.
 
 2. Risk: fresh-name policy changes can churn deterministic test expectations.
 Mitigation: preserve deterministic iterator order, keep optional prefixed helper where readability matters, and update only assertions tied to internal helper names.
@@ -222,4 +225,4 @@ Mitigation: grep-based migration checklist in the PR (`Expr.nameIterator`, `Type
 1. Land this as a single PR with model change, call-site migrations, and tests together to avoid intermediate inconsistent behavior.
 2. Keep protobuf schema stable; no migration tooling is required.
 3. After merge, monitor for downstream test failures that assert exact internal names and update those tests to new synthetic outputs where appropriate.
-4. If any third-party code depends on old identifier equality semantics, document the change in PR notes as a correctness fix.
+4. Document the exact compatibility boundary in PR notes: only synthetic-vs-non-synthetic equality changes; non-synthetic behavior is intentionally preserved.
