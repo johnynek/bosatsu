@@ -60,7 +60,9 @@ object PythonGen {
 
         def next: (BindState, Code.Ident) = {
           val pname =
-            Code.Ident(Idents.escape("___b", binding.asString + count.toString))
+            Code.Ident(
+              Idents.escape("___b", binding.sourceCodeRepr + count.toString)
+            )
           (copy(count = count + 1, stack = pname :: stack), pname)
         }
 
@@ -437,7 +439,7 @@ object PythonGen {
   // ___i: import alias
   // ___b: shadowable (internal) names
   def escape(n: Bindable): Code.Ident = {
-    val str = n.asString
+    val str = n.sourceCodeRepr
     if (
       !str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code
         .pyKeywordList(str)

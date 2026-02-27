@@ -308,7 +308,8 @@ class ParserTest extends ParserTestBase {
     forAll { (str: String) =>
       if (str.nonEmpty) {
         val synth = Identifier.synthetic(str)
-        val parsed = Identifier.bindableWithSynthetic.parseAll(synth.asString)
+        val parsed =
+          Identifier.bindableWithSynthetic.parseAll(synth.sourceCodeRepr)
         assertEquals(parsed, Right(synth))
       }
     }

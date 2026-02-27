@@ -267,7 +267,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         val rec = cf.args.traverse { param =>
                           val subsT = Type.substituteVar(param.tpe, replaceMap)
                           val next = loop(subsT, fullPath)
-                          next.map(fn => (param.name.asString, fn))
+                          next.map(fn => (Identifier.rawName(param.name), fn))
                         }
                         rec.map(fields => (idx, (cf.name, fields)))
                       }

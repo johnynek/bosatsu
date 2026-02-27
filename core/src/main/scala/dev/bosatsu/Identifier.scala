@@ -11,8 +11,6 @@ import Parser.{lowerIdent, upperIdent}
 import cats.implicits._
 
 sealed abstract class Identifier derives CanEqual {
-  def asString: String
-
   def sourceCodeRepr: String =
     Identifier.document.document(this).renderWideStream.mkString
 
@@ -51,6 +49,30 @@ object Identifier {
   final case class Operator(asString: String) extends Bindable
   final case class Synthetic(asString: String) extends Bindable
 
+  def rawName(bindable: Bindable): String =
+    bindable match {
+      case Name(s)       => s
+      case Backticked(s) => s
+      case Operator(s)   => s
+      case Synthetic(s)  => s
+    }
+
+  def rawName(ident: Identifier): String =
+    ident match {
+      case Constructor(s) => s
+      case b: Bindable    => rawName(b)
+    }
+
+  private def nonSyntheticText(ident: Identifier): String =
+    ident match {
+      case Constructor(s) => s
+      case Name(s)        => s
+      case Backticked(s)  => s
+      case Operator(s)    => s
+      case Synthetic(_)   =>
+        sys.error("nonSyntheticText called on Synthetic")
+    }
+
   // Keep legacy by-text identity for user-authored names, but make synthetics
   // disjoint so compiler-generated binders cannot collide with user identifiers.
   private[bosatsu] def sameIdentity(
@@ -62,7 +84,7 @@ object Identifier {
       case (Synthetic(_), _) | (_, Synthetic(_)) =>
         false
       case _ =>
-        left.asString == right.asString
+        nonSyntheticText(left) == nonSyntheticText(right)
     }
 
   // hashCode must follow the same split identity policy as equals.
@@ -74,7 +96,7 @@ object Identifier {
           0x3294d30f
         )
       case _ =>
-        ident.asString.hashCode
+        nonSyntheticText(ident).hashCode
     }
 
   private def hashableKey(ident: Identifier): String =
@@ -90,7 +112,7 @@ object Identifier {
       case Synthetic(s) =>
         (0, s)
       case _ =>
-        (1, ident.asString)
+        (1, nonSyntheticText(ident))
     }
 
   given Hashable[Identifier] = Hashable.by(hashableKey)
@@ -217,7 +239,12 @@ object Identifier {
           case Right(ident) => ident
           case _            =>
             // just turn it into a Backticked
-            Backticked(i.asString + suffix)
+            i match {
+              case Name(s)       => Backticked(s + suffix)
+              case Operator(s)   => Backticked(s + suffix)
+              case Synthetic(s)  => Backticked(s + suffix)
+              case Backticked(s) => Backticked(s + suffix)
+            }
         }
     }
 

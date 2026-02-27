@@ -75,7 +75,7 @@ object PackageError {
 
   private def checkModeTodoHint(name: Identifier): Doc =
     name match {
-      case b: Identifier.Bindable if b.asString == "todo" =>
+      case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
         Doc.hardLine + Doc.text(
           "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
         )

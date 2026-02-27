@@ -184,7 +184,8 @@ object ShadowedBindingTypeCheck {
         val argCheck = checkExpr(arg, env, tctx)
         val branchCheck = branches.traverse_ { branch =>
           val bindRegion = branch.expr.tag.region
-          val patternBinds = patternEnv(branch.pattern).toList.sortBy(_._1.asString)
+          val patternBinds =
+            patternEnv(branch.pattern).toList.sortBy(_._1.sourceCodeRepr)
           val currentBinds = patternBinds.map { case (name, tpe) =>
             (
               name,

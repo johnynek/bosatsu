@@ -28,7 +28,7 @@ object NameSuggestion {
         distance,
         -longestPrefix,
         lengthDelta,
-        candidate.ident.asString
+        candidate.ident.sourceCodeRepr
       )
   }
 
@@ -39,7 +39,7 @@ object NameSuggestion {
   ): List[Candidate[A]] =
     if (count <= 0) Nil
     else {
-      val query = ident.asString
+      val query = ident.sourceCodeRepr
       if (query.isEmpty) Nil
       else {
         val scored = existing.iterator
@@ -68,7 +68,7 @@ object NameSuggestion {
     nearest(ident, existing, 1).headOption
 
   private def score[A](query: String, candidate: Candidate[A]): Scored[A] = {
-    val cand = candidate.ident.asString
+    val cand = candidate.ident.sourceCodeRepr
     val relationRank =
       if (cand.startsWith(query) || query.startsWith(cand)) 0
       else if (cand.contains(query) || query.contains(cand)) 1
@@ -84,7 +84,7 @@ object NameSuggestion {
   }
 
   private def likelyTypo(query: String, scored: Scored[?]): Boolean = {
-    val cand = scored.candidate.ident.asString
+    val cand = scored.candidate.ident.sourceCodeRepr
     if (cand.isEmpty) false
     else {
       val maxLen = query.length.max(cand.length)

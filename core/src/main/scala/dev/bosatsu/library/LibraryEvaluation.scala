@@ -65,7 +65,7 @@ case class LibraryEvaluation[K] private (
           sys.error(s"from ${pack.name} import unknown external def: $n")
         // $COVERAGE-ON$
       }
-      externals.toMap.get((pack.name, n.asString)) match {
+      externals.toMap.get((pack.name, Identifier.rawName(n))) match {
         case Some(ext) => (n, Eval.later(ext.call(tpe)))
         case None      =>
           // $COVERAGE-OFF$
@@ -258,7 +258,7 @@ case class LibraryEvaluation[K] private (
     val v2j = valueToJsonFor(scope)
     pack.lets.iterator
       .collect { case (bindable, _, te) if v2j.supported(te.getType).isRight =>
-        bindable.asString
+        Identifier.rawName(bindable)
       }
       .toSet
       .toList
@@ -330,14 +330,14 @@ object LibraryEvaluation {
         validJsonValues: List[String]
     ) extends LookupError {
       def message: String =
-        s"value ${pn.asString}::${name.asString} not found"
+        s"value ${pn.asString}::${name.sourceCodeRepr} not found"
     }
     final case class ValueNotEvaluatable(
         pn: PackageName,
         name: Bindable
     ) extends LookupError {
       def message: String =
-        s"could not evaluate ${pn.asString}::${name.asString}"
+        s"could not evaluate ${pn.asString}::${name.sourceCodeRepr}"
     }
     final case class PackageUnavailableInScope(
         pn: PackageName,

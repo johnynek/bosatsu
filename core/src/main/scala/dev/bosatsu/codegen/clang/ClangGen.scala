@@ -209,7 +209,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
     render(env.renderTests(values))
 
   private def fullName(k: K, p: PackageName, b: Bindable): String =
-    ns.identOf(k, p).mkString_("/") + "/" + b.asString
+    ns.identOf(k, p).mkString_("/") + "/" + b.sourceCodeRepr
 
   def generatedName(k: K, p: PackageName, b: Bindable): Code.Ident =
     Code.Ident(Idents.escape("___bsts_g_", fullName(k, p, b)))
@@ -465,7 +465,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def liftedFnName(fn: Lambda[K]): T[Code.Ident] = {
         val nameSuffix = fn.recursiveName match {
           case None    => ""
-          case Some(n) => Idents.escape("_", n.asString)
+          case Some(n) => Idents.escape("_", n.sourceCodeRepr)
         }
         val prefix = if (fn.captures.isEmpty) "lambda" else "closure"
         cachedIdent(fn) {
@@ -945,7 +945,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 localFn: Option[DirectFnRef]
             ) extends BindingKind {
               val ident = Code.Ident(
-                Idents.escape("__bsts_b_", bn.asString + idx.toString)
+                Idents.escape("__bsts_b_", bn.sourceCodeRepr + idx.toString)
               )
             }
             case class Recursive(

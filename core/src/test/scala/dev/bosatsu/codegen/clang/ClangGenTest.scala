@@ -45,7 +45,8 @@ x = 1
 """) { pm =>
       val fnSet = fns.toSet
       val predef = pm.toMap(PackageName.PredefName)
-      val filtered = predef.filterLets(ident => fnSet(ident.asString))
+      val filtered =
+        predef.filterLets(ident => fnSet(ident.sourceCodeRepr))
       val pm1 = PackageMap.fromIterable(filtered :: Nil)
 
       val res = Par.withEC {
