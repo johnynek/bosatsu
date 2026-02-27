@@ -5,7 +5,17 @@ import cats.Eval
 import cats.data.{Chain, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
-import dev.bosatsu.{Json, Package, PackageName, PlatformIO, Test, Value, rankn}
+import dev.bosatsu.{
+  Json,
+  Package,
+  PackageName,
+  PlatformIO,
+  PredefImpl,
+  Test,
+  Value,
+  rankn
+}
+import java.math.BigInteger
 import org.typelevel.paiges.Doc
 import dev.bosatsu.LocationMap.Colorize
 
@@ -35,6 +45,20 @@ sealed abstract class Output[+Path] {
         val doc =
           resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         writeStdout(doc).as(ExitCode.Success)
+      case Output.RunMainResult(runResult) =>
+        val run = runResult.value
+        val out =
+          if (run.stdout.nonEmpty) writeStdout(Doc.text(run.stdout))
+          else moduleIOMonad.unit
+        val err =
+          if (run.stderr.nonEmpty) writeError(Doc.text(run.stderr))
+          else moduleIOMonad.unit
+        val (exitCode, extraDoc) = Output.mainRunResult(run)
+        val extraErr = extraDoc match {
+          case Some(doc) => writeError(doc)
+          case None      => moduleIOMonad.unit
+        }
+        (out *> err *> extraErr).as(exitCode)
       case Output.JsonOutput(json, pathOpt) =>
         writeOut(json.toDoc, pathOpt)
           .as(ExitCode.Success)
@@ -210,8 +234,8 @@ sealed abstract class Output[+Path] {
         writeLibrary(lib, path).as(ExitCode.Success)
       case Output.Many(items) =>
         items.foldM[F, ExitCode](ExitCode.Success) {
-          case (ExitCode.Success, item) => item.report(platformIO)
-          case (err, _)                 => moduleIOMonad.pure(err)
+          case (code, item) if code.toInt == 0 => item.report(platformIO)
+          case (err, _)                         => moduleIOMonad.pure(err)
         }
     }
   }
@@ -226,6 +250,10 @@ object Output {
       value: Eval[Value],
       tpe: rankn.Type,
       doc: Eval[Doc]
+  ) extends Output[Nothing]
+
+  case class RunMainResult(
+      run: Eval[PredefImpl.ProgRunResult]
   ) extends Output[Nothing]
 
   case class JsonOutput[Path](json: Json, output: Option[Path])
@@ -256,6 +284,37 @@ object Output {
       extends Output[Path]
 
   case class Many[Path](outputs: Chain[Output[Path]]) extends Output[Path]
+
+  private def mainRunResult(
+      run: PredefImpl.ProgRunResult
+  ): (ExitCode, Option[Doc]) = {
+    val maxInt = BigInteger.valueOf(Int.MaxValue.toLong)
+    val minInt = BigInteger.valueOf(Int.MinValue.toLong)
+
+    def asExitCode(value: Value): Either[String, ExitCode] =
+      value match {
+        case Value.ExternalValue(i: java.lang.Integer) =>
+          Right(ExitCode.fromInt(i.intValue))
+        case Value.ExternalValue(i: BigInteger)
+            if i.compareTo(minInt) >= 0 && i.compareTo(maxInt) <= 0 =>
+          Right(ExitCode.fromInt(i.intValue))
+        case other =>
+          Left(s"expected Main to return an Int exit code, found: $other")
+      }
+
+    run.result match {
+      case Left(err) =>
+        (
+          ExitCode.Error,
+          Some(Doc.text(s"Main program raised an uncaught error: $err"))
+        )
+      case Right(value) =>
+        asExitCode(value) match {
+          case Right(code) => (code, None)
+          case Left(msg)   => (ExitCode.Error, Some(Doc.text(msg)))
+        }
+    }
+  }
 
   def many[Path](outs: Output[Path]*): Output[Path] =
     Many(Chain.fromSeq(outs))

@@ -29,6 +29,8 @@ import dev.bosatsu.{
   PackageMap,
   PlatformIO,
   ValueToJson,
+  TypeName,
+  PredefImpl,
   Predef => BosatsuPredef
 }
 import dev.bosatsu.rankn.Type
@@ -1373,6 +1375,14 @@ object Command {
           CliException.Basic(msg)
       }
 
+    val progMainType: Type =
+      Type.TyConst(
+        Type.Const.Defined(
+          PackageName.parts("Bosatsu", "Prog"),
+          TypeName("Main")
+        )
+      )
+
     val evalCommand =
       Opts.subcommand(
         "eval",
@@ -1385,8 +1395,16 @@ object Command {
             help =
               "main value to evaluate (package name or full identifier to a value)"
           ),
+          Opts
+            .flag(
+              "run",
+              help =
+                "run the selected value as Bosatsu/Prog::Main and return its exit code"
+            )
+            .orFalse,
+          Opts.arguments[String]("arg").orEmpty,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, colorize) =>
+        ).mapN { (fcc, target, runMain, runArgs, colorize) =>
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
@@ -1403,17 +1421,40 @@ object Command {
                   }).leftMap(toCliException)
                 }
                 memoE = value.memoize
-                fn = ev.valueToDocFor(scope).toDoc(tpe)
-                edoc = memoE.map { v =>
-                  fn(v) match {
-                    case Right(d) => d
-                    case Left(_)  =>
-                      Doc.text(
-                        "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+                out <- if (runMain) {
+                  if (tpe == progMainType) {
+                    val run =
+                      memoE.map(PredefImpl.runProgMain(_, runArgs))
+                    moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
+                  } else {
+                    val actual =
+                      Type.fullyResolvedDocument.document(tpe).render(80)
+                    moduleIOMonad.raiseError(
+                      CliException.Basic(
+                        show"--run requires a Bosatsu/Prog::Main value, found type: $actual"
                       )
+                    )
                   }
+                } else if (runArgs.nonEmpty) {
+                  moduleIOMonad.raiseError(
+                    CliException.Basic("trailing args require --run")
+                  )
+                } else {
+                  val fn = ev.valueToDocFor(scope).toDoc(tpe)
+                  val edoc = memoE.map { v =>
+                    fn(v) match {
+                      case Right(d) => d
+                      case Left(_)  =>
+                        Doc.text(
+                          "Could not render the value. The value does not appear to be the correct type. This should be impossible. Report this as a bug."
+                        )
+                    }
+                  }
+                  moduleIOMonad.pure(
+                    Output.EvaluationResult(memoE, tpe, edoc): Output[P]
+                  )
                 }
-              } yield (Output.EvaluationResult(memoE, tpe, edoc): Output[P])
+              } yield out
             }
           } yield out
         }

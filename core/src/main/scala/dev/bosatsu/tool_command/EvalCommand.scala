@@ -4,6 +4,7 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
 import dev.bosatsu.Predef
+import dev.bosatsu.PredefImpl
 import dev.bosatsu.library.LibraryEvaluation
 import dev.bosatsu.tool.{
   CliException,
@@ -13,10 +14,34 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathGen
 }
-import dev.bosatsu.{Par, PlatformIO}
+import dev.bosatsu.{PackageName, Par, PlatformIO, TypeName, rankn}
 import org.typelevel.paiges.Doc
 
 object EvalCommand {
+  private val progMainType: rankn.Type =
+    rankn.Type.TyConst(
+      rankn.Type.Const.Defined(
+        PackageName.parts("Bosatsu", "Prog"),
+        TypeName("Main")
+      )
+    )
+
+  private def runOutput[Path](
+      result: Output.EvaluationResult,
+      args: List[String]
+  ): Either[Exception & CliException, Output[Path]] =
+    if (result.tpe == progMainType) {
+      val run = result.value.map(PredefImpl.runProgMain(_, args))
+      Right(Output.RunMainResult(run))
+    } else {
+      val actual = rankn.Type.fullyResolvedDocument.document(result.tpe).render(80)
+      Left(
+        CliException.Basic(
+          show"--run requires a Bosatsu/Prog::Main value, found type: $actual"
+        )
+      )
+    }
+
   def runEval[F[_], Path](
       platformIO: PlatformIO[F, Path],
       srcs: PathGen[F, Path],
@@ -82,6 +107,14 @@ object EvalCommand {
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
       commonOpts.mainIdentifierOpt,
+      Opts
+        .flag(
+          "run",
+          help =
+            "run the selected value as Bosatsu/Prog::Main and return its exit code"
+        )
+        .orFalse,
+      Opts.arguments[String]("arg").orEmpty,
       Colorize.optsConsoleDefault
     ).mapN {
       (
@@ -91,6 +124,8 @@ object EvalCommand {
           publicDependencies,
           privateDependencies,
           mainPackage,
+          runMain,
+          runArgs,
           errColor
       ) =>
         platformIO.withEC {
@@ -104,7 +139,17 @@ object EvalCommand {
             "eval",
             mainPackage,
             errColor
-          ).map { case (_, result) => (result: Output[Path]) }
+          ).flatMap { case (_, result) =>
+            if (runMain) {
+              moduleIOMonad.fromEither(runOutput(result, runArgs))
+            } else if (runArgs.nonEmpty) {
+              moduleIOMonad.raiseError(
+                CliException.Basic("trailing args require --run")
+              )
+            } else {
+              moduleIOMonad.pure(result: Output[Path])
+            }
+          }
         }
     }
 
