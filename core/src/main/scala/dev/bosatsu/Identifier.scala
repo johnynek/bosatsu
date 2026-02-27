@@ -314,7 +314,7 @@ object Identifier {
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
 
-  implicit val showIdentifier: cats.Show[Identifier] =
+  implicit def showIdentifier[A <: Identifier]: cats.Show[A] =
     cats.Show.show(_.sourceCodeRepr)
 
   def synthetic(name: String): Bindable = {
