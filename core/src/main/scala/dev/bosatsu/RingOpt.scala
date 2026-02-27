@@ -428,8 +428,8 @@ object RingOpt {
           case Mult(x, y) =>
             // Inside Mult we are more permissive to allow integers to bubble up
             // but we need to be sure not to return 1 in the end
-            @inline def lx = loop(x, insideMult = true)
-            @inline def ly = loop(y, insideMult = true)
+            val lx = loop(x, insideMult = true)
+            val ly = loop(y, insideMult = true)
 
             val res =
               (lx, ly) match {
