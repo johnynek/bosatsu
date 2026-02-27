@@ -328,7 +328,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       // this is nat-like
                       // TODO, maybe give a warning
                       {
-                        case ExternalValue(b: BigInteger) =>
+                        case ExternalValue(b: (BigInteger | java.lang.Integer)) =>
                           Right(Doc.str(b))
                         case other =>
                           Left(IllTyped(revPath.reverse, tpe, other))
