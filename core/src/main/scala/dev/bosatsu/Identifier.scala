@@ -3,7 +3,6 @@ package dev.bosatsu
 import cats.Order
 import cats.parse.{Parser0 => P0, Parser => P}
 import dev.bosatsu.hashing.Hashable
-import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document}
 import scala.quoted.{Expr, Quotes}
 
@@ -48,9 +47,9 @@ object Identifier {
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
-  final case class Synthetic(asString: String) extends Bindable
   final case class Backticked(asString: String) extends Bindable
   final case class Operator(asString: String) extends Bindable
+  final case class Synthetic(asString: String) extends Bindable
 
   // Keep legacy by-text identity for user-authored names, but make synthetics
   // disjoint so compiler-generated binders cannot collide with user identifiers.
@@ -78,12 +77,12 @@ object Identifier {
         ident.asString.hashCode
     }
 
-  private def identityHashKey(ident: Identifier): (Boolean, String) =
+  private def hashableKey(ident: Identifier): String =
     ident match {
       case Synthetic(s) =>
-        (true, s)
+        s
       case _ =>
-        (false, ident.asString)
+        ident.sourceCodeRepr
     }
 
   private def identityOrderKey(ident: Identifier): (Int, String) =
@@ -94,7 +93,7 @@ object Identifier {
         (1, ident.asString)
     }
 
-  given Hashable[Identifier] = Hashable.by(identityHashKey)
+  given Hashable[Identifier] = Hashable.by(hashableKey)
 
   object Constructor {
     given Hashable[Constructor] =
@@ -110,10 +109,20 @@ object Identifier {
     given Hashable[Bindable] =
       Hashable[Identifier].narrow[Bindable]
 
+    val allBinderNames: LazyList[String] = {
+      val letters = ('a' to 'z').to(LazyList).map(_.toString)
+      val allIntegers = LazyList.iterate(0L)(_ + 1L)
+      val lettersWithNumber =
+        for {
+          num <- allIntegers
+          l <- letters
+        } yield s"$l$num"
+
+      letters #::: lettersWithNumber
+    }
+
     def syntheticIterator: Iterator[Bindable] =
-      Type.allBinders.iterator
-        .map(_.name)
-        .map(Identifier.synthetic)
+      allBinderNames.iterator.map(Identifier.synthetic)
 
     def freshSyntheticIterator(
         avoid: Bindable => Boolean
@@ -181,9 +190,14 @@ object Identifier {
   val parser: P[Identifier] =
     bindableParser.orElse(consParser)
 
+  private def maybeInternSynthetic(str: String): String =
+    if (str.length < 3) str.intern else str
+
   val bindableWithSynthetic: P[Bindable] =
     bindableParser.orElse(
-      (P.char('_') ~ P.anyChar.rep).string.map(s => Synthetic(s.intern))
+      (P.char('_') ~ P.anyChar.rep).string.map { s =>
+        Synthetic(maybeInternSynthetic(s))
+      }
     )
 
   val parserWithSynthetic: P[Identifier] =
@@ -194,7 +208,7 @@ object Identifier {
   def appendToName(i: Bindable, suffix: String): Bindable =
     i match {
       case Backticked(b) => Backticked(b + suffix)
-      case Synthetic(s)  => Synthetic((s + suffix).intern)
+      case Synthetic(s)  => Synthetic(s + suffix)
       case _             =>
         // try to stay the same
         val p = operator.orElse(nameParser)
@@ -268,7 +282,6 @@ object Identifier {
   def isSynthetic(b: Bindable): Boolean =
     b match {
       case Synthetic(_) => true
-      case Name(n)      => n.nonEmpty && (n.head == '_')
       case _            => false
     }
 
@@ -283,6 +296,6 @@ object Identifier {
 
   def synthetic(name: String): Bindable = {
     Require(name.nonEmpty)
-    Synthetic(("_" + name).intern)
+    Synthetic(maybeInternSynthetic("_" + name))
   }
 }

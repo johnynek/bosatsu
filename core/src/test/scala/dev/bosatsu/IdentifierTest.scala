@@ -36,14 +36,14 @@ class IdentifierTest extends munit.FunSuite {
 
     val hashName = Hashable.hash(Algo.blake3Algo, nameAsIdent).hash
     val hashBackticked = Hashable.hash(Algo.blake3Algo, backtickedAsIdent).hash
-    assertEquals(hashName, hashBackticked)
+    assertNotEquals(hashName, hashBackticked)
 
     assertEquals(Set[Identifier](name, backticked).size, 1)
   }
 
-  test("isSynthetic supports explicit and legacy synthetic encodings") {
+  test("isSynthetic only matches explicit synthetic identifiers") {
     assert(Identifier.isSynthetic(Identifier.synthetic("fresh")))
-    assert(Identifier.isSynthetic(Identifier.Name("_legacy")))
+    assert(!Identifier.isSynthetic(Identifier.Name("_legacy")))
     assert(!Identifier.isSynthetic(Identifier.Backticked("_legacy")))
   }
 
