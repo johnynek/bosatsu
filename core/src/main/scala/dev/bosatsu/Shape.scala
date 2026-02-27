@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Foldable
+import cats.{Apply, Foldable}
 import cats.data.{Validated, ValidatedNec, Ior, IorNec}
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
 import org.typelevel.paiges.Doc
@@ -353,17 +353,17 @@ object Shape {
         s1: Shape,
         s2: Shape
     )(mkErr: (Shape, Shape) => Error): RefSpace[ValidatedNec[Error, Unit]] = {
-      @inline def error =
+      inline def error =
         RefSpace.pure(Validated.invalidNec(mkErr(s1, s2)))
 
-      @inline def unifyCons(
+      inline def unifyCons(
           a: Shape,
           b: Shape,
           c: Shape,
           d: Shape,
           visited: Set[(Shape, Shape)]
       ): RefSpace[ValidatedNec[Error, Unit]] =
-        (loop(a, c, visited), loop(b, d, visited)).mapN(_ *> _)
+        Apply[RefSpace].map2(loop(a, c, visited), loop(b, d, visited))(_ *> _)
 
       def unifyKnown(
           ks: KnownShape,

@@ -75,7 +75,7 @@ object PackageError {
 
   private def checkModeTodoHint(name: Identifier): Doc =
     name match {
-      case b: Identifier.Bindable if b.asString == "todo" =>
+      case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
         Doc.hardLine + Doc.text(
           "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
         )
@@ -331,7 +331,7 @@ object PackageError {
       val renderCtx = TypeRenderer.Context(pack, localTypeNames)
 
       def contextDoc(region: Region): Doc =
-        lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+        lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region.show))
 
       def renderedTypeKey(tpe: Type): String =
         TypeRenderer.render(tpe, renderCtx, 80)
@@ -671,7 +671,7 @@ object PackageError {
                 val defPos = lm
                   .toLineCol(defRegion.start)
                   .map { case (line, col) => s"${line + 1}:${col + 1}" }
-                  .getOrElse(defRegion.toString)
+                  .getOrElse(defRegion.show)
                 val defCtx = contextDoc(defRegion)
 
                 (
@@ -1072,7 +1072,7 @@ object PackageError {
       val context =
         lm.showRegion(region, 2, errColor)
           .getOrElse(
-            Doc.str(region)
+            Doc.str(region.show)
           ) // we should highlight the whole region
       val headDoc = sourceMap.headLine(pack, Some(region))
 
@@ -1142,7 +1142,7 @@ object PackageError {
       val region = err.matchExpr.tag.region
       val context1 =
         lm.showRegion(region, 2, errColor)
-          .getOrElse(Doc.str(region)) // we should highlight the whole region
+          .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val teMessage = err match {
         case TotalityCheck.NonTotalMatch(_, missing) =>
           val allTypes = missing
@@ -1238,7 +1238,7 @@ object PackageError {
     val unusedDocs = sorted.map { case (bn, region) =>
       val rdoc = lm
         .showRegion(region, 2, errColor)
-        .getOrElse(Doc.str(region)) // we should highlight the whole region
+        .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val message = Doc.text(s"unused value '${bn.sourceCodeRepr}'")
       message + Doc.hardLine + rdoc
     }
@@ -1299,12 +1299,63 @@ object PackageError {
       val (lm, _) = sourceMap.getMapSrc(pack)
       val ctx = lm
         .showRegion(err.region, 2, errColor)
-        .getOrElse(Doc.str(err.region)) // we should highlight the whole region
+        .getOrElse(Doc.str(err.region.show)) // we should highlight the whole region
       val errMessage = err.message
       // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
       val doc = packDoc + Doc.hardLine + Doc.text(errMessage) +
         Doc.hardLine + ctx + Doc.hardLine
+
+      doc.render(80)
+    }
+  }
+
+  case class ShadowedBindingTypeError(
+      pack: PackageName,
+      err: ShadowedBindingTypeCheck.Error,
+      localTypeNames: Set[TypeName] = Set.empty
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val current = err.current
+      val previous = err.previous
+      val tmap = showTypes(
+        pack,
+        List(previous.tpe, current.tpe),
+        localTypeNames
+      )
+      val currentContext = lm
+        .showRegion(current.region, 2, errColor)
+        .getOrElse(Doc.str(current.region.show))
+      val previousContext = lm
+        .showRegion(previous.region, 2, errColor)
+        .getOrElse(Doc.str(previous.region.show))
+      val prefix = sourceMap.headLine(pack, Some(current.region))
+      val doc =
+        prefix + Doc.hardLine +
+          Doc.text("shadowed binding ") +
+          quoted(err.name) +
+          Doc.text(" changes type.") + Doc.hardLine +
+          Doc.text("previous type: ") + tmap(previous.tpe) + Doc.hardLine +
+          Doc.text("current type: ") + tmap(current.tpe) + Doc.hardLine +
+          Doc.text("previous binding site: ") + Doc.text(previous.site.label) +
+          Doc.hardLine +
+          Doc.text("current binding site: ") + Doc.text(current.site.label) +
+          Doc.hardLine +
+          Doc.text(
+            "hint: rename the binding or keep the same type when shadowing."
+          ) +
+          Doc.hardLine +
+          Doc.text("previous binding context:") +
+          Doc.hardLine +
+          previousContext +
+          Doc.hardLine +
+          Doc.text("current binding context:") +
+          Doc.hardLine +
+          currentContext
 
       doc.render(80)
     }
@@ -1348,7 +1399,7 @@ object PackageError {
       val region = regions(kindError.dt.toTypeConst)
       val ctx = lm
         .showRegion(region, 2, errColor)
-        .getOrElse(Doc.str(region)) // we should highlight the whole region
+        .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val prefix = sourceMap.headLine(pack, Some(region))
       val message = kindError match {
         case KindFormula.Error.Unsatisfiable(_, _, _, _) =>

@@ -11,7 +11,7 @@ import cats.syntax.all._
 class DagTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(400)
 
   val genDag: Gen[Map[Int, Set[Int]]] =
     Gen

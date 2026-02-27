@@ -75,7 +75,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       constructorName: Identifier.Constructor,
       paramIndex: Int
   ): String =
-    defaultBindingAt(code, constructorName, paramIndex).asString
+    defaultBindingAt(code, constructorName, paramIndex).sourceCodeRepr
 
   private def assertSameDefaultBindingName(
       leftCode: String,
@@ -110,6 +110,31 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       .getLet(Identifier.Name("main"))
       .getOrElse(fail("expected a `main` binding"))
       ._2
+
+  private def genericBinders(
+      expr: Expr[Declaration]
+  ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
+    expr match {
+      case Expr.Annotation(in, _, _) => genericBinders(in)
+      case Expr.Local(_, _)          => Nil
+      case Expr.Global(_, _, _)      => Nil
+      case Expr.Generic(typeVars, in) =>
+        typeVars :: genericBinders(in)
+      case Expr.App(fn, args, _) =>
+        genericBinders(fn) ::: args.toList.flatMap(genericBinders)
+      case Expr.Lambda(_, in, _) =>
+        genericBinders(in)
+      case Expr.Let(_, ex, in, _, _) =>
+        genericBinders(ex) ::: genericBinders(in)
+      case Expr.Literal(_, _) =>
+        Nil
+      case Expr.Match(arg, branches, _) =>
+        genericBinders(arg) ::: branches.toList.flatMap { b =>
+          b.guard.fold(Nil: List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]])(
+            genericBinders
+          ) ::: genericBinders(b.expr)
+        }
+    }
 
   private def assertMainDesugarsAs(
       actualCode: String,
@@ -171,7 +196,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.asString + s"____${idx}"), identity[Unit])
+        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), identity[Unit])
       }
 
       val p1sz = p1.size
@@ -198,7 +223,9 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.asString + s"____${idx}"), { _ => -idx })
+        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), { _ =>
+          -idx
+        })
       }
 
       assert(p1 eq lets)
@@ -216,7 +243,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        val res = Identifier.Backticked(b.asString + s"____${idx}")
+        val res = Identifier.Backticked(b.sourceCodeRepr + s"____${idx}")
         (res, { (br: Bindable) => if (br == b) res else br })
       }
 
@@ -853,8 +880,8 @@ main = S {}
     )
 
     assertEquals(d1, d2)
-    assertEquals(d1.asString, expected)
-    assertEquals(d2.asString, expected)
+    assertEquals(d1.sourceCodeRepr, expected)
+    assertEquals(d2.sourceCodeRepr, expected)
   }
 
   test("default helper names for struct params are golden") {
@@ -867,8 +894,8 @@ main = S {}
       "_default$6c758775f4a15b41049ac536a8e9acbf6b0f23735edde50976ee815531afe650"
     )
     val actual = List(
-      defaultBindingAt(code, Identifier.Constructor("S"), 0).asString,
-      defaultBindingAt(code, Identifier.Constructor("S"), 1).asString
+      defaultBindingAt(code, Identifier.Constructor("S"), 0).sourceCodeRepr,
+      defaultBindingAt(code, Identifier.Constructor("S"), 1).sourceCodeRepr
     )
 
     assertEquals(actual, expected)
@@ -886,8 +913,8 @@ main = A {}
       "_default$c2d538919e2883cb892e2c9b039ab4bdb14f8d47543f7c8af96f5b698b5205e3"
     )
     val actual = List(
-      defaultBindingAt(code, Identifier.Constructor("A"), 0).asString,
-      defaultBindingAt(code, Identifier.Constructor("B"), 0).asString
+      defaultBindingAt(code, Identifier.Constructor("A"), 0).sourceCodeRepr,
+      defaultBindingAt(code, Identifier.Constructor("B"), 0).sourceCodeRepr
     )
 
     assertEquals(actual, expected)
@@ -899,7 +926,8 @@ struct G[a](x: Option[a] = None)
 """
     val expected =
       "_default$43205cc34d8d5b50a14c22ce333dd339473994c654f3d567f702deb279f65967"
-    val actual = defaultBindingAt(code, Identifier.Constructor("G"), 0).asString
+    val actual =
+      defaultBindingAt(code, Identifier.Constructor("G"), 0).sourceCodeRepr
 
     assertEquals(actual, expected)
   }
@@ -1175,5 +1203,73 @@ main = MyCons { head: 1 }
       actualType.sameAs(expectedType),
       s"expected helper type ${expectedType} but found ${actualType}"
     )
+  }
+
+  test("nested def reuses outer type parameter instead of introducing inner generic") {
+    val code = """#
+def foo[a](lst: List[a]) -> Int:
+  def loop(list: List[a], acc: Int) -> Int:
+    match list:
+      case []: acc
+      case [_, *t]: loop(t, acc.add(1))
+  loop(lst, 0)
+
+main = foo([1, 2, 3])
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 1)
+    assertEquals(generics.head.map(_._1.name).toList, List("a"))
+  }
+
+  test(
+    "nested def reuses inferred outer type parameter instead of introducing inner generic"
+  ) {
+    val code = """#
+def foo(lst: List[a]) -> Int:
+  def loop(list: List[a], acc: Int) -> Int:
+    match list:
+      case []: acc
+      case [_, *t]: loop(t, acc.add(1))
+  loop(lst, 0)
+
+main = foo([1, 2, 3])
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 1)
+    assertEquals(generics.head.map(_._1.name).toList, List("a"))
+  }
+
+  test("nested def with explicit inner type parameter introduces a second generic") {
+    val code = """#
+def foo(lst: List[a]) -> Int:
+  def loop[a](list: List[a], acc: Int) -> Int:
+    match list:
+      case []: acc
+      case [_, *t]: loop(t, acc.add(1))
+  loop(lst, 0)
+
+main = foo([1, 2, 3])
+"""
+
+    val fooExpr = convertProgram(code)
+      .getLet(Identifier.Name("foo"))
+      .getOrElse(fail("expected a `foo` binding"))
+      ._2
+
+    val generics = genericBinders(fooExpr)
+    assertEquals(generics.length, 2)
+    assertEquals(generics.map(_.map(_._1.name).toList), List(List("a"), List("a")))
   }
 }

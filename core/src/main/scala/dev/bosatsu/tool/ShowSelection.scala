@@ -95,9 +95,8 @@ object ShowSelection {
       pack: Package.Typed[Any]
   ): List[String] = {
     val (prog, _) = pack.program
-    (prog.lets.iterator.map(_._1.asString) ++ prog.externalDefs.iterator.map(
-      _.asString
-    )).toSet.toList.sorted
+    (prog.lets.iterator.map(_._1.sourceCodeRepr) ++ prog.externalDefs.iterator
+      .map(_.sourceCodeRepr)).toSet.toList.sorted
   }
 
   private def filteredTypeEnv(
@@ -348,7 +347,7 @@ object ShowSelection {
         Either.cond(
           hasValue(pack, value),
           (),
-          show"value not found: ${pn.asString}::${value.asString}${inliningHint}${candidatesMsg}"
+          show"value not found: ${pn.asString}::${value.sourceCodeRepr}${inliningHint}${candidatesMsg}"
         )
       }
 

@@ -18,6 +18,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bytesTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "IO", "Bytes"),
+      TypeName("Bytes")
+    )
   private val bosatsuJsonTypeConst: Type.Const.Defined =
     Type.Const.Defined(PackageName.parts("Bosatsu", "Json"), TypeName("Json"))
   private val optionalTypeConst: Type.Const.Defined =
@@ -144,6 +149,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Type.IntType | Type.Float64Type | Type.StrType | Type.CharType |
             Type.BoolType | Type.UnitType =>
           ()
+        case Type.TyConst(`bytesTypeConst`) =>
+          ()
         case Type.TyApply(Type.TyConst(`arrayTypeConst`), inner) =>
           loop(inner, t :: revPath, t :: working)
         case Type.OptionT(inner) =>
@@ -242,6 +249,17 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       // $COVERAGE-ON$
     }
 
+  def fieldName(n: Identifier.Bindable): String = {
+    import Identifier.{Name, Backticked, Operator, Synthetic}
+    n match {
+      case Name(n) => n
+      case Backticked(n) => n
+      // these are kind of weird, but I guess allowed
+      case Operator(n) => n
+      case Synthetic(n) => n
+    }
+  }
+
   /** Convert a typechecked value to Json
     *
     * Note, we statically build the conversion function if it is possible at
@@ -257,6 +275,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     type Fn = Value => Either[IllTyped, Json]
     // when we complete a custom type, we put it in here
     val successCache: MMap[Type, Eval[Fn]] = MMap()
+
 
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       // we know we can support this, so when we recurse it
@@ -500,6 +519,20 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
+            case Type.TyConst(`bytesTypeConst`) =>
+              {
+                case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                  val items = Vector.newBuilder[Json]
+                  var idx = 0
+                  while (idx < bytes.len) {
+                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                    items += Json.JNumberStr(intValue.toString)
+                    idx = idx + 1
+                  }
+                  Right(Json.JArray(items.result()))
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
 
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue
@@ -572,10 +605,14 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           subsT match {
                             case OptionalT(inner) =>
                               loop(inner, fullPath)
-                                .map(fn => OptionalField(param.name.asString, fn))
+                                .map(
+                                  fn => OptionalField(fieldName(param.name), fn)
+                                )
                             case _ =>
                               loop(subsT, fullPath)
-                                .map(fn => RequiredField(param.name.asString, fn))
+                                .map(
+                                  fn => RequiredField(fieldName(param.name), fn)
+                                )
                           }
                         }
                         rec.map(fields => (idx, fields))
@@ -901,6 +938,39 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case other =>
                     Left(IllTypedJson(revPath.reverse, tpe, other))
                 }
+              case Type.TyConst(`bytesTypeConst`) =>
+                {
+                  case Json.JArray(items) =>
+                    val data = new Array[Byte](items.length)
+                    var idx = 0
+                    var invalid: Option[Json] = None
+                    while (idx < items.length && invalid.isEmpty) {
+                      items(idx) match {
+                        case Json.JBigInteger(bi)
+                            if bi.signum >= 0 &&
+                              bi.compareTo(BigInteger.valueOf(255L)) <= 0 =>
+                          data(idx) = (bi.intValue & 0xff).toByte
+                          idx = idx + 1
+                        case other =>
+                          invalid = Some(other)
+                      }
+                    }
+
+                    invalid match {
+                      case Some(bad) =>
+                        Left(IllTypedJson(revPath.reverse, tpe, bad))
+                      case None      =>
+                        if (data.isEmpty) Right(PredefImpl.emptyBytes)
+                        else
+                          Right(
+                            ExternalValue(
+                              PredefImpl.BytesValue(data, 0, data.length)
+                            )
+                          )
+                    }
+                  case other =>
+                    Left(IllTypedJson(revPath.reverse, tpe, other))
+                }
 
               case Type.ForAll(_, inner) =>
                 // we assume the generic positions don't matter and to continue
@@ -951,7 +1021,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   OptionalField(
                                     fieldIdx,
-                                    param.name.asString,
+                                    fieldName(param.name),
                                     fn
                                   )
                               )
@@ -960,7 +1030,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   RequiredField(
                                     fieldIdx,
-                                    param.name.asString,
+                                    fieldName(param.name),
                                     fn
                                   )
                               )

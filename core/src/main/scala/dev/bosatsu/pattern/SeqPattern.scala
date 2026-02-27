@@ -260,8 +260,7 @@ object SeqPattern {
       def relate(p1: SeqPattern[A], p2: SeqPattern[A]): Rel =
         relateList(p1.toList, p2.toList)
 
-      @inline
-      final def isAny(p: SeqPart1[A]): Boolean =
+      inline final def isAny(p: SeqPart1[A]): Boolean =
         part1SetOps.isTop(p)
 
       /** If two wilds are adjacent, the left one will always match empty string

@@ -33,4 +33,3 @@ test = TestSuite("interpolation", [
     Assertion(res3, "res3"),
     Assertion(res4, "res4"),
 ])
-

@@ -94,8 +94,8 @@ object RefSpace {
     def remove(key: Long): Unit
   }
   object State {
-    // just to bypass discard warning. I assume this is inlined
-    @inline private def discard[A](a: A): Unit = ()
+    // just to bypass discard warning.
+    inline private def discard[A](a: A): Unit = ()
 
     private[RefSpace] class FromMMap(map: MutableMap[Any]) extends State {
       def put(key: Long, value: Any): Unit =

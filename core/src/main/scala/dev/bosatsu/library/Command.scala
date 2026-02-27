@@ -1350,17 +1350,17 @@ object Command {
             ) =>
           val validValuesMsg =
             if (validJsonValues.isEmpty) ""
-            else show"\nvalid json values: [${validJsonValues.mkString(", ")}]"
+            else show"\nvalid json values: [${validJsonValues.map(_.show).mkString(", ")}]"
 
           CliException.Basic(
-            show"value not found: ${pn.asString}::${name.asString}${validValuesMsg}"
+            show"value not found: ${pn.asString}::${name.sourceCodeRepr}${validValuesMsg}"
           )
         case LibraryEvaluation.LookupError.ValueNotEvaluatable(
               pn,
               name
             ) =>
           CliException.Basic(
-            show"value exists but could not be evaluated: ${pn.asString}::${name.asString}"
+            show"value exists but could not be evaluated: ${pn.asString}::${name.sourceCodeRepr}"
           )
         case LibraryEvaluation.LookupError.PackageUnavailableInScope(
               pn,

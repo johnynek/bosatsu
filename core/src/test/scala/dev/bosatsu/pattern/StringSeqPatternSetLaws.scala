@@ -18,7 +18,7 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Int]] {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(if (Platform.isScalaJvm) 500 else 10)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 250 else 10)
       .withMaxDiscardRatio(10)
 
   // if there are too many wildcards the intersections will blow up

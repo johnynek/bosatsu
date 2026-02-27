@@ -134,7 +134,11 @@ class RankNInferTest extends munit.FunSuite {
       case Right(tpes) =>
         assertEquals(tpes.size, terms.size)
         terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
-          assertEquals(n, n1.asString, s"the name changed: $n != $n1")
+          assertEquals(
+            n,
+            n1.sourceCodeRepr,
+            s"the name changed: $n != $n1"
+          )
           assertEquals(
             te.getType,
             expt,
@@ -1996,8 +2000,8 @@ enum Either[a]: Left(a: a), Right(a: a)
 struct Foo
 
 def unwrap(e: exists a. Tup[Either[a], a -> Foo]):
-  Tup(e, fn) = e
-  a = match e:
+  Tup(either, fn) = e
+  a = match either:
     case Left(x): x
     case Right(y): y
   fn(a)
@@ -2305,9 +2309,9 @@ enum Opt[a]: None, Some(a: a)
 # so, C[forall a. a] can't be <:< forall a. C[a]
 # but possibly forall a. C[a] <:< C[forall a. a]
 y: forall a. Box[Opt[a]] = Box(None)
-def process(o: Box[Opt[One]]) -> One: 
+def process(o: Box[Opt[One]]) -> One:
   match o:
-    case Box(Some(o)): o
+    case Box(Some(v)): v
     case Box(None): One
 
 z = process(y)

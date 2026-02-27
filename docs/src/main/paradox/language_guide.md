@@ -154,8 +154,9 @@ Note this is a difference from python: in python capturing works by reference, n
 by value, so if the original value is changed, so is the capture. Not so in
 Bosatsu: lexical scope is always in play.
 
-We recommend not changing the type of a name in a given scope (and may enforce
-this in the future).
+Bosatsu enforces that shadowing for `let` bindings and `match` pattern
+bindings within a `def`, and within the body of a top-level binding, keeps the
+same type. `def` and lambda parameters may always start a new shadow.
 
 ### Naming style
 For consistency across the bosatsu compiler repository, prefer these naming
@@ -329,8 +330,8 @@ from Bosatsu/Predef import add as operator +
 ```
 
 ### Recursive functions
-Bosatsu supports recursion through `recur`, but only in forms the compiler can
-prove terminate. A simple structural example:
+Bosatsu supports recursion through `recur` and `loop`, but only in forms the
+compiler can prove terminate. A simple structural example:
 ```
 def len(lst):
   recur lst:
@@ -342,12 +343,15 @@ Tail-recursive style is common:
 ```
 def len(lst):
   def loop(acc, lst):
-    recur lst:
+    loop lst:
       case []: acc
       case [_, *tail]: loop(acc.add(1), tail)
 
   loop(0, lst)
 ```
+
+`loop` enforces that all recursive self-calls are in tail position. `recur`
+keeps the same termination checks but allows valid non-tail recursion.
 
 Tuple recursion targets are also supported and checked lexicographically in the
 target order:
@@ -366,16 +370,19 @@ For full recursion rules and advanced patterns (fuel, divide-and-conquer with a
 size bound, string recursion, trees, Ackermann-style nested recursion), see
 [Recursion in Bosatsu](recursion.html).
 
-## Loops (with `recur`)
-Bosatsu has no `while` or `for`. Loops are recursive defs using `recur`. In
-practice this is stricter than loops in most languages users have seen: we allow
-loops, but only when the compiler can prove they terminate. That restriction is
-what preserves type-system soundness.
+## Loops (with `recur` and `loop`)
+Bosatsu has no `while` or `for`. Loops are recursive defs using `recur` or
+`loop`. In practice this is stricter than loops in most languages users have
+seen: we allow loops, but only when the compiler can prove they terminate. That
+restriction is what preserves type-system soundness.
 
 Most loops are either:
 
 1. structural recursion on subvalues (like a list tail or tree branch), or
 1. explicit fuel recursion on a decreasing `Nat`.
+
+Choose `loop` when you want the compiler to require tail recursion. Choose
+`recur` when the algorithm is terminating but not tail-recursive.
 
 See [Recursion in Bosatsu](recursion.html) for detailed examples from
 `test_workspace`.
@@ -1002,9 +1009,9 @@ def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 ```
 We cannot write this function, even though it is total, because Bosatsu cannot
 prove that the loop terminates. The only recursions we can do are on values that
-are substructures of the `recur` targets (single-target structural decrease or
-tuple-target lexicographic decrease). This gives a simple proof that the loop
-will terminate.
+are substructures of the `recur`/`loop` targets (single-target structural
+decrease or tuple-target lexicographic decrease). This gives a simple proof that
+the loop will terminate.
 
 Instead, we implement this function in Predef as an external def that has to be
 supplied to the compiler with a promise that it is total and matches its

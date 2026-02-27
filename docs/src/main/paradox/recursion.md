@@ -3,10 +3,10 @@ Bosatsu is a total language. Recursion is restricted so every `def` is guarantee
 to terminate.
 
 Loops in Bosatsu are intentionally stricter than loops in most programming
-languages. We still support loops through `recur`, but each loop must have a
-decreasing structural argument (or explicit decreasing fuel) so termination is
-provable. This is required for the main safety goal: a sound type system we can
-trust.
+languages. We support recursive loops through `recur` and `loop`, but each loop
+must have a decreasing structural argument (or explicit decreasing fuel) so
+termination is provable. This is required for the main safety goal: a sound type
+system we can trust.
 
 This page expands the short notes in the language guide with concrete patterns
 from examples in the bosatsu compiler repository, plus background on the fuel
@@ -75,6 +75,25 @@ source tags while preserving a clear trust boundary before optimization.
 Tuple targets are useful for nested-recursive definitions where one argument is
 allowed to reset or increase only after an earlier argument decreases.
 
+## The `loop` Form
+`loop` has the same termination checks as `recur`, and adds one extra
+requirement: every recursive self-call must be in tail position.
+
+Unlike `recur`, `loop` is also a stack-safety guarantee: accepted `loop`
+definitions are compiled to loops and run in constant stack space. If a
+recursive call is not in tail position, compilation fails.
+
+```bosatsu
+def size1(list, acc):
+  loop list:
+    case []: acc
+    case [_, *t]: size1(t, Succ(acc))
+```
+
+Prefer `loop` whenever possible so stack exhaustion is ruled out by the type
+checker/compiler. Use `recur` when recursion is terminating but intentionally
+non-tail (for example, `Succ(len(tail))` style code).
+
 ## Pattern 1: Structural Recursion On Lists
 This is the most common pattern. Recur directly on the list and call the same
 function on a tail.
@@ -106,7 +125,7 @@ From `List.bosatsu`:
 
 ```bosatsu
 def size1(list, acc):
-  recur list:
+  loop list:
     case []: acc
     case [_, *t]: size1(t, Succ(acc))
 ```
@@ -333,6 +352,9 @@ How that maps to Bosatsu practice:
 1. If not, compute a bound and recurse on that fuel (`Nat` is usually easiest).
 1. If recursion uses multiple arguments, prefer `recur (a, b, ...)` and check
    lexicographic decrease in that order.
+1. Prefer `loop` whenever the algorithm can be tail-recursive, so stack
+   exhaustion is impossible by construction. Use `recur` only when non-tail
+   recursion is required.
 
 1. For parsing-like string scans, either recurse on string tail directly or use
    length-derived fuel.

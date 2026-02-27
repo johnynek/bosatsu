@@ -18,6 +18,11 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       PackageName.parts("Bosatsu", "Collection", "Array"),
       TypeName("Array")
     )
+  private val bytesTypeConst: Type.Const.Defined =
+    Type.Const.Defined(
+      PackageName.parts("Bosatsu", "IO", "Bytes"),
+      TypeName("Bytes")
+    )
   private val progTypeConst: Type.Const.Defined =
     Type.Const.Defined(
       PackageName.parts("Bosatsu", "Prog"),
@@ -183,6 +188,28 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
+            case Type.TyConst(`bytesTypeConst`) =>
+              {
+                case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                  val out = new java.lang.StringBuilder
+                  out.append('<')
+                  var idx = 0
+                  while (idx < bytes.len) {
+                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                    if (idx > 0) {
+                      out.append(' '): Unit
+                    }
+                    if (intValue < 0x10) {
+                      out.append('0'): Unit
+                    }
+                    out.append(java.lang.Integer.toHexString(intValue))
+                    idx = idx + 1
+                  }
+                  out.append('>')
+                  Right(Doc.text(out.toString))
+                case other =>
+                  Left(IllTyped(revPath.reverse, tpe, other))
+              }
             case _ if Type.rootConst(tpe).contains(Type.TyConst(progTypeConst)) =>
               {
                 case _: SumValue =>
@@ -240,7 +267,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         val rec = cf.args.traverse { param =>
                           val subsT = Type.substituteVar(param.tpe, replaceMap)
                           val next = loop(subsT, fullPath)
-                          next.map(fn => (param.name.asString, fn))
+                          next.map(fn => (param.name.sourceCodeRepr, fn))
                         }
                         rec.map(fields => (idx, (cf.name, fields)))
                       }

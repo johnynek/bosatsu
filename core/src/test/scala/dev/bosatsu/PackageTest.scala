@@ -265,6 +265,26 @@ main = 2
     invalid(resolveThenInfer(List(p3, p4)))
   }
 
+  test("type imports used in external declarations are counted as used") {
+    val p1 = parse("""
+package BytesPkg
+export Bytes
+
+external struct Bytes
+""")
+
+    val p2 = parse("""
+package UsesExternal
+from BytesPkg import Bytes
+export now, wrap
+
+external now: Bytes
+external def wrap(b: Bytes) -> Bytes
+""")
+
+    valid(resolveThenInfer(List(p1, p2)))
+  }
+
   test("default-backed record construction requires constructor export") {
     val typeOnly = parse("""
 package P1
@@ -341,7 +361,7 @@ main = helper
             .program
             ._1
             .lets
-            .map(_._1.asString)
+            .map(_._1.sourceCodeRepr)
       }
 
     assert(!defsOf(optimized).contains("helper"), defsOf(optimized).toString)
@@ -364,12 +384,12 @@ main = todo(42)
       PackageMap
         .predefCompiledForMode(CompileOptions.Mode.Emit)
         .exports
-        .map(_.name.asString)
+        .map(_.name.sourceCodeRepr)
     val typeCheckExports =
       PackageMap
         .predefCompiledForMode(CompileOptions.Mode.TypeCheckOnly)
         .exports
-        .map(_.name.asString)
+        .map(_.name.sourceCodeRepr)
 
     assert(!emitExports.contains("todo"), emitExports.toString)
     assert(typeCheckExports.contains("todo"), typeCheckExports.toString)

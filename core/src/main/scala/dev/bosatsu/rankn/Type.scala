@@ -1253,7 +1253,7 @@ object Type {
   private def runNormalize(tpe: Type): Type =
     tpe match {
       case t: (ForAll | Exists) =>
-        @inline def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
+        def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
           def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
             lst match {
               case (pair @ (b, _)) :: rest =>
@@ -1680,17 +1680,8 @@ object Type {
       Order.fromOrdering(using varOrdering)
   }
 
-  val allBinders: LazyList[Var.Bound] = {
-    val letters = ('a' to 'z').to(LazyList)
-    val allIntegers = LazyList.iterate(0L)(_ + 1L)
-    val lettersWithNumber =
-      for {
-        num <- allIntegers
-        l <- letters
-      } yield Var.Bound(s"$l$num")
-
-    letters.map(c => Var.Bound(c.toString)) #::: lettersWithNumber
-  }
+  val allBinders: LazyList[Var.Bound] =
+    Identifier.Bindable.allBinderNames.map(Var.Bound(_))
 
   def alignBinders[A](
       items: NonEmptyList[A],

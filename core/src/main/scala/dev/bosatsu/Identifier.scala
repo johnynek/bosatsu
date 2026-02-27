@@ -11,19 +11,16 @@ import Parser.{lowerIdent, upperIdent}
 import cats.implicits._
 
 sealed abstract class Identifier derives CanEqual {
-  def asString: String
-
-  def sourceCodeRepr: String =
-    Identifier.document.document(this).renderWideStream.mkString
+  def sourceCodeRepr: String
 
   final override def equals(that: Any): Boolean =
     that match {
       case ident: Identifier =>
-        (this eq ident) || ((hashCode == ident.hashCode) && (asString == ident.asString))
+        (this eq ident) || Identifier.sameIdentity(this, ident)
       case _ => false
     }
 
-  final override val hashCode: Int = asString.hashCode
+  final override val hashCode: Int = Identifier.identityHash(this)
 
   def toBindable: Option[Identifier.Bindable] =
     this match {
@@ -45,19 +42,89 @@ object Identifier {
     */
   sealed abstract class Bindable extends Identifier
 
-  final case class Constructor(asString: String) extends Identifier
-  final case class Name(asString: String) extends Bindable
-  final case class Backticked(asString: String) extends Bindable
-  final case class Operator(asString: String) extends Bindable
+  final case class Constructor(asString: String) extends Identifier {
+    def sourceCodeRepr = asString
+  }
+  final case class Name(asString: String) extends Bindable {
+    def sourceCodeRepr = asString
+  }
+  final case class Backticked(asString: String) extends Bindable {
+    lazy val sourceCodeRepr = {
+      val quote = "`"
+      val escaped = Parser.escape('`', asString)
+      s"$quote$escaped$quote"
+    }
+  }
 
-  given Hashable[Identifier] = Hashable.by(_.sourceCodeRepr)
+  final case class Operator(asString: String) extends Bindable {
+    lazy val sourceCodeRepr = opPrefixStr + asString
+  }
+
+  type Syntax = Constructor | Name | Backticked | Operator
+
+  final case class Synthetic(asString: String) extends Bindable {
+    // this is a lie, nothing like this parses, but that means it won't collide
+    def sourceCodeRepr = asString
+  }
+
+  private def nonSyntheticText(ident: Syntax): String =
+    ident match {
+      case Constructor(s) => s
+      case Name(s)        => s
+      case Backticked(s)  => s
+      case Operator(s)    => s
+    }
+
+  // Keep legacy by-text identity for user-authored names, but make synthetics
+  // disjoint so compiler-generated binders cannot collide with user identifiers.
+  private[bosatsu] def sameIdentity(
+      left: Identifier,
+      right: Identifier
+  ): Boolean =
+    (left, right) match {
+      case (Synthetic(sl), Synthetic(sr)) => sl == sr
+      case (Synthetic(_), _) | (_, Synthetic(_)) =>
+        false
+      case (nsL: Syntax, nsR: Syntax) =>
+        nonSyntheticText(nsL) == nonSyntheticText(nsR)
+    }
+
+  // hashCode must follow the same split identity policy as equals.
+  private[bosatsu] def identityHash(ident: Identifier): Int =
+    ident match {
+      case Synthetic(s) =>
+        scala.util.hashing.MurmurHash3.stringHash(
+          s,
+          0x3294d30f
+        )
+      case synBind: Syntax =>
+        nonSyntheticText(synBind).hashCode
+    }
+
+  private def hashableKey(ident: Identifier): String =
+    ident match {
+      case Synthetic(s) =>
+        s
+      case _ =>
+        ident.sourceCodeRepr
+    }
+
+  private def identityOrderKey(ident: Identifier): (Int, String) =
+    ident match {
+      case Synthetic(s) =>
+        (0, s)
+      case nonSyn: Syntax =>
+        (1, nonSyntheticText(nonSyn))
+    }
+
+  given Hashable[Identifier] = Hashable.by(hashableKey)
 
   object Constructor {
     given Hashable[Constructor] =
       Hashable[Identifier].narrow[Constructor]
   }
 
-  private val opPrefix = Doc.text("operator ")
+  private val opPrefixStr = "operator "
 
   object Bindable {
     implicit def bindableOrder: Order[Bindable] =
@@ -65,16 +132,53 @@ object Identifier {
 
     given Hashable[Bindable] =
       Hashable[Identifier].narrow[Bindable]
+
+    val allBinderNames: LazyList[String] = {
+      val letters = ('a' to 'z').to(LazyList).map(_.toString)
+      val allIntegers = LazyList.iterate(0L)(_ + 1L)
+      val lettersWithNumber =
+        for {
+          num <- allIntegers
+          l <- letters
+        } yield s"$l$num"
+
+      letters #::: lettersWithNumber
+    }
+
+    def syntheticIterator: Iterator[Bindable] =
+      allBinderNames.iterator.map(Identifier.synthetic)
+
+    def freshSyntheticIterator(
+        avoid: Bindable => Boolean
+    ): Iterator[Bindable] =
+      syntheticIterator.filterNot(avoid)
+
+    def freshSyntheticIterator(
+        avoid: collection.Set[Bindable]
+    ): Iterator[Bindable] =
+      freshSyntheticIterator(avoid.apply)
+
+    def prefixedSyntheticIterator(prefix: String): Iterator[Bindable] =
+      Iterator
+        .from(0)
+        .map(i => Identifier.synthetic(s"${prefix}_$i"))
+
+    def freshPrefixedSyntheticIterator(
+        prefix: String,
+        avoid: Bindable => Boolean
+    ): Iterator[Bindable] =
+      prefixedSyntheticIterator(prefix).filterNot(avoid)
+
+    def freshPrefixedSyntheticIterator(
+        prefix: String,
+        avoid: collection.Set[Bindable]
+    ): Iterator[Bindable] =
+      freshPrefixedSyntheticIterator(prefix, avoid.apply)
   }
 
+
   implicit def document[A <: Identifier]: Document[A] =
-    Document.instance[A] {
-      case Backticked(lit) =>
-        Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
-      case Constructor(n) => Doc.text(n)
-      case Name(n)        => Doc.text(n)
-      case Operator(n)    => opPrefix + Doc.text(n)
-    }
+    Document.instance[A](i => Doc.text(i.sourceCodeRepr))
 
   val nameParser: P[Name] =
     lowerIdent.map(n => Name(n.intern))
@@ -104,8 +208,15 @@ object Identifier {
   val parser: P[Identifier] =
     bindableParser.orElse(consParser)
 
+  private def maybeInternSynthetic(str: String): String =
+    if (str.length < 3) str.intern else str
+
   val bindableWithSynthetic: P[Bindable] =
-    bindableParser.orElse((P.char('_') ~ P.anyChar.rep).string.map(Name(_)))
+    bindableParser.orElse(
+      (P.char('_') ~ P.anyChar.rep).string.map { s =>
+        Synthetic(maybeInternSynthetic(s))
+      }
+    )
 
   val parserWithSynthetic: P[Identifier] =
     bindableWithSynthetic.orElse(consParser)
@@ -115,6 +226,7 @@ object Identifier {
   def appendToName(i: Bindable, suffix: String): Bindable =
     i match {
       case Backticked(b) => Backticked(b + suffix)
+      case Synthetic(s)  => Synthetic(s + suffix)
       case _             =>
         // try to stay the same
         val p = operator.orElse(nameParser)
@@ -123,7 +235,12 @@ object Identifier {
           case Right(ident) => ident
           case _            =>
             // just turn it into a Backticked
-            Backticked(i.asString + suffix)
+            i match {
+              case Name(s)       => Backticked(s + suffix)
+              case Operator(s)   => Backticked(s + suffix)
+              case Synthetic(s)  => Backticked(s + suffix)
+              case Backticked(s) => Backticked(s + suffix)
+            }
         }
     }
 
@@ -187,21 +304,21 @@ object Identifier {
 
   def isSynthetic(b: Bindable): Boolean =
     b match {
-      case Name(n) => n.nonEmpty && (n.head == '_')
-      case _       => false
+      case Synthetic(_) => true
+      case _            => false
     }
 
   implicit def order[A <: Identifier]: Order[A] =
-    Order.by[A, String](_.asString)
+    Order.by[A, (Int, String)](a => identityOrderKey(a))
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
 
-  implicit val showIdentifier: cats.Show[Identifier] =
+  implicit def showIdentifier[A <: Identifier]: cats.Show[A] =
     cats.Show.show(_.sourceCodeRepr)
 
   def synthetic(name: String): Bindable = {
     Require(name.nonEmpty)
-    Name("_" + name)
+    Synthetic(maybeInternSynthetic("_" + name))
   }
 }

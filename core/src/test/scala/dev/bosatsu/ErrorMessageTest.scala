@@ -89,6 +89,40 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("shadowed binding type mismatch has a focused message") {
+    val source =
+      """package Shadowed
+        |
+        |main = (
+        |  x = 1
+        |  x = "str"
+        |  x
+        |)
+        |""".stripMargin
+
+    val sourceMap = Map(PackageName.parts("Shadowed") -> (LocationMap(source), "<test>"))
+
+    evalFail(List(source)) {
+      case se @ PackageError.ShadowedBindingTypeError(_, _, _) =>
+        val message = se.message(sourceMap, Colorize.None)
+        assert(message.contains("shadowed binding `x` changes type."), message)
+        assert(message.contains("previous type: Int"), message)
+        assert(message.contains("current type: String"), message)
+        assert(
+          message.contains(
+            "hint: rename the binding or keep the same type when shadowing."
+          ),
+          message
+        )
+        assert(message.contains("previous binding context:"), message)
+        assert(message.contains("current binding context:"), message)
+        assert(message.contains("x = 1"), message)
+        assert(message.contains("x = \"str\""), message)
+        assert(!message.contains("_shadow_t"), message)
+        ()
+    }
+  }
+
   test("test matching unions") {
     evalTest(
       List("""
@@ -376,7 +410,7 @@ main = plus(1, 2)
 """)) { case le @ PackageError.UnusedLetError(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused value 'z'\n  Region(68,73)"))
+      assert(msg.contains("unused value 'z'\n  [68, 73)"))
       assert(
         msg.contains("if intentional, ignore it with `_`"),
         msg
@@ -397,7 +431,7 @@ main = plus(1, 2)
     """)) { case le @ PackageError.UnusedLets(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused value 'z'\n  Region("))
+      assert(msg.contains("unused value 'z'\n  ["))
       assert(msg.contains("add 'z' to exports"))
       ()
     }
@@ -505,7 +539,7 @@ main = match 1:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\nRegion(49,50)"
+        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\n[49, 50)"
       )
       ()
     }
@@ -522,7 +556,7 @@ main = match [1, 2, 3]:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed"
+        "in file: <unknown source>, package A\n[19, 70)\nmultiple splices in pattern, only one per match allowed"
       )
       ()
     }
@@ -540,7 +574,7 @@ main = match Bar(1):
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)"
+        "in file: <unknown source>, package A\n[45, 75)\nnon-total match, missing: Bar(_)"
       )
       ()
     }
@@ -559,7 +593,48 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur but no recursive call to fn\nRegion(25,47)\n"
+        "in file: <unknown source>, package A\nrecur but no recursive call to fn\n[25, 47)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+def fn(x):
+  loop x:
+    case y: 0
+
+main = fn
+""")) { case te @ PackageError.RecursionError(_, _) =>
+      assertEquals(
+        te.message(
+          Map.empty,
+          Colorize.None
+        ),
+        "in file: <unknown source>, package A\nloop but no recursive call to fn\n[25, 46)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst):
+  loop lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+
+main = len
+""")) { case te @ PackageError.RecursionError(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "loop requires all recursive calls to len to be in tail position."
+        ),
+        msg
       )
       ()
     }
@@ -604,7 +679,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur target for fn must be a name or tuple of names bound to def args\nRegion(31,33)\n"
+        "in file: <unknown source>, package A\nrecur target for fn must be a name or tuple of names bound to def args\n[31, 33)\n"
       )
       ()
     }
@@ -624,7 +699,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(33,55)\n"
+        "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\n[33, 55)\n"
       )
       ()
     }
@@ -645,7 +720,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\nRegion(52,80)\n"
+        "in file: <unknown source>, package A\nunexpected recur: may only appear unnested inside a def\n[52, 80)\n"
       )
       ()
     }
@@ -667,7 +742,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,91)\n"
+        "in file: <unknown source>, package A\nillegal shadowing on: fn. Recursive shadowing of def names disallowed\n[25, 91)\n"
       )
       ()
     }
@@ -687,7 +762,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\nRegion(63,71)\n"
+        "in file: <unknown source>, package A\ninvalid recursion on fn. Consider replacing `match` with `recur`.\n[63, 71)\n"
       )
       ()
     }
@@ -733,7 +808,7 @@ main = fn([1, 2])
           )
       )
       assert(
-        msg.contains("Region(67,69)")
+        msg.contains("[67, 69)")
       )
       ()
     }
@@ -1136,7 +1211,7 @@ def foo(x): x
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,71)"
+        "in file: <unknown source>, package A\nbind names foo shadow external def\n[57, 71)"
       )
       ()
     }
@@ -1154,7 +1229,7 @@ foo = 1
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nbind names foo shadow external def\nRegion(57,65)"
+        "in file: <unknown source>, package A\nbind names foo shadow external def\n[57, 65)"
       )
       ()
     }
@@ -1171,7 +1246,7 @@ external def foo(x: String) -> List[String]
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nexternal def: foo defined multiple times\nRegion(21,55)"
+        "in file: <unknown source>, package A\nexternal def: foo defined multiple times\n[21, 55)"
       )
       ()
     }
@@ -1190,7 +1265,7 @@ main = Foo(1, "2")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [b]\nRegion(14,30)"
+        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [b]\n[14, 30)"
       )
       ()
     }
@@ -1207,7 +1282,7 @@ main = Foo(1, "2")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [a, b]\nRegion(14,39)"
+        "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [a, b]\n[14, 39)"
       )
       ()
     }
@@ -1226,7 +1301,7 @@ main = Foo(1, "2")
       assert(
         msg.contains("Either remove it or use it in one of the enum variants")
       )
-      assert(msg.contains("Region(14,34)"))
+      assert(msg.contains("[14, 34)"))
       ()
     }
 
@@ -1243,7 +1318,7 @@ main = Foo(1, "2")
       )
       assert(msg.contains("enum Enum[a, b]"))
       assert(msg.contains("Bar[b]("))
-      assert(msg.contains("Region("))
+      assert(msg.contains("["))
       ()
     }
   }
@@ -1287,7 +1362,7 @@ main = match x:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Err\nRegion(36,89)\nmultiple splices in pattern, only one per match allowed"
+        "in file: <unknown source>, package Err\n[36, 89)\nmultiple splices in pattern, only one per match allowed"
       )
       ()
     }
@@ -1308,7 +1383,7 @@ main = match x:
       val dollar = '$'
       assertEquals(
         sce.message(Map.empty, Colorize.None),
-        s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent string bindings aren't allowed)"
+        s"in file: <unknown source>, package Err\n[36, 91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent string bindings aren't allowed)"
       )
       ()
     }
@@ -1329,7 +1404,7 @@ main = Foo(1)
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Err\ntype name: Foo defined multiple times\nRegion(14,24)"
+        "in file: <unknown source>, package Err\ntype name: Foo defined multiple times\n[14, 24)"
       )
       ()
     }
@@ -1350,7 +1425,7 @@ main = Foo(1)
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Err\nconstructor: Foo defined multiple times\nRegion(14,27)"
+        "in file: <unknown source>, package Err\nconstructor: Foo defined multiple times\n[14, 27)"
       )
       ()
     }
@@ -1416,7 +1491,7 @@ main = 10
       val msg = te.message(Map.empty, Colorize.None)
       assert(msg.contains("package A"), msg)
       assert(msg.contains("type mismatch in call to Bosatsu/Predef::add"), msg)
-      assert(msg.contains("Region(28,31)"), msg)
+      assert(msg.contains("[28, 31)"), msg)
       ()
     }
   }
@@ -1474,8 +1549,8 @@ main = under_twenty(3)
     )
     val msg = pe.message(Map.empty, Colorize.None)
     assert(msg.contains("evidence sites:"), msg)
-    assert(msg.contains("Region(20,21)"), msg)
-    assert(msg.contains("Region(30,31)"), msg)
+    assert(msg.contains("[20, 21)"), msg)
+    assert(msg.contains("[30, 31)"), msg)
   }
 
   test("call mismatch keeps expected/found orientation after meta solving") {
@@ -1517,7 +1592,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,175)\n"
+        "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\n[107, 175)\n"
       )
       ()
     }
@@ -1537,7 +1612,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(48,49)"
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[48, 49)"
       )
       ()
     }
@@ -1555,7 +1630,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\nRegion(68,69)"
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[68, 69)"
       )
       ()
     }
@@ -1606,7 +1681,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nunknown type: Either\nRegion(14,50)"
+        "in file: <unknown source>, package Foo\nunknown type: Either\n[14, 50)"
       )
       ()
     }
@@ -1647,7 +1722,7 @@ package Foo
 def foo[a](a: a) -> a:
   x: a = a
   def again(x: a): x
-  def and_again[b](x: b): x
+  def and_again[b](y: b): y
   and_again(again(x))
   
 test = Assertion(foo(True), "")
@@ -1671,7 +1746,7 @@ def foo[a](a: a) -> a:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nand_again found declared types: [b], not a subset of [a]\nRegion(71,118)"
+        "in file: <unknown source>, package Foo\nand_again found declared types: [b], not a subset of [a]\n[71, 118)"
       )
       ()
     }
@@ -1689,7 +1764,7 @@ struct Foo(a: f[a], b: f)
         """in file: <unknown source>, package Foo
 shape error: expected kind(f) and * to match in the constructor Foo
 
-Region(14,39)"""
+[14, 39)"""
       )
       ()
     }
@@ -1704,7 +1779,7 @@ struct Foo[a: *](a: a[Int])
         """in file: <unknown source>, package Foo
 shape error: expected * -> ? but found * in the constructor Foo inside type a[Int]
 
-Region(14,41)"""
+[14, 41)"""
       )
       ()
     }
@@ -1726,7 +1801,7 @@ def makeFoo(v: Int): Foo(Id(v))
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package Foo
 kind error: the type: ?0 of kind: (* -> *) -> * at: 
-Region(183,188)
+[183, 188)
 
 cannot be unified with the type Id of kind: +* -> *
 because the first kind does not subsume the second."""
@@ -1749,7 +1824,7 @@ def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package Foo
 kind error: the type: Foo[Id] is invalid because the left Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Id has kind +* -> * but left cannot accept the kind of the right:
-Region(195,205)"""
+[195, 205)"""
       )
       ()
     }
@@ -1777,10 +1852,10 @@ def quick_sort0(cmp, left, right):
         kie.message(Map.empty, Colorize.None),
         """in file: <unknown source>, package QS
 type error: expected type Fn2
-Region(415,424)
+[835, 842)
 but found type Fn3[(?17, ?9) -> Comparison]
 hint: the first type is a function with 2 arguments and the second is a function with 3 arguments.
-Region(403,414)"""
+[403, 414)"""
       )
       ()
     }
@@ -1801,7 +1876,7 @@ def toInt(n: N, acc: Int) -> Int:
 """
     evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assert(message.contains("Region(122,127)"))
+      assert(message.contains("[122, 127)"))
       val badRegion = testCode.substring(122, 127)
       assertEquals(badRegion, "\"foo\"")
       ()
@@ -1818,9 +1893,9 @@ y: String = 1
 """
     evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assert(message.contains("Region(30,33)"))
+      assert(message.contains("[30, 33)"))
       assertEquals(testCode.substring(30, 33), "\"1\"")
-      assert(message.contains("Region(46,47)"))
+      assert(message.contains("[46, 47)"))
       assertEquals(testCode.substring(46, 47), "1")
       ()
     }
@@ -1839,9 +1914,9 @@ z = (
 """
     evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assert(message.contains("Region(38,41)"))
+      assert(message.contains("[38, 41)"))
       assertEquals(testCode.substring(38, 41), "\"1\"")
-      assert(message.contains("Region(56,57)"))
+      assert(message.contains("[56, 57)"))
       assertEquals(testCode.substring(56, 57), "1")
       ()
     }
@@ -1866,7 +1941,6 @@ enum FreeF[a]:
         )
         assert(message.contains("enum FreeF[a, b]"))
         assert(message.contains("Mapped[b]("))
-        assert(message.contains("Region("))
         ()
     }
   }
@@ -1919,7 +1993,6 @@ enum Foo[a]:
             "a: enum Foo[a], branch Bar[a]"
           )
         )
-        assert(message.contains("Region("))
         ()
     }
   }
@@ -1942,7 +2015,7 @@ z = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
             "invalid tuple size. Found 33, but maximum allowed 32"
           )
         )
-        assert(message.contains("Region(25,154)"))
+        assert(message.contains("[25, 154)"))
         ()
     }
 
@@ -1968,7 +2041,7 @@ res = z matches (1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
             "invalid tuple size. Found 33, but maximum allowed 32"
           )
         )
-        assert(message.contains("Region(158,297)"))
+        assert(message.contains("[158, 297)"))
         ()
     }
   }
@@ -1983,7 +2056,7 @@ struct Foo[a: -*](get: a)
     evalFail(List(testCode)) {
       case kie @ PackageError.KindInferenceError(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
-        assert(message.contains("Region(21,46)"))
+        assert(message.contains("[21, 46)"))
         assertEquals(testCode.substring(21, 46), "struct Foo[a: -*](get: a)")
         ()
     }
@@ -1999,7 +2072,7 @@ external def foo[b](lst: List[a]) -> a
     evalFail(List(testCode)) {
       case kie @ PackageError.SourceConverterErrorsIn(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
-        assert(message.contains("Region(30,59)"))
+        assert(message.contains("[30, 59)"))
         assert(message.contains("[b], not the same as [a]"))
         assertEquals(
           testCode.substring(30, 59),
@@ -2110,7 +2183,7 @@ main = fof
           "Did you mean one of: local value `fofoooooooo`, local value `ofof`?"
         )
       )
-      assert(message.contains("Region(47,50)"))
+      assert(message.contains("[47, 50)"))
       ()
     }
   }

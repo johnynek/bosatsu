@@ -114,7 +114,7 @@ object LegacyDefRecursionCheck {
         case Some((calledName, count)) =>
           s"Function name looks renamed: declared `${defstmt.name.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${defstmt.name.sourceCodeRepr}` in recursive calls? ($count occurrences)"
         case None =>
-          s"recur but no recursive call to ${defstmt.name.sourceCodeRepr}"
+          s"${recur.kind.keyword} but no recursive call to ${defstmt.name.sourceCodeRepr}"
       }
   }
 
@@ -734,7 +734,7 @@ object LegacyDefRecursionCheck {
             filterNames(newBinds)(checkDecl(body))
         case Literal(_) =>
           unitSt
-        case Match(RecursionKind.NonRecursive, arg, cases) =>
+        case Match(Declaration.MatchKind.Match, arg, cases) =>
           // the arg can't use state, but cases introduce new bindings:
           val argRes = checkDecl(arg)
           val optRes = cases.get.parTraverse_ {
@@ -745,7 +745,11 @@ object LegacyDefRecursionCheck {
                 }
           }
           argRes *> optRes
-        case recur @ Match(RecursionKind.Recursive, _, cases) =>
+        case recur @ Match(
+              Declaration.MatchKind.Recur | Declaration.MatchKind.Loop,
+              _,
+              cases
+            ) =>
           // this is a state change
           getSt.flatMap {
             case TopLevel | InRecurBranch(_, _, _, _) |

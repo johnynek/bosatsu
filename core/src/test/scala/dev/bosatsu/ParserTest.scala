@@ -308,10 +308,19 @@ class ParserTest extends ParserTestBase {
     forAll { (str: String) =>
       if (str.nonEmpty) {
         val synth = Identifier.synthetic(str)
-        val parsed = Identifier.bindableWithSynthetic.parseAll(synth.asString)
+        val parsed =
+          Identifier.bindableWithSynthetic.parseAll(synth.sourceCodeRepr)
         assertEquals(parsed, Right(synth))
       }
     }
+  }
+
+  test("bindableWithSynthetic distinguishes synthetic from backticked") {
+    val synthetic = Identifier.bindableWithSynthetic.parseAll("_x")
+    assertEquals(synthetic, Right(Identifier.synthetic("x")))
+
+    val backticked = Identifier.bindableWithSynthetic.parseAll("`_x`")
+    assertEquals(backticked, Right(Identifier.Backticked("_x")))
   }
 
   test("we can append to an identifier and parse it") {
@@ -1632,6 +1641,36 @@ x"""
       Declaration.parser(""),
       """x: Int = bar
 x"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop x:
+  case []: 0
+  case [_, *tail]: len(tail)"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop (a, b):
+  case (_, _): a"""
+    )
+  }
+
+  test("loop stays a normal identifier outside recursion headers") {
+    roundTrip(
+      Statement.parser,
+      """#
+def loop(x): x
+
+main = loop(12)
+"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      """loop = x -> fn(x)
+loop(12)"""
     )
   }
 

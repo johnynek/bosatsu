@@ -421,7 +421,7 @@ object Package {
                 val stmtStart = vs.region.start
                 vs.names.iterator.map { n =>
                   // top-level value statements begin with the bound name
-                  (n, Region(stmtStart, stmtStart + n.asString.length))
+                  (n, Region(stmtStart, stmtStart + n.sourceCodeRepr.length))
                 }
               }
               .flatten
@@ -473,6 +473,20 @@ object Package {
                     .toNonEmptyList
                 )
 
+              def shadowedBindingTypeCheck
+                  : ValidatedNel[PackageError, Unit] =
+                ShadowedBindingTypeCheck
+                  .checkLets(p, typedLets)
+                  .leftMap(
+                    _.map(err =>
+                      PackageError.ShadowedBindingTypeError(
+                        p,
+                        err,
+                        localTypeNames
+                      ): PackageError
+                    ).toNonEmptyList
+                  )
+
               val totalityCheck: ValidatedNel[PackageError, Unit] =
                 typedLets
                   .traverse_ { case (_, _, expr) =>
@@ -482,8 +496,8 @@ object Package {
                     errs.map(PackageError.TotalityCheckError(p, _))
                   }
 
-              (recursionCheck, totalityCheck)
-                .mapN { (_, _) =>
+              (recursionCheck, shadowedBindingTypeCheck, totalityCheck)
+                .mapN { (_, _, _) =>
                   (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
                 }
                 .toEither

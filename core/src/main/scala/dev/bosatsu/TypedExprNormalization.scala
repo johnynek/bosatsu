@@ -188,7 +188,7 @@ object TypedExprNormalization {
           .empty[Bindable] ++ TypedExpr.allVarsSet(
           te :: Nil
         )
-      val names = Expr.nameIterator()
+      val names = Identifier.Bindable.syntheticIterator
 
       def freshName(): Bindable = {
         var n = names.next()
@@ -827,7 +827,7 @@ object TypedExprNormalization {
               TypedExpr
                 .allVarsSet(expr :: in :: Nil)
                 .toSet ++ closureNames + arg
-            val fresh = Expr.nameIterator().filterNot(avoid)
+            val fresh = Identifier.Bindable.freshSyntheticIterator(avoid)
             val captures = namedTypes.map { case (n, tpe) =>
               CapturedClosureVar(n, fresh.next(), tpe)
             }
@@ -921,9 +921,8 @@ object TypedExprNormalization {
         }
 
       case AnnotatedLambda(lamArgs0, expr, tag) =>
-        lazy val anons: Iterator[Bindable] = Expr
-          .nameIterator()
-          .filterNot(expr.freeVarsDup.toSet)
+        lazy val anons: Iterator[Bindable] =
+          Identifier.Bindable.freshSyntheticIterator(expr.freeVarsDup.toSet)
 
         val bodyScope = scope -- lamArgs0.toList.map(_._1)
         val e1 = normalize1(None, expr, bodyScope, typeEnv).get
@@ -2360,9 +2359,7 @@ object TypedExprNormalization {
               val avoid = TypedExpr.allVarsSet(te :: Nil)
               val used = scala.collection.mutable.HashSet
                 .empty[Bindable] ++ avoid
-              val names = rankn.Type.allBinders.iterator.map { b =>
-                Identifier.synthetic(b.name)
-              }
+              val names = Identifier.Bindable.syntheticIterator
 
               def nextName(): Bindable = {
                 var n = names.next()

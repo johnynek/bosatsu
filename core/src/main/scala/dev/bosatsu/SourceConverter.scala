@@ -266,12 +266,13 @@ final class SourceConverter(
   private def fromDecl(
       decl: Declaration,
       bound: Set[Bindable],
-      topBound: Set[Bindable]
+      topBound: Set[Bindable],
+      typeBound: Set[Type.Var.Bound]
   ): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
-    def loop(decl: Declaration) = fromDecl(decl, bound, topBound)
+    def loop(decl: Declaration) = fromDecl(decl, bound, topBound, typeBound)
     def withBound(decl: Declaration, newB: Iterable[Bindable]) =
-      fromDecl(decl, bound ++ newB, topBound)
+      fromDecl(decl, bound ++ newB, topBound, typeBound)
 
     decl match {
       case Annotation(term, tpe) =>
@@ -332,15 +333,34 @@ final class SourceConverter(
         loop(decl).map(_.replaceTag(decl))
       case DefFn(defstmt @ DefStatement(_, _, _, _, _)) =>
         val inExpr = defstmt.result match {
-          case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
+          case (_, Padding(_, in)) =>
+            fromDecl(in, bound + defstmt.name, topBound, typeBound)
         }
         val newBindings =
           defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
+        val typeBoundInBody = typeBound ++ defStatementTypeVars(defstmt)
         val lambda = toLambdaExpr(defstmt, decl.region, success(decl))(res =>
-          withBound(res._1.get, newBindings)
+          fromDecl(res._1.get, bound ++ newBindings, topBound, typeBoundInBody)
         )
 
-        (inExpr, lambda).parMapN { (in, lam) =>
+        (inExpr, lambda).parMapN { (in, lam0) =>
+          val lam =
+            defstmt.typeArgs match {
+              case Some(_) => lam0
+              case None    =>
+                // Nested defs without explicit type params should only quantify
+                // vars that are local to this lambda body:
+                // - typeBound contains vars already bound in outer scopes
+                //   (threaded from enclosing defs/annotations), so those stay shared.
+                // - inTypeVars are vars needed by the continuation after this def, so
+                //   quantifying them here would incorrectly hide them from `in`.
+                // Any remaining free vars belong to this def and become its implicit forall.
+                val inTypeVars = Expr.freeBoundTyVars(in).toSet
+                val localTypeVars = Expr.freeBoundTyVars(lam0).filterNot(tv =>
+                  typeBound(tv) || inTypeVars(tv)
+                )
+                Expr.forAll(localTypeVars.map((_, Kind.Type)), lam0)
+            }
           // We rely on TypedExprRecursionCheck (post-typechecking) to rule out bad recursions
           val boundName = defstmt.name
           val rec =
@@ -370,7 +390,7 @@ final class SourceConverter(
           }
         loop(
           Match(
-            RecursionKind.NonRecursive,
+            Declaration.MatchKind.Match,
             a,
             OptIndent.same(
               NonEmptyList(
@@ -420,7 +440,7 @@ final class SourceConverter(
         success(resolveToVar(ident, decl, bound, topBound))
       case Match(_, arg, branches) =>
         /*
-         * The recursion kind on source match tags is used by
+         * The source match mode (`match`/`recur`/`loop`) on tags is used by
          * TypedExprRecursionCheck before lowering/normalization.
          */
         def stripGuardWrappers(
@@ -930,6 +950,25 @@ final class SourceConverter(
 
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
+
+  private def defStatementTypeVars[B](
+      ds: DefStatement[Pattern.Parsed, B]
+  ): Set[Type.Var.Bound] = {
+    val explicitVars =
+      ds.typeArgs.iterator.flatMap(_.toList.iterator).map(_._1.toBoundVar)
+    val argVars =
+      ds.args.iterator
+        .flatMap(_.toList.iterator)
+        .flatMap(_.typesIn)
+        .flatMap(TypeRef.freeTypeRefVars)
+        .map(_.toBoundVar)
+    val retVars =
+      ds.retType.iterator
+        .flatMap(TypeRef.freeTypeRefVars(_).iterator)
+        .map(_.toBoundVar)
+
+    (explicitVars ++ argVars ++ retVars).toSet
+  }
 
   private type DefinitionStateType =
     ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
@@ -1758,9 +1797,7 @@ final class SourceConverter(
     toTypeEnv.map(p => importedTypeEnv ++ TypeEnv.fromParsed(p))
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
-    rankn.Type.allBinders.iterator
-      .map(b => Identifier.synthetic(b.name))
-      .filterNot(allNames)
+    Identifier.Bindable.freshSyntheticIterator(allNames)
 
   /** Externals are not permitted to be shadowed at the top level
     */
@@ -1865,7 +1902,7 @@ final class SourceConverter(
         def makeMatch(pat: Pattern.Parsed, res: Declaration): Declaration = {
           val resOI = OptIndent.same(res)
           Match(
-            RecursionKind.NonRecursive,
+            Declaration.MatchKind.Match,
             rhsNB,
             OptIndent.same(NonEmptyList.one(MatchBranch(pat, None, resOI)))
           )(using decl.region)
@@ -2217,7 +2254,7 @@ final class SourceConverter(
     parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
       stmt match {
         case Right(Right((nm, decl))) =>
-          val r = fromDecl(decl, Set.empty, topBound).map(
+          val r = fromDecl(decl, Set.empty, topBound, Set.empty).map(
             (nm, RecursionKind.NonRecursive, _) :: Nil
           )
           // make sure all the free types are Generic
@@ -2236,6 +2273,7 @@ final class SourceConverter(
           val boundName = defstmt.name
           // defs are in scope for their body
           val topBound1 = topBound + boundName
+          val topTypeBound = defStatementTypeVars(defstmt)
 
           val lam: Result[Expr[Declaration]] =
             toLambdaExpr[OptIndent[Declaration]](
@@ -2248,7 +2286,8 @@ final class SourceConverter(
                 argGroups.flatten.iterator
                   .flatMap(_.names)
                   .toSet + boundName,
-                topBound1
+                topBound1,
+                topTypeBound
               )
             )
 

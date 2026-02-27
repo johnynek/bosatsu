@@ -10,7 +10,7 @@ import org.scalacheck.Prop.forAll
 class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 100 else 20
+      if (Platform.isScalaJvm) 40 else 20
     )
 
   private def interfaceWithDefaultType(

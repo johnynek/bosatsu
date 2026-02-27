@@ -60,7 +60,9 @@ object PythonGen {
 
         def next: (BindState, Code.Ident) = {
           val pname =
-            Code.Ident(Idents.escape("___b", binding.asString + count.toString))
+            Code.Ident(
+              Idents.escape("___b", binding.sourceCodeRepr + count.toString)
+            )
           (copy(count = count + 1, stack = pname :: stack), pname)
         }
 
@@ -437,7 +439,7 @@ object PythonGen {
   // ___i: import alias
   // ___b: shadowable (internal) names
   def escape(n: Bindable): Code.Ident = {
-    val str = n.asString
+    val str = n.sourceCodeRepr
     if (
       !str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code
         .pyKeywordList(str)
@@ -1662,7 +1664,8 @@ object PythonGen {
                       case n :: fn :: Nil =>
                         val tabulated = Code
                           .block(
-                            data := Code.MakeList(Nil).evalTimes(n),
+                            data := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(n),
                             idx := Code.Const.Zero,
                             Code.While(
                               idx :< n,
@@ -1886,7 +1889,8 @@ object PythonGen {
                           data := arrayData(ary),
                           offset := arrayOffset(ary),
                           size := arrayLen(ary),
-                          out := Code.MakeList(Nil).evalTimes(size),
+                          out := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(size),
                           idx := Code.Const.Zero,
                           Code.While(
                             idx :< size,
@@ -2066,7 +2070,8 @@ object PythonGen {
                               total := total.evalPlus(arrayLen(part))
                             )
                           ),
-                          data := Code.MakeList(Nil).evalTimes(total),
+                          data := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(total),
                           write := Code.Const.Zero,
                           partIdx := Code.Const.Zero,
                           Code.While(

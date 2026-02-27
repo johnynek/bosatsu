@@ -529,10 +529,8 @@ object Matchless {
       count: Int,
       usedNames: Set[Bindable]
   ): List[Bindable] =
-    Iterator
-      .from(0)
-      .map(i => Identifier.synthetic(s"${prefix}_$i"))
-      .filterNot(usedNames)
+    Identifier.Bindable
+      .freshPrefixedSyntheticIterator(prefix, usedNames)
       .take(count)
       .toList
 

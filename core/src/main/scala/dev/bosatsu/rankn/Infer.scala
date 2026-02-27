@@ -382,7 +382,7 @@ object Infer {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
-        s"unknown var in $tpeStr: $mess at $region"
+        s"unknown var in $tpeStr: $mess at ${region.show}"
       }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
@@ -754,8 +754,8 @@ object Infer {
      */
     inline def assertRho(
         t: Type,
-        context: => String,
-        region: Region
+        inline context: => String,
+        inline region: Region
     ): Infer[Type.Rho] =
       t match {
         case r: Type.Rho => pure(r)
@@ -2362,7 +2362,7 @@ object Infer {
             case notMatch => notMatch
           }
 
-          @inline def default = checkAnnotated(inner, tpe, region(tag), expect)
+          inline def default = checkAnnotated(inner, tpe, region(tag), expect)
 
           tpe match {
             case rho: Type.Rho =>
