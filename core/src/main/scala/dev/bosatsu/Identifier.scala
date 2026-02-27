@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Order
 import cats.parse.{Parser0 => P0, Parser => P}
 import dev.bosatsu.hashing.Hashable
+import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document}
 import scala.quoted.{Expr, Quotes}
 
@@ -19,11 +20,11 @@ sealed abstract class Identifier derives CanEqual {
   final override def equals(that: Any): Boolean =
     that match {
       case ident: Identifier =>
-        (this eq ident) || ((hashCode == ident.hashCode) && (asString == ident.asString))
+        (this eq ident) || Identifier.sameIdentity(this, ident)
       case _ => false
     }
 
-  final override val hashCode: Int = asString.hashCode
+  final override val hashCode: Int = Identifier.identityHash(this)
 
   def toBindable: Option[Identifier.Bindable] =
     this match {
@@ -47,10 +48,53 @@ object Identifier {
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
+  final case class Synthetic(asString: String) extends Bindable
   final case class Backticked(asString: String) extends Bindable
   final case class Operator(asString: String) extends Bindable
 
-  given Hashable[Identifier] = Hashable.by(_.sourceCodeRepr)
+  // Keep legacy by-text identity for user-authored names, but make synthetics
+  // disjoint so compiler-generated binders cannot collide with user identifiers.
+  private[bosatsu] def sameIdentity(
+      left: Identifier,
+      right: Identifier
+  ): Boolean =
+    (left, right) match {
+      case (Synthetic(sl), Synthetic(sr)) => sl == sr
+      case (Synthetic(_), _) | (_, Synthetic(_)) =>
+        false
+      case _ =>
+        left.asString == right.asString
+    }
+
+  // hashCode must follow the same split identity policy as equals.
+  private[bosatsu] def identityHash(ident: Identifier): Int =
+    ident match {
+      case Synthetic(s) =>
+        scala.util.hashing.MurmurHash3.stringHash(
+          s,
+          0x3294d30f
+        )
+      case _ =>
+        ident.asString.hashCode
+    }
+
+  private def identityHashKey(ident: Identifier): (Boolean, String) =
+    ident match {
+      case Synthetic(s) =>
+        (true, s)
+      case _ =>
+        (false, ident.asString)
+    }
+
+  private def identityOrderKey(ident: Identifier): (Int, String) =
+    ident match {
+      case Synthetic(s) =>
+        (0, s)
+      case _ =>
+        (1, ident.asString)
+    }
+
+  given Hashable[Identifier] = Hashable.by(identityHashKey)
 
   object Constructor {
     given Hashable[Constructor] =
@@ -65,6 +109,38 @@ object Identifier {
 
     given Hashable[Bindable] =
       Hashable[Identifier].narrow[Bindable]
+
+    def syntheticIterator: Iterator[Bindable] =
+      Type.allBinders.iterator
+        .map(_.name)
+        .map(Identifier.synthetic)
+
+    def freshSyntheticIterator(
+        avoid: Bindable => Boolean
+    ): Iterator[Bindable] =
+      syntheticIterator.filterNot(avoid)
+
+    def freshSyntheticIterator(
+        avoid: collection.Set[Bindable]
+    ): Iterator[Bindable] =
+      freshSyntheticIterator(avoid.apply)
+
+    def prefixedSyntheticIterator(prefix: String): Iterator[Bindable] =
+      Iterator
+        .from(0)
+        .map(i => Identifier.synthetic(s"${prefix}_$i"))
+
+    def freshPrefixedSyntheticIterator(
+        prefix: String,
+        avoid: Bindable => Boolean
+    ): Iterator[Bindable] =
+      prefixedSyntheticIterator(prefix).filterNot(avoid)
+
+    def freshPrefixedSyntheticIterator(
+        prefix: String,
+        avoid: collection.Set[Bindable]
+    ): Iterator[Bindable] =
+      freshPrefixedSyntheticIterator(prefix, avoid.apply)
   }
 
   implicit def document[A <: Identifier]: Document[A] =
@@ -73,6 +149,7 @@ object Identifier {
         Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
       case Constructor(n) => Doc.text(n)
       case Name(n)        => Doc.text(n)
+      case Synthetic(n)   => Doc.text(n)
       case Operator(n)    => opPrefix + Doc.text(n)
     }
 
@@ -105,7 +182,9 @@ object Identifier {
     bindableParser.orElse(consParser)
 
   val bindableWithSynthetic: P[Bindable] =
-    bindableParser.orElse((P.char('_') ~ P.anyChar.rep).string.map(Name(_)))
+    bindableParser.orElse(
+      (P.char('_') ~ P.anyChar.rep).string.map(s => Synthetic(s.intern))
+    )
 
   val parserWithSynthetic: P[Identifier] =
     bindableWithSynthetic.orElse(consParser)
@@ -115,6 +194,7 @@ object Identifier {
   def appendToName(i: Bindable, suffix: String): Bindable =
     i match {
       case Backticked(b) => Backticked(b + suffix)
+      case Synthetic(s)  => Synthetic((s + suffix).intern)
       case _             =>
         // try to stay the same
         val p = operator.orElse(nameParser)
@@ -187,12 +267,13 @@ object Identifier {
 
   def isSynthetic(b: Bindable): Boolean =
     b match {
-      case Name(n) => n.nonEmpty && (n.head == '_')
-      case _       => false
+      case Synthetic(_) => true
+      case Name(n)      => n.nonEmpty && (n.head == '_')
+      case _            => false
     }
 
   implicit def order[A <: Identifier]: Order[A] =
-    Order.by[A, String](_.asString)
+    Order.by[A, (Int, String)](a => identityOrderKey(a))
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
@@ -202,6 +283,6 @@ object Identifier {
 
   def synthetic(name: String): Bindable = {
     Require(name.nonEmpty)
-    Name("_" + name)
+    Synthetic(("_" + name).intern)
   }
 }

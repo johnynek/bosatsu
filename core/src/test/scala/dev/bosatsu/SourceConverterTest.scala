@@ -859,7 +859,7 @@ main = S {}
   test("default helper naming is stable across default body changes") {
     val ctor = Identifier.Constructor("S")
     val expected =
-      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e"
+      "_default$50073f0ba049aa53c2d877eb2ea956b4648234d29c416431e9a3c610bca9ecd2"
     val d1 = defaultBindingAt(
       """#
 struct S(a: Int = 1)
@@ -888,8 +888,8 @@ struct S(a: Int = 1, b: Int = 2)
 main = S {}
 """
     val expected = List(
-      "_default$36294736f849c2349886d1d73449f07eec152f7063e7efdcf18e38b58f20dd4e",
-      "_default$6c758775f4a15b41049ac536a8e9acbf6b0f23735edde50976ee815531afe650"
+      "_default$50073f0ba049aa53c2d877eb2ea956b4648234d29c416431e9a3c610bca9ecd2",
+      "_default$7d5827fcef00708b1a0c1a8572d85a027bd5fe92707e318dd24596fad59bf0a4"
     )
     val actual = List(
       defaultBindingAt(code, Identifier.Constructor("S"), 0).asString,
@@ -907,8 +907,8 @@ enum E:
 main = A {}
 """
     val expected = List(
-      "_default$65c012a00b9f18e2b592cdca73543d7addbd8824c51ed8da36f0bd46f141424a",
-      "_default$c2d538919e2883cb892e2c9b039ab4bdb14f8d47543f7c8af96f5b698b5205e3"
+      "_default$98133e4e32637ba2366a6d2f3608ec36ba054c7e3ec53d9668ec9313bada7895",
+      "_default$02bc9f74616311159c7eb5cac21e0e62cbf4ea541888f91860f8957f0d2b537c"
     )
     val actual = List(
       defaultBindingAt(code, Identifier.Constructor("A"), 0).asString,
@@ -923,7 +923,7 @@ main = A {}
 struct G[a](x: Option[a] = None)
 """
     val expected =
-      "_default$43205cc34d8d5b50a14c22ce333dd339473994c654f3d567f702deb279f65967"
+      "_default$37c39e2374b4af5ba5b2da649d3a5c570cceaba00e107ef0e14a658805af05f6"
     val actual = defaultBindingAt(code, Identifier.Constructor("G"), 0).asString
 
     assertEquals(actual, expected)

@@ -1797,9 +1797,7 @@ final class SourceConverter(
     toTypeEnv.map(p => importedTypeEnv ++ TypeEnv.fromParsed(p))
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
-    rankn.Type.allBinders.iterator
-      .map(b => Identifier.synthetic(b.name))
-      .filterNot(allNames)
+    Identifier.Bindable.freshSyntheticIterator(allNames)
 
   /** Externals are not permitted to be shadowed at the top level
     */

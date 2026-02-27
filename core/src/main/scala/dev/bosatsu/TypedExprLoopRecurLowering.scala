@@ -614,7 +614,7 @@ object TypedExprLoopRecurLowering {
           val used = scala.collection.mutable.HashSet.empty[Bindable] ++
             TypedExpr.allVarsSet(mono.expr :: Nil).toSet
           used.add(mono.name): Unit
-          val names = Expr.nameIterator()
+          val names = Identifier.Bindable.syntheticIterator
 
           def freshName(): Bindable = {
             var n = names.next()
@@ -701,7 +701,7 @@ object TypedExprLoopRecurLowering {
             val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
               .map(_._1)
               .toSet + name
-            val fresh = Expr.nameIterator().filterNot(avoid)
+            val fresh = Identifier.Bindable.freshSyntheticIterator(avoid)
             val freshArgs =
               args.map { case (_, tpe) =>
                 (fresh.next(), tpe)

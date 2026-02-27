@@ -99,20 +99,20 @@ int main(int argc, char** argv) {
 #include <stdlib.h>
 #include "gc.h"
 
-BValue __bsts_t_lambda__loop0(BValue __bsts_b_a0,
-    BValue __bsts_b_b0,
+BValue __bsts_t_lambda__loop0(BValue __bsts_b___a0,
+    BValue __bsts_b___b0,
     BValue __bsts_b_list0) {
     if (get_variant(__bsts_b_list0) == 0) {
-        return __bsts_b_a0;
+        return __bsts_b___a0;
     }
     else {
         BValue __bsts_a_0 = get_enum_index(__bsts_b_list0, 0);
         BValue __bsts_a_1 = get_enum_index(__bsts_b_list0, 1);
         BValue __bsts_b_h0 = __bsts_a_0;
         BValue __bsts_b_t0 = __bsts_a_1;
-        return call_fn2(__bsts_b_b0,
+        return call_fn2(__bsts_b___b0,
             __bsts_b_h0,
-            __bsts_t_lambda__loop0(__bsts_b_a0, __bsts_b_b0, __bsts_b_t0));
+            __bsts_t_lambda__loop0(__bsts_b___a0, __bsts_b___b0, __bsts_b_t0));
     }
 }
 

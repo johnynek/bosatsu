@@ -314,6 +314,14 @@ class ParserTest extends ParserTestBase {
     }
   }
 
+  test("bindableWithSynthetic distinguishes synthetic from backticked") {
+    val synthetic = Identifier.bindableWithSynthetic.parseAll("_x")
+    assertEquals(synthetic, Right(Identifier.synthetic("x")))
+
+    val backticked = Identifier.bindableWithSynthetic.parseAll("`_x`")
+    assertEquals(backticked, Right(Identifier.Backticked("_x")))
+  }
+
   test("we can append to an identifier and parse it") {
     forAll(Generators.bindIdentGen, Arbitrary.arbitrary[String]) { (b, str) =>
       val i1 = Identifier.appendToName(b, str)
