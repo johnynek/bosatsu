@@ -7,7 +7,7 @@ sealed abstract class SelfCallKind derives CanEqual {
   import SelfCallKind._
 
   // if you have two branches in match what is the result
-  def merge(that: => SelfCallKind): SelfCallKind =
+  final inline def merge(inline that: => SelfCallKind): SelfCallKind =
     this match {
       case NonTailCall => NonTailCall
       case NoCall      => that
@@ -24,7 +24,7 @@ sealed abstract class SelfCallKind derives CanEqual {
       case NonTailCall | TailCall => NonTailCall
     }
 
-  def ifNoCallThen(sc: => SelfCallKind): SelfCallKind =
+  final inline def ifNoCallThen(inline sc: => SelfCallKind): SelfCallKind =
     this match {
       case NoCall => sc
       case other  => other

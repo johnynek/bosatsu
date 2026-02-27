@@ -44,7 +44,7 @@ object Test {
   private val oneTest = Doc.text("1 test, ")
 
   def summary(passes: Int, fails: Int, c: LocationMap.Colorize): Doc = {
-    @inline def failMsg = Doc.str(fails) + failed
+    inline def failMsg = Doc.str(fails) + failed
     val total = passes + fails
     val tMsg = if (total == 1) oneTest else Doc.text(s"$total tests, ")
     tMsg + c.green(Doc.str(passes) + passed) + Doc.space +
