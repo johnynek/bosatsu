@@ -34,7 +34,12 @@ jobs:
           cp -a docs/target/paradox/site/main/* web_deploy
           cp jsui/index.html web_deploy/compiler/
           cp jsui/app.css web_deploy/compiler/
-          cp jsui/.js/target/scala-3.8.2/scalajs-bundler/main/compiler-jsui-opt-bundle.js web_deploy/compiler/bosatsu_ui.js
+          bundle_path="$(ls -1t jsui/.js/target/scala-*/scalajs-bundler/main/compiler-jsui-opt-bundle.js 2>/dev/null | head -n 1 || true)"
+          if [ -z "$bundle_path" ]; then
+            echo "Unable to locate compiler-jsui-opt-bundle.js under jsui/.js/target/scala-*/" >&2
+            exit 1
+          fi
+          cp "$bundle_path" web_deploy/compiler/bosatsu_ui.js
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3

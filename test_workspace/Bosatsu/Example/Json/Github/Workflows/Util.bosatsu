@@ -33,7 +33,6 @@ export (
   permission_write,
   python_version_matrix,
   python_version_3_9,
-  scala_version,
   runner_macos_14,
   runner_macos_latest,
   runner_ubuntu_latest,
@@ -141,7 +140,6 @@ java_version_17 = "17"
 java_version_matrix = "\${{matrix.java}}"
 python_version_matrix = "\${{matrix.python}}"
 python_version_3_9 = "3.9"
-scala_version = "3.8.2"
 
 java_matrix_setup_name = "java \${{matrix.java}} setup"
 java_17_setup_name = "java 17 setup"
