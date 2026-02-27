@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # make sure to run sbt cli/assembly first
 jar_path="$(
-  ls -1t "$SCRIPT_DIR/cli/target/scala-3.8.1"/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
+  ls -1t "$SCRIPT_DIR"/cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true
 )"
 
 if [ -z "$jar_path" ]; then
