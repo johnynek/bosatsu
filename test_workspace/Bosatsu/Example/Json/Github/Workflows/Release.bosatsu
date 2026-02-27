@@ -21,6 +21,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   permission_write,
   runner_macos_14,
   runner_ubuntu_latest,
+  scala_version,
   sbt_cache_fetch_step,
   setup_sbt_title_step,
   StepEnv,
@@ -375,7 +376,7 @@ workflow =
             name: Set("Build jar and node JS"),
             run: Set(cat_lines([
               "sbt \"++3.8.1; cli/assembly; cliJSJS/fullOptJS\"",
-              "cp cli/target/scala-3.8.2/bosatsu-cli-assembly-*.jar bosatsu.jar",
+              "cp cli/target/scala-${scala_version}/bosatsu-cli-assembly-*.jar bosatsu.jar",
               "target_dir=\"\"",
               "for d in cliJS/.js/target/scala-*; do",
               "  if [ -d \"$d\" ]; then",
