@@ -65,7 +65,7 @@ case class LibraryEvaluation[K] private (
           sys.error(s"from ${pack.name} import unknown external def: $n")
         // $COVERAGE-ON$
       }
-      externals.toMap.get((pack.name, Identifier.rawName(n))) match {
+      externals.toMap.get((pack.name, n)) match {
         case Some(ext) => (n, Eval.later(ext.call(tpe)))
         case None      =>
           // $COVERAGE-OFF$
@@ -254,11 +254,11 @@ case class LibraryEvaluation[K] private (
   private def validJsonValueNames(
       scope: K,
       pack: Package.Typed[Any]
-  ): List[String] = {
+  ): List[Bindable] = {
     val v2j = valueToJsonFor(scope)
     pack.lets.iterator
       .collect { case (bindable, _, te) if v2j.supported(te.getType).isRight =>
-        Identifier.rawName(bindable)
+        bindable
       }
       .toSet
       .toList
@@ -327,7 +327,7 @@ object LibraryEvaluation {
     final case class ValueNotFound(
         pn: PackageName,
         name: Bindable,
-        validJsonValues: List[String]
+        validJsonValues: List[Bindable]
     ) extends LookupError {
       def message: String =
         s"value ${pn.asString}::${name.sourceCodeRepr} not found"

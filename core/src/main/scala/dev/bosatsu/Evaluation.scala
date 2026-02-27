@@ -26,7 +26,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           sys.error(s"from ${p.name} import unknown external def: $n")
         // $COVERAGE-ON$
       }
-      externals.toMap.get((p.name, Identifier.rawName(n))) match {
+      externals.toMap.get((p.name, n)) match {
         case Some(ext) => (n, Eval.later(ext.call(tpe)))
         case None      =>
           // $COVERAGE-OFF$

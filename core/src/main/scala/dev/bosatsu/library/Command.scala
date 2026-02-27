@@ -1350,7 +1350,7 @@ object Command {
             ) =>
           val validValuesMsg =
             if (validJsonValues.isEmpty) ""
-            else show"\nvalid json values: [${validJsonValues.mkString(", ")}]"
+            else show"\nvalid json values: [${validJsonValues.map(_.show).mkString(", ")}]"
 
           CliException.Basic(
             show"value not found: ${pn.asString}::${name.sourceCodeRepr}${validValuesMsg}"

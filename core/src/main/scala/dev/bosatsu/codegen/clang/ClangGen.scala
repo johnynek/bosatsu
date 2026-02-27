@@ -114,15 +114,15 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       new ExternalResolver {
         def external(
             p: PackageName,
-            s: String,
+            bn: Bindable,
             arity: Int
         ) =
-          (p -> Identifier.Name(s)) -> (
+          (p -> bn) -> (
             Code.Include.quote(stdExtFileName(p)),
             generatedName(
               ns.rootKey,
               p,
-              Identifier.Name(s)
+              bn
             ),
             arity
           )
@@ -144,7 +144,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               ns.rootKey,
               k,
               vs.toList.iterator
-                .map { case (_, n) => (Identifier.Name(n): Bindable) }
+                .map { case (_, n) => n }
                 .to(SortedSet)
             )
           }
