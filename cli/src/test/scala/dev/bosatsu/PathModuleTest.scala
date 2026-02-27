@@ -1,7 +1,6 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
-import cats.effect.IO
 import java.nio.file.{Path, Paths}
 import dev.bosatsu.tool.Output
 import org.scalacheck.{Arbitrary, Gen}
@@ -146,14 +145,12 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     PathModule.run(args.toList) match {
       case Left(h)   => fail(s"got help: $h on command: ${args.toList}")
       case Right(io) =>
-        io.attempt
-          .flatMap {
-            case Right(out) =>
-              PathModule.reportOutput(out).as(out)
-            case Left(err) =>
-              PathModule.reportException(err) *> IO.raiseError(err)
-          }
-          .unsafeRunSync()
+        io.attempt.unsafeRunSync() match {
+          case Right(out) =>
+            out
+          case Left(err)  =>
+            fail(s"${err.getMessage}\ncommand: ${args.toList.mkString(" ")}")
+        }
     }
 
   test("tool test direct run of a file") {

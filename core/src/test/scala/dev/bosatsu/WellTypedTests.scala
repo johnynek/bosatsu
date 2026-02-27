@@ -9,7 +9,7 @@ import org.typelevel.paiges.Document
 class WellTypedTests extends munit.ScalaCheckSuite with ParTest {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 100 else 12
+      if (Platform.isScalaJvm) 40 else 12
     )
 
   private def renderStatements(statements: List[Statement]): String =

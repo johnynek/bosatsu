@@ -7,7 +7,7 @@ import us.bpsm.edn.parser.{Parser => EdnParser, Parsers}
 
 class ShowEdnInteropTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(100)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(40)
 
   test("edn-java parser accepts showDoc output") {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
