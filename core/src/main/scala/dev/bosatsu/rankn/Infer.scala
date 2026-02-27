@@ -382,7 +382,7 @@ object Infer {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
-        s"unknown var in $tpeStr: $mess at $region"
+        s"unknown var in $tpeStr: $mess at ${region.show}"
       }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }

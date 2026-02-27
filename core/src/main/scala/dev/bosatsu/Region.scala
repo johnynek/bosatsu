@@ -1,25 +1,55 @@
 package dev.bosatsu
 
-import cats.{Order, Semigroup}
+import cats.{Hash, Order, Semigroup, Show}
 
-case class Region(start: Int, end: Int) {
-  def +(that: Region): Region =
-    Region(start, that.end)
+type Region = Region.Tpe
 
-  def -(that: Region): Region =
-    if (start < that.start && that.start <= end) Region(start, that.start - 1)
-    else this
-}
+object Region extends RegionLowPriority {
+  // Use an opaque type to pack two Int values into a Long
+  opaque type Tpe = Long
+  extension (tpe: Tpe) {
+    inline def start: Int = {
+      (tpe >>> 32).toInt
+    }
 
-object Region {
+    inline def end: Int = tpe.toInt
+
+    inline def eqv(that: Tpe): Boolean = tpe == that
+
+    inline def +(that:  Tpe): Tpe =
+      Region(tpe.start, that.end)
+
+    def -(that: Tpe): Tpe =
+      if (start < that.start && that.start <= end) Region(start, that.start - 1)
+      else tpe
+
+    def withEnd(end: Int): Tpe =
+      Region(tpe.start, end)
+  }
+
+  def apply(start: Int, end: Int): Tpe =
+    (start.toLong << 32) | (end.toLong & 0xffffffffL)
+
+
   implicit val ordering: Ordering[Region] =
-    Ordering.by((r: Region) => (r.start, r.end))
+    Ordering.Long
 
   implicit val regionOrder: Order[Region] =
-    Order.fromOrdering(using ordering)
+    new cats.kernel.instances.LongOrder
 
   implicit val regionSemigroup: Semigroup[Region] =
     Semigroup.instance(_ + _)
+
+  implicit val regionShow: Show[Region] =
+    Show.show(r => s"[${r.start}, ${r.end})")
+}
+
+private[bosatsu] trait RegionLowPriority {
+  implicit val regionHash: Hash[Region] =
+    new Hash[Region] {
+      def hash(x: Region): Int = x.hashCode
+      def eqv(x: Region, y: Region): Boolean = x.eqv(y)
+    }
 }
 
 trait HasRegion[T] {
