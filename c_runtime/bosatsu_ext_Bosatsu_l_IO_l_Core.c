@@ -1,4 +1,5 @@
 #include "bosatsu_ext_Bosatsu_l_IO_l_Core.h"
+#include "bosatsu_ext_Bosatsu_l_IO_l_Bytes.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 
 #include <dirent.h>
@@ -230,6 +231,11 @@ static BValue bsts_prog_effect3(BValue a, BValue b, BValue c, BValue (*fn)(BValu
   return alloc_enum2(5, alloc_struct3(a, b, c), alloc_boxed_pure_fn1(fn));
 }
 
+static BValue bsts_prog_effect4(BValue a, BValue b, BValue c, BValue d, BValue (*fn)(BValue))
+{
+  return alloc_enum2(5, alloc_struct4(a, b, c, d), alloc_boxed_pure_fn1(fn));
+}
+
 static BValue bsts_option_none(void)
 {
   return alloc_enum0(0);
@@ -365,6 +371,24 @@ static int bsts_int_arg_positive(BValue value, int *out)
     *out = (int)bsts_integer_to_int32(value);
   }
   return 1;
+}
+
+static int bsts_option_int(BValue option, _Bool *is_some, BValue *out_value)
+{
+  ENUM_TAG tag = get_variant(option);
+  if (tag == 0)
+  {
+    *is_some = 0;
+    *out_value = bsts_integer_from_int(0);
+    return 1;
+  }
+  if (tag == 1)
+  {
+    *is_some = 1;
+    *out_value = get_enum_index(option, 0);
+    return 1;
+  }
+  return 0;
 }
 
 static int bsts_join_path(char **out_path, const char *base, const char *name)
@@ -589,6 +613,322 @@ static BValue bsts_core_write_utf8_effect(BValue pair)
   }
 
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue bsts_core_read_bytes_effect(BValue pair)
+{
+  BValue handle_value = get_struct_index(pair, 0);
+  BValue max_bytes_value = get_struct_index(pair, 1);
+
+  BSTS_Core_Handle *handle = bsts_core_unbox_handle(handle_value);
+  if (handle->closed)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from closed handle"));
+  }
+  if (!handle->readable)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from write-only handle"));
+  }
+
+  int max_bytes = 0;
+  if (!bsts_int_arg_positive(max_bytes_value, &max_bytes))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("read_bytes max_bytes must be > 0"));
+  }
+
+  uint8_t *buf = (uint8_t *)malloc((size_t)max_bytes);
+  if (!buf)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "allocating read buffer"));
+  }
+
+  errno = 0;
+  size_t read_count = fread(buf, 1, (size_t)max_bytes, handle->file);
+  if (read_count == 0)
+  {
+    free(buf);
+    if (feof(handle->file))
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_none());
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "reading bytes"));
+  }
+
+  uint8_t *data = (uint8_t *)GC_malloc_atomic(read_count);
+  if (data == NULL)
+  {
+    free(buf);
+    perror("GC_malloc_atomic failure in bsts_core_read_bytes_effect");
+    abort();
+  }
+  memcpy(data, buf, read_count);
+  free(buf);
+
+  BValue bytes = bsts_bytes_wrap(data, 0, (int)read_count);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(bytes));
+}
+
+static BValue bsts_core_write_bytes_effect(BValue pair)
+{
+  BValue handle_value = get_struct_index(pair, 0);
+  BValue bytes_value = get_struct_index(pair, 1);
+
+  BSTS_Core_Handle *handle = bsts_core_unbox_handle(handle_value);
+  if (handle->closed)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("writing to closed handle"));
+  }
+  if (!handle->writable)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("writing to read-only handle"));
+  }
+
+  BSTS_Bytes *bytes = bsts_bytes_unbox(bytes_value);
+  errno = 0;
+  if (bytes->len > 0)
+  {
+    size_t wrote = fwrite(bytes->data + bytes->offset, 1, (size_t)bytes->len, handle->file);
+    if (wrote < (size_t)bytes->len)
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "writing bytes"));
+    }
+  }
+
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue bsts_core_read_all_bytes_effect(BValue pair)
+{
+  BValue handle_value = get_struct_index(pair, 0);
+  BValue chunk_size_value = get_struct_index(pair, 1);
+
+  BSTS_Core_Handle *handle = bsts_core_unbox_handle(handle_value);
+  if (handle->closed)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from closed handle"));
+  }
+  if (!handle->readable)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from write-only handle"));
+  }
+
+  int chunk_size = 0;
+  if (!bsts_int_arg_positive(chunk_size_value, &chunk_size))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("read_all_bytes chunk_size must be > 0"));
+  }
+
+  uint8_t *chunk_buf = (uint8_t *)malloc((size_t)chunk_size);
+  if (!chunk_buf)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "allocating read buffer"));
+  }
+
+  uint8_t *acc = NULL;
+  size_t total = 0;
+  size_t cap = 0;
+
+  while (1)
+  {
+    errno = 0;
+    size_t read_count = fread(chunk_buf, 1, (size_t)chunk_size, handle->file);
+    if (read_count == 0)
+    {
+      if (feof(handle->file))
+      {
+        break;
+      }
+      free(chunk_buf);
+      free(acc);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "reading bytes"));
+    }
+
+    if (total > (size_t)INT_MAX - read_count)
+    {
+      free(chunk_buf);
+      free(acc);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_invalid_argument("read_all_bytes result too large"));
+    }
+
+    size_t needed = total + read_count;
+    if (needed > cap)
+    {
+      size_t next_cap = cap == 0 ? needed : cap;
+      while (next_cap < needed)
+      {
+        if (next_cap > (SIZE_MAX / 2))
+        {
+          next_cap = needed;
+          break;
+        }
+        next_cap = next_cap * 2;
+      }
+
+      uint8_t *next = (uint8_t *)realloc(acc, next_cap);
+      if (!next)
+      {
+        free(chunk_buf);
+        free(acc);
+        return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+            bsts_ioerror_from_errno_default(errno, "growing read buffer"));
+      }
+      acc = next;
+      cap = next_cap;
+    }
+
+    memcpy(acc + total, chunk_buf, read_count);
+    total += read_count;
+
+    if ((read_count < (size_t)chunk_size) && feof(handle->file))
+    {
+      break;
+    }
+  }
+
+  free(chunk_buf);
+
+  if (total == 0)
+  {
+    free(acc);
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_bytes_empty());
+  }
+
+  uint8_t *data = (uint8_t *)GC_malloc_atomic(total);
+  if (data == NULL)
+  {
+    free(acc);
+    perror("GC_malloc_atomic failure in bsts_core_read_all_bytes_effect");
+    abort();
+  }
+  memcpy(data, acc, total);
+  free(acc);
+
+  BValue bytes = bsts_bytes_wrap(data, 0, (int)total);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bytes);
+}
+
+static BValue bsts_core_copy_bytes_effect(BValue args4)
+{
+  BValue src_value = get_struct_index(args4, 0);
+  BValue dst_value = get_struct_index(args4, 1);
+  BValue chunk_size_value = get_struct_index(args4, 2);
+  BValue max_total_value = get_struct_index(args4, 3);
+
+  BSTS_Core_Handle *src = bsts_core_unbox_handle(src_value);
+  BSTS_Core_Handle *dst = bsts_core_unbox_handle(dst_value);
+  if (src->closed)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from closed handle"));
+  }
+  if (!src->readable)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("reading from write-only handle"));
+  }
+  if (dst->closed)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("writing to closed handle"));
+  }
+  if (!dst->writable)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_bad_fd("writing to read-only handle"));
+  }
+
+  int chunk_size = 0;
+  if (!bsts_int_arg_positive(chunk_size_value, &chunk_size))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("copy_bytes chunk_size must be > 0"));
+  }
+
+  _Bool has_limit = 0;
+  BValue limit_value = bsts_integer_from_int(0);
+  if (!bsts_option_int(max_total_value, &has_limit, &limit_value))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("copy_bytes max_total must be Option[Int]"));
+  }
+
+  BValue zero = bsts_integer_from_int(0);
+  if (has_limit && (bsts_integer_cmp(limit_value, zero) < 0))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("copy_bytes max_total must be >= 0"));
+  }
+  if (has_limit && (bsts_integer_cmp(limit_value, zero) == 0))
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(zero);
+  }
+
+  uint8_t *buf = (uint8_t *)malloc((size_t)chunk_size);
+  if (!buf)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "allocating copy buffer"));
+  }
+
+  BValue copied = zero;
+  BValue chunk_size_int = bsts_integer_from_int(chunk_size);
+  while (1)
+  {
+    int to_read = chunk_size;
+    if (has_limit)
+    {
+      BValue remaining = bsts_integer_add(limit_value, bsts_integer_negate(copied));
+      if (bsts_integer_cmp(remaining, zero) <= 0)
+      {
+        break;
+      }
+      if (bsts_integer_cmp(remaining, chunk_size_int) < 0)
+      {
+        to_read = (int)bsts_integer_to_int32(remaining);
+      }
+    }
+
+    errno = 0;
+    size_t read_count = fread(buf, 1, (size_t)to_read, src->file);
+    if (read_count == 0)
+    {
+      if (feof(src->file))
+      {
+        break;
+      }
+      free(buf);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "reading bytes"));
+    }
+
+    errno = 0;
+    size_t wrote = fwrite(buf, 1, read_count, dst->file);
+    if (wrote < read_count)
+    {
+      free(buf);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+          bsts_ioerror_from_errno_default(errno, "writing bytes"));
+    }
+
+    copied = bsts_integer_add(copied, bsts_integer_from_int((int32_t)read_count));
+  }
+
+  free(buf);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(copied);
 }
 
 static BValue bsts_core_flush_effect(BValue handle_value)
@@ -1092,6 +1432,26 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__utf8(BValue h, BValue max_chars)
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__utf8(BValue h, BValue s)
 {
   return bsts_prog_effect2(h, s, bsts_core_write_utf8_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__bytes(BValue h, BValue max_bytes)
+{
+  return bsts_prog_effect2(h, max_bytes, bsts_core_read_bytes_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_write__bytes(BValue h, BValue bytes)
+{
+  return bsts_prog_effect2(h, bytes, bsts_core_write_bytes_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_read__all__bytes(BValue h, BValue chunk_size)
+{
+  return bsts_prog_effect2(h, chunk_size, bsts_core_read_all_bytes_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_copy__bytes(BValue src, BValue dst, BValue chunk_size, BValue max_total)
+{
+  return bsts_prog_effect4(src, dst, chunk_size, max_total, bsts_core_copy_bytes_effect);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_flush(BValue h)
