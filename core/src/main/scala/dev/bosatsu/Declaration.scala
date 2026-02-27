@@ -152,10 +152,7 @@ sealed abstract class Declaration derives CanEqual {
           }
 
         val piPat = Document[OptIndent[NonEmptyList[MatchBranch]]]
-        val kindDoc = kind match {
-          case RecursionKind.NonRecursive => Doc.text("match ")
-          case RecursionKind.Recursive    => Doc.text("recur ")
-        }
+        val kindDoc = Doc.text(kind.keyword) + Doc.space
         // TODO this isn't quite right
         kindDoc + typeName.toDoc + Doc.char(':') + args.sepDoc +
           piPat.document(args)
@@ -479,6 +476,14 @@ object Declaration {
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
+  }
+
+  sealed abstract class MatchKind(val isRecursive: Boolean, val keyword: String)
+      derives CanEqual
+  object MatchKind {
+    case object Match extends MatchKind(false, "match")
+    case object Recur extends MatchKind(true, "recur")
+    case object Loop extends MatchKind(true, "loop")
   }
 
   /** Try to substitute ex for ident in the expression: in
@@ -940,7 +945,7 @@ object Declaration {
       body: OptIndent[Declaration]
   ) derives CanEqual
   case class Match(
-      kind: RecursionKind,
+      kind: MatchKind,
       arg: NonBinding,
       cases: OptIndent[NonEmptyList[MatchBranch]]
   )(using val region: Region)
@@ -991,14 +996,20 @@ object Declaration {
       implicit val region: Region
   ) extends NonBinding
 
-  val matchKindParser: P[RecursionKind] =
-    P.string("match")
-      .as(RecursionKind.NonRecursive)
+  private def matchHeaderKeyword(keyword: String): P[Unit] =
+    (P.string(keyword) <* P.charIn(Set(' ', '\t')).peek).void
+
+  val matchKindParser: P[MatchKind] =
+    matchHeaderKeyword("match")
+      .as(MatchKind.Match)
       .orElse(
-        P.string("recur")
-          .as(RecursionKind.Recursive)
+        matchHeaderKeyword("recur")
+          .as(MatchKind.Recur)
       )
-      .soft <* Parser.spaces.peek
+      .orElse(
+        matchHeaderKeyword("loop")
+          .as(MatchKind.Loop)
+      )
 
   /** A pattern can also be a declaration in some cases
     *
@@ -1248,8 +1259,11 @@ object Declaration {
       (leadingComments.with1.soft *> branches).orElse(branches)
     }
 
-    val left =
-      Indy.lift(matchKindParser <* spaces).cutThen(arg).cutLeftP(maybeSpace)
+    val left: Indy[(MatchKind, NonBinding)] = Indy { indent =>
+      // Keep `loop` contextual: if header parsing fails, allow fallback to normal
+      // identifier parsing (`def loop(...)`, `loop = ...`, `loop(...)`).
+      (((matchKindParser <* spaces) ~ arg(indent)).backtrack <* maybeSpace)
+    }
     OptIndent
       .block(left, branchList)
       .region

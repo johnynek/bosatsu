@@ -123,9 +123,19 @@ object RecursionCheck {
     }
   }
 
+  case class LoopRequiresTailRecursion(
+      fnname: Bindable,
+      illegalPosition: Region
+  ) extends Error {
+    def region = illegalPosition
+    def message =
+      s"loop requires all recursive calls to ${fnname.sourceCodeRepr} to be in tail position."
+  }
+
   case class RecursiveDefNoRecur(
       fnname: Bindable,
       recurRegion: Region,
+      recurKind: Declaration.MatchKind,
       likelyRenamedCall: Option[(Bindable, Int)]
   ) extends Error {
     def region = recurRegion
@@ -134,7 +144,7 @@ object RecursionCheck {
         case Some((calledName, count)) =>
           s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count occurrences)"
         case None =>
-          s"recur but no recursive call to ${fnname.sourceCodeRepr}"
+          s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}"
       }
   }
 }

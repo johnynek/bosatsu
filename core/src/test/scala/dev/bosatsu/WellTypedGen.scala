@@ -788,7 +788,7 @@ object WellTypedGen {
           branchList <- branchGens.sequence
           cases = NonEmptyList.fromListUnsafe(branchList)
         } yield Declaration.Match(
-          RecursionKind.NonRecursive,
+          Declaration.MatchKind.Match,
           scrutinee,
           OptIndent.SameLine(cases)
         )).toVector

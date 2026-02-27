@@ -601,6 +601,47 @@ main = fn
     evalFail(List("""
 package A
 
+def fn(x):
+  loop x:
+    case y: 0
+
+main = fn
+""")) { case te @ PackageError.RecursionError(_, _) =>
+      assertEquals(
+        te.message(
+          Map.empty,
+          Colorize.None
+        ),
+        "in file: <unknown source>, package A\nloop but no recursive call to fn\nRegion(25,46)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(lst):
+  loop lst:
+    case []: Zero
+    case [_, *tail]: Succ(len(tail))
+
+main = len
+""")) { case te @ PackageError.RecursionError(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "loop requires all recursive calls to len to be in tail position."
+        ),
+        msg
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
 def parse_loop(x): x
 
 def parse_loopTypo(x):
