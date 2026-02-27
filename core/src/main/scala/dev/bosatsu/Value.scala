@@ -11,7 +11,7 @@ import scala.collection.immutable.SortedMap
 sealed abstract class Value derives CanEqual {
   import Value._
 
-  def asFn: NonEmptyList[Value] => Value =
+  inline def asFn: NonEmptyList[Value] => Value =
     this match {
       case FnValue(f) => f
       case other      =>
@@ -20,7 +20,7 @@ sealed abstract class Value derives CanEqual {
       // $COVERAGE-ON$
     }
 
-  def asSum: SumValue =
+  inline def asSum: SumValue =
     this match {
       case s: SumValue => s
       case _           =>
@@ -29,7 +29,7 @@ sealed abstract class Value derives CanEqual {
       // $COVERAGE-ON$
     }
 
-  def asProduct: ProductValue =
+  inline def asProduct: ProductValue =
     this match {
       case p: ProductValue => p
       case _               =>
@@ -38,7 +38,7 @@ sealed abstract class Value derives CanEqual {
       // $COVERAGE-ON$
     }
 
-  def asExternal: ExternalValue =
+  inline def asExternal: ExternalValue =
     this match {
       case ex: ExternalValue => ex
       case _                 =>
@@ -47,7 +47,7 @@ sealed abstract class Value derives CanEqual {
       // $COVERAGE-ON$
     }
 
-  final def applyAll(args: NonEmptyList[Value]): Value =
+  inline def applyAll(args: NonEmptyList[Value]): Value =
     asFn(args)
 }
 
@@ -57,15 +57,30 @@ object Value {
   private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
   private val MinIntBI = BigInteger.valueOf(Int.MinValue.toLong)
 
-  private[bosatsu] def intFromBigInteger(v: BigInteger): BosatsuInt =
+  private[bosatsu] inline def intFromBigInteger(v: BigInteger): BosatsuInt =
     if (v.compareTo(MinIntBI) >= 0 && v.compareTo(MaxIntBI) <= 0)
       java.lang.Integer.valueOf(v.intValue())
     else v
 
-  private[bosatsu] def intToBigInteger(v: BosatsuInt): BigInteger =
+  private[bosatsu] inline def intToBigInteger(v: BosatsuInt): BigInteger =
     v match {
       case i: java.lang.Integer => BigInteger.valueOf(i.longValue())
       case bi: BigInteger       => bi
+    }
+
+  private[bosatsu] inline def decrement(v: BosatsuInt): BosatsuInt =
+    v match {
+      case i: java.lang.Integer => java.lang.Integer.valueOf(i.intValue - 1)
+      case bi: BigInteger       => bi.subtract(BigInteger.ONE)
+    }
+
+  private[bosatsu] inline def increment(v: BosatsuInt): BosatsuInt =
+    v match {
+      case i: java.lang.Integer =>
+        val iv = i.intValue
+        if (iv < Int.MaxValue) java.lang.Integer.valueOf(iv + 1)
+        else MaxIntBI.add(BigInteger.ONE)
+      case bi: BigInteger       => bi.add(BigInteger.ONE)
     }
 
   private[bosatsu] def intCompare(a: BosatsuInt, b: BosatsuInt): Int =
@@ -80,7 +95,7 @@ object Value {
         ai.compareTo(bi)
     }
 
-  private[bosatsu] def intEq(a: BosatsuInt, b: BosatsuInt): Boolean =
+  private[bosatsu] inline def intEq(a: BosatsuInt, b: BosatsuInt): Boolean =
     intCompare(a, b) == 0
 
   final class ProductValue(val values: Array[Value]) extends Value {
@@ -104,10 +119,10 @@ object Value {
   val UnitValue: ProductValue = new ProductValue(new Array(0))
 
   object ProductValue {
-    def single(v: Value): ProductValue =
+    inline def single(v: Value): ProductValue =
       new ProductValue(Array(v))
 
-    def fromList(vs: List[Value]): ProductValue =
+    inline def fromList(vs: List[Value]): ProductValue =
       if (vs.isEmpty) UnitValue
       else new ProductValue(vs.toArray)
 
@@ -155,7 +170,7 @@ object Value {
     private lazy val constants: Array[SumValue] =
       (0 until constCount).map(new SumValue(_, UnitValue)).toArray
 
-    def apply(variant: Int, value: ProductValue): SumValue =
+    inline def apply(variant: Int, value: ProductValue): SumValue =
       if ((value == UnitValue) && ((variant & sizeMask) == 0))
         constants(variant)
       else new SumValue(variant, value)
@@ -172,7 +187,7 @@ object Value {
 
     case class SimpleFnValue(toFn: NonEmptyList[Value] => Value) extends Arg
 
-    def apply(toFn: NonEmptyList[Value] => Value): FnValue =
+    inline def apply(toFn: NonEmptyList[Value] => Value): FnValue =
       new FnValue(SimpleFnValue(toFn))
 
     def unapply(fnValue: FnValue): Some[NonEmptyList[Value] => Value] = Some(
@@ -194,16 +209,16 @@ object Value {
         case _               => None
       }
 
-    def fromList(vs: List[Value]): ProductValue =
+    inline def fromList(vs: List[Value]): ProductValue =
       ProductValue.fromList(vs)
 
-    def apply(vs: Value*): ProductValue =
+    inline def apply(vs: Value*): ProductValue =
       if (vs.isEmpty) UnitValue
       else new ProductValue(vs.toArray)
   }
 
   object Comparison {
-    def fromInt(i: Int): Value =
+    inline def fromInt(i: Int): Value =
       if (i < 0) LT else if (i > 0) GT else EQ
 
     val LT: Value = SumValue(0, UnitValue)
@@ -220,9 +235,9 @@ object Value {
     }
 
   object VInt {
-    def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
-    def apply(v: BigInt): Value = apply(v.bigInteger)
-    def apply(v: BigInteger): Value = ExternalValue(intFromBigInteger(v))
+    inline def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
+    inline def apply(v: BigInt): Value = apply(v.bigInteger)
+    inline def apply(v: BigInteger): Value = ExternalValue(intFromBigInteger(v))
     def unapply(v: Value): Option[BigInteger] =
       v match {
         case ExternalValue(v: java.lang.Integer) =>
@@ -232,10 +247,36 @@ object Value {
         case _ =>
           None
       }
+
+    val One: Value = apply(1)
+    val Zero: Value = apply(0)
+
+    inline def isZero(v: Value): Boolean =
+      v match {
+        case ExternalValue(v: java.lang.Integer) => v.intValue() == 0
+        case ExternalValue(v: BigInteger) => v.signum == 0
+        case _ => false
+      }
+
+    // TODO we could cache the a table of small values to reduce the double allocation here
+    def decrement(v: Value): Value =
+      v match {
+        case ExternalValue(v: BosatsuInt) =>
+          ExternalValue(Value.decrement(v))
+        case notInt =>
+          sys.error(s"decrement($notInt) invalid")
+      }
+    def increment(v: Value): Value =
+      v match {
+        case ExternalValue(v: BosatsuInt) =>
+          ExternalValue(Value.increment(v))
+        case notInt =>
+          sys.error(s"increment($notInt) invalid")
+      }
   }
 
   object Str {
-    def apply(str: String): Value = ExternalValue(str)
+    inline def apply(str: String): Value = ExternalValue(str)
     def unapply(v: Value): Option[String] =
       v match {
         case ExternalValue(str: String) => Some(str)
@@ -254,7 +295,7 @@ object Value {
 
   object VOption {
     val none: Value = SumValue(0, UnitValue)
-    def some(v: Value): Value = SumValue(1, ProductValue.single(v))
+    inline def some(v: Value): Value = SumValue(1, ProductValue.single(v))
 
     private val someNone = Some(None)
 
@@ -275,7 +316,7 @@ object Value {
   object VList {
     val VNil: Value = SumValue(0, UnitValue)
     object Cons {
-      def apply(head: Value, tail: Value): Value =
+      inline def apply(head: Value, tail: Value): Value =
         SumValue(1, new ProductValue(Array(head, tail)))
 
       def unapply(v: Value): Option[(Value, Value)] =

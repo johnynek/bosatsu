@@ -561,7 +561,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               dt.dataFamily match {
                 case DataFamily.Nat => {
-                  case ExternalValue(b: BigInteger) =>
+                  case ExternalValue(b: (BigInteger | java.lang.Integer)) =>
                     Right(Json.JNumberStr(b.toString))
                   case other =>
                     Left(IllTyped(revPath.reverse, tpe, other))

@@ -29,14 +29,9 @@ object MatchlessToValue {
 
   private object Impl {
 
-    private val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-    private val succNat: Value = {
-      def inc(v: Value): Value = {
-        val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
-        ExternalValue(bi.add(BigInteger.ONE))
-      }
-      FnValue { case NonEmptyList(a, _) => inc(a) }
-    }
+    private val zeroNat: Value = Value.VInt.Zero
+    private val succNat: Value =
+      FnValue { case NonEmptyList(a, _) => Value.VInt.increment(a) }
 
     def makeCons(c: ConsExpr): Value =
       c match {
@@ -262,13 +257,6 @@ object MatchlessToValue {
             )
         }
 
-      private def isZeroNat(external: Any): Boolean =
-        external match {
-          case i: java.lang.Integer => i.intValue() == 0
-          case bi: BigInteger       => bi.signum == 0
-          case _                    => false
-        }
-
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
@@ -301,11 +289,11 @@ object MatchlessToValue {
 
             if (zeroOrSucc.isZero)
               natF.map { v =>
-                isZeroNat(v.asExternal.toAny)
+                Value.VInt.isZero(v)
               }
             else
               natF.map { v =>
-                !isZeroNat(v.asExternal.toAny)
+                !Value.VInt.isZero(v)
               }
 
           case TrueConst     => Static(true)
@@ -522,12 +510,7 @@ object MatchlessToValue {
             }
           case PrevNat(expr) =>
             loop(expr).map { bv =>
-              // TODO we could cache
-              // small numbers to make this
-              // faster
-              val anyBI = bv.asExternal.toAny
-              val bi = anyBI.asInstanceOf[BigInteger]
-              ExternalValue(bi.subtract(BigInteger.ONE))
+              Value.VInt.decrement(bv)
             }
           case cons: ConsExpr =>
             val c = makeCons(cons)
