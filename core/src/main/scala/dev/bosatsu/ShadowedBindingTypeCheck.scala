@@ -12,6 +12,7 @@ object ShadowedBindingTypeCheck {
   sealed abstract class BindingSite(val label: String)
   object BindingSite {
     case object TopLevel extends BindingSite("top-level binding")
+    case object LambdaArg extends BindingSite("lambda argument")
     case object LetBinding extends BindingSite("let binding")
     case object LoopBinding extends BindingSite("loop binding")
     case object PatternBinding extends BindingSite("pattern binding")
@@ -90,6 +91,15 @@ object ShadowedBindingTypeCheck {
     fromPattern.collect { case (b: Bindable, tpe) => (b, tpe) }
   }
 
+  private def directLambdaParamName(
+      pattern: Pattern.Parsed
+  ): Option[Bindable] =
+    pattern match {
+      case Pattern.Var(name)            => Some(name)
+      case Pattern.Annotation(inner, _) => directLambdaParamName(inner)
+      case _                            => None
+    }
+
   private def checkExpr(
       expr: TypedExpr[Declaration],
       env: Env,
@@ -100,11 +110,31 @@ object ShadowedBindingTypeCheck {
         checkExpr(in, env, tctx.pushQuantification(quant))
       case TypedExpr.Annotation(term, _, _) =>
         checkExpr(term, env, tctx)
-      case TypedExpr.AnnotatedLambda(_, body, _) =>
+      case TypedExpr.AnnotatedLambda(args, body, tag) =>
         // Lambda/def boundaries start a fresh local scope for this lint.
+        // Parameters are tracked inside the function body so local let/match/loop
+        // rebinding is still checked against argument types.
         // This allows parameter (and pattern-arg desugaring) shadowing while still
         // enforcing let/match/loop consistency within each function body.
-        checkExpr(body, Map.empty, tctx)
+        val sourceArgs = TypedExpr.sourceLambdaArgs(expr)
+        val checkableArgs: List[(Bindable, Type)] =
+          args.toList.zip(sourceArgs).collect {
+            case ((name, tpe), sourceArg)
+                if directLambdaParamName(sourceArg).contains(name) => (name, tpe)
+          }
+        val (argCheck, lambdaEnv) =
+          checkableArgs.foldLeft((unitValid, Map.empty[Bindable, BoundInfo])) {
+            case ((acc, envAcc), (name, tpe)) =>
+              val current = BoundInfo(
+                tpe = tpe,
+                canonicalTpe = tctx.canonicalize(tpe),
+                region = tag.region,
+                site = BindingSite.LambdaArg
+              )
+              val nextAcc = acc *> checkBinding(envAcc, name, current)
+              (nextAcc, addBinding(envAcc, name, current))
+          }
+        argCheck *> checkExpr(body, lambdaEnv, tctx)
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
         unitValid

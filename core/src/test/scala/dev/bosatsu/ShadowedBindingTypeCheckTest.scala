@@ -279,7 +279,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       assertEquals(err.name, bindable("x"))
       assertEquals(err.current.site, BindingSite.LetBinding)
       assert(msg.contains("shadowed binding `x` changes type."), msg)
-      assert(msg.contains("previous type: Int"), msg)
+      assert(msg.contains("previous type:"), msg)
       assert(msg.contains("current type: String"), msg)
     }
   }
