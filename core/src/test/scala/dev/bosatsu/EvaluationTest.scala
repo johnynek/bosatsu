@@ -2764,7 +2764,7 @@ b = Item(1)
 def loop[a](box: Box[a]) -> a:
   recur box:
     case Item(a): a
-    case Next(cont): cont((box, fn) -> fn(loop(box)))
+    case Next(cont): cont((bx, fn) -> fn(loop(bx)))
 
 v = loop(b)
 main = v

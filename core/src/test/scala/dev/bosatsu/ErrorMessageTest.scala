@@ -89,6 +89,40 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("shadowed binding type mismatch has a focused message") {
+    val source =
+      """package Shadowed
+        |
+        |main = (
+        |  x = 1
+        |  x = "str"
+        |  x
+        |)
+        |""".stripMargin
+
+    val sourceMap = Map(PackageName.parts("Shadowed") -> (LocationMap(source), "<test>"))
+
+    evalFail(List(source)) {
+      case se @ PackageError.ShadowedBindingTypeError(_, _, _) =>
+        val message = se.message(sourceMap, Colorize.None)
+        assert(message.contains("shadowed binding `x` changes type."), message)
+        assert(message.contains("previous type: Int"), message)
+        assert(message.contains("current type: String"), message)
+        assert(
+          message.contains(
+            "hint: rename the binding or keep the same type when shadowing."
+          ),
+          message
+        )
+        assert(message.contains("previous binding context:"), message)
+        assert(message.contains("current binding context:"), message)
+        assert(message.contains("x = 1"), message)
+        assert(message.contains("x = \"str\""), message)
+        assert(!message.contains("_shadow_t"), message)
+        ()
+    }
+  }
+
   test("test matching unions") {
     evalTest(
       List("""
@@ -1647,7 +1681,7 @@ package Foo
 def foo[a](a: a) -> a:
   x: a = a
   def again(x: a): x
-  def and_again[b](x: b): x
+  def and_again[b](y: b): y
   and_again(again(x))
   
 test = Assertion(foo(True), "")
