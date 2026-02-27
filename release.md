@@ -6,7 +6,7 @@ This repo publishes releases when a `v*` tag is pushed. The GitHub Actions workf
 
 1) Make sure `main` is clean and updated locally.
 2) The project version is derived from the git tag via `sbt-dynver`. No version edit in `build.sbt` is required.
-   - `versionString` in `build.sbt` is the Scala version (`"3.8.1"`). Only change this if you are upgrading Scala.
+   - `versionString` in `build.sbt` is the Scala version. Only change this if you are upgrading Scala.
 3) Tag and push:
 
 ```sh

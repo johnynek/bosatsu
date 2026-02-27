@@ -7,7 +7,7 @@ lazy val generateCoreAlphaParadoxDocs =
     "Generate core_alpha markdown docs (including predef) and copy them into paradox sources"
   )
 
-lazy val versionString = "3.8.1"
+lazy val versionString = "3.8.2"
 
 ThisBuild / scalaVersion := versionString
 ThisBuild / crossScalaVersions := Seq(versionString)

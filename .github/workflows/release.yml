@@ -105,8 +105,13 @@ jobs:
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
         run: |
-          sbt "++3.8.1; cli/assembly; cliJSJS/fullOptJS"
-          cp cli/target/scala-3.8.1/bosatsu-cli-assembly-*.jar bosatsu.jar
+          sbt "cli/assembly; cliJSJS/fullOptJS"
+          jar_path="$(ls -1t cli/target/scala-*/bosatsu-cli-assembly-*.jar 2>/dev/null | head -n 1 || true)"
+          if [ -z "$jar_path" ]; then
+            echo "Assembly jar not found under cli/target/scala-*/" >&2
+            exit 1
+          fi
+          cp "$jar_path" bosatsu.jar
           target_dir=""
           for d in cliJS/.js/target/scala-*; do
             if [ -d "$d" ]; then
@@ -191,7 +196,7 @@ jobs:
           BOSATSU_NATIVE_IMAGE_CLIB_PATH: "/usr/local/musl/lib"
           CC: musl-gcc
         run: |
-          sbt "++3.8.1; cli/nativeImage"
+          sbt "cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-linux
       - name: Upload linux native image
         uses: actions/upload-artifact@v4
@@ -230,7 +235,7 @@ jobs:
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
         run: |
-          sbt "++3.8.1; cli/nativeImage"
+          sbt "cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-macos
           uname -m
           file bosatsu-macos
@@ -289,7 +294,7 @@ jobs:
       - name: Build assembly for lib publish
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
-        run: sbt "++3.8.1; cli/assembly"
+        run: sbt "cli/assembly"
       - name: Publish Bosatsu libraries
         env:
           REPO_ROOT: ${{ github.workspace }}

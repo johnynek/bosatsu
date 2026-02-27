@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import cats.data.NonEmptyList
 import java.nio.file.{Path, Paths}
-import dev.bosatsu.tool.Output
+import dev.bosatsu.tool.{ExitCode => ToolExitCode, Output}
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 import scala.concurrent.duration._
@@ -153,6 +153,18 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         }
     }
 
+  def runAndReport(args: String*): ToolExitCode =
+    PathModule.runAndReport(args.toList) match {
+      case Left(h)   => fail(s"got help: $h on command: ${args.toList}")
+      case Right(io) =>
+        io.attempt.unsafeRunSync() match {
+          case Right(code) =>
+            code
+          case Left(err)   =>
+            fail(s"${err.getMessage}\ncommand: ${args.toList.mkString(" ")}")
+        }
+    }
+
   test("tool test direct run of a file") {
     val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
     val inputs =
@@ -189,6 +201,15 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         assertEquals(res.head.failureCount, 0)
       case other => fail(s"expected test output: $other")
     }
+  }
+
+  test("tool eval --run executes Bosatsu/FibBench::main") {
+    val cmd =
+      "tool eval --run --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu fibbench 20"
+        .split("\\s+")
+        .toSeq
+    val exitCode = runAndReport(cmd*)
+    assertEquals(exitCode, ToolExitCode.Success)
   }
 
   test("tool test python transpile on the entire test_workspace") {

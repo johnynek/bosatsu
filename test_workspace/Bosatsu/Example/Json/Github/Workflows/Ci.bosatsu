@@ -348,7 +348,7 @@ workflow =
         runner_ubuntu_latest,
         [
           *java_matrix_bootstrap_steps,
-          Step { name: Set("build assembly"), run: Set("sbt \"++3.8.1; cli/assembly\"") },
+          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
             name: Set("dry run bosatsu lib publish"),
             run: Set(run_publish_bosatsu_libs),

@@ -376,7 +376,7 @@ jobs:
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
-        run: 'sbt "++3.8.1; cli/assembly"'
+        run: 'sbt "cli/assembly"'
       - name: "dry run bosatsu lib publish"
         env:
           REPO_ROOT: ${{ github.workspace }}
