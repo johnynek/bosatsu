@@ -249,6 +249,17 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       // $COVERAGE-ON$
     }
 
+  def fieldName(n: Identifier.Bindable): String = {
+    import Identifier.{Name, Backticked, Operator, Synthetic}
+    n match {
+      case Name(n) => n
+      case Backticked(n) => n
+      // these are kind of weird, but I guess allowed
+      case Operator(n) => n
+      case Synthetic(n) => n
+    }
+  }
+
   /** Convert a typechecked value to Json
     *
     * Note, we statically build the conversion function if it is possible at
@@ -264,6 +275,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     type Fn = Value => Either[IllTyped, Json]
     // when we complete a custom type, we put it in here
     val successCache: MMap[Type, Eval[Fn]] = MMap()
+
 
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       // we know we can support this, so when we recurse it
@@ -594,12 +606,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                             case OptionalT(inner) =>
                               loop(inner, fullPath)
                                 .map(
-                                  fn => OptionalField(Identifier.rawName(param.name), fn)
+                                  fn => OptionalField(fieldName(param.name), fn)
                                 )
                             case _ =>
                               loop(subsT, fullPath)
                                 .map(
-                                  fn => RequiredField(Identifier.rawName(param.name), fn)
+                                  fn => RequiredField(fieldName(param.name), fn)
                                 )
                           }
                         }
@@ -1009,7 +1021,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   OptionalField(
                                     fieldIdx,
-                                    Identifier.rawName(param.name),
+                                    fieldName(param.name),
                                     fn
                                   )
                               )
@@ -1018,7 +1030,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   RequiredField(
                                     fieldIdx,
-                                    Identifier.rawName(param.name),
+                                    fieldName(param.name),
                                     fn
                                   )
                               )

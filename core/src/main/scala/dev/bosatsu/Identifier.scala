@@ -11,8 +11,7 @@ import Parser.{lowerIdent, upperIdent}
 import cats.implicits._
 
 sealed abstract class Identifier derives CanEqual {
-  def sourceCodeRepr: String =
-    Identifier.document.document(this).renderWideStream.mkString
+  def sourceCodeRepr: String
 
   final override def equals(that: Any): Boolean =
     that match {
@@ -43,34 +42,37 @@ object Identifier {
     */
   sealed abstract class Bindable extends Identifier
 
-  final case class Constructor(asString: String) extends Identifier
-  final case class Name(asString: String) extends Bindable
-  final case class Backticked(asString: String) extends Bindable
-  final case class Operator(asString: String) extends Bindable
-  final case class Synthetic(asString: String) extends Bindable
-
-  def rawName(bindable: Bindable): String =
-    bindable match {
-      case Name(s)       => s
-      case Backticked(s) => s
-      case Operator(s)   => s
-      case Synthetic(s)  => s
+  final case class Constructor(asString: String) extends Identifier {
+    def sourceCodeRepr = asString
+  }
+  final case class Name(asString: String) extends Bindable {
+    def sourceCodeRepr = asString
+  }
+  final case class Backticked(asString: String) extends Bindable {
+    lazy val sourceCodeRepr = {
+      val quote = "`"
+      val escaped = Parser.escape('`', asString)
+      s"$quote$escaped$quote"
     }
+  }
 
-  def rawName(ident: Identifier): String =
-    ident match {
-      case Constructor(s) => s
-      case b: Bindable    => rawName(b)
-    }
+  final case class Operator(asString: String) extends Bindable {
+    lazy val sourceCodeRepr = opPrefixStr + asString
+  }
 
-  private def nonSyntheticText(ident: Identifier): String =
+  type Syntax = Constructor | Name | Backticked | Operator
+
+  final case class Synthetic(asString: String) extends Bindable {
+    // this is a lie, nothing like this parses, but that means it won't collide
+    def sourceCodeRepr = asString
+  }
+
+  private def nonSyntheticText(ident: Syntax): String =
     ident match {
       case Constructor(s) => s
       case Name(s)        => s
       case Backticked(s)  => s
       case Operator(s)    => s
-      case Synthetic(_)   =>
-        sys.error("nonSyntheticText called on Synthetic")
     }
 
   // Keep legacy by-text identity for user-authored names, but make synthetics
@@ -83,8 +85,8 @@ object Identifier {
       case (Synthetic(sl), Synthetic(sr)) => sl == sr
       case (Synthetic(_), _) | (_, Synthetic(_)) =>
         false
-      case _ =>
-        nonSyntheticText(left) == nonSyntheticText(right)
+      case (nsL: Syntax, nsR: Syntax) =>
+        nonSyntheticText(nsL) == nonSyntheticText(nsR)
     }
 
   // hashCode must follow the same split identity policy as equals.
@@ -95,8 +97,8 @@ object Identifier {
           s,
           0x3294d30f
         )
-      case _ =>
-        nonSyntheticText(ident).hashCode
+      case synBind: Syntax =>
+        nonSyntheticText(synBind).hashCode
     }
 
   private def hashableKey(ident: Identifier): String =
@@ -111,8 +113,8 @@ object Identifier {
     ident match {
       case Synthetic(s) =>
         (0, s)
-      case _ =>
-        (1, nonSyntheticText(ident))
+      case nonSyn: Syntax =>
+        (1, nonSyntheticText(nonSyn))
     }
 
   given Hashable[Identifier] = Hashable.by(hashableKey)
@@ -122,7 +124,7 @@ object Identifier {
       Hashable[Identifier].narrow[Constructor]
   }
 
-  private val opPrefix = Doc.text("operator ")
+  private val opPrefixStr = "operator "
 
   object Bindable {
     implicit def bindableOrder: Order[Bindable] =
@@ -174,15 +176,9 @@ object Identifier {
       freshPrefixedSyntheticIterator(prefix, avoid.apply)
   }
 
+
   implicit def document[A <: Identifier]: Document[A] =
-    Document.instance[A] {
-      case Backticked(lit) =>
-        Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
-      case Constructor(n) => Doc.text(n)
-      case Name(n)        => Doc.text(n)
-      case Synthetic(n)   => Doc.text(n)
-      case Operator(n)    => opPrefix + Doc.text(n)
-    }
+    Document.instance[A](i => Doc.text(i.sourceCodeRepr))
 
   val nameParser: P[Name] =
     lowerIdent.map(n => Name(n.intern))
