@@ -134,7 +134,11 @@ class RankNInferTest extends munit.FunSuite {
       case Right(tpes) =>
         assertEquals(tpes.size, terms.size)
         terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
-          assertEquals(n, n1.asString, s"the name changed: $n != $n1")
+          assertEquals(
+            n,
+            n1.sourceCodeRepr,
+            s"the name changed: $n != $n1"
+          )
           assertEquals(
             te.getType,
             expt,

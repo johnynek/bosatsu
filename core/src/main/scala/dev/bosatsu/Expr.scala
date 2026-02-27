@@ -426,9 +426,7 @@ object Expr {
       }
 
   private[bosatsu] def nameIterator(): Iterator[Bindable] =
-    Type.allBinders.iterator
-      .map(_.name)
-      .map(Identifier.Name(_))
+    Identifier.Bindable.syntheticIterator
 
   def buildPatternLambda[A](
       args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],

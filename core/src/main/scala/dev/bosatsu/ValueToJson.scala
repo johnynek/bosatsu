@@ -593,10 +593,14 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           subsT match {
                             case OptionalT(inner) =>
                               loop(inner, fullPath)
-                                .map(fn => OptionalField(param.name.asString, fn))
+                                .map(
+                                  fn => OptionalField(Identifier.rawName(param.name), fn)
+                                )
                             case _ =>
                               loop(subsT, fullPath)
-                                .map(fn => RequiredField(param.name.asString, fn))
+                                .map(
+                                  fn => RequiredField(Identifier.rawName(param.name), fn)
+                                )
                           }
                         }
                         rec.map(fields => (idx, fields))
@@ -1005,7 +1009,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   OptionalField(
                                     fieldIdx,
-                                    param.name.asString,
+                                    Identifier.rawName(param.name),
                                     fn
                                   )
                               )
@@ -1014,7 +1018,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 fn =>
                                   RequiredField(
                                     fieldIdx,
-                                    param.name.asString,
+                                    Identifier.rawName(param.name),
                                     fn
                                   )
                               )

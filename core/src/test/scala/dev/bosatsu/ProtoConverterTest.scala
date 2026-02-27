@@ -115,6 +115,45 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     )(testFn)
   }
 
+  test(
+    "TypedExpr proto roundtrip keeps synthetic and backticked underscore names distinct"
+  ) {
+    val intType = rankn.Type.IntType
+    val synthetic = Identifier.synthetic("x")
+    val backticked = Identifier.Backticked("_x")
+    val literal = TypedExpr.Literal(Lit.fromInt(1), intType, ())
+    val expr = TypedExpr.Let(
+      synthetic,
+      literal,
+      TypedExpr.Let(
+        backticked,
+        TypedExpr.Local(synthetic, intType, ()),
+        TypedExpr.Local(backticked, intType, ()),
+        RecursionKind.NonRecursive,
+        ()
+      ),
+      RecursionKind.NonRecursive,
+      ()
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          decodedExpr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- decodedExpr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(expr)
+  }
+
   test("we can roundtrip Loop/Recur TypedExpr through proto") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")

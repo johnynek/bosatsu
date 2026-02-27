@@ -45,7 +45,7 @@ main = parse_value(" null")
   private val reproPackage = PackageName.parts("MyLib", "ReproMin8")
   private val parseValueName = Identifier.Name("parse_value")
   private val mainName = Identifier.Name("main")
-  private val capturedBName = Identifier.Name("b")
+  private val capturedBName = Identifier.synthetic("b")
 
   private def withRepro[A](
       fn: (PackageMap.Inferred, PackageName) => A

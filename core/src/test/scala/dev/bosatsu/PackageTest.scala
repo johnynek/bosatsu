@@ -361,7 +361,7 @@ main = helper
             .program
             ._1
             .lets
-            .map(_._1.asString)
+            .map(_._1.sourceCodeRepr)
       }
 
     assert(!defsOf(optimized).contains("helper"), defsOf(optimized).toString)
@@ -384,12 +384,12 @@ main = todo(42)
       PackageMap
         .predefCompiledForMode(CompileOptions.Mode.Emit)
         .exports
-        .map(_.name.asString)
+        .map(_.name.sourceCodeRepr)
     val typeCheckExports =
       PackageMap
         .predefCompiledForMode(CompileOptions.Mode.TypeCheckOnly)
         .exports
-        .map(_.name.asString)
+        .map(_.name.sourceCodeRepr)
 
     assert(!emitExports.contains("todo"), emitExports.toString)
     assert(typeCheckExports.contains("todo"), typeCheckExports.toString)

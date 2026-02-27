@@ -598,7 +598,7 @@ object MarkdownDoc {
         }
       }
       .toList
-    sortByName(pairs)(_._1.asString)
+    sortByName(pairs)(_._1.sourceCodeRepr)
 
   private def escapingDependencies(
       pack: Package.Typed[Any],

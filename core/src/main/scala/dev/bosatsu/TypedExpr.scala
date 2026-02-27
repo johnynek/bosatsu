@@ -2823,9 +2823,7 @@ object TypedExpr {
              * sure what is buying us.
              */
             val avoid = allVarsSet(expr :: Nil)
-            val nameGen = Type.allBinders.iterator
-              .map(v => Identifier.Name(v.name))
-              .filterNot(avoid)
+            val nameGen = Identifier.Bindable.freshSyntheticIterator(avoid)
             val lamArgs = arg.map(t => (nameGen.next(), t))
             val aArgs = lamArgs.map { case (n, t) => Local(n, t, expr.tag) }
             // name -> (expr((name: arg)): result)
