@@ -79,6 +79,10 @@ allowed to reset or increase only after an earlier argument decreases.
 `loop` has the same termination checks as `recur`, and adds one extra
 requirement: every recursive self-call must be in tail position.
 
+Unlike `recur`, `loop` is also a stack-safety guarantee: accepted `loop`
+definitions are compiled to loops and run in constant stack space. If a
+recursive call is not in tail position, compilation fails.
+
 ```bosatsu
 def size1(list, acc):
   loop list:
@@ -86,9 +90,9 @@ def size1(list, acc):
     case [_, *t]: size1(t, Succ(acc))
 ```
 
-Use `loop` when you want the compiler to enforce tail recursion. Use `recur`
-when recursion is terminating but intentionally non-tail (for example,
-`Succ(len(tail))` style code).
+Prefer `loop` whenever possible so stack exhaustion is ruled out by the type
+checker/compiler. Use `recur` when recursion is terminating but intentionally
+non-tail (for example, `Succ(len(tail))` style code).
 
 ## Pattern 1: Structural Recursion On Lists
 This is the most common pattern. Recur directly on the list and call the same
@@ -348,8 +352,9 @@ How that maps to Bosatsu practice:
 1. If not, compute a bound and recurse on that fuel (`Nat` is usually easiest).
 1. If recursion uses multiple arguments, prefer `recur (a, b, ...)` and check
    lexicographic decrease in that order.
-1. If the recursive calls should be guaranteed tail-recursive, use `loop`
-   instead of `recur`.
+1. Prefer `loop` whenever the algorithm can be tail-recursive, so stack
+   exhaustion is impossible by construction. Use `recur` only when non-tail
+   recursion is required.
 
 1. For parsing-like string scans, either recurse on string tail directly or use
    length-derived fuel.

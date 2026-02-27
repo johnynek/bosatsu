@@ -997,7 +997,9 @@ object Declaration {
   ) extends NonBinding
 
   private def matchHeaderKeyword(keyword: String): P[Unit] =
-    (P.string(keyword) <* P.charIn(Set(' ', '\t')).peek).void
+    // Backtrack only at keyword boundary so `loop(...)` stays a normal
+    // identifier/apply expression while `loop <target>:` parses as a header.
+    ((P.string(keyword) <* P.charIn(Set(' ', '\t')).peek).backtrack).void
 
   val matchKindParser: P[MatchKind] =
     matchHeaderKeyword("match")
@@ -1260,9 +1262,10 @@ object Declaration {
     }
 
     val left: Indy[(MatchKind, NonBinding)] = Indy { indent =>
-      // Keep `loop` contextual: if header parsing fails, allow fallback to normal
-      // identifier parsing (`def loop(...)`, `loop = ...`, `loop(...)`).
-      (((matchKindParser <* spaces) ~ arg(indent)).backtrack <* maybeSpace)
+      // Keep `loop` contextual in declaration position:
+      // - `loop = ...` should remain a normal binding
+      // - malformed recursion headers should commit once the header is chosen
+      ((((matchKindParser <* spaces).soft <* P.not(P.char('='))) ~ arg(indent)) <* maybeSpace)
     }
     OptIndent
       .block(left, branchList)
