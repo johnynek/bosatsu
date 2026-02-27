@@ -9,7 +9,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 import Arbitrary.arbitrary
 import Identifier.{Bindable, Constructor}
-import TestUtils.checkLast
+import TestUtils.{checkEnvExpr, checkLast}
 import rankn.{Type, NTypeGen, RefSpace}
 
 class TypedExprTest extends munit.ScalaCheckSuite {
@@ -23,6 +23,57 @@ class TypedExprTest extends munit.ScalaCheckSuite {
     checkLast(s1) { t1 =>
       checkLast(s2) { t2 =>
         assertEquals(t1.void, t2.void)
+      }
+    }
+
+  private def parseBindPattern(s: String): Pattern.Parsed =
+    Parser.unsafeParse(Pattern.bindParser, s)
+
+  private def normalizeSource(source: String): String = {
+    val lines = source.linesIterator.toList
+    val nonEmpty = lines.filter(_.trim.nonEmpty)
+    val sharedIndent =
+      nonEmpty
+        .map(_.takeWhile(_.isWhitespace).length)
+        .minOption
+        .getOrElse(0)
+
+    lines
+      .map { line =>
+        if (line.length >= sharedIndent) line.drop(sharedIndent)
+        else line.trim
+      }
+      .mkString("\n")
+      .trim
+  }
+
+  private def stripLambdaWrappers(
+      te: TypedExpr[Declaration]
+  ): TypedExpr[Declaration] =
+    te match {
+      case TypedExpr.Generic(_, in)       => stripLambdaWrappers(in)
+      case TypedExpr.Annotation(term, _, _) => stripLambdaWrappers(term)
+      case other                          => other
+    }
+
+  private def assertLambdaArgsFromLast(
+      statement: String,
+      args: List[String]
+  ): Unit =
+    checkEnvExpr(normalizeSource(statement)) { (_, lets) =>
+      val te =
+        lets.lastOption match {
+          case Some((_, _, expr)) => expr
+          case None               => fail("expected at least one typed let")
+        }
+      stripLambdaWrappers(te) match {
+        case lam @ TypedExpr.AnnotatedLambda(_, _, _) =>
+          assertEquals(
+            TypedExpr.sourceLambdaArgs(lam),
+            args.map(parseBindPattern)
+          )
+        case other =>
+          fail(s"expected annotated lambda, found: ${other.reprString}")
       }
     }
 
@@ -114,6 +165,58 @@ x = Tup2(1, 2)
 y = match x:
   case Tup2(a, _): a
 """)(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
+  }
+
+  test("TypedExpr.sourceLambdaArgs returns source lambda args for var, annotation and wildcard patterns") {
+    assertLambdaArgsFromLast(
+      """
+      main = (x, y) -> (
+        _ = y
+        x
+      )
+      """,
+      List("x", "y")
+    )
+
+    assertLambdaArgsFromLast(
+      """
+      enum X: X0
+      enum Y: Y0
+      main = (x: X, y: Y) -> (
+        _ = y
+        x
+      )
+      """,
+      List("x: X", "y: Y")
+    )
+
+    assertLambdaArgsFromLast(
+      """
+      main = (_, y) -> y
+      """,
+      List("_", "y")
+    )
+  }
+
+  test("TypedExpr.sourceLambdaArgs returns source def args") {
+    assertLambdaArgsFromLast(
+      """
+      def pair_left(x, y):
+        _ = y
+        x
+      """,
+      List("x", "y")
+    )
+
+    assertLambdaArgsFromLast(
+      """
+      enum X: X0
+      def pick(x: X, y: X):
+        match y:
+          case X0: x
+      """,
+      List("x", "y")
+    )
   }
 
   test("we can inline struct/destruct") {
@@ -3377,8 +3480,8 @@ enum L[a]: E, NE(head: a, tail: L[a])
 
 x = (
   def go(y, z):
-    def loop(z1):
-      recur z1:
+    def loop(z):
+      recur z:
         case E: y
         case NE(_, t): loop(t)
 

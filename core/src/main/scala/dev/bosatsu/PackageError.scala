@@ -1310,6 +1310,57 @@ object PackageError {
     }
   }
 
+  case class ShadowedBindingTypeError(
+      pack: PackageName,
+      err: ShadowedBindingTypeCheck.Error,
+      localTypeNames: Set[TypeName] = Set.empty
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val current = err.current
+      val previous = err.previous
+      val tmap = showTypes(
+        pack,
+        List(previous.tpe, current.tpe),
+        localTypeNames
+      )
+      val currentContext = lm
+        .showRegion(current.region, 2, errColor)
+        .getOrElse(Doc.str(current.region))
+      val previousContext = lm
+        .showRegion(previous.region, 2, errColor)
+        .getOrElse(Doc.str(previous.region))
+      val prefix = sourceMap.headLine(pack, Some(current.region))
+      val doc =
+        prefix + Doc.hardLine +
+          Doc.text("shadowed binding ") +
+          quoted(err.name) +
+          Doc.text(" changes type.") + Doc.hardLine +
+          Doc.text("previous type: ") + tmap(previous.tpe) + Doc.hardLine +
+          Doc.text("current type: ") + tmap(current.tpe) + Doc.hardLine +
+          Doc.text("previous binding site: ") + Doc.text(previous.site.label) +
+          Doc.hardLine +
+          Doc.text("current binding site: ") + Doc.text(current.site.label) +
+          Doc.hardLine +
+          Doc.text(
+            "hint: rename the binding or keep the same type when shadowing."
+          ) +
+          Doc.hardLine +
+          Doc.text("previous binding context:") +
+          Doc.hardLine +
+          previousContext +
+          Doc.hardLine +
+          Doc.text("current binding context:") +
+          Doc.hardLine +
+          currentContext
+
+      doc.render(80)
+    }
+  }
+
   case class DuplicatedPackageError(
       dups: NonEmptyMap[PackageName, (String, NonEmptyList[String])]
   ) extends PackageError {

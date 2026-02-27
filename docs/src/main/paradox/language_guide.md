@@ -154,8 +154,9 @@ Note this is a difference from python: in python capturing works by reference, n
 by value, so if the original value is changed, so is the capture. Not so in
 Bosatsu: lexical scope is always in play.
 
-We recommend not changing the type of a name in a given scope (and may enforce
-this in the future).
+Bosatsu enforces that shadowing for `let` bindings and `match` pattern
+bindings within a `def`, and within the body of a top-level binding, keeps the
+same type. `def` and lambda parameters may always start a new shadow.
 
 ### Naming style
 For consistency across the bosatsu compiler repository, prefer these naming

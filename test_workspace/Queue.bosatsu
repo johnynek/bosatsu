@@ -75,7 +75,7 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
 
 def eq_Option(eq_inner)(a, b):
     match (a, b):
-        case (Some(a), Some(b)): eq_inner(a, b)
+        case (Some(av), Some(bv)): eq_inner(av, bv)
         case (None, None): True
         case _: False
 

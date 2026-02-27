@@ -21,9 +21,9 @@ def forall_Prop[a](rand: Rand[a], name: String, fn: a -> Test) -> Prop:
   ))
 
 def suite_Prop(name: String, props: List[Prop]) -> Prop:
-  Prop(s ->
-    s = sequence_Rand(props.map_List(Prop(fn) -> fn(s)))
-    s.map_Rand(as -> TestSuite(name, as))
+  Prop(seed ->
+    suites_rand = sequence_Rand(props.map_List(Prop(fn) -> fn(seed)))
+    suites_rand.map_Rand(as -> TestSuite(name, as))
   )
 
 def run_Prop(prop: Prop, trials: Int, seed: Int) -> Test:
