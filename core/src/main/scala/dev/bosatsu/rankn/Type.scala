@@ -1253,7 +1253,7 @@ object Type {
   private def runNormalize(tpe: Type): Type =
     tpe match {
       case t: (ForAll | Exists) =>
-        @inline def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
+        def removeDups[A, B](lst: List[(A, B)]): List[(A, B)] = {
           def loop(lst: List[(A, B)]): (List[(A, B)], Set[A]) =
             lst match {
               case (pair @ (b, _)) :: rest =>

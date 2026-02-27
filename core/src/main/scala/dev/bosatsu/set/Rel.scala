@@ -45,7 +45,7 @@ sealed abstract class Rel derives CanEqual { lhs =>
       case _                             => Intersects
     }
 
-  def lazyCombine(rhs: => Rel): Rel =
+  final inline def lazyCombine(inline rhs: => Rel): Rel =
     if (lhs == Disjoint) Disjoint
     else (lhs |+| rhs)
 }

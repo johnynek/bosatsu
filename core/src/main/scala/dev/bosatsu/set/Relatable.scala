@@ -130,7 +130,7 @@ object Relatable {
     import Rel._
     import PartialRel._
 
-    @inline def ac = Relatable[A].relate(a, c)
+    inline def ac = Relatable[A].relate(a, c)
     Relatable[A].relate(a, b) match {
       case Sub =>
         Right(Sub) // (a < b), then a < (b|c)
@@ -239,7 +239,7 @@ object Relatable {
                 subIntersectsCase(ab, a1, a2)
               case (Right((a1, a2)), SuperSame) =>
                 // if we have SuperSame and invert(p1) what is the result
-                @inline def andInvert(p1: PartialRel): Rel =
+                inline def andInvert(p1: PartialRel): Rel =
                   p1 match {
                     case SuperSame     => Same
                     case SubIntersects => Super
