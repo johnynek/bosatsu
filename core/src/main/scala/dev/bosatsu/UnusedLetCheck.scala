@@ -57,7 +57,7 @@ object UnusedLetCheck {
           arg, {
             val wholeRegion = HasRegion.region(e)
             val endRegion = HasRegion.region(expr)
-            val bindRegion = wholeRegion.copy(end = endRegion.end)
+            val bindRegion = wholeRegion.withEnd(endRegion.end)
             bindRegion
           },
           loop(in)
