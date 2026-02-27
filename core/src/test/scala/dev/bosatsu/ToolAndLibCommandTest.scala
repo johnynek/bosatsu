@@ -37,6 +37,20 @@ class ToolAndLibCommandTest extends FunSuite {
         } yield (nextState, stateOut._2)
     }
 
+  private def runWithStateAndExit(
+      cmd: List[String],
+      state: MemoryMain.State
+  ): ErrorOr[(MemoryMain.State, Output[Chain[String]], ExitCode)] =
+    module.run(cmd) match {
+      case Left(help) =>
+        Left(new Exception(s"got help: $help on command: $cmd"))
+      case Right(io) =>
+        for {
+          stateOut <- io.run(state)
+          (nextState, exitCode) <- module.reportOutput(stateOut._2).run(stateOut._1)
+        } yield (nextState, stateOut._2, exitCode)
+    }
+
   private def readStringFile(
       state: MemoryMain.State,
       path: Chain[String]
@@ -814,6 +828,152 @@ class ToolAndLibCommandTest extends FunSuite {
           fail(s"expected CliException, found: $err")
         )
         assert(msg.contains("value Tool/Foo::missing not found"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
+  test("tool eval --run executes Bosatsu/Prog::Main and forwards trailing args") {
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Prog(), Main(), pure
+|
+|enum Prog[e, a]:
+|  Pure(value: a)
+|  Raise(err: e)
+|
+|struct Main(run: List[String] -> Prog[String, Int])
+|
+|def pure(a):
+|  Pure(a)
+|""".stripMargin
+    val appSrc =
+      """package Tool/Foo
+|
+|from Bosatsu/Prog import Main, Prog, pure
+|
+|main = Main(args -> pure(args.foldl_List(0, (n, _) -> add(n, 1))))
+|""".stripMargin
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> progSrc,
+      Chain("src", "Tool", "Foo.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "tool",
+          "eval",
+          "--run",
+          "--main",
+          "Tool/Foo",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Bosatsu/Prog.bosatsu",
+          "--input",
+          "src/Tool/Foo.bosatsu",
+          "one",
+          "two",
+          "three"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.fromInt(3))
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run executes Bosatsu/Prog::Main and forwards trailing args") {
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Prog(), Main(), pure
+|
+|enum Prog[e, a]:
+|  Pure(value: a)
+|  Raise(err: e)
+|
+|struct Main(run: List[String] -> Prog[String, Int])
+|
+|def pure(a):
+|  Pure(a)
+|""".stripMargin
+    val appSrc =
+      """from Bosatsu/Prog import Main, Prog, pure
+|
+|main = Main(args -> pure(args.foldl_List(0, (n, _) -> add(n, 1))))
+|""".stripMargin
+    val files =
+      baseLibFiles(appSrc) :+ (
+        Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc
+      )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/Foo",
+          "--run",
+          "left",
+          "right"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.fromInt(2))
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("tool eval --run rejects non Bosatsu/Prog::Main values") {
+    val src =
+      """main = 42
+"""
+    val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "eval",
+        "--run",
+        "--main",
+        "Tool/Foo",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Tool/Foo.bosatsu"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("--run requires a Bosatsu/Prog::Main value"), msg)
       case Right(other) =>
         fail(s"expected error, found output: $other")
     }
