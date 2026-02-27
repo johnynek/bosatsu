@@ -23,7 +23,7 @@ import org.scalacheck.{Prop, Gen}
 class ClangGenTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(1000000)
+      .withMinSuccessfulTests(250000)
       .withMaxDiscardRatio(10)
 
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {

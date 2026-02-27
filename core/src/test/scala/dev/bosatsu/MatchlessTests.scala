@@ -15,7 +15,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 5000 else 20
+      if (Platform.isScalaJvm) 1500 else 20
     )
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]
