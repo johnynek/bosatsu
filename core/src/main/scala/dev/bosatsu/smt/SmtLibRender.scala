@@ -1,5 +1,7 @@
 package dev.bosatsu.smt
 
+import org.typelevel.paiges.Doc
+
 object SmtLibRender {
   import SmtCommand._
   import SmtExpr._
@@ -11,36 +13,44 @@ object SmtLibRender {
     if (symbolRegex.matches(symbol)) symbol
     else s"|${symbol.replace("|", "||")}|"
 
-  private def paren(head: String, tail: Vector[String]): String =
-    if (tail.isEmpty) s"($head)"
-    else s"($head ${tail.mkString(" ")})"
+  private val Space: Doc = Doc.char(' ')
 
-  private def variadic(op: String, args: Vector[String]): String =
+  private def symbolDoc(symbol: String): Doc =
+    Doc.text(renderSymbol(symbol))
+
+  private def paren(head: Doc, tail: Vector[Doc]): Doc = {
+    val inside =
+      if (tail.isEmpty) head
+      else head + Space + Doc.intercalate(Space, tail)
+    Doc.char('(') + inside + Doc.char(')')
+  }
+
+  private def variadic(op: String, args: Vector[Doc]): Doc =
     args match {
       case Vector(single) => single
-      case _              => paren(op, args)
+      case _              => paren(Doc.text(op), args)
     }
 
-  def renderSort(sort: SmtSort): String =
+  def renderSort(sort: SmtSort): Doc =
     sort match {
-      case SmtSort.IntS  => "Int"
-      case SmtSort.BoolS => "Bool"
+      case SmtSort.IntS  => Doc.text("Int")
+      case SmtSort.BoolS => Doc.text("Bool")
     }
 
-  def renderExpr[S <: SmtSort](expr: SmtExpr[S]): String =
+  def renderExpr[S <: SmtSort](expr: SmtExpr[S]): Doc =
     expr match {
       case IntConst(value) =>
-        if (value.signum >= 0) value.toString
-        else s"(- ${value.abs})"
+        if (value.signum >= 0) Doc.text(value.toString)
+        else paren(Doc.text("-"), Vector(Doc.text(value.abs.toString)))
       case BoolConst(value) =>
-        if (value) "true" else "false"
+        if (value) Doc.text("true") else Doc.text("false")
       case Var(name) =>
-        renderSymbol(name)
+        symbolDoc(name)
       case App(name, args) =>
-        paren(renderSymbol(name), args.map(renderExpr(_)))
+        paren(symbolDoc(name), args.map(renderExpr(_)))
       case Ite(cond, ifTrue, ifFalse) =>
         paren(
-          "ite",
+          Doc.text("ite"),
           Vector(renderExpr(cond), renderExpr(ifTrue), renderExpr(ifFalse))
         )
 
@@ -51,73 +61,78 @@ object SmtLibRender {
       case Mul(args) =>
         variadic("*", args.map(renderExpr(_)))
       case Div(num, den) =>
-        paren("div", Vector(renderExpr(num), renderExpr(den)))
+        paren(Doc.text("div"), Vector(renderExpr(num), renderExpr(den)))
       case Mod(num, den) =>
-        paren("mod", Vector(renderExpr(num), renderExpr(den)))
+        paren(Doc.text("mod"), Vector(renderExpr(num), renderExpr(den)))
 
       case Lt(left, right) =>
-        paren("<", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("<"), Vector(renderExpr(left), renderExpr(right)))
       case Lte(left, right) =>
-        paren("<=", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("<="), Vector(renderExpr(left), renderExpr(right)))
       case Gt(left, right) =>
-        paren(">", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text(">"), Vector(renderExpr(left), renderExpr(right)))
       case Gte(left, right) =>
-        paren(">=", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text(">="), Vector(renderExpr(left), renderExpr(right)))
       case EqInt(left, right) =>
-        paren("=", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("="), Vector(renderExpr(left), renderExpr(right)))
       case EqBool(left, right) =>
-        paren("=", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("="), Vector(renderExpr(left), renderExpr(right)))
 
       case Not(inner) =>
-        paren("not", Vector(renderExpr(inner)))
+        paren(Doc.text("not"), Vector(renderExpr(inner)))
       case And(args) =>
         variadic("and", args.map(renderExpr(_)))
       case Or(args)  =>
         variadic("or", args.map(renderExpr(_)))
       case Xor(left, right) =>
-        paren("xor", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("xor"), Vector(renderExpr(left), renderExpr(right)))
       case Implies(left, right) =>
-        paren("=>", Vector(renderExpr(left), renderExpr(right)))
+        paren(Doc.text("=>"), Vector(renderExpr(left), renderExpr(right)))
     }
 
-  def renderCommand(cmd: SmtCommand): String =
+  def renderCommand(cmd: SmtCommand): Doc =
     cmd match {
       case SetLogic(logic) =>
-        paren("set-logic", Vector(renderSymbol(logic)))
+        paren(Doc.text("set-logic"), Vector(symbolDoc(logic)))
       case DeclareConst(name, sort) =>
         paren(
-          "declare-const",
-          Vector(renderSymbol(name), renderSort(sort))
+          Doc.text("declare-const"),
+          Vector(symbolDoc(name), renderSort(sort))
         )
       case DeclareFun(name, args, result) =>
-        val argDoc = s"(${args.map(renderSort).mkString(" ")})"
+        val argDoc =
+          Doc.char('(') + Doc.intercalate(Space, args.map(renderSort)) + Doc.char(')')
         paren(
-          "declare-fun",
-          Vector(renderSymbol(name), argDoc, renderSort(result))
+          Doc.text("declare-fun"),
+          Vector(symbolDoc(name), argDoc, renderSort(result))
         )
       case DefineFun(name, args, result, body) =>
         val argDoc = args
           .map { case (argName, argSort) =>
-            s"(${renderSymbol(argName)} ${renderSort(argSort)})"
+            paren(symbolDoc(argName), Vector(renderSort(argSort)))
           }
-          .mkString("(", " ", ")")
+        val argsDoc =
+          Doc.char('(') + Doc.intercalate(Space, argDoc) + Doc.char(')')
         paren(
-          "define-fun",
+          Doc.text("define-fun"),
           Vector(
-            renderSymbol(name),
-            argDoc,
+            symbolDoc(name),
+            argsDoc,
             renderSort(result),
             renderExpr(body)
           )
         )
       case Assert(expr) =>
-        paren("assert", Vector(renderExpr(expr)))
+        paren(Doc.text("assert"), Vector(renderExpr(expr)))
       case CheckSat =>
-        "(check-sat)"
+        paren(Doc.text("check-sat"), Vector.empty)
       case GetModel =>
-        "(get-model)"
+        paren(Doc.text("get-model"), Vector.empty)
     }
 
+  def renderScriptDoc(script: SmtScript): Doc =
+    Doc.intercalate(Doc.hardLine, script.commands.map(renderCommand)) + Doc.hardLine
+
   def renderScript(script: SmtScript): String =
-    script.commands.iterator.map(renderCommand).mkString("", "\n", "\n")
+    renderScriptDoc(script).render(80)
 }
