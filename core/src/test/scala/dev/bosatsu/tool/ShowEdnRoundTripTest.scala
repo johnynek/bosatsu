@@ -1,6 +1,6 @@
 package dev.bosatsu.tool
 
-import dev.bosatsu.{Generators, Package, Platform}
+import dev.bosatsu.{Generators, Json, Package, Platform}
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
 import dev.bosatsu.{ExportedName, Identifier, Kind, PackageName, Referant, TypeName}
 import dev.bosatsu.edn.Edn
@@ -84,6 +84,22 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       Edn.parseAll(rendered) match {
         case Right(_)  => ()
         case Left(err) => fail(s"failed to parse showDoc output as EDN: $err")
+      }
+    }
+  }
+
+  test("showJson output is parseable JSON with a tagged top-level form") {
+    forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
+      val packs = packMap.values.toList.map(Package.typedFunctor.void)
+      val ifaces = packs.map(Package.interfaceOf)
+      val rendered = ShowEdn.showJson(packs, ifaces).render
+      Json.parserFile.parseAll(rendered) match {
+        case Right(Json.JObject(fields)) =>
+          assertEquals(fields.toMap.get("$form"), Some(Json.JString("show")))
+        case Right(other) =>
+          fail(s"expected show json object, found: $other")
+        case Left(err) =>
+          fail(s"failed to parse showJson output as JSON: $err")
       }
     }
   }

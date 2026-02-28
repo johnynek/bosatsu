@@ -11,6 +11,7 @@ import dev.bosatsu.tool.{
   Output,
   PathGen,
   PackageResolver,
+  ShowEdn,
   ShowSelection
 }
 import dev.bosatsu.codegen.Transpiler
@@ -1463,7 +1464,7 @@ object Command {
     val showCommand =
       Opts.subcommand(
         "show",
-        "show fully type-checked packages from this library or dependency tree as valid EDN"
+        "show fully type-checked packages from this library or dependency tree (EDN by default; JSON with --json)"
       ) {
         import ShowSelection.{typeArgument, valueArgument}
 
@@ -1494,9 +1495,15 @@ object Command {
               help = "disable normalization/optimization to inspect typed expressions before optimization"
             )
             .orFalse,
+          Opts
+            .flag(
+              "json",
+              help = "emit JSON instead of EDN for easier machine parsing"
+            )
+            .orFalse,
           Opts.option[P]("output", help = "output path").orNone,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, packages, types, values, noOpt, output, colorize) =>
+        ).mapN { (fcc, packages, types, values, noOpt, jsonOut, output, colorize) =>
           val compileOptions =
             if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
           val request = ShowSelection.Request(packages, types, values)
@@ -1518,7 +1525,11 @@ object Command {
                     .selectPackages(packs0, request)
                     .leftMap(CliException.Basic(_))
                 )
-              } yield (Output.ShowOutput(packs, Nil, output): Output[P])
+              } yield (
+                if (jsonOut)
+                  Output.JsonOutput(ShowEdn.showJson(packs, Nil), output)
+                else Output.ShowOutput(packs, Nil, output): Output[P]
+              )
             }
           } yield out
         }
