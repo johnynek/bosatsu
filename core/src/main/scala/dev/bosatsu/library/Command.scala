@@ -2506,6 +2506,24 @@ object Command {
         }
     }
 
+    private def downloadFailureSummary(count: Int): String = {
+      val label = if (count == 1) "failure" else "failures"
+      show"download failed ($count $label)"
+    }
+
+    private def renderFetchError(err: Throwable): Doc =
+      err match {
+        case ce: CliException =>
+          val summary = Option(ce.getMessage).filter(_.nonEmpty).map(Doc.text(_))
+          summary match {
+            case Some(summaryDoc) =>
+              summaryDoc + (Doc.line + ce.errDoc).nested(2)
+            case None             => ce.errDoc
+          }
+        case other            =>
+          Doc.text(Option(other.getMessage).getOrElse(other.getClass.getName))
+      }
+
     def fetchIfNeeded(
         dep: proto.LibDependency
     ): F[SortedMap[Algo.WithAlgo[HashValue], DownloadRes]] = {
@@ -2535,14 +2553,20 @@ object Command {
               {
                 // We need to download
                 uris
-                  .foldM((List.empty[(String, Throwable)], false)) {
+                  .foldM((List.empty[PlatformIO.FetchHashFailure], false)) {
                     case ((fails, false), uri) =>
                       platformIO
                         .fetchHash(hashValue.algo, hashValue.value, path, uri)
-                        .attempt
                         .map {
                           case Right(_) => ((fails, true))
-                          case Left(e)  => (((uri, e) :: fails, false))
+                          case Left(e)  => ((e :: fails, false))
+                        }
+                        .handleError { e =>
+                          val message = Option(e.getMessage).getOrElse(e.toString)
+                          (
+                            PlatformIO.FetchHashFailure.Network(uri, message) :: fails,
+                            false
+                          )
                         }
                     case (done, _) => Monad[F].pure(done)
                   }
@@ -2552,26 +2576,19 @@ object Command {
                       Right(true)
                     case (fails, false) =>
                       // couldn't download
+                      val inOrderFails = fails.reverse
+                      val detailDoc =
+                        if (inOrderFails.isEmpty)
+                          Doc.text("reason=no uris configured")
+                        else
+                          Doc.intercalate(
+                            Doc.line + Doc.line,
+                            inOrderFails.map(PlatformIO.FetchHashFailure.toDoc)
+                          )
                       Left(
                         CliException(
-                          show"download failure: ${dep.name} with ${fails.size} fails.",
-                          if (fails.isEmpty)
-                            Doc.text(
-                              show"failed to fetch ${dep.name} with no uris."
-                            )
-                          else {
-                            Doc.text(
-                              show"failed to fetch ${dep.name} with ${fails.size} fails:"
-                            ) +
-                              (Doc.line + Doc.intercalate(
-                                Doc.line + Doc.line,
-                                fails.map { case (uri, f) =>
-                                  Doc.text(
-                                    show"uri=$uri failed with ${f.getMessage}"
-                                  )
-                                }
-                              )).nested(4)
-                          }
+                          downloadFailureSummary(inOrderFails.size),
+                          detailDoc
                         )
                       )
                   }
@@ -2590,14 +2607,16 @@ object Command {
         fs.toList.map { case ((n, v), hashes) =>
           val sortedHashes = hashes.toList.sortBy(_._1.toIdent)
           val hashDoc = Doc.intercalate(
-            Doc.comma + Doc.line,
+            Doc.hardLine,
             sortedHashes.map { case (wh, msg) =>
               val ident = wh.toIdent
               msg match {
                 case Right(true)  => Doc.text(show"fetched $ident")
                 case Right(false) => Doc.text(show"cached $ident")
                 case Left(err)    =>
-                  Doc.text(show"failed: $ident ${err.getMessage}")
+                  Doc.text(show"failed: $ident") + (Doc.line + renderFetchError(
+                    err
+                  )).nested(2)
               }
             }
           )

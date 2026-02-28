@@ -51,6 +51,17 @@ class ToolAndLibCommandTest extends FunSuite {
         } yield (nextState, stateOut._2, exitCode)
     }
 
+  private def runAndReportWithState(
+      cmd: List[String],
+      state: MemoryMain.State
+  ): ErrorOr[(MemoryMain.State, ExitCode)] =
+    module.run(cmd) match {
+      case Left(help) =>
+        Left(new Exception(s"got help: $help on command: $cmd"))
+      case Right(io) =>
+        module.report(io).run(state)
+    }
+
   private def readStringFile(
       state: MemoryMain.State,
       path: Chain[String]
@@ -4244,7 +4255,7 @@ main = 0
     }
   }
 
-  test("lib fetch fails on dependency download issues and reports details") {
+  test("lib fetch reports network failures with detailed reason") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
@@ -4263,22 +4274,187 @@ main = 0
           "--hash",
           validHash2,
           "--uri",
-          "https://example.com/dep_with_uri.bosatsu_lib",
+          "https://example.com/network.bosatsu_lib",
           "--public",
           "--no-fetch"
         ),
         s0
       )
       (state1, _) = s1
-      s2 <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state1)
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
     } yield s2
 
     result match {
-      case Right((_, out)) =>
-        fail(s"expected lib fetch failure, got: $out")
       case Left(err) =>
-        val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("failed to fetch"), msg)
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("failed: blake3:222"), errOutput)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("uri=https://example.com/network.bosatsu_lib"), errOutput)
+        assert(errOutput.contains("reason=network error"), errOutput)
+        assert(errOutput.contains("message=connection reset by peer"), errOutput)
+    }
+  }
+
+  test("lib fetch reports hash mismatch with expected and found hashes") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_hash_mismatch",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/hash-mismatch.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("reason=hash mismatch"), errOutput)
+        assert(errOutput.contains(show"expected=$validHash2"), errOutput)
+        assert(
+          errOutput.contains("found=blake3:0000000000000000000000000000000000000000000000000000000000000000"),
+          errOutput
+        )
+    }
+  }
+
+  test("lib fetch reports http status failures") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_http_404",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/404.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("reason=http status"), errOutput)
+        assert(errOutput.contains("status=404 Not Found"), errOutput)
+    }
+  }
+
+  test("lib fetch uses grammatical singular and plural failure wording") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_one_failure",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/network.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_two_failures",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash3,
+          "--uri",
+          "https://example.com/404-first.bosatsu_lib",
+          "--uri",
+          "https://example.com/network-second.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state2
+      )
+    } yield s3
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("download failed (2 failures)"), errOutput)
     }
   }
 
