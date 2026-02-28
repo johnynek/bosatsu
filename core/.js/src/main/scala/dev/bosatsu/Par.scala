@@ -1,6 +1,6 @@
 package dev.bosatsu
 import scala.compiletime.uninitialized
-import cats.Monad
+import cats.{Monad, Parallel}
 import dev.bosatsu.graph.CanPromise
 
 /** This is an abstraction to handle parallel computation, not effectful
@@ -26,6 +26,9 @@ object Par {
 
   implicit val monadF: Monad[F] =
     cats.catsInstancesForId
+
+  implicit val parallelF: Parallel[F] =
+    cats.Parallel.identity[F]
 
   given canPromiseF: CanPromise[F] with {
     type Promise[A] = P[A]

@@ -29,6 +29,7 @@ object DocCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       Transpiler.outDir[Path],
       Opts
         .flag(
@@ -45,6 +46,7 @@ object DocCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           outdir,
           includePredef,
           color
@@ -73,7 +75,8 @@ object DocCommand {
                 includePacks.map(Package.interfaceOf(_)),
               color,
               packageResolver,
-              CompileOptions.Default
+              CompileOptions.Default,
+              compileCacheDirOpt
             )
             (compiled, sourcePaths) = checked
             compiledPacks = {

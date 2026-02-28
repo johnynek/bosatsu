@@ -108,13 +108,13 @@ object Algo {
 
   private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
 
-  def parseHashValue[A](algo: Algo[A]): Parser[WithAlgo[HashValue]] =
+  def parseHashValue[A](algo: Algo[A]): Parser[HashValue[A]] =
     Parser.string(algo.name) *> Parser.char(':') *> {
       hexChar
         .repExactlyAs[String](algo.hexLen)
-        .map(hex => WithAlgo(algo, HashValue[A](hex)))
+        .map(hex => HashValue[A](hex))
     }
 
   val parseIdent: Parser[WithAlgo[HashValue]] =
-    parseHashValue(blake3Algo)
+    parseHashValue(blake3Algo).map(WithAlgo(blake3Algo, _))
 }

@@ -49,6 +49,7 @@ object EvalCommand {
       packageResolver: PackageResolver[F, Path],
       publicDependencies: List[Path],
       privateDependencies: List[Path],
+      compileCacheDirOpt: Option[Path],
       commandName: String,
       mainPackage: MainIdentifier[Path],
       errColor: LocationMap.Colorize
@@ -65,6 +66,7 @@ object EvalCommand {
         packageResolver,
         publicDependencies,
         privateDependencies,
+        compileCacheDirOpt,
         commandName,
         mainPackage :: Nil,
         errColor
@@ -106,6 +108,7 @@ object EvalCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       commonOpts.mainIdentifierOpt,
       Opts
         .flag(
@@ -123,6 +126,7 @@ object EvalCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           mainPackage,
           runMain,
           runArgs,
@@ -136,6 +140,7 @@ object EvalCommand {
             packageResolver,
             publicDependencies,
             privateDependencies,
+            compileCacheDirOpt,
             "eval",
             mainPackage,
             errColor

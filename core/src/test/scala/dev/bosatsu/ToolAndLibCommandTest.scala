@@ -78,6 +78,27 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected library file at ${path.mkString_("/")}, found: $other")
     }
 
+  private def allFilePaths(
+      state: MemoryMain.State,
+      prefix: Chain[String] = Chain.empty
+  ): List[Chain[String]] =
+    state.children.toList.flatMap {
+      case (name, Right(_)) =>
+        List(prefix :+ name)
+      case (name, Left(dir)) =>
+        allFilePaths(dir, prefix :+ name)
+    }
+
+  private def filePathsUnder(
+      state: MemoryMain.State,
+      prefix: Chain[String]
+  ): Set[Chain[String]] = {
+    val prefixList = prefix.toList
+    allFilePaths(state).filter { path =>
+      path.toList.startsWith(prefixList)
+    }.toSet
+  }
+
   private def casPathFor(
       repoRoot: Chain[String],
       lib: Hashed[Algo.Blake3, proto.Library]
@@ -2484,6 +2505,225 @@ main = depBox
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
         assert(msg.contains("only available in type-check mode"), msg)
+    }
+  }
+
+  test("tool check --cache_dir writes cache artifacts and reuses them") {
+    val depSrc =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+    val appSrc =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep.add(1)
+        |""".stripMargin
+    val files = List(
+      Chain("src", "Cache", "Dep.bosatsu") -> depSrc,
+      Chain("src", "Cache", "App.bosatsu") -> appSrc
+    )
+    val cmd = List(
+      "tool",
+      "check",
+      "--package_root",
+      "src",
+      "--input",
+      "src/Cache/Dep.bosatsu",
+      "--input",
+      "src/Cache/App.bosatsu",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, state1)
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val keyPrefix = Chain("cache", "keys", "blake3")
+        val casPrefix = Chain("cache", "cas", "blake3")
+        val keyFiles1 = filePathsUnder(state1, keyPrefix)
+        val casFiles1 = filePathsUnder(state1, casPrefix)
+
+        assert(keyFiles1.nonEmpty, "expected key cache files")
+        assert(casFiles1.nonEmpty, "expected cas cache files")
+        assertEquals(filePathsUnder(state2, keyPrefix), keyFiles1)
+        assertEquals(filePathsUnder(state2, casPrefix), casFiles1)
+        (out1, out2) match {
+          case (
+                Output.CompileOut(packs1, _, _),
+                Output.CompileOut(packs2, _, _)
+              ) =>
+            assertEquals(packs2.map(_.name), packs1.map(_.name))
+          case other =>
+            fail(s"unexpected outputs: $other")
+        }
+    }
+  }
+
+  test("tool check --cache_dir keeps cache keys stable on comment-only edits") {
+    val depSrc =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+    val appSrc =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep.add(1)
+        |""".stripMargin
+    val appSrcWithComments =
+      """package Cache/App
+        |
+        |# comment should not change the source hash
+        |from Cache/Dep import dep
+        |
+        |main = dep.add(1)
+        |""".stripMargin
+    val files = List(
+      Chain("src", "Cache", "Dep.bosatsu") -> depSrc,
+      Chain("src", "Cache", "App.bosatsu") -> appSrc
+    )
+    val appPath = Chain("src", "Cache", "App.bosatsu")
+    val cmd = List(
+      "tool",
+      "check",
+      "--package_root",
+      "src",
+      "--input",
+      "src/Cache/Dep.bosatsu",
+      "--input",
+      "src/Cache/App.bosatsu",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, _) = s1
+      stateWithComments <- state1
+        .withFile(appPath, MemoryMain.FileContent.Str(appSrcWithComments))
+        .toRight(new Exception("failed to update source file"))
+      s2 <- runWithState(cmd, stateWithComments)
+      (state2, _) = s2
+    } yield (state1, state2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2)) =>
+        val keyPrefix = Chain("cache", "keys", "blake3")
+        val casPrefix = Chain("cache", "cas", "blake3")
+        assertEquals(filePathsUnder(state2, keyPrefix), filePathsUnder(state1, keyPrefix))
+        assertEquals(filePathsUnder(state2, casPrefix), filePathsUnder(state1, casPrefix))
+    }
+  }
+
+  test("dependency interface changes invalidate dependent cache entries") {
+    val depV1 =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+    val depV2 =
+      """package Cache/Dep
+        |export dep, flag
+        |dep = 1
+        |flag = True
+        |""".stripMargin
+    val appSrc =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep.add(1)
+        |""".stripMargin
+    val depPath = Chain("src", "Cache", "Dep.bosatsu")
+    val files = List(
+      depPath -> depV1,
+      Chain("src", "Cache", "App.bosatsu") -> appSrc
+    )
+    val cmd = List(
+      "tool",
+      "check",
+      "--package_root",
+      "src",
+      "--input",
+      "src/Cache/Dep.bosatsu",
+      "--input",
+      "src/Cache/App.bosatsu",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, _) = s1
+      stateWithDepChange <- state1
+        .withFile(depPath, MemoryMain.FileContent.Str(depV2))
+        .toRight(new Exception("failed to update dependency source"))
+      s2 <- runWithState(cmd, stateWithDepChange)
+      (state2, _) = s2
+    } yield (state1, state2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2)) =>
+        val keyPrefix = Chain("cache", "keys", "blake3")
+        val casPrefix = Chain("cache", "cas", "blake3")
+        val keyCount1 = filePathsUnder(state1, keyPrefix).size
+        val keyCount2 = filePathsUnder(state2, keyPrefix).size
+        val casCount1 = filePathsUnder(state1, casPrefix).size
+        val casCount2 = filePathsUnder(state2, casPrefix).size
+
+        assert(
+          keyCount2 >= keyCount1 + 2,
+          s"expected at least two new key entries, before=$keyCount1 after=$keyCount2"
+        )
+        assert(
+          casCount2 >= casCount1 + 1,
+          s"expected at least one new cas entry, before=$casCount1 after=$casCount2"
+        )
+    }
+  }
+
+  test("tool check without --cache_dir does not write cache artifacts") {
+    val src =
+      """package Cache/Foo
+        |main = 1
+        |""".stripMargin
+    val files = List(
+      Chain("src", "Cache", "Foo.bosatsu") -> src
+    )
+    val cmd = List(
+      "tool",
+      "check",
+      "--package_root",
+      "src",
+      "--input",
+      "src/Cache/Foo.bosatsu"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, _) = s1
+    } yield state1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(state) =>
+        assertEquals(filePathsUnder(state, Chain("cache")), Set.empty)
     }
   }
 

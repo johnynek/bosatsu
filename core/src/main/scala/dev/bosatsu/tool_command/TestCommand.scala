@@ -20,6 +20,7 @@ object TestCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       commonOpts.testIdentifiersOpt,
       Colorize.optsConsoleDefault
     ).mapN {
@@ -29,6 +30,7 @@ object TestCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           testPacks,
           errColor
       ) =>
@@ -41,6 +43,7 @@ object TestCommand {
               packageResolver,
               publicDependencies,
               privateDependencies,
+              compileCacheDirOpt,
               "test",
               testPacks,
               errColor

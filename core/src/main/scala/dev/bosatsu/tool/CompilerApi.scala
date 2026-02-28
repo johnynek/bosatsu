@@ -1,14 +1,15 @@
 package dev.bosatsu.tool
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
+import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
   CompileOptions,
-  PlatformIO,
   Package,
   PackageError,
   PackageMap,
   PackageName,
-  Par
+  Par,
+  PlatformIO
 }
 import dev.bosatsu.LocationMap.Colorize
 import org.typelevel.paiges.Doc
@@ -38,7 +39,8 @@ object CompilerApi {
       ifs: List[Package.Interface],
       errColor: Colorize,
       packRes: PackageResolver[IO, Path],
-      compileOptions: CompileOptions
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path]
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
@@ -66,7 +68,15 @@ object CompilerApi {
           platformIO.moduleIOMonad.pure((PackageMap.empty, Nil))
         }
       case Some(nel) =>
-        typeCheck(platformIO, nel, ifs, errColor, packRes, compileOptions)
+        typeCheck(
+          platformIO,
+          nel,
+          ifs,
+          errColor,
+          packRes,
+          compileOptions,
+          compileCacheDirOpt
+        )
           .map { case (m, ps) => (m, ps.toList) }
     }
   }
@@ -77,11 +87,12 @@ object CompilerApi {
       ifs: List[Package.Interface],
       errColor: Colorize,
       packRes: PackageResolver[IO, Path],
-      compileOptions: CompileOptions
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path] = None
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{moduleIOMonad, parallelF}
 
     for {
       ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)
@@ -90,8 +101,18 @@ object CompilerApi {
       packsString = packs.map { case ((path, lm), parsed) =>
         ((platformIO.pathToString(path), lm), parsed)
       }
-      checked =
-        PackageMap.typeCheckParsed[String](packsString, ifs, "predef", compileOptions)
+      cache: InferCache[IO] = compileCacheDirOpt match {
+        case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
+        case None           => InferCache.noop[IO]
+      }
+      checked <- PackageMap.typeCheckParsed[IO, String](
+        packsString,
+        ifs,
+        "predef",
+        compileOptions,
+        cache,
+        InferPhases.default
+      )
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
       res <-
@@ -117,7 +138,8 @@ object CompilerApi {
       deps: List[Path],
       errColor: Colorize,
       packRes: PackageResolver[IO, Path],
-      compileOptions: CompileOptions
+      compileOptions: CompileOptions,
+      compileCacheDirOpt: Option[Path] = None
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] = {
@@ -132,7 +154,8 @@ object CompilerApi {
         ifaces,
         errColor,
         packRes,
-        compileOptions
+        compileOptions,
+        compileCacheDirOpt
       )
       (thesePacks, lst) = packsList
       packMap = packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)

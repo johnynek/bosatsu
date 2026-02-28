@@ -397,6 +397,12 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 
+  def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
+    FilesIO
+      .writeAll(path)(fs2.Stream.chunk(fs2.Chunk.array(bytes)))
+      .compile
+      .drain
+
   def writeLibrary(lib: proto.Library, path: Path): IO[Unit] =
     write(lib, path)
 }
