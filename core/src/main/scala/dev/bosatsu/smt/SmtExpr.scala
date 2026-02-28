@@ -1,16 +1,5 @@
 package dev.bosatsu.smt
 
-import dev.bosatsu.rankn
-
-sealed trait SmtSort derives CanEqual
-object SmtSort {
-  case object IntS extends SmtSort
-  case object BoolS extends SmtSort
-
-  type IntSort = IntS.type
-  type BoolSort = BoolS.type
-}
-
 sealed trait SmtExpr[S <: SmtSort] derives CanEqual
 object SmtExpr {
   type IntExpr = SmtExpr[SmtSort.IntSort]
@@ -56,47 +45,4 @@ object SmtExpr {
       extends SmtExpr[SmtSort.BoolSort]
   final case class Implies(left: BoolExpr, right: BoolExpr)
       extends SmtExpr[SmtSort.BoolSort]
-}
-
-final case class LoweredBool(
-    expr: SmtExpr[SmtSort.BoolSort],
-    decls: Vector[(String, SmtSort)]
-)
-
-sealed trait LowerErr derives CanEqual
-object LowerErr {
-  final case class Unsupported(node: String) extends LowerErr
-  final case class TypeMismatch(found: rankn.Type) extends LowerErr
-}
-
-sealed trait SmtCommand derives CanEqual
-object SmtCommand {
-  final case class SetLogic(logic: String) extends SmtCommand
-  final case class DeclareConst[S <: SmtSort](name: String, sort: S)
-      extends SmtCommand
-  final case class DeclareFun[S <: SmtSort](
-      name: String,
-      args: Vector[SmtSort],
-      result: S
-  ) extends SmtCommand
-  final case class DefineFun[S <: SmtSort](
-      name: String,
-      args: Vector[(String, SmtSort)],
-      result: S,
-      body: SmtExpr[S]
-  ) extends SmtCommand
-  final case class Assert(expr: SmtExpr[SmtSort.BoolSort]) extends SmtCommand
-  case object CheckSat extends SmtCommand
-  case object GetModel extends SmtCommand
-}
-
-final case class SmtScript(commands: Vector[SmtCommand]) {
-  def ++(other: SmtScript): SmtScript =
-    SmtScript(commands ++ other.commands)
-
-  def append(cmd: SmtCommand): SmtScript =
-    SmtScript(commands :+ cmd)
-}
-object SmtScript {
-  val empty: SmtScript = SmtScript(Vector.empty)
 }
