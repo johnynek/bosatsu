@@ -20,6 +20,8 @@
     flush: ProgExt.flush_handle,
     close: ProgExt.close_handle,
     open_file: ProgExt.open_file,
+    create_temp_file: ProgExt.create_temp_file,
+    create_temp_dir: ProgExt.create_temp_dir,
     list_dir: ProgExt.list_dir,
     stat: ProgExt.stat_path,
     mkdir: ProgExt.mkdir_path,

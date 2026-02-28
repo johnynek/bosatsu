@@ -12,6 +12,7 @@ import shutil
 import stat as _stat
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Optional, Tuple, Union
 
@@ -156,6 +157,32 @@ def _as_optional_int(value):
                 return (False, None)
     return (False, None)
 
+def _as_optional_path(value):
+    if isinstance(value, tuple) and len(value) >= 1:
+        tag = value[0]
+        if tag == 0:
+            return (True, None)
+        if tag == 1 and len(value) >= 2:
+            try:
+                return (True, _to_path_string(value[1]))
+            except ValueError:
+                return (False, None)
+    return (False, None)
+
+def _normalize_temp_prefix(prefix: str) -> str:
+    base = prefix if len(prefix) > 0 else "tmp"
+    if len(base) >= 3:
+        return base
+    return base + ("_" * (3 - len(base)))
+
+def _is_valid_temp_name_part(part: str) -> bool:
+    for ch in part:
+        if ch == "/" or ch == "\\":
+            return False
+        if ord(ch) < 32:
+            return False
+    return True
+
 def _array_to_pylist(value):
     if isinstance(value, list):
         return value
@@ -234,9 +261,32 @@ def _as_handle(value):
     return None
 
 def _open_mode_tag(mode):
+    if isinstance(mode, int):
+        return mode
     if isinstance(mode, tuple) and len(mode) >= 1:
         return mode[0]
     raise ValueError(f"invalid OpenMode value: {mode!r}")
+
+def _open_mode_name(mode_tag: int) -> str:
+    if mode_tag == 0:
+        return "Read"
+    if mode_tag == 1:
+        return "WriteTruncate"
+    if mode_tag == 2:
+        return "Append"
+    if mode_tag == 3:
+        return "CreateNew"
+    return f"Unknown({mode_tag})"
+
+def _string_preview(value) -> str:
+    if isinstance(value, str):
+        return value
+    return "<invalid String>"
+
+def _resolved_temp_dir_preview(dir_path: Optional[str]) -> str:
+    if dir_path is not None and len(dir_path) > 0:
+        return dir_path
+    return tempfile.gettempdir()
 
 def _stdio_tag(stdio):
     if isinstance(stdio, tuple) and len(stdio) >= 1:
@@ -774,6 +824,8 @@ def open_file(path, mode):
         except ValueError as exc:
             return raise_error(_invalid_argument(str(exc)))
 
+        mode_name = _open_mode_name(mode_tag)
+        call_context = f"open_file(path={path_s}, mode={mode_name})"
         try:
             if mode_tag == 0:
                 stream = open(path_s, "r", encoding="utf-8", newline="")
@@ -784,9 +836,115 @@ def open_file(path, mode):
             if mode_tag == 2:
                 stream = open(path_s, "a", encoding="utf-8", newline="")
                 return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
-            return raise_error(_invalid_argument(f"unknown OpenMode tag: {mode_tag}"))
+            if mode_tag == 3:
+                stream = open(path_s, "x", encoding="utf-8", newline="")
+                return pure(_CoreHandle(stream, readable=False, writable=True, closeable=True))
+            return raise_error(_invalid_argument(f"{call_context}: invalid OpenMode value"))
         except OSError as exc:
-            return raise_error(_ioerror_from_errno(exc.errno, f"opening file: {path_s}"))
+            return raise_error(_ioerror_from_errno(exc.errno, f"{call_context}: opening file failed"))
+
+    return effect(fn)
+
+def create_temp_file(dir_opt, prefix, suffix):
+    def fn():
+        prefix_preview = _string_preview(prefix)
+        suffix_preview = _string_preview(suffix)
+        ok_dir, dir_path = _as_optional_path(dir_opt)
+        if not ok_dir:
+            return raise_error(
+                _invalid_argument(
+                    f"create_temp_file(dir=<invalid Path option>, prefix={prefix_preview}, suffix={suffix_preview}): invalid temp file dir"
+                )
+            )
+
+        try:
+            prefix_s = str(prefix)
+        except Exception:
+            return raise_error(
+                _invalid_argument(
+                    f"create_temp_file(dir={_resolved_temp_dir_preview(dir_path)}, prefix=<invalid String>, suffix={suffix_preview}): invalid temp file prefix"
+                )
+            )
+        try:
+            suffix_s = str(suffix)
+        except Exception:
+            return raise_error(
+                _invalid_argument(
+                    f"create_temp_file(dir={_resolved_temp_dir_preview(dir_path)}, prefix={prefix_s}, suffix=<invalid String>): invalid temp file suffix"
+                )
+            )
+
+        call_context = (
+            f"create_temp_file(dir={_resolved_temp_dir_preview(dir_path)}, prefix={prefix_s}, suffix={suffix_s})"
+        )
+        if not _is_valid_temp_name_part(prefix_s):
+            return raise_error(_invalid_argument(f"{call_context}: invalid temp file prefix"))
+        if not _is_valid_temp_name_part(suffix_s):
+            return raise_error(_invalid_argument(f"{call_context}: invalid temp file suffix"))
+
+        try:
+            fd, path_s = tempfile.mkstemp(
+                suffix=suffix_s,
+                prefix=_normalize_temp_prefix(prefix_s),
+                dir=dir_path
+            )
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"{call_context}: tempfile.mkstemp failed"))
+
+        try:
+            stream = os.fdopen(fd, "w", encoding="utf-8", newline="")
+            handle = _CoreHandle(stream, readable=False, writable=True, closeable=True)
+            return pure((_normalize_path(path_s), handle))
+        except OSError as exc:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                os.unlink(path_s)
+            except OSError:
+                pass
+            return raise_error(
+                _ioerror_from_errno(
+                    exc.errno,
+                    f"{call_context}: os.fdopen(path={_normalize_path(path_s)}) failed"
+                )
+            )
+
+    return effect(fn)
+
+def create_temp_dir(dir_opt, prefix):
+    def fn():
+        prefix_preview = _string_preview(prefix)
+        ok_dir, dir_path = _as_optional_path(dir_opt)
+        if not ok_dir:
+            return raise_error(
+                _invalid_argument(
+                    f"create_temp_dir(dir=<invalid Path option>, prefix={prefix_preview}): invalid temp dir"
+                )
+            )
+
+        try:
+            prefix_s = str(prefix)
+        except Exception:
+            return raise_error(
+                _invalid_argument(
+                    f"create_temp_dir(dir={_resolved_temp_dir_preview(dir_path)}, prefix=<invalid String>): invalid temp dir prefix"
+                )
+            )
+
+        call_context = f"create_temp_dir(dir={_resolved_temp_dir_preview(dir_path)}, prefix={prefix_s})"
+        if not _is_valid_temp_name_part(prefix_s):
+            return raise_error(_invalid_argument(f"{call_context}: invalid temp dir prefix"))
+
+        try:
+            path_s = tempfile.mkdtemp(
+                prefix=_normalize_temp_prefix(prefix_s),
+                dir=dir_path
+            )
+            return pure(_normalize_path(path_s))
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, f"{call_context}: tempfile.mkdtemp failed"))
 
     return effect(fn)
 

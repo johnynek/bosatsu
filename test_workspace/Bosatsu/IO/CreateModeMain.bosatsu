@@ -1,0 +1,67 @@
+package Bosatsu/IO/CreateModeMain
+
+from Bosatsu/Prog import Prog, Main, pure, await, recover
+from Bosatsu/IO/Error import IOError
+from Bosatsu/IO/Core import (
+  Path,
+  Handle,
+  TempFile,
+  CreateNew,
+  string_to_Path,
+  open_file,
+  create_temp_file,
+  create_temp_dir,
+  write_utf8,
+  close,
+  remove,
+)
+from Bosatsu/IO/Std import println, show_error
+
+def andb(left: Bool, right: Bool) -> Bool:
+  if left:
+    right
+  else:
+    False
+
+def create_new_success(path: Path) -> Prog[IOError, Bool]:
+  recover(
+    (
+      h <- open_file(path, CreateNew).await()
+      _ <- close(h).await()
+      pure(True)
+    ),
+    _ -> pure(False)
+  )
+
+run_test: Prog[IOError, Int] =
+  match string_to_Path("create_new_lock"):
+    case Some(lock_path):
+      (
+        _ <- recover(remove(lock_path, False), _ -> pure(())).await()
+        first <- create_new_success(lock_path).await()
+        second <- create_new_success(lock_path).await()
+        _ <- remove(lock_path, False).await()
+        _ <- create_temp_dir(None, "bosatsu_create_mode").await()
+        temp_file <- create_temp_file(None, "bos", ".tmp").await()
+        TempFile(_, handle) = temp_file
+        _ <- write_utf8(handle, "hello-temp").await()
+        _ <- close(handle).await()
+        success = andb(first, second matches False)
+        status = if success:
+          "ok"
+        else:
+          "fail"
+        exit_code = if success:
+          0
+        else:
+          1
+        _ <- println("create_mode_test:${status}").await()
+        pure(exit_code)
+      )
+    case None:
+      (
+        _ <- println("create_mode_test:fail").await()
+        pure(1)
+      )
+
+main = Main(_ -> show_error(run_test, 1))

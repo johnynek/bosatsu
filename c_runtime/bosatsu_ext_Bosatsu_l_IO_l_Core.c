@@ -4,8 +4,10 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <gc.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +15,10 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+#if defined(__APPLE__) || defined(__linux__)
+int mkstemps(char *template, int suffixlen);
+#endif
 
 // Bosatsu/IO/Error enum variant indices (must match Bosatsu/IO/Error.bosatsu)
 enum
@@ -391,12 +397,174 @@ static int bsts_option_int(BValue option, _Bool *is_some, BValue *out_value)
   return 0;
 }
 
+static int bsts_option_path(BValue option, _Bool *is_some, char **out_path)
+{
+  ENUM_TAG tag = get_variant(option);
+  if (tag == 0)
+  {
+    *is_some = 0;
+    *out_path = NULL;
+    return 1;
+  }
+  if (tag == 1)
+  {
+    BValue path_value = get_enum_index(option, 0);
+    // bsts_path_to_cstr allocates with malloc; caller owns *out_path and must free it.
+    char *path = bsts_path_to_cstr(path_value);
+    if (!path)
+    {
+      return 0;
+    }
+    *is_some = 1;
+    *out_path = path;
+    return 1;
+  }
+  return 0;
+}
+
+static int bsts_temp_name_part_valid(const char *part)
+{
+  if (!part)
+  {
+    return 0;
+  }
+
+  const unsigned char *p = (const unsigned char *)part;
+  while (*p != '\0')
+  {
+    if ((*p < 32U) || (*p == (unsigned char)'/') || (*p == (unsigned char)'\\'))
+    {
+      return 0;
+    }
+    p++;
+  }
+  return 1;
+}
+
+static char *bsts_normalize_temp_prefix(const char *prefix)
+{
+  const char *source = prefix;
+  if (!source || source[0] == '\0')
+  {
+    source = "tmp";
+  }
+
+  size_t src_len = strlen(source);
+  size_t out_len = (src_len >= 3U) ? src_len : 3U;
+  // Returned buffer is malloc-owned by caller; freed in create_temp_file/create_temp_dir paths.
+  char *out = (char *)malloc(out_len + 1U);
+  if (!out)
+  {
+#ifdef ENOMEM
+    errno = ENOMEM;
+#else
+    errno = 0;
+#endif
+    return NULL;
+  }
+
+  memcpy(out, source, src_len);
+  for (size_t i = src_len; i < out_len; i++)
+  {
+    out[i] = '_';
+  }
+  out[out_len] = '\0';
+  return out;
+}
+
+static const char *bsts_nonempty_env(const char *name)
+{
+  const char *value = getenv(name);
+  if (value && value[0] != '\0')
+  {
+    return value;
+  }
+  return NULL;
+}
+
+static const char *bsts_default_tmp_dir(void)
+{
+  const char *env_tmp = bsts_nonempty_env("TMPDIR");
+  if (!env_tmp)
+  {
+    env_tmp = bsts_nonempty_env("TMP");
+  }
+  if (!env_tmp)
+  {
+    env_tmp = bsts_nonempty_env("TEMP");
+  }
+  if (env_tmp)
+  {
+    return env_tmp;
+  }
+#ifdef P_tmpdir
+  return P_tmpdir;
+#else
+  return "/tmp";
+#endif
+}
+
+static char *bsts_make_temp_template(
+    const char *dir,
+    const char *prefix,
+    const char *suffix)
+{
+  const char *base_dir = dir;
+  if (!base_dir)
+  {
+    base_dir = bsts_default_tmp_dir();
+  }
+
+  size_t dir_len = strlen(base_dir);
+  size_t prefix_len = strlen(prefix);
+  size_t suffix_len = strlen(suffix);
+  int needs_sep = (dir_len > 0U && base_dir[dir_len - 1U] != '/');
+  size_t total_len = dir_len + (size_t)(needs_sep ? 1 : 0) + prefix_len + 6U + suffix_len;
+  // Returned buffer is malloc-owned by caller; freed after mkstemp/mkstemps/mkdtemp.
+  char *template = (char *)malloc(total_len + 1U);
+  if (!template)
+  {
+#ifdef ENOMEM
+    errno = ENOMEM;
+#else
+    errno = 0;
+#endif
+    return NULL;
+  }
+
+  size_t offset = 0U;
+  if (dir_len > 0U)
+  {
+    memcpy(template + offset, base_dir, dir_len);
+    offset += dir_len;
+  }
+  if (needs_sep)
+  {
+    template[offset++] = '/';
+  }
+  if (prefix_len > 0U)
+  {
+    memcpy(template + offset, prefix, prefix_len);
+    offset += prefix_len;
+  }
+  memcpy(template + offset, "XXXXXX", 6U);
+  offset += 6U;
+  if (suffix_len > 0U)
+  {
+    memcpy(template + offset, suffix, suffix_len);
+    offset += suffix_len;
+  }
+  template[offset] = '\0';
+  return template;
+}
+
 static int bsts_join_path(char **out_path, const char *base, const char *name)
 {
   size_t base_len = strlen(base);
   size_t name_len = strlen(name);
   int need_sep = (base_len > 0 && base[base_len - 1] != '/');
   size_t total = base_len + (size_t)(need_sep ? 1 : 0) + name_len;
+  // Returned buffer is malloc-owned by caller; list_dir frees each successful join.
   char *joined = (char *)malloc(total + 1);
   if (!joined)
   {
@@ -418,6 +586,39 @@ static int bsts_join_path(char **out_path, const char *base, const char *name)
   joined[total] = '\0';
   *out_path = joined;
   return 1;
+}
+
+static void bsts_contextf(char *out, size_t out_size, const char *fmt, ...)
+{
+  if (out_size == 0U)
+  {
+    return;
+  }
+  va_list args;
+  va_start(args, fmt);
+  int written = vsnprintf(out, out_size, fmt, args);
+  va_end(args);
+  if (written < 0)
+  {
+    out[0] = '\0';
+  }
+}
+
+static const char *bsts_open_mode_name(ENUM_TAG mode_tag)
+{
+  switch (mode_tag)
+  {
+  case 0:
+    return "Read";
+  case 1:
+    return "WriteTruncate";
+  case 2:
+    return "Append";
+  case 3:
+    return "CreateNew";
+  default:
+    return "Unknown";
+  }
 }
 
 static int bsts_cmp_cstr(const void *left, const void *right)
@@ -982,14 +1183,20 @@ static BValue bsts_core_open_file_effect(BValue pair)
   BValue path_value = get_struct_index(pair, 0);
   BValue mode_value = get_struct_index(pair, 1);
 
+  char context[512];
   char *path = bsts_path_to_cstr(path_value);
   if (!path)
   {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "open_file(path=<invalid Path>)");
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_from_errno_default(errno, "opening file"));
+        bsts_ioerror_from_errno_default(errno, context));
   }
 
   ENUM_TAG mode_tag = get_variant(mode_value);
+  const char *mode_name = bsts_open_mode_name(mode_tag);
   const char *open_mode = NULL;
   int readable = 0;
   int writable = 0;
@@ -1008,17 +1215,66 @@ static BValue bsts_core_open_file_effect(BValue pair)
     open_mode = "ab";
     writable = 1;
     break;
+  case 3: // CreateNew
+  {
+    errno = 0;
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd < 0)
+    {
+      bsts_contextf(
+          context,
+          sizeof(context),
+          "open_file(path=%s, mode=%s): open(O_CREAT|O_EXCL) failed",
+          path,
+          mode_name);
+      BValue err = bsts_ioerror_from_errno_default(errno, context);
+      free(path);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+    }
+
+    FILE *created_file = fdopen(fd, "wb");
+    if (!created_file)
+    {
+      bsts_contextf(
+          context,
+          sizeof(context),
+          "open_file(path=%s, mode=%s): fdopen(\"wb\") failed",
+          path,
+          mode_name);
+      BValue err = bsts_ioerror_from_errno_default(errno, context);
+      close(fd);
+      free(path);
+      return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+    }
+
+    free(path);
+    BValue handle = bsts_core_make_handle(BSTS_HANDLE_FILE, created_file, 0, 1, 1);
+    return ___bsts_g_Bosatsu_l_Prog_l_pure(handle);
+  }
   default:
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "open_file(path=%s, mode_tag=%d): invalid OpenMode value",
+        path,
+        mode_tag);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
-        bsts_ioerror_invalid_argument("invalid OpenMode value"));
+        bsts_ioerror_invalid_argument(context));
   }
 
   errno = 0;
   FILE *file = fopen(path, open_mode);
   if (!file)
   {
-    BValue err = bsts_ioerror_from_errno_default(errno, "opening file");
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "open_file(path=%s, mode=%s): fopen(%s) failed",
+        path,
+        mode_name,
+        open_mode);
+    BValue err = bsts_ioerror_from_errno_default(errno, context);
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
@@ -1026,6 +1282,363 @@ static BValue bsts_core_open_file_effect(BValue pair)
   free(path);
   BValue handle = bsts_core_make_handle(BSTS_HANDLE_FILE, file, readable, writable, 1);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(handle);
+}
+
+static BValue bsts_core_create_temp_file_effect(BValue args3)
+{
+  BValue dir_option = get_struct_index(args3, 0);
+  BValue prefix_value = get_struct_index(args3, 1);
+  BValue suffix_value = get_struct_index(args3, 2);
+  ENUM_TAG dir_tag = get_variant(dir_option);
+  const char *dir_tag_context = "<invalid dir option>";
+  if (dir_tag == 0)
+  {
+    dir_tag_context = "<default-temp-dir>";
+  }
+  else if (dir_tag == 1)
+  {
+    dir_tag_context = "<provided-dir>";
+  }
+
+  char context[768];
+  char *prefix_raw = bsts_string_to_cstr(prefix_value);
+  if (!prefix_raw)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=<invalid String>, suffix=<unknown>): decoding prefix failed",
+        dir_tag_context);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  char *suffix_raw = bsts_string_to_cstr(suffix_value);
+  if (!suffix_raw)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=<invalid String>): decoding suffix failed",
+        dir_tag_context,
+        prefix_raw);
+    free(prefix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  if (!bsts_temp_name_part_valid(prefix_raw))
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): invalid temp file prefix",
+        dir_tag_context,
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument(context));
+  }
+  if (!bsts_temp_name_part_valid(suffix_raw))
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): invalid temp file suffix",
+        dir_tag_context,
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument(context));
+  }
+
+  _Bool has_dir = 0;
+  char *dir_path = NULL;
+  if (!bsts_option_path(dir_option, &has_dir, &dir_path))
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=<invalid Path option>, prefix=%s, suffix=%s): invalid temp file dir",
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument(context));
+  }
+  const char *dir_for_context = has_dir ? dir_path : bsts_default_tmp_dir();
+
+  char *prefix_norm = bsts_normalize_temp_prefix(prefix_raw);
+  if (!prefix_norm)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): normalize temp prefix failed",
+        dir_for_context,
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  char *template_path = bsts_make_temp_template(
+      has_dir ? dir_path : NULL,
+      prefix_norm,
+      suffix_raw);
+  if (!template_path)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): build temp template failed",
+        dir_for_context,
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    free(prefix_norm);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  errno = 0;
+  int fd = -1;
+  if (suffix_raw[0] == '\0')
+  {
+    fd = mkstemp(template_path);
+  }
+  else
+  {
+#if defined(__APPLE__) || defined(__linux__)
+    fd = mkstemps(template_path, (int)strlen(suffix_raw));
+#else
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): suffix support requires mkstemps",
+        dir_for_context,
+        prefix_raw,
+        suffix_raw);
+    free(prefix_raw);
+    free(suffix_raw);
+    free(prefix_norm);
+    free(template_path);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_unsupported(context));
+#endif
+  }
+
+  if (fd < 0)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): creating temp file from template=%s failed",
+        dir_for_context,
+        prefix_raw,
+        suffix_raw,
+        template_path);
+    BValue err = bsts_ioerror_from_errno_default(errno, context);
+    free(prefix_raw);
+    free(suffix_raw);
+    free(prefix_norm);
+    free(template_path);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+
+  FILE *file = fdopen(fd, "wb");
+  if (!file)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_file(dir=%s, prefix=%s, suffix=%s): opening created path=%s with fdopen(\"wb\") failed",
+        dir_for_context,
+        prefix_raw,
+        suffix_raw,
+        template_path);
+    BValue err = bsts_ioerror_from_errno_default(errno, context);
+    close(fd);
+    free(prefix_raw);
+    free(suffix_raw);
+    free(prefix_norm);
+    free(template_path);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+
+  BValue path_out = bsts_path_from_cstr(template_path);
+  BValue handle_out = bsts_core_make_handle(BSTS_HANDLE_FILE, file, 0, 1, 1);
+  BValue out = alloc_struct2(path_out, handle_out);
+
+  // Release malloc-owned temporary buffers now that Bosatsu values/FILE* are built.
+  free(prefix_raw);
+  free(suffix_raw);
+  free(prefix_norm);
+  free(template_path);
+  if (dir_path)
+  {
+    free(dir_path);
+  }
+
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(out);
+}
+
+static BValue bsts_core_create_temp_dir_effect(BValue pair)
+{
+  BValue dir_option = get_struct_index(pair, 0);
+  BValue prefix_value = get_struct_index(pair, 1);
+  ENUM_TAG dir_tag = get_variant(dir_option);
+  const char *dir_tag_context = "<invalid dir option>";
+  if (dir_tag == 0)
+  {
+    dir_tag_context = "<default-temp-dir>";
+  }
+  else if (dir_tag == 1)
+  {
+    dir_tag_context = "<provided-dir>";
+  }
+
+  char context[768];
+  char *prefix_raw = bsts_string_to_cstr(prefix_value);
+  if (!prefix_raw)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=%s, prefix=<invalid String>): decoding prefix failed",
+        dir_tag_context);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  if (!bsts_temp_name_part_valid(prefix_raw))
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=%s, prefix=%s): invalid temp dir prefix",
+        dir_tag_context,
+        prefix_raw);
+    free(prefix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument(context));
+  }
+
+  _Bool has_dir = 0;
+  char *dir_path = NULL;
+  if (!bsts_option_path(dir_option, &has_dir, &dir_path))
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=<invalid Path option>, prefix=%s): invalid temp dir",
+        prefix_raw);
+    free(prefix_raw);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument(context));
+  }
+  const char *dir_for_context = has_dir ? dir_path : bsts_default_tmp_dir();
+
+  char *prefix_norm = bsts_normalize_temp_prefix(prefix_raw);
+  if (!prefix_norm)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=%s, prefix=%s): normalize temp prefix failed",
+        dir_for_context,
+        prefix_raw);
+    free(prefix_raw);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  char *template_path = bsts_make_temp_template(
+      has_dir ? dir_path : NULL,
+      prefix_norm,
+      "");
+  if (!template_path)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=%s, prefix=%s): build temp template failed",
+        dir_for_context,
+        prefix_raw);
+    free(prefix_raw);
+    free(prefix_norm);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, context));
+  }
+
+  errno = 0;
+  char *created = mkdtemp(template_path);
+  if (!created)
+  {
+    bsts_contextf(
+        context,
+        sizeof(context),
+        "create_temp_dir(dir=%s, prefix=%s): mkdtemp(template=%s) failed",
+        dir_for_context,
+        prefix_raw,
+        template_path);
+    BValue err = bsts_ioerror_from_errno_default(errno, context);
+    free(prefix_raw);
+    free(prefix_norm);
+    free(template_path);
+    if (dir_path)
+    {
+      free(dir_path);
+    }
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+
+  BValue out = bsts_path_from_cstr(created);
+  // Release malloc-owned temporary buffers now that the Bosatsu Path is built.
+  free(prefix_raw);
+  free(prefix_norm);
+  free(template_path);
+  if (dir_path)
+  {
+    free(dir_path);
+  }
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(out);
 }
 
 static BValue bsts_core_list_dir_effect(BValue path_value)
@@ -1467,6 +2080,16 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_close(BValue h)
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_open__file(BValue path, BValue mode)
 {
   return bsts_prog_effect2(path, mode, bsts_core_open_file_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__file(BValue dir, BValue prefix, BValue suffix)
+{
+  return bsts_prog_effect3(dir, prefix, suffix, bsts_core_create_temp_file_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_create__temp__dir(BValue dir, BValue prefix)
+{
+  return bsts_prog_effect2(dir, prefix, bsts_core_create_temp_dir_effect);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_list__dir(BValue path)
