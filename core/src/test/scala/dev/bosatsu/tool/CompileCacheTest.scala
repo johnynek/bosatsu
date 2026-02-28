@@ -12,6 +12,7 @@ import dev.bosatsu.{
   Par
 }
 import munit.FunSuite
+import scala.collection.immutable.SortedMap
 
 class CompileCacheTest extends FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
@@ -62,7 +63,7 @@ class CompileCacheTest extends FunSuite {
 
   private def compileKey(
       pack: Package.Parsed,
-      deps: List[(PackageName, Package.Interface)] = Nil,
+      deps: SortedMap[PackageName, Package.Interface] = SortedMap.empty,
       compileOptions: CompileOptions = CompileOptions.Default
   ): FsKey =
     runF(
@@ -143,8 +144,10 @@ class CompileCacheTest extends FunSuite {
     val depIfaceV1 = Package.interfaceOf(compilePackage(depSourceV1))
     val depIfaceV2 = Package.interfaceOf(compilePackage(depSourceV2))
 
-    val keyV1 = compileKey(consumer, List(depIfaceV1.name -> depIfaceV1))
-    val keyV2 = compileKey(consumer, List(depIfaceV2.name -> depIfaceV2))
+    val keyV1 =
+      compileKey(consumer, SortedMap(depIfaceV1.name -> depIfaceV1))
+    val keyV2 =
+      compileKey(consumer, SortedMap(depIfaceV2.name -> depIfaceV2))
 
     assertNotEquals(CompileCache.keyHashHex(keyV1), CompileCache.keyHashHex(keyV2))
   }

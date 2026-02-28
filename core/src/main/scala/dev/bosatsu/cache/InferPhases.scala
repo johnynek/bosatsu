@@ -3,10 +3,10 @@ package dev.bosatsu.cache
 import dev.bosatsu.{
   CompileOptions,
   Package,
-  PackageName,
   TypedExprLoopRecurLowering,
   TypedExprNormalization
 }
+import scala.collection.immutable.SortedMap
 
 trait InferPhases {
   def id: String
@@ -15,7 +15,7 @@ trait InferPhases {
 
   def finishPackage(
       pack: Package.Inferred,
-      depIfaces: List[(PackageName, Package.Interface)],
+      depIfaces: SortedMap[dev.bosatsu.PackageName, Package.Interface],
       compileOptions: CompileOptions
   ): Package.Inferred
 }
@@ -30,7 +30,7 @@ object InferPhases {
 
       def finishPackage(
           pack: Package.Inferred,
-          _depIfaces: List[(PackageName, Package.Interface)],
+          _depIfaces: SortedMap[dev.bosatsu.PackageName, Package.Interface],
           compileOptions: CompileOptions
       ): Package.Inferred =
         if (compileOptions.optimize) {

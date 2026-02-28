@@ -2,13 +2,14 @@ package dev.bosatsu.cache
 
 import cats.Applicative
 import dev.bosatsu.{CompileOptions, Package, PackageName}
+import scala.collection.immutable.SortedMap
 
 trait InferCache[F[_]] {
   type Key
 
   def generateKey(
       pack: Package.Parsed,
-      depInterfaces: List[(PackageName, Package.Interface)],
+      depInterfaces: SortedMap[PackageName, Package.Interface],
       compileOptions: CompileOptions,
       compilerIdentity: String,
       phaseIdentity: String
@@ -22,10 +23,12 @@ object InferCache {
   def noop[F[_]: Applicative]: InferCache[F] { type Key = Unit } =
     new InferCache[F] {
       type Key = Unit
+      private val noneF: F[Option[Package.Inferred]] =
+        Applicative[F].pure(None)
 
       def generateKey(
           pack: Package.Parsed,
-          depInterfaces: List[(PackageName, Package.Interface)],
+          depInterfaces: SortedMap[PackageName, Package.Interface],
           compileOptions: CompileOptions,
           compilerIdentity: String,
           phaseIdentity: String
@@ -33,7 +36,7 @@ object InferCache {
         Applicative[F].pure(())
 
       def get(key: Key): F[Option[Package.Inferred]] =
-        Applicative[F].pure(None)
+        noneF
 
       def put(key: Key, value: Package.Inferred): F[Unit] =
         Applicative[F].unit

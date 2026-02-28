@@ -1,7 +1,8 @@
 package dev.bosatsu.cache
 
 import cats.syntax.all._
-import dev.bosatsu.hashing.{Algo, HashValue}
+import cats.parse.Parser
+import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
   BuildInfo,
   CompileOptions,
@@ -14,7 +15,9 @@ import dev.bosatsu.{
 }
 import java.nio.charset.StandardCharsets
 import org.typelevel.paiges.{Doc, Document}
+import scala.collection.immutable.SortedMap
 import scala.collection.mutable
+import scala.util.{Failure, Success, Try}
 
 object CompileCache {
   private val schemaVersion = 1
@@ -33,7 +36,7 @@ object CompileCache {
   ): InferCache[F] { type Key = FsKey } =
     new FilesystemCache(cacheDir, platformIO)
 
-  def sourceExprHash(pack: Package.Parsed): String = {
+  def sourceExprHash(pack: Package.Parsed): HashValue[Algo.Blake3] = {
     val normalizedStatements = pack.program.collect {
       case _: Statement.PaddingStatement => None
       case _: Statement.Comment          => None
@@ -41,25 +44,25 @@ object CompileCache {
     }.flatten
     val normalized = pack.copy(program = normalizedStatements)
     val serialized = Document[Package.Parsed].document(normalized).render(200)
-    hashUtf8(serialized).hex
+    hashUtf8(serialized)
   }
 
-  def interfaceHash(iface: Package.Interface): String =
+  def interfaceHash(iface: Package.Interface): Try[HashValue[Algo.Blake3]] =
     ProtoConverter
       .interfaceToProto(iface)
-      .toOption
-      .map(p => Algo.hashBytes[Algo.Blake3](p.toByteArray).hex)
-      .getOrElse(hashUtf8(iface.toString).hex)
+      .map(p => Algo.hashBytes[Algo.Blake3](p.toByteArray))
 
   def keyHashHex(key: FsKey): String =
     keyHashValue(key).hex
 
   def outputHashHex(pack: Package.Inferred): Option[String] =
-    outputHashValue(pack).map(_.hex)
+    outputHashValue(pack).toOption.map(_.hash.hex)
 
   private[cache] def keyHashValue(key: FsKey): HashValue[Algo.Blake3] = {
     val deps = key.depInterfaceHashes
-      .map { case (pn, hash) => s"${pn.asString}=$hash" }
+      .map { case (pn, hash) =>
+        s"${pn.asString}=${hash.toIdent(using blake3)}"
+      }
       .mkString("\n")
     val payload =
       s"""schema:${key.schemaVersion}
@@ -68,7 +71,7 @@ object CompileCache {
          |optimize:${key.compileOptions.optimize}
          |compiler:${key.compilerIdentity}
          |phase:${key.phaseIdentity}
-         |source:${key.sourceExprHash}
+         |source:${key.sourceExprHash.toIdent(using blake3)}
          |deps:
          |$deps
          |""".stripMargin
@@ -77,11 +80,13 @@ object CompileCache {
 
   private[cache] def outputHashValue(
       pack: Package.Inferred
-  ): Option[HashValue[Algo.Blake3]] =
+  ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
     ProtoConverter
-      .packageToProto(pack)
-      .toOption
-      .map(p => Algo.hashBytes[Algo.Blake3](p.toByteArray))
+      .packagesToProto(pack :: Nil)
+      .map { p =>
+        val bytes = p.toByteArray
+        Hashed(Algo.hashBytes[Algo.Blake3](bytes), bytes)
+      }
 
   private def hashUtf8(str: String): HashValue[Algo.Blake3] =
     Algo.hashBytes[Algo.Blake3](str.getBytes(utf8))
@@ -94,13 +99,27 @@ object CompileCache {
 
     import platformIO.moduleIOMonad
 
-    private val interfaceHashMemo = mutable.HashMap.empty[Package.Interface, String]
+    private val interfaceHashMemo =
+      mutable.HashMap.empty[Package.Interface, Try[HashValue[Algo.Blake3]]]
 
     // Scala.js does not support TrieMap; synchronize around a local mutable map.
-    private def memoizedInterfaceHash(iface: Package.Interface): String =
+    private def memoizedInterfaceHash(
+        iface: Package.Interface
+    ): Try[HashValue[Algo.Blake3]] =
       this.synchronized {
         interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
       }
+
+    private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
+    private def parseHashValue[A](algo: Algo[A]): Parser[HashValue[A]] =
+      Parser.string(algo.name) *> Parser.char(':') *> {
+        hexChar
+          .repExactlyAs[String](algo.hexLen)
+          .map(hex => HashValue[A](hex))
+      }
+
+    private val parseIdent: Parser[Algo.WithAlgo[HashValue] { type A = Algo.Blake3 }] =
+      parseHashValue(blake3).map(Algo.WithAlgo(blake3, _))
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
       platformIO.resolve(
@@ -116,38 +135,41 @@ object CompileCache {
       )
 
     private def parseHashIdent(str: String): Option[HashValue[Algo.Blake3]] =
-      Algo.parseIdent.parseAll(str.trim).toOption.collect {
-        case hashed if hashed.algo.name == blake3.name =>
-          HashValue[Algo.Blake3](hashed.value.hex)
-      }
+      parseIdent.parseAll(str.trim).toOption.map(_.value)
 
-    private def onError[A](fa: F[A], fallback: => A): F[A] =
+    private inline def onError[A](fa: F[A], inline fallback: => A): F[A] =
       moduleIOMonad.handleError(fa)(_ => fallback)
 
     def generateKey(
         pack: Package.Parsed,
-        depInterfaces: List[(PackageName, Package.Interface)],
+        depInterfaces: SortedMap[PackageName, Package.Interface],
         compileOptions: CompileOptions,
         compilerIdentity: String,
         phaseIdentity: String
     ): F[Key] =
-      moduleIOMonad.pure {
-        val depHashes = depInterfaces
-          .map { case (name, iface) =>
-            val hash = memoizedInterfaceHash(iface)
-            (name, hash)
+      moduleIOMonad.fromTry {
+        val depHashesTry =
+          depInterfaces.iterator.foldLeft(
+            Success(
+              SortedMap.empty[PackageName, HashValue[Algo.Blake3]]
+            ): Try[SortedMap[PackageName, HashValue[Algo.Blake3]]]
+          ) { case (acc, (name, iface)) =>
+            acc.flatMap { depHashes =>
+              memoizedInterfaceHash(iface).map(depHashes.updated(name, _))
+            }
           }
-          .sortBy(_._1)
 
-        FsKey(
-          packageName = pack.name,
-          compileOptions = compileOptions,
-          compilerIdentity = compilerIdentity,
-          phaseIdentity = phaseIdentity,
-          sourceExprHash = sourceExprHash(pack),
-          depInterfaceHashes = depHashes,
-          schemaVersion = schemaVersion
-        )
+        depHashesTry.map { depHashes =>
+          FsKey(
+            packageName = pack.name,
+            compileOptions = compileOptions,
+            compilerIdentity = compilerIdentity,
+            phaseIdentity = phaseIdentity,
+            sourceExprHash = sourceExprHash(pack),
+            depInterfaceHashes = depHashes,
+            schemaVersion = schemaVersion
+          )
+        }
       }
 
     def get(key: Key): F[Option[Package.Inferred]] = {
@@ -176,9 +198,10 @@ object CompileCache {
 
     def put(key: Key, value: Package.Inferred): F[Unit] =
       outputHashValue(value) match {
-        case None             =>
+        case Failure(_)            =>
           moduleIOMonad.unit
-        case Some(outputHash) =>
+        case Success(hashedOutput) =>
+          val outputHash = hashedOutput.hash
           val packagePath = casPath(outputHash)
 
           val writeCas: F[Boolean] =
@@ -187,7 +210,7 @@ object CompileCache {
                 case true  =>
                   moduleIOMonad.pure(true)
                 case false =>
-                  platformIO.writePackages(value :: Nil, packagePath).as(true)
+                  platformIO.writeBytes(packagePath, hashedOutput.arg).as(true)
               },
               false
             )
