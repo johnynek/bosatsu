@@ -576,6 +576,8 @@ object Predef {
 object PredefImpl {
 
   import Value._
+  import dev.bosatsu.BosatsuInt as BInt
+  import BInt.*
   private val NaNBitsPrefix = "NaN:0x"
 
   final case class ArrayValue(data: Array[Value], offset: Int, len: Int) {
@@ -597,102 +599,35 @@ object PredefImpl {
   private val EmptyBytesRepr: BytesValue = BytesValue(EmptyBytesData, 0, 0)
   val emptyBytes: Value = ExternalValue(EmptyBytesRepr)
 
-  private val MinIntLong = Int.MinValue.toLong
-  private val MaxIntLong = Int.MaxValue.toLong
-
-  private def intValue(i: Int): java.lang.Integer =
-    java.lang.Integer.valueOf(i)
-
   private def intRaw(a: Value): Value.BosatsuInt =
     a match {
-      case ExternalValue(v: java.lang.Integer) => v
-      case ExternalValue(v: BigInteger)        => v
-      case _                                   => sys.error(s"expected integer: $a")
+      case ExternalValue(BInt(v)) => v
+      case _                      => sys.error(s"expected integer: $a")
     }
-
-  private def intFromBigInteger(bi: BigInteger): Value.BosatsuInt =
-    Value.intFromBigInteger(bi)
 
   private def i(a: Value): BigInteger =
     Value.intToBigInteger(intRaw(a))
 
   private def addInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val aiL = ai.longValue()
-        val biL = bi.longValue()
-        val sum = aiL + biL
-        if (sum >= MinIntLong && sum <= MaxIntLong) intValue(sum.toInt)
-        else BigInteger.valueOf(aiL).add(BigInteger.valueOf(biL))
-      case _ =>
-        intFromBigInteger(Value.intToBigInteger(a).add(Value.intToBigInteger(b)))
-    }
+    a + b
 
   private def subInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val aiL = ai.longValue()
-        val biL = bi.longValue()
-        val diff = aiL - biL
-        if (diff >= MinIntLong && diff <= MaxIntLong) intValue(diff.toInt)
-        else BigInteger.valueOf(aiL).subtract(
-            BigInteger.valueOf(biL)
-          )
-      case _ =>
-        intFromBigInteger(
-          Value.intToBigInteger(a).subtract(Value.intToBigInteger(b))
-        )
-    }
+    a - b
 
   private def mulInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        val aiL = ai.longValue()
-        val biL = bi.longValue()
-        val prod = aiL * biL
-        if (prod >= MinIntLong && prod <= MaxIntLong) intValue(prod.toInt)
-        else BigInteger.valueOf(aiL).multiply(
-            BigInteger.valueOf(biL)
-          )
-      case _ =>
-        intFromBigInteger(
-          Value.intToBigInteger(a).multiply(Value.intToBigInteger(b))
-        )
-    }
+    a * b
 
   private def andInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        intValue(ai.intValue() & bi.intValue())
-      case _ =>
-        intFromBigInteger(
-          Value.intToBigInteger(a).and(Value.intToBigInteger(b))
-        )
-    }
+    a & b
 
   private def orInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        intValue(ai.intValue() | bi.intValue())
-      case _ =>
-        intFromBigInteger(Value.intToBigInteger(a).or(Value.intToBigInteger(b)))
-    }
+    a | b
 
   private def xorInt(a: Value.BosatsuInt, b: Value.BosatsuInt): Value.BosatsuInt =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        intValue(ai.intValue() ^ bi.intValue())
-      case _ =>
-        intFromBigInteger(
-          Value.intToBigInteger(a).xor(Value.intToBigInteger(b))
-        )
-    }
+    a ^ b
 
   private def notInt(a: Value.BosatsuInt): Value.BosatsuInt =
-    a match {
-      case ai: java.lang.Integer => intValue(~ai.intValue())
-      case _                     => intFromBigInteger(Value.intToBigInteger(a).not())
-    }
+    ~a
 
   private def d(a: Value): Double =
     a match {
@@ -943,10 +878,7 @@ object PredefImpl {
     else Value.VOption.none
   }
   def int_to_Float64(a: Value): Value =
-    intRaw(a) match {
-      case i: java.lang.Integer => vf(i.doubleValue())
-      case bi: BigInteger       => vf(bi.doubleValue())
-    }
+    vf(intRaw(a).toDouble)
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))
@@ -3462,10 +3394,7 @@ object PredefImpl {
   }
 
   final def int_to_String(intValue: Value): Value =
-    intRaw(intValue) match {
-      case i: java.lang.Integer => Value.Str(i.toString)
-      case bi: BigInteger       => Value.Str(bi.toString)
-    }
+    Value.Str(intRaw(intValue).show)
 
   final def string_to_Int(strValue: Value): Value = {
     val str = strValue match {

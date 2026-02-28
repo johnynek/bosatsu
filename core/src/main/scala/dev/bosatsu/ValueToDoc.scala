@@ -2,13 +2,14 @@ package dev.bosatsu
 
 import cats.Eval
 import cats.implicits._
-import java.math.BigInteger
 import dev.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.mutable.{Map => MMap}
+import dev.bosatsu.BosatsuInt as BInt
 
 import Value._
 import Identifier.Constructor
+import BInt.*
 
 import JsonEncodingError.IllTyped
 
@@ -54,10 +55,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
-              case ExternalValue(v: java.lang.Integer) =>
-                Right(Doc.str(v))
-              case ExternalValue(v: BigInteger) =>
-                Right(Doc.str(v))
+              case ExternalValue(BInt(v)) =>
+                Right(Doc.str(v.show))
               case other =>
                 // $COVERAGE-OFF$this should be unreachable
                 Left(IllTyped(revPath.reverse, tpe, other))
@@ -328,8 +327,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       // this is nat-like
                       // TODO, maybe give a warning
                       {
-                        case ExternalValue(b: (BigInteger | java.lang.Integer)) =>
-                          Right(Doc.str(b))
+                        case ExternalValue(BInt(b)) =>
+                          Right(Doc.str(b.show))
                         case other =>
                           Left(IllTyped(revPath.reverse, tpe, other))
                       }

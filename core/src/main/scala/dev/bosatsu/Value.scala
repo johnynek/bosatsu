@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.NonEmptyList
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
+import dev.bosatsu.BosatsuInt as BInt
 
 /** If we later determine that this performance matters and this wrapping is
   * hurting, we could replace Value with a less structured type and put all the
@@ -52,48 +53,23 @@ sealed abstract class Value derives CanEqual {
 }
 
 object Value {
-  type BosatsuInt = java.lang.Integer | BigInteger
-
-  private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
-  private val MinIntBI = BigInteger.valueOf(Int.MinValue.toLong)
+  import BInt.*
+  type BosatsuInt = BInt.Tpe
 
   private[bosatsu] inline def intFromBigInteger(v: BigInteger): BosatsuInt =
-    if (v.compareTo(MinIntBI) >= 0 && v.compareTo(MaxIntBI) <= 0)
-      java.lang.Integer.valueOf(v.intValue())
-    else v
+    BInt.fromBigInteger(v)
 
   private[bosatsu] inline def intToBigInteger(v: BosatsuInt): BigInteger =
-    v match {
-      case i: java.lang.Integer => BigInteger.valueOf(i.longValue())
-      case bi: BigInteger       => bi
-    }
+    v.toBigInteger
 
   private[bosatsu] inline def decrement(v: BosatsuInt): BosatsuInt =
-    v match {
-      case i: java.lang.Integer => java.lang.Integer.valueOf(i.intValue - 1)
-      case bi: BigInteger       => bi.subtract(BigInteger.ONE)
-    }
+    v.decrement
 
   private[bosatsu] inline def increment(v: BosatsuInt): BosatsuInt =
-    v match {
-      case i: java.lang.Integer =>
-        val iv = i.intValue
-        if (iv < Int.MaxValue) java.lang.Integer.valueOf(iv + 1)
-        else MaxIntBI.add(BigInteger.ONE)
-      case bi: BigInteger       => bi.add(BigInteger.ONE)
-    }
+    v.increment
 
   private[bosatsu] def intCompare(a: BosatsuInt, b: BosatsuInt): Int =
-    (a, b) match {
-      case (ai: java.lang.Integer, bi: java.lang.Integer) =>
-        java.lang.Integer.compare(ai.intValue(), bi.intValue())
-      case (ai: java.lang.Integer, bi: BigInteger) =>
-        BigInteger.valueOf(ai.longValue()).compareTo(bi)
-      case (ai: BigInteger, bi: java.lang.Integer) =>
-        ai.compareTo(BigInteger.valueOf(bi.longValue()))
-      case (ai: BigInteger, bi: BigInteger) =>
-        ai.compareTo(bi)
-    }
+    a.compare(b)
 
   private[bosatsu] inline def intEq(a: BosatsuInt, b: BosatsuInt): Boolean =
     intCompare(a, b) == 0
@@ -235,15 +211,13 @@ object Value {
     }
 
   object VInt {
-    inline def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
+    inline def apply(v: Int): Value = ExternalValue(BInt.fromInt(v))
     inline def apply(v: BigInt): Value = apply(v.bigInteger)
     inline def apply(v: BigInteger): Value = ExternalValue(intFromBigInteger(v))
     def unapply(v: Value): Option[BigInteger] =
       v match {
-        case ExternalValue(v: java.lang.Integer) =>
-          Some(BigInteger.valueOf(v.longValue()))
-        case ExternalValue(v: BigInteger) =>
-          Some(v)
+        case ExternalValue(BInt(v)) =>
+          Some(v.toBigInteger)
         case _ =>
           None
       }
@@ -253,23 +227,22 @@ object Value {
 
     inline def isZero(v: Value): Boolean =
       v match {
-        case ExternalValue(v: java.lang.Integer) => v.intValue() == 0
-        case ExternalValue(v: BigInteger) => v.signum == 0
-        case _ => false
+        case ExternalValue(BInt(v)) => v.isZero
+        case _                      => false
       }
 
     // TODO we could cache the a table of small values to reduce the double allocation here
     def decrement(v: Value): Value =
       v match {
-        case ExternalValue(v: BosatsuInt) =>
-          ExternalValue(Value.decrement(v))
+        case ExternalValue(BInt(v)) =>
+          ExternalValue(v.decrement)
         case notInt =>
           sys.error(s"decrement($notInt) invalid")
       }
     def increment(v: Value): Value =
       v match {
-        case ExternalValue(v: BosatsuInt) =>
-          ExternalValue(Value.increment(v))
+        case ExternalValue(BInt(v)) =>
+          ExternalValue(v.increment)
         case notInt =>
           sys.error(s"increment($notInt) invalid")
       }

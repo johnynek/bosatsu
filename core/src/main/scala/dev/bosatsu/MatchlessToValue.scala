@@ -5,9 +5,11 @@ import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
 import scala.collection.immutable.LongMap
+import dev.bosatsu.BosatsuInt as BInt
 
 import Identifier.Bindable
 import Value._
+import BInt.*
 
 object MatchlessToValue {
   import Matchless._
@@ -246,10 +248,10 @@ object MatchlessToValue {
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
       private def valueEquals(left: Any, right: Any): Boolean =
         (left, right) match {
-          case (li: java.lang.Integer, ri: BigInteger) =>
-            BigInteger.valueOf(li.longValue()) == ri
-          case (li: BigInteger, ri: java.lang.Integer) =>
-            li == BigInteger.valueOf(ri.longValue())
+          case (BInt(li), ri: BigInteger) =>
+            li.toBigInteger == ri
+          case (li: BigInteger, BInt(ri)) =>
+            li == ri.toBigInteger
           case _ =>
             java.util.Objects.equals(
               left.asInstanceOf[AnyRef],
