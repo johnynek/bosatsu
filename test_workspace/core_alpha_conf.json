@@ -1,17 +1,17 @@
 {
   "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
-  "next_version": "4.0.0",
+  "next_version": "4.0.1",
   "previous": {
-      "version": "3.0.0",
-      "hashes": [ "blake3:2a415c96c663d8241db348da8912259fc86ed01c7c07ded74122ef95d40d3da6" ],
+      "version": "4.0.0",
+      "hashes": [ "blake3:74916cbb5c96dee4a797fbd9d7c585eceac3840169b4462ae9ff7d98209c5aac" ],
       "uris": [
-          "https://github.com/johnynek/bosatsu/releases/download/v0.0.35/core_alpha-v3.0.0.bosatsu_lib" ]
+          "https://github.com/johnynek/bosatsu/releases/download/v0.0.36/core_alpha-v4.0.0.bosatsu_lib" ]
     },
   "exported_packages": [ "Bosatsu/Bool", "Bosatsu/Char", "Bosatsu/Collection/Array",
       "Bosatsu/Collection/Queue", "Bosatsu/Collection/TreeList", "Bosatsu/Dict", "Bosatsu/IO/Error",
-      "Bosatsu/IO/Bytes", "Bosatsu/IO/Core", "Bosatsu/IO/Std", "Bosatsu/Num/Binary", "Bosatsu/List", "Bosatsu/Num/Nat",
-      "Bosatsu/Num/BinNat", "Bosatsu/Nothing", "Bosatsu/Option", "Bosatsu/Json", "Bosatsu/Prog",
-      "Bosatsu/Rand", "Bosatsu/Testing/Properties", "Bosatsu/Num/Float64" ],
+      "Bosatsu/IO/Bytes", "Bosatsu/IO/Core", "Bosatsu/IO/Std", "Bosatsu/Num/Binary", "Bosatsu/List",
+      "Bosatsu/Num/Nat", "Bosatsu/Num/BinNat", "Bosatsu/Nothing", "Bosatsu/Option", "Bosatsu/Json",
+      "Bosatsu/Prog", "Bosatsu/Rand", "Bosatsu/Testing/Properties", "Bosatsu/Num/Float64" ],
   "all_packages": [ ".*" ]
 }
