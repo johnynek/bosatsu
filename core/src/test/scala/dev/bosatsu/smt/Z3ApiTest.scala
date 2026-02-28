@@ -79,4 +79,127 @@ class Z3ApiTest extends munit.FunSuite {
     val out = Z3Api.run(script, runner)
     assert(out.isLeft)
   }
+
+  test("execution failure is propagated") {
+    val expected = Z3Api.RunError.ExecutionFailure(
+      message = "z3 crashed",
+      stdout = "partial",
+      stderr = "boom"
+    )
+    val runner: Z3Api.RunSmt2 = _ => Left(expected)
+    val script = SmtScript(Vector(CheckSat))
+    val out = Z3Api.run(script, runner)
+    assertEquals(out, Left(expected))
+  }
+
+  test("unknown status parses to structured result") {
+    val runner: Z3Api.RunSmt2 =
+      _ => Right(Z3Api.SolverOutput(stdout = "unknown\n", stderr = ""))
+    val script = SmtScript(Vector(CheckSat))
+    Z3Api.run(script, runner) match {
+      case Right(res) =>
+        assertEquals(res.status, Z3Api.Status.Unknown)
+        assertEquals(res.model, None)
+      case Left(err)  =>
+        fail(s"expected success, got error: ${err.message}")
+    }
+  }
+
+  test("status token must be delimited") {
+    val runner: Z3Api.RunSmt2 =
+      _ => Right(Z3Api.SolverOutput(stdout = "satish\n", stderr = ""))
+    val script = SmtScript(Vector(CheckSat))
+    val out = Z3Api.run(script, runner)
+    out match {
+      case Left(_: Z3Api.RunError.InvalidOutput) =>
+        ()
+      case _ =>
+        fail(s"expected InvalidOutput, got: $out")
+    }
+  }
+
+  test("sat output with malformed model returns parse failure") {
+    val runner: Z3Api.RunSmt2 =
+      _ => Right(
+        Z3Api.SolverOutput(
+          stdout =
+            """sat
+              |(model
+              |  (define-fun x () Int 3)
+              |""".stripMargin,
+          stderr = ""
+        )
+      )
+
+    val script = SmtScript(Vector(CheckSat, GetModel))
+    val out = Z3Api.run(script, runner)
+    out match {
+      case Left(_: Z3Api.RunError.ModelParseFailure) =>
+        ()
+      case _ =>
+        fail(s"expected ModelParseFailure, got: $out")
+    }
+  }
+
+  test("sat output without get-model does not parse remainder as model") {
+    val runner: Z3Api.RunSmt2 =
+      _ =>
+        Right(
+          Z3Api.SolverOutput(
+            stdout =
+              """sat
+                |(model
+                |  (define-fun x () Int 7)
+                |)
+                |""".stripMargin,
+            stderr = ""
+          )
+        )
+
+    val script = SmtScript(Vector(CheckSat))
+    Z3Api.run(script, runner) match {
+      case Right(res) =>
+        assertEquals(res.status, Z3Api.Status.Sat)
+        assertEquals(res.model, None)
+      case Left(err)  =>
+        fail(s"expected success, got error: ${err.message}")
+    }
+  }
+
+  test("runSmt2 parses status but never parses model") {
+    val runner: Z3Api.RunSmt2 =
+      _ =>
+        Right(
+          Z3Api.SolverOutput(
+            stdout =
+              """sat
+                |(model
+                |  (define-fun x () Int 11)
+                |)
+                |""".stripMargin,
+            stderr = ""
+          )
+        )
+
+    Z3Api.runSmt2("(check-sat)\n(get-model)\n", runner) match {
+      case Right(res) =>
+        assertEquals(res.status, Z3Api.Status.Sat)
+        assertEquals(res.model, None)
+      case Left(err)  =>
+        fail(s"expected success, got error: ${err.message}")
+    }
+  }
+
+  test("run with parseModel=false skips malformed model parsing") {
+    val runner: Z3Api.RunSmt2 =
+      _ => Right(Z3Api.SolverOutput(stdout = "sat\n(model\n", stderr = ""))
+    val script = SmtScript(Vector(CheckSat, GetModel))
+    Z3Api.run(script, parseModel = false, runner) match {
+      case Right(res) =>
+        assertEquals(res.status, Z3Api.Status.Sat)
+        assertEquals(res.model, None)
+      case Left(err)  =>
+        fail(s"expected success, got error: ${err.message}")
+    }
+  }
 }
