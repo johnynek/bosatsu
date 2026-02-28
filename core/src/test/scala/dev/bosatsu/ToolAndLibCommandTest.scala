@@ -514,6 +514,90 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test(
+    "lib eval --main scopes local typechecking to selected package roots and transitive deps"
+  ) {
+    val mainSrc =
+      """from MyLib/Dep import dep
+|
+|main = add(dep, 2)
+|""".stripMargin
+    val depSrc =
+      """export dep
+|
+|dep = 40
+|""".stripMargin
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+|""".stripMargin
+
+    val files = baseLibFiles(mainSrc) ++ List(
+      Chain("repo", "src", "MyLib", "Dep.bosatsu") -> depSrc,
+      Chain("repo", "src", "MyLib", "ReproMinEval.bosatsu") -> unrelatedBrokenSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "eval",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo::main"
+      )
+    ) match {
+      case Right(Output.EvaluationResult(_, _, doc)) =>
+        assertEquals(doc.value.render(80), "42")
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
+    }
+  }
+
+  test(
+    "lib show --package scopes local typechecking to selected package roots and transitive deps"
+  ) {
+    val mainSrc =
+      """from MyLib/Dep import dep
+|
+|main = add(dep, 2)
+|""".stripMargin
+    val depSrc =
+      """export dep
+|
+|dep = 40
+|""".stripMargin
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+|""".stripMargin
+
+    val files = baseLibFiles(mainSrc) ++ List(
+      Chain("repo", "src", "MyLib", "Dep.bosatsu") -> depSrc,
+      Chain("repo", "src", "MyLib", "ReproMinShow.bosatsu") -> unrelatedBrokenSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, _, _)) =>
+        assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+        val imports = importItems(packs.headOption.getOrElse(fail("expected one package")))
+        assert(imports.exists(_._1 == "MyLib/Dep"), imports.toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
+    }
+  }
+
   test("lib show invalid package name parse error includes package hint") {
     val src =
       """main = 42

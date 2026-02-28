@@ -598,6 +598,21 @@ object Command {
           )
         } yield decWithLibs
 
+      def decodedWithDepsFiltered(
+          colorize: Colorize,
+          sourcePackageFilter: PackageName => Boolean,
+          compileOptions: CompileOptions
+      ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
+        for {
+          cs <- checkState
+          allPacks <- cs.packageMap(
+            colorize,
+            Some(sourcePackageFilter),
+            compileOptions
+          )
+          decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
+        } yield decWithLibs
+
       private def decodedWithDepsFromPackages(
           cs: CheckState,
           allPacks: PackageMap.Inferred,
@@ -658,15 +673,11 @@ object Command {
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
-        for {
-          cs <- checkState
-          allPacks <- cs.packageMap(
-            colorize,
-            Some(sourcePackageFilter),
-            CompileOptions.Default
-          )
-          decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
-        } yield decWithLibs
+        decodedWithDepsFiltered(
+          colorize,
+          sourcePackageFilter,
+          CompileOptions.Default
+        )
 
       def build(
           colorize: Colorize,
@@ -1409,11 +1420,18 @@ object Command {
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
+          val sourcePackageFilter: PackageName => Boolean =
+            _ == target._1
+
           for {
             cc <- fcc
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
+                dec <- cc.decodedWithDepsFiltered(
+                  colorize,
+                  sourcePackageFilter,
+                  CompileOptions.Default
+                )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
                   (target match {
@@ -1525,11 +1543,26 @@ object Command {
             if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
           val request =
             ShowSelection.Request(packages, types, values, externalsOnly)
+          val sourceFilterOpt =
+            if (request.isEmpty) None
+            else {
+              val requestedSet = request.requestedPackages.toSet
+              Some((pn: PackageName) => requestedSet(pn))
+            }
           for {
             cc <- fcc
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize, compileOptions)
+                dec <- sourceFilterOpt match {
+                  case None =>
+                    cc.decodedWithDeps(colorize, compileOptions)
+                  case Some(sourceFilter) =>
+                    cc.decodedWithDepsFiltered(
+                      colorize,
+                      sourceFilter,
+                      compileOptions
+                    )
+                }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 requestedPackages =
                   if (request.isEmpty) Nil else request.requestedPackages
