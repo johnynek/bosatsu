@@ -2,7 +2,7 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>recur ... by int_decrease Design · Bosatsu Documentation</title>
+<title>recur Type-Directed Decrease Design · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-6b05e64a*
+0.0.0+1-1d59386c*
 </div>
 </div>
 <div class="nav-toc">
@@ -78,7 +78,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-6b05e64a*
+0.0.0+1-1d59386c*
 </div>
 </div>
 <div class="nav-toc">
@@ -110,7 +110,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><a href="../index.html">Bosatsu Documentation</a></li>
   <li><a href="../design-docs/index.html">Design Docs</a></li>
-  <li><code>recur ... by int_decrease</code> Design</li>
+  <li><code>recur</code> Type-Directed Decrease Design</li>
 </ul>
 </div>
 </div>
@@ -118,47 +118,41 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#recur-by-int-decrease-design" name="recur-by-int-decrease-design" class="anchor"><span class="anchor-link"></span></a><code>recur ... by int_decrease</code> Design</h1>
-<p>Status: proposed<br/>Date: 2026-02-21</p>
+<h1><a href="#recur-type-directed-decrease-design" name="recur-type-directed-decrease-design" class="anchor"><span class="anchor-link"></span></a><code>recur</code> Type-Directed Decrease Design</h1>
+<p>Status: proposed<br/>Date: 2026-02-28</p>
 <h2><a href="#goal" name="goal" class="anchor"><span class="anchor-link"></span></a>Goal</h2>
-<p>Allow practical total loops over <code>Int</code> (for example <code>int_loop</code>) to be written in Bosatsu source, with a minimal language change and a conservative termination proof strategy.</p>
+<p>Enable total recursion over <code>Int</code> without adding new <code>recur</code> syntax. Recursion strategy should be selected from the target type, not from a user-written <code>by ...</code> clause.</p>
 <h2><a href="#non-goals" name="non-goals" class="anchor"><span class="anchor-link"></span></a>Non-goals</h2>
 <ol>
-  <li>General automatic termination proving.</li>
-  <li>User-authored proof terms or dependent typing.</li>
-  <li>Replacing structural recursion checks (<code>recur</code> on ADT substructure).</li>
-  <li>Making all type checking depend on an SMT solver.</li>
+  <li>Full automatic termination proving.</li>
+  <li>User-authored proof terms.</li>
+  <li>Implementing enum-based decrease rules in phase 1.</li>
+  <li>Changing runtime semantics of <code>recur</code>.</li>
 </ol>
-<h2><a href="#motivation" name="motivation" class="anchor"><span class="anchor-link"></span></a>Motivation</h2>
-<p>Today <code>int_loop</code> is trusted runtime code: 1. <code>/Users/oscar/code/bosatsu2/core/src/main/resources/bosatsu/predef.bosatsu:266</code> declares <code>external def int_loop(...)</code>. 2. <code>/Users/oscar/code/bosatsu2/core/src/main/scala/dev/bosatsu/Predef.scala:1264</code> implements the loop in Scala. 3. <code>/Users/oscar/code/bosatsu2/docs/src/main/paradox/language_guide.md:967</code> explicitly notes Bosatsu cannot prove this style today.</p>
-<p>This is a high-value gap: users frequently want bounded integer loops, but must currently rely on trusted externals.</p>
-<h2><a href="#proposed-language-change" name="proposed-language-change" class="anchor"><span class="anchor-link"></span></a>Proposed Language Change</h2>
-<p>Extend <code>recur</code> header syntax with an optional strategy clause:</p>
-<pre class="prettyprint"><code class="language-bosatsu">recur &lt;target&gt;:
-recur i by int_decrease:
-</code></pre>
-<p>For this proposal, <code>int_decrease</code> is only valid in the single-name form. In v1 we only support: 1. accepted: <code>recur i by int_decrease:</code> 2. rejected: <code>recur (i) by int_decrease:</code> 3. rejected: <code>recur (i, j) by int_decrease:</code> 4. rejected: any tuple target with <code>by int_decrease</code>.</p>
-<p>Example target usage:</p>
+<h2><a href="#why-this-change" name="why-this-change" class="anchor"><span class="anchor-link"></span></a>Why this change</h2>
+<p>The previous draft required syntax like <code>recur i by int_decrease:</code>. That is now the wrong abstraction boundary. The recursion checker should choose the strategy from type information: 1. Types can expose zero or more decrease strategies. 2. <code>recur</code> syntax remains unchanged. 3. Strategy application is an internal checker choice, not source-level syntax.</p>
+<h2><a href="#language-surface" name="language-surface" class="anchor"><span class="anchor-link"></span></a>Language Surface</h2>
+<p>No syntax change.</p>
+<p>Valid source remains:</p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](i: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
-  recur i by int_decrease:
+  recur i:
     ...
 </code></pre>
-<p>If <code>by ...</code> is absent, behavior is unchanged (existing structural/lexicographic recursion checks).</p>
-<h2><a href="#semantics-of-int-decrease" name="semantics-of-int-decrease" class="anchor"><span class="anchor-link"></span></a>Semantics of <code>int_decrease</code></h2>
-<p>For a recursive self-call in a <code>recur i by int_decrease</code> body:</p>
-<pre class="prettyprint"><code class="nocode">f(..., next_i, ...)
-</code></pre>
-<p>accepted iff the checker can prove, under the current path condition <code>PC</code>: 1. <code>PC =&gt; next_i &gt;= 0</code> 2. <code>PC =&gt; next_i &lt; i</code></p>
-<p><code>i</code> is the current loop index (the recur target in the current call frame).</p>
-<p>This yields a well-founded measure over <code>Nat</code> via <code>next_i</code>, so recursive call chains are finite.</p>
-<h2><a href="#writing-int-loop-in-bosatsu" name="writing-int-loop-in-bosatsu" class="anchor"><span class="anchor-link"></span></a>Writing <code>int_loop</code> in Bosatsu</h2>
-<p>With this strategy, <code>int_loop</code> can be implemented directly:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
-  recur intValue by int_decrease:
-    case _ if intValue &gt; 0:
-      (next_i, next_state) = fn(intValue, state)
+<p>There is no <code>by int_decrease</code> form in this design.</p>
+<h2><a href="#type-directed-strategy-model" name="type-directed-strategy-model" class="anchor"><span class="anchor-link"></span></a>Type-Directed Strategy Model</h2>
+<p>At each recursive self-call, for each recur target, the checker: 1. Looks up the target type. 2. Finds applicable recursion strategies for that type. 3. Tries to discharge the obligations for at least one applicable strategy. 4. Reports an error if no strategy can be proven.</p>
+<p>This keeps <code>recur</code> syntax stable while allowing strategy growth by type over time.</p>
+<h2><a href="#phase-1-int-strategy" name="phase-1-int-strategy" class="anchor"><span class="anchor-link"></span></a>Phase 1: <code>Int</code> Strategy</h2>
+<p><code>Int</code> gets one strategy in phase 1: 1. measure is the next recursive <code>Int</code> argument, 2. recursive call must decrease strictly, 3. recursive argument must stay in the non-negative region.</p>
+<p>For current value <code>i</code>, next recursive value <code>next_i</code>, and path condition <code>PC</code>, require: 1. <code>PC =&gt; next_i &gt;= 0</code> 2. <code>PC =&gt; next_i &lt; i</code></p>
+<p>This is the same well-founded argument as before, but now selected because the target type is <code>Int</code>, not because syntax requested <code>int_decrease</code>.</p>
+<h2><a href="#example" name="example" class="anchor"><span class="anchor-link"></span></a>Example</h2>
+<pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](i: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
+  recur i:
+    case _ if i &gt; 0:
+      (next_i, next_state) = fn(i, state)
       if next_i &gt; 0:
-        if next_i &lt; intValue:
+        if next_i &lt; i:
           int_loop(next_i, next_state, fn)
         else:
           next_state
@@ -167,327 +161,32 @@ recur i by int_decrease:
     case _:
       state
 </code></pre>
-<p>The recursive call path includes <code>next_i &gt; 0</code> and <code>next_i &lt; intValue</code>, so obligations are provable.</p>
-<h2><a href="#comparison-with-intrinsic-int-loop" name="comparison-with-intrinsic-int-loop" class="anchor"><span class="anchor-link"></span></a>Comparison with Intrinsic <code>int_loop</code></h2>
-<p>Question: does <code>recur ... by int_decrease</code> add power beyond a trusted intrinsic <code>int_loop</code>?</p>
-<p>Short answer: 1. For the chosen design (prove each recursive call decreases), <code>by int_decrease</code> is strictly more expressive than intrinsic <code>int_loop</code>. 2. A hypothetical restricted subset could be made equivalent to <code>int_loop</code>, but that is not the chosen direction for this proposal.</p>
-<h3><a href="#baseline-intrinsic-int-loop-model" name="baseline-intrinsic-int-loop-model" class="anchor"><span class="anchor-link"></span></a>Baseline: intrinsic <code>int_loop</code> model</h3>
-<p>Today <code>int_loop</code> has a trusted external implementation:</p>
-<pre class="prettyprint"><code class="language-bosatsu">external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
-</code></pre>
-<p>This gives one loop combinator: 1. single control counter (<code>Int</code>), 2. one state value (<code>a</code>), 3. one step function per iteration, 4. operationally linear iteration (one step at a time).</p>
-<h3><a href="#where-power-is-equivalent" name="where-power-is-equivalent" class="anchor"><span class="anchor-link"></span></a>Where power is equivalent</h3>
-<p>If we intentionally constrain <code>by int_decrease</code> definitions to: 1. one recur target <code>i: Int</code>, 2. at most one recursive self-call per control path, 3. recursive call in tail position, 4. no nested recursive calls in recursive arguments,</p>
-<p>then a mechanical encoding to <code>int_loop</code> exists by packing all evolving locals into <code>state</code>.</p>
-<p>Conversely, <code>int_loop</code> itself can be written with <code>recur i by int_decrease</code>, so under this tail-loop subset both formulations are mostly syntax/ergonomics differences.</p>
-<h3><a href="#where-by-int-decrease-is-more-expressive" name="where-by-int-decrease-is-more-expressive" class="anchor"><span class="anchor-link"></span></a>Where <code>by int_decrease</code> is more expressive</h3>
-<p>The current proof rule checks each recursive self-call independently under path conditions. That allows patterns not naturally representable by one <code>int_loop</code> without extra encodings (manual stacks/continuations), for example: 1. non-tail recursion, 2. more than one recursive call in a branch, 3. nested recursive calls used as arguments.</p>
-<p>Example shape:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def f(i: Int) -&gt; Int:
-  recur i by int_decrease:
-    case _ if i &lt;= 0:
-      0
-    case _:
-      f(i.sub(1)).add(f(i.sub(2)))
-</code></pre>
-<p>Each call can satisfy decrease obligations, but this is not a simple linear <code>int_loop</code> step function.</p>
-<h3><a href="#safety-trust-trade-off" name="safety-trust-trade-off" class="anchor"><span class="anchor-link"></span></a>Safety/trust trade-off</h3>
-<p>Comparing approaches: 1. Intrinsic-only:  1. trust one implementation (<code>int_loop</code>) globally,  2. users must encode loops through that API shape. 2. <code>by int_decrease</code>:  1. trust the checker + solver integration,  2. each use site is locally justified by proof obligations,  3. removes need for a special trusted runtime primitive for integer loops.</p>
-<p>We choose the broader expressiveness direction while keeping simple local proof obligations (<code>0 &lt;= next_i &lt; i</code> at each recursive call).</p>
-<h2><a href="#where-to-check-declaration-vs-typed-trees" name="where-to-check-declaration-vs-typed-trees" class="anchor"><span class="anchor-link"></span></a>Where to Check: Declaration vs Typed Trees</h2>
-<h3><a href="#question" name="question" class="anchor"><span class="anchor-link"></span></a>Question</h3>
-<p>Could we run this purely on <code>Declaration</code> AST and assume type checker will fail later if needed?</p>
-<h3><a href="#decision" name="decision" class="anchor"><span class="anchor-link"></span></a>Decision</h3>
-<p>Use a two-phase approach: 1. <strong>Early declaration-phase validation</strong> for shape only. 2. <strong>Authoritative typed-phase proof</strong> for <code>int_decrease</code> obligations.</p>
-<h3><a href="#why" name="why" class="anchor"><span class="anchor-link"></span></a>Why</h3>
-<p>Declaration-only SMT checks are possible but brittle: 1. no typed certainty that arithmetic/compare terms are <code>Int</code>, 2. less robust normalization for aliases and inferred types, 3. worse diagnostics when proof failure and type failure interact.</p>
-<p>Typed-phase checks keep termination proofs aligned with the same resolved/typed program that will run.</p>
-<h2><a href="#retaining-strategy-information-across-phases" name="retaining-strategy-information-across-phases" class="anchor"><span class="anchor-link"></span></a>Retaining Strategy Information Across Phases</h2>
-<p>Minimal retention plan: 1. Extend <code>Declaration.Match</code> to carry an optional recursion strategy tag. 2. Parse <code>by int_decrease</code> into that tag. 3. Keep existing <code>Expr</code>/<code>TypedExpr</code> shapes unchanged. 4. Read strategy from expression tags (<code>Declaration</code>) during typed recursion checking. 5. Do not persist proof results/metadata in package output for this feature.</p>
-<p>Why this is minimal: 1. <code>Expr.Match</code> and <code>TypedExpr.Match</code> already preserve source tags. 2. No new runtime IR node or codegen representation is required. 3. Existing recursion-kind behavior on lets remains intact.</p>
-<h2><a href="#compiler-pipeline-changes" name="compiler-pipeline-changes" class="anchor"><span class="anchor-link"></span></a>Compiler Pipeline Changes</h2>
-<p>Current (<code>inferBodyUnopt</code>): 1. Source conversion 2. <code>DefRecursionCheck</code> on statements 3. source <code>TotalityCheck</code> 4. type inference</p>
-<p>Proposed: 1. Source conversion 2. <code>DefRecursionCheck</code> (existing + strategy shape checks) 3. source <code>TotalityCheck</code> 4. type inference 5. <strong>new <code>TypedRecursionTerminationCheck</code> for <code>int_decrease</code></strong> 6. normalization</p>
-<p>Hook point: after inference succeeds, before normalization in <code>/Users/oscar/code/bosatsu2/core/src/main/scala/dev/bosatsu/Package.scala</code>.</p>
-<h2><a href="#declaration-phase-checks-cheap-" name="declaration-phase-checks-cheap-" class="anchor"><span class="anchor-link"></span></a>Declaration-Phase Checks (Cheap)</h2>
-<p>For <code>recur ... by int_decrease</code>: 1. target must be a single variable bound to a function parameter, 2. no duplicate/tuple target in v1, 3. recursive self-call must still be syntactically identifiable (existing checks), 4. preserve all current recursion errors for non-strategy recursion.</p>
-<p>No SMT is run in this phase.</p>
-<h2><a href="#typed-phase-obligation-generation" name="typed-phase-obligation-generation" class="anchor"><span class="anchor-link"></span></a>Typed-Phase Obligation Generation</h2>
-<p>For each recursive call in a <code>by int_decrease</code> region: 1. identify current target term <code>i</code>, 2. identify recursive argument term <code>next_i</code>, 3. collect typed path condition <code>PC</code> on that control-flow path, 4. build two obligations:  1. <code>PC =&gt; next_i &gt;= 0</code>  2. <code>PC =&gt; next_i &lt; i</code></p>
-<p>If either fails, emit recursion error at call site.</p>
-<h2><a href="#follow-up-lexicographic-int-decrease-for-tuple-targets" name="follow-up-lexicographic-int-decrease-for-tuple-targets" class="anchor"><span class="anchor-link"></span></a>Follow-up: Lexicographic <code>int_decrease</code> for Tuple Targets</h2>
-<p>The v1 design intentionally starts with one target (<code>recur i by int_decrease</code>). As a follow-up, we should extend this to match existing tuple-recursion semantics (<code>recur (x, y, ...)</code>) using lexicographic decrease.</p>
-<h3><a href="#intended-syntax-follow-up-" name="intended-syntax-follow-up-" class="anchor"><span class="anchor-link"></span></a>Intended syntax (follow-up)</h3>
-<pre class="prettyprint"><code class="language-bosatsu">recur (x, y) by int_decrease:
-recur (x, y, z) by int_decrease:
-</code></pre>
-<h3><a href="#intended-proof-rule" name="intended-proof-rule" class="anchor"><span class="anchor-link"></span></a>Intended proof rule</h3>
-<p>For target tuple <code>(x1, x2, ..., xn)</code> and recursive arguments <code>(x1_next, x2_next, ..., xn_next)</code>, require: 1. non-negativity side conditions for integer measure components:  1. <code>PC =&gt; x1_next &gt;= 0</code>  2. &hellip;  3. <code>PC =&gt; xn_next &gt;= 0</code> 2. strict lexicographic decrease:  1. <code>PC =&gt; (x1_next &lt; x1) OR</code>  2. <code>(x1_next = x1 AND x2_next &lt; x2) OR</code>  3. <code>... OR</code>  4. <code>(x1_next = x1 AND ... AND x(n-1)_next = x(n-1) AND xn_next &lt; xn)</code></p>
-<p>This is the direct integer analogue of current <code>recur (x, y, ...)</code> ordering.</p>
-<h3><a href="#smt-shape" name="smt-shape" class="anchor"><span class="anchor-link"></span></a>SMT shape</h3>
-<p>The backend can emit one implication per recursive call: 1. <code>PC =&gt; LexLess(nextTuple, currentTuple)</code> 2. optional split into smaller obligations (prefix-equality + strict-decrease  cases) for better diagnostics.</p>
-<p>This remains in standard linear integer arithmetic and is close in complexity to the unary v1 obligations.</p>
-<h3><a href="#implementation-impact-follow-up-" name="implementation-impact-follow-up-" class="anchor"><span class="anchor-link"></span></a>Implementation impact (follow-up)</h3>
-<p>Expected work is moderate: 1. parser/AST shape checks: allow tuple targets with <code>by int_decrease</code>, 2. typed extraction: map tuple target indices to recursive call arguments, 3. obligation generation: build <code>LexLess</code> formula over <code>Int</code> tuples, 4. diagnostics: report which lexicographic branch failed, with model output.</p>
-<h3><a href="#planning-note" name="planning-note" class="anchor"><span class="anchor-link"></span></a>Planning note</h3>
-<p>This extension should be tracked as the next strategy enhancement after v1 so <code>by int_decrease</code> aligns with the language model of existing tuple <code>recur</code>.</p>
-<h2><a href="#worked-example-typedexpr-smt-lib" name="worked-example-typedexpr-smt-lib" class="anchor"><span class="anchor-link"></span></a>Worked Example: <code>TypedExpr</code> -&gt; SMT-LIB</h2>
-<p>This section shows how much machinery is needed if we only support <code>by int_decrease</code> and linear integer constraints.</p>
-<h3><a href="#source-shape-int-loop-style-" name="source-shape-int-loop-style-" class="anchor"><span class="anchor-link"></span></a>Source shape (<code>int_loop</code> style)</h3>
-<pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
-  recur intValue by int_decrease:
-    case _ if intValue &gt; 0:
-      (next_i, next_state) = fn(intValue, state)
-      if next_i &gt; 0:
-        if next_i &lt; intValue:
-          int_loop(next_i, next_state, fn)
-        else:
-          next_state
-      else:
-        next_state
-    case _:
-      state
-</code></pre>
-<h3><a href="#representative-typed-ast-fragment-real-constructors-" name="representative-typed-ast-fragment-real-constructors-" class="anchor"><span class="anchor-link"></span></a>Representative typed AST fragment (real constructors)</h3>
-<p>Below is a reduced Scala fragment using actual constructors from <code>TypedExpr.scala</code> to show the recursive call node we inspect:</p>
-<pre class="prettyprint"><code class="language-scala">import cats.data.NonEmptyList
-import dev.bosatsu.{Identifier, PackageName, TypedExpr}
-import dev.bosatsu.rankn.Type
-
-val tag = () // real code uses Region-bearing tags (Declaration)
-val intT = Type.IntType
-val stateTpe: Type = ???    // inferred state type `a`
-val fnTpe: Type = ???       // inferred type of `fn`
-val intLoopFnTpe: Type = ??? // inferred type of `int_loop`
-
-val intLoopName = Identifier.Name(&quot;int_loop&quot;)
-val intValueName = Identifier.Name(&quot;intValue&quot;)
-val nextIName = Identifier.Name(&quot;next_i&quot;)
-val nextStateName = Identifier.Name(&quot;next_state&quot;)
-val fnName = Identifier.Name(&quot;fn&quot;)
-
-val recCall: TypedExpr[Unit] =
-  TypedExpr.App(
-    fn = TypedExpr.Local(intLoopName, intLoopFnTpe, tag),
-    args = NonEmptyList.of(
-      TypedExpr.Local(nextIName, intT, tag),
-      TypedExpr.Local(nextStateName, stateTpe, tag),
-      TypedExpr.Local(fnName, fnTpe, tag)
-    ),
-    result = stateTpe,
-    tag = tag
-  )
-</code></pre>
-<p>At the recursive call site above, path-condition extraction from surrounding typed guards/matches yields: 1. <code>intValue &gt; 0</code> 2. <code>next_i &gt; 0</code> 3. <code>next_i &lt; intValue</code></p>
-<h3><a href="#constraint-ir-we-need-minimal-" name="constraint-ir-we-need-minimal-" class="anchor"><span class="anchor-link"></span></a>Constraint IR we need (minimal)</h3>
-<p>For v1 we only need: 1. integer variables/constants, 2. <code>+</code>, <code>-</code>, 3. comparisons <code>&lt;</code>, <code>&lt;=</code>, <code>=</code>, <code>&gt;=</code>, <code>&gt;</code>, 4. conjunction of atoms (<code>PC</code>).</p>
-<p>Then for each recursive call we check: 1. <code>PC =&gt; next_i &gt;= 0</code> 2. <code>PC =&gt; next_i &lt; intValue</code></p>
-<p>by SAT checks on <code>PC /\ not(goal)</code>.</p>
-<h3><a href="#smt-lib-query-a-prove-next-i-0-" name="smt-lib-query-a-prove-next-i-0-" class="anchor"><span class="anchor-link"></span></a>SMT-LIB query A (prove <code>next_i &gt;= 0</code>)</h3>
-<pre class="prettyprint"><code class="language-smt2">(set-logic QF_LIA)
-(declare-fun intValue () Int)
-(declare-fun next_i () Int)
-
-; path condition at recursive call
-(assert (&gt; intValue 0))
-(assert (&gt; next_i 0))
-(assert (&lt; next_i intValue))
-
-; negate goal
-(assert (not (&gt;= next_i 0)))
-
-(check-sat)
-; expected: unsat
-</code></pre>
-<h3><a href="#smt-lib-query-b-prove-next-i-intvalue-" name="smt-lib-query-b-prove-next-i-intvalue-" class="anchor"><span class="anchor-link"></span></a>SMT-LIB query B (prove <code>next_i &lt; intValue</code>)</h3>
-<pre class="prettyprint"><code class="language-smt2">(set-logic QF_LIA)
-(declare-fun intValue () Int)
-(declare-fun next_i () Int)
-
-(assert (&gt; intValue 0))
-(assert (&gt; next_i 0))
-(assert (&lt; next_i intValue))
-
-(assert (not (&lt; next_i intValue)))
-
-(check-sat)
-; expected: unsat
-</code></pre>
-<h3><a href="#failing-example-missing-strict-decrease-guard-" name="failing-example-missing-strict-decrease-guard-" class="anchor"><span class="anchor-link"></span></a>Failing example (missing strict-decrease guard)</h3>
-<p>Suppose extracted <code>PC</code> is only: 1. <code>intValue &gt; 0</code> 2. <code>next_i &gt; 0</code></p>
-<p>Check <code>PC =&gt; next_i &lt; intValue</code>:</p>
-<pre class="prettyprint"><code class="language-smt2">(set-logic QF_LIA)
-(declare-fun intValue () Int)
-(declare-fun next_i () Int)
-
-(assert (&gt; intValue 0))
-(assert (&gt; next_i 0))
-
-; negate goal
-(assert (not (&lt; next_i intValue))) ; equivalent to next_i &gt;= intValue
-
-(check-sat)
-(get-model)
-; expected: sat, e.g. intValue = 1, next_i = 1
-</code></pre>
-<p>This demonstrates that the required SMT integration for <code>int_decrease</code> is small: we only need QF_LIA obligations generated from typed guards and recursive-call arguments, not full general-purpose theorem proving.</p>
-<h3><a href="#non-tail-divide-and-conquer-example-n-2-and-n-n-2-" name="non-tail-divide-and-conquer-example-n-2-and-n-n-2-" class="anchor"><span class="anchor-link"></span></a>Non-tail divide-and-conquer example (<code>n/2</code> and <code>n-n/2</code>)</h3>
-<p>This is a useful non-tail recursion pattern that is beyond the shape of a single linear <code>int_loop</code> step.</p>
-<p>Goal conditions for a split: 1. <code>n1 &gt;= 2</code> 2. <code>n2 = n1 / 2</code> (integer division) 3. <code>n3 = n1 - n2</code> 4. prove:  1. <code>1 &lt;= n2 &lt; n1</code>  2. <code>1 &lt;= n3 &lt; n1</code></p>
-<p>SMT-LIB check:</p>
-<pre class="prettyprint"><code class="language-smt2">(set-logic ALL)
-(declare-const n1 Int)
-(declare-const n2 Int)
-(declare-const n3 Int)
-
-(assert (&gt;= n1 2))
-(assert (= n2 (div n1 2)))
-(assert (= n3 (- n1 n2)))
-
-(assert (not (and (&lt;= 1 n2) (&lt; n2 n1)
-                  (&lt;= 1 n3) (&lt; n3 n1))))
-
-(check-sat)
-; expected: unsat
-</code></pre>
-<p>For <code>int_decrease</code>, we would typically run per-call obligations, one recursive call at a time: 1. call on <code>n2</code>: prove <code>0 &lt;= n2</code> and <code>n2 &lt; n1</code>, 2. call on <code>n3</code>: prove <code>0 &lt;= n3</code> and <code>n3 &lt; n1</code>.</p>
-<p>Bosatsu shape:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def split_sum(n: Int) -&gt; Int:
-  recur n by int_decrease:
-    case _ if n &lt;= 1:
-      n
-    case _:
-      n2 = n.div(2)
-      n3 = n.sub(n2)
-      split_sum(n2).add(split_sum(n3))
-</code></pre>
-<p>This demonstrates where SMT-backed <code>int_decrease</code> gives clear value: 1. non-tail recursion, 2. two recursive calls in one branch, 3. local arithmetic proofs for each recursive argument.</p>
-<h3><a href="#extraction-sketch-from-typed-trees" name="extraction-sketch-from-typed-trees" class="anchor"><span class="anchor-link"></span></a>Extraction sketch from typed trees</h3>
-<p>At each recursive self-call node: 1. recognize <code>TypedExpr.App(TypedExpr.Local(defName, _, _), args, _, _)</code> where  <code>defName</code> is current recursive def, 2. select the recur-target argument position (<code>intValue</code> position in this  example) to obtain <code>next_i</code>, 3. collect typed branch/guard facts on the path to the call (<code>PC</code>), 4. translate supported typed expressions to linear atoms, 5. run the two SMT-LIB checks above (<code>PC /\ not(goal)</code>).</p>
-<p>Unsupported expressions in steps (3)-(4) become conservative failures: &ldquo;cannot prove decrease in supported arithmetic fragment.&rdquo;</p>
-<h2><a href="#path-condition-extraction-v1-" name="path-condition-extraction-v1-" class="anchor"><span class="anchor-link"></span></a>Path Condition Extraction (v1)</h2>
-<p>Support a conservative boolean/arithmetic fragment:</p>
-<h3><a href="#integer-terms" name="integer-terms" class="anchor"><span class="anchor-link"></span></a>Integer terms</h3>
+<p>On the recursive call path, guards provide facts to prove both <code>Int</code> obligations.</p>
+<h2><a href="#using-existing-dev-bosatsu-smt-support" name="using-existing-dev-bosatsu-smt-support" class="anchor"><span class="anchor-link"></span></a>Using Existing <code>dev.bosatsu.smt</code> Support</h2>
+<p>The repository already has useful SMT infrastructure in <code>core/src/main/scala/dev/bosatsu/smt</code>: 1. <code>SmtExpr</code> models integer/bool terms and comparisons (<code>Lt</code>, <code>Gte</code>, <code>And</code>, <code>Not</code>, etc.). 2. <code>SmtCommand</code>/<code>SmtScript</code> build scripts (<code>SetLogic</code>, <code>DeclareConst</code>, <code>Assert</code>, <code>CheckSat</code>, <code>GetModel</code>). 3. <code>SmtLibRender</code> renders SMT-LIB text. 4. <code>Z3Api</code> parses solver status/model output and returns structured results.</p>
+<p>For an obligation <code>PC =&gt; goal</code>, the checker can emit: 1. declarations for free variables, 2. <code>(assert PC)</code>, 3. <code>(assert (not goal))</code>, 4. <code>(check-sat)</code> (and optional <code>(get-model)</code>).</p>
+<p>Interpretation: 1. <code>unsat</code>: obligation proven, 2. <code>sat</code>: obligation failed (use model in diagnostics), 3. <code>unknown</code>/execution failure: fail conservatively.</p>
+<h2><a href="#compiler-placement" name="compiler-placement" class="anchor"><span class="anchor-link"></span></a>Compiler Placement</h2>
 <ol>
-  <li>integer literals,</li>
-  <li>loop variables/local int bindings,</li>
-  <li>addition/subtraction/unary negation,</li>
-  <li>optional multiplication by literal constant.</li>
+  <li>Keep existing declaration-phase recursion checks for structural shape.</li>
+  <li>Run typed recursion termination checks after inference, when argument types and call targets are resolved.</li>
+  <li>In typed checking, dispatch strategy by recur-target type (<code>Int</code> in phase 1).</li>
 </ol>
-<h3><a href="#boolean-constraints" name="boolean-constraints" class="anchor"><span class="anchor-link"></span></a>Boolean constraints</h3>
-<ol>
-  <li>comparisons derived from <code>cmp_Int(a, b)</code> patterns:</li>
-  <li><code>case LT</code> -&gt; <code>a &lt; b</code></li>
-  <li><code>case EQ</code> -&gt; <code>a == b</code></li>
-  <li><code>case GT</code> -&gt; <code>a &gt; b</code></li>
-  <li>boolean match on <code>True</code>/<code>False</code> from desugared <code>if</code>.</li>
-  <li>guard expressions that normalize into conjunctions of supported comparisons.</li>
-</ol>
-<p>Unsupported terms/conditions in an <code>int_decrease</code> proof path cause a conservative hard type-check error: <code>cannot prove decrease in supported arithmetic fragment</code>. This is never downgraded to a warning, because that would weaken totality.</p>
-<h2><a href="#z3-backend-design-scalawasiz3-" name="z3-backend-design-scalawasiz3-" class="anchor"><span class="anchor-link"></span></a>Z3 Backend Design (<code>scalawasiz3</code>)</h2>
-<p>Backend assumption for this proposal: 1. use Z3 via SMT-LIB queries, 2. invoke through <code>scalawasiz3</code> on both JVM and Scala.js, 3. run proofs in every compiler mode (JVM, Node.js, browser-hosted Scala.js),  with no proof-check bypass mode.</p>
-<p>Per obligation query shape:</p>
-<pre class="prettyprint"><code class="language-smt2">(set-logic QF_LIA)
-(declare-fun i () Int)
-(declare-fun next_i () Int)
-; plus all free vars in PC/goal
-(assert &lt;PC&gt;)
-(assert (not &lt;GOAL&gt;))
-(check-sat)
-(get-model)
-</code></pre>
-<p>Interpretation: 1. <code>unsat</code> =&gt; obligation proven. 2. <code>sat</code> =&gt; produce counterexample model for diagnostics. 3. <code>unknown</code>/solver failure/timeout =&gt; hard type-check error (fail  conservatively).</p>
-<h3><a href="#scalawasiz3-call-sketch" name="scalawasiz3-call-sketch" class="anchor"><span class="anchor-link"></span></a><code>scalawasiz3</code> call sketch</h3>
-<pre class="prettyprint"><code class="language-scala">import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
-
-val solver = Z3Solver.default
-val smt: String = makeObligationSmt2(pc, goal) // emits (check-sat) and (get-model)
-
-solver.runSmt2(smt) match {
-  case Z3Result.Success(stdout, stderr, _) =&gt;
-    parseFirstStatus(stdout) match {
-      case &quot;unsat&quot;   =&gt; ObligationResult.Proved
-      case &quot;sat&quot;     =&gt; ObligationResult.Refuted(parseModel(stdout))
-      case &quot;unknown&quot; =&gt; ObligationResult.Unknown(stderr)
-      case other     =&gt; ObligationResult.InvalidSolverOutput(other, stdout, stderr)
-    }
-  case Z3Result.Failure(msg, _, stdout, stderr, _) =&gt;
-    ObligationResult.SolverFailure(msg, stdout, stderr)
-}
-</code></pre>
-<h2><a href="#dependency-management" name="dependency-management" class="anchor"><span class="anchor-link"></span></a>Dependency Management</h2>
-<h3><a href="#bosatsu-constraints" name="bosatsu-constraints" class="anchor"><span class="anchor-link"></span></a>Bosatsu constraints</h3>
-<p>Bosatsu compiler is Scala 3 (<code>/Users/oscar/code/bosatsu2/build.sbt:12</code>) and uses Scala.js/JVM cross projects.</p>
-<h3><a href="#scalawasiz3-fit" name="scalawasiz3-fit" class="anchor"><span class="anchor-link"></span></a><code>scalawasiz3</code> fit</h3>
-<p><code>scalawasiz3</code> is designed as a Scala 3 cross-platform library: 1. one shared API (<code>runSmt2: String =&gt; Z3Result</code>), 2. JVM backend runs embedded Z3 WASI via Chicory, 3. Scala.js backend runs embedded Z3 WASI via an internal MiniWASI host.</p>
-<h3><a href="#browser-runtime-notes" name="browser-runtime-notes" class="anchor"><span class="anchor-link"></span></a>Browser/runtime notes</h3>
-<p>From current <code>scalawasiz3</code> code path: 1. Scala.js backend uses <code>WebAssembly.Module</code>/<code>WebAssembly.Instance</code> directly, 2. no pthread worker model is used, 3. no <code>SharedArrayBuffer</code> requirement is currently introduced by this backend.</p>
-<p>So COOP/COEP-style thread isolation is not a baseline requirement for this design as currently implemented in <code>scalawasiz3</code>. If backend internals change later (for example worker/thread-based execution), we should revisit this note.</p>
-<h3><a href="#cross-platform-proof-policy" name="cross-platform-proof-policy" class="anchor"><span class="anchor-link"></span></a>Cross-platform proof policy</h3>
-<p>Proof obligations are checked in all modes: 1. JVM compiler path checks all <code>int_decrease</code> obligations. 2. Scala.js compiler path checks all <code>int_decrease</code> obligations. 3. If solver execution is unavailable/fails in any mode, compilation fails.</p>
+<p>No parser changes are required for this issue.</p>
 <h2><a href="#error-reporting" name="error-reporting" class="anchor"><span class="anchor-link"></span></a>Error Reporting</h2>
-<p>New error family (typed recursion termination): 1. <code>IntDecreaseNotProvable(callRegion, obligation, maybeModel)</code> 2. <code>IntDecreaseUnsupportedExpr(callRegion, reason)</code> 3. <code>IntDecreaseTimeout(callRegion, timeoutMs)</code></p>
-<p>Diagnostic content: 1. obligation text (<code>next_i &gt;= 0</code> or <code>next_i &lt; i</code>), 2. simplified path condition used, 3. if <code>sat</code>, model values for involved symbols. 4. actionable hint text when possible (for example: rewrite with explicit <code>Nat</code>  fuel or use a trusted loop combinator such as <code>int_loop</code> when appropriate).</p>
-<h2><a href="#soundness-and-completeness" name="soundness-and-completeness" class="anchor"><span class="anchor-link"></span></a>Soundness and Completeness</h2>
-<ol>
-  <li>Soundness target: only accept recursive calls when obligations are proven.</li>
-  <li>Completeness is intentionally partial: unsupported arithmetic/boolean forms are rejected conservatively.</li>
-  <li>No change to behavior of existing structural recursion code.</li>
-</ol>
-<h2><a href="#performance" name="performance" class="anchor"><span class="anchor-link"></span></a>Performance</h2>
-<ol>
-  <li>Obligation count: 2 per recursive call site.</li>
-  <li>Use query caching on normalized <code>(PC, goal)</code> pairs.</li>
-  <li>Use per-obligation timeout budget.</li>
-  <li>Reuse a solver instance/process for multiple obligations in one def when  possible.</li>
-</ol>
-<h2><a href="#rollout-plan" name="rollout-plan" class="anchor"><span class="anchor-link"></span></a>Rollout Plan</h2>
-<ol>
-  <li>Parser/AST support for <code>by int_decrease</code>.</li>
-  <li>Extend <code>DefRecursionCheck</code> with strategy shape checks only.</li>
-  <li>Implement typed obligation extractor.</li>
-  <li>Integrate Z3 obligation execution via <code>scalawasiz3</code> in compiler backends.</li>
-  <li>Ensure JVM and Scala.js compilation paths both run proof checks.</li>
-  <li>Add deterministic parsing of solver status/model output (<code>unsat</code>/<code>sat</code>/<code>unknown</code>).</li>
-  <li>Add <code>PackageError</code> plumbing and diagnostics.</li>
-  <li>Add <code>int_loop</code> as normal Bosatsu definition in predef, keep external behind temporary flag during migration.</li>
-  <li>Remove external once tests pass and perf is acceptable.</li>
-  <li>Follow-up: add tuple-target lexicographic <code>by int_decrease</code> to match <code>recur (x, y, ...)</code> semantics.</li>
-</ol>
+<p>When an <code>Int</code> obligation fails, report: 1. recursive call location, 2. failed obligation (<code>next_i &gt;= 0</code> or <code>next_i &lt; i</code>), 3. simplified path condition used, 4. model values when solver returns <code>sat</code>.</p>
+<h2><a href="#future-direction-enums-not-phase-1-" name="future-direction-enums-not-phase-1-" class="anchor"><span class="anchor-link"></span></a>Future Direction: Enums (Not Phase 1)</h2>
+<p>We should keep moving toward one unified, type-directed notion of decrease.</p>
+<p>A likely next step for enums: 1. <code>EnumOrdinal</code>: constructor declaration order defines base order. 2. Example: <code>enum Opt[a]: None, Some(v: a)</code> gives <code>None &lt; Some(_)</code>.</p>
+<p>Possible refinement after that: 1. For same constructor, compare payloads when payload types have applicable strategies. 2. Example direction: <code>Some(n) &lt; Some(m)</code> when <code>n &lt; m</code>.</p>
+<p>These enum refinements are intentionally out of scope for phase 1, but this type-dispatch design leaves room for them without introducing new syntax.</p>
 <h2><a href="#test-plan" name="test-plan" class="anchor"><span class="anchor-link"></span></a>Test Plan</h2>
 <ol>
-  <li>Parser tests:</li>
-  <li>parse/print <code>recur i by int_decrease:</code>.</li>
-  <li>reject invalid strategy placement.</li>
-  <li>Positive recursion tests:</li>
-  <li>direct <code>int_loop</code> in Bosatsu compiles.</li>
-  <li>loops with <code>next_i = i - 2</code> under suitable guards compile.</li>
-  <li>Negative recursion tests:</li>
-  <li>missing lower bound proof (<code>next_i &lt; i</code> only) fails.</li>
-  <li>non-decreasing call fails.</li>
-  <li>unsupported nonlinear term in proof path fails conservatively.</li>
-  <li>Counterexample quality:</li>
-  <li>failing proof reports model values.</li>
-  <li>Regression:</li>
-  <li>existing structural/lexicographic recursion behavior unchanged.</li>
-  <li>Cross-platform policy:</li>
-  <li>JVM and Scala.js both run proof obligations.</li>
-  <li>solver unavailable/failure causes compile failure in both modes.</li>
-</ol>
-<h2><a href="#open-questions" name="open-questions" class="anchor"><span class="anchor-link"></span></a>Open Questions</h2>
-<ol>
-  <li>For <code>unknown</code>, should the primary hint prefer <code>Nat</code> fuel or <code>int_loop</code> first?</li>
-  <li>Should we require <code>(set-option :produce-models true)</code> for all queries, or add  it only when issuing <code>(get-model)</code>?</li>
-  <li>Do we normalize all obligations to one global logic (<code>QF_LIA</code>) or pick the  minimal logic per obligation?</li>
-</ol>
-<h2><a href="#references" name="references" class="anchor"><span class="anchor-link"></span></a>References</h2>
-<ol>
-  <li><code>scalawasiz3</code> repository: <a href="https://github.com/johnynek/scalawasiz3">https://github.com/johnynek/scalawasiz3</a></li>
-  <li><code>scalawasiz3</code> README (architecture and platform notes): <a href="https://github.com/johnynek/scalawasiz3/blob/main/README.md">https://github.com/johnynek/scalawasiz3/blob/main/README.md</a></li>
-  <li><code>scalawasiz3</code> Scala.js backend (<code>JsWasiZ3Solver</code>): <a href="https://github.com/johnynek/scalawasiz3/blob/main/core/js/src/main/scala/dev/bosatsu/scalawasiz3/JsWasiZ3Solver.scala">https://github.com/johnynek/scalawasiz3/blob/main/core/js/src/main/scala/dev/bosatsu/scalawasiz3/JsWasiZ3Solver.scala</a></li>
-  <li><code>scalawasiz3</code> JVM backend (<code>JvmWasiZ3Solver</code>): <a href="https://github.com/johnynek/scalawasiz3/blob/main/core/jvm/src/main/scala/dev/bosatsu/scalawasiz3/JvmWasiZ3Solver.scala">https://github.com/johnynek/scalawasiz3/blob/main/core/jvm/src/main/scala/dev/bosatsu/scalawasiz3/JvmWasiZ3Solver.scala</a></li>
-  <li>SMT-LIB standard: <a href="https://smt-lib.org/language.shtml">https://smt-lib.org/language.shtml</a></li>
-  <li>Z3 project: <a href="https://github.com/Z3Prover/z3">https://github.com/Z3Prover/z3</a></li>
+  <li>Parser regression: existing <code>recur</code> parsing unchanged; no <code>by int_decrease</code> syntax.</li>
+  <li>Positive typed recursion tests: accepted <code>Int</code> loops with provable decrease.</li>
+  <li>Negative typed recursion tests: reject non-decreasing or non-provable <code>Int</code> calls.</li>
+  <li>Structural recursion regression: existing ADT recursion behavior unchanged.</li>
+  <li>Solver failure policy: <code>unknown</code>/execution failure remains conservative error.</li>
 </ol>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design-docs/recur_int_decrease_design.md">here</a>.
@@ -503,7 +202,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="../design-docs/recur_int_decrease_design.html#recur-by-int-decrease-design" class="header"><code>recur ... by int_decrease</code> Design</a></li>
+  <li><a href="../design-docs/recur_int_decrease_design.html#recur-type-directed-decrease-design" class="header"><code>recur</code> Type-Directed Decrease Design</a></li>
 </ul>
 </div>
 </div>
@@ -570,7 +269,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-6b05e64a-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-1d59386c-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
