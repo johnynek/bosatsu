@@ -106,7 +106,9 @@ Introduce a platform shim for IO/Core externals with same exported names and ari
 
 This keeps registration logic centralized while allowing backend-specific implementations.
 
-### 3) Scala.js Node IO/Core implementation contract
+### 3) Scala.js IO/Core implementation contract
+
+Scala.js runtime behavior should be explicit for both Node and browser environments.
 
 Node backend should support the full externally visible symbol set used by `Bosatsu/IO/Core` evaluation, including:
 
@@ -123,6 +125,13 @@ Behavior requirements:
 2. Temp file/dir behavior must match JVM validation and context richness.
 3. Returned path values should keep existing normalized path string behavior.
 4. `runProgMain` output capture semantics must remain intact for stdout/stderr.
+
+Browser (non-Node Scala.js) behavior requirements:
+
+1. `Bosatsu/IO/Core` externals must not fail by missing external registration.
+2. IO/Core operations that require OS/process/file capabilities must return `IOError.Unsupported` through the `Prog[IOError, _]` API (not throw raw JS/runtime exceptions).
+3. Unsupported contexts should include actionable text indicating the API requires a Node/runtime host (for example, browser runtime has no filesystem/process handle support).
+4. This unsupported-path behavior should be covered by Scala.js tests to prevent regressions where browser mode crashes instead of returning typed `IOError`.
 
 ### 4) IOError mapping parity
 
@@ -188,10 +197,11 @@ Because workflow source is modeled in `test_workspace/Bosatsu/Example/Json/Githu
 4. `OpenMode.CreateNew` lock-file behavior is verified on Node backend.
 5. Temp file and temp dir creation behavior is verified on Node backend.
 6. Node implementation returns structured `IOError` values with useful context.
-7. Existing JVM behavior remains unchanged for the same commands.
-8. Existing pure `Prog::Main` argument pass-through checks remain passing.
-9. `testWithNode` CI job includes explicit eval-run IO checks.
-10. Workflow model files and `.github/workflows/ci.yml` stay in sync.
+7. Scala.js browser runtime returns `IOError.Unsupported` for unsupported IO/Core operations instead of missing externals or untyped runtime failures.
+8. Existing JVM behavior remains unchanged for the same commands.
+9. Existing pure `Prog::Main` argument pass-through checks remain passing.
+10. `testWithNode` CI job includes explicit eval-run IO checks.
+11. Workflow model files and `.github/workflows/ci.yml` stay in sync.
 
 ## Risks and mitigations
 
