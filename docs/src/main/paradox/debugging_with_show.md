@@ -2,6 +2,7 @@
 
 `lib show` prints fully typechecked package data as EDN. It is useful when you
 want to inspect what Bosatsu inferred and what the compiler is lowering.
+Use `--json` when you want machine-readable output for tooling.
 
 ## Quick examples
 
@@ -15,6 +16,16 @@ All commands below assume running from this repository root.
 
 This prints one `(package ...)` form with sections like `:imports`, `:types`,
 `:externals`, and `:defs`.
+
+### Emit JSON instead of EDN
+
+```bash
+./bosatsuj lib show --name core_alpha --package Bosatsu/Char --json
+```
+
+`--json` emits a deterministic JSON projection of the same `show` data. The
+top-level value is an object with `"$form": "show"` and fields such as
+`interfaces` and `packages`.
 
 ### Show a single type
 

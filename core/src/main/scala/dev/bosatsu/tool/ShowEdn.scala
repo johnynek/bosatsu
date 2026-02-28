@@ -19,6 +19,7 @@ import dev.bosatsu.{
   Import,
   ImportMap,
   ImportedName,
+  Json,
   Kind,
   Lit,
   Package,
@@ -1538,6 +1539,95 @@ object ShowEdn {
     )
   }
 
+  private val showFormField = "$form"
+  private val fallbackMapField = "$map"
+
+  private def decodeKeywordPairs(items: List[Edn]): Option[List[(String, Edn)]] = {
+    @annotation.tailrec
+    def loop(
+        rest: List[Edn],
+        acc: List[(String, Edn)]
+    ): Option[List[(String, Edn)]] =
+      rest match {
+        case Nil =>
+          Some(acc.reverse)
+        case EKeyword(k) :: v :: tail =>
+          loop(tail, (k, v) :: acc)
+        case _ =>
+          None
+      }
+
+    loop(items, Nil)
+  }
+
+  private def uniqueKeys(keys: List[String]): Boolean =
+    keys.toSet.size == keys.size
+
+  private def ednToJson(edn: Edn): Json =
+    edn match {
+      case _: ENil.type =>
+        Json.JNull
+      case EBool(value) =>
+        Json.JBool(value)
+      case EString(value) =>
+        Json.JString(value)
+      case ESymbol(value) =>
+        Json.JString(value)
+      case EKeyword(value) =>
+        Json.JString(s":$value")
+      case EVector(items) =>
+        Json.JArray(items.map(ednToJson).toVector)
+      case EList(ESymbol(form) :: rest) =>
+        decodeKeywordPairs(rest) match {
+          case Some(items)
+              if !items.exists(_._1 == showFormField) && uniqueKeys(
+                items.map(_._1)
+              ) =>
+            Json.JObject(
+              (showFormField -> Json.JString(form)) ::
+                items.map { case (k, v) =>
+                  (k, ednToJson(v))
+                }
+            )
+          case _ =>
+            Json.JArray((ESymbol(form) :: rest).map(ednToJson).toVector)
+        }
+      case EList(items) =>
+        Json.JArray(items.map(ednToJson).toVector)
+      case EMap(items) =>
+        val keyValues = items.collect { case (EKeyword(k), v) =>
+          (k, ednToJson(v))
+        }
+        if ((keyValues.size == items.size) && uniqueKeys(keyValues.map(_._1)))
+          Json.JObject(keyValues)
+        else
+          Json.JObject(
+            List(
+              fallbackMapField ->
+                Json.JArray(items.map { case (k, v) =>
+                  Json.JArray(Vector(ednToJson(k), ednToJson(v)))
+                }.toVector)
+            )
+          )
+    }
+
+  private def showEdnValue(
+      packs: List[Package.Typed[Any]],
+      ifaces: List[Package.Interface]
+  ): Edn =
+    EList(
+      List(
+        sym("show"),
+        kw("interfaces"),
+        EVector(ifaces.map(encodeInterfaceForShow)),
+        kw("packages"),
+        EVector(packs.map(p => normalizeForRoundTrip(p.void).fold(msg =>
+          EList(List(sym("show-error"), str(msg), str(p.name.asString))),
+          encodePackageForShow
+        )))
+      )
+    )
+
   def packageDoc(pack: Package.Typed[Any]): Doc = {
     normalizeForRoundTrip(pack.void) match {
       case Right(normalized) => EdnCodec.toDoc(normalized)
@@ -1549,23 +1639,15 @@ object ShowEdn {
   def interfaceDoc(iface: Package.Interface): Doc =
     EdnCodec.toDoc(iface)
 
+  def showJson(
+      packs: List[Package.Typed[Any]],
+      ifaces: List[Package.Interface]
+  ): Json =
+    ednToJson(showEdnValue(packs, ifaces))
+
   def showDoc(
       packs: List[Package.Typed[Any]],
       ifaces: List[Package.Interface]
-  ): Doc = {
-    val value =
-      EList(
-        List(
-          sym("show"),
-          kw("interfaces"),
-          EVector(ifaces.map(encodeInterfaceForShow)),
-          kw("packages"),
-          EVector(packs.map(p => normalizeForRoundTrip(p.void).fold(msg =>
-            EList(List(sym("show-error"), str(msg), str(p.name.asString))),
-            encodePackageForShow
-          )))
-        )
-      )
-    Edn.toDoc(value)
-  }
+  ): Doc =
+    Edn.toDoc(showEdnValue(packs, ifaces))
 }
