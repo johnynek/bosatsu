@@ -239,12 +239,13 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       hash: HashValue[A],
       path: Path,
       uri: String
-  ): IO[Unit] = {
+  ): IO[Either[PlatformIO.FetchHashFailure, Unit]] = {
     // Create a Blaze client resource
     import org.http4s._
     import fs2.io.file.{Files, CopyFlags, CopyFlag}
     import org.http4s.client.middleware.FollowRedirect
     import org.http4s.headers.`User-Agent`
+    import PlatformIO.FetchHashFailure
 
     val clientResource: Resource[IO, org.http4s.client.Client[IO]] =
       org.http4s.ember.client.EmberClientBuilder
@@ -271,56 +272,65 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       permissions = None
     )
 
-    path.parent.traverse_(FilesIO.createDirectories(_)) *>
-      (
-        clientResource,
-        tempFileRes,
-        Resource.eval(IO(Uri.unsafeFromString(uri)))
-      ).tupled.use { case (client, tempPath, uri) =>
-        // Create an HTTP GET request
-        val request =
-          Request[IO](method = Method.GET, uri = uri)
-            .putHeaders(`User-Agent`(ProductId("bosatsu", None)))
+    def networkFailure(err: Throwable): FetchHashFailure = {
+      val message = Option(err.getMessage).getOrElse(err.toString)
+      FetchHashFailure.Network(uri, message)
+    }
 
-        // Stream the response body and write it to the specified file path
-        client
-          .stream(request)
-          .flatMap { response =>
-            if (response.status.isSuccess) {
-              response.body
-            } else {
-              fs2.Stream.raiseError[IO](
-                new Exception(
-                  s"Failed to download from $uri: ${response.status}"
-                )
-              )
-            }
+    path.parent.traverse_(FilesIO.createDirectories(_)) *>
+      (Uri.fromString(uri) match {
+        case Left(err) =>
+          IO.pure(Left(FetchHashFailure.Network(uri, err.sanitized)))
+        case Right(parsedUri) =>
+          (clientResource, tempFileRes).tupled.use { case (client, tempPath) =>
+            // Create an HTTP GET request
+            val request =
+              Request[IO](method = Method.GET, uri = parsedUri)
+                .putHeaders(`User-Agent`(ProductId("bosatsu", None)))
+
+            client
+              .run(request)
+              .use { response =>
+                if (response.status.isSuccess) {
+                  response.body
+                    .broadcastThrough(
+                      Files[IO].writeAll(tempPath),
+                      hashFile
+                    )
+                    .compile
+                    .lastOrError
+                    .flatMap { computedHash =>
+                      if (computedHash === hash) {
+                        // move it atomically to output
+                        FilesIO
+                          .move(
+                            source = tempPath,
+                            target = path,
+                            // Reflink tries to do an atomic copy, and falls back to non-atomic if not
+                            CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
+                          )
+                          .as(Right(()))
+                      } else {
+                        IO.pure(
+                          Left(
+                            FetchHashFailure.HashMismatch(
+                              uri,
+                              hash.toIdent(using algo),
+                              computedHash.toIdent(using algo)
+                            )
+                          )
+                        )
+                      }
+                    }
+                } else {
+                  IO.pure(
+                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                  )
+                }
+              }
+              .handleError(err => Left(networkFailure(err)))
           }
-          .broadcastThrough(
-            Files[IO].writeAll(tempPath),
-            hashFile
-          )
-          .compile
-          .lastOrError
-          .flatMap { computedHash =>
-            if (computedHash === hash) {
-              // move it atomically to output
-              FilesIO.move(
-                source = tempPath,
-                target = path,
-                // Reflink tries to do an atomic copy, and falls back to non-atomic if not
-                CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
-              )
-            } else {
-              IO.raiseError(
-                new Exception(
-                  s"from $uri expected hash to be ${hash.toIdent(using algo)} but found ${computedHash
-                      .toIdent(using algo)}"
-                )
-              )
-            }
-          }
-      }
+      })
   }
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
