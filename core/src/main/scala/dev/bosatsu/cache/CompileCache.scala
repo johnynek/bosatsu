@@ -14,7 +14,7 @@ import dev.bosatsu.{
 }
 import java.nio.charset.StandardCharsets
 import org.typelevel.paiges.{Doc, Document}
-import scala.collection.concurrent.TrieMap
+import scala.collection.mutable
 
 object CompileCache {
   private val schemaVersion = 1
@@ -94,7 +94,13 @@ object CompileCache {
 
     import platformIO.moduleIOMonad
 
-    private val interfaceHashMemo = TrieMap.empty[Package.Interface, String]
+    private val interfaceHashMemo = mutable.HashMap.empty[Package.Interface, String]
+
+    // Scala.js does not support TrieMap; synchronize around a local mutable map.
+    private def memoizedInterfaceHash(iface: Package.Interface): String =
+      this.synchronized {
+        interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
+      }
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
       platformIO.resolve(
@@ -128,8 +134,7 @@ object CompileCache {
       moduleIOMonad.pure {
         val depHashes = depInterfaces
           .map { case (name, iface) =>
-            val hash =
-              interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
+            val hash = memoizedInterfaceHash(iface)
             (name, hash)
           }
           .sortBy(_._1)
