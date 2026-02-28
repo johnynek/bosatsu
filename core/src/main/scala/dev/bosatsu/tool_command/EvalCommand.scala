@@ -70,7 +70,7 @@ object EvalCommand {
         errColor
       )
       (mainPackageName, value) <- mainPackage.getMain(names)(platformIO)
-      ev = LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
+      ev = LibraryEvaluation.fromPackageMap(packs, Predef.evalExternals)
       (eval, tpe) <- moduleIOMonad.fromEither {
         (value match {
           case None        => ev.evaluateMainValue(mainPackageName)

@@ -1414,7 +1414,7 @@ object Command {
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
-                ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
+                ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
                   (target match {
                     case (pack, None)        => ev.evaluateMain(pack)
