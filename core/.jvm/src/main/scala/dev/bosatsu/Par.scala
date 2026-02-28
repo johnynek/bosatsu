@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.{Monad, Parallel}
+import dev.bosatsu.graph.CanPromise
 import java.util.concurrent.Executors
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
@@ -21,7 +22,7 @@ object Par {
   implicit def monadF(implicit ec: EC): Monad[F] =
     cats.instances.future.catsStdInstancesForFuture
 
-  implicit def parallelF(implicit ec: EC): Parallel[F] =
+  implicit def parallelF(using ec: EC): Parallel[F] =
     new ParallelViaProduct[Par.F] {
       val monad: Monad[Par.F] = monadF
 
@@ -31,6 +32,24 @@ object Par {
       ): Par.F[(A, B)] =
         fa.zip(fb)
     }
+
+  given canPromiseF(using ec: EC): CanPromise[F] with {
+    type Promise[A] = P[A]
+
+    def delay[A](a: => A): F[A] =
+      start(a)
+
+    def unsafeNewPromise[A]: Promise[A] =
+      promise[A]
+
+    def completeWith[A](p: Promise[A], fa: F[A]): F[Unit] = {
+      complete(p, fa)
+      Future.unit
+    }
+
+    def wait[A](p: Promise[A]): F[A] =
+      toF(p)
+  }
 
   def newService(): ExecutionService =
     Executors.newWorkStealingPool()

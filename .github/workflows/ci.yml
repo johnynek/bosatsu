@@ -210,6 +210,12 @@ jobs:
       - name: "run lib test"
         run: |
           ./bosatsu_node lib fetch
+          lib_eval_out=$(./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
+          echo "$lib_eval_out"
+          echo "$lib_eval_out" | grep -q "create_mode_test:ok"
+          tool_eval_out=$(./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace --search --package_root test_workspace)
+          echo "$tool_eval_out"
+          echo "$tool_eval_out" | grep -q "create_mode_test:ok"
           mkdir node_out_lib
           ./bosatsu_node lib test --outdir node_out_lib
           echo "now test without a given outdir"

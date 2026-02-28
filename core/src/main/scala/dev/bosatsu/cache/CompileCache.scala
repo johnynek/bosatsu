@@ -1,7 +1,6 @@
 package dev.bosatsu.cache
 
 import cats.syntax.all._
-import cats.parse.Parser
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
   BuildInfo,
@@ -110,17 +109,6 @@ object CompileCache {
         interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
       }
 
-    private val hexChar = Parser.charIn(('0' to '9') ++ ('a' to 'f'))
-    private def parseHashValue[A](algo: Algo[A]): Parser[HashValue[A]] =
-      Parser.string(algo.name) *> Parser.char(':') *> {
-        hexChar
-          .repExactlyAs[String](algo.hexLen)
-          .map(hex => HashValue[A](hex))
-      }
-
-    private val parseIdent: Parser[Algo.WithAlgo[HashValue] { type A = Algo.Blake3 }] =
-      parseHashValue(blake3).map(Algo.WithAlgo(blake3, _))
-
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
       platformIO.resolve(
         cacheDir,
@@ -135,7 +123,7 @@ object CompileCache {
       )
 
     private def parseHashIdent(str: String): Option[HashValue[Algo.Blake3]] =
-      parseIdent.parseAll(str.trim).toOption.map(_.value)
+      Algo.parseHashValue(blake3).parseAll(str.trim).toOption
 
     private inline def onError[A](fa: F[A], inline fallback: => A): F[A] =
       moduleIOMonad.handleError(fa)(_ => fallback)

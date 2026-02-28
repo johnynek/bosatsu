@@ -6,6 +6,7 @@ import cats.data.{Chain, NonEmptyList}
 import cats.implicits.catsKernelOrderingForOrder
 import cats.syntax.all._
 import dev.bosatsu.{
+  BosatsuInt as BInt,
   Json,
   Package,
   PackageName,
@@ -18,6 +19,7 @@ import dev.bosatsu.{
 import java.math.BigInteger
 import org.typelevel.paiges.Doc
 import dev.bosatsu.LocationMap.Colorize
+import BInt.*
 
 sealed abstract class Output[+Path] {
   final def report[F[_], P >: Path](
@@ -293,11 +295,11 @@ object Output {
 
     def asExitCode(value: Value): Either[String, ExitCode] =
       value match {
-        case Value.ExternalValue(i: java.lang.Integer) =>
-          Right(ExitCode.fromInt(i.intValue))
-        case Value.ExternalValue(i: BigInteger)
-            if i.compareTo(minInt) >= 0 && i.compareTo(maxInt) <= 0 =>
-          Right(ExitCode.fromInt(i.intValue))
+        case Value.ExternalValue(BInt(i)) =>
+          val bi = i.toBigInteger
+          if (bi.compareTo(minInt) >= 0 && bi.compareTo(maxInt) <= 0)
+            Right(ExitCode.fromInt(bi.intValue))
+          else Left(s"expected Main to return an Int exit code, found: $value")
         case other =>
           Left(s"expected Main to return an Int exit code, found: $other")
       }

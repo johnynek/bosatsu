@@ -33,7 +33,7 @@ object InferCache {
           compilerIdentity: String,
           phaseIdentity: String
       ): F[Key] =
-        Applicative[F].pure(())
+        Applicative[F].unit
 
       def get(key: Key): F[Option[Package.Inferred]] =
         noneF

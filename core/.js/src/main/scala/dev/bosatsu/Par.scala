@@ -1,6 +1,7 @@
 package dev.bosatsu
 import scala.compiletime.uninitialized
 import cats.{Monad, Parallel}
+import dev.bosatsu.graph.CanPromise
 
 /** This is an abstraction to handle parallel computation, not effectful
   * computation. It is used in places where we have parallelism in expensive
@@ -28,6 +29,24 @@ object Par {
 
   implicit val parallelF: Parallel[F] =
     cats.Parallel.identity[F]
+
+  given canPromiseF: CanPromise[F] with {
+    type Promise[A] = P[A]
+
+    def delay[A](a: => A): F[A] =
+      start(a)
+
+    def unsafeNewPromise[A]: Promise[A] =
+      promise[A]
+
+    def completeWith[A](p: Promise[A], fa: F[A]): F[Unit] = {
+      complete(p, fa)
+      ()
+    }
+
+    def wait[A](p: Promise[A]): F[A] =
+      toF(p)
+  }
 
   def newService(): ExecutionService = ()
   def shutdownService(es: ExecutionService): Unit = es
