@@ -2185,18 +2185,42 @@ object Command {
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
           case ((fcc, test, out, emit, gen, outDirOpt), colorize) =>
-            def useOutDir(outDir: P): F[Output[P]] = {
-              val trans = Transpiler.optioned(ClangTranspiler) {
-                ClangTranspiler.Arguments(
-                  test,
-                  emit,
-                  gen,
-                  out,
-                  outDir,
-                  platformIO
-                )
+            def runtimePreflight(
+                output: ClangTranspiler.Output[F, P]
+            ): F[ClangTranspiler.Output[F, P]] =
+              output.exeOut match {
+                case None => moduleIOMonad.pure(output)
+                case Some((exeOut, ccConfF)) =>
+                  ccConfF.attempt.flatMap {
+                    case Right(ccConf) =>
+                      moduleIOMonad.pure(
+                        output.copy(
+                          exeOut = Some((exeOut, moduleIOMonad.pure(ccConf)))
+                        )
+                      )
+                    case Left(err) =>
+                      val detail = Option(err.getMessage).getOrElse(err.toString)
+                      moduleIOMonad.raiseError(
+                        CliException.Basic(
+                          show"runtime readiness preflight failed before running `lib test`.\n\n$detail"
+                        )
+                      )
+                  }
               }
+
+            def useOutDir(outDir: P): F[Output[P]] = {
               for {
+                preflightOut <- runtimePreflight(out)
+                trans = Transpiler.optioned(ClangTranspiler) {
+                  ClangTranspiler.Arguments(
+                    test,
+                    emit,
+                    gen,
+                    preflightOut,
+                    outDir,
+                    platformIO
+                  )
+                }
                 cc <- fcc
                 // build is the same as test, Transpiler controls the difference
                 msg <- cc.build(colorize, trans, test.filter)

@@ -181,8 +181,12 @@ case object ClangTranspiler extends Transpiler {
           case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
             moduleIOMonad.raiseError[Unit](
               CliException.Basic(
-                show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
-                  "Perhaps you need to run `bosatsu c-runtime install` (or `make install` in c_runtime)"
+                show"missing default c runtime config before C compilation.\n" +
+                  show"runtime hash: $gitSha\n" +
+                  "expected artifact: cc_conf.json\n" +
+                  show"expected path: $confPath\n" +
+                  show"found: ${res.toString}.\n\n" +
+                  "Run `bosatsu c-runtime install` (or `make install` in c_runtime)."
               )
             )
         }

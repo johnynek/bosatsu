@@ -4446,6 +4446,37 @@ main = 0
   }
 
   test(
+    "lib test runs runtime readiness preflight before executing tests"
+  ) {
+    val targetSrc =
+      """test_one = Assertion(True, "ok")
+"""
+    val files =
+      baseLibFiles(targetSrc) :+ (
+        Chain(".", ".git", "HEAD") -> "ref: refs/heads/main\n"
+      )
+
+    module.runWith(files)(
+      List("lib", "test", "--repo_root", "repo")
+    ) match {
+      case Right(out) =>
+        fail(s"expected preflight failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(
+          msg.contains(
+            "runtime readiness preflight failed before running `lib test`"
+          ),
+          msg
+        )
+        assert(msg.contains("missing default c runtime config"), msg)
+        assert(msg.contains("expected artifact: cc_conf.json"), msg)
+        assert(msg.contains("runtime hash:"), msg)
+        assert(!msg.contains("system not supported in memory mode"), msg)
+    }
+  }
+
+  test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
