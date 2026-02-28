@@ -16,6 +16,8 @@ object NameSuggestion {
 
   final private case class Scored[+A](
       candidate: Candidate[A],
+      queryText: String,
+      candidateText: String,
       distance: Int,
       longestPrefix: Int,
       relationRank: Int,
@@ -44,7 +46,7 @@ object NameSuggestion {
       else {
         val scored = existing.iterator
           .filterNot(_.ident == ident)
-          .map(score(query, _))
+          .map(score(ident, _))
           .toList
 
         val bestByName = scored
@@ -54,7 +56,7 @@ object NameSuggestion {
           .toList
 
         bestByName
-          .filter(likelyTypo(query, _))
+          .filter(likelyTypo(_))
           .sortBy(_.sortKey)
           .take(count)
           .map(_.candidate)
@@ -67,8 +69,11 @@ object NameSuggestion {
   ): Option[Candidate[A]] =
     nearest(ident, existing, 1).headOption
 
-  private def score[A](query: String, candidate: Candidate[A]): Scored[A] = {
-    val cand = candidate.ident.sourceCodeRepr
+  private def score[A](
+      queryIdent: Identifier,
+      candidate: Candidate[A]
+  ): Scored[A] = {
+    val (query, cand) = comparisonText(queryIdent, candidate.ident)
     val relationRank =
       if (cand.startsWith(query) || query.startsWith(cand)) 0
       else if (cand.contains(query) || query.contains(cand)) 1
@@ -76,6 +81,8 @@ object NameSuggestion {
 
     Scored(
       candidate,
+      query,
+      cand,
       EditDistance.string(query, cand),
       commonPrefix(query, cand),
       relationRank,
@@ -83,8 +90,9 @@ object NameSuggestion {
     )
   }
 
-  private def likelyTypo(query: String, scored: Scored[?]): Boolean = {
-    val cand = scored.candidate.ident.sourceCodeRepr
+  private def likelyTypo(scored: Scored[?]): Boolean = {
+    val query = scored.queryText
+    val cand = scored.candidateText
     if (cand.isEmpty) false
     else {
       val maxLen = query.length.max(cand.length)
@@ -103,6 +111,17 @@ object NameSuggestion {
       (scored.distance <= 3 && normalizedDist <= 0.34 && scored.lengthDelta <= 4)
     }
   }
+
+  private def comparisonText(
+      query: Identifier,
+      candidate: Identifier
+  ): (String, String) =
+    (query, candidate) match {
+      case (Identifier.Operator(q), Identifier.Operator(c)) =>
+        (q, c)
+      case _ =>
+        (query.sourceCodeRepr, candidate.sourceCodeRepr)
+    }
 
   private def commonPrefix(a: String, b: String): Int = {
     val max = a.length.min(b.length)
