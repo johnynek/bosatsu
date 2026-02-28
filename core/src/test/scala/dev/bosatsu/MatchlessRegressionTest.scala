@@ -10,25 +10,21 @@ class MatchlessRegressionTest extends munit.FunSuite {
       fn(Matchless.SourceInfo.empty)
 
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
-    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
+    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0, Matchless.SourceInfo.empty)) {
       case (acc, idx) =>
-        Matchless.LetMut(Matchless.LocalAnonMut(idx.toLong), acc)
+        Matchless.LetMut(Matchless.LocalAnonMut(idx.toLong, Matchless.SourceInfo.empty), acc, Matchless.SourceInfo.empty)
     }
 
   private def nestedLet(depth: Int): Matchless.Expr[Unit] =
-    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
+    (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0, Matchless.SourceInfo.empty)) {
       case (acc, idx) =>
-        Matchless.Let(
-          Right(Identifier.synthetic(s"issue1652_$idx")),
-          Matchless.MakeStruct(0),
-          acc
-        )
+        Matchless.Let(Right(Identifier.synthetic(s"issue1652_$idx")), Matchless.MakeStruct(0, Matchless.SourceInfo.empty), acc, Matchless.SourceInfo.empty)
     }
 
   private def nestedLetMutBool(depth: Int): Matchless.BoolExpr[Unit] =
     (0 until depth).foldLeft[Matchless.BoolExpr[Unit]](Matchless.TrueConst) {
       case (acc, idx) =>
-        Matchless.LetMutBool(Matchless.LocalAnonMut(idx.toLong), acc)
+        Matchless.LetMutBool(Matchless.LocalAnonMut(idx.toLong, Matchless.SourceInfo.empty), acc)
     }
 
   private def assertReuseConstructorsNoStackOverflow(
@@ -46,21 +42,21 @@ class MatchlessRegressionTest extends munit.FunSuite {
 
   private def countWhileExprs(e: Matchless.Expr[Unit]): Int =
     e match {
-      case Matchless.WhileExpr(cond, effectExpr, _) =>
+      case Matchless.WhileExpr(cond, effectExpr, _, _) =>
         1 + countBoolWhileExprs(cond) + countWhileExprs(effectExpr)
-      case Matchless.Lambda(captures, _, _, body) =>
+      case Matchless.Lambda(captures, _, _, body, _) =>
         captures.map(countWhileExprs).sum + countWhileExprs(body)
-      case Matchless.App(fn, args) =>
+      case Matchless.App(fn, args, _) =>
         countWhileExprs(fn) + args.toList.map(countWhileExprs).sum
-      case Matchless.Let(_, expr, in) =>
+      case Matchless.Let(_, expr, in, _) =>
         countWhileExprs(expr) + countWhileExprs(in)
-      case Matchless.LetMut(_, in) =>
+      case Matchless.LetMut(_, in, _) =>
         countWhileExprs(in)
-      case Matchless.If(cond, t, f) =>
+      case Matchless.If(cond, t, f, _) =>
         countBoolWhileExprs(cond) + countWhileExprs(t) + countWhileExprs(f)
-      case Matchless.Always(cond, thenExpr) =>
+      case Matchless.Always(cond, thenExpr, _) =>
         countBoolWhileExprs(cond) + countWhileExprs(thenExpr)
-      case Matchless.PrevNat(of) =>
+      case Matchless.PrevNat(of, _) =>
         countWhileExprs(of)
       case _ =>
         0
@@ -115,7 +111,7 @@ class MatchlessRegressionTest extends munit.FunSuite {
         activeRecNames: Set[Identifier.Bindable]
     ): Int =
       e match {
-        case Matchless.Lambda(captures, recursiveName, args, body) =>
+        case Matchless.Lambda(captures, recursiveName, args, body, _) =>
           val argNames = args.toList.toSet
           val recNamesInLambda = activeRecNames -- argNames
           val recNamesInBody =
@@ -125,38 +121,38 @@ class MatchlessRegressionTest extends munit.FunSuite {
             }
           captures.map(loopExpr(_, recNamesInLambda)).sum +
             loopExpr(body, recNamesInBody)
-        case Matchless.WhileExpr(cond, effectExpr, _) =>
+        case Matchless.WhileExpr(cond, effectExpr, _, _) =>
           loopBool(cond, activeRecNames) + loopExpr(effectExpr, activeRecNames)
-        case Matchless.App(fn, args) =>
+        case Matchless.App(fn, args, _) =>
           val headCallsSelf = fn match {
-            case Matchless.Local(fnName) if activeRecNames(fnName) => 1
+            case Matchless.Local(fnName, _) if activeRecNames(fnName) => 1
             case _                                                 => 0
           }
           headCallsSelf + loopExpr(fn, activeRecNames) + args.toList
             .map(loopExpr(_, activeRecNames))
             .sum
-        case Matchless.Let(Right(name), value, in) =>
+        case Matchless.Let(Right(name), value, in, _) =>
           loopExpr(value, activeRecNames) + loopExpr(in, activeRecNames - name)
-        case Matchless.Let(_, value, in) =>
+        case Matchless.Let(_, value, in, _) =>
           loopExpr(value, activeRecNames) + loopExpr(in, activeRecNames)
-        case Matchless.LetMut(_, in) =>
+        case Matchless.LetMut(_, in, _) =>
           loopExpr(in, activeRecNames)
-        case Matchless.If(cond, thenExpr, elseExpr) =>
+        case Matchless.If(cond, thenExpr, elseExpr, _) =>
           loopBool(cond, activeRecNames) +
             loopExpr(thenExpr, activeRecNames) +
             loopExpr(elseExpr, activeRecNames)
-        case Matchless.Always(cond, thenExpr) =>
+        case Matchless.Always(cond, thenExpr, _) =>
           loopBool(cond, activeRecNames) + loopExpr(thenExpr, activeRecNames)
-        case Matchless.PrevNat(of) =>
+        case Matchless.PrevNat(of, _) =>
           loopExpr(of, activeRecNames)
-        case Matchless.GetEnumElement(arg, _, _, _) =>
+        case Matchless.GetEnumElement(arg, _, _, _, _) =>
           loopExpr(arg, activeRecNames)
-        case Matchless.GetStructElement(arg, _, _) =>
+        case Matchless.GetStructElement(arg, _, _, _) =>
           loopExpr(arg, activeRecNames)
-        case Matchless.Local(_) | Matchless.Global(_, _, _) |
-            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
-            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+        case Matchless.Local(_, _) | Matchless.Global(_, _, _, _) |
+            Matchless.ClosureSlot(_, _) | Matchless.LocalAnon(_, _) |
+            Matchless.LocalAnonMut(_, _) | Matchless.Literal(_, _) |
+            Matchless.MakeEnum(_, _, _, _) | Matchless.MakeStruct(_, _) |
             Matchless.ZeroNat | Matchless.SuccNat =>
           0
       }
@@ -229,27 +225,15 @@ def branch_blowup(args: L) -> Nat:
     "issue 1652: deeply nested LetMutBool condition does not overflow reuseConstructors"
   ) {
     val expr =
-      Matchless.If(
-        nestedLetMutBool(20000),
-        Matchless.MakeStruct(0),
-        Matchless.MakeStruct(0)
-      )
+      Matchless.If(nestedLetMutBool(20000), Matchless.MakeStruct(0, Matchless.SourceInfo.empty), Matchless.MakeStruct(0, Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
     assertReuseConstructorsNoStackOverflow(expr)
   }
 
   test("MatchlessToValue evaluates static If conditions without dynamic branching") {
     val trueIf =
-      Matchless.If(
-        Matchless.TrueConst,
-        Matchless.Literal(Lit(1)),
-        Matchless.Literal(Lit(2))
-      )
+      Matchless.If(Matchless.TrueConst, Matchless.Literal(Lit(1), Matchless.SourceInfo.empty), Matchless.Literal(Lit(2), Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
     val falseIf =
-      Matchless.If(
-        Matchless.EqualsLit(Matchless.Literal(Lit(1)), Lit(2)),
-        Matchless.Literal(Lit(3)),
-        Matchless.Literal(Lit(4))
-      )
+      Matchless.If(Matchless.EqualsLit(Matchless.Literal(Lit(1), Matchless.SourceInfo.empty), Lit(2)), Matchless.Literal(Lit(3), Matchless.SourceInfo.empty), Matchless.Literal(Lit(4), Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
 
     val evaluated =
       MatchlessToValue

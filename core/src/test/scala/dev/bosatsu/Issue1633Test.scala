@@ -121,32 +121,32 @@ main = parse_value(" null")
   private def hasClosureSlotApply[A](expr: Matchless.Expr[A]): Boolean = {
     def loopExpr(e: Matchless.Expr[A]): Boolean =
       e match {
-        case Matchless.Lambda(captures, _, _, body) =>
+        case Matchless.Lambda(captures, _, _, body, _) =>
           captures.exists(loopExpr) || loopExpr(body)
-        case Matchless.WhileExpr(cond, effectExpr, _) =>
+        case Matchless.WhileExpr(cond, effectExpr, _, _) =>
           loopBool(cond) || loopExpr(effectExpr)
-        case Matchless.App(Matchless.ClosureSlot(_), _) =>
+        case Matchless.App(Matchless.ClosureSlot(_, _), _, _) =>
           true
-        case Matchless.App(fn, args) =>
+        case Matchless.App(fn, args, _) =>
           loopExpr(fn) || args.exists(loopExpr)
-        case Matchless.Let(_, value, in) =>
+        case Matchless.Let(_, value, in, _) =>
           loopExpr(value) || loopExpr(in)
-        case Matchless.LetMut(_, in) =>
+        case Matchless.LetMut(_, in, _) =>
           loopExpr(in)
-        case Matchless.If(cond, thenExpr, elseExpr) =>
+        case Matchless.If(cond, thenExpr, elseExpr, _) =>
           loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
-        case Matchless.Always(cond, thenExpr) =>
+        case Matchless.Always(cond, thenExpr, _) =>
           loopBool(cond) || loopExpr(thenExpr)
-        case Matchless.PrevNat(of) =>
+        case Matchless.PrevNat(of, _) =>
           loopExpr(of)
-        case Matchless.GetEnumElement(arg, _, _, _) =>
+        case Matchless.GetEnumElement(arg, _, _, _, _) =>
           loopExpr(arg)
-        case Matchless.GetStructElement(arg, _, _) =>
+        case Matchless.GetStructElement(arg, _, _, _) =>
           loopExpr(arg)
-        case Matchless.Local(_) | Matchless.Global(_, _, _) |
-            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
-            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+        case Matchless.Local(_, _) | Matchless.Global(_, _, _, _) |
+            Matchless.ClosureSlot(_, _) | Matchless.LocalAnon(_, _) |
+            Matchless.LocalAnonMut(_, _) | Matchless.Literal(_, _) |
+            Matchless.MakeEnum(_, _, _, _) | Matchless.MakeStruct(_, _) |
             Matchless.ZeroNat | Matchless.SuccNat =>
           false
       }
@@ -203,15 +203,13 @@ main = parse_value(" null")
           fail(s"missing ${parseValueName.sourceCodeRepr} in matchless lets")
       }
       parseValueMatchless match {
-        case Matchless.Let(
-              Right(`capturedBName`),
-              _,
-              Matchless.Lambda(captures, _, _, _)
-            ) =>
-          assertEquals(
-            captures,
-            Matchless.Local(capturedBName)(Matchless.SourceInfo.empty) :: Nil
-          )
+        case Matchless.Let(Right(`capturedBName`), _, Matchless.Lambda(captures, _, _, _, _), _) =>
+          captures match {
+            case Matchless.Local(`capturedBName`, sourceInfo) :: Nil =>
+              assert(sourceInfo.region.end > sourceInfo.region.start)
+            case other =>
+              fail(s"unexpected captures for parse_value lambda: $other")
+          }
         case other =>
           fail(s"unexpected parse_value lowering shape: $other")
       }

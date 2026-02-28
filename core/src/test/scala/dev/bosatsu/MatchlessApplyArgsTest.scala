@@ -20,30 +20,20 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
     val arg2 = Identifier.Name("arg2")
 
     val lam1: Matchless.Expr[Unit] =
-      Matchless.Lambda(
-        captures = Nil,
-        recursiveName = None,
-        args = NonEmptyList.one(arg1),
-        body = Matchless.Literal(Lit(0))
-      )
+      Matchless.Lambda(captures = Nil, recursiveName = None, args = NonEmptyList.one(arg1), body = Matchless.Literal(Lit(0), Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
     val lam2: Matchless.Expr[Unit] =
-      Matchless.Lambda(
-        captures = Nil,
-        recursiveName = None,
-        args = NonEmptyList.one(arg2),
-        body = Matchless.Literal(Lit(0))
-      )
+      Matchless.Lambda(captures = Nil, recursiveName = None, args = NonEmptyList.one(arg2), body = Matchless.Literal(Lit(0), Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
 
     val branch1: Matchless.Expr[Unit] =
-      Matchless.Let(Right(fnName1), lam1, Matchless.Local(fnName1))
+      Matchless.Let(Right(fnName1), lam1, Matchless.Local(fnName1, Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
     val branch2: Matchless.Expr[Unit] =
-      Matchless.Let(Right(fnName2), lam2, Matchless.Local(fnName2))
+      Matchless.Let(Right(fnName2), lam2, Matchless.Local(fnName2, Matchless.SourceInfo.empty), Matchless.SourceInfo.empty)
     val expr: Matchless.Expr[Unit] =
-      Matchless.If(Matchless.TrueConst, branch1, branch2)
+      Matchless.If(Matchless.TrueConst, branch1, branch2, Matchless.SourceInfo.empty)
 
     Matchless.recoverTopLevelLambda(expr) match {
-      case Matchless.Lambda(Nil, None, args, body) =>
-        val topArg: Matchless.Expr[Unit] = Matchless.Local(args.head)
+      case Matchless.Lambda(Nil, None, args, body, _) =>
+        val topArg: Matchless.Expr[Unit] = Matchless.Local(args.head, Matchless.SourceInfo.empty)
         def assertReducedAliasCall(
             branch: Matchless.Expr[Unit],
             fnName: Bindable,
@@ -51,30 +41,15 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
             lamArg: Bindable
         ): Unit =
           branch match {
-            case Matchless.Let(
-                  Right(`fnName`),
-                  `lamExpr`,
-                  Matchless.Let(
-                    Right(tmp),
-                    `topArg`,
-                    Matchless.Let(
-                      Right(`lamArg`),
-                      Matchless.Local(tmpRef),
-                      Matchless.Literal(lit)
-                    )
-                  )
-                ) =>
+            case Matchless.Let(Right(`fnName`), `lamExpr`, Matchless.Let(Right(tmp), `topArg`, Matchless.Let(Right(`lamArg`), Matchless.Local(tmpRef, _), Matchless.Literal(lit, _), _), _), _) =>
               assertEquals(lit, Lit(0))
               assertEquals(tmp, tmpRef)
-            case Matchless.Let(
-                  Right(`fnName`),
-                  `lamExpr`,
-                  trailing
-                )
+            case Matchless.Let(Right(`fnName`), `lamExpr`, trailing, _)
                 if trailing == Matchless.App(
-                  Matchless.Local(fnName),
-                  NonEmptyList.one(topArg)
-                )(Matchless.SourceInfo.empty) =>
+                  Matchless.Local(fnName, Matchless.SourceInfo.empty),
+                  NonEmptyList.one(topArg),
+                  Matchless.SourceInfo.empty
+                ) =>
               fail(
                 s"expected beta-reduced let-bound lambda alias, found trailing apply: $branch"
               )
@@ -85,7 +60,7 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
           }
 
         body match {
-          case Matchless.If(Matchless.TrueConst, tBranch, fBranch) =>
+          case Matchless.If(Matchless.TrueConst, tBranch, fBranch, _) =>
             assertReducedAliasCall(tBranch, fnName1, lam1, arg1)
             assertReducedAliasCall(fBranch, fnName2, lam2, arg2)
           case other =>

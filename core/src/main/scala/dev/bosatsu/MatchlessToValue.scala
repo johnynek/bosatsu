@@ -40,7 +40,7 @@ object MatchlessToValue {
 
     def makeCons(c: ConsExpr): Value =
       c match {
-        case MakeEnum(variant, arity, _) =>
+        case MakeEnum(variant, arity, _, _) =>
           if (arity == 0) SumValue(variant, UnitValue)
           else if (arity == 1) {
             FnValue { case NonEmptyList(v, _) =>
@@ -52,7 +52,7 @@ object MatchlessToValue {
               val prod = ProductValue.fromNonEmptyList(args)
               SumValue(variant, prod)
             }
-        case MakeStruct(arity) =>
+        case MakeStruct(arity, _) =>
           if (arity == 0) UnitValue
           else if (arity == 1) FnValue.identity
           else
@@ -315,7 +315,7 @@ object MatchlessToValue {
           case CheckVariant(enumV, idx, _, _) =>
             loop(enumV).map(_.asSum.variant == idx)
 
-          case SetMut(LocalAnonMut(mut), expr) =>
+          case SetMut(LocalAnonMut(mut, _), expr) =>
             val exprF = loop(expr)
             // this is always dynamic
             Dynamic { (scope: Scope) =>
@@ -332,13 +332,13 @@ object MatchlessToValue {
                   val vv = Eval.now(valueF(scope))
                   scope.let(b, vv)
                 }
-              case Left(LocalAnon(l)) =>
+              case Left(LocalAnon(l, _)) =>
                 inF.withScope { (scope: Scope) =>
                   val vv = valueF(scope)
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
             }
-          case LetMutBool(LocalAnonMut(ident), in) =>
+          case LetMutBool(LocalAnonMut(ident, _), in) =>
             val inF = boolExpr(in)
             Dynamic { (scope: Scope) =>
               val scope1 = scope.letMut(ident)
@@ -349,7 +349,7 @@ object MatchlessToValue {
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr[F]): Scoped[Value] =
         me match {
-          case Lambda(Nil, None, args, res) =>
+          case Lambda(Nil, None, args, res, _) =>
             val resFn = loop(res)
             // we can allocate once if there is no closure
             val scope1 = Scope.empty()
@@ -358,7 +358,7 @@ object MatchlessToValue {
               resFn(scope2)
             }
             Static(fn)
-          case Lambda(caps, None, args, res) =>
+          case Lambda(caps, None, args, res, _) =>
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
@@ -373,7 +373,7 @@ object MatchlessToValue {
                 resFn(scope2)
               }
             }
-          case Lambda(caps, Some(name), args, res) =>
+          case Lambda(caps, Some(name), args, res, _) =>
             val resFn = loop(res)
             val capScoped = caps.map(loop).toVector
             Dynamic { scope =>
@@ -392,7 +392,7 @@ object MatchlessToValue {
 
               fn
             }
-          case WhileExpr(cond, effect, result) =>
+          case WhileExpr(cond, effect, result, _) =>
             val condF = boolExpr(cond)
             val effectF = loop(effect)
 
@@ -407,23 +407,23 @@ object MatchlessToValue {
               }
               scope.muts(result.ident).get()
             }
-          case Global(f, p, n) =>
+          case Global(f, p, n, _) =>
             val res = resolve(f, p, n)
 
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic((_: Scope) => res.value)
-          case Local(b)        => Dynamic(_.locals.get(b).value)
-          case LocalAnon(a)    => Dynamic(_.anon(a))
-          case LocalAnonMut(m) =>
+          case Local(b, _)        => Dynamic(_.locals.get(b).value)
+          case LocalAnon(a, _)    => Dynamic(_.anon(a))
+          case LocalAnonMut(m, _) =>
             Dynamic { s =>
               s.muts.get(m) match {
                 case Some(v) => v.get()
                 case None => sys.error(s"could not get: $m. ${s.debugString}")
               }
             }
-          case ClosureSlot(idx) => Dynamic(_.slots(idx))
-          case App(expr, args)  =>
+          case ClosureSlot(idx, _) => Dynamic(_.slots(idx))
+          case App(expr, args, _)  =>
             // TODO: App(lambda(while
             // can be optimized into a while
             // loop, but there isn't any prior optimization
@@ -435,7 +435,7 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
-          case Let(localOrBind, value, in) =>
+          case Let(localOrBind, value, in, _) =>
             val valueF = loop(value)
             val inF = loop(in)
 
@@ -445,13 +445,13 @@ object MatchlessToValue {
                   val vv = Eval.now(valueF(scope))
                   scope.let(b, vv)
                 }
-              case Left(LocalAnon(l)) =>
+              case Left(LocalAnon(l, _)) =>
                 inF.withScope { (scope: Scope) =>
                   val vv = valueF(scope)
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
             }
-          case lm @ LetMut(_, _) =>
+          case lm @ LetMut(_, _, _) =>
             val (anonMuts, in) = lm.flatten
             val inF = loop(in)
             Dynamic { (scope: Scope) =>
@@ -463,9 +463,9 @@ object MatchlessToValue {
               val scope1 = scope.letMuts(anonMuts.iterator.map(_.ident))
               inF(scope1)
             }
-          case Literal(lit) =>
+          case Literal(lit, _) =>
             Static(Value.fromLit(lit))
-          case If(cond, thenExpr, elseExpr) =>
+          case If(cond, thenExpr, elseExpr, _) =>
             val condF = boolExpr(cond)
             // compile each branch at most once, and only if needed
             lazy val thenF = loop(thenExpr)
@@ -492,7 +492,7 @@ object MatchlessToValue {
 
               exprF(scope)
             }
-          case Always(cond, expr) =>
+          case Always(cond, expr, _) =>
             val condF = boolExpr(cond)
             val exprF = loop(expr)
 
@@ -500,7 +500,7 @@ object MatchlessToValue {
               assert(cond)
               res
             }
-          case GetEnumElement(expr, v, idx, _) =>
+          case GetEnumElement(expr, v, idx, _, _) =>
             loop(expr).map { e =>
               val sum = e.asSum
               // we could assert e.asSum.variant == v
@@ -510,7 +510,7 @@ object MatchlessToValue {
               sum.value.get(idx)
             }
 
-          case GetStructElement(expr, idx, sz) =>
+          case GetStructElement(expr, idx, sz, _) =>
             val loopFn = loop(expr)
             if (sz == 1) {
               // this is a newtype
@@ -520,7 +520,7 @@ object MatchlessToValue {
                 p.asProduct.get(idx)
               }
             }
-          case PrevNat(expr) =>
+          case PrevNat(expr, _) =>
             loop(expr).map { bv =>
               // TODO we could cache
               // small numbers to make this

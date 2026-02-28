@@ -359,8 +359,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   }
                 }
             }
-          case Left(LocalAnon(idx)) =>
-            // LocalAnon(idx) isn't in scope for argV
+          case Left(LocalAnon(idx, _)) =>
+            // LocalAnon(idx, _) isn't in scope for argV
             innerToValue(argV)
               .flatMap { v =>
                 bindAnon(idx) {
@@ -434,7 +434,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect))
               }(newLocalName)
             }
-          case SetMut(LocalAnonMut(idx), expr) =>
+          case SetMut(LocalAnonMut(idx, _), expr) =>
             for {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
@@ -442,7 +442,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           case TrueConst               => pv(Code.TrueLit)
           case LetBool(name, argV, in) =>
             handleLet(name, argV, boolToValue(in))
-          case LetMutBool(LocalAnonMut(m), span) =>
+          case LetMutBool(LocalAnonMut(m, _), span) =>
             bindAnon(m) {
               for {
                 ident <- getAnon(m)
@@ -559,7 +559,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =
         app match {
-          case App(Global(k, pack, fnName), args) =>
+          case App(Global(k, pack, fnName, _), args, _) =>
             directFn(k, pack, fnName).flatMap {
               case Some((ident, _)) =>
                 // directly invoke instead of by treating them like lambdas
@@ -582,7 +582,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     }
                   }
             }
-          case App(Local(fnName), args) =>
+          case App(Local(fnName, _), args, _) =>
             directFn(fnName).flatMap {
               case Some((ident, isClosure, _)) =>
                 // this can be an recursive call
@@ -607,7 +607,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     )
                 }
             }
-          case App(MakeEnum(variant, arity, _), args) =>
+          case App(MakeEnum(variant, arity, _, _), args, _) =>
             // to type check, we know that the arity must have the same length as args
             args.traverse(innerToValue).flatMap { argsVL =>
               val tag = Code.IntLiteral(variant)
@@ -616,7 +616,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 tag :: argsVL
               )(newLocalName)
             }
-          case App(MakeStruct(arity), args) =>
+          case App(MakeStruct(arity, _), args, _) =>
             if (arity == 1) {
               // this is a new-type, just return the arg
               innerToValue(args.head)
@@ -629,14 +629,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 )(newLocalName)
               }
             }
-          case App(SuccNat, args) =>
+          case App(SuccNat, args, _) =>
             innerToValue(args.head).flatMap { arg =>
               Code.ValueLike.applyArgs(
                 Code.Ident("BSTS_NAT_SUCC"),
                 NonEmptyList.one(arg)
               )(newLocalName)
             }
-          case App(fn, args) =>
+          case App(fn, args, _) =>
             (innerToValue(fn), args.traverse(innerToValue(_))).flatMapN {
               (fnVL, argsVL) =>
                 // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
@@ -649,11 +649,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
-          case fn @ Lambda(_, _, _, _) => innerFn(fn)
-          case Let(name, argV, in)     =>
+          case fn @ Lambda(_, _, _, _, _) => innerFn(fn)
+          case Let(name, argV, in, _)     =>
             handleLet(name, argV, innerToValue(in))
-          case app @ App(_, _)       => innerApp(app)
-          case Global(k, pack, name) =>
+          case app @ App(_, _, _)       => innerApp(app)
+          case Global(k, pack, name, _) =>
             directFn(k, pack, name)
               .flatMap {
                 case Some((ident, arity)) =>
@@ -661,7 +661,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 case None =>
                   globalIdent(k, pack, name).map(nm => nm())
               }
-          case Local(arg) =>
+          case Local(arg, _) =>
             directFn(arg)
               .flatMap {
                 case Some((nm, isClosure, arity)) =>
@@ -675,12 +675,12 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 case None =>
                   getBinding(arg).widen
               }
-          case ClosureSlot(idx) =>
+          case ClosureSlot(idx, _) =>
             // we must be inside a closure function, so we should have a slots argument to access
             pv(slotsArgName.bracket(Code.IntLiteral(BigInt(idx))))
-          case LocalAnon(ident)              => getAnon(ident).widen
-          case LocalAnonMut(ident)           => getAnon(ident).widen
-          case LetMut(LocalAnonMut(m), span) =>
+          case LocalAnon(ident, _)              => getAnon(ident).widen
+          case LocalAnonMut(ident, _)           => getAnon(ident).widen
+          case LetMut(LocalAnonMut(m, _), span, _) =>
             bindAnon(m) {
               for {
                 ident <- getAnon(m)
@@ -688,15 +688,15 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 res <- innerToValue(span)
               } yield decl +: res
             }
-          case Literal(lit)                 => literal(lit)
-          case If(cond, thenExpr, elseExpr) =>
+          case Literal(lit, _)                 => literal(lit)
+          case If(cond, thenExpr, elseExpr, _) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
           case Always.SetChain(setmuts, result) =>
             (
-              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+              setmuts.traverse { case (LocalAnonMut(mut, _), v) =>
                 for {
                   name <- getAnon(mut)
                   vl <- innerToValue(v)
@@ -706,21 +706,21 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             ).mapN { (assigns, result) =>
               Code.Statements(assigns) +: result
             }
-          case Always(cond, thenExpr) =>
+          case Always(cond, thenExpr, _) =>
             boolToValue(cond).flatMap { bv =>
               bv.discardValue match {
                 case None         => innerToValue(thenExpr)
                 case Some(effect) => innerToValue(thenExpr).map(effect +: _)
               }
             }
-          case GetEnumElement(arg, _, index, _) =>
+          case GetEnumElement(arg, _, index, _, _) =>
             // call get_enum_index(v, index)
             innerToValue(arg).flatMap { v =>
               v.onExpr(e =>
                 pv(Code.Ident("get_enum_index")(e, Code.IntLiteral(index)))
               )(newLocalName)
             }
-          case GetStructElement(arg, index, size) =>
+          case GetStructElement(arg, index, size, _) =>
             if (size == 1) {
               // this is just a new-type wrapper, ignore it
               innerToValue(arg)
@@ -732,7 +732,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 }(newLocalName)
               }
             }
-          case makeEnum @ MakeEnum(variant, arity, _) =>
+          case makeEnum @ MakeEnum(variant, arity, _, _) =>
             // this is a closure over variant, we rewrite this
             if (arity == 0)
               pv(Code.Ident("alloc_enum0")(Code.IntLiteral(variant)))
@@ -745,7 +745,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     .map(nm => Identifier.Name(nm))
                     .toList
                 )
-              // This relies on optimizing App(MakeEnum, _) otherwise
+              // This relies on optimizing App(MakeEnum, _, _) otherwise
               // it creates an infinite loop.
               // Also, this we should cache creation of Lambda/Closure values
               innerToValue(
@@ -753,11 +753,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   Nil,
                   None,
                   named,
-                  applyArgs(makeEnum, named.map(Local(_)(makeEnum.sourceInfo)))
-                )(makeEnum.sourceInfo)
+                  applyArgs(makeEnum, named.map(Local(_, makeEnum.sourceInfo)))
+                , makeEnum.sourceInfo)
               )
             }
-          case MakeStruct(arity) =>
+          case MakeStruct(arity, _) =>
             pv {
               if (arity == 0) Code.Ident("bsts_unit_value")()
               else {
@@ -769,7 +769,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             pv(Code.Ident("BSTS_NAT_0"))
           case SuccNat =>
             val arg = Identifier.Name("nat")
-            // This relies on optimizing App(SuccNat, _) otherwise
+            // This relies on optimizing App(SuccNat, _, _) otherwise
             // it creates an infinite loop.
             // Also, this we should cache creation of Lambda/Closure values
             innerToValue(
@@ -777,17 +777,17 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 Nil,
                 None,
                 NonEmptyList.one(arg),
-                applyArgs(SuccNat, NonEmptyList.one(Local(arg)(SuccNat.sourceInfo)))
-              )(SuccNat.sourceInfo)
+                applyArgs(SuccNat, NonEmptyList.one(Local(arg, SuccNat.sourceInfo)))
+              , SuccNat.sourceInfo)
             )
-          case PrevNat(of) =>
+          case PrevNat(of, _) =>
             innerToValue(of).flatMap { argVL =>
               Code.ValueLike.applyArgs(
                 Code.Ident("BSTS_NAT_PREV"),
                 NonEmptyList.one(argVL)
               )(newLocalName)
             }
-          case WhileExpr(cond, effect, res) =>
+          case WhileExpr(cond, effect, res, _) =>
             (
               boolToValue(cond),
               innerToValue(effect),
@@ -819,7 +819,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           fn: Lambda[K1]
       ): T[Code.Statement] =
         inFnStatement(fn match {
-          case Lambda(captures, name, args, expr) =>
+          case Lambda(captures, name, args, expr, _) =>
             val body = innerToValue(expr).map(Code.returnValue(_))
             val body1 = name match {
               case None      => body

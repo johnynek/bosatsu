@@ -2255,7 +2255,7 @@ object PythonGen {
           expr: Expr[A]
       ): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
-          case Global(_, p, name) =>
+          case Global(_, p, name, _) =>
             resultsByPackage.get(p).flatMap(_.get(name))
           case _ => None
         }
@@ -2292,7 +2292,7 @@ object PythonGen {
         // invariant: args.size == arity
         def applyAll(args: List[ValueLike]): Env[ValueLike] =
           ce match {
-            case MakeEnum(variant, _, famArities) =>
+            case MakeEnum(variant, _, famArities, _) =>
               // if all arities are 0, we use
               // integers to represent,
               // otherwise, we use tuples with the first
@@ -2304,7 +2304,7 @@ object PythonGen {
                 // we make a tuple with the variant in the first position
                 Env.onLasts(vExpr :: args)(Code.MakeTuple(_))
               }
-            case MakeStruct(arity) =>
+            case MakeStruct(arity, _) =>
               if (arity == 0) Env.pure(Code.Const.Unit)
               else if (arity == 1) Env.pure(args.head)
               else Env.onLasts(args)(Code.MakeTuple(_))
@@ -2392,7 +2392,7 @@ object PythonGen {
                    t.get(0) =:= idx).simplify
               }
             }
-          case SetMut(LocalAnonMut(mut), expr) =>
+          case SetMut(LocalAnonMut(mut, _), expr) =>
             (Env.nameForAnon(mut), loop(expr, slotName, inlineSlots)).flatMapN {
               (ident, result) =>
                 Env.onLast(result) { resx =>
@@ -2418,7 +2418,7 @@ object PythonGen {
       // Inlining these is safe because it captures the correct binding.
       private def inlineableCapture(expr: Expr[K]): Boolean =
         expr match {
-          case Local(_) | Global(_, _, _) | LocalAnon(_) => true
+          case Local(_, _) | Global(_, _, _, _) | LocalAnon(_, _) => true
           case _                                         => false
         }
 
@@ -2452,7 +2452,7 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[Statement] =
         expr match {
-          case Lambda(captures, recName, args, body) =>
+          case Lambda(captures, recName, args, body, _) =>
             // If inlineCaptures succeeds, we don't allocate a slots tuple at all.
             // This is safe to do even if we were passed inlineSlots, because
             // inlineCaptures only returns Some when slotName/inlineSlots are empty.
@@ -2521,7 +2521,7 @@ object PythonGen {
               ine <- inF
               _ <- Env.unbind(b)
             } yield ((bi := ve).withValue(ine))
-          case Left(LocalAnon(l)) =>
+          case Left(LocalAnon(l, _)) =>
             // anonymous names never shadow
             (Env.nameForAnon(l), loop(value, slotName, inlineSlots))
               .flatMapN { (bi, vE) =>
@@ -2534,7 +2534,7 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
         expr match {
-          case Lambda(captures, recName, args, res) =>
+          case Lambda(captures, recName, args, res, _) =>
             val defName = recName match {
               case None    => Env.newAssignableVar
               case Some(n) => Env.bind(n)
@@ -2585,7 +2585,7 @@ object PythonGen {
                   } <* args.traverse_(Env.unbind(_))
             }
 
-          case WhileExpr(cond, effect, res) =>
+          case WhileExpr(cond, effect, res, _) =>
             (
               boolExpr(cond, slotName, inlineSlots),
               loop(effect, slotName, inlineSlots),
@@ -2609,7 +2609,7 @@ object PythonGen {
           case PredefExternal((fn, arity)) =>
             // make a lambda
             PredefExternal.makeLambda(arity)(fn)
-          case Global(k, p, n) =>
+          case Global(k, p, n, _) =>
             remap(p, n)
               .flatMap {
                 case Some(v) => Env.pure(v)
@@ -2623,10 +2623,10 @@ object PythonGen {
                       .mapN(Code.DotSelect(_, _))
                   }
               }
-          case Local(b)         => Env.deref(b)
-          case LocalAnon(a)     => Env.nameForAnon(a)
-          case LocalAnonMut(m)  => Env.nameForAnon(m)
-          case ClosureSlot(idx) =>
+          case Local(b, _)         => Env.deref(b)
+          case LocalAnon(a, _)     => Env.nameForAnon(a)
+          case LocalAnonMut(m, _)  => Env.nameForAnon(m)
+          case ClosureSlot(idx, _) =>
             inlineSlots match {
               case Some(inlined) =>
                 inlined.lift(idx) match {
@@ -2650,15 +2650,15 @@ object PythonGen {
                   // $COVERAGE-ON$
                 }
             }
-          case App(PredefExternal((fn, _)), args) =>
+          case App(PredefExternal((fn, _)), args, _) =>
             args.toList
               .traverse(loop(_, slotName, inlineSlots))
               .flatMap(fn)
-          case App(cons: ConsExpr, args) =>
+          case App(cons: ConsExpr, args, _) =>
             args.traverse(loop(_, slotName, inlineSlots)).flatMap { pxs =>
               makeCons(cons, pxs.toList)
             }
-          case App(expr, args) =>
+          case App(expr, args, _) =>
             (
               loop(expr, slotName, inlineSlots),
               args.traverse(loop(_, slotName, inlineSlots))
@@ -2673,7 +2673,7 @@ object PythonGen {
                 // $COVERAGE-ON$
               }
             }.flatten
-          case Let(localOrBind, fn: Lambda[?], in) =>
+          case Let(localOrBind, fn: Lambda[?], in, _) =>
             localOrBind match {
               case Right(b) if fn.captures.isEmpty =>
                 for {
@@ -2695,7 +2695,7 @@ object PythonGen {
                   ine <- inF
                   _ <- Env.unbind(b)
                 } yield tl.withValue(ine)
-              case Left(LocalAnon(l)) =>
+              case Left(LocalAnon(l, _)) =>
                 val inF = loop(in, slotName, inlineSlots)
                 // anonymous names never shadow
                 Env
@@ -2705,7 +2705,7 @@ object PythonGen {
                     (v, inF).mapN(_.withValue(_))
                   }
             }
-          case Let(localOrBind, notFn, in) =>
+          case Let(localOrBind, notFn, in, _) =>
             // we know that notFn is not Lambda here
             doLet(
               localOrBind,
@@ -2714,12 +2714,12 @@ object PythonGen {
               slotName,
               inlineSlots
             )
-          case LetMut(LocalAnonMut(_), in) =>
+          case LetMut(LocalAnonMut(_, _), in, _) =>
             // we could delete this name, but
             // there is no need to
             loop(in, slotName, inlineSlots)
-          case Literal(lit)         => Env.pure(Code.litToExpr(lit))
-          case ifExpr @ If(_, _, _) =>
+          case Literal(lit, _)         => Env.pure(Code.litToExpr(lit))
+          case ifExpr @ If(_, _, _, _) =>
             val (ifs, last) = ifExpr.flatten
 
             val ifsV = ifs.traverse { case (c, t) =>
@@ -2735,7 +2735,7 @@ object PythonGen {
 
           case Always.SetChain(setmuts, result) =>
             (
-              setmuts.traverse { case (LocalAnonMut(mut), v) =>
+              setmuts.traverse { case (LocalAnonMut(mut, _), v) =>
                 Env.nameForAnon(mut).product(loop(v, slotName, inlineSlots))
               },
               loop(result, slotName, inlineSlots)
@@ -2748,21 +2748,21 @@ object PythonGen {
                 )
                 .withValue(result)
             }
-          case Always(cond, expr) =>
+          case Always(cond, expr, _) =>
             (
               boolExpr(cond, slotName, inlineSlots).map(Code.always),
               loop(expr, slotName, inlineSlots)
             )
               .mapN(_.withValue(_))
 
-          case GetEnumElement(expr, _, idx, _) =>
+          case GetEnumElement(expr, _, idx, _, _) =>
             // nonempty enums are just structs with the first element being the variant
             // we could assert the v matches when debugging, but typechecking
             // should assure this
             loop(expr, slotName, inlineSlots).flatMap { tup =>
               Env.onLast(tup)(_.get(idx + 1))
             }
-          case GetStructElement(expr, idx, sz) =>
+          case GetStructElement(expr, idx, sz, _) =>
             val exprR = loop(expr, slotName, inlineSlots)
             if (sz == 1) {
               // we don't bother to wrap single item structs
@@ -2773,7 +2773,7 @@ object PythonGen {
                 Env.onLast(tup)(_.get(idx))
               }
             }
-          case PrevNat(expr) =>
+          case PrevNat(expr, _) =>
             // Nats are just integers
             loop(expr, slotName, inlineSlots).flatMap { nat =>
               Env.onLast(nat)(_.evalMinus(Code.Const.One))
