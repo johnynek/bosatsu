@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import dev.bosatsu.rankn.NTypeGen
+import dev.bosatsu.edn.Edn
 import cats.Traverse
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
@@ -14,6 +15,8 @@ import Declaration.NonBinding
 import MonadGen.genMonad
 
 object Generators {
+  import Edn._
+
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
   val upper: Gen[Char] = Gen.oneOf('A' to 'Z')
   val num: Gen[Char] = Gen.oneOf('0' to '9')
@@ -38,6 +41,72 @@ object Generators {
         points.foreach(bldr.appendCodePoint(_))
         bldr.toString
       }
+
+  private val ednTokenChars: Vector[Char] =
+    (('a' to 'z') ++
+      ('A' to 'Z') ++
+      ('0' to '9') ++
+      Vector('-', '_', '/', '?', '!', '$', '*', '+', '.', '<', '>', '='))
+      .toVector
+
+  private val reservedShowJsonKeys: List[String] =
+    List("$form", "$list", "$vec", "$sym", "$str", "$kw", "$map")
+
+  val genEdnToken: Gen[String] =
+    for {
+      size <- Gen.choose(1, 16)
+      chars <- Gen.listOfN(size, Gen.oneOf(ednTokenChars))
+    } yield chars.mkString
+
+  private val genSmallUtf: Gen[String] =
+    for {
+      size <- Gen.choose(0, 16)
+      points <- Gen.listOfN(size, genCodePoints)
+    } yield {
+      val bldr = new java.lang.StringBuilder
+      points.foreach(bldr.appendCodePoint(_))
+      bldr.toString
+    }
+
+  private val genSymbolValue: Gen[String] =
+    Gen.frequency(
+      (8, genEdnToken),
+      (1, Gen.oneOf("nil", "true", "false"))
+    )
+
+  private val genKeywordValue: Gen[String] =
+    Gen.frequency(
+      (9, genEdnToken),
+      (1, Gen.oneOf(reservedShowJsonKeys))
+    )
+
+  private def genEdnSized(size: Int): Gen[Edn] = {
+    val leaf: Gen[Edn] =
+      Gen.frequency(
+        (2, Gen.const(ENil)),
+        (2, Arbitrary.arbitrary[Boolean].map(EBool(_))),
+        (3, genSmallUtf.map(EString(_))),
+        (2, genSymbolValue.map(ESymbol(_))),
+        (2, genKeywordValue.map(EKeyword(_)))
+      )
+
+    if (size <= 1) leaf
+    else {
+      val rec = Gen.lzy(genEdnSized(size / 2))
+      val listLike = Gen.choose(0, 4).flatMap(Gen.listOfN(_, rec))
+      val mapLike = Gen.choose(0, 4).flatMap(Gen.listOfN(_, Gen.zip(rec, rec)))
+
+      Gen.frequency(
+        (8, leaf),
+        (3, listLike.map(EVector(_))),
+        (3, listLike.map(EList(_))),
+        (2, mapLike.map(EMap(_)))
+      )
+    }
+  }
+
+  val genEdn: Gen[Edn] =
+    Gen.sized(size => genEdnSized((size max 1) min 12))
 
   val whiteSpace: Gen[String] =
     Gen.listOf(Gen.oneOf(' ', '\t', '\n')).map(_.mkString)

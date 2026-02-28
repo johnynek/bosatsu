@@ -567,6 +567,14 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   private def showJsonPackageNames(json: Json): List[String] =
+    def jsonNameAtom(value: Json): Option[String] =
+      value match {
+        case Json.JString(name) => Some(name)
+        case Json.JObject(("$sym", Json.JString(name)) :: Nil) =>
+          Some(name)
+        case _ => None
+      }
+
     json match {
       case Json.JObject(fields) =>
         val byKey = fields.toMap
@@ -578,7 +586,10 @@ class ToolAndLibCommandTest extends FunSuite {
                 val packMap = packFields.toMap
                 assertEquals(packMap.get("$form"), Some(Json.JString("package")))
                 packMap.get("name") match {
-                  case Some(Json.JString(name)) => name
+                  case Some(nameJson) =>
+                    jsonNameAtom(nameJson).getOrElse {
+                      fail(s"missing package name in ${Some(nameJson)}")
+                    }
                   case other                    => fail(s"missing package name in $other")
                 }
               case other =>

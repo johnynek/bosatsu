@@ -76,6 +76,17 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("edn/json conversion round trips losslessly") {
+    forAll(Generators.genEdn) { edn =>
+      val json = ShowEdn.ednToJson(edn)
+      val decoded = ShowEdn.jsonToEdn(json) match {
+        case Right(value) => value
+        case Left(err)    => fail(s"failed to decode generated json ${json.render}: $err")
+      }
+      assertEquals(decoded, edn)
+    }
+  }
+
   test("showDoc output is parseable EDN") {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
