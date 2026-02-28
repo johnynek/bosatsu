@@ -33,7 +33,7 @@ object Par {
 
     def completeWith[A](p: Promise[A], fa: F[A]): F[Unit] = {
       complete(p, fa)
-      Future.successful(())
+      Future.unit
     }
 
     def wait[A](p: Promise[A]): F[A] =
