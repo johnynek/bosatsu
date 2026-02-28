@@ -12,6 +12,7 @@ import dev.bosatsu.tool.{
   Output,
   PackageResolver,
   PathGen,
+  ShowEdn,
   ShowSelection
 }
 import dev.bosatsu.{
@@ -130,6 +131,12 @@ object ShowCommand {
           help = "value names to show (package::value)"
         )
         .orEmpty,
+      Opts
+        .flag(
+          "json",
+          help = "emit JSON instead of EDN for easier machine parsing"
+        )
+        .orFalse,
       commonOpts.outputPathOpt.orNone,
       Colorize.optsConsoleDefault
     ).mapN {
@@ -143,6 +150,7 @@ object ShowCommand {
           packages,
           types,
           values,
+          jsonOut,
           output,
           errColor
       ) =>
@@ -166,17 +174,25 @@ object ShowCommand {
                 .leftMap(CliException.Basic(_))
             )
             selectedInterfaces = ShowSelection.selectInterfaces(interfaces, request)
-          } yield (Output.ShowOutput(
-            packs,
-            selectedInterfaces,
-            output
-          ): Output[Path])
+          } yield (
+            if (jsonOut)
+              Output.JsonOutput(
+                ShowEdn.showJson(packs, selectedInterfaces),
+                output
+              )
+            else
+              Output.ShowOutput(
+                packs,
+                selectedInterfaces,
+                output
+              ): Output[Path]
+          )
         }
     }
 
     Opts.subcommand(
       "show",
-      "show fully type-checked packages as valid EDN"
+      "show fully type-checked packages (EDN by default; JSON with --json)"
     )(showOpt)
   }
 }

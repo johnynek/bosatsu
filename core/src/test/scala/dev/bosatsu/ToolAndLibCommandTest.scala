@@ -283,6 +283,31 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  private def showJsonPackageNames(json: Json): List[String] =
+    json match {
+      case Json.JObject(fields) =>
+        val byKey = fields.toMap
+        assertEquals(byKey.get("$form"), Some(Json.JString("show")))
+        byKey.get("packages") match {
+          case Some(Json.JArray(packs)) =>
+            packs.toList.map {
+              case Json.JObject(packFields) =>
+                val packMap = packFields.toMap
+                assertEquals(packMap.get("$form"), Some(Json.JString("package")))
+                packMap.get("name") match {
+                  case Some(Json.JString(name)) => name
+                  case other                    => fail(s"missing package name in $other")
+                }
+              case other =>
+                fail(s"expected package object, found: $other")
+            }
+          case other =>
+            fail(s"expected show packages array, found: $other")
+        }
+      case other =>
+        fail(s"expected show json object, found: $other")
+    }
+
   private def withInjectedPublicDep(
       state: MemoryMain.State,
       previousLibPath: Chain[String],
@@ -428,6 +453,25 @@ class ToolAndLibCommandTest extends FunSuite {
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
       case Right(other) => fail(s"unexpected output: $other")
       case Left(err)    => fail(err.getMessage)
+    }
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--json"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(showJsonPackageNames(json), List("MyLib/Foo"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
     }
   }
 
@@ -737,6 +781,44 @@ class ToolAndLibCommandTest extends FunSuite {
         assertEquals(packageDefNames(foo), List("main"))
         assertEquals(packageTypeNames(bar), Nil)
         assertEquals(packageDefNames(bar), List("bar"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show --json emits machine-readable package selection output") {
+    val fooSrc =
+      """package App/Foo
+|
+|main = 1
+|""".stripMargin
+    val barSrc =
+      """package App/Bar
+|
+|bar = 7
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Foo.bosatsu") -> fooSrc,
+      Chain("src", "App", "Bar.bosatsu") -> barSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Foo.bosatsu",
+        "--input",
+        "src/App/Bar.bosatsu",
+        "--value",
+        "App/Bar::bar",
+        "--json"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(showJsonPackageNames(json), List("App/Bar"))
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>
