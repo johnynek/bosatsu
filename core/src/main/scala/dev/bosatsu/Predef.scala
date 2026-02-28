@@ -1243,7 +1243,8 @@ object PredefImpl {
     raw.replace('\\', '/')
 
   private def pathValueFromString(raw: String): Value =
-    ProductValue.single(Str(normalizePathString(raw)))
+    // Path is a struct-1 and represented as identity at runtime.
+    Str(normalizePathString(raw))
 
   private def normalizeTempPrefix(prefix: String): String = {
     val base =
@@ -1315,6 +1316,8 @@ object PredefImpl {
 
   private def asPathString(path: Value): Either[Value, String] =
     path match {
+      case Str(s) =>
+        Right(s)
       case p: ProductValue if p.values.length == 1 =>
         p.get(0) match {
           case Str(s) => Right(s)
@@ -1325,7 +1328,10 @@ object PredefImpl {
         Left(ioerror_invalid_argument("invalid Path value"))
     }
 
-  private def asJavaPath(path: Value, context: String): Either[Value, JPath] =
+  private inline def asJavaPath(
+      path: Value,
+      inline context: => String
+  ): Either[Value, JPath] =
     asPathString(path).flatMap { raw =>
       try Right(Paths.get(raw))
       catch {
@@ -1379,13 +1385,13 @@ object PredefImpl {
       case _      => Left(ioerror_invalid_argument(context))
     }
 
-  private def asOpenModeTag(v: Value): Either[Value, Int] =
+  private def asOpenModeTag(v: Value, context: => String): Either[Value, Int] =
     v match {
       case s: SumValue =>
         if ((s.variant >= 0) && (s.variant <= 3)) Right(s.variant)
-        else Left(ioerror_invalid_argument("invalid OpenMode value"))
+        else Left(ioerror_invalid_argument(context))
       case _ =>
-        Left(ioerror_invalid_argument("invalid OpenMode value"))
+        Left(ioerror_invalid_argument(context))
     }
 
   private def asDurationNanos(v: Value): Either[Value, BigInteger] =
@@ -1426,14 +1432,56 @@ object PredefImpl {
       case _                      => Left(ioerror_invalid_argument(context))
     }
 
-  private def asOptionJavaPath(
+  private inline def asOptionJavaPath(
       value: Value,
-      context: String
+      inline context: => String
   ): Either[Value, Option[JPath]] =
     value match {
       case VOption(None)           => Right(None)
       case VOption(Some(pathValue)) => asJavaPath(pathValue, context).map(Some(_))
       case _                       => Left(ioerror_invalid_argument(context))
+    }
+
+  private def openModeName(modeTag: Int): String =
+    modeTag match {
+      case 0 => "Read"
+      case 1 => "WriteTruncate"
+      case 2 => "Append"
+      case 3 => "CreateNew"
+      case _ => s"Unknown($modeTag)"
+    }
+
+  private def openModePreview(modeValue: Value): String =
+    modeValue match {
+      case s: SumValue if s.variant >= 0 && s.variant <= 3 =>
+        openModeName(s.variant)
+      case s: SumValue =>
+        s"Unknown(${s.variant})"
+      case _ =>
+        "<invalid OpenMode>"
+    }
+
+  private def stringPreview(value: Value): String =
+    value match {
+      case Str(s) => s
+      case _      => "<invalid String>"
+    }
+
+  private def optionalPathPreview(value: Value): String =
+    value match {
+      case VOption(None) =>
+        "<default-temp-dir>"
+      case VOption(Some(pathValue)) =>
+        asPathString(pathValue).toOption.getOrElse("<invalid Path>")
+      case _ =>
+        "<invalid Path option>"
+    }
+
+  private def resolvedTempDirPreview(dirOpt: Option[JPath]): String =
+    dirOpt match {
+      case Some(path) => path.toString
+      case None       =>
+        Option(System.getProperty("java.io.tmpdir")).getOrElse("<default-temp-dir>")
     }
 
   private def optionValue(v: Option[Value]): Value =
@@ -2126,10 +2174,17 @@ object PredefImpl {
       path,
       mode,
       (pathValue, modeValue) => {
+        val invalidPathContext =
+          s"open_file(path=<invalid Path>, mode=${openModePreview(modeValue)}): invalid path"
         val result = for {
-          javaPath <- asJavaPath(pathValue, "invalid path for open_file")
-          modeTag <- asOpenModeTag(modeValue)
+          javaPath <- asJavaPath(pathValue, invalidPathContext)
+          modeTag <- asOpenModeTag(
+            modeValue,
+            s"open_file(path=${javaPath.toString}, mode=<invalid OpenMode>): invalid OpenMode value"
+          )
           handle <- {
+            val openContext =
+              s"open_file(path=${javaPath.toString}, mode=${openModeName(modeTag)})"
             try {
               modeTag match {
                 case 0 =>
@@ -2205,11 +2260,11 @@ object PredefImpl {
                     )
                   )
                 case _ =>
-                  Left(ioerror_invalid_argument("invalid OpenMode value"))
+                  Left(ioerror_invalid_argument(s"$openContext: invalid OpenMode value"))
               }
             } catch {
               case NonFatal(t) =>
-                Left(ioerror_from_throwable("open_file", t))
+                Left(ioerror_from_throwable(s"$openContext: opening file failed", t))
             }
           }
         } yield handle
@@ -2231,16 +2286,29 @@ object PredefImpl {
       prefix,
       suffix,
       (dirValue, prefixValue, suffixValue) => {
+        val prefixPreview = stringPreview(prefixValue)
+        val suffixPreview = stringPreview(suffixValue)
+        val dirPreview = optionalPathPreview(dirValue)
         val result = for {
-          dirOpt <- asOptionJavaPath(dirValue, "invalid temp file dir")
-          rawPrefix <- asString(prefixValue, "invalid temp file prefix")
-          rawSuffix <- asString(suffixValue, "invalid temp file suffix")
+          dirOpt <- asOptionJavaPath(
+            dirValue,
+            s"create_temp_file(dir=<invalid Path option>, prefix=$prefixPreview, suffix=$suffixPreview): invalid temp file dir"
+          )
+          rawPrefix <- asString(
+            prefixValue,
+            s"create_temp_file(dir=$dirPreview, prefix=<invalid String>, suffix=$suffixPreview): invalid temp file prefix"
+          )
+          rawSuffix <- asString(
+            suffixValue,
+            s"create_temp_file(dir=$dirPreview, prefix=$rawPrefix, suffix=<invalid String>): invalid temp file suffix"
+          )
+          callContext = s"create_temp_file(dir=${resolvedTempDirPreview(dirOpt)}, prefix=$rawPrefix, suffix=$rawSuffix)"
           _ <-
             if (isValidTempNamePart(rawPrefix)) Right(())
-            else Left(ioerror_invalid_argument("invalid temp file prefix"))
+            else Left(ioerror_invalid_argument(s"$callContext: invalid temp file prefix"))
           _ <-
             if (isValidTempNamePart(rawSuffix)) Right(())
-            else Left(ioerror_invalid_argument("invalid temp file suffix"))
+            else Left(ioerror_invalid_argument(s"$callContext: invalid temp file suffix"))
           tempPath <- {
             try {
               val created =
@@ -2260,7 +2328,7 @@ object PredefImpl {
               Right(created)
             } catch {
               case NonFatal(t) =>
-                Left(ioerror_from_throwable("create_temp_file", t))
+                Left(ioerror_from_throwable(s"$callContext: Files.createTempFile failed", t))
             }
           }
           tempFile <- {
@@ -2288,7 +2356,12 @@ object PredefImpl {
                 } catch {
                   case NonFatal(_) => ()
                 }
-                Left(ioerror_from_throwable("create_temp_file", t))
+                Left(
+                  ioerror_from_throwable(
+                    s"$callContext: opening created temp file path=${tempPath.toString} failed",
+                    t
+                  )
+                )
             }
           }
         } yield tempFile
@@ -2308,12 +2381,21 @@ object PredefImpl {
       dir,
       prefix,
       (dirValue, prefixValue) => {
+        val prefixPreview = stringPreview(prefixValue)
+        val dirPreview = optionalPathPreview(dirValue)
         val result = for {
-          dirOpt <- asOptionJavaPath(dirValue, "invalid temp dir")
-          rawPrefix <- asString(prefixValue, "invalid temp dir prefix")
+          dirOpt <- asOptionJavaPath(
+            dirValue,
+            s"create_temp_dir(dir=<invalid Path option>, prefix=$prefixPreview): invalid temp dir"
+          )
+          rawPrefix <- asString(
+            prefixValue,
+            s"create_temp_dir(dir=$dirPreview, prefix=<invalid String>): invalid temp dir prefix"
+          )
+          callContext = s"create_temp_dir(dir=${resolvedTempDirPreview(dirOpt)}, prefix=$rawPrefix)"
           _ <-
             if (isValidTempNamePart(rawPrefix)) Right(())
-            else Left(ioerror_invalid_argument("invalid temp dir prefix"))
+            else Left(ioerror_invalid_argument(s"$callContext: invalid temp dir prefix"))
           tempPath <- {
             try {
               val created =
@@ -2326,7 +2408,7 @@ object PredefImpl {
               Right(created)
             } catch {
               case NonFatal(t) =>
-                Left(ioerror_from_throwable("create_temp_dir", t))
+                Left(ioerror_from_throwable(s"$callContext: Files.createTempDirectory failed", t))
             }
           }
         } yield pathValueFromString(tempPath.toString)
