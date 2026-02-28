@@ -88,8 +88,8 @@ object Memoize {
       fn: (A, A => F[B]) => F[B]
   ): A => F[B] = {
     val canPromise = summon[CanPromise[F]]
-    val cache: ConcurrentHashMap[A, AnyRef] =
-      new ConcurrentHashMap[A, AnyRef]()
+    val cache: ConcurrentHashMap[A, canPromise.Promise[B]] =
+      new ConcurrentHashMap[A, canPromise.Promise[B]]()
 
     new Function[A, F[B]] { self =>
       def apply(a: A): F[B] =
@@ -104,7 +104,7 @@ object Memoize {
               val resF = fn(a, self)
               canPromise.completeWith(prom, resF) *> resF
             } else {
-              canPromise.wait(prevProm.asInstanceOf[canPromise.Promise[B]])
+              canPromise.wait(prevProm)
             }
           }
     }
