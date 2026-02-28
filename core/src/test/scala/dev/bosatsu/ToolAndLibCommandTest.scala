@@ -173,6 +173,163 @@ class ToolAndLibCommandTest extends FunSuite {
     } yield (state4, depLib)
   }
 
+  private def stateWithTwoVersionMismatchedCachedDeps(
+      appSrc: String
+  ): ErrorOr[MemoryMain.State] = {
+    val depASrc =
+      """export depA,
+|
+|depA = 1
+|""".stripMargin
+    val depBSrc =
+      """export depB,
+|
+|depB = 2
+|""".stripMargin
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("dep_a", "DepA", "Foo.bosatsu") -> depASrc,
+      Chain("dep_b", "DepB", "Foo.bosatsu") -> depBSrc,
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Foo.bosatsu") -> appSrc
+    )
+
+    for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep_a",
+          "--input",
+          "dep_a/DepA/Foo.bosatsu",
+          "--output",
+          "out/DepA.Foo.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep_a",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/DepA.Foo.bosatsu_package",
+          "--output",
+          "out/dep_a.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep_b",
+          "--input",
+          "dep_b/DepB/Foo.bosatsu",
+          "--output",
+          "out/DepB.Foo.bosatsu_package"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      s4 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep_b",
+          "--version",
+          "0.0.2",
+          "--package",
+          "out/DepB.Foo.bosatsu_package",
+          "--output",
+          "out/dep_b.bosatsu_lib"
+        ),
+        state3
+      )
+      (state4, _) = s4
+      depALib = readLibraryFile(state4, Chain("out", "dep_a.bosatsu_lib"))
+      depBLib = readLibraryFile(state4, Chain("out", "dep_b.bosatsu_lib"))
+      s5 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_a",
+          "--version",
+          "5.0.0",
+          "--hash",
+          depALib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep_a.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state4
+      )
+      (state5, _) = s5
+      s6 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_b",
+          "--version",
+          "6.0.0",
+          "--hash",
+          depBLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep_b.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state5
+      )
+      (state6, _) = s6
+      state7 <- state6.withFile(
+        casPathFor(Chain("repo"), depALib),
+        MemoryMain.FileContent.Lib(depALib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception(
+              "failed to inject dep_a library into repo CAS"
+            )
+          )
+      }
+      state8 <- state7.withFile(
+        casPathFor(Chain("repo"), depBLib),
+        MemoryMain.FileContent.Lib(depBLib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception(
+              "failed to inject dep_b library into repo CAS"
+            )
+          )
+      }
+    } yield state8
+  }
+
   private def baseLibFiles(mainSrc: String): List[(Chain[String], String)] = {
     val libs = Libraries(SortedMap(Name("mylib") -> "src"))
     val conf =
@@ -3677,8 +3834,8 @@ main = 0
         fail(s"expected lib fetch failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
-        assert(rendered.contains("cached library descriptor mismatch"), rendered)
         assert(rendered.contains("dep 5.0.0:"), rendered)
+        assert(rendered.contains("cached library descriptor mismatch"), rendered)
       case Left(err) =>
         fail(err.getMessage)
     }
@@ -3696,8 +3853,8 @@ main = 0
         fail(s"expected lib fetch failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
-        assert(rendered.contains("cached library descriptor mismatch"), rendered)
         assert(rendered.contains("not_dep 0.0.1:"), rendered)
+        assert(rendered.contains("cached library descriptor mismatch"), rendered)
       case Left(err) =>
         fail(err.getMessage)
     }
@@ -3722,10 +3879,42 @@ main = 0
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
         assert(
-          rendered.contains("does not match dependency dep."),
+          rendered.contains("version mismatch: dependency=5.0.0, cached=0.0.1"),
           rendered
         )
-        assert(rendered.contains("dependency version: 5.0.0"), rendered)
+        assert(!rendered.contains("name mismatch:"), rendered)
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib check reports both cached dependency version mismatches") {
+    val appSrc =
+      """from DepA/Foo import depA
+|
+|from DepB/Foo import depB
+|
+|main = depA.add(depB)
+|""".stripMargin
+
+    val result = for {
+      state <- stateWithTwoVersionMismatchedCachedDeps(appSrc)
+      checked <- runWithState(List("lib", "check", "--repo_root", "repo"), state)
+    } yield checked
+
+    result match {
+      case Right((_, out)) =>
+        fail(s"expected lib check failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(
+          rendered.contains("version mismatch: dependency=5.0.0, cached=0.0.1"),
+          rendered
+        )
+        assert(
+          rendered.contains("version mismatch: dependency=6.0.0, cached=0.0.2"),
+          rendered
+        )
       case Left(err) =>
         fail(err.getMessage)
     }
