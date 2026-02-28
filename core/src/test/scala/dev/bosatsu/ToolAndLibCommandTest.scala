@@ -219,6 +219,24 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  private def packageExternals(pack: Package.Typed[Any]): List[(String, Edn)] = {
+    import Edn._
+
+    packageKeywordFields(pack).get("externals") match {
+      case Some(EVector(items)) =>
+        items.map {
+          case EVector(List(nameEdn, typeEdn)) =>
+            (atomString(nameEdn), typeEdn)
+          case other =>
+            fail(s"unexpected external entry: ${Edn.toDoc(other).render(120)}")
+        }
+      case Some(other) =>
+        fail(s"expected :externals vector, found: ${Edn.toDoc(other).render(120)}")
+      case None =>
+        Nil
+    }
+  }
+
   private def importItems(
       pack: Package.Typed[Any]
   ): List[(String, List[(String, String)])] = {
@@ -737,6 +755,51 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("lib show --externals only includes external values with types") {
+    val src =
+      """external struct Box
+|
+|external def from_Int(i: Int) -> Box
+|external def to_Int(box: Box) -> Int
+|
+|helper = 1
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--externals"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, interfaces, _)) =>
+        assertEquals(interfaces, Nil)
+        assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val showFields = showPackageFields(packs)
+        assertEquals(showFields.keySet, Set("externals"))
+        assertEquals(packageTypeNames(pack), Nil)
+        assertEquals(packageDefNames(pack), Nil)
+
+        val externals = packageExternals(pack)
+        assertEquals(externals.map(_._1), List("from_Int", "to_Int"))
+        externals.foreach { case (_, tpeEdn) =>
+          val rendered = Edn.toDoc(tpeEdn).render(120)
+          assert(rendered.nonEmpty, "expected encoded external type to be present")
+        }
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool show supports mixed package/type/value selectors") {
     val fooSrc =
       """package App/Foo
@@ -781,6 +844,59 @@ class ToolAndLibCommandTest extends FunSuite {
         assertEquals(packageDefNames(foo), List("main"))
         assertEquals(packageTypeNames(bar), Nil)
         assertEquals(packageDefNames(bar), List("bar"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show --externals only includes packages with external values") {
+    val extSrc =
+      """package App/Ext
+|
+|external struct Token
+|external def mk_Token(i: Int) -> Token
+|external def read_Token(t: Token) -> Int
+|
+|main = 1
+|""".stripMargin
+    val regularSrc =
+      """package App/Regular
+|
+|main = 2
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Ext.bosatsu") -> extSrc,
+      Chain("src", "App", "Regular.bosatsu") -> regularSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Ext.bosatsu",
+        "--input",
+        "src/App/Regular.bosatsu",
+        "--externals"
+      )
+    ) match {
+      case Right(Output.ShowOutput(packs, interfaces, _)) =>
+        assertEquals(interfaces, Nil)
+        assertEquals(packs.map(_.name.asString), List("App/Ext"))
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        val showFields = showPackageFields(packs)
+        assertEquals(showFields.keySet, Set("externals"))
+        assertEquals(packageTypeNames(pack), Nil)
+        assertEquals(packageDefNames(pack), Nil)
+
+        val externals = packageExternals(pack)
+        assertEquals(externals.map(_._1), List("mk_Token", "read_Token"))
+        externals.foreach { case (_, tpeEdn) =>
+          val rendered = Edn.toDoc(tpeEdn).render(120)
+          assert(rendered.nonEmpty, "expected encoded external type to be present")
+        }
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>

@@ -1491,6 +1491,12 @@ object Command {
             .orEmpty,
           Opts
             .flag(
+              "externals",
+              help = "show only package names and external value declarations"
+            )
+            .orFalse,
+          Opts
+            .flag(
               "no-opt",
               help = "disable normalization/optimization to inspect typed expressions before optimization"
             )
@@ -1503,10 +1509,22 @@ object Command {
             .orFalse,
           Opts.option[P]("output", help = "output path").orNone,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, packages, types, values, noOpt, jsonOut, output, colorize) =>
+        ).mapN {
+          (
+              fcc,
+              packages,
+              types,
+              values,
+              externalsOnly,
+              noOpt,
+              jsonOut,
+              output,
+              colorize
+          ) =>
           val compileOptions =
             if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
-          val request = ShowSelection.Request(packages, types, values)
+          val request =
+            ShowSelection.Request(packages, types, values, externalsOnly)
           for {
             cc <- fcc
             out <- platformIO.withEC {
