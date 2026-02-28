@@ -62,6 +62,8 @@ export (
   install_b3sum_step,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
+  node_lib_eval_run_create_mode_cmd,
+  node_tool_eval_run_create_mode_cmd,
   transpile_c_cmd,
   transpile_python_cmd,
   upload_artifact_step,
@@ -171,6 +173,12 @@ tool_test_workspace_cmd =
 
 tool_test_workspace_node_cmd =
   "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/"
+
+node_lib_eval_run_create_mode_cmd =
+  "./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run"
+
+node_tool_eval_run_create_mode_cmd =
+  "./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace --search --package_root test_workspace"
 
 transpile_c_cmd =
   "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
