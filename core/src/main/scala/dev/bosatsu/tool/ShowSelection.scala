@@ -27,7 +27,8 @@ object ShowSelection {
   final case class Request(
       packages: List[PackageName],
       types: List[TypeSelector],
-      values: List[ValueSelector]
+      values: List[ValueSelector],
+      externalsOnly: Boolean = false
   ) {
     lazy val isEmpty: Boolean =
       packages.isEmpty && types.isEmpty && values.isEmpty
@@ -308,6 +309,36 @@ object ShowSelection {
     pack.copy(imports = imports1, exports = exports1, program = (program1, importMap1))
   }
 
+  private def externalsOnlyPackage(
+      pack: Package.Typed[Any]
+  ): Option[Package.Typed[Any]] = {
+    val (prog, _) = pack.program
+    val externals =
+      prog.externalDefs.flatMap { name =>
+        prog.types.getExternalValue(pack.name, name).map(name -> _)
+      }
+
+    if (externals.isEmpty) None
+    else {
+      val externalTypes = externals.foldLeft(TypeEnv.empty: TypeEnv[Kind.Arg]) {
+        case (acc, (name, tpe)) => acc.addExternalValue(pack.name, name, tpe)
+      }
+      val program1 =
+        prog.copy(
+          types = externalTypes,
+          lets = Nil,
+          externalDefs = externals.map(_._1)
+        )
+      Some(
+        pack.copy(
+          imports = Nil,
+          exports = Nil,
+          program = (program1, ImportMap.empty)
+        )
+      )
+    }
+  }
+
   def selectPackages(
       packs: List[Package.Typed[Any]],
       request: Request
@@ -351,40 +382,47 @@ object ShowSelection {
         )
       }
 
-    if (request.isEmpty) Right(packs)
-    else
-      for {
-        _ <- request.requestedPackages.traverse(requirePackage)
-        _ <- request.types.traverse { case (pn, tn) => requireType(pn, tn) }
-        _ <- request.values.traverse { case (pn, value) =>
-          requireValue(pn, value)
-        }
-      } yield request.requestedPackages.flatMap { pn =>
-        byName.get(pn).map { pack =>
-          if (request.hasFullPackage(pn)) pack
-          else {
-            val analysis = analyzePartialPackage(
-              pack,
-              request.selectedTypes(pn),
-              request.selectedValues(pn)
-            )
-            filterPartialPackage(
-              pack,
-              analysis.keepLocalTypes,
-              analysis.keepValues,
-              analysis.neededGlobals,
-              analysis.neededTypeConsts
-            )
+    val selected =
+      if (request.isEmpty) Right(packs)
+      else
+        for {
+          _ <- request.requestedPackages.traverse(requirePackage)
+          _ <- request.types.traverse { case (pn, tn) => requireType(pn, tn) }
+          _ <- request.values.traverse { case (pn, value) =>
+            requireValue(pn, value)
+          }
+        } yield request.requestedPackages.flatMap { pn =>
+          byName.get(pn).map { pack =>
+            if (request.hasFullPackage(pn)) pack
+            else {
+              val analysis = analyzePartialPackage(
+                pack,
+                request.selectedTypes(pn),
+                request.selectedValues(pn)
+              )
+              filterPartialPackage(
+                pack,
+                analysis.keepLocalTypes,
+                analysis.keepValues,
+                analysis.neededGlobals,
+                analysis.neededTypeConsts
+              )
+            }
           }
         }
-      }
+
+    selected.map { selectedPacks =>
+      if (request.externalsOnly) selectedPacks.flatMap(externalsOnlyPackage)
+      else selectedPacks
+    }
   }
 
   def selectInterfaces(
       ifaces: List[Package.Interface],
       request: Request
   ): List[Package.Interface] =
-    if (request.isEmpty) ifaces
+    if (request.externalsOnly) Nil
+    else if (request.isEmpty) ifaces
     else {
       val selected = request.requestedPackages.toSet
       ifaces.filter(iface => selected(iface.name))

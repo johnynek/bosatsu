@@ -133,6 +133,12 @@ object ShowCommand {
         .orEmpty,
       Opts
         .flag(
+          "externals",
+          help = "show only package names and external value declarations"
+        )
+        .orFalse,
+      Opts
+        .flag(
           "json",
           help = "emit JSON instead of EDN for easier machine parsing"
         )
@@ -150,11 +156,13 @@ object ShowCommand {
           packages,
           types,
           values,
+          externalsOnly,
           jsonOut,
           output,
           errColor
       ) =>
-        val request = ShowSelection.Request(packages, types, values)
+        val request =
+          ShowSelection.Request(packages, types, values, externalsOnly)
         platformIO.withEC {
           for {
             (interfaces, packs0) <- loadAndCompile(
