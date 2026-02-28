@@ -1,6 +1,7 @@
 package dev.bosatsu.tool
 
 import cats.data.Chain
+import dev.bosatsu.cache.{CompileCache, FsKey}
 import dev.bosatsu.{
   CompileOptions,
   LocationMap,
@@ -63,7 +64,7 @@ class CompileCacheTest extends FunSuite {
       pack: Package.Parsed,
       deps: List[(PackageName, Package.Interface)] = Nil,
       compileOptions: CompileOptions = CompileOptions.Default
-  ): InferCache.FsKey =
+  ): FsKey =
     runF(
       cache.generateKey(
         pack,

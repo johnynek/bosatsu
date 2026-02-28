@@ -1,14 +1,15 @@
 package dev.bosatsu.tool
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
+import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.{
   CompileOptions,
-  PlatformIO,
   Package,
   PackageError,
   PackageMap,
   PackageName,
-  Par
+  Par,
+  PlatformIO
 }
 import dev.bosatsu.LocationMap.Colorize
 import org.typelevel.paiges.Doc
@@ -100,27 +101,18 @@ object CompilerApi {
       packsString = packs.map { case ((path, lm), parsed) =>
         ((platformIO.pathToString(path), lm), parsed)
       }
-      checked <- compileCacheDirOpt match {
-        case None =>
-          moduleIOMonad.pure(
-            PackageMap.typeCheckParsed[String](
-              packsString,
-              ifs,
-              "predef",
-              compileOptions
-            )
-          )
-        case Some(cacheDir) =>
-          val cache = CompileCache.filesystem(cacheDir, platformIO)
-          PackageMap.typeCheckParsed[IO, String](
-            packsString,
-            ifs,
-            "predef",
-            compileOptions,
-            cache,
-            InferPhases.default
-          )
+      cache: InferCache[IO] = compileCacheDirOpt match {
+        case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
+        case None           => InferCache.noop[IO]
       }
+      checked <- PackageMap.typeCheckParsed[IO, String](
+        packsString,
+        ifs,
+        "predef",
+        compileOptions,
+        cache,
+        InferPhases.default
+      )
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
       res <-

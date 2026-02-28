@@ -1,6 +1,5 @@
-package dev.bosatsu.tool
+package dev.bosatsu.cache
 
-import cats.Applicative
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
@@ -11,105 +10,11 @@ import dev.bosatsu.{
   PlatformIO,
   ProtoConverter,
   Region,
-  Statement,
-  TypedExprLoopRecurLowering,
-  TypedExprNormalization
+  Statement
 }
-import org.typelevel.paiges.{Doc, Document}
 import java.nio.charset.StandardCharsets
-
-trait InferCache[F[_]] {
-  type Key
-
-  def generateKey(
-      pack: Package.Parsed,
-      depInterfaces: List[(PackageName, Package.Interface)],
-      compileOptions: CompileOptions,
-      compilerIdentity: String,
-      phaseIdentity: String
-  ): F[Key]
-
-  def get(key: Key): F[Option[Package.Inferred]]
-  def put(key: Key, value: Package.Inferred): F[Unit]
-}
-
-object InferCache {
-  final case class FsKey(
-      packageName: PackageName,
-      compileOptions: CompileOptions,
-      compilerIdentity: String,
-      phaseIdentity: String,
-      sourceExprHash: String,
-      depInterfaceHashes: List[(PackageName, String)],
-      schemaVersion: Int
-  )
-
-  def noop[F[_]: Applicative]: InferCache[F] { type Key = Unit } =
-    new InferCache[F] {
-      type Key = Unit
-
-      def generateKey(
-          pack: Package.Parsed,
-          depInterfaces: List[(PackageName, Package.Interface)],
-          compileOptions: CompileOptions,
-          compilerIdentity: String,
-          phaseIdentity: String
-      ): F[Key] =
-        Applicative[F].pure(())
-
-      def get(key: Key): F[Option[Package.Inferred]] =
-        Applicative[F].pure(None)
-
-      def put(key: Key, value: Package.Inferred): F[Unit] =
-        Applicative[F].unit
-    }
-}
-
-trait InferPhases {
-  def id: String
-
-  def dependencyInterface(pack: Package.Inferred): Package.Interface
-
-  def finishPackage(
-      pack: Package.Inferred,
-      depIfaces: List[(PackageName, Package.Interface)],
-      compileOptions: CompileOptions
-  ): Package.Inferred
-}
-
-object InferPhases {
-  val default: InferPhases =
-    new InferPhases {
-      val id: String = "tool-default-v1"
-
-      def dependencyInterface(pack: Package.Inferred): Package.Interface =
-        Package.interfaceOf(pack)
-
-      def finishPackage(
-          pack: Package.Inferred,
-          _depIfaces: List[(PackageName, Package.Interface)],
-          compileOptions: CompileOptions
-      ): Package.Inferred =
-        if (compileOptions.optimize) {
-          val loweredProgram =
-            TypedExprLoopRecurLowering.lowerProgram(pack.program._1)
-          val normalized =
-            pack.copy(program =
-              (
-                TypedExprNormalization.normalizeProgram(
-                  pack.name,
-                  pack.program._1.types,
-                  loweredProgram
-                ),
-                pack.program._2
-              )
-            )
-          Package.discardUnused(normalized)
-        } else {
-          pack
-        }
-    }
-}
+import org.typelevel.paiges.{Doc, Document}
+import scala.collection.concurrent.TrieMap
 
 object CompileCache {
   private val schemaVersion = 1
@@ -125,7 +30,7 @@ object CompileCache {
   def filesystem[F[_], P](
       cacheDir: P,
       platformIO: PlatformIO[F, P]
-  ): InferCache[F] { type Key = InferCache.FsKey } =
+  ): InferCache[F] { type Key = FsKey } =
     new FilesystemCache(cacheDir, platformIO)
 
   def sourceExprHash(pack: Package.Parsed): String = {
@@ -146,15 +51,14 @@ object CompileCache {
       .map(p => Algo.hashBytes[Algo.Blake3](p.toByteArray).hex)
       .getOrElse(hashUtf8(iface.toString).hex)
 
-  def keyHashHex(key: InferCache.FsKey): String =
+  def keyHashHex(key: FsKey): String =
     keyHashValue(key).hex
 
   def outputHashHex(pack: Package.Inferred): Option[String] =
     outputHashValue(pack).map(_.hex)
 
-  private[tool] def keyHashValue(key: InferCache.FsKey): HashValue[Algo.Blake3] = {
+  private[cache] def keyHashValue(key: FsKey): HashValue[Algo.Blake3] = {
     val deps = key.depInterfaceHashes
-      .sortBy(_._1)
       .map { case (pn, hash) => s"${pn.asString}=$hash" }
       .mkString("\n")
     val payload =
@@ -171,7 +75,7 @@ object CompileCache {
     hashUtf8(payload)
   }
 
-  private[tool] def outputHashValue(
+  private[cache] def outputHashValue(
       pack: Package.Inferred
   ): Option[HashValue[Algo.Blake3]] =
     ProtoConverter
@@ -186,9 +90,11 @@ object CompileCache {
       cacheDir: P,
       platformIO: PlatformIO[F, P]
   ) extends InferCache[F] {
-    type Key = InferCache.FsKey
+    type Key = FsKey
 
     import platformIO.moduleIOMonad
+
+    private val interfaceHashMemo = TrieMap.empty[Package.Interface, String]
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
       platformIO.resolve(
@@ -222,11 +128,13 @@ object CompileCache {
       moduleIOMonad.pure {
         val depHashes = depInterfaces
           .map { case (name, iface) =>
-            (name, interfaceHash(iface))
+            val hash =
+              interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
+            (name, hash)
           }
           .sortBy(_._1)
 
-        InferCache.FsKey(
+        FsKey(
           packageName = pack.name,
           compileOptions = compileOptions,
           compilerIdentity = compilerIdentity,
@@ -245,7 +153,7 @@ object CompileCache {
         platformIO.readUtf8(linkPath).map(parseHashIdent),
         None
       ).flatMap {
-        case None =>
+        case None             =>
           moduleIOMonad.pure(None)
         case Some(outputHash) =>
           val packagePath = casPath(outputHash)
@@ -263,12 +171,10 @@ object CompileCache {
 
     def put(key: Key, value: Package.Inferred): F[Unit] =
       outputHashValue(value) match {
-        case None =>
+        case None             =>
           moduleIOMonad.unit
         case Some(outputHash) =>
-          val keyHash = keyHashValue(key)
           val packagePath = casPath(outputHash)
-          val linkPath = keyPath(keyHash)
 
           val writeCas: F[Boolean] =
             onError(
@@ -286,6 +192,8 @@ object CompileCache {
             case false =>
               moduleIOMonad.unit
             case true  =>
+              val keyHash = keyHashValue(key)
+              val linkPath = keyPath(keyHash)
               onError(
                 platformIO.writeDoc(linkPath, Doc.text(outputHash.toIdent)),
                 ()

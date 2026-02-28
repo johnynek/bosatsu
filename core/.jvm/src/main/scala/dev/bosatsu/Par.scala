@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Monad
+import cats.{Monad, Parallel}
 import java.util.concurrent.Executors
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
@@ -20,6 +20,17 @@ object Par {
 
   implicit def monadF(implicit ec: EC): Monad[F] =
     cats.instances.future.catsStdInstancesForFuture
+
+  implicit def parallelF(implicit ec: EC): Parallel[F] =
+    new ParallelViaProduct[Par.F] {
+      val monad: Monad[Par.F] = monadF
+
+      def parallelProduct[A, B](
+          fa: Par.F[A],
+          fb: Par.F[B]
+      ): Par.F[(A, B)] =
+        fa.zip(fb)
+    }
 
   def newService(): ExecutionService =
     Executors.newWorkStealingPool()

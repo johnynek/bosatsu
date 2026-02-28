@@ -1,6 +1,6 @@
 package dev.bosatsu
 import scala.compiletime.uninitialized
-import cats.Monad
+import cats.{Monad, Parallel}
 
 /** This is an abstraction to handle parallel computation, not effectful
   * computation. It is used in places where we have parallelism in expensive
@@ -25,6 +25,9 @@ object Par {
 
   implicit val monadF: Monad[F] =
     cats.catsInstancesForId
+
+  implicit val parallelF: Parallel[F] =
+    cats.Parallel.identity[F]
 
   def newService(): ExecutionService = ()
   def shutdownService(es: ExecutionService): Unit = es
