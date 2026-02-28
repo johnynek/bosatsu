@@ -29,7 +29,7 @@ class LitTest extends munit.ScalaCheckSuite {
       genFloatNoNaN,
       Gen
         .frequency(
-          (10, Gen.choose(0, 0xd800)),
+          (10, Gen.choose(0, 0xd7ff)),
           (1, Gen.choose(0xe000, 1000000))
         )
         .map(Lit.fromCodePoint)
