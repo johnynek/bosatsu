@@ -1,6 +1,8 @@
 package dev.bosatsu.graph
 
 import java.util.concurrent.ConcurrentHashMap
+import cats.Monad
+import cats.syntax.all._
 import dev.bosatsu.Par
 import scala.collection.immutable.SortedMap
 
@@ -82,26 +84,37 @@ object Memoize {
   /** This memoizes using a hash map in a threadsafe manner if the dependencies
     * do not form a dag, you will deadlock
     */
-  def memoizeDagFuture[A, B](
-      fn: (A, A => Par.F[B]) => Par.F[B]
-  ): A => Par.F[B] = {
-    val cache: ConcurrentHashMap[A, Par.P[B]] =
-      new ConcurrentHashMap[A, Par.P[B]]()
+  def memoizeDag[F[_]: CanPromise: Monad, A, B](
+      fn: (A, A => F[B]) => F[B]
+  ): A => F[B] = {
+    val canPromise = summon[CanPromise[F]]
+    val cache: ConcurrentHashMap[A, AnyRef] =
+      new ConcurrentHashMap[A, AnyRef]()
 
-    new Function[A, Par.F[B]] { self =>
-      def apply(a: A) = {
-        val prom = Par.promise[B]
-        val prevProm = cache.putIfAbsent(a, prom)
-        if (prevProm eq null) {
-          // no one was running this job, we have to
-          val resFut = fn(a, self)
-          Par.complete(prom, resFut)
-          resFut
-        } else {
-          // someone else is already working:
-          Par.toF(prevProm)
-        }
-      }
+    new Function[A, F[B]] { self =>
+      def apply(a: A): F[B] =
+        canPromise
+          .delay {
+            val prom = canPromise.unsafeNewPromise[B]
+            val prevProm = cache.putIfAbsent(a, prom)
+            (prom, prevProm)
+          }
+          .flatMap { case (prom, prevProm) =>
+            if (prevProm eq null) {
+              val resF = fn(a, self)
+              canPromise.completeWith(prom, resF) *> resF
+            } else {
+              canPromise.wait(prevProm.asInstanceOf[canPromise.Promise[B]])
+            }
+          }
     }
   }
+
+  /** This memoizes using a hash map in a threadsafe manner if the dependencies
+    * do not form a dag, you will deadlock
+    */
+  def memoizeDagFuture[A, B](
+      fn: (A, A => Par.F[B]) => Par.F[B]
+  )(implicit ec: Par.EC): A => Par.F[B] =
+    memoizeDag[Par.F, A, B](fn)
 }
