@@ -2,7 +2,15 @@ package dev.bosatsu.library
 
 import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
-import cats.data.{Chain, Ior, NonEmptyChain, NonEmptyList, Validated, ValidatedNel}
+import cats.data.{
+  Chain,
+  Ior,
+  NonEmptyChain,
+  NonEmptyList,
+  Validated,
+  ValidatedNec,
+  ValidatedNel
+}
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
   CliException,
@@ -2265,6 +2273,51 @@ object Command {
         }
       }
 
+    private def validateCachedDependency(
+        dep: proto.LibDependency,
+        cached: Hashed[Algo.Blake3, proto.Library]
+    ): ValidatedNec[Doc, Unit] = {
+      val cachedLib = cached.arg
+      val requestedVersion = Library.getVersion(dep)
+      val cachedVersion = Library.getVersion(cachedLib)
+
+      val nameCheck =
+        if (dep.name == cachedLib.name) Validated.validNec(())
+        else
+          Validated.invalidNec(
+            Doc.text(
+              show"name mismatch: dependency=${dep.name}, cached=${cachedLib.name}"
+            )
+          )
+
+      val versionCheck =
+        requestedVersion match {
+          case None => Validated.validNec(())
+          case Some(v) if cachedVersion.contains(v) =>
+            Validated.validNec(())
+          case Some(v) =>
+            val cachedVersionStr = cachedVersion.fold("unspecified")(_.render)
+            Validated.invalidNec(
+              Doc.text(
+                show"version mismatch: dependency=${v.render}, cached=$cachedVersionStr"
+              )
+            )
+        }
+
+      (nameCheck, versionCheck).mapN((_, _) => ())
+    }
+
+    private def cachedMismatchDoc(
+        dep: proto.LibDependency,
+        cached: Hashed[Algo.Blake3, proto.Library],
+        mismatches: NonEmptyChain[Doc]
+    ): Doc =
+      Doc.text(
+        show"cached object ${cached.hash.toIdent} for dependency ${dep.name}:"
+      ) +
+        (Doc.line + Doc.intercalate(Doc.line, mismatches.toNonEmptyList.toList))
+          .nested(2)
+
     def depsFromCas(
         pubDeps: List[proto.LibDependency],
         privDeps: List[proto.LibDependency]
@@ -2279,43 +2332,63 @@ object Command {
         privDeps.parTraverse(dep => libFromCas(dep).map(dep -> _))
       ).parTupled
         .flatMap { case (pubLibs, privLibs) =>
+          val cacheValidation = (pubLibs ::: privLibs).traverse_ {
+            case (_, None) => Validated.validNec(())
+            case (dep, Some(lib)) =>
+              validateCachedDependency(dep, lib).leftMap { mismatches =>
+                NonEmptyChain.one(cachedMismatchDoc(dep, lib, mismatches))
+              }
+          }
           val missingPubs = pubLibs.collect { case (dep, None) => dep }
           val missingPrivs = privLibs.collect { case (dep, None) => dep }
 
-          if (missingPubs.isEmpty && missingPrivs.isEmpty) {
-            moduleIOMonad.pure(
-              (
-                pubLibs.collect { case (_, Some(lib)) => lib },
-                privLibs.collect { case (_, Some(lib)) => lib }
-              )
-            )
-          } else {
-            // report the missing libraries and suggest running fetch
-            val pubDoc = Doc.text("public dependencies:") + (
-              Doc.line + Doc.intercalate(
-                Doc.comma + Doc.line,
-                missingPubs.map(dep => Doc.text(dep.name))
-              )
-            ).nested(4).grouped
-
-            val privDoc = Doc.text("private dependencies:") + (
-              Doc.line + Doc.intercalate(
-                Doc.comma + Doc.line,
-                missingPrivs.map(dep => Doc.text(dep.name))
-              )
-            ).nested(4).grouped
-
-            moduleIOMonad
-              .raiseError(
+          cacheValidation match {
+            case Validated.Invalid(errs) =>
+              moduleIOMonad.raiseError(
                 CliException(
-                  "missing deps from cas",
-                  Doc.text(
-                    "missing "
-                  ) + pubDoc + Doc.line + privDoc + Doc.line + Doc.text(
-                    "run `lib fetch` to insert these libraries into the cas."
+                  "cached library descriptor mismatch",
+                  Doc.intercalate(
+                    Doc.hardLine + Doc.hardLine,
+                    errs.toNonEmptyList.toList
                   )
                 )
               )
+            case Validated.Valid(_)     =>
+              if (missingPubs.isEmpty && missingPrivs.isEmpty) {
+                moduleIOMonad.pure(
+                  (
+                    pubLibs.collect { case (_, Some(lib)) => lib },
+                    privLibs.collect { case (_, Some(lib)) => lib }
+                  )
+                )
+              } else {
+                // report the missing libraries and suggest running fetch
+                val pubDoc = Doc.text("public dependencies:") + (
+                  Doc.line + Doc.intercalate(
+                    Doc.comma + Doc.line,
+                    missingPubs.map(dep => Doc.text(dep.name))
+                  )
+                ).nested(4).grouped
+
+                val privDoc = Doc.text("private dependencies:") + (
+                  Doc.line + Doc.intercalate(
+                    Doc.comma + Doc.line,
+                    missingPrivs.map(dep => Doc.text(dep.name))
+                  )
+                ).nested(4).grouped
+
+                moduleIOMonad
+                  .raiseError(
+                    CliException(
+                      "missing deps from cas",
+                      Doc.text(
+                        "missing "
+                      ) + pubDoc + Doc.line + privDoc + Doc.line + Doc.text(
+                        "run `lib fetch` to insert these libraries into the cas."
+                      )
+                    )
+                  )
+              }
           }
         }
 
@@ -2365,7 +2438,20 @@ object Command {
         platformIO
           .fileExists(path)
           .flatMap {
-            case true  => Monad[F].pure(Right(false)).widen[DownloadRes]
+            case true  =>
+              platformIO.readLibrary(path).attempt.map[DownloadRes] {
+                case Left(err) => Left(err)
+                case Right(lib) =>
+                  validateCachedDependency(dep, lib)
+                    .leftMap { mismatches =>
+                      CliException(
+                        "cached library descriptor mismatch",
+                        cachedMismatchDoc(dep, lib, mismatches)
+                      )
+                    }
+                    .toEither
+                    .map(_ => false)
+              }
             case false =>
               {
                 // We need to download

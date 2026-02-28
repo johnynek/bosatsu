@@ -223,6 +223,17 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       }
     }
 
+  def writeBytes(path: Path, bytes: Array[Byte]): IO[Unit] =
+    IO.blocking {
+      val f = path.toFile
+      Option(f.getParentFile).foreach(_.mkdirs())
+      val os = new BufferedOutputStream(new FileOutputStream(f))
+      try os.write(bytes)
+      finally {
+        os.close
+      }
+    }
+
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
       packagePaths: List[Path]

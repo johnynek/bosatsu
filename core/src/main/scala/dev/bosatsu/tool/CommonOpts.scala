@@ -14,6 +14,14 @@ final class CommonOpts[F[_], P](platformIO: PlatformIO[F, P]) {
   val interfaceOutputPathOpt: Opts[P] =
     Opts.option[P]("interface_out", help = "interface output path")
 
+  val compileCacheDirOpt: Opts[Option[P]] =
+    Opts
+      .option[P](
+        "cache_dir",
+        help = "cache directory for compiled package artifacts"
+      )
+      .orNone
+
   val sourcePathOpts: Opts[PathGen[F, P]] =
     PathGen.opts("input", help = "input source files", ".bosatsu")(platformIO)
 

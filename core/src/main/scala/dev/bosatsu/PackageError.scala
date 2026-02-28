@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
+import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
 
@@ -120,6 +121,68 @@ object PackageError {
         case None        => (emptyLocMap, "<unknown source>")
         case Some(found) => found
       }
+  }
+
+  private val importWithRegionParser: P[
+    (PackageName, NonEmptyList[(Region, ImportedName[Unit])])
+  ] = {
+    import Parser.Combinators
+
+    val pyimps = ImportedName.parser.region.itemsMaybeParens.map(_._2)
+
+    (
+      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser <* Parser.spaces,
+      P.string("import") *> Parser.spaces *> pyimps
+    ).tupled
+  }
+
+  private def startsLineToken(source: String, idx: Int): Boolean = {
+    var cursor = idx - 1
+    while (cursor >= 0 && {
+      val c = source.charAt(cursor)
+      c == ' ' || c == '\t'
+    }) {
+      cursor = cursor - 1
+    }
+
+    cursor < 0 || {
+      val c = source.charAt(cursor)
+      c == '\n' || c == '\r'
+    }
+  }
+
+  private def findImportNameRegion(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName,
+      importedName: Identifier
+  ): Option[Region] = {
+    val source = sourceMap.getMapSrc(importingPackage)._1.fromString
+
+    var startAt = 0
+    var result: Option[Region] = None
+    while (startAt >= 0 && result.isEmpty) {
+      val idx = source.indexOf("from", startAt)
+      if (idx < 0) {
+        startAt = -1
+      } else {
+        if (startsLineToken(source, idx)) {
+          importWithRegionParser.parse(source.substring(idx)) match {
+            case Right((_, (`importedPackage`, imports))) =>
+              result = imports.toList.collectFirst {
+                case (region, imported)
+                    if imported.originalName == importedName =>
+                  Region(region.start + idx, region.end + idx)
+              }
+            case _ =>
+              ()
+          }
+        }
+        startAt = idx + 4
+      }
+    }
+
+    result
   }
 
   case class UnknownExport[A](
@@ -250,7 +313,7 @@ object PackageError {
 
   case class UnknownImportFromInterface[A, B](
       in: PackageName,
-      importingName: PackageName,
+      importedPackage: PackageName,
       exportNames: List[Identifier],
       iname: ImportedName[A],
       exports: List[ExportedName[B]]
@@ -259,6 +322,13 @@ object PackageError {
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
+      val region =
+        findImportNameRegion(sourceMap, in, importedPackage, iname.originalName)
+      val (lm, _) = sourceMap.getMapSrc(in)
+      val context =
+        region.map { r =>
+          lm.showRegion(r, 2, errColor).getOrElse(Doc.str(r.show))
+        }
 
       val exportMap = exportNames.map(e => (e, ())).toMap
 
@@ -277,9 +347,15 @@ object PackageError {
               .grouped
         }
 
-      (sourceMap.headLine(importingName, None) + Doc.hardLine + Doc.text(
-        s"does not have name ${iname.originalName.sourceCodeRepr}."
-      ) + near).render(80)
+      val base =
+        sourceMap.headLine(in, region) + Doc.hardLine + Doc.text(
+          s"imported interface package ${importedPackage.asString} does not export name ${iname.originalName.sourceCodeRepr}."
+        ) + near
+
+      (context match {
+        case Some(ctx) => base + Doc.hardLine + ctx
+        case None      => base
+      }).render(80)
     }
   }
 

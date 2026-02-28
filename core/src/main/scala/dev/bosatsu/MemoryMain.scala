@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
+import java.nio.charset.StandardCharsets
 import scala.collection.immutable.SortedMap
 import dev.bosatsu.tool.Output
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
@@ -42,6 +43,7 @@ object MemoryMain {
   sealed abstract class FileContent
   object FileContent {
     case class Str(str: String) extends FileContent
+    case class Bytes(bytes: Array[Byte]) extends FileContent
     case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
     case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
@@ -285,6 +287,8 @@ object MemoryMain {
             files.get(p) match {
               case Some(Right(MemoryMain.FileContent.Str(res))) =>
                 moduleIOMonad.pure(res)
+              case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
+                moduleIOMonad.pure(new String(bytes, StandardCharsets.UTF_8))
               case other =>
                 moduleIOMonad.raiseError(
                   new Exception(s"expect String content, found: $other")
@@ -328,6 +332,15 @@ object MemoryMain {
                 files.get(path) match {
                   case Some(Right(MemoryMain.FileContent.Packages(res))) =>
                     moduleIOMonad.pure(res)
+                  case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
+                    for {
+                      ppack <- moduleIOMonad.fromTry(
+                        scala.util.Try(proto.Packages.parseFrom(bytes))
+                      )
+                      packs <- moduleIOMonad.fromTry(
+                        ProtoConverter.packagesFromProto(Nil, ppack.packages)
+                      )
+                    } yield packs._2
                   case other =>
                     moduleIOMonad.raiseError[List[Package.Typed[Unit]]](
                       new Exception(s"expect Packages content, found: $other")
@@ -446,6 +459,9 @@ object MemoryMain {
 
       def writePackages[A](packs: List[Package.Typed[A]], path: Path): F[Unit] =
         writeFC(path, FileContent.Packages(packs.map(_.void)))
+
+      def writeBytes(path: Path, bytes: Array[Byte]): F[Unit] =
+        writeFC(path, FileContent.Bytes(bytes.clone()))
 
       def writeLibrary(lib: proto.Library, path: Path): F[Unit] = {
         val hash = Algo.hashBytes(lib.toByteArray)

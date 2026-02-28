@@ -95,6 +95,7 @@ object JsonCommand {
                 packageResolver,
                 publicDependencies,
                 privateDependencies,
+                None,
                 "json",
                 mainPackage,
                 errColor

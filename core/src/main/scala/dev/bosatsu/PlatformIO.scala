@@ -151,6 +151,8 @@ trait PlatformIO[F[_], Path] {
       path: Path
   ): F[Unit]
 
+  def writeBytes(path: Path, bytes: Array[Byte]): F[Unit]
+
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
 

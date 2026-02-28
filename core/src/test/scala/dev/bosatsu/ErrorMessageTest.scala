@@ -868,17 +868,84 @@ baz = bar
       ()
     }
 
+    val importingPackage = PackageName.parts("MyLib", "Fib")
+    val importedIfacePackage = PackageName.parts("Bosatsu", "Prog")
     val missingIfaceImport = PackageError.UnknownImportFromInterface(
-      PackageName.parts("Bosatsu", "Prog"),
-      PackageName.parts("Bosatsu", "Prog"),
-      Nil,
-      ImportedName.OriginalName(Identifier.Name("ignore_env"), ()),
+      importingPackage,
+      importedIfacePackage,
+      Identifier.Name("read_envv") :: Nil,
+      ImportedName.OriginalName(Identifier.Name("read_env"), ()),
       Nil
     )
-    assertEquals(
-      missingIfaceImport.message(Map.empty, Colorize.None),
-      "in file: <unknown source>, package Bosatsu/Prog\ndoes not have name ignore_env."
+
+    val importSourceNoParens =
+      """package MyLib/Fib
+        |from Bosatsu/Prog import Prog, Main, await, pure, read_env, recover
+        |""".stripMargin
+    val noParensMap = Map(
+      importingPackage -> (LocationMap(importSourceNoParens), "src/MyLib/Fib.bosatsu")
     )
+    val noParensMessage = missingIfaceImport.message(noParensMap, Colorize.None)
+    assert(
+      noParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
+      noParensMessage
+    )
+    assert(noParensMessage.contains("package MyLib/Fib"), noParensMessage)
+    assert(
+      noParensMessage.contains(
+        "imported interface package Bosatsu/Prog does not export name read_env."
+      ),
+      noParensMessage
+    )
+    assert(noParensMessage.contains("Nearest: read_envv"), noParensMessage)
+    assert(
+      noParensMessage.contains(
+        "from Bosatsu/Prog import Prog, Main, await, pure, read_env, recover"
+      ),
+      noParensMessage
+    )
+    assert(noParensMessage.linesIterator.exists(_.contains("^^^^^^^^")), noParensMessage)
+
+    val importSourceWithParens =
+      """package MyLib/Fib
+        |from Bosatsu/Prog import (
+        |  Prog,
+        |  Main,
+        |  await,
+        |  pure,
+        |  read_env,
+        |  recover,
+        |)
+        |""".stripMargin
+    val withParensMessage = missingIfaceImport.message(
+      Map(
+        importingPackage -> (LocationMap(importSourceWithParens), "src/MyLib/Fib.bosatsu")
+      ),
+      Colorize.None
+    )
+    assert(
+      withParensMessage.contains("in file: src/MyLib/Fib.bosatsu:"),
+      withParensMessage
+    )
+    assert(withParensMessage.contains("package MyLib/Fib"), withParensMessage)
+    assert(withParensMessage.contains("  read_env,"), withParensMessage)
+    assert(withParensMessage.linesIterator.exists(_.contains("^^^^^^^^")), withParensMessage)
+
+    val badImportSource =
+      """package MyLib/Fib
+        |from Bosatsu/Prog
+        |""".stripMargin
+    val fallbackMessage = missingIfaceImport.message(
+      Map(
+        importingPackage -> (LocationMap(badImportSource), "src/MyLib/Fib.bosatsu")
+      ),
+      Colorize.None
+    )
+    assert(
+      fallbackMessage.contains("in file: src/MyLib/Fib.bosatsu, package MyLib/Fib"),
+      fallbackMessage
+    )
+    assert(!fallbackMessage.contains("<unknown source>"), fallbackMessage)
   }
 
   test("record patterns") {
