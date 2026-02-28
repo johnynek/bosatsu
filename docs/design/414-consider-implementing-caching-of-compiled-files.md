@@ -31,7 +31,7 @@ Status: proposed
 
 Add an opt-in compile cache for `tool` commands that compile source files. The cache key is a hash of a normalized source package (line/region-insensitive) plus hashes of dependency interfaces and compile options. The key maps to a content-addressed compiled package artifact, matching the issue’s key->output-link plus CAS model.
 
-This revision makes the implementation concrete at the `PackageMap.inferAll` layer with a cache algebra and `IorT[F, ...]` pipeline, and explicitly keeps the no-cache path near-zero overhead via an `InferCache`-dependent key type.
+This revision makes the implementation concrete at the `PackageMap.inferAll` layer with a cache algebra and `IorT[F, ...]` pipeline, explicitly keeps the no-cache path near-zero overhead via an `InferCache`-dependent key type, and makes cache placement explicit relative to loop/recur lowering and normalization phases.
 
 ## Context
 
@@ -58,6 +58,7 @@ We need a cache that:
 4. Store compiled outputs in a content-addressed store and keep key->output indirection.
 5. Preserve current behavior when cache is disabled.
 6. Make cache integration concrete in `PackageMap.inferAll` with an effectful API.
+7. Cache post-inference phase output so expensive lowering/normalization is reused on cache hits.
 
 ## Non-goals
 
@@ -116,7 +117,32 @@ For each direct import of the package being compiled, include an interface hash 
 
 Using interface hashes (not full implementation hashes) matches actual typecheck inputs and avoids unnecessary invalidations.
 
-### 5. Concrete cache algebra (`Key` is cache-dependent) and `inferAll` API
+### 5. Phase pipeline and cache boundary
+
+`tool` compilation does more than type inference: we also run post-inference phases (notably loop/recur lowering and normalization/optimization). Cache entries should store the post-phase `Package.Inferred` result so those costs are also skipped on cache hits.
+
+To avoid making `PackageMap.inferAll` one large function, introduce a small phase abstraction and keep phase execution in a helper boundary:
+
+```scala
+trait InferPhases {
+  // Included in cache key invalidation, bumped when phase behavior changes.
+  def id: String
+
+  // Interface projection used for dependency hashing / typing inputs.
+  def dependencyInterface(pack: Package.Inferred): Package.Interface
+
+  // Runs loop/recur lowering + normalization/optimization pipeline.
+  def finishPackage(
+      pack: Package.Inferred,
+      depIfaces: List[(dev.bosatsu.PackageName, Package.Interface)],
+      compileOptions: CompileOptions
+  ): Package.Inferred
+}
+```
+
+Default behavior in `CompilerApi` passes the current production phase pipeline; tests can inject simpler phase objects.
+
+### 6. Concrete cache algebra (`Key` is cache-dependent) and `inferAll` API
 
 Cache API sketch:
 
@@ -133,9 +159,10 @@ trait InferCache[F[_]] {
   // Inputs are values inferAll already has; implementations decide key cost.
   def generateKey(
       pack: Package.Parsed,
-      depResults: List[(dev.bosatsu.PackageName, Package.Inferred)],
+      depInterfaces: List[(dev.bosatsu.PackageName, Package.Interface)],
       compileOptions: CompileOptions,
-      compilerIdentity: String
+      compilerIdentity: String,
+      phaseIdentity: String
   ): F[Key]
 
   def get(key: Key): F[Option[Package.Inferred]]
@@ -151,6 +178,7 @@ object InferCache {
       packageName: dev.bosatsu.PackageName,
       compileOptions: CompileOptions,
       compilerIdentity: String,
+      phaseIdentity: String,
       sourceExprHash: String,
       depInterfaceHashes: List[(dev.bosatsu.PackageName, String)],
       schemaVersion: Int
@@ -165,7 +193,8 @@ object PackageMap {
   def inferAll[F[_]: cats.Monad: cats.Parallel](
       ps: Resolved,
       compileOptions: CompileOptions,
-      cache: InferCache[F]
+      cache: InferCache[F],
+      phases: InferPhases
   )(implicit cpuEC: dev.bosatsu.Par.EC): F[Ior[NonEmptyList[PackageError], Inferred]]
 
   // existing call sites keep this behavior when no cache is configured
@@ -181,7 +210,7 @@ object PackageMap {
 1. `cacheDirOpt = None` -> no-op `InferCache` with `type Key = Unit`; `generateKey` is constant and does not compute hashes.
 2. `cacheDirOpt = Some(path)` -> filesystem-backed CAS/key-link `InferCache[IO]` with `type Key = FsKey`.
 
-### 6. Concrete `inferAll[F]` flow (with `IorT`)
+### 7. Concrete `inferAll[F]` flow (with `IorT`)
 
 The `inferAll` body remains DAG-driven; the new behavior is per-node cache lookup before local inference.
 
@@ -191,7 +220,8 @@ Sketch:
 def inferAll[F[_]: Monad: Parallel](
     ps: Resolved,
     compileOptions: CompileOptions,
-    cache: InferCache[F]
+    cache: InferCache[F],
+    phases: InferPhases
 )(implicit cpuEC: Par.EC): F[Ior[NonEmptyList[PackageError], Inferred]] = {
 
   type InferRes = (TypeEnv[Kind.Arg], Package.Inferred)
@@ -203,8 +233,10 @@ def inferAll[F[_]: Monad: Parallel](
         val depsF: ErrOr[List[(PackageName, Package.Inferred)]] = ??? // existing import resolution via recurse
 
         depsF.flatMap { depPacks =>
+          val depIfaces = depPacks.map { case (pn, p) => (pn, phases.dependencyInterface(p)) }
+
           IorT.liftF(
-            cache.generateKey(pack, depPacks, compileOptions, compilerIdentity)
+            cache.generateKey(pack, depIfaces, compileOptions, compilerIdentity, phases.id)
           ).flatMap { key =>
             IorT.liftF(cache.get(key)).flatMap {
               case Some(hit) =>
@@ -212,8 +244,14 @@ def inferAll[F[_]: Monad: Parallel](
                 IorT.rightT[F, NonEmptyList[PackageError]]((fte, hit))
 
               case None =>
-                val inferred: ErrOr[InferRes] = runExistingInferBody(pack, depPacks, compileOptions)
-                inferred.semiflatTap { case (_, compiled) => cache.put(key, compiled) }
+                val inferred0: ErrOr[InferRes] = runExistingInferBody(pack, depPacks, compileOptions)
+                inferred0
+                  .map { case (_, compiled0) =>
+                    val compiled = phases.finishPackage(compiled0, depIfaces, compileOptions)
+                    val fte = ExportedName.typeEnvFromExports(compiled.name, compiled.exports)
+                    (fte, compiled)
+                  }
+                  .semiflatTap { case (_, compiled) => cache.put(key, compiled) }
             }
           }
         }.value
@@ -229,10 +267,12 @@ Key points:
 2. `IorT[F, ...]` allows effectful cache operations while preserving partial-success diagnostics.
 3. `Key` is path-dependent on the cache implementation, so no-op cache can use `Unit`.
 4. For no-op cache, `generateKey` is constant and avoids hash/serialization work entirely.
-5. Cache misses execute existing inference logic unchanged.
-6. Cache hits return typed packages directly and still feed downstream dependency typing.
+5. Cache stores post-phase packages, so cache hits skip loop/recur lowering and normalization/optimization work.
+6. Miss path keeps inference body small by delegating phase work to `InferPhases.finishPackage`.
+7. Cache misses execute existing inference logic and phase pipeline, then persist final output.
+8. Cache hits return final typed packages directly and still feed downstream dependency typing.
 
-### 7. Behavior of `resolveThenInfer`
+### 8. Behavior of `resolveThenInfer`
 
 `resolveThenInfer` gets an effectful variant for cache-aware callers:
 
@@ -241,13 +281,14 @@ def resolveThenInfer[F[_]: Monad: Parallel, A: Show](
     ps: List[(A, Package.Parsed)],
     ifs: List[Package.Interface],
     compileOptions: CompileOptions,
-    cache: InferCache[F]
+    cache: InferCache[F],
+    phases: InferPhases
 )(implicit cpuEC: Par.EC): F[Ior[NonEmptyList[PackageError], Inferred]]
 ```
 
 Existing pure signature remains and delegates to a no-op cache in `Par.F` to preserve call sites.
 
-### 8. Corruption and race handling
+### 9. Corruption and race handling
 
 Cache operations are best-effort:
 
@@ -260,12 +301,14 @@ Cache operations are best-effort:
 
 1. Add `compileCacheDirOpt` to `CommonOpts` and pass it through all tool compile command constructors.
 2. Add `InferCache[F]` abstraction with dependent `Key`, plus filesystem implementation in `tool/CompileCache.scala`.
-3. Introduce effectful `PackageMap.inferAll[F]` with `IorT`-based cache integration.
-4. Keep existing `PackageMap.inferAll` as compatibility wrapper using no-op cache.
-5. Add effectful `PackageMap.resolveThenInfer[F]` overload and route cache-enabled `CompilerApi.typeCheck` to it.
-6. Keep no-cache path behavior equivalent to current logic and near-zero overhead by using `InferCache.noop` (`Key = Unit`).
-7. Add unit tests for key stability/invalidation and cache read/write fallbacks.
-8. Add integration tests for `tool` commands with `--cache_dir`.
+3. Add `InferPhases` abstraction and default phase pipeline used by `CompilerApi.typeCheck`.
+4. Introduce effectful `PackageMap.inferAll[F]` with `IorT`-based cache integration plus `phases` parameter.
+5. Keep existing `PackageMap.inferAll` as compatibility wrapper using no-op cache and default phases.
+6. Add effectful `PackageMap.resolveThenInfer[F]` overload and route cache-enabled `CompilerApi.typeCheck` to it.
+7. Keep no-cache path behavior equivalent to current logic and near-zero overhead by using `InferCache.noop` (`Key = Unit`).
+8. Include `phases.id` in filesystem key payload for invalidation when phase behavior changes.
+9. Add unit tests for key stability/invalidation and cache read/write fallbacks.
+10. Add integration tests for `tool` commands with `--cache_dir`.
 
 ## Testing Strategy
 
@@ -283,6 +326,7 @@ Cache operations are best-effort:
 2. `inferAll[F]` with hit for leaf dependency skips local inference and still types dependents.
 3. Mixed hit/miss DAG preserves existing `Ior` warning/error behavior.
 4. No-op cache path does not compute source/dependency hashes during inference.
+5. Cache hit path skips `InferPhases.finishPackage` execution.
 
 ### Integration tests (`ToolAndLibCommandTest`)
 
@@ -300,14 +344,15 @@ Cache operations are best-effort:
 4. Existing `PackageMap.inferAll` API remains available as compatibility path.
 5. `InferCache` defines a dependent `type Key` and `generateKey(...)`, allowing no-op key type `Unit`.
 6. No-op cache path does not perform source/dependency hash computation.
-7. Filesystem cache key includes normalized source hash (line/region-insensitive), dependency interface hashes, compile options, and compiler identity.
-8. Key->output indirection is implemented via on-disk link files.
-9. Compiled package artifacts are stored in a content-addressed store.
-10. Cache hit for a package skips recompiling that package.
-11. Cache miss compiles and then populates CAS + link entries.
-12. Corrupt/missing cache entries are treated as misses, not hard failures.
-13. Internal predef behavior remains mode-correct and preserved in final package map semantics.
-14. New unit and integration tests pass.
+7. Phase pipeline is injected via `InferPhases` and includes current loop/recur + normalization behavior.
+8. Filesystem cache key includes normalized source hash (line/region-insensitive), dependency interface hashes, compile options, compiler identity, and phase identity.
+9. Key->output indirection is implemented via on-disk link files.
+10. Compiled package artifacts are stored in a content-addressed store.
+11. Cache hit for a package skips recompiling and skips post-inference phase reruns for that package.
+12. Cache miss compiles, runs phase pipeline, and then populates CAS + link entries.
+13. Corrupt/missing cache entries are treated as misses, not hard failures.
+14. Internal predef behavior remains mode-correct and preserved in final package map semantics.
+15. New unit and integration tests pass.
 
 ## Risks and Mitigations
 
@@ -328,6 +373,9 @@ Mitigation: explicitly phase this issue to `tool` command compile flows; treat `
 
 6. Risk: path-dependent `Key` type increases API complexity.
 Mitigation: keep all call sites generic over `cache.Key`; provide `InferCache.noop` and filesystem constructors so callers do not manually construct keys.
+
+7. Risk: phase behavior changes could silently reuse stale cached outputs.
+Mitigation: include `phases.id` in cache keys and test that changing phase identity invalidates hits.
 
 ## Rollout Notes
 
