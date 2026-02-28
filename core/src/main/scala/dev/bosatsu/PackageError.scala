@@ -7,6 +7,7 @@ import org.typelevel.paiges.{Doc, Document}
 
 import rankn._
 import LocationMap.Colorize
+import UnusedLetCheck.{UnusedBinding, UnusedKind}
 
 sealed abstract class PackageError {
   def message(
@@ -1304,18 +1305,26 @@ object PackageError {
 
   private def unusedValueMessage(
       pack: PackageName,
-      errs: NonEmptyList[(Identifier.Bindable, Region)],
+      errs: NonEmptyList[UnusedBinding],
       sourceMap: Map[PackageName, (LocationMap, String)],
       errColor: Colorize,
       hints: List[String]
   ): String = {
     val (lm, _) = sourceMap.getMapSrc(pack)
-    val sorted = errs.sortBy(_._2)
-    val unusedDocs = sorted.map { case (bn, region) =>
+    val sorted = errs.sortBy(_.region)
+    val unusedDocs = sorted.map { err =>
+      val region = err.region
       val rdoc = lm
         .showRegion(region, 2, errColor)
         .getOrElse(Doc.str(region.show)) // we should highlight the whole region
-      val message = Doc.text(s"unused value '${bn.sourceCodeRepr}'")
+      val message = err.kind match {
+        case UnusedKind.Standard =>
+          Doc.text(s"unused value '${err.name.sourceCodeRepr}'")
+        case UnusedKind.MatchesPatternBinding =>
+          Doc.text(
+            s"pattern binding '${err.name.sourceCodeRepr}' in `matches` always succeeds"
+          )
+      }
       message + Doc.hardLine + rdoc
     }
 
@@ -1339,19 +1348,29 @@ object PackageError {
 
     val bodyBlocks = unusedDocs.toList ::: List(maybeCount, maybeHints).flatten
     val line2 = Doc.hardLine + Doc.hardLine
-    val packDoc = sourceMap.headLine(pack, Some(sorted.head._2))
+    val packDoc = sourceMap.headLine(pack, Some(sorted.head.region))
     (packDoc + (line2 + Doc.intercalate(line2, bodyBlocks)).nested(2))
       .render(80)
   }
 
   case class UnusedLetError(
       pack: PackageName,
-      errs: NonEmptyList[(Identifier.Bindable, Region)]
+      errs: NonEmptyList[UnusedBinding]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
-    ) =
+    ) = {
+      val hasMatchesPatternBinding =
+        errs.exists(_.kind == UnusedKind.MatchesPatternBinding)
+      val extraHints =
+        if (hasMatchesPatternBinding)
+          List(
+            "`<expr> matches x` treats `x` as a pattern binding, not an equality check",
+            "if you meant equality, compare explicitly (for example `eq_String(left, right)` for Strings)",
+            "if you meant pattern matching, use a literal or constructor pattern"
+          )
+        else Nil
       unusedValueMessage(
         pack,
         errs,
@@ -1360,8 +1379,9 @@ object PackageError {
         List(
           "use the value in an expression that contributes to the result",
           "if intentional, ignore it with `_` (for example: `_ = <expr>`)"
-        )
+        ) ::: extraHints
       )
+    }
   }
 
   case class RecursionError(
@@ -1585,7 +1605,9 @@ object PackageError {
     ) =
       unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) },
+        unusedLets.map { case (b, _, _, r) =>
+          UnusedBinding(b, r, UnusedKind.Standard)
+        },
         sourceMap,
         errColor,
         if (unusedLets.tail.isEmpty) {

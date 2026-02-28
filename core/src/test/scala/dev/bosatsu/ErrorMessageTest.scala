@@ -89,6 +89,34 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("matches identifier binding has a focused hint") {
+    val source =
+      """package MatchesBinding
+        |
+        |main = int_to_String(42) matches str
+        |""".stripMargin
+
+    val message = unusedLetMessage(source)
+    assert(
+      message.contains("pattern binding 'str' in `matches` always succeeds"),
+      message
+    )
+    assert(
+      message.contains(
+        "`<expr> matches x` treats `x` as a pattern binding, not an equality check"
+      ),
+      message
+    )
+    assert(
+      message.contains("if you meant equality, compare explicitly"),
+      message
+    )
+    assert(
+      message.contains("use a literal or constructor pattern"),
+      message
+    )
+  }
+
   test("shadowed binding type mismatch has a focused message") {
     val source =
       """package Shadowed
