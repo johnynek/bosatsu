@@ -26,6 +26,7 @@ object TranspileCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       Colorize.optsConsoleDefault,
       transOpt
     ).mapN {
@@ -35,6 +36,7 @@ object TranspileCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           errColor,
           generator
       ) =>
@@ -47,6 +49,7 @@ object TranspileCommand {
               packageResolver,
               publicDependencies,
               privateDependencies,
+              compileCacheDirOpt,
               "transpile",
               Nil,
               errColor

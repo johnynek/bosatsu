@@ -27,6 +27,7 @@ object RuntimeCommandSupport {
       packageResolver: PackageResolver[F, Path],
       publicDependencies: List[Path],
       privateDependencies: List[Path],
+      compileCacheDirOpt: Option[Path],
       commandName: String,
       mainIdentifiers: List[MainIdentifier[Path]],
       errColor: Colorize
@@ -70,7 +71,8 @@ object RuntimeCommandSupport {
                   baseIfaces,
                   errColor,
                   packageResolver,
-                  CompileOptions.Default
+                  CompileOptions.Default,
+                  compileCacheDirOpt
                 )
                 .map { case (pm, names) =>
                   (PackageMap.toAnyTyped(pm), names.toList)

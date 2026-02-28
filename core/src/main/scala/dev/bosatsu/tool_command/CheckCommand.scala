@@ -22,6 +22,7 @@ object CheckCommand {
       packageResolver: PackageResolver[F, Path],
       publicDependencies: List[Path],
       privateDependencies: List[Path],
+      compileCacheDirOpt: Option[Path],
       errColor: LocationMap.Colorize
   )(implicit
       ec: Par.EC
@@ -52,7 +53,8 @@ object CheckCommand {
         interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
         errColor,
         packageResolver,
-        CompileOptions.TypeCheckOnly
+        CompileOptions.TypeCheckOnly,
+        compileCacheDirOpt
       )
     } yield packPath._1
   }
@@ -70,6 +72,7 @@ object CheckCommand {
       commonOpts.noSearchPackageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       commonOpts.outputPathOpt.orNone,
       commonOpts.interfaceOutputPathOpt.orNone,
       Colorize.optsConsoleDefault
@@ -80,6 +83,7 @@ object CheckCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           output,
           interfaceOutput,
           errColor
@@ -92,6 +96,7 @@ object CheckCommand {
             packageResolver,
             publicDependencies,
             privateDependencies,
+            compileCacheDirOpt,
             errColor
           ).map { packs =>
             val packList =

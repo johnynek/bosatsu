@@ -33,6 +33,7 @@ object ShowCommand {
       packageResolver: PackageResolver[F, Path],
       publicDependencies: List[Path],
       privateDependencies: List[Path],
+      compileCacheDirOpt: Option[Path],
       errColor: LocationMap.Colorize
   )(implicit
       ec: Par.EC
@@ -82,7 +83,8 @@ object ShowCommand {
             ifacesList ::: depIfs ::: packIfs,
             errColor,
             packageResolver,
-            CompileOptions.Default
+            CompileOptions.Default,
+            compileCacheDirOpt
           )
           allPacks =
             (PackageMap.fromIterable(existingPacks) ++ packPath._1.toMap.map(
@@ -113,6 +115,7 @@ object ShowCommand {
       commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
+      commonOpts.compileCacheDirOpt,
       Opts
         .options[PackageName](
           "package",
@@ -153,6 +156,7 @@ object ShowCommand {
           packageResolver,
           publicDependencies,
           privateDependencies,
+          compileCacheDirOpt,
           packages,
           types,
           values,
@@ -173,6 +177,7 @@ object ShowCommand {
               packageResolver,
               publicDependencies,
               privateDependencies,
+              compileCacheDirOpt,
               errColor
             )
             packs1 = packs0.filterNot(_.name == PackageName.PredefName)
