@@ -9,6 +9,7 @@ import dev.bosatsu.tool.{
   CompilerApi,
   MarkdownDoc,
   Output,
+  PathParseError,
   PathGen,
   PackageResolver,
   ShowEdn,
@@ -26,6 +27,7 @@ import dev.bosatsu.{
   Identifier,
   Json,
   JsonEncodingError,
+  Package,
   PackageName,
   PackageMap,
   PlatformIO,
@@ -437,8 +439,6 @@ object Command {
 
       private val inputRes =
         PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
-      private val inputResSearch =
-        PackageResolver.search(NonEmptyList.one(confDir), platformIO)
 
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
@@ -457,36 +457,100 @@ object Command {
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
             .flatMap { inputSrcs =>
-              val selectedInputs = sourcePackageFilter match {
-                case None       => inputSrcs
-                case Some(keep) =>
-                  inputSrcs.filter { p =>
-                    inputRes.packageNameFor(p)(platformIO).exists(keep)
+              def parsedPackageMetaFor(
+                  path: P
+              ): F[Option[(PackageName, List[PackageName])]] = {
+                val defaultPack = inputRes.packageNameFor(path)(platformIO)
+                PathParseError
+                  .parseFile(
+                    Package.parser(defaultPack),
+                    path,
+                    platformIO
+                  )
+                  .map {
+                    case Validated.Valid((_, pack)) =>
+                      Some((pack.name, pack.imports.map(_.pack)))
+                    case Validated.Invalid(_)       => None
                   }
               }
 
-              val packageResolver =
-                if (sourcePackageFilter.isDefined) inputResSearch else inputRes
+              val selectedInputsF: F[List[P]] = sourcePackageFilter match {
+                case None       => moduleIOMonad.pure(inputSrcs)
+                case Some(keep) =>
+                  val pathPackBySource =
+                    inputSrcs.map(p => (p, inputRes.packageNameFor(p)(platformIO)))
 
-              NonEmptyList.fromList(selectedInputs) match {
-                case Some(inputNel) =>
-                  platformIO
-                    .withEC {
-                      CompilerApi.typeCheck(
-                        platformIO,
-                        inputNel,
-                        pubDecodes.flatMap(_.interfaces) ::: privDecodes
-                          .flatMap(
-                            _.interfaces
-                          ),
-                        colorize,
-                        packageResolver,
-                        compileOptions
-                      )
+                  inputSrcs
+                    .traverse(p => parsedPackageMetaFor(p).map(p -> _))
+                    .map { parsedBySource =>
+                      val parsedEntries =
+                        parsedBySource.collect {
+                          case (path, Some((pack, imports))) =>
+                            (path, pack, imports)
+                        }
+
+                      val importsByPackage =
+                        parsedEntries
+                          .groupMap(_._2)(_._3)
+                          .transform((_, v) => v.flatten.distinct)
+                          .withDefaultValue(Nil)
+
+                      val packageToPaths =
+                        parsedEntries.groupMap(_._2)(_._1)
+
+                      @annotation.tailrec
+                      def transitiveClosure(
+                          todo: List[PackageName],
+                          seen: Set[PackageName]
+                      ): Set[PackageName] =
+                        todo match {
+                          case Nil => seen
+                          case h :: t if seen(h) =>
+                            transitiveClosure(t, seen)
+                          case h :: t =>
+                            val next = importsByPackage(h).filterNot(seen)
+                            transitiveClosure(next ::: t, seen + h)
+                        }
+
+                      val rootPackages =
+                        (parsedEntries.collect {
+                          case (_, pack, _) if keep(pack) => pack
+                        } ::: pathPackBySource.collect {
+                          case (_, Some(pack)) if keep(pack) => pack
+                        }).distinct
+
+                      val selectedPackages = transitiveClosure(rootPackages, Set.empty)
+
+                      (selectedPackages.iterator.flatMap { pack =>
+                        packageToPaths.getOrElse(pack, Nil)
+                      }.toSet ++ pathPackBySource.collect {
+                        case (path, Some(pack)) if selectedPackages(pack) => path
+                      }.toSet).toList
+                        .sorted(using platformIO.pathOrdering)
                     }
-                    .map(_._1)
-                case None =>
-                  moduleIOMonad.pure(PackageMap.empty)
+              }
+
+              selectedInputsF.flatMap { selectedInputs =>
+                NonEmptyList.fromList(selectedInputs) match {
+                  case Some(inputNel) =>
+                    platformIO
+                      .withEC {
+                        CompilerApi.typeCheck(
+                          platformIO,
+                          inputNel,
+                          pubDecodes.flatMap(_.interfaces) ::: privDecodes
+                            .flatMap(
+                              _.interfaces
+                            ),
+                          colorize,
+                          inputRes,
+                          compileOptions
+                        )
+                      }
+                      .map(_._1)
+                  case None =>
+                    moduleIOMonad.pure(PackageMap.empty)
+                }
               }
             }
       }
