@@ -8,7 +8,7 @@ import dev.bosatsu.edn.Edn
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{ExitCode, GraphOutput, Output, ShowEdn}
+import dev.bosatsu.tool.{CliException, ExitCode, GraphOutput, Output, ShowEdn}
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
@@ -84,6 +84,93 @@ class ToolAndLibCommandTest extends FunSuite {
   ): Chain[String] = {
     val hex = lib.hash.hex
     repoRoot ++ Chain(".bosatsuc", "cas", "blake3", hex.take(2), hex.drop(2))
+  }
+
+  private def stateWithConfiguredCachedDep(
+      appSrc: String,
+      depNameInConfig: String,
+      depVersionInConfig: String
+  ): ErrorOr[(MemoryMain.State, Hashed[Algo.Blake3, proto.Library])] = {
+    val depSrc =
+      """export dep,
+|
+|dep = 1
+|""".stripMargin
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("dep", "Dep", "Foo.bosatsu") -> depSrc,
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Foo.bosatsu") -> appSrc
+    )
+
+    for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Foo.bosatsu",
+          "--output",
+          "out/Dep.Foo.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Foo.bosatsu_package",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
+      s3 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          depNameInConfig,
+          "--version",
+          depVersionInConfig,
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      state4 <- state3.withFile(
+        casPathFor(Chain("repo"), depLib),
+        MemoryMain.FileContent.Lib(depLib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception("failed to inject dependency library into repo CAS")
+          )
+      }
+    } yield (state4, depLib)
   }
 
   private def baseLibFiles(mainSrc: String): List[(Chain[String], String)] = {
@@ -3555,6 +3642,90 @@ main = 0
         assertEquals(doc.render(120), "")
       case Right(other) =>
         fail(s"expected basic output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib fetch accepts matching descriptor on cached dependency hit") {
+    val result = for {
+      setup <- stateWithConfiguredCachedDep("main = 1\n", "dep", "0.0.1")
+      (state, _) = setup
+      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+    } yield fetched
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, Output.Basic(doc, None))) =>
+        val rendered = doc.render(120)
+        assert(rendered.contains("fetched 0 objects."), rendered)
+      case Right((_, other)) =>
+        fail(s"unexpected output: $other")
+    }
+  }
+
+  test("lib fetch fails on cached dependency version mismatch") {
+    val result = for {
+      setup <- stateWithConfiguredCachedDep("main = 1\n", "dep", "5.0.0")
+      (state, _) = setup
+      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+    } yield fetched
+
+    result match {
+      case Right((_, out)) =>
+        fail(s"expected lib fetch failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(rendered.contains("cached library descriptor mismatch"), rendered)
+        assert(rendered.contains("dep 5.0.0:"), rendered)
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib fetch fails on cached dependency name mismatch") {
+    val result = for {
+      setup <- stateWithConfiguredCachedDep("main = 1\n", "not_dep", "0.0.1")
+      (state, _) = setup
+      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+    } yield fetched
+
+    result match {
+      case Right((_, out)) =>
+        fail(s"expected lib fetch failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(rendered.contains("cached library descriptor mismatch"), rendered)
+        assert(rendered.contains("not_dep 0.0.1:"), rendered)
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("lib check fails on cached dependency version mismatch") {
+    val appSrc =
+      """from Dep/Foo import dep
+|
+|main = dep
+|""".stripMargin
+
+    val result = for {
+      setup <- stateWithConfiguredCachedDep(appSrc, "dep", "5.0.0")
+      (state, _) = setup
+      checked <- runWithState(List("lib", "check", "--repo_root", "repo"), state)
+    } yield checked
+
+    result match {
+      case Right((_, out)) =>
+        fail(s"expected lib check failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(
+          rendered.contains("does not match dependency dep."),
+          rendered
+        )
+        assert(rendered.contains("dependency version: 5.0.0"), rendered)
       case Left(err) =>
         fail(err.getMessage)
     }

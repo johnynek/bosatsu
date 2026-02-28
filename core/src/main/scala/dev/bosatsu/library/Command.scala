@@ -2265,6 +2265,51 @@ object Command {
         }
       }
 
+    private def validateCachedDependency(
+        dep: proto.LibDependency,
+        cached: Hashed[Algo.Blake3, proto.Library]
+    ): Either[Throwable, Unit] = {
+      val cachedLib = cached.arg
+      val requestedVersion = Library.getVersion(dep)
+      val cachedVersion = Library.getVersion(cachedLib)
+      val nameMatches = dep.name == cachedLib.name
+      val versionMatches = requestedVersion.forall(cachedVersion.contains)
+
+      if (nameMatches && versionMatches) Right(())
+      else {
+        val requestedVersionStr = requestedVersion.fold("unspecified")(_.render)
+        val cachedVersionStr = cachedVersion.fold("unspecified")(_.render)
+
+        Left(
+          CliException(
+            "cached library descriptor mismatch",
+            Doc.text(
+              show"cached object ${cached.hash.toIdent} does not match dependency ${dep.name}."
+            ) +
+              Doc.line +
+              Doc.text(show"dependency name: ${dep.name}") +
+              Doc.line +
+              Doc.text(show"cached library name: ${cachedLib.name}") +
+              Doc.line +
+              Doc.text(show"dependency version: $requestedVersionStr") +
+              Doc.line +
+              Doc.text(show"cached library version: $cachedVersionStr")
+          )
+        )
+      }
+    }
+
+    private def validatedLibFromCas(
+        dep: proto.LibDependency
+    ): F[Option[Hashed[Algo.Blake3, proto.Library]]] =
+      libFromCas(dep).flatMap {
+        case None      => moduleIOMonad.pure(None)
+        case Some(lib) =>
+          moduleIOMonad.fromEither(
+            validateCachedDependency(dep, lib).map(_ => Some(lib))
+          )
+      }
+
     def depsFromCas(
         pubDeps: List[proto.LibDependency],
         privDeps: List[proto.LibDependency]
@@ -2275,8 +2320,8 @@ object Command {
       )
     ] =
       (
-        pubDeps.parTraverse(dep => libFromCas(dep).map(dep -> _)),
-        privDeps.parTraverse(dep => libFromCas(dep).map(dep -> _))
+        pubDeps.parTraverse(dep => validatedLibFromCas(dep).map(dep -> _)),
+        privDeps.parTraverse(dep => validatedLibFromCas(dep).map(dep -> _))
       ).parTupled
         .flatMap { case (pubLibs, privLibs) =>
           val missingPubs = pubLibs.collect { case (dep, None) => dep }
@@ -2347,7 +2392,12 @@ object Command {
         platformIO
           .fileExists(path)
           .flatMap {
-            case true  => Monad[F].pure(Right(false)).widen[DownloadRes]
+            case true  =>
+              platformIO.readLibrary(path).attempt.map[DownloadRes] {
+                case Left(err) => Left(err)
+                case Right(lib) =>
+                  validateCachedDependency(dep, lib).map(_ => false)
+              }
             case false =>
               {
                 // We need to download
