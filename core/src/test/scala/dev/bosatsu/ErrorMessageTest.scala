@@ -2344,6 +2344,43 @@ main = xxfoo
   }
 
   test(
+    "repeated unimported type diagnostics are deduplicated for the same span"
+  ) {
+    val libSrc =
+      """package Repro/Issue3/Lib
+        |
+        |export (P, mk, use)
+        |
+        |struct P(i: Int)
+        |
+        |def mk(i): P(i)
+        |
+        |def use(ps: List[P]) -> Int:
+        |  if ps matches []: 0
+        |  else: 1
+        |""".stripMargin
+
+    val mainSrc =
+      """package Repro/Issue3
+        |
+        |from Repro/Issue3/Lib import mk, use
+        |
+        |x = use([mk(1), mk(2)])
+        |""".stripMargin
+
+    val needle = "Use of unimported type"
+    evalFail(List(libSrc, mainSrc)) { case te: PackageError.TypeErrorIn =>
+      val message = te.message(Map.empty, Colorize.None)
+      assertEquals(message.sliding(needle.length).count(_ == needle), 1, message)
+      assert(
+        message.contains("from Repro/Issue3/Lib import P"),
+        message
+      )
+      ()
+    }
+  }
+
+  test(
     "unknown constructor in totality diagnostics suggests nearest constructors"
   ) {
     val pack = PackageName.parts("P")
