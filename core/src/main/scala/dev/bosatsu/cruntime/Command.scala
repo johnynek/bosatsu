@@ -242,7 +242,17 @@ object Command {
                               archivePath,
                               url
                             )
-                            .as(archivePath)
+                            .flatMap {
+                              case Right(_) =>
+                                moduleIOMonad.pure(archivePath)
+                              case Left(failure) =>
+                                moduleIOMonad.raiseError(
+                                  CliException(
+                                    "failed to download c_runtime archive",
+                                    PlatformIO.FetchHashFailure.toDoc(failure)
+                                  )
+                                )
+                            }
                       }
                   }
               }

@@ -69,7 +69,7 @@ trait PlatformIO[F[_], Path] {
       hash: HashValue[A],
       path: Path,
       uri: String
-  ): F[Unit]
+  ): F[Either[PlatformIO.FetchHashFailure, Unit]]
 
   /** given an ordered list of prefered roots, if a packFile starts with one of
     * these roots, return a PackageName based on the rest
@@ -161,6 +161,46 @@ trait PlatformIO[F[_], Path] {
 }
 
 object PlatformIO {
+  enum FetchHashFailure derives CanEqual {
+    case HttpStatus(uri: String, status: String)
+    case HashMismatch(uri: String, expected: String, found: String)
+    case Network(uri: String, message: String)
+  }
+
+  object FetchHashFailure {
+    def toDoc(failure: FetchHashFailure): Doc =
+      failure match {
+        case FetchHashFailure.HttpStatus(uri, status) =>
+          Doc.intercalate(
+            Doc.line,
+            List(
+              Doc.text(show"uri=$uri"),
+              Doc.text("reason=http status"),
+              Doc.text(show"status=$status")
+            )
+          )
+        case FetchHashFailure.HashMismatch(uri, expected, found) =>
+          Doc.intercalate(
+            Doc.line,
+            List(
+              Doc.text(show"uri=$uri"),
+              Doc.text("reason=hash mismatch"),
+              Doc.text(show"expected=$expected"),
+              Doc.text(show"found=$found")
+            )
+          )
+        case FetchHashFailure.Network(uri, message) =>
+          Doc.intercalate(
+            Doc.line,
+            List(
+              Doc.text(show"uri=$uri"),
+              Doc.text("reason=network error"),
+              Doc.text(show"message=$message")
+            )
+          )
+      }
+  }
+
   def pathPackage[Path](roots: List[Path], packFile: Path)(
       relativeParts: (Path, Path) => Option[Iterable[String]]
   ): Option[PackageName] = {
