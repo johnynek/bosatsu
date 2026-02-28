@@ -31,7 +31,7 @@ Status: proposed
 
 Add an opt-in compile cache for `tool` commands that compile source files. The cache key is a hash of a normalized source package (line/region-insensitive) plus hashes of dependency interfaces and compile options. The key maps to a content-addressed compiled package artifact, matching the issue’s key->output-link plus CAS model.
 
-This revision makes the implementation concrete at the `PackageMap.inferAll` layer with a cache algebra and `IorT[F, ...]` pipeline.
+This revision makes the implementation concrete at the `PackageMap.inferAll` layer with a cache algebra and `IorT[F, ...]` pipeline, and explicitly keeps the no-cache path near-zero overhead via an `InferCache`-dependent key type.
 
 ## Context
 
@@ -116,7 +116,7 @@ For each direct import of the package being compiled, include an interface hash 
 
 Using interface hashes (not full implementation hashes) matches actual typecheck inputs and avoids unnecessary invalidations.
 
-### 5. Concrete cache algebra and `inferAll` API
+### 5. Concrete cache algebra (`Key` is cache-dependent) and `inferAll` API
 
 Cache API sketch:
 
@@ -128,12 +128,26 @@ import cats.data.NonEmptyList
 import dev.bosatsu.{CompileOptions, Package, PackageError, PackageMap}
 
 trait InferCache[F[_]] {
-  def get(key: InferCache.Key): F[Option[Package.Inferred]]
-  def put(key: InferCache.Key, value: Package.Inferred): F[Unit]
+  type Key
+
+  // Inputs are values inferAll already has; implementations decide key cost.
+  def generateKey(
+      pack: Package.Parsed,
+      depResults: List[(dev.bosatsu.PackageName, Package.Inferred)],
+      compileOptions: CompileOptions,
+      compilerIdentity: String
+  ): F[Key]
+
+  def get(key: Key): F[Option[Package.Inferred]]
+  def put(key: Key, value: Package.Inferred): F[Unit]
 }
 
 object InferCache {
-  final case class Key(
+  // No-op cache: no hashing/serialization work, constant key.
+  def noop[F[_]: cats.Applicative]: InferCache[F] { type Key = Unit } = ???
+
+  // Filesystem cache implementation uses a richer key payload.
+  final case class FsKey(
       packageName: dev.bosatsu.PackageName,
       compileOptions: CompileOptions,
       compilerIdentity: String,
@@ -164,8 +178,8 @@ object PackageMap {
 
 `CompilerApi.typeCheck` then chooses cache implementation:
 
-1. `cacheDirOpt = None` -> in-memory no-op cache adapter (current behavior).
-2. `cacheDirOpt = Some(path)` -> filesystem-backed CAS/key-link `InferCache[IO]`.
+1. `cacheDirOpt = None` -> no-op `InferCache` with `type Key = Unit`; `generateKey` is constant and does not compute hashes.
+2. `cacheDirOpt = Some(path)` -> filesystem-backed CAS/key-link `InferCache[IO]` with `type Key = FsKey`.
 
 ### 6. Concrete `inferAll[F]` flow (with `IorT`)
 
@@ -189,16 +203,18 @@ def inferAll[F[_]: Monad: Parallel](
         val depsF: ErrOr[List[(PackageName, Package.Inferred)]] = ??? // existing import resolution via recurse
 
         depsF.flatMap { depPacks =>
-          val key = buildKey(pack, depPacks, compileOptions)
+          IorT.liftF(
+            cache.generateKey(pack, depPacks, compileOptions, compilerIdentity)
+          ).flatMap { key =>
+            IorT.liftF(cache.get(key)).flatMap {
+              case Some(hit) =>
+                val fte = ExportedName.typeEnvFromExports(hit.name, hit.exports)
+                IorT.rightT[F, NonEmptyList[PackageError]]((fte, hit))
 
-          IorT.liftF(cache.get(key)).flatMap {
-            case Some(hit) =>
-              val fte = ExportedName.typeEnvFromExports(hit.name, hit.exports)
-              IorT.rightT[F, NonEmptyList[PackageError]]((fte, hit))
-
-            case None =>
-              val inferred: ErrOr[InferRes] = runExistingInferBody(pack, depPacks, compileOptions)
-              inferred.semiflatTap { case (_, compiled) => cache.put(key, compiled) }
+              case None =>
+                val inferred: ErrOr[InferRes] = runExistingInferBody(pack, depPacks, compileOptions)
+                inferred.semiflatTap { case (_, compiled) => cache.put(key, compiled) }
+            }
           }
         }.value
     }
@@ -211,8 +227,10 @@ Key points:
 
 1. We keep existing error accumulation semantics (`Ior`, `NonEmptyList[PackageError]`).
 2. `IorT[F, ...]` allows effectful cache operations while preserving partial-success diagnostics.
-3. Cache misses execute existing inference logic unchanged.
-4. Cache hits return typed packages directly and still feed downstream dependency typing.
+3. `Key` is path-dependent on the cache implementation, so no-op cache can use `Unit`.
+4. For no-op cache, `generateKey` is constant and avoids hash/serialization work entirely.
+5. Cache misses execute existing inference logic unchanged.
+6. Cache hits return typed packages directly and still feed downstream dependency typing.
 
 ### 7. Behavior of `resolveThenInfer`
 
@@ -241,11 +259,11 @@ Cache operations are best-effort:
 ## Implementation Plan
 
 1. Add `compileCacheDirOpt` to `CommonOpts` and pass it through all tool compile command constructors.
-2. Add `InferCache[F]` abstraction and filesystem implementation in `tool/CompileCache.scala`.
+2. Add `InferCache[F]` abstraction with dependent `Key`, plus filesystem implementation in `tool/CompileCache.scala`.
 3. Introduce effectful `PackageMap.inferAll[F]` with `IorT`-based cache integration.
 4. Keep existing `PackageMap.inferAll` as compatibility wrapper using no-op cache.
 5. Add effectful `PackageMap.resolveThenInfer[F]` overload and route cache-enabled `CompilerApi.typeCheck` to it.
-6. Keep no-cache path behavior equivalent to current logic.
+6. Keep no-cache path behavior equivalent to current logic and near-zero overhead by using `InferCache.noop` (`Key = Unit`).
 7. Add unit tests for key stability/invalidation and cache read/write fallbacks.
 8. Add integration tests for `tool` commands with `--cache_dir`.
 
@@ -264,6 +282,7 @@ Cache operations are best-effort:
 1. `inferAll[F]` with no-op cache matches current `inferAll` results exactly.
 2. `inferAll[F]` with hit for leaf dependency skips local inference and still types dependents.
 3. Mixed hit/miss DAG preserves existing `Ior` warning/error behavior.
+4. No-op cache path does not compute source/dependency hashes during inference.
 
 ### Integration tests (`ToolAndLibCommandTest`)
 
@@ -279,14 +298,16 @@ Cache operations are best-effort:
 2. With no `--cache_dir`, existing behavior remains unchanged.
 3. `PackageMap.inferAll[F]` exists with cache parameter and returns `F[Ior[NonEmptyList[PackageError], Inferred]]`.
 4. Existing `PackageMap.inferAll` API remains available as compatibility path.
-5. Cache key includes normalized source hash (line/region-insensitive), dependency interface hashes, compile options, and compiler identity.
-6. Key->output indirection is implemented via on-disk link files.
-7. Compiled package artifacts are stored in a content-addressed store.
-8. Cache hit for a package skips recompiling that package.
-9. Cache miss compiles and then populates CAS + link entries.
-10. Corrupt/missing cache entries are treated as misses, not hard failures.
-11. Internal predef behavior remains mode-correct and preserved in final package map semantics.
-12. New unit and integration tests pass.
+5. `InferCache` defines a dependent `type Key` and `generateKey(...)`, allowing no-op key type `Unit`.
+6. No-op cache path does not perform source/dependency hash computation.
+7. Filesystem cache key includes normalized source hash (line/region-insensitive), dependency interface hashes, compile options, and compiler identity.
+8. Key->output indirection is implemented via on-disk link files.
+9. Compiled package artifacts are stored in a content-addressed store.
+10. Cache hit for a package skips recompiling that package.
+11. Cache miss compiles and then populates CAS + link entries.
+12. Corrupt/missing cache entries are treated as misses, not hard failures.
+13. Internal predef behavior remains mode-correct and preserved in final package map semantics.
+14. New unit and integration tests pass.
 
 ## Risks and Mitigations
 
@@ -304,6 +325,9 @@ Mitigation: CAS-first write order, tolerant reads (miss on parse/validation fail
 
 5. Risk: scope creep into library command path.
 Mitigation: explicitly phase this issue to `tool` command compile flows; treat `lib` wiring as follow-up.
+
+6. Risk: path-dependent `Key` type increases API complexity.
+Mitigation: keep all call sites generic over `cache.Key`; provide `InferCache.noop` and filesystem constructors so callers do not manually construct keys.
 
 ## Rollout Notes
 
