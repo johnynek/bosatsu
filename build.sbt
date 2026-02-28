@@ -326,6 +326,7 @@ lazy val core =
         catsParse.value,
         decline.value,
         paiges.value,
+        scalawasiz3.value % Test,
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
@@ -336,10 +337,7 @@ lazy val core =
       commonJsSettings
     )
 
-lazy val coreJVM =
-  core.jvm.settings(
-    libraryDependencies += "dev.bosatsu" %% "scalawasiz3" % "0.0.7" % Test
-  )
+lazy val coreJVM = core.jvm
 lazy val coreJS =
   core.js.enablePlugins(ScalaJSPlugin).enablePlugins(ScalaJSBundlerPlugin)
 
