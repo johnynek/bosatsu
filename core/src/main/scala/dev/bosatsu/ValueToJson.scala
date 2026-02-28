@@ -7,8 +7,10 @@ import cats.implicits._
 import java.math.BigInteger
 import dev.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import scala.collection.mutable.{Map => MMap, LinkedHashSet}
+import dev.bosatsu.BosatsuInt as BInt
 
 import Value._
+import BInt.*
 
 import JsonEncodingError._
 
@@ -285,10 +287,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case None     =>
           val res: Eval[Fn] = Eval.later(tpe match {
             case Type.IntType => {
-              case ExternalValue(v: java.lang.Integer) =>
-                Right(Json.JNumberStr(v.toString))
-              case ExternalValue(v: BigInteger) =>
-                Right(Json.JNumberStr(v.toString))
+              case ExternalValue(BInt(v)) =>
+                Right(Json.JNumberStr(v.show))
               // $COVERAGE-OFF$this should be unreachable
               case other =>
                 Left(IllTyped(revPath.reverse, tpe, other))
@@ -416,10 +416,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   }
                 case s: SumValue if s.variant == 3 =>
                   s.value.values match {
-                    case Array(ExternalValue(v: java.lang.Integer)) =>
-                      Right(Json.JNumberStr(v.toString))
-                    case Array(ExternalValue(v: BigInteger)) =>
-                      Right(Json.JNumberStr(v.toString))
+                    case Array(ExternalValue(BInt(v))) =>
+                      Right(Json.JNumberStr(v.show))
                     case _ =>
                       Left(IllTyped(revPath.reverse, tpe, s))
                   }
@@ -561,8 +559,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               dt.dataFamily match {
                 case DataFamily.Nat => {
-                  case ExternalValue(b: (BigInteger | java.lang.Integer)) =>
-                    Right(Json.JNumberStr(b.toString))
+                  case ExternalValue(BInt(b)) =>
+                    Right(Json.JNumberStr(b.show))
                   case other =>
                     Left(IllTyped(revPath.reverse, tpe, other))
                 }
