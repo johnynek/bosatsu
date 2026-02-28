@@ -235,7 +235,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
         ProtoConverter.packagesFromProto(
           ifs.flatMap(_.interfaces),
           packs.flatMap(_.packages)
-        )
+        ).map { case (is, ps) => (is, ps.map(_.void)) }
       )
     }
 

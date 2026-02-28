@@ -3,6 +3,12 @@ package dev.bosatsu
 import cats.Eval
 
 class MatchlessRegressionTest extends munit.FunSuite {
+  import scala.language.implicitConversions
+
+  given [A]: Conversion[Matchless.SourceInfo => A, A] with
+    def apply(fn: Matchless.SourceInfo => A): A =
+      fn(Matchless.SourceInfo.empty)
+
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
     (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
       case (acc, idx) =>
@@ -13,7 +19,7 @@ class MatchlessRegressionTest extends munit.FunSuite {
     (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
       case (acc, idx) =>
         Matchless.Let(
-          Identifier.synthetic(s"issue1652_$idx"),
+          Right(Identifier.synthetic(s"issue1652_$idx")),
           Matchless.MakeStruct(0),
           acc
         )

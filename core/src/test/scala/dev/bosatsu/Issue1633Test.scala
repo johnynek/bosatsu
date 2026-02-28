@@ -3,6 +3,12 @@ package dev.bosatsu
 import cats.Order
 
 class Issue1633Test extends munit.FunSuite with ParTest {
+  import scala.language.implicitConversions
+
+  given [A]: Conversion[Matchless.SourceInfo => A, A] with
+    def apply(fn: Matchless.SourceInfo => A): A =
+      fn(Matchless.SourceInfo.empty)
+
   private val reproSource = """
 package MyLib/ReproMin8
 
@@ -202,7 +208,10 @@ main = parse_value(" null")
               _,
               Matchless.Lambda(captures, _, _, _)
             ) =>
-          assertEquals(captures, Matchless.Local(capturedBName) :: Nil)
+          assertEquals(
+            captures,
+            Matchless.Local(capturedBName)(Matchless.SourceInfo.empty) :: Nil
+          )
         case other =>
           fail(s"unexpected parse_value lowering shape: $other")
       }

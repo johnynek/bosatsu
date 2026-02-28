@@ -1263,7 +1263,7 @@ object ShowEdn {
             types = prog0.types,
             lets = prog0.lets,
             externalDefs = prog0.externalDefs,
-            from = ()
+            from = prog0.from.copy(originalFrom = ())
           )
         Right(pack.copy(imports = imports1, exports = exports1, program = (prog1, importMap1)))
     }
@@ -1361,7 +1361,7 @@ object ShowEdn {
               types = localTypeEnv,
               lets = lets,
               externalDefs = externalDefNames,
-              from = ()
+              from = Package.TypedMetadata((), None)
             )
           pack = Package(name, imports, exports, (program, importMap))
           normalized <- normalizeForRoundTrip(pack)

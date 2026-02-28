@@ -47,7 +47,10 @@ object PackageCustoms {
       .buildExports(nm, exports, types, lets) match {
       case Validated.Valid(exports) =>
         // We have a result, which we can continue to check
-        val pack = Package(nm, ilist, exports, (program, imap))
+        val typedProgram = program.copy(
+          from = Package.TypedMetadata(program.from, None)
+        )
+        val pack = Package(nm, ilist, exports, (typedProgram, imap))
         // We have to check the "customs" before any normalization
         // or optimization
         PackageCustoms(pack) match {
@@ -282,7 +285,7 @@ object PackageCustoms {
 
     val exports: Node = Left(pack.exports)
     val nonBindingUses: List[Node] =
-      pack.program._1.from match {
+      pack.program._1.from.originalFrom match {
         case stmts: List[?] =>
           stmts.iterator
             .collect {
@@ -332,7 +335,7 @@ object PackageCustoms {
     }
 
     val statementRegions: Map[Bindable, Region] =
-      pack.program._1.from match {
+      pack.program._1.from.originalFrom match {
         case stmts: List[?] =>
           stmts.iterator
             .collect { case vs: Statement.ValueStatement =>

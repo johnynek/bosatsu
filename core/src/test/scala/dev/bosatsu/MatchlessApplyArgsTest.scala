@@ -5,6 +5,12 @@ import cats.data.NonEmptyList
 import Identifier.Bindable
 
 class MatchlessApplyArgsTest extends munit.FunSuite {
+  import scala.language.implicitConversions
+
+  given [A]: Conversion[Matchless.SourceInfo => A, A] with
+    def apply(fn: Matchless.SourceInfo => A): A =
+      fn(Matchless.SourceInfo.empty)
+
   test(
     "Matchless.recoverTopLevelLambda beta-reduces let-bound lambda aliases"
   ) {
@@ -68,7 +74,7 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
                 if trailing == Matchless.App(
                   Matchless.Local(fnName),
                   NonEmptyList.one(topArg)
-                ) =>
+                )(Matchless.SourceInfo.empty) =>
               fail(
                 s"expected beta-reduced let-bound lambda alias, found trailing apply: $branch"
               )

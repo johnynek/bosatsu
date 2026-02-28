@@ -215,7 +215,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
           packs <- IO.fromTry(
             ProtoConverter.packagesFromProto(Nil, ppack.packages)
           )
-        } yield packs._2
+        } yield packs._2.map(_.void)
       }
       .map(_.flatten)
 

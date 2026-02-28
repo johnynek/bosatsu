@@ -7,6 +7,7 @@ import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
+import dev.bosatsu.hashing.{Algo, HashValue}
 import rankn._
 import Parser.{spaces, Combinators}
 
@@ -127,7 +128,7 @@ object Package {
     ]
 
   type TypedProgram[T] = (
-      Program[TypeEnv[Kind.Arg], TypedExpr[T], Any],
+      Program[TypeEnv[Kind.Arg], TypedExpr[T], TypedMetadata],
       ImportMap[Interface, NonEmptyList[Referant[Kind.Arg]]]
   )
   type Typed[T] = Package[
@@ -139,6 +140,41 @@ object Package {
     TypedProgram[T]
   ]
   type Inferred = Typed[Declaration]
+
+  trait HashSourceHash[A] {
+    def sourceHash(from: A): Option[HashValue[Algo.Blake3]]
+    def withSourceHash(
+        from: A,
+        sourceHash: Option[HashValue[Algo.Blake3]]
+    ): A
+  }
+
+  object HashSourceHash {
+    def apply[A](using hsh: HashSourceHash[A]): HashSourceHash[A] = hsh
+  }
+
+  /** Metadata attached to implementation packages.
+    * `originalFrom` keeps the previous `Program#from` payload for tooling that
+    * needs source statements, while `sourceHash` stores package provenance.
+    */
+  final case class TypedMetadata(
+      originalFrom: Any,
+      sourceHash: Option[HashValue[Algo.Blake3]]
+  )
+
+  given typedMetadataHashSourceHash: HashSourceHash[TypedMetadata] with {
+    def sourceHash(from: TypedMetadata): Option[HashValue[Algo.Blake3]] =
+      from.sourceHash
+
+    def withSourceHash(
+        from: TypedMetadata,
+        sourceHash: Option[HashValue[Algo.Blake3]]
+    ): TypedMetadata =
+      from.copy(sourceHash = sourceHash)
+  }
+
+  private lazy val predefSourceHashValue: HashValue[Algo.Blake3] =
+    Algo.hashBytes[Algo.Blake3](Predef.predefString.getBytes("UTF-8"))
 
   type Header =
     (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
@@ -233,8 +269,47 @@ object Package {
   def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
+  def sourceHashIdentOf[A](inferred: Typed[A]): Option[String] =
+    sourceHashOf(inferred).map(_.toIdent)
+
+  def sourceHashFromIdent(ident: String): Option[HashValue[Algo.Blake3]] =
+    Algo
+      .parseHashValue(Algo.blake3Algo)
+      .parseAll(ident)
+      .toOption
+      .map(parsed => HashValue[Algo.Blake3](parsed.value.hex))
+
+  def sourceHashOf[A](inferred: Typed[A]): Option[HashValue[Algo.Blake3]] =
+    HashSourceHash[TypedMetadata].sourceHash(inferred.program._1.from)
+
+  def predefSourceHash: HashValue[Algo.Blake3] =
+    predefSourceHashValue
+
+  def withSourceHashIdent[A](
+      inferred: Typed[A],
+      sourceHashIdent: Option[String]
+  ): Typed[A] =
+    withSourceHash(inferred, sourceHashIdent.flatMap(sourceHashFromIdent))
+
+  def withSourceHash[A](
+      inferred: Typed[A],
+      sourceHash: Option[HashValue[Algo.Blake3]]
+  ): Typed[A] = {
+    val prog = inferred.program._1
+    val nextFrom = HashSourceHash[TypedMetadata].withSourceHash(
+      prog.from,
+      sourceHash
+    )
+    inferred.copy(program = (prog.copy(from = nextFrom), inferred.program._2))
+  }
+
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
-    t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
+    t.copy(program = (
+      t.program._1.copy(
+        from = t.program._1.from.copy(originalFrom = newFrom)
+      ),
+      t.program._2
+    ))
 
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =

@@ -11,6 +11,12 @@ import rankn.DataRepr
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
+  import scala.language.implicitConversions
+
+  given [A]: Conversion[Matchless.SourceInfo => A, A] with
+    def apply(fn: Matchless.SourceInfo => A): A =
+      fn(Matchless.SourceInfo.empty)
+
   given Order[Unit] = Order.fromOrdering
 
   override def scalaCheckTestParameters =
@@ -779,14 +785,18 @@ x = 1
       val map = binds(TestUtils.testPackage).toMap
 
       assert(map.contains(Identifier.Name("x")))
-      assertEquals(map(Identifier.Name("x")), Matchless.Literal(Lit(1)))
+      assertEquals(
+        map(Identifier.Name("x")),
+        Matchless.Literal(Lit(1))(Matchless.SourceInfo.empty)
+      )
     }
   }
 
   test("Matchless.applyArgs pushes through If and Always") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
-    val arg = Matchless.Local(Identifier.Name("arg"))
+    val arg: Matchless.Expr[Unit] =
+      Matchless.Local(Identifier.Name("arg"))(Matchless.SourceInfo.empty)
 
     val ifFn: Matchless.Expr[Unit] = Matchless.If(
       Matchless.TrueConst,
@@ -811,9 +821,12 @@ x = 1
   test(
     "Matchless.applyArgs does not curry App and only pushes through safe Let"
   ) {
-    val fn = Matchless.Local(Identifier.Name("f"))
-    val x = Matchless.Local(Identifier.Name("x"))
-    val y = Matchless.Local(Identifier.Name("y"))
+    val fn: Matchless.Expr[Unit] =
+      Matchless.Local(Identifier.Name("f"))(Matchless.SourceInfo.empty)
+    val x: Matchless.Expr[Unit] =
+      Matchless.Local(Identifier.Name("x"))(Matchless.SourceInfo.empty)
+    val y: Matchless.Expr[Unit] =
+      Matchless.Local(Identifier.Name("y"))(Matchless.SourceInfo.empty)
     val z = Identifier.Name("z")
     val k = Identifier.Name("k")
 
@@ -825,7 +838,10 @@ x = 1
 
     assertEquals(
       applied,
-      Matchless.App(Matchless.App(fn, NonEmptyList.one(x)), NonEmptyList.one(y))
+      Matchless.App(
+        Matchless.App(fn, NonEmptyList.one(x))(Matchless.SourceInfo.empty),
+        NonEmptyList.one(y)
+      )(Matchless.SourceInfo.empty)
     )
 
     val letLeftExpr: Matchless.Expr[Unit] =
@@ -841,25 +857,26 @@ x = 1
         Left(Matchless.LocalAnon(0)),
         Matchless.Literal(Lit(1)),
         Matchless.App(Matchless.Local(k), NonEmptyList.one(y))
-      )
+      )(Matchless.SourceInfo.empty)
     )
 
     val letRightSafeExpr: Matchless.Expr[Unit] =
-      Matchless.Let(z, Matchless.Literal(Lit(1)), Matchless.Local(k))
+      Matchless.Let(Right(z), Matchless.Literal(Lit(1)), Matchless.Local(k))
 
     assertEquals(
       Matchless.applyArgs(letRightSafeExpr, NonEmptyList.one(y)),
       Matchless.Let(
-        z,
+        Right(z),
         Matchless.Literal(Lit(1)),
         Matchless.App(Matchless.Local(k), NonEmptyList.one(y))
-      )
+      )(Matchless.SourceInfo.empty)
     )
 
-    val zArg = Matchless.Local(z)
+    val zArg: Matchless.Expr[Unit] =
+      Matchless.Local(z)(Matchless.SourceInfo.empty)
     assertEquals(
       Matchless.applyArgs(letRightSafeExpr, NonEmptyList.one(zArg)),
-      Matchless.App(letRightSafeExpr, NonEmptyList.one(zArg))
+      Matchless.App(letRightSafeExpr, NonEmptyList.one(zArg))(Matchless.SourceInfo.empty)
     )
   }
 
@@ -889,7 +906,10 @@ x = 1
             )
           ) =>
         assertEquals(tmp, tmpRef)
-        assertEquals(appArgs, NonEmptyList.one(Matchless.Local(x)))
+        assertEquals(
+          appArgs,
+          NonEmptyList.one(Matchless.Local(x)(Matchless.SourceInfo.empty))
+        )
       case other =>
         fail(s"expected beta-reduced lets, found: $other")
     }
@@ -949,7 +969,9 @@ x = 1
                   assertEquals(tmp, tmpRef)
                   assertEquals(
                     appArgs,
-                    NonEmptyList.one(Matchless.Local(fnArg))
+                    NonEmptyList.one(
+                      Matchless.Local(fnArg)(Matchless.SourceInfo.empty)
+                    )
                   )
                 case other =>
                   fail(s"expected beta-reduced branch, found: $other")
@@ -1007,7 +1029,7 @@ x = 1
     assertEquals(Matchless.allNames(lam), Set(x: Bindable, y, rec, arg))
 
     val letRight: Matchless.Expr[Unit] =
-      Matchless.Let(x, Matchless.Local(y), Matchless.Local(y))
+      Matchless.Let(Right(x), Matchless.Local(y), Matchless.Local(y))
     assertEquals(Matchless.allNames(letRight), Set(x: Bindable, y))
 
     val letLeft: Matchless.Expr[Unit] =
@@ -1129,8 +1151,14 @@ x = 1
             `shared`,
             Matchless.App(Matchless.MakeStruct(2), args)
           ) =>
-        assertEquals(args.head, Matchless.LocalAnon(tmp.ident))
-        assertEquals(args.tail.headOption, Some(Matchless.LocalAnon(tmp.ident)))
+        assertEquals(
+          args.head,
+          Matchless.LocalAnon(tmp.ident)(Matchless.SourceInfo.empty)
+        )
+        assertEquals(
+          args.tail.headOption,
+          Some(Matchless.LocalAnon(tmp.ident)(Matchless.SourceInfo.empty))
+        )
       case other =>
         fail(s"expected constructor reuse in linear scope, found: $other")
     }
@@ -1169,10 +1197,13 @@ x = 1
         def checkBranch(e: Matchless.Expr[Unit], lit: Int): Unit =
           e match {
             case Matchless.App(Matchless.MakeStruct(2), args) =>
-              assertEquals(args.head, Matchless.Literal(Lit(lit)))
+              assertEquals(
+                args.head,
+                Matchless.Literal(Lit(lit))(Matchless.SourceInfo.empty)
+              )
               assertEquals(
                 args.tail.headOption,
-                Some(Matchless.LocalAnon(tmp.ident))
+                Some(Matchless.LocalAnon(tmp.ident)(Matchless.SourceInfo.empty))
               )
             case other =>
               fail(s"expected branch struct constructor, found: $other")
@@ -1214,7 +1245,7 @@ x = 1
       )
     val thenExpr: Matchless.Expr[Unit] =
       Matchless.Let(
-        z,
+        Right(z),
         shared,
         Matchless.App(
           Matchless.MakeStruct(2),
@@ -1238,10 +1269,13 @@ x = 1
                 Matchless.App(Matchless.MakeStruct(2), args)
               ) =>
             assertEquals(tmpInValue, tmp.ident)
-            assertEquals(args.head, Matchless.Local(z))
+            assertEquals(
+              args.head,
+              Matchless.Local(z)(Matchless.SourceInfo.empty)
+            )
             assertEquals(
               args.tail.headOption,
-              Some(Matchless.LocalAnon(tmp.ident))
+              Some(Matchless.LocalAnon(tmp.ident)(Matchless.SourceInfo.empty))
             )
           case other =>
             fail(
@@ -1251,10 +1285,13 @@ x = 1
 
         else1 match {
           case Matchless.App(Matchless.MakeStruct(2), args) =>
-            assertEquals(args.head, Matchless.Literal(Lit(1)))
+            assertEquals(
+              args.head,
+              Matchless.Literal(Lit(1))(Matchless.SourceInfo.empty)
+            )
             assertEquals(
               args.tail.headOption,
-              Some(Matchless.LocalAnon(tmp.ident))
+              Some(Matchless.LocalAnon(tmp.ident)(Matchless.SourceInfo.empty))
             )
           case other =>
             fail(s"expected else branch constructor reuse, found: $other")
@@ -1286,7 +1323,8 @@ x = 1
   }
 
   test("Matchless.Expr helper predicates are directly testable") {
-    val runMut = Matchless.LocalAnonMut(9000L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(9000L)(Matchless.SourceInfo.empty)
     val nested: Matchless.Expr[Unit] =
       Matchless.Lambda(
         captures = Matchless.WhileExpr(
@@ -1365,8 +1403,10 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets hoists invariant leading lets from canonical recursion loops"
   ) {
-    val runMut = Matchless.LocalAnonMut(1000L)
-    val resultMut = Matchless.LocalAnonMut(1001L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1000L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1001L)(Matchless.SourceInfo.empty)
     val z = Identifier.Name("z")
     val heavyName = Identifier.Name("hoist_heavy")
     val heavyCall: Matchless.Expr[Unit] =
@@ -1400,7 +1440,7 @@ x = 1
           Matchless.App(
             Matchless.MakeStruct(1),
             NonEmptyList.one(Matchless.Local(z))
-          )
+          )(Matchless.SourceInfo.empty)
         )
       case other =>
         fail(s"expected hoisted loop-invariant let, found: $other")
@@ -1408,8 +1448,10 @@ x = 1
   }
 
   test("Matchless.hoistInvariantLoopLets hoists non-trivial constructor allocations") {
-    val runMut = Matchless.LocalAnonMut(1005L)
-    val resultMut = Matchless.LocalAnonMut(1006L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1005L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1006L)(Matchless.SourceInfo.empty)
     val z = Identifier.Name("z")
     val allocated: Matchless.Expr[Unit] =
       Matchless.App(
@@ -1441,7 +1483,7 @@ x = 1
           Matchless.App(
             Matchless.MakeStruct(1),
             NonEmptyList.one(Matchless.Local(z))
-          )
+          )(Matchless.SourceInfo.empty)
         )
       case other =>
         fail(s"expected constructor allocation to hoist, found: $other")
@@ -1451,8 +1493,10 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets hoists dependent leading lets together"
   ) {
-    val runMut = Matchless.LocalAnonMut(1010L)
-    val resultMut = Matchless.LocalAnonMut(1011L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1010L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1011L)(Matchless.SourceInfo.empty)
     val a = Identifier.Name("a")
     val b = Identifier.Name("b")
     val fName = Identifier.Name("dep_f")
@@ -1500,7 +1544,7 @@ x = 1
           Matchless.App(
             Matchless.MakeStruct(2),
             NonEmptyList.of(Matchless.Local(a), Matchless.Local(b))
-          )
+          )(Matchless.SourceInfo.empty)
         )
       case other =>
         fail(s"expected dependent lets hoisted in order, found: $other")
@@ -1510,12 +1554,15 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets does not hoist cheap aliases, mutable reads, or side-effectful values"
   ) {
-    val runMut = Matchless.LocalAnonMut(1020L)
-    val resultMut = Matchless.LocalAnonMut(1021L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1020L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1021L)(Matchless.SourceInfo.empty)
     val x = Identifier.Name("x")
     val z = Identifier.Name("z")
     val sideName = Identifier.Name("side")
-    val sideResult = Matchless.LocalAnonMut(89L)
+    val sideResult: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(89L)(Matchless.SourceInfo.empty)
 
     val cheapAliasInput = canonicalRecLoop(
       runMut,
@@ -1569,11 +1616,14 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets does not hoist lets that capture mutable refs in lambdas"
   ) {
-    val runMut = Matchless.LocalAnonMut(1030L)
-    val resultMut = Matchless.LocalAnonMut(1031L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1030L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1031L)(Matchless.SourceInfo.empty)
     val fnName = Identifier.Name("fn")
     val argName = Identifier.Name("arg")
-    val mutRef = Matchless.LocalAnonMut(500L)
+    val mutRef: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(500L)(Matchless.SourceInfo.empty)
     val lambdaValue: Matchless.Expr[Unit] =
       Matchless.Lambda(
         captures = mutRef :: Nil,
@@ -1600,8 +1650,10 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets does not hoist lets inside conditional branches"
   ) {
-    val runMut = Matchless.LocalAnonMut(1035L)
-    val resultMut = Matchless.LocalAnonMut(1036L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1035L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1036L)(Matchless.SourceInfo.empty)
     val z = Identifier.Name("z")
     val branchCall: Matchless.Expr[Unit] =
       Matchless.App(
@@ -1629,8 +1681,10 @@ x = 1
   test(
     "Matchless.hoistInvariantLoopLets only rewrites canonical recursion-loop conditions"
   ) {
-    val runMut = Matchless.LocalAnonMut(1040L)
-    val resultMut = Matchless.LocalAnonMut(1041L)
+    val runMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1040L)(Matchless.SourceInfo.empty)
+    val resultMut: Matchless.LocalAnonMut =
+      Matchless.LocalAnonMut(1041L)(Matchless.SourceInfo.empty)
     val z = Identifier.Name("z")
     val heavyName = Identifier.Name("hoist_cond")
     val heavyCall: Matchless.Expr[Unit] =
