@@ -1538,6 +1538,70 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval --run truncates Main exit code to low 32 bits") {
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Prog(), Main(), pure
+|
+|enum Prog[e, a]:
+|  Pure(value: a)
+|  Raise(err: e)
+|
+|struct Main(run: List[String] -> Prog[String, Int])
+|
+|def pure(a):
+|  Pure(a)
+|""".stripMargin
+    val appSrc =
+      """package Tool/Foo
+|
+|from Bosatsu/Prog import Main, Prog, pure
+|
+|main = Main(_ -> pure(2147483648))
+|""".stripMargin
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> progSrc,
+      Chain("src", "Tool", "Foo.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "tool",
+          "eval",
+          "--run",
+          "--main",
+          "Tool/Foo",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Bosatsu/Prog.bosatsu",
+          "--input",
+          "src/Tool/Foo.bosatsu"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.fromInt(Int.MinValue))
+        val errOutput = state.stdErr.render(200)
+        assert(
+          !errOutput.contains("expected Main to return an Int exit code"),
+          errOutput
+        )
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
   test("lib eval --run executes Bosatsu/Prog::Main and forwards trailing args") {
     val progSrc =
       """package Bosatsu/Prog
