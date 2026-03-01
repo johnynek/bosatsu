@@ -15,6 +15,7 @@ object ParserHints {
     elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
+      zeroArgDefRule ::
       missingColonAfterHeaderRule ::
       Nil
 
@@ -165,6 +166,41 @@ object ParserHints {
             )
           case _ =>
             None
+        }
+      }
+    }
+  }
+
+  private val zeroArgDefPrefix =
+    """\s*def\s+([_A-Za-z][_A-Za-z0-9]*)(?:\[[^\]]*\])?\s*\(\s*""".r
+
+  private def zeroArgDefRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (pos < 0 || pos > source.length || locations.toLineCol(pos).isEmpty) {
+      None
+    } else {
+      lineInfo(locations, pos).flatMap { case (_, col, line) =>
+        val atCloseParen = col >= 0 && col < line.length && line.charAt(col) == ')'
+        if (!atCloseParen) {
+          None
+        } else {
+          val before = line.take(col)
+          val after = line.drop(col + 1).dropWhile(_.isWhitespace)
+          before match {
+            case zeroArgDefPrefix(name)
+                if after.startsWith("->") || after.startsWith(":") =>
+              Some(
+                Doc.text(
+                  s"hint: zero-arg def syntax is not supported. Use `$name = ...` for values, or give def at least one parameter (for delayed calls: `def $name(_): ...` and `$name(())`)."
+                )
+              )
+            case _ =>
+              None
+          }
         }
       }
     }
