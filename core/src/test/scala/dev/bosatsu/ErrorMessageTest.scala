@@ -2452,6 +2452,42 @@ x = 1.0 + 2.0
   }
 
   test(
+    "explicit type annotations from dependencies still require type imports"
+  ) {
+    val libSrc =
+      """package Repro/Issue3/Lib
+        |
+        |export (P, mk, use)
+        |
+        |struct P(i: Int)
+        |
+        |def mk(i): P(i)
+        |
+        |def use(ps: List[P]) -> Int:
+        |  if ps matches []: 0
+        |  else: 1
+        |""".stripMargin
+
+    val mainSrc =
+      """package Repro/Issue3
+        |
+        |from Repro/Issue3/Lib import mk, use
+        |
+        |x = [mk(1), mk(2)]: List[P]
+        |""".stripMargin
+
+    evalFail(List(libSrc, mainSrc)) { case pe: PackageError =>
+      val message = pe.message(Map.empty, Colorize.None)
+      assert(
+        message.contains("Use of unimported type") ||
+          message.contains("unknown type: P"),
+        message
+      )
+      ()
+    }
+  }
+
+  test(
     "transitive inferred types still require explicit direct dependencies and deduplicate diagnostics"
   ) {
     val libSrc =
