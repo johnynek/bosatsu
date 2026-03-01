@@ -11,11 +11,13 @@ import org.typelevel.paiges.Doc
 import cats.syntax.all._
 import cats.data.Validated.Invalid
 import cats.data.Validated.Valid
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 
 trait PlatformIO[F[_], Path] {
   implicit def moduleIOMonad: MonadError[F, Throwable]
   implicit def parallelF: Parallel[F]
+  implicit def canPromiseF: CanPromise[F]
 
   implicit def pathArg: Argument[Path]
   implicit def pathOrdering: Ordering[Path]

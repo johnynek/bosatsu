@@ -6,6 +6,7 @@ import cats.data.{Chain, StateT, Validated}
 import com.monovore.decline.Argument
 import java.nio.charset.StandardCharsets
 import scala.collection.immutable.SortedMap
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.tool.Output
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import org.typelevel.paiges.Doc
@@ -188,8 +189,55 @@ object MemoryMain {
     new PlatformIO[StateF[G], Chain[String]] {
       type F[A] = StateT[G, State, A]
       type Path = Chain[String]
+
+      private sealed trait PromiseState[+A]
+      private object PromiseState {
+        final case class Empty[A]() extends PromiseState[A]
+        final case class Pending[A](run: F[A]) extends PromiseState[A]
+        final case class Done[A](result: Either[Throwable, A])
+            extends PromiseState[A]
+      }
+
+      private final class PromiseBox[A] {
+        private var state: PromiseState[A] = PromiseState.Empty()
+        def setPending(run: F[A]): Unit =
+          state = PromiseState.Pending(run)
+        def setDone(next: Either[Throwable, A]): Unit =
+          state = PromiseState.Done(next)
+        def get: PromiseState[A] = state
+      }
+
       def moduleIOMonad: MonadError[F, Throwable] = catsDefaultME
       val parallelF: cats.Parallel[F] = cats.Parallel.identity[F]
+      val canPromiseF: CanPromise[F] = new CanPromise[F] {
+        type Promise[A] = PromiseBox[A]
+
+        def delay[A](a: => A): F[A] =
+          moduleIOMonad.fromTry(scala.util.Try(a))
+
+        def unsafeNewPromise[A]: Promise[A] =
+          new PromiseBox[A]
+
+        def completeWith[A](p: Promise[A], fa: F[A]): F[Unit] =
+          delay(p.setPending(fa))
+
+        def wait[A](p: Promise[A]): F[A] =
+          p.get match {
+            case PromiseState.Done(result) =>
+              moduleIOMonad.fromEither(result)
+            case PromiseState.Pending(run) =>
+              run.attempt.flatMap { result =>
+                p.setDone(result)
+                moduleIOMonad.fromEither(result)
+              }
+            case PromiseState.Empty() =>
+              moduleIOMonad.raiseError(
+                new Exception(
+                  "invariant violation: waited on uninitialized promise"
+                )
+              )
+          }
+      }
       def pathOrdering = Chain.catsDataOrderForChain[String].toOrdering
       val pathArg: Argument[Path] =
         new Argument[Path] {

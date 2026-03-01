@@ -101,8 +101,7 @@ object Memoize {
           }
           .flatMap { case (prom, prevProm) =>
             if (prevProm eq null) {
-              val resF = fn(a, self)
-              canPromise.completeWith(prom, resF) *> resF
+              canPromise.completeWith(prom, fn(a, self)) *> canPromise.wait(prom)
             } else {
               canPromise.wait(prevProm)
             }

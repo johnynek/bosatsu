@@ -139,12 +139,33 @@ object RecursionCheck {
       likelyRenamedCall: Option[(Bindable, Int)]
   ) extends Error {
     def region = recurRegion
+    private def missingRecursiveCallMessage =
+      s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}"
+
+    private def likelyRenameMessage(calledName: Bindable, count: Int) = {
+      val occurrenceWord = if (count == 1) "occurrence" else "occurrences"
+      s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count $occurrenceWord)"
+    }
+
+    private val nonRecursiveRecurHint =
+      "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
+
     def message =
-      likelyRenamedCall match {
-        case Some((calledName, count)) =>
-          s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count occurrences)"
-        case None =>
-          s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}"
+      recurKind match {
+        case Declaration.MatchKind.Recur =>
+          likelyRenamedCall match {
+            case Some((calledName, count)) =>
+              s"$missingRecursiveCallMessage\n$nonRecursiveRecurHint\n${likelyRenameMessage(calledName, count)}"
+            case None =>
+              s"$missingRecursiveCallMessage\n$nonRecursiveRecurHint"
+          }
+        case _ =>
+          likelyRenamedCall match {
+            case Some((calledName, count)) =>
+              likelyRenameMessage(calledName, count)
+            case None =>
+              missingRecursiveCallMessage
+          }
       }
   }
 }
