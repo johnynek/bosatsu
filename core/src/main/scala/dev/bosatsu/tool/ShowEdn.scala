@@ -1540,7 +1540,22 @@ object ShowEdn {
   }
 
   private val showFormField = "$form"
+  private val listField = "$list"
+  private val vectorField = "$vec"
+  private val symbolField = "$sym"
+  private val stringField = "$str"
+  private val keywordField = "$kw"
   private val fallbackMapField = "$map"
+  private val reservedJsonFields: Set[String] =
+    Set(
+      showFormField,
+      listField,
+      vectorField,
+      symbolField,
+      stringField,
+      keywordField,
+      fallbackMapField
+    )
 
   private def decodeKeywordPairs(items: List[Edn]): Option[List[(String, Edn)]] = {
     @annotation.tailrec
@@ -1563,26 +1578,28 @@ object ShowEdn {
   private def uniqueKeys(keys: List[String]): Boolean =
     keys.toSet.size == keys.size
 
-  private def ednToJson(edn: Edn): Json =
+  private def canUsePlainJsonObject(keys: List[String]): Boolean =
+    uniqueKeys(keys) && !keys.exists(reservedJsonFields)
+
+  private[tool] def ednToJson(edn: Edn): Json =
     edn match {
       case _: ENil.type =>
         Json.JNull
       case EBool(value) =>
         Json.JBool(value)
       case EString(value) =>
-        Json.JString(value)
+        Json.JObject(List(stringField -> Json.JString(value)))
       case ESymbol(value) =>
         Json.JString(value)
       case EKeyword(value) =>
-        Json.JString(s":$value")
+        Json.JObject(List(keywordField -> Json.JString(value)))
       case EVector(items) =>
-        Json.JArray(items.map(ednToJson).toVector)
+        Json.JObject(
+          List(vectorField -> Json.JArray(items.map(ednToJson).toVector))
+        )
       case EList(ESymbol(form) :: rest) =>
         decodeKeywordPairs(rest) match {
-          case Some(items)
-              if !items.exists(_._1 == showFormField) && uniqueKeys(
-                items.map(_._1)
-              ) =>
+          case Some(items) if canUsePlainJsonObject(items.map(_._1)) =>
             Json.JObject(
               (showFormField -> Json.JString(form)) ::
                 items.map { case (k, v) =>
@@ -1598,7 +1615,9 @@ object ShowEdn {
         val keyValues = items.collect { case (EKeyword(k), v) =>
           (k, ednToJson(v))
         }
-        if ((keyValues.size == items.size) && uniqueKeys(keyValues.map(_._1)))
+        if ((keyValues.size == items.size) && canUsePlainJsonObject(
+            keyValues.map(_._1)
+          ))
           Json.JObject(keyValues)
         else
           Json.JObject(
@@ -1609,6 +1628,78 @@ object ShowEdn {
                 }.toVector)
             )
           )
+    }
+
+  private[tool] def jsonToEdn(json: Json): ErrorOr[Edn] =
+    json match {
+      case Json.JNull =>
+        Right(ENil)
+      case Json.JBool.True =>
+        Right(EBool(true))
+      case Json.JBool.False =>
+        Right(EBool(false))
+      case Json.JString(value) =>
+        Right(ESymbol(value))
+      case Json.JNumberStr(value) =>
+        err(s"cannot decode JSON number into EDN atom: $value")
+      case Json.JArray(items) =>
+        items.toList.traverse(jsonToEdn).map(EList(_))
+      case Json.JObject((`vectorField`, Json.JArray(items)) :: Nil) =>
+        items.toList.traverse(jsonToEdn).map(EVector(_))
+      case Json.JObject((`vectorField`, other) :: Nil) =>
+        err(s"invalid $vectorField field in JSON object: ${other.render}")
+      case Json.JObject((`stringField`, Json.JString(value)) :: Nil) =>
+        Right(EString(value))
+      case Json.JObject((`stringField`, other) :: Nil) =>
+        err(s"invalid $stringField field in JSON object: ${other.render}")
+      case Json.JObject((`symbolField`, Json.JString(value)) :: Nil) =>
+        Right(ESymbol(value))
+      case Json.JObject((`symbolField`, other) :: Nil) =>
+        err(s"invalid $symbolField field in JSON object: ${other.render}")
+      case Json.JObject((`keywordField`, Json.JString(value)) :: Nil) =>
+        Right(EKeyword(value))
+      case Json.JObject((`keywordField`, other) :: Nil) =>
+        err(s"invalid $keywordField field in JSON object: ${other.render}")
+      case Json.JObject((`listField`, Json.JArray(items)) :: Nil) =>
+        items.toList.traverse(jsonToEdn).map(EList(_))
+      case Json.JObject((`listField`, other) :: Nil) =>
+        err(s"invalid $listField field in JSON object: ${other.render}")
+      case Json.JObject((`fallbackMapField`, Json.JArray(entries)) :: Nil) =>
+        entries.toList
+          .traverse {
+            case Json.JArray(Vector(k, v)) =>
+              (jsonToEdn(k), jsonToEdn(v)).mapN((_, _))
+            case other =>
+              err[(Edn, Edn)](
+                s"invalid entry in $fallbackMapField array: ${other.render}"
+              )
+          }
+          .map(EMap(_))
+      case Json.JObject((`fallbackMapField`, other) :: Nil) =>
+        err(
+          s"invalid $fallbackMapField field in JSON object: ${other.render}"
+        )
+      case Json.JObject(items) =>
+        val byKey = items.toMap
+        byKey.get(showFormField) match {
+          case Some(Json.JString(form)) =>
+            items
+              .filterNot(_._1 == showFormField)
+              .traverse { case (k, v) =>
+                jsonToEdn(v).map(List(EKeyword(k), _))
+              }
+              .map(parts => EList(ESymbol(form) :: parts.flatten))
+          case Some(other) =>
+            err(
+              s"invalid $showFormField field in JSON object: ${other.render}"
+            )
+          case None =>
+            items
+              .traverse { case (k, v) =>
+                jsonToEdn(v).map((EKeyword(k), _))
+              }
+              .map(EMap(_))
+        }
     }
 
   private def showEdnValue(

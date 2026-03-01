@@ -578,25 +578,47 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   private def showJsonPackageNames(json: Json): List[String] =
+    def jsonNameAtom(value: Json): Option[String] =
+      value match {
+        case Json.JString(name) => Some(name)
+        case Json.JObject(("$sym", Json.JString(name)) :: Nil) =>
+          Some(name)
+        case _ => None
+      }
+
+    def jsonListLike(value: Json): Option[Vector[Json]] =
+      value match {
+        case Json.JArray(items) => Some(items)
+        case Json.JObject(("$vec", Json.JArray(items)) :: Nil) =>
+          Some(items)
+        case _ => None
+      }
+
     json match {
       case Json.JObject(fields) =>
         val byKey = fields.toMap
         assertEquals(byKey.get("$form"), Some(Json.JString("show")))
         byKey.get("packages") match {
-          case Some(Json.JArray(packs)) =>
+          case Some(packsJson) =>
+            val packs = jsonListLike(packsJson).getOrElse {
+              fail(s"expected show packages array, found: ${Some(packsJson)}")
+            }
             packs.toList.map {
               case Json.JObject(packFields) =>
                 val packMap = packFields.toMap
                 assertEquals(packMap.get("$form"), Some(Json.JString("package")))
                 packMap.get("name") match {
-                  case Some(Json.JString(name)) => name
+                  case Some(nameJson) =>
+                    jsonNameAtom(nameJson).getOrElse {
+                      fail(s"missing package name in ${Some(nameJson)}")
+                    }
                   case other                    => fail(s"missing package name in $other")
                 }
               case other =>
                 fail(s"expected package object, found: $other")
             }
-          case other =>
-            fail(s"expected show packages array, found: $other")
+          case None =>
+            fail("expected show packages array, found: None")
         }
       case other =>
         fail(s"expected show json object, found: $other")
