@@ -12,22 +12,11 @@ import cats.data.{
 import cats.implicits._
 
 import Expr._
-import Identifier.{Bindable, Constructor}
+import Identifier.Bindable
 
 object UnusedLetCheck {
 
-  enum UnusedKind derives CanEqual {
-    case Standard
-    case MatchesPatternBinding
-  }
-
-  case class UnusedBinding(
-      name: Bindable,
-      region: Region,
-      kind: UnusedKind
-  ) derives CanEqual
-
-  private type WriterChain[A] = Writer[Chain[UnusedBinding], A]
+  private type WriterChain[A] = Writer[Chain[(Bindable, Region)], A]
   private val ap = Applicative[WriterChain]
   private val empty: WriterChain[Set[Bindable]] =
     ap.pure(Set.empty)
@@ -41,39 +30,9 @@ object UnusedLetCheck {
       if (free(arg)) ap.pure(free - arg)
       else {
         // this arg is free:
-        ap.pure(free).tell(Chain.one(UnusedBinding(arg, reg, UnusedKind.Standard)))
+        ap.pure(free).tell(Chain.one((arg, reg)))
       }
     }
-
-  private def isLoweredMatchesExpr[A: HasRegion](
-      matchExpr: Expr.Match[A]
-  ): Boolean = {
-    def isBool(
-        expr: Expr[A],
-        cons: Constructor,
-        matchRegion: Region
-    ): Boolean =
-      expr match {
-        case Expr.Global(PackageName.PredefName, c: Constructor, _)
-            if (c == cons) && HasRegion.region(expr.tag).eqv(matchRegion) =>
-          true
-        case _ =>
-          false
-      }
-
-    val matchRegion = HasRegion.region(matchExpr.tag)
-
-    matchExpr.branches.toList match {
-      case first :: second :: Nil =>
-        first.guard.isEmpty &&
-        second.guard.isEmpty &&
-        (second.pattern == Pattern.WildCard) &&
-        isBool(first.expr, Constructor("True"), matchRegion) &&
-        isBool(second.expr, Constructor("False"), matchRegion)
-      case _ =>
-        false
-    }
-  }
 
   private def loop[A: HasRegion](
       e: Expr[A]
@@ -110,9 +69,8 @@ object UnusedLetCheck {
       case Global(_, _, _) | Literal(_, _) => empty
       case App(fn, args, _)                =>
         (loop(fn), args.traverse(loop(_))).mapN(_ ++ _.reduce)
-      case m @ Match(arg, branches, _) =>
+      case Match(arg, branches, _) =>
         val argCheck = loop(arg)
-        val isLoweredMatches = isLoweredMatchesExpr(m)
         // TODO: patterns need their own region (https://github.com/johnynek/bosatsu/issues/132)
         val branchRegions =
           NonEmptyList.fromListUnsafe(
@@ -130,9 +88,7 @@ object UnusedLetCheck {
           )
         val bcheck = branchRegions
           .zip(branches)
-          .toList
-          .zipWithIndex
-          .traverse { case ((region, branch), idx) =>
+          .traverse { case (region, branch) =>
             (
               branch.guard.traverse(loop).map(_.getOrElse(Set.empty[Bindable])),
               loop(branch.expr)
@@ -140,13 +96,8 @@ object UnusedLetCheck {
               val thisPatNames = branch.pattern.names
               val unused = thisPatNames.filterNot(frees)
               val nextFrees = frees -- thisPatNames
-              val kind =
-                if (isLoweredMatches && idx == 0)
-                  UnusedKind.MatchesPatternBinding
-                else UnusedKind.Standard
-              val errs = unused.map(UnusedBinding(_, region, kind))
 
-              ap.pure(nextFrees).tell(Chain.fromSeq(errs))
+              ap.pure(nextFrees).tell(Chain.fromSeq(unused.map((_, region))))
             }
           }
           .map(_.combineAll)
@@ -158,12 +109,12 @@ object UnusedLetCheck {
     */
   def check[A: HasRegion](
       e: Expr[A]
-  ): ValidatedNec[UnusedBinding, Unit] = {
+  ): ValidatedNec[(Bindable, Region), Unit] = {
     val (chain, _) = loop(e).run
-    val filtered = chain.filterNot(u => Identifier.isSynthetic(u.name))
-    NonEmptyList.fromList(filtered.toList.distinct) match {
+    val filtered = chain.filterNot { case (b, _) => Identifier.isSynthetic(b) }
+    NonEmptyChain.fromChain(filtered) match {
       case None      => Validated.valid(())
-      case Some(nel) => Validated.invalid(NonEmptyChain.fromNonEmptyList(nel))
+      case Some(nec) => Validated.invalid(nec.distinct)
     }
   }
 
