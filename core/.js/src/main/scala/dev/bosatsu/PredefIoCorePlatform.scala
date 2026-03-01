@@ -298,6 +298,7 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def asDurationNanos(v: Value): Either[Value, BigInteger] =
     v match {
+      case VInt(i) => Right(i)
       case p: ProductValue if p.values.length == 1 =>
         p.get(0) match {
           case VInt(i) => Right(i)
@@ -401,10 +402,12 @@ private[bosatsu] object PredefIoCorePlatform {
     SumValue(kindTag, UnitValue)
 
   private def instantValueFromNanos(nanos: BigInteger): Value =
-    ProductValue.single(VInt(nanos))
+    // Struct-1 values are represented as identity in the evaluator.
+    VInt(nanos)
 
   private def durationValueFromNanos(nanos: BigInteger): Value =
-    ProductValue.single(VInt(nanos))
+    // Struct-1 values are represented as identity in the evaluator.
+    VInt(nanos)
 
   private def readNodeBytes(
       handle: NodeHandle,
@@ -951,7 +954,8 @@ private[bosatsu] object PredefIoCorePlatform {
             .map(name => normalizePathString(nodePath.join(pathStr, name).asInstanceOf[String]))
             .toList
             .sorted
-            .map(str => ProductValue.single(Str(str)))
+            // Path is a struct-1 and represented as identity at runtime.
+            .map(Str(_))
           Right(Value.VList(list))
         } catch {
           case t: Throwable =>

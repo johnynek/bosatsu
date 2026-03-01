@@ -2271,7 +2271,8 @@ object PredefImpl {
                 while (iterator.hasNext) {
                   builder += normalizePathString(iterator.next().toString)
                 }
-                Right(builder.result().sorted.map(str => ProductValue.single(Str(str))))
+                // Path is a struct-1 and represented as identity at runtime.
+                Right(builder.result().sorted.map(Str(_)))
               } finally {
                 stream.close()
               }

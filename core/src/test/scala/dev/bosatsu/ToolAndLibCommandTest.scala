@@ -385,6 +385,69 @@ class ToolAndLibCommandTest extends FunSuite {
     )
   }
 
+  private val minimalProgModuleSrc: String =
+    """package Bosatsu/Prog
+|
+|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main())
+|
+|external struct Prog[err: +*, res: +*]
+|
+|external def pure[err, res](a: res) -> Prog[err, res]
+|external def raise_error[err, res](e: err) -> Prog[err, res]
+|external def flat_map(prog: Prog[err, res], fn: res -> Prog[err, res1]) -> Prog[err, res1]
+|
+|def map(prog: Prog[err, res], fn: res -> res1) -> Prog[err, res1]:
+|  prog.flat_map(res -> pure(fn(res)))
+|
+|external def recover(prog: Prog[err, res], fn: err -> Prog[err1, res]) -> Prog[err1, res]
+|
+|def map_err(prog: Prog[err, res], fn: err -> err1) -> Prog[err1, res]:
+|  prog.recover(res -> raise_error(fn(res)))
+|
+|def ignore_err[err, res](prog: Prog[err, res], default: res) -> forall e. Prog[e, res]:
+|  prog.recover(_ -> pure(default))
+|
+|external def apply_fix(a: a,
+|  fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
+|
+|def await(p, fn): p.flat_map(fn)
+|
+|def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err, b]):
+|  a -> apply_fix(a, fn)
+|
+|unit: forall err. Prog[err, ()] = pure(())
+|
+|struct Main(run: List[String] -> forall err. Prog[err, Int])
+|""".stripMargin
+
+  private val minimalIoErrorModuleSrc: String =
+    """package Bosatsu/IO/Error
+|
+|export IOError()
+|
+|enum IOError:
+|  InvalidArgument(context: String)
+|""".stripMargin
+
+  private def libFilesWithMinimalProgAndIoCore(
+      appPath: Chain[String],
+      appSrc: String,
+      ioCoreSrc: String
+  ): List[(Chain[String], String)] = {
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+
+    List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      appPath -> appSrc,
+      Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") -> minimalIoErrorModuleSrc,
+      Chain("repo", "src", "Bosatsu", "IO", "Core.bosatsu") -> ioCoreSrc
+    )
+  }
+
   private val bosatsuJsonModuleSrc: String =
     """package Bosatsu/Json
 |
@@ -1627,6 +1690,146 @@ class ToolAndLibCommandTest extends FunSuite {
           "repo",
           "--main",
           "MyLib/MinParensProbs",
+          "--run",
+          "p"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run handles now_wall instant newtype representation") {
+    val ioCoreSrc =
+      """package Bosatsu/IO/Core
+|
+|from Bosatsu/Prog import Prog
+|from Bosatsu/IO/Error import IOError
+|
+|export Instant, now_wall, instant_to_nanos
+|
+|struct Instant(epoch_nanos: Int)
+|
+|external now_wall: Prog[IOError, Instant]
+|
+|def instant_to_nanos(i: Instant) -> Int:
+|  Instant { epoch_nanos } = i
+|  epoch_nanos
+|""".stripMargin
+
+    val appSrc =
+      """package MyLib/NowWallRepr
+|
+|from Bosatsu/Prog import Prog, Main, await, pure, recover
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Core import Instant, now_wall, instant_to_nanos
+|
+|main = Main(_ -> (
+|  i <- now_wall.await()
+|  pure(mod_Int(instant_to_nanos(i), 1))
+|).recover(_ -> pure(1)))
+|""".stripMargin
+
+    val files = libFilesWithMinimalProgAndIoCore(
+      Chain("repo", "src", "MyLib", "NowWallRepr.bosatsu"),
+      appSrc,
+      ioCoreSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/NowWallRepr",
+          "--run",
+          "p"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run handles list_dir path newtype representation") {
+    val ioCoreSrc =
+      """package Bosatsu/IO/Core
+|
+|from Bosatsu/Prog import Prog
+|from Bosatsu/IO/Error import IOError
+|
+|export Path, string_to_Path, path_to_String, list_dir
+|
+|struct Path(to_String: String)
+|
+|def string_to_Path(raw: String) -> Path:
+|  Path(raw)
+|
+|def path_to_String(path: Path) -> String:
+|  Path { to_String } = path
+|  to_String
+|
+|external def list_dir(path: Path) -> Prog[IOError, List[Path]]
+|""".stripMargin
+
+    val appSrc =
+      """package MyLib/ListDirPathRepr
+|
+|from Bosatsu/Prog import Prog, Main, await, pure, recover
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Core import Path, string_to_Path, path_to_String, list_dir
+|
+|main = Main(_ -> (
+|  paths <- list_dir(string_to_Path(".")).await()
+|  match paths:
+|    case [h, *_]:
+|      _ = cmp_String(path_to_String(h), path_to_String(h))
+|      pure(0)
+|    case []:
+|      pure(1)
+|).recover(_ -> pure(1)))
+|""".stripMargin
+
+    val files = libFilesWithMinimalProgAndIoCore(
+      Chain("repo", "src", "MyLib", "ListDirPathRepr.bosatsu"),
+      appSrc,
+      ioCoreSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/ListDirPathRepr",
           "--run",
           "p"
         ),
