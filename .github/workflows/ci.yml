@@ -97,6 +97,10 @@ jobs:
         run: |
           sbt "coreJS/testOnly * -- --log=failure; jsapiJS/compile"
           sbt "jsuiJS/testOnly * -- --log=failure"
+      - name: "verify jsui browser bundle"
+        run: |
+          export NODE_OPTIONS=--openssl-legacy-provider
+          sbt "jsuiJS/fullOptJS::webpack"
     strategy:
       matrix:
         java:
