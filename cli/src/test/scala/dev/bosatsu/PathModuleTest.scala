@@ -175,7 +175,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         .toSeq*
     )
     out match {
-      case Output.TestOutput(results, _) =>
+      case Output.TestOutput(results, _, _) =>
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Bosatsu/Collection/Queue" =>
             t.value
@@ -192,7 +192,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         .toSeq*
     )
     out match {
-      case Output.TestOutput(results, _) =>
+      case Output.TestOutput(results, _, _) =>
         val res = results.collect {
           case (pn, Some(t)) if pn.asString == "Bar" => t.value
         }
@@ -351,7 +351,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         .toSeq*
     )
     out match {
-      case Output.TestOutput(res, _) =>
+      case Output.TestOutput(res, _, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
         assertEquals(noTests, Nil)
         val failures = res.collect {

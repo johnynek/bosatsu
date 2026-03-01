@@ -51,6 +51,17 @@ class ToolAndLibCommandTest extends FunSuite {
         } yield (nextState, stateOut._2, exitCode)
     }
 
+  private def runAndReportWithState(
+      cmd: List[String],
+      state: MemoryMain.State
+  ): ErrorOr[(MemoryMain.State, ExitCode)] =
+    module.run(cmd) match {
+      case Left(help) =>
+        Left(new Exception(s"got help: $help on command: $cmd"))
+      case Right(io) =>
+        module.report(io).run(state)
+    }
+
   private def readStringFile(
       state: MemoryMain.State,
       path: Chain[String]
@@ -567,25 +578,47 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   private def showJsonPackageNames(json: Json): List[String] =
+    def jsonNameAtom(value: Json): Option[String] =
+      value match {
+        case Json.JString(name) => Some(name)
+        case Json.JObject(("$sym", Json.JString(name)) :: Nil) =>
+          Some(name)
+        case _ => None
+      }
+
+    def jsonListLike(value: Json): Option[Vector[Json]] =
+      value match {
+        case Json.JArray(items) => Some(items)
+        case Json.JObject(("$vec", Json.JArray(items)) :: Nil) =>
+          Some(items)
+        case _ => None
+      }
+
     json match {
       case Json.JObject(fields) =>
         val byKey = fields.toMap
         assertEquals(byKey.get("$form"), Some(Json.JString("show")))
         byKey.get("packages") match {
-          case Some(Json.JArray(packs)) =>
+          case Some(packsJson) =>
+            val packs = jsonListLike(packsJson).getOrElse {
+              fail(s"expected show packages array, found: ${Some(packsJson)}")
+            }
             packs.toList.map {
               case Json.JObject(packFields) =>
                 val packMap = packFields.toMap
                 assertEquals(packMap.get("$form"), Some(Json.JString("package")))
                 packMap.get("name") match {
-                  case Some(Json.JString(name)) => name
+                  case Some(nameJson) =>
+                    jsonNameAtom(nameJson).getOrElse {
+                      fail(s"missing package name in ${Some(nameJson)}")
+                    }
                   case other                    => fail(s"missing package name in $other")
                 }
               case other =>
                 fail(s"expected package object, found: $other")
             }
-          case other =>
-            fail(s"expected show packages array, found: $other")
+          case None =>
+            fail("expected show packages array, found: None")
         }
       case other =>
         fail(s"expected show json object, found: $other")
@@ -4244,7 +4277,7 @@ main = 0
     }
   }
 
-  test("lib fetch fails on dependency download issues and reports details") {
+  test("lib fetch reports network failures with detailed reason") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
@@ -4263,22 +4296,187 @@ main = 0
           "--hash",
           validHash2,
           "--uri",
-          "https://example.com/dep_with_uri.bosatsu_lib",
+          "https://example.com/network.bosatsu_lib",
           "--public",
           "--no-fetch"
         ),
         s0
       )
       (state1, _) = s1
-      s2 <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state1)
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
     } yield s2
 
     result match {
-      case Right((_, out)) =>
-        fail(s"expected lib fetch failure, got: $out")
       case Left(err) =>
-        val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("failed to fetch"), msg)
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("failed: blake3:222"), errOutput)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("uri=https://example.com/network.bosatsu_lib"), errOutput)
+        assert(errOutput.contains("reason=network error"), errOutput)
+        assert(errOutput.contains("message=connection reset by peer"), errOutput)
+    }
+  }
+
+  test("lib fetch reports hash mismatch with expected and found hashes") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_hash_mismatch",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/hash-mismatch.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("reason=hash mismatch"), errOutput)
+        assert(errOutput.contains(show"expected=$validHash2"), errOutput)
+        assert(
+          errOutput.contains("found=blake3:0000000000000000000000000000000000000000000000000000000000000000"),
+          errOutput
+        )
+    }
+  }
+
+  test("lib fetch reports http status failures") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_http_404",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/404.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("reason=http status"), errOutput)
+        assert(errOutput.contains("status=404 Not Found"), errOutput)
+    }
+  }
+
+  test("lib fetch uses grammatical singular and plural failure wording") {
+    val files = baseLibFiles("main = 1\n")
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_one_failure",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash2,
+          "--uri",
+          "https://example.com/network.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep_two_failures",
+          "--version",
+          "0.0.1",
+          "--hash",
+          validHash3,
+          "--uri",
+          "https://example.com/404-first.bosatsu_lib",
+          "--uri",
+          "https://example.com/network-second.bosatsu_lib",
+          "--public",
+          "--no-fetch"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runAndReportWithState(
+        List("lib", "fetch", "--repo_root", "repo"),
+        state2
+      )
+    } yield s3
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(errOutput.contains("download failed (1 failure)"), errOutput)
+        assert(errOutput.contains("download failed (2 failures)"), errOutput)
     }
   }
 
@@ -4446,6 +4644,37 @@ main = 0
   }
 
   test(
+    "lib test runs runtime readiness preflight before executing tests"
+  ) {
+    val targetSrc =
+      """test_one = Assertion(True, "ok")
+"""
+    val files =
+      baseLibFiles(targetSrc) :+ (
+        Chain(".", ".git", "HEAD") -> "ref: refs/heads/main\n"
+      )
+
+    module.runWith(files)(
+      List("lib", "test", "--repo_root", "repo")
+    ) match {
+      case Right(out) =>
+        fail(s"expected preflight failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(
+          msg.contains(
+            "runtime readiness preflight failed before running `lib test`"
+          ),
+          msg
+        )
+        assert(msg.contains("missing default c runtime config"), msg)
+        assert(msg.contains("expected artifact: cc_conf.json"), msg)
+        assert(msg.contains("runtime hash:"), msg)
+        assert(!msg.contains("system not supported in memory mode"), msg)
+    }
+  }
+
+  test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
@@ -4538,6 +4767,72 @@ main = 0
       case Right(other)              => fail(s"unexpected output: $other")
       case Left(err)                 =>
         fail(Option(err.getMessage).getOrElse(err.toString))
+    }
+  }
+
+  test("tool test --quiet sets quiet mode in output") {
+    val src =
+      """tests = TestSuite("quiet", [
+|  Assertion(True, "pass one")
+|])
+|""".stripMargin
+
+    module.runWith(List(Chain("Package0") -> src))(
+      List(
+        "tool",
+        "test",
+        "--quiet",
+        "--test_package",
+        "Package0",
+        "--package_root",
+        "",
+        "--input",
+        "Package0"
+      )
+    ) match {
+      case Right(Output.TestOutput(_, _, quiet)) =>
+        assert(quiet)
+      case Right(other) =>
+        fail(s"expected test output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool test --quiet only prints failures and summary") {
+    val src =
+      """tests = TestSuite("quiet", [
+|  Assertion(True, "pass one"),
+|  Assertion(False, "boom")
+|])
+|""".stripMargin
+    val cmd = List(
+      "tool",
+      "test",
+      "--quiet",
+      "--test_package",
+      "Package0",
+      "--package_root",
+      "",
+      "--input",
+      "Package0"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](List(Chain("Package0") -> src))
+      out <- runWithStateAndExit(cmd, s0)
+    } yield out
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _, exitCode)) =>
+        val out = state.stdOut.render(120)
+        assertEquals(exitCode, ExitCode.Error)
+        assert(out.contains("boom"), out)
+        assert(out.contains("passed"), out)
+        assert(out.contains("failed"), out)
+        assert(!out.contains("pass one"), out)
     }
   }
 

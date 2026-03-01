@@ -387,12 +387,27 @@ object MemoryMain {
           hash: HashValue[A],
           path: Path,
           uri: String
-      ): F[Unit] =
-        moduleIOMonad.raiseError(
-          new Exception(
-            s"fetchHash($algo, $hash, $path, $uri) not implemented yet."
-          )
-        )
+      ): F[Either[PlatformIO.FetchHashFailure, Unit]] = {
+        val expected = hash.toIdent(using algo)
+        val failure =
+          if (uri.contains("hash-mismatch")) {
+            PlatformIO.FetchHashFailure.HashMismatch(
+              uri,
+              expected,
+              s"${algo.name}:${"0" * hash.hex.length}"
+            )
+          } else if (uri.contains("404")) {
+            PlatformIO.FetchHashFailure.HttpStatus(uri, "404 Not Found")
+          } else if (uri.contains("network")) {
+            PlatformIO.FetchHashFailure.Network(uri, "connection reset by peer")
+          } else {
+            PlatformIO.FetchHashFailure.Network(
+              uri,
+              s"fetchHash($algo, $hash, $path, $uri) not implemented yet."
+            )
+          }
+        moduleIOMonad.pure(Left(failure))
+      }
 
       def unfoldDir(path: Path): F[Option[F[List[Path]]]] =
         StateT

@@ -22,7 +22,13 @@ object TestCommand {
       commonOpts.privateDependencyOpts,
       commonOpts.compileCacheDirOpt,
       commonOpts.testIdentifiersOpt,
-      Colorize.optsConsoleDefault
+      Colorize.optsConsoleDefault,
+      Opts
+        .flag(
+          "quiet",
+          help = "only print failure details and final test summary"
+        )
+        .orFalse
     ).mapN {
       (
           srcs,
@@ -32,7 +38,8 @@ object TestCommand {
           privateDependencies,
           compileCacheDirOpt,
           testPacks,
-          errColor
+          errColor,
+          quiet
       ) =>
         platformIO.withEC {
           for {
@@ -73,7 +80,7 @@ object TestCommand {
               }
               else res0
 
-            (Output.TestOutput(res, errColor): Output[Path])
+            (Output.TestOutput(res, errColor, quiet): Output[Path])
           }
         }
     }

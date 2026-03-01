@@ -550,9 +550,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           case Lit.Str(toStr) => StringApi.fromString(toStr)
           case f: Lit.Float64 =>
+            val rawBits = BigInt(java.lang.Long.toUnsignedString(f.toRawLongBits))
             pv(
               Code.Ident("bsts_float64_from_bits")(
-                Code.IntLiteral(BigInt(f.toRawLongBits))
+                Code.Ident("UINT64_C")(Code.IntLiteral(rawBits))
               )
             )
         }
@@ -1403,24 +1404,33 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 init_statics();
                 atexit(free_statics);
 
+                _Bool quiet = bsts_test_argv_has_quiet(argc, argv);
                 BSTS_Test_Result[size] results;
-                results[0] = bsts_test_run(pack[0], testVal[0]);
+                results[0] = bsts_test_run(pack[0], testVal[0], quiet);
                 ...
                 int code = bsts_test_result_print_summary(size, results);
                 return code;
               }
                  */
                 val results = Code.Ident("results")
+                val quiet = Code.Ident("quiet")
+                val quietFn = Code.Ident("bsts_test_argv_has_quiet")
                 val runFn = Code.Ident("bsts_test_run")
                 val summaryFn = Code.Ident("bsts_test_result_print_summary")
                 val testCount = packVals.length
                 val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
-                  results.bracket(Code.IntLiteral(idx)) := runFn(n, tv)
+                  results.bracket(Code.IntLiteral(idx)) := runFn(n, tv, quiet)
                 }
                 val header = Code.Statements(
                   Code.Ident("GC_init")().stmt,
                   Code.Ident("init_statics")().stmt,
                   Code.Ident("atexit")(Code.Ident("free_statics")).stmt,
+                  Code.DeclareVar(
+                    Nil,
+                    Code.TypeIdent.Bool,
+                    quiet,
+                    Some(quietFn(Code.Ident("argc"), Code.Ident("argv")))
+                  ),
                   Code.DeclareArray(
                     Code.TypeIdent.Named("BSTS_Test_Result"),
                     results,

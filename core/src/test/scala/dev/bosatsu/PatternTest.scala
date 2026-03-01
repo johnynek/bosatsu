@@ -158,6 +158,30 @@ class PatternTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("definitelyTotal detects obvious total patterns") {
+    val n = Identifier.Name("n")
+
+    assert(Pattern.Var(n).definitelyTotal)
+    assert(Pattern.WildCard.definitelyTotal)
+    assert(Pattern.Named(n, Pattern.WildCard).definitelyTotal)
+    assert(Pattern.Annotation(Pattern.Var(n), "Type").definitelyTotal)
+    assert(
+      Pattern.ListPat(List(Pattern.ListPart.NamedList(n))).definitelyTotal
+    )
+    assert(
+      Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.NamedStr(n))).definitelyTotal
+    )
+    assert(
+      Pattern
+        .union(Pattern.Literal(Lit.fromInt(1)), Pattern.Var(n) :: Nil)
+        .definitelyTotal
+    )
+
+    assert(!Pattern.PositionalStruct("Foo", Nil).definitelyTotal)
+    assert(!Pattern.ListPat(List(Pattern.ListPart.Item(Pattern.WildCard))).definitelyTotal)
+    assert(!Pattern.StrPat(NonEmptyList.one(Pattern.StrPart.WildChar)).definitelyTotal)
+  }
+
   test("substitute identity is identity") {
     forAll(patGen, Gen.listOf(Generators.bindIdentGen)) { (p, list) =>
       assertEquals(p.substitute(list.map(b => (b, b)).toMap), p)

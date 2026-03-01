@@ -106,7 +106,11 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
     Par.withEC {
       val values = rootDl.lib.implementations.testValues.toList.sorted
       ClangGen(rootDl).renderTests(values) match {
-        case Right(_)  => ()
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("bsts_test_argv_has_quiet"), rendered)
+          assert(rendered.contains("bsts_test_run"), rendered)
+          assert(rendered.contains("quiet"), rendered)
         case Left(err) =>
           fail(err.display.render(80))
       }

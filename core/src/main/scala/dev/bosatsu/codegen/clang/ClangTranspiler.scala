@@ -70,7 +70,8 @@ case object ClangTranspiler extends Transpiler {
     case class Test[F[_]](
         filter: Option[PackageName => Boolean],
         filterRegexes: NonEmptyList[String],
-        execute: Boolean
+        execute: Boolean,
+        quiet: Boolean
     ) extends Mode[F]("test") {
       def values[K](
           ns: CompilationNamespace[K]
@@ -91,19 +92,26 @@ case object ClangTranspiler extends Transpiler {
             help = "regular expression to filter package names"
           )
           .orNone,
-        executeOpts
+        executeOpts,
+        Opts
+          .flag(
+            "quiet",
+            help = "only print failure details and final test summary"
+          )
+          .orFalse
       ).tupled
         .mapValidated {
-          case (None, e) =>
-            Validated.valid(Test(None, NonEmptyList.one(".*"), e))
-          case (Some(res), e) =>
+          case (None, execute, quiet) =>
+            Validated.valid(Test(None, NonEmptyList.one(".*"), execute, quiet))
+          case (Some(res), execute, quiet) =>
             Try(res.map(RegexPat.compile(_))) match {
               case Success(pats) =>
                 Validated.valid(
                   Test(
                     Some(pn => pats.exists(_.matcher(pn.asString).matches())),
                     res,
-                    e
+                    execute,
+                    quiet
                   )
                 )
               case Failure(e) =>
@@ -181,8 +189,12 @@ case object ClangTranspiler extends Transpiler {
           case res @ (None | Some(PlatformIO.FSDataType.Dir)) =>
             moduleIOMonad.raiseError[Unit](
               CliException.Basic(
-                show"expected a CcConf json file at $confPath but found: ${res.toString}.\n\n" +
-                  "Perhaps you need to run `bosatsu c-runtime install` (or `make install` in c_runtime)"
+                show"missing default c runtime config before C compilation.\n" +
+                  show"runtime hash: $gitSha\n" +
+                  "expected artifact: cc_conf.json\n" +
+                  show"expected path: $confPath\n" +
+                  show"found: ${res.toString}.\n\n" +
+                  "Run `bosatsu c-runtime install` (or `make install` in c_runtime)."
               )
             )
         }
@@ -433,7 +445,7 @@ case object ClangTranspiler extends Transpiler {
                       )
                 })
               }
-            case test @ Mode.Test(_, re, execute) =>
+            case test @ Mode.Test(_, re, execute, quiet) =>
               val tvs = test.values(ns)
               (if (tvs.isEmpty) {
                  moduleIOMonad.raiseError(
@@ -447,8 +459,9 @@ case object ClangTranspiler extends Transpiler {
                  val exeIO = args.output match {
                    case Output(_, _, Some((exeName, _)), _, _) if execute =>
                      val exePath = args.platformIO.resolve(args.outDir, exeName)
+                     val exeArgs = if (quiet) "--quiet" :: Nil else Nil
                      args.platformIO
-                       .system(args.platformIO.showPath.show(exePath), Nil)
+                       .system(args.platformIO.showPath.show(exePath), exeArgs)
                        .handleErrorWith {
                          case _: CliException =>
                            moduleIOMonad.raiseError(TestExecutionFailed)

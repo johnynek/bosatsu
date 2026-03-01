@@ -480,6 +480,8 @@ final class SourceConverter(
         // match x:
         //   p: True
         //   _: False
+        val hasPatternBindings = p.names.nonEmpty
+        val isDefinitelyTotal = p.definitelyTotal
         val True: Expr[Declaration] =
           Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
         val False: Expr[Declaration] = Expr.Global(
@@ -487,11 +489,34 @@ final class SourceConverter(
           Identifier.Constructor("False"),
           m
         )
-        (loop(a), convertPattern(p, m.region)).mapN { (a, p) =>
-          val branches = NonEmptyList(
-            Expr.Branch(p, None, True),
-            Expr.Branch(Pattern.WildCard, None, False) :: Nil
-          )
+        val checkedPattern =
+          if (hasPatternBindings || isDefinitelyTotal) {
+            val p0 = convertPattern(p, m.region).map(_.unbind)
+            val withBindingErr =
+              if (hasPatternBindings) {
+                SourceConverter.addErrorKeepGoing(
+                  p0,
+                  SourceConverter.MatchesPatternBinding(p, m.region)
+                )
+              } else p0
+            if (isDefinitelyTotal) {
+              SourceConverter.addErrorKeepGoing(
+                withBindingErr,
+                SourceConverter.MatchesPatternAlwaysTrue(p, m.region)
+              )
+            } else withBindingErr
+          } else convertPattern(p, m.region)
+
+        (loop(a), checkedPattern).mapN { (a, p) =>
+          val branches =
+            if (isDefinitelyTotal) {
+              NonEmptyList.one(Expr.Branch(Pattern.WildCard, None, True))
+            } else {
+              NonEmptyList(
+                Expr.Branch(p, None, True),
+                Expr.Branch(Pattern.WildCard, None, False) :: Nil
+              )
+            }
           Expr.Match(a, branches, m)
         }
       case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
@@ -2616,6 +2641,34 @@ object SourceConverter {
       val str = names.toList.map(_.sourceCodeRepr).mkString(", ")
       "repeated bindings in pattern: " + str
     }
+  }
+
+  final case class MatchesPatternBinding(
+      pattern: Pattern.Parsed,
+      region: Region
+  ) extends Error {
+    def message =
+      (Doc.text(
+        "`matches` uses pattern matching and this pattern introduces bindings:"
+      ) + Doc.line + Document[Pattern.Parsed].document(pattern) + Doc.line + Doc
+        .text(
+          "use explicit equality (for example `eq_String`) if comparison was intended."
+        ))
+        .render(80)
+  }
+
+  final case class MatchesPatternAlwaysTrue(
+      pattern: Pattern.Parsed,
+      region: Region
+  ) extends Error {
+    def message =
+      (Doc.text(
+        "`matches` pattern is definitely total, so this expression is always `True`:"
+      ) + Doc.line + Document[Pattern.Parsed].document(pattern) + Doc.line + Doc
+        .text(
+          "use explicit equality if comparison was intended, or a more specific pattern."
+        ))
+        .render(80)
   }
 
   sealed abstract class ConstructorSyntax {

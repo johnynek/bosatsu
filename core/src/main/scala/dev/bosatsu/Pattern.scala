@@ -21,6 +21,27 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
   def mapType[U](fn: T => U): Pattern[N, U] =
     (new Pattern.InvariantPattern(this)).traverseType[cats.Id, U](fn)
 
+  /** Syntactic check for patterns that are guaranteed to match any value.
+    * This is intentionally conservative and does not consult type information.
+    */
+  lazy val definitelyTotal: Boolean =
+    this match {
+      case Pattern.WildCard | Pattern.Var(_) =>
+        true
+      case Pattern.Named(_, p) =>
+        p.definitelyTotal
+      case Pattern.Annotation(p, _) =>
+        p.definitelyTotal
+      case Pattern.Union(h, t) =>
+        h.definitelyTotal || t.exists(_.definitelyTotal)
+      case sp @ Pattern.StrPat(_) =>
+        sp.isTotal
+      case lp @ Pattern.ListPat(_) =>
+        lp.toSeqPattern.matchesAny
+      case Pattern.Literal(_) | Pattern.PositionalStruct(_, _) =>
+        false
+    }
+
   /** List all the names that are bound in Vars inside this pattern in the left
     * to right order they are encountered, without any duplication
     */

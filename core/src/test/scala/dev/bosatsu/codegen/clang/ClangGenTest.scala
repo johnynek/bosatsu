@@ -450,6 +450,27 @@ main = 1.5
     }
   }
 
+  test("float literals with sign bit use unsigned bit literals") {
+    TestUtils.checkPackageMap("""
+main = -0.0
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("UINT64_C(9223372036854775808)"))
+      }
+    }
+  }
+
   test("float literal pattern matching uses float equality helper") {
     TestUtils.checkPackageMap("""
 def is_one(x):

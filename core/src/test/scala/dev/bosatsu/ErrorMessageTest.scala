@@ -89,6 +89,30 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("matches identifier binding is reported as a source-converter error") {
+    evalFail(List("""
+package MatchesBinding
+
+main = int_to_String(42) matches str
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "`matches` uses pattern matching and this pattern introduces bindings:"
+        ),
+        msg
+      )
+      assert(
+        msg.contains(
+          "`matches` pattern is definitely total, so this expression is always `True`:"
+        ),
+        msg
+      )
+      assert(msg.contains("use explicit equality"), msg)
+      ()
+    }
+  }
+
   test("shadowed binding type mismatch has a focused message") {
     val source =
       """package Shadowed
@@ -2268,6 +2292,61 @@ main = xxfoo
       val message = kie.message(Map.empty, Colorize.None)
       assert(message.contains("Unknown name `xxfoo`."))
       assert(message.contains("Did you mean local value `foo`?"))
+      ()
+    }
+  }
+
+  test("unknown operator suggestions exclude unrelated local operators") {
+    val testCode = List("""
+package Repro/Issue2
+
+def operator +(a, b): a
+def operator *(a, b): a
+
+x = 1 << 2
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator <<`."), message)
+      assert(
+        message.contains("Bosatsu/Predef::shift_left_Int"),
+        message
+      )
+      assert(!message.contains("local value `operator *`"), message)
+      assert(!message.contains("local value `operator +`"), message)
+      ()
+    }
+  }
+
+  test("unknown operator + with Int literals hints add") {
+    val testCode = List("""
+package Repro/Issue2
+
+x = 1 + 2
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator +`."), message)
+      assert(message.contains("Bosatsu/Predef::add."), message)
+      assert(!message.contains("Bosatsu/Predef::add or addf"), message)
+      ()
+    }
+  }
+
+  test("unknown operator + with Float64 literals hints addf") {
+    val testCode = List("""
+package Repro/Issue2
+
+x = 1.0 + 2.0
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator +`."), message)
+      assert(message.contains("Bosatsu/Predef::addf."), message)
+      assert(!message.contains("Bosatsu/Predef::add or addf"), message)
       ()
     }
   }
