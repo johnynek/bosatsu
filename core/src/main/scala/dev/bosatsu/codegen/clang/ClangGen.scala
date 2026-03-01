@@ -550,9 +550,10 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           case Lit.Str(toStr) => StringApi.fromString(toStr)
           case f: Lit.Float64 =>
+            val rawBits = BigInt(java.lang.Long.toUnsignedString(f.toRawLongBits))
             pv(
               Code.Ident("bsts_float64_from_bits")(
-                Code.IntLiteral(BigInt(f.toRawLongBits))
+                Code.Ident("UINT64_C")(Code.IntLiteral(rawBits))
               )
             )
         }
