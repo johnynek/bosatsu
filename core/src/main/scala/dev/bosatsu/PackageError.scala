@@ -45,6 +45,9 @@ object PackageError {
   private def quoted(ident: Identifier): Doc =
     Doc.char('`') + Doc.text(ident.sourceCodeRepr) + Doc.char('`')
 
+  private def quotedPackageName(pn: PackageName): Doc =
+    Doc.char('`') + Doc.text(pn.asString) + Doc.char('`')
+
   private def suggestedName(
       ident: Identifier,
       label: Option[String]
@@ -138,16 +141,65 @@ object PackageError {
   }
 
   private val importWithRegionParser: P[
-    (PackageName, NonEmptyList[(Region, ImportedName[Unit])])
+    (
+        (Region, PackageName),
+        NonEmptyList[(Region, ImportedName[Unit])]
+    )
   ] = {
     import Parser.Combinators
 
     val pyimps = ImportedName.parser.region.itemsMaybeParens.map(_._2)
 
     (
-      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser <* Parser.spaces,
+      (P.string("from") ~ Parser.spaces).backtrack *> PackageName.parser.region <* Parser.spaces,
       P.string("import") *> Parser.spaces *> pyimps
     ).tupled
+  }
+
+  private def shiftedRegion(region: Region, amount: Int): Region =
+    Region(region.start + amount, region.end + amount)
+
+  private case class ImportRegions(
+      packageRegion: Region,
+      importedNames: NonEmptyList[(Region, ImportedName[Unit])]
+  )
+
+  private def findImportRegions(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Option[ImportRegions] = {
+    val source = sourceMap.getMapSrc(importingPackage)._1.fromString
+
+    var startAt = 0
+    var result: Option[ImportRegions] = None
+    while (startAt >= 0 && result.isEmpty) {
+      val idx = source.indexOf("from", startAt)
+      if (idx < 0) {
+        startAt = -1
+      } else {
+        if (startsLineToken(source, idx)) {
+          importWithRegionParser.parse(source.substring(idx)) match {
+            case Right((_, ((packRegion, `importedPackage`), imports))) =>
+              val shiftedImports =
+                imports.map { case (region, imported) =>
+                  (shiftedRegion(region, idx), imported)
+                }
+              result = Some(
+                ImportRegions(
+                  shiftedRegion(packRegion, idx),
+                  shiftedImports
+                )
+              )
+            case _ =>
+              ()
+          }
+        }
+        startAt = idx + 4
+      }
+    }
+
+    result
   }
 
   private def startsLineToken(source: String, idx: Int): Boolean = {
@@ -170,34 +222,27 @@ object PackageError {
       importingPackage: PackageName,
       importedPackage: PackageName,
       importedName: Identifier
-  ): Option[Region] = {
-    val source = sourceMap.getMapSrc(importingPackage)._1.fromString
+  ): Option[Region] =
+    findImportRegions(sourceMap, importingPackage, importedPackage)
+      .flatMap(_.importedNames.toList.collectFirst {
+        case (region, imported) if imported.originalName == importedName =>
+          region
+      })
 
-    var startAt = 0
-    var result: Option[Region] = None
-    while (startAt >= 0 && result.isEmpty) {
-      val idx = source.indexOf("from", startAt)
-      if (idx < 0) {
-        startAt = -1
-      } else {
-        if (startsLineToken(source, idx)) {
-          importWithRegionParser.parse(source.substring(idx)) match {
-            case Right((_, (`importedPackage`, imports))) =>
-              result = imports.toList.collectFirst {
-                case (region, imported)
-                    if imported.originalName == importedName =>
-                  Region(region.start + idx, region.end + idx)
-              }
-            case _ =>
-              ()
-          }
-        }
-        startAt = idx + 4
-      }
-    }
+  private def findImportPackageRegion(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Option[Region] =
+    findImportRegions(sourceMap, importingPackage, importedPackage)
+      .map(_.packageRegion)
 
-    result
-  }
+  private def unknownImportPackageHint(pack: PackageName): Doc =
+    Doc.text("Hint: add source containing package ") +
+      quotedPackageName(pack) +
+      Doc.text(
+        " to --input/--input_dir (and verify --package_root), or include a dependency library with --pub_dep/--priv_dep. Also check for package-name typos."
+      )
 
   case class UnknownExport[A](
       ex: ExportedName[A],
@@ -261,8 +306,24 @@ object PackageError {
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
-      val (_, sourceName) = sourceMap.getMapSrc(fromName)
-      s"in $sourceName package ${fromName.asString} imports unknown package ${pack.asString}"
+      val region = findImportPackageRegion(sourceMap, fromName, pack)
+      val (lm, _) = sourceMap.getMapSrc(fromName)
+      val context =
+        region.map { r =>
+          lm.showRegion(r, 2, errColor).getOrElse(Doc.str(r.show))
+        }
+      val base =
+        sourceMap.headLine(fromName, region) + Doc.hardLine +
+          Doc.text("Unknown package ") + quotedPackageName(pack) +
+          Doc.text(" in import.")
+      (context match {
+        case Some(ctx) =>
+          base + Doc.hardLine + ctx + Doc.hardLine + unknownImportPackageHint(
+            pack
+          )
+        case None =>
+          base + Doc.hardLine + unknownImportPackageHint(pack)
+      }).render(80)
     }
   }
 
