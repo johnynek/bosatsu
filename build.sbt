@@ -405,7 +405,13 @@ lazy val jsui =
         )
     )
     .jsSettings(
-      scalaJSUseMainModuleInitializer := true
+      scalaJSUseMainModuleInitializer := true,
+      Compile / fastOptJS / webpackConfigFile := Some(
+        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
+      ),
+      Compile / fullOptJS / webpackConfigFile := Some(
+        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
+      )
     )
     .enablePlugins(ScalaJSPlugin)
     .enablePlugins(ScalaJSBundlerPlugin)
