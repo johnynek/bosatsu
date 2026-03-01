@@ -52,11 +52,11 @@ object Store {
           "html"
         )
         val handler: HandlerFn = {
-          case Output.TestOutput(resMap, color) =>
+          case Output.TestOutput(resMap, color, quiet) =>
             val evaluatedTests = resMap.map { case (p, opt) =>
               (p, opt.map(_.value))
             }
-            val testReport = Test.outputFor(evaluatedTests, color)
+            val testReport = Test.outputFor(evaluatedTests, color, quiet)
             testReport.doc.render(80)
           case other =>
             s"internal error. got unexpected result: $other"
