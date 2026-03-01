@@ -92,7 +92,7 @@ object CompilerApi {
   )(implicit
       ec: Par.EC
   ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
-    import platformIO.{moduleIOMonad, parallelF}
+    import platformIO.{canPromiseF, moduleIOMonad, parallelF}
 
     for {
       ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)

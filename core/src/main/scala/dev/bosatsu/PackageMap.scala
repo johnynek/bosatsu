@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import dev.bosatsu.graph.{Dag, Memoize, Toposort}
+import dev.bosatsu.graph.{CanPromise, Dag, Memoize, Toposort}
 import cats.{Foldable, Monad, Parallel, Show}
 import cats.data.{
   Ior,
@@ -421,7 +421,7 @@ object PackageMap {
     )
   }
 
-  def inferAll[F[_]: Monad: Parallel](
+  def inferAll[F[_]: Monad: Parallel: CanPromise](
       ps: Resolved,
       compileOptions: CompileOptions,
       cache: InferCache[F],
@@ -447,140 +447,169 @@ object PackageMap {
         .toList
         .distinct
 
-    val layers: Vector[NonEmptyList[PackageName]] = Toposort
+    val isDag = Toposort
       .sort(resolvedByName.keys)(nm => sourceDeps(resolvedByName(nm)))
       .toSuccess
-      .getOrElse {
-        sys.error("invariant violation: resolved package graph has a cycle")
-      }
+      .isDefined
 
-    def inferPack(
-        pack: ResolvedU,
-        depResults: SortedMap[PackageName, ErrorOr[Package.Inferred]]
-    ): F[ErrorOr[Package.Inferred]] =
-      pack match {
-        case Package(nm, imports, exports, (stmt, imps)) =>
-          def depPackResult(depPack: ResolvedU): ErrorOr[Package.Inferred] =
-            depResults.get(depPack.name).expect {
-              s"invariant violation: missing dependency result for ${depPack.name}"
-            }
-
-          val parsedForKey: Package.Parsed =
-            Package(
-              nm,
-              imports.map(i => Import(i.pack.name, i.items)),
-              exports,
-              stmt
-            )
-
-          val depInterfaces: ErrorOr[SortedMap[PackageName, Package.Interface]] =
-            imports.foldLeft(
-              Ior.right[NonEmptyList[PackageError], SortedMap[
-                PackageName,
-                Package.Interface
-              ]](SortedMap.empty)
-            ) { (acc, imp) =>
-              val next: ErrorOr[(PackageName, Package.Interface)] =
-                Package.unfix(imp.pack) match {
-                  case Right(depPack) =>
-                    depPackResult(depPack).map { typedDep =>
-                      typedDep.name -> phases.dependencyInterface(typedDep)
-                    }
-                  case Left(iface)    =>
-                    Ior.right(iface.name -> iface)
-                  }
-
-              (acc, next).parMapN { (ifaces, iface) =>
-                ifaces.updated(iface._1, iface._2)
-              }
-            }
-
-          def inferOnMiss(
-              depIfaces: SortedMap[PackageName, Package.Interface]
-          ): ErrorOr[Package.Inferred] = {
-            val nameToRes: Map[PackageName, Package.Resolved] = imports.iterator.map { i =>
-              val resolved: Package.Resolved = i.pack
-              (resolved.name, resolved)
-            }.toMap
-
-            val resolvedImports: ImportMap[Package.Resolved, Unit] =
-              imps.traverse[cats.Id, Package.Resolved, Unit] { (p, i) =>
-                // the Map.apply below should be safe because the imps
-                // are aligned with imports
-                (nameToRes(p), i)
-              }
-
-            val inferImports
-                : ErrorOr[
-                  ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
-                ] = {
-              val rec1: ResolvedU => ErrorOr[Package.Inferred] = depPackResult
-              resolvedImports.parTraverse {
-                (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
-                  fixpack
-                    .importName[[A] =>> ErrorOr[A], Declaration](nm, item)(rec1)
-                    .flatMap { either =>
-                      Ior.fromEither(either.left.map(NonEmptyList.one(_)))
-                    }
-              }
-            }
-
-            inferImports.flatMap { impMap =>
-              val ilist = impMap.toList(using Package.orderByName)
-              Package
-                .inferBodyUnopt(nm, ilist, stmt)
-                .flatMap { case (_, program) =>
-                  PackageCustoms
-                    .assemble(nm, ilist, impMap, exports, program)
-                }
-                .map(phases.finishPackage(_, depIfaces, compileOptions))
-            }
-          }
-
-          IorT
-            .fromIor[F](depInterfaces)
-            .flatMap { depIfaces =>
-              IorT
-                .liftF(
-                  cache.generateKey(
-                    parsedForKey,
-                    depIfaces,
-                    compileOptions,
-                    CompileCache.compilerIdentity,
-                    phases.id
-                  )
-                )
-                .flatMap { key =>
-                  IorT.liftF(cache.get(key)).flatMap {
-                    case Some(hit) =>
-                      IorT.rightT[F, NonEmptyList[PackageError]](hit)
-                    case None      =>
-                      IorT
-                        .fromIor[F](inferOnMiss(depIfaces))
-                        .flatMap { compiled =>
-                          IorT
-                            .liftF(cache.put(key, compiled))
-                            .as(compiled)
-                        }
-                  }
-                }
-            }
-            .value
-      }
-
-    val emptyResults = Monad[F].pure(
-      SortedMap.empty[PackageName, ErrorOr[Package.Inferred]]
-    )
-
-    val allResults = layers.foldLeft(emptyResults) { (stateF, layer) =>
-      stateF.flatMap { state =>
-        layer.toList.parTraverse { nm =>
-          inferPack(resolvedByName(nm), state).map(nm -> _)
-        }.map { inferred =>
-          state ++ inferred
-        }
-      }
+    if (!isDag) {
+      sys.error("invariant violation: resolved package graph has a cycle")
     }
+
+    val inferPack: ResolvedU => F[ErrorOr[Package.Inferred]] =
+      Memoize.memoizeDag[F, ResolvedU, ErrorOr[Package.Inferred]] {
+        case (pack, recurse) =>
+          pack match {
+            case Package(nm, imports, exports, (stmt, imps)) =>
+              val depResultsF: F[ErrorOr[SortedMap[PackageName, Package.Inferred]]] =
+                imports.foldLeft(
+                  Monad[F].pure(
+                    Ior.right[NonEmptyList[PackageError], SortedMap[
+                      PackageName,
+                      Package.Inferred
+                    ]](SortedMap.empty)
+                  )
+                ) { (accF, imp) =>
+                  Package.unfix(imp.pack) match {
+                    case Left(_)        => accF
+                    case Right(depPack) =>
+                      val nextF: F[ErrorOr[(PackageName, Package.Inferred)]] =
+                        recurse(depPack).map(_.map(dep => dep.name -> dep))
+                      (accF, nextF).parMapN { (acc, next) =>
+                        (acc, next).parMapN { (deps, dep) =>
+                          deps.updated(dep._1, dep._2)
+                        }
+                      }
+                  }
+                }
+
+              IorT(depResultsF)
+                .flatMap { depResults =>
+                  def depPackResult(depPack: ResolvedU): ErrorOr[Package.Inferred] =
+                    Ior.right(depResults.get(depPack.name).expect {
+                      s"invariant violation: missing dependency result for ${depPack.name}"
+                    })
+
+                  val parsedForKey: Package.Parsed =
+                    Package(
+                      nm,
+                      imports.map(i => Import(i.pack.name, i.items)),
+                      exports,
+                      stmt
+                    )
+
+                  val depInterfaces
+                      : ErrorOr[SortedMap[PackageName, Package.Interface]] =
+                    imports.foldLeft(
+                      Ior.right[NonEmptyList[PackageError], SortedMap[
+                        PackageName,
+                        Package.Interface
+                      ]](SortedMap.empty)
+                    ) { (acc, imp) =>
+                      val next: ErrorOr[(PackageName, Package.Interface)] =
+                        Package.unfix(imp.pack) match {
+                          case Right(depPack) =>
+                            depPackResult(depPack).map { typedDep =>
+                              typedDep.name -> phases.dependencyInterface(typedDep)
+                            }
+                          case Left(iface)    =>
+                            Ior.right(iface.name -> iface)
+                        }
+
+                      (acc, next).parMapN { (ifaces, iface) =>
+                        ifaces.updated(iface._1, iface._2)
+                      }
+                    }
+
+                  def inferOnMiss(
+                      depIfaces: SortedMap[PackageName, Package.Interface]
+                  ): ErrorOr[Package.Inferred] = {
+                    val nameToRes: Map[PackageName, Package.Resolved] = imports.iterator
+                      .map { i =>
+                        val resolved: Package.Resolved = i.pack
+                        (resolved.name, resolved)
+                      }
+                      .toMap
+
+                    val resolvedImports: ImportMap[Package.Resolved, Unit] =
+                      imps.traverse[cats.Id, Package.Resolved, Unit] { (p, i) =>
+                        // the Map.apply below should be safe because the imps
+                        // are aligned with imports
+                        (nameToRes(p), i)
+                      }
+
+                    val inferImports
+                        : ErrorOr[
+                          ImportMap[
+                            Package.Interface,
+                            NonEmptyList[Referant[Kind.Arg]]
+                          ]
+                        ] = {
+                      val rec1: ResolvedU => ErrorOr[Package.Inferred] = depPackResult
+                      resolvedImports.parTraverse {
+                        (fixpack: Package.Resolved, item: ImportedName[Unit]) =>
+                          fixpack
+                            .importName[[A] =>> ErrorOr[A], Declaration](
+                              nm,
+                              item
+                            )(rec1)
+                            .flatMap { either =>
+                              Ior.fromEither(either.left.map(NonEmptyList.one(_)))
+                            }
+                      }
+                    }
+
+                    inferImports.flatMap { impMap =>
+                      val ilist = impMap.toList(using Package.orderByName)
+                      Package
+                        .inferBodyUnopt(nm, ilist, stmt)
+                        .flatMap { case (_, program) =>
+                          PackageCustoms
+                            .assemble(nm, ilist, impMap, exports, program)
+                        }
+                        .map(phases.finishPackage(_, depIfaces, compileOptions))
+                    }
+                  }
+
+                  IorT
+                    .fromIor[F](depInterfaces)
+                    .flatMap { depIfaces =>
+                      IorT
+                        .liftF(
+                          cache.generateKey(
+                            parsedForKey,
+                            depIfaces,
+                            compileOptions,
+                            CompileCache.compilerIdentity,
+                            phases.id
+                          )
+                        )
+                        .flatMap { key =>
+                          IorT.liftF(cache.get(key)).flatMap {
+                            case Some(hit) =>
+                              IorT.rightT[F, NonEmptyList[PackageError]](hit)
+                            case None      =>
+                              IorT
+                                .fromIor[F](inferOnMiss(depIfaces))
+                                .flatMap { compiled =>
+                                  IorT
+                                    .liftF(cache.put(key, compiled))
+                                    .as(compiled)
+                                }
+                          }
+                        }
+                    }
+                }
+                .value
+          }
+      }
+
+    val allResults: F[SortedMap[PackageName, ErrorOr[Package.Inferred]]] =
+      resolvedByName.values.toList
+        .parTraverse { pack =>
+          inferPack(pack).map(pack.name -> _)
+        }
+        .map(SortedMap.from(_))
 
     def dedupeErrors[A](res: ErrorOr[A]): ErrorOr[A] =
       res.leftMap { errs =>
@@ -599,7 +628,7 @@ object PackageMap {
     }
   }
 
-  def resolveThenInfer[F[_]: Monad: Parallel, A: Show](
+  def resolveThenInfer[F[_]: Monad: Parallel: CanPromise, A: Show](
       ps: List[(A, Package.Parsed)],
       ifs: List[Package.Interface],
       compileOptions: CompileOptions,
@@ -674,7 +703,7 @@ object PackageMap {
     parsed.map { case ((a, _), p) => (a, p) }
   }
 
-  def typeCheckParsed[F[_]: Monad: Parallel, A: Show](
+  def typeCheckParsed[F[_]: Monad: Parallel: CanPromise, A: Show](
       packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
       ifs: List[Package.Interface],
       predefKey: A,
