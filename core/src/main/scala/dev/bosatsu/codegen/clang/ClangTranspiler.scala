@@ -194,12 +194,16 @@ case object ClangTranspiler extends Transpiler {
         rootOpt <- platformIO.gitTopLevel
         root <- platformIO.getOrError(
           rootOpt,
-          CliException.Basic("could not find .git directory to locate default cc_conf")
+          CliException.Basic(
+            "could not find .git directory to locate default cc_conf.\n" +
+              "Pass --cc_conf <path/to/cc_conf.json>, or run from a git checkout with .git available."
+          )
         )
         gitSha <- platformIO.getOrError(
           BuildInfo.gitHeadCommit,
           CliException.Basic(
-            s"compiler version ${BuildInfo.version} was built without a git-sha"
+            s"compiler version ${BuildInfo.version} was built without a git-sha.\n" +
+              "Pass --cc_conf <path/to/cc_conf.json>, or run `bosatsu c-runtime install --git_sha <sha>` and use the generated cc_conf."
           )
         )
         confPath = platformIO.resolve(
