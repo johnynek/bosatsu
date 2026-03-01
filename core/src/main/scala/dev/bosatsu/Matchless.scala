@@ -4273,9 +4273,13 @@ object Matchless {
       ): F[(List[(LocalAnon, Expr[B])], List[CheapExpr[B]])] = {
         case class State(
             letsRev: List[(LocalAnon, Expr[B])],
-            seen: Map[CheapExpr[B], LocalAnon],
+            seen: scala.collection.immutable.SortedMap[CheapExpr[B], LocalAnon],
             occsRev: List[CheapExpr[B]]
         )
+
+        given Ordering[CheapExpr[B]] with
+          def compare(left: CheapExpr[B], right: CheapExpr[B]): Int =
+            Expr.exprOrder[B].compare(left, right)
 
         def shouldMaterialize(occ: CheapExpr[B]): Boolean =
           occ match {
@@ -4284,7 +4288,13 @@ object Matchless {
           }
 
         occs
-          .foldLeftM(State(Nil, Map.empty, Nil)) { (st, occ) =>
+          .foldLeftM(
+            State(
+              Nil,
+              scala.collection.immutable.SortedMap.empty[CheapExpr[B], LocalAnon],
+              Nil
+            )
+          ) { (st, occ) =>
             if (!shouldMaterialize(occ))
               Monad[F].pure(st.copy(occsRev = occ :: st.occsRev))
             else

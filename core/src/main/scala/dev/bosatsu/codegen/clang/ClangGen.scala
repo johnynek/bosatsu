@@ -1,6 +1,6 @@
 package dev.bosatsu.codegen.clang
 
-import cats.{Eval, Functor, Monad, Show, Traverse}
+import cats.{Eval, Functor, Monad, Order, Show, Traverse}
 import cats.data.{StateT, EitherT, NonEmptyList, Chain}
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
@@ -18,6 +18,9 @@ import ClangGen.Error
 
 class ClangGen[K](ns: CompilationNamespace[K]) {
   given Show[K] = ns.keyShow
+  given Order[K] with
+    def compare(left: K, right: K): Int =
+      ns.keyOrder.compare(left, right)
   // (function ident, isClosure, arity)
   type DirectFnRef = (Code.Ident, Boolean, Int)
   def generateExternalsStub: SortedMap[String, Doc] =
@@ -984,6 +987,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             val empty: BindState = BindState(0, Nil)
           }
 
+          given Ordering[Expr[K]] = Matchless.Expr.exprOrder[K].toOrdering
+
           case class State(
               allValues: AllValues,
               externals: ExternalResolver,
@@ -993,7 +998,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               currentTop: Option[(K, PackageName, Bindable)],
               binds: Map[Bindable, BindState],
               counter: Long,
-              identCache: Map[Expr[K], Code.Ident],
+              // Cache by source-info-insensitive Expr ordering so provenance
+              // metadata does not perturb codegen sharing decisions.
+              identCache: SortedMap[Expr[K], Code.Ident],
               staticStringCache: Map[List[Int], Code.Ident]
           ) {
             def finalFile: Doc =
@@ -1033,7 +1040,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 None,
                 Map.empty,
                 0L,
-                Map.empty,
+                SortedMap.empty[Expr[K], Code.Ident],
                 Map.empty
               )
             }
@@ -1455,7 +1462,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   for {
                     s1Ident <- value.run(s)
                     (s1, ident) = s1Ident
-                    s2 = s1.copy(identCache = s.identCache + (key -> ident))
+                    s2 = s1.copy(identCache = s1.identCache + (key -> ident))
                     res <- result(s2, ident)
                   } yield res
               }
