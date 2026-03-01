@@ -2296,6 +2296,61 @@ main = xxfoo
     }
   }
 
+  test("unknown operator suggestions exclude unrelated local operators") {
+    val testCode = List("""
+package Repro/Issue2
+
+def operator +(a, b): a
+def operator *(a, b): a
+
+x = 1 << 2
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator <<`."), message)
+      assert(
+        message.contains("Bosatsu/Predef::shift_left_Int"),
+        message
+      )
+      assert(!message.contains("local value `operator *`"), message)
+      assert(!message.contains("local value `operator +`"), message)
+      ()
+    }
+  }
+
+  test("unknown operator + with Int literals hints add") {
+    val testCode = List("""
+package Repro/Issue2
+
+x = 1 + 2
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator +`."), message)
+      assert(message.contains("Bosatsu/Predef::add."), message)
+      assert(!message.contains("Bosatsu/Predef::add or addf"), message)
+      ()
+    }
+  }
+
+  test("unknown operator + with Float64 literals hints addf") {
+    val testCode = List("""
+package Repro/Issue2
+
+x = 1.0 + 2.0
+""")
+
+    evalFail(testCode) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `operator +`."), message)
+      assert(message.contains("Bosatsu/Predef::addf."), message)
+      assert(!message.contains("Bosatsu/Predef::add or addf"), message)
+      ()
+    }
+  }
+
   test("unknown constructor in type errors suggests nearest constructors") {
     val pack = PackageName.parts("P")
     val miss = Identifier.Constructor("JNul")
