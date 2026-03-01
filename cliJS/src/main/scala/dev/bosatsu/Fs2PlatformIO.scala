@@ -4,9 +4,11 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.data.Validated
 import cats.effect.{IO, Resource}
+import cats.effect.kernel.Deferred
 import fs2.io.file.{Files, Path}
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import scala.util.{Failure, Success, Try}
 import scala.scalajs.js
@@ -19,6 +21,22 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     IO.asyncForIO
 
   override val parallelF: cats.Parallel[IO] = IO.parallelForIO
+  override val canPromiseF: CanPromise[IO] =
+    new CanPromise[IO] {
+      type Promise[A] = Deferred[IO, Either[Throwable, A]]
+
+      def delay[A](a: => A): IO[A] =
+        IO(a)
+
+      def unsafeNewPromise[A]: Promise[A] =
+        Deferred.unsafe[IO, Either[Throwable, A]]
+
+      def completeWith[A](p: Promise[A], fa: IO[A]): IO[Unit] =
+        fa.attempt.flatMap(p.complete).void.start.void
+
+      def wait[A](p: Promise[A]): IO[A] =
+        p.get.rethrow
+    }
 
   val pathArg: Argument[Path] =
     new Argument[Path] {

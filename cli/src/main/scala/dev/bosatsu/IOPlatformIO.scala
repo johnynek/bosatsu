@@ -3,6 +3,7 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.MonadError
 import cats.effect.{IO, Resource}
+import cats.effect.kernel.Deferred
 import com.monovore.decline.Argument
 import java.nio.file.{Paths, Path => JPath, Files}
 import java.io.{
@@ -13,6 +14,7 @@ import java.io.{
   PrintWriter
 }
 import org.typelevel.paiges.Doc
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Hashed, HashValue, Algo}
 import dev.bosatsu.tool.CliException
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
@@ -157,6 +159,22 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   }
 
   override val parallelF: cats.Parallel[IO] = IO.parallelForIO
+  override val canPromiseF: CanPromise[IO] =
+    new CanPromise[IO] {
+      type Promise[A] = Deferred[IO, Either[Throwable, A]]
+
+      def delay[A](a: => A): IO[A] =
+        IO(a)
+
+      def unsafeNewPromise[A]: Promise[A] =
+        Deferred.unsafe[IO, Either[Throwable, A]]
+
+      def completeWith[A](p: Promise[A], fa: IO[A]): IO[Unit] =
+        fa.attempt.flatMap(p.complete).void.start.void
+
+      def wait[A](p: Promise[A]): IO[A] =
+        p.get.rethrow
+    }
 
   private val parResource: Resource[IO, Par.EC] =
     Resource
