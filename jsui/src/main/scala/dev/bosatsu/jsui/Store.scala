@@ -12,12 +12,19 @@ import Action.Cmd
 object Store {
   private type ErrorOr[A] = Either[Throwable, A]
   val memoryMain = MemoryMain[ErrorOr]
+  private val toolPrefix = List("tool")
+
+  private def toolCommandArgs(
+      subcommand: String,
+      args: String*
+  ): List[String] =
+    toolPrefix ::: (subcommand :: args.toList)
 
   type HandlerFn = Output[Chain[String]] => String
   def cmdHandler(cmd: Cmd): (List[String], HandlerFn) =
     cmd match {
       case Cmd.Eval =>
-        val args = List(
+        val args = toolCommandArgs(
           "eval",
           "--input",
           "root/WebDemo",
@@ -40,7 +47,7 @@ object Store {
         }
         (args, handler)
       case Cmd.Test =>
-        val args = List(
+        val args = toolCommandArgs(
           "test",
           "--input",
           "root/WebDemo",
@@ -63,7 +70,7 @@ object Store {
         }
         (args, handler)
       case Cmd.Show =>
-        val args = List(
+        val args = toolCommandArgs(
           "show",
           "--input",
           "root/WebDemo",
