@@ -617,7 +617,7 @@ main = fn
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur but no recursive call to fn\n[25, 47)\n"
+        "in file: <unknown source>, package A\nrecur but no recursive call to fn\nFor non-recursive branching, replace `recur <expr>:` with `match <expr>:`.\n[25, 47)\n"
       )
       ()
     }
@@ -676,6 +676,11 @@ def parse_loopTypo(x):
 main = parse_loopTypo
 """)) { case te @ PackageError.RecursionError(_, _) =>
       val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
+        )
+      )
       assert(
         msg.contains(
           "Function name looks renamed: declared `parse_loopTypo`, but recursive calls use `parse_loop`."
