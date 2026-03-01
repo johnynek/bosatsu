@@ -2344,7 +2344,7 @@ main = xxfoo
   }
 
   test(
-    "repeated unimported type diagnostics are deduplicated for the same span"
+    "inferred imported types from direct dependencies do not require type imports"
   ) {
     val libSrc =
       """package Repro/Issue3/Lib
@@ -2366,12 +2366,57 @@ main = xxfoo
         |from Repro/Issue3/Lib import mk, use
         |
         |x = use([mk(1), mk(2)])
+        |main = x
+        |""".stripMargin
+
+    evalTest(List(libSrc, mainSrc), "Repro/Issue3", VInt(1))
+  }
+
+  test(
+    "transitive inferred types still require explicit direct dependencies and deduplicate diagnostics"
+  ) {
+    val libSrc =
+      """package Repro/Issue3/Lib
+        |
+        |export (P, mk, use)
+        |
+        |struct P(i: Int)
+        |
+        |def mk(i): P(i)
+        |
+        |def use(ps: List[P]) -> Int:
+        |  if ps matches []: 0
+        |  else: 1
+        |""".stripMargin
+
+    val midSrc =
+      """package Repro/Issue3/Mid
+        |
+        |from Repro/Issue3/Lib import mk, use
+        |
+        |export (mk2, use2)
+        |
+        |def mk2(i): mk(i)
+        |
+        |def use2(ps): use(ps)
+        |""".stripMargin
+
+    val mainSrc =
+      """package Repro/Issue3
+        |
+        |from Repro/Issue3/Mid import mk2, use2
+        |
+        |x = use2([mk2(1), mk2(2)])
         |""".stripMargin
 
     val needle = "Use of unimported type"
-    evalFail(List(libSrc, mainSrc)) { case te: PackageError.TypeErrorIn =>
+    evalFail(List(libSrc, midSrc, mainSrc)) { case te: PackageError.TypeErrorIn =>
       val message = te.message(Map.empty, Colorize.None)
-      assertEquals(message.sliding(needle.length).count(_ == needle), 1, message)
+      assertEquals(
+        message.sliding(needle.length).count(_ == needle),
+        1,
+        message
+      )
       assert(
         message.contains("from Repro/Issue3/Lib import P"),
         message

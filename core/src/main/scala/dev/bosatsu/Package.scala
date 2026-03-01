@@ -407,6 +407,8 @@ object Package {
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
+          val dependencyTypeEnv: TypeEnv[Kind.Arg] =
+            imps.foldMap(_.pack.exportedTypeEnv)
 
           val theseExternals =
             parsedTypeEnv.externalDefs.collect {
@@ -450,7 +452,7 @@ object Package {
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
-              fullTypeEnv.toKindMap
+              (fullTypeEnv ++ dependencyTypeEnv).toKindMap
             )
             .leftMap { tpeErr =>
               NonEmptyList.one[PackageError](
