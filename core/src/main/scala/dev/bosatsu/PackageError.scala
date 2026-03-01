@@ -1093,8 +1093,10 @@ object PackageError {
       ): List[(Infer.Error.Single, Int, List[Region])] = {
         val bldr = scala.collection.mutable.ArrayBuffer
           .empty[(Infer.Error.Single, Int, List[Region])]
+        type AggregateSingleKey =
+          Either[(Int, Identifier), (Type.Const.Defined, Region)]
         val indexOfKey =
-          scala.collection.mutable.Map.empty[(Int, Identifier), Int]
+          scala.collection.mutable.Map.empty[AggregateSingleKey, Int]
 
         def add(err: Infer.Error.Single, evidence: List[Region]): Unit =
           bldr.append((err, 1, evidence))
@@ -1104,9 +1106,11 @@ object PackageError {
             err match {
               case Infer.Error.VarNotInScope((_, n), _, region)
                   if !isUseBeforeDef(n, region) =>
-                Some((0, n))
+                Some(Left((0, n)))
               case Infer.Error.UnknownConstructor((_, n), _, _) =>
-                Some((1, n))
+                Some(Left((1, n)))
+              case Infer.Error.UnknownDefined(const, region) =>
+                Some(Right((const, region)))
               case _ =>
                 None
             }
