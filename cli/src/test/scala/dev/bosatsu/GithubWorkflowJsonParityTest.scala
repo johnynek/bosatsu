@@ -37,7 +37,7 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
         io.attempt
           .flatMap {
             case Right(out) =>
-              PathModule.reportOutput(out).as(out)
+              IO.pure(out)
             case Left(err) =>
               PathModule.reportException(err) *> IO.raiseError(err)
           }
