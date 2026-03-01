@@ -8,7 +8,6 @@ import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 
 class RingOptLaws extends munit.ScalaCheckSuite {
-
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
       .withMinSuccessfulTests(1000)
@@ -1017,14 +1016,19 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalize is commutative for Add") {
-    def law[A: Hash: Order: Show](a: Expr[A], b: Expr[A], w: Weights) = {
+    def law[A: Hash: Order: Show: Numeric](a: Expr[A], b: Expr[A], w: Weights) = {
       val left = normalize(a + b, w)
       val costLeft = w.cost(left)
       val right = normalize(b + a, w)
       val costRight = w.cost(right)
       assertEquals(
-        left,
-        right,
+        Expr.toValue(left),
+        Expr.toValue(right),
+        show"left($costLeft)=$left right($costRight)=$right"
+      )
+      assertEquals(
+        costLeft,
+        costRight,
         show"left($costLeft)=$left right($costRight)=$right"
       )
     }
@@ -1040,6 +1044,21 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Add(Symbol(BigInt(-2147483648)), Neg(Symbol(BigInt(-1)))),
         Weights(15, 7, 4)
       ) ::
+        (
+          Integer(-1),
+          Add(
+            Mult(
+              Integer(BigInt("-13671113205015572068287150262499573790")),
+              Symbol(BigInt("44016100005173543111648107876578522562"))
+            ),
+            Neg(
+              Symbol(
+                BigInt("-155782816531683741903004619612818253648560646266504575984")
+              )
+            )
+          ),
+          Weights(2, 1, 1)
+        ) ::
         Nil
 
     regressions.foreach { case (a, b, w) => law(a, b, w) }
