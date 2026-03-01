@@ -54,10 +54,10 @@ trait PlatformIO[F[_], Path] {
         }
       }
 
-  def getOrError[A](oa: Option[A], msg: => String): F[A] =
+  final inline def getOrError[A](oa: Option[A], inline msg: => Throwable): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
-      case None    => moduleIOMonad.raiseError(new Exception(msg))
+      case None    => moduleIOMonad.raiseError(msg)
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
