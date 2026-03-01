@@ -4770,6 +4770,72 @@ main = 0
     }
   }
 
+  test("tool test --quiet sets quiet mode in output") {
+    val src =
+      """tests = TestSuite("quiet", [
+|  Assertion(True, "pass one")
+|])
+|""".stripMargin
+
+    module.runWith(List(Chain("Package0") -> src))(
+      List(
+        "tool",
+        "test",
+        "--quiet",
+        "--test_package",
+        "Package0",
+        "--package_root",
+        "",
+        "--input",
+        "Package0"
+      )
+    ) match {
+      case Right(Output.TestOutput(_, _, quiet)) =>
+        assert(quiet)
+      case Right(other) =>
+        fail(s"expected test output, got: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool test --quiet only prints failures and summary") {
+    val src =
+      """tests = TestSuite("quiet", [
+|  Assertion(True, "pass one"),
+|  Assertion(False, "boom")
+|])
+|""".stripMargin
+    val cmd = List(
+      "tool",
+      "test",
+      "--quiet",
+      "--test_package",
+      "Package0",
+      "--package_root",
+      "",
+      "--input",
+      "Package0"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](List(Chain("Package0") -> src))
+      out <- runWithStateAndExit(cmd, s0)
+    } yield out
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _, exitCode)) =>
+        val out = state.stdOut.render(120)
+        assertEquals(exitCode, ExitCode.Error)
+        assert(out.contains("boom"), out)
+        assert(out.contains("passed"), out)
+        assert(out.contains("failed"), out)
+        assert(!out.contains("pass one"), out)
+    }
+  }
+
   test("Output.Many stops at first non-success exit code") {
     val first = Output.TestOutput(
       List(

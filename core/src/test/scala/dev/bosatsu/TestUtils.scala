@@ -331,7 +331,7 @@ object TestUtils {
         files
       )
     ) match {
-      case Right(Output.TestOutput(results, _)) =>
+      case Right(Output.TestOutput(results, _, _)) =>
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
             assertEquals(
