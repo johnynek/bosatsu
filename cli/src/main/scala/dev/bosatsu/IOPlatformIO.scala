@@ -187,6 +187,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readUtf8(path: Path): IO[String] =
     IO.blocking(new String(Files.readAllBytes(path), "utf-8"))
 
+  def readBytes(path: Path): IO[Array[Byte]] =
+    IO.blocking(Files.readAllBytes(path))
+
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     IO.blocking {
       val f = p.toFile()

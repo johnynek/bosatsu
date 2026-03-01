@@ -1,5 +1,6 @@
 package dev.bosatsu.cache
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import dev.bosatsu.{
@@ -13,9 +14,10 @@ import dev.bosatsu.{
   Statement
 }
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.SortedMap
-import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
@@ -32,7 +34,7 @@ object CompileCache {
   def filesystem[F[_], P](
       cacheDir: P,
       platformIO: PlatformIO[F, P]
-  ): InferCache[F] { type Key = FsKey } =
+  ): InferCache[F] { type Key = FsKey; type DepHash = HashValue[Algo.Blake3] } =
     new FilesystemCache(cacheDir, platformIO)
 
   def sourceExprHash(pack: Package.Parsed): HashValue[Algo.Blake3] = {
@@ -95,19 +97,93 @@ object CompileCache {
       platformIO: PlatformIO[F, P]
   ) extends InferCache[F] {
     type Key = FsKey
+    type DepHash = HashValue[Algo.Blake3]
 
     import platformIO.moduleIOMonad
 
-    private val interfaceHashMemo =
-      mutable.HashMap.empty[Package.Interface, Try[HashValue[Algo.Blake3]]]
+    private val statsEnabled = InferCache.statsEnabled
+    private val cacheDirLabel = platformIO.pathToString(cacheDir)
+    private val keyGenCalls = new AtomicLong(0L)
+    private val keyGenFailures = new AtomicLong(0L)
+    private val interfaceMemoHits = new AtomicLong(0L)
+    private val interfaceMemoMisses = new AtomicLong(0L)
+    private val dependencyHashCalls = new AtomicLong(0L)
+    private val getCalls = new AtomicLong(0L)
+    private val getHits = new AtomicLong(0L)
+    private val getMisses = new AtomicLong(0L)
+    private val getLinkReadErrors = new AtomicLong(0L)
+    private val getLinkParseMisses = new AtomicLong(0L)
+    private val getCasReadErrors = new AtomicLong(0L)
+    private val getCasDecodeMisses = new AtomicLong(0L)
+    private val firstGetLinkReadError = new AtomicReference[String](null)
+    private val firstGetCasReadError = new AtomicReference[String](null)
+    private val putCalls = new AtomicLong(0L)
+    private val putEncodeFailures = new AtomicLong(0L)
+    private val putCasAlreadyExists = new AtomicLong(0L)
+    private val putCasWrites = new AtomicLong(0L)
+    private val putCasWriteErrors = new AtomicLong(0L)
+    private val putLinkWrites = new AtomicLong(0L)
+    private val putLinkWriteErrors = new AtomicLong(0L)
 
-    // Scala.js does not support TrieMap; synchronize around a local mutable map.
+    private inline def statsUpdate(inline fn: => Unit): Unit =
+      if (statsEnabled) fn
+
+    private def ratioPct(numerator: Long, denominator: Long): String =
+      if (denominator == 0L) "n/a"
+      else f"${(numerator.toDouble * 100.0) / denominator.toDouble}%.2f%%"
+
+    private final class RefKey[A <: AnyRef](val ref: A) {
+      override def equals(that: Any): Boolean =
+        that match {
+          case other: RefKey[_] =>
+            (ref.asInstanceOf[AnyRef] eq other.ref.asInstanceOf[AnyRef])
+          case _                => false
+        }
+
+      override def hashCode(): Int =
+        System.identityHashCode(ref)
+    }
+
+    private val interfaceHashMemo =
+      new ConcurrentHashMap[
+        RefKey[Package.Interface],
+        Try[HashValue[Algo.Blake3]]
+      ]()
+    // inferAll memoizes each inferred package and computes that package's
+    // dependency interface hash once per run. We still hash "Left(iface)"
+    // dependencies on each importer edge, so this per-cache memo avoids
+    // repeated interface proto serialization for those shared externals.
+    private val interfaceByHashHex =
+      new ConcurrentHashMap[String, Package.Interface]()
+
     private def memoizedInterfaceHash(
         iface: Package.Interface
-    ): Try[HashValue[Algo.Blake3]] =
-      this.synchronized {
-        interfaceHashMemo.getOrElseUpdate(iface, interfaceHash(iface))
+    ): Try[HashValue[Algo.Blake3]] = {
+      val key = new RefKey(iface)
+      val cached = interfaceHashMemo.get(key)
+      if (cached != null) {
+        statsUpdate { interfaceMemoHits.incrementAndGet(); () }
+        cached
+      } else {
+        val computed = interfaceHash(iface)
+        val raced = interfaceHashMemo.putIfAbsent(key, computed)
+        if (raced == null) {
+          statsUpdate { interfaceMemoMisses.incrementAndGet(); () }
+          computed
+        } else {
+          statsUpdate { interfaceMemoHits.incrementAndGet(); () }
+          raced
+        }
       }
+    }
+
+    override def dependencyHash(interface: Package.Interface): F[DepHash] = {
+      statsUpdate { dependencyHashCalls.incrementAndGet(); () }
+      moduleIOMonad.fromTry(memoizedInterfaceHash(interface)).map { hash =>
+        interfaceByHashHex.putIfAbsent(hash.hex, interface)
+        hash
+      }
+    }
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
       platformIO.resolve(
@@ -125,70 +201,150 @@ object CompileCache {
     private def parseHashIdent(str: String): Option[HashValue[Algo.Blake3]] =
       Algo.parseHashValue(blake3).parseAll(str.trim).toOption
 
-    private inline def onError[A](fa: F[A], inline fallback: => A): F[A] =
-      moduleIOMonad.handleError(fa)(_ => fallback)
+    private inline def onError[A](
+        fa: F[A],
+        inline fallback: => A,
+        inline onErr: Throwable => Unit
+    ): F[A] =
+      moduleIOMonad.handleError(fa) { err =>
+        onErr(err)
+        fallback
+      }
 
-    def generateKey(
+    override def generateKey(
         pack: Package.Parsed,
-        depInterfaces: SortedMap[PackageName, Package.Interface],
+        depInterfaceHashes: SortedMap[PackageName, DepHash],
         compileOptions: CompileOptions,
         compilerIdentity: String,
         phaseIdentity: String
-    ): F[Key] =
+    ): F[Key] = {
+      statsUpdate { keyGenCalls.incrementAndGet(); () }
       moduleIOMonad.fromTry {
-        val depHashesTry =
-          depInterfaces.iterator.foldLeft(
-            Success(
-              SortedMap.empty[PackageName, HashValue[Algo.Blake3]]
-            ): Try[SortedMap[PackageName, HashValue[Algo.Blake3]]]
-          ) { case (acc, (name, iface)) =>
-            acc.flatMap { depHashes =>
-              memoizedInterfaceHash(iface).map(depHashes.updated(name, _))
-            }
-          }
+        val depInterfacesBuilder =
+          SortedMap.newBuilder[PackageName, Package.Interface]
+        val depHashIter = depInterfaceHashes.iterator
 
-        depHashesTry.map { depHashes =>
-          FsKey(
-            packageName = pack.name,
-            compileOptions = compileOptions,
-            compilerIdentity = compilerIdentity,
-            phaseIdentity = phaseIdentity,
-            sourceExprHash = sourceExprHash(pack),
-            depInterfaceHashes = depHashes,
-            schemaVersion = schemaVersion
-          )
+        var failure: Option[Throwable] = None
+        while (depHashIter.hasNext && failure.isEmpty) {
+          val (name, hash) = depHashIter.next()
+          val iface = interfaceByHashHex.get(hash.hex)
+          if (iface eq null) {
+            failure = Some(
+              new IllegalStateException(
+                s"missing dependency interface for ${name.asString} (${hash.hex}); dependencyHash must be called before generateKey"
+              )
+            )
+          } else {
+            depInterfacesBuilder += ((name, iface))
+          }
+        }
+
+        failure match {
+          case None      =>
+            Success(
+              FsKey(
+                packageName = pack.name,
+                compileOptions = compileOptions,
+                compilerIdentity = compilerIdentity,
+                phaseIdentity = phaseIdentity,
+                sourceExprHash = sourceExprHash(pack),
+                depInterfaceHashes = depInterfaceHashes,
+                depInterfaces = depInterfacesBuilder.result(),
+                schemaVersion = schemaVersion
+              )
+            )
+          case Some(err) =>
+            statsUpdate { keyGenFailures.incrementAndGet(); () }
+            Failure(err)
         }
       }
+    }
 
     def get(key: Key): F[Option[Package.Inferred]] = {
+      statsUpdate { getCalls.incrementAndGet(); () }
       val keyHash = keyHashValue(key)
       val linkPath = keyPath(keyHash)
 
+      val readLink =
+        platformIO.readUtf8(linkPath).map { raw =>
+          parseHashIdent(raw) match {
+            case some @ Some(_) => some
+            case None           =>
+              statsUpdate { getLinkParseMisses.incrementAndGet(); () }
+              None
+          }
+        }
+
       onError(
-        platformIO.readUtf8(linkPath).map(parseHashIdent),
-        None
+        readLink,
+        None,
+        err =>
+          statsUpdate {
+            getLinkReadErrors.incrementAndGet()
+            val _ = firstGetLinkReadError.compareAndSet(
+              null,
+                s"${err.getClass.getName}:${Option(err.getMessage).getOrElse("")}"
+            )
+            ()
+          }
       ).flatMap {
         case None             =>
+          statsUpdate { getMisses.incrementAndGet(); () }
           moduleIOMonad.pure(None)
         case Some(outputHash) =>
           val packagePath = casPath(outputHash)
-          val read =
-            platformIO.readPackages(packagePath :: Nil).map {
+          val depIfaces = key.depInterfaces.valuesIterator.toList
+          val read = platformIO.readBytes(packagePath).flatMap { bytes =>
+            moduleIOMonad.fromTry {
+              for {
+                protoPackages <- Try(proto.Packages.parseFrom(bytes))
+                decoded <- ProtoConverter
+                  .packagesFromProto(Nil, protoPackages.packages, depIfaces)
+              } yield decoded._2
+            }.map {
               case pack :: Nil if pack.name == key.packageName =>
                 // Serialized package artifacts are tag-erased to Unit.
                 Some(pack.asInstanceOf[Package.Inferred])
               case _ =>
+                statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
                 None
             }
-          onError(read, None)
+          }
+          onError(
+            read,
+            None,
+            err =>
+              statsUpdate {
+                getCasReadErrors.incrementAndGet()
+                val _ = firstGetCasReadError.compareAndSet(
+                  null,
+                    s"${err.getClass.getName}:${Option(err.getMessage).getOrElse("")}"
+                )
+                ()
+              }
+          )
+            .map {
+              case some @ Some(_) =>
+                statsUpdate { getHits.incrementAndGet(); () }
+                some
+              case None           =>
+                statsUpdate { getMisses.incrementAndGet(); () }
+                None
+            }
       }
     }
 
     def put(key: Key, value: Package.Inferred): F[Unit] =
       outputHashValue(value) match {
         case Failure(_)            =>
+          statsUpdate {
+            putCalls.incrementAndGet()
+            putEncodeFailures.incrementAndGet()
+            ()
+          }
           moduleIOMonad.unit
         case Success(hashedOutput) =>
+          statsUpdate { putCalls.incrementAndGet(); () }
           val outputHash = hashedOutput.hash
           val packagePath = casPath(outputHash)
 
@@ -196,11 +352,16 @@ object CompileCache {
             onError(
               platformIO.fileExists(packagePath).flatMap {
                 case true  =>
+                  statsUpdate { putCasAlreadyExists.incrementAndGet(); () }
                   moduleIOMonad.pure(true)
                 case false =>
-                  platformIO.writeBytes(packagePath, hashedOutput.arg).as(true)
+                  platformIO.writeBytes(packagePath, hashedOutput.arg).as {
+                    statsUpdate { putCasWrites.incrementAndGet(); () }
+                    true
+                  }
               },
-              false
+              false,
+              _ => statsUpdate { putCasWriteErrors.incrementAndGet(); () }
             )
 
           // Write CAS first, then key-link, so readers never see dangling links.
@@ -211,10 +372,53 @@ object CompileCache {
               val keyHash = keyHashValue(key)
               val linkPath = keyPath(keyHash)
               onError(
-                platformIO.writeDoc(linkPath, Doc.text(outputHash.toIdent)),
-                ()
+                platformIO.writeDoc(linkPath, Doc.text(outputHash.toIdent)).map {
+                  _ =>
+                    statsUpdate { putLinkWrites.incrementAndGet(); () }
+                },
+                (),
+                _ => statsUpdate { putLinkWriteErrors.incrementAndGet(); () }
               )
           }
+      }
+
+    override def statsSnapshot: Option[String] =
+      if (!statsEnabled) None
+      else {
+        val keyGenCallsV = keyGenCalls.get()
+        val keyGenFailuresV = keyGenFailures.get()
+        val interfaceMemoHitsV = interfaceMemoHits.get()
+        val interfaceMemoMissesV = interfaceMemoMisses.get()
+        val dependencyHashCallsV = dependencyHashCalls.get()
+        val getCallsV = getCalls.get()
+        val getHitsV = getHits.get()
+        val getMissesV = getMisses.get()
+        val getLinkReadErrorsV = getLinkReadErrors.get()
+        val getLinkParseMissesV = getLinkParseMisses.get()
+        val getCasReadErrorsV = getCasReadErrors.get()
+        val getCasDecodeMissesV = getCasDecodeMisses.get()
+        val putCallsV = putCalls.get()
+        val putEncodeFailuresV = putEncodeFailures.get()
+        val putCasAlreadyExistsV = putCasAlreadyExists.get()
+        val putCasWritesV = putCasWrites.get()
+        val putCasWriteErrorsV = putCasWriteErrors.get()
+        val putLinkWritesV = putLinkWrites.get()
+        val putLinkWriteErrorsV = putLinkWriteErrors.get()
+
+        val getHitRate = ratioPct(getHitsV, getCallsV)
+        val memoHitRate = ratioPct(interfaceMemoHitsV, interfaceMemoHitsV + interfaceMemoMissesV)
+        Some(
+          s"[compile-cache fs] cacheDir=$cacheDirLabel keyGenCalls=$keyGenCallsV keyGenFailures=$keyGenFailuresV " +
+            s"memoHits=$interfaceMemoHitsV memoMisses=$interfaceMemoMissesV memoHitRate=$memoHitRate " +
+            s"dependencyHashCalls=$dependencyHashCallsV " +
+            s"getCalls=$getCallsV getHits=$getHitsV getMisses=$getMissesV getHitRate=$getHitRate " +
+            s"getLinkReadErrors=$getLinkReadErrorsV getLinkParseMisses=$getLinkParseMissesV " +
+            s"getCasReadErrors=$getCasReadErrorsV getCasDecodeMisses=$getCasDecodeMissesV " +
+            s"""firstGetLinkReadError="${Option(firstGetLinkReadError.get()).getOrElse("")}" """ +
+            s"""firstGetCasReadError="${Option(firstGetCasReadError.get()).getOrElse("")}" """ +
+            s"putCalls=$putCallsV putEncodeFailures=$putEncodeFailuresV putCasAlreadyExists=$putCasAlreadyExistsV " +
+            s"putCasWrites=$putCasWritesV putCasWriteErrors=$putCasWriteErrorsV putLinkWrites=$putLinkWritesV putLinkWriteErrors=$putLinkWriteErrorsV"
+        )
       }
   }
 }

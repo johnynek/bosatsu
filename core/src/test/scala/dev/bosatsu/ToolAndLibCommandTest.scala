@@ -3407,6 +3407,126 @@ main = depBox
     }
   }
 
+  test("lib check --cache_dir writes cache artifacts and reuses them") {
+    val files = baseLibFiles("main = 1\n")
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, state1)
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val keyPrefix = Chain("cache", "keys", "blake3")
+        val casPrefix = Chain("cache", "cas", "blake3")
+        val keyFiles1 = filePathsUnder(state1, keyPrefix)
+        val casFiles1 = filePathsUnder(state1, casPrefix)
+
+        assert(keyFiles1.nonEmpty, "expected key cache files")
+        assert(casFiles1.nonEmpty, "expected cas cache files")
+        assertEquals(filePathsUnder(state2, keyPrefix), keyFiles1)
+        assertEquals(filePathsUnder(state2, casPrefix), casFiles1)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+    }
+  }
+
+  test(
+    "lib check without cache flags writes default cache artifacts and reuses them"
+  ) {
+    val files = baseLibFiles("main = 1\n")
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, state1)
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val keyPrefix =
+          Chain("repo", ".bosatsuc", "infer-cache", "keys", "blake3")
+        val casPrefix = Chain("repo", ".bosatsuc", "infer-cache", "cas", "blake3")
+        val keyFiles1 = filePathsUnder(state1, keyPrefix)
+        val casFiles1 = filePathsUnder(state1, casPrefix)
+
+        assert(keyFiles1.nonEmpty, "expected key cache files in default infer cache")
+        assert(casFiles1.nonEmpty, "expected cas cache files in default infer cache")
+        assertEquals(filePathsUnder(state2, keyPrefix), keyFiles1)
+        assertEquals(filePathsUnder(state2, casPrefix), casFiles1)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+    }
+  }
+
+  test("lib check --no_cache does not write infer cache artifacts") {
+    val files = baseLibFiles("main = 1\n")
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--no_cache"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(cmd, s0)
+      (state1, _) = s1
+    } yield state1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(state) =>
+        assertEquals(
+          filePathsUnder(state, Chain("repo", ".bosatsuc", "infer-cache")),
+          Set.empty
+        )
+    }
+  }
+
+  test("lib check rejects --cache_dir with --no_cache") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--no_cache"
+    )
+
+    module.run(cmd) match {
+      case Left(_)  => ()
+      case Right(_) =>
+        fail("expected parser error when both --cache_dir and --no_cache are supplied")
+    }
+  }
+
   test("lib deps list text output includes public and private sections") {
     val files = baseLibFiles("main = 1\n")
 

@@ -365,13 +365,45 @@ object Command {
         )
         .orNone
         .map {
-          case None => { root =>
-            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
-          }
-          case Some(d) => { _ => d }
+          case Some(d) =>
+            (_: P) => d
+          case None    =>
+            (root: P) => platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
         }
 
-    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+    val compileCacheDirOpt: Opts[P => Option[P]] = {
+      val defaultDirFn: P => Option[P] = (root: P) =>
+        Some(platformIO.resolve(root, ".bosatsuc" :: "infer-cache" :: Nil))
+      val noCacheFn: P => Option[P] = (_: P) => None
+
+      // Shared across all lib commands that invoke compiler inference/typechecking.
+      // --cache_dir and --no_cache are mutually exclusive via orElse branches.
+      Opts
+        .option[P](
+          "cache_dir",
+          help =
+            "cache directory for compiled package artifacts (default: .bosatsuc/infer-cache in repo root)"
+        )
+        .map { cacheDir =>
+          (_: P) => Some(cacheDir)
+        }
+        .orElse(
+          Opts
+            .flag(
+              "no_cache",
+              help = "disable compiled package artifact cache for this run"
+            )
+            .as(noCacheFn)
+        )
+        .orElse(Opts(defaultDirFn))
+    }
+
+    case class ConfigConf(
+        conf: LibConfig,
+        cas: Cas[F, P],
+        confDir: P,
+        gitRoot: P
+    ) {
       private def loadFromCas(
           dep: proto.LibDependency
       ): F[Hashed[Algo.Blake3, proto.Library]] =
@@ -459,7 +491,8 @@ object Command {
         def packageMap(
             colorize: Colorize,
             sourcePackageFilter: Option[PackageName => Boolean] = None,
-            compileOptions: CompileOptions
+            compileOptions: CompileOptions,
+            compileCacheDirOpt: Option[P] = None
         ): F[PackageMap.Inferred] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
@@ -552,7 +585,8 @@ object Command {
                             ),
                           colorize,
                           inputRes,
-                          compileOptions
+                          compileOptions,
+                          compileCacheDirOpt
                         )
                       }
                       .map(_._1)
@@ -583,7 +617,8 @@ object Command {
       def docPackages(
           colorize: Colorize,
           outdir: P,
-          includePredef: Boolean
+          includePredef: Boolean,
+          compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
           cs <- checkState
@@ -606,7 +641,8 @@ object Command {
               ),
               colorize,
               inputRes,
-              CompileOptions.Default
+              CompileOptions.Default,
+              compileCacheDirOpt
             )
           }
           (compiled, sourcePaths) = checked
@@ -627,11 +663,17 @@ object Command {
       def check(
           colorize: Colorize,
           sourcePackageFilter: Option[PackageName => Boolean] = None,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, sourcePackageFilter, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            sourcePackageFilter,
+            compileOptions,
+            compileCacheDirOpt
+          )
           res <- sourcePackageFilter match {
             case None =>
               val validated = conf.validate(
@@ -650,11 +692,17 @@ object Command {
 
       def decodedWithDeps(
           colorize: Colorize,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, None, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            None,
+            compileOptions,
+            compileCacheDirOpt
+          )
           validated = conf.validate(
             cs.prevThis,
             allPacks.toMap.values.toList,
@@ -673,14 +721,16 @@ object Command {
       def decodedWithDepsFiltered(
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             Some(sourcePackageFilter),
-            compileOptions
+            compileOptions,
+            compileCacheDirOpt
           )
           decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
         } yield decWithLibs
@@ -743,24 +793,36 @@ object Command {
 
       def decodedWithDepsFilteredForTest(
           colorize: Colorize,
-          sourcePackageFilter: PackageName => Boolean
+          sourcePackageFilter: PackageName => Boolean,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         decodedWithDepsFiltered(
           colorize,
           sourcePackageFilter,
-          CompileOptions.Default
+          CompileOptions.Default,
+          compileCacheDirOpt
         )
 
       def build(
           colorize: Colorize,
           trans: Transpiler.Optioned[F, P],
-          sourcePackageFilter: Option[PackageName => Boolean] = None
+          sourcePackageFilter: Option[PackageName => Boolean] = None,
+          compileCacheDirOpt: Option[P] = None
       ): F[Doc] =
         for {
           decWithLibs <- sourcePackageFilter match {
-            case None         => decodedWithDeps(colorize, CompileOptions.Default)
+            case None         =>
+              decodedWithDeps(
+                colorize,
+                CompileOptions.Default,
+                compileCacheDirOpt
+              )
             case Some(filter) =>
-              decodedWithDepsFilteredForTest(colorize, filter)
+              decodedWithDepsFilteredForTest(
+                colorize,
+                filter,
+                compileCacheDirOpt
+              )
           }
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
@@ -770,13 +832,18 @@ object Command {
           }
         } yield Doc.empty
 
-      def buildLibrary(vcsIdent: String, colorize: Colorize): F[proto.Library] =
+      def buildLibrary(
+          vcsIdent: String,
+          colorize: Colorize,
+          compileCacheDirOpt: Option[P] = None
+      ): F[proto.Library] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             None,
-            CompileOptions.Default
+            CompileOptions.Default,
+            compileCacheDirOpt
           )
           validated = conf.assemble(
             vcsIdent = vcsIdent,
@@ -885,7 +952,7 @@ object Command {
             conf <- readLibConf(name, confPath(confDir, name))
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-          } yield ConfigConf(conf, cas, confDir)
+          } yield ConfigConf(conf, cas, confDir, gitRoot)
         }
     }
 
@@ -1375,14 +1442,20 @@ object Command {
         val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
           ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
 
-        (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
-          (fcc, sourceFilter, colorize) =>
+        (
+          ConfigConf.opts,
+          sourceFilterOpt,
+          compileCacheDirOpt,
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, sourceFilter, cacheDirFn, colorize) =>
             for {
               cc <- fcc
+              cacheDir = cacheDirFn(cc.gitRoot)
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.TypeCheckOnly
+                CompileOptions.TypeCheckOnly,
+                cacheDir
               )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
@@ -1487,8 +1560,9 @@ object Command {
             )
             .orFalse,
           Opts.arguments[String]("arg").orEmpty,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, runMain, runArgs, colorize) =>
+        ).mapN { (fcc, target, runMain, runArgs, cacheDirFn, colorize) =>
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
@@ -1497,12 +1571,14 @@ object Command {
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDepsFiltered(
                   colorize,
                   sourcePackageFilter,
-                  CompileOptions.Default
+                  CompileOptions.Default,
+                  cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
@@ -1598,6 +1674,7 @@ object Command {
             )
             .orFalse,
           Opts.option[P]("output", help = "output path").orNone,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN {
           (
@@ -1609,6 +1686,7 @@ object Command {
               noOpt,
               jsonOut,
               output,
+              cacheDirFn,
               colorize
           ) =>
           val compileOptions =
@@ -1623,16 +1701,18 @@ object Command {
             }
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
                 dec <- sourceFilterOpt match {
                   case None =>
-                    cc.decodedWithDeps(colorize, compileOptions)
+                    cc.decodedWithDeps(colorize, compileOptions, cacheDir)
                   case Some(sourceFilter) =>
                     cc.decodedWithDepsFiltered(
                       colorize,
                       sourceFilter,
-                      compileOptions
+                      compileOptions,
+                      cacheDir
                     )
                 }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
@@ -1672,11 +1752,17 @@ object Command {
               help = "include Bosatsu/Predef in generated docs"
             )
             .orFalse,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, outdir, includePredef, colorize) =>
+        ).mapN { (fcc, outdir, includePredef, cacheDirFn, colorize) =>
           for {
             cc <- fcc
-            docs <- cc.docPackages(colorize, outdir, includePredef)
+            docs <- cc.docPackages(
+              colorize,
+              outdir,
+              includePredef,
+              cacheDirFn(cc.gitRoot)
+            )
           } yield (Output.TranspileOut(docs): Output[P])
         }
       }
@@ -1745,8 +1831,9 @@ object Command {
             .orFalse,
           mainOpt,
           outputOpt,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, mode, yamlOut, target, output, colorize) =>
+        ).mapN { (fcc, mode, yamlOut, target, output, cacheDirFn, colorize) =>
           def showError[A](prefix: String, str: String, idx: Int): F[A] = {
             val errMsg0 = str.substring(idx + 1)
             val errMsg =
@@ -1820,9 +1907,14 @@ object Command {
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
+                dec <- cc.decodedWithDeps(
+                  colorize,
+                  CompileOptions.Default,
+                  cacheDir
+                )
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
@@ -2076,12 +2168,23 @@ object Command {
             ConfigConf.opts,
             mainPack,
             outputSpecOpt,
+            compileCacheDirOpt,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts
           ).tupled
 
         (buildArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, mainPackOpt, (outDirOpt, output), emit, gen), colorize) =>
+          case (
+                (
+                  fcc,
+                  mainPackOpt,
+                  (outDirOpt, output),
+                  cacheDirFn,
+                  emit,
+                  gen
+                ),
+                colorize
+              ) =>
             def mode(cc: ConfigConf): F[ClangTranspiler.Mode[F]] =
               mainPackOpt match {
                 case Some(m) =>
@@ -2120,7 +2223,11 @@ object Command {
                     platformIO
                   )
                 }
-                msg <- cc.build(colorize, trans)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  compileCacheDirOpt = cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
 
             outDirOpt match {
@@ -2180,11 +2287,12 @@ object Command {
             clangOut,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts,
+            compileCacheDirOpt,
             Transpiler.outDir[P].orNone
           ).tupled
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, test, out, emit, gen, outDirOpt), colorize) =>
+          case ((fcc, test, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
             def runtimePreflight(
                 output: ClangTranspiler.Output[F, P]
             ): F[ClangTranspiler.Output[F, P]] =
@@ -2223,7 +2331,12 @@ object Command {
                 }
                 cc <- fcc
                 // build is the same as test, Transpiler controls the difference
-                msg <- cc.build(colorize, trans, test.filter)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  test.filter,
+                  cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
             }
 
@@ -2259,6 +2372,7 @@ object Command {
           Colorize.optsConsoleDefault,
           gitShaOpt,
           Transpiler.outDir[P],
+          compileCacheDirOpt,
           Opts
             .option[String](
               long = "uri-base",
@@ -2266,7 +2380,16 @@ object Command {
               help = "uri prefix where all the libraries will be accessible."
             )
             .orNone
-        ).mapN { (readGitLibs, casDirFn, colorize, gitShaF, outDir, uriBaseOpt) =>
+        ).mapN {
+          (
+              readGitLibs,
+              casDirFn,
+              colorize,
+              gitShaF,
+              outDir,
+              cacheDirFn,
+              uriBaseOpt
+          ) =>
           for {
             gitRootlibs <- readGitLibs
             gitSha <- gitShaF
@@ -2274,10 +2397,14 @@ object Command {
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
             allLibs <- libs.transform { case (name, (conf, path)) =>
-              val cc = ConfigConf(conf, cas, path)
+              val cc = ConfigConf(conf, cas, path, gitRoot)
               val libOut: P = libraryPath(outDir, name, conf.nextVersion)
               for {
-                protoLib <- cc.buildLibrary(vcsIdent = gitSha, colorize)
+                protoLib <- cc.buildLibrary(
+                  vcsIdent = gitSha,
+                  colorize = colorize,
+                  compileCacheDirOpt = cacheDirFn(gitRoot)
+                )
                 hashedLib = Hashed(
                   Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
                   protoLib

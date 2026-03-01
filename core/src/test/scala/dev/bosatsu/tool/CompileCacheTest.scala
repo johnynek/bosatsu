@@ -30,13 +30,14 @@ class CompileCacheTest extends FunSuite {
 
   private def compilePackage(
       source: String,
+      depIfaces: List[Package.Interface] = Nil,
       compileOptions: CompileOptions = CompileOptions.Default
   ): Package.Inferred = {
     val parsed = parsePackage(source)
     val checked = Par.noParallelism {
       PackageMap.typeCheckParsed(
         cats.data.NonEmptyList.one((("test", LocationMap(source)), parsed)),
-        Nil,
+        depIfaces,
         "predef",
         compileOptions
       )
@@ -65,16 +66,29 @@ class CompileCacheTest extends FunSuite {
       pack: Package.Parsed,
       deps: SortedMap[PackageName, Package.Interface] = SortedMap.empty,
       compileOptions: CompileOptions = CompileOptions.Default
-  ): FsKey =
+  ): FsKey = {
+    val (stateAfterDepHashes, depHashes) =
+      deps.iterator.foldLeft(
+        (
+          MemoryMain.State.empty,
+          SortedMap.empty[PackageName, cache.DepHash]
+        )
+      ) { case ((state, hashes), (depName, depIface)) =>
+        val (nextState, depHash) = runF(cache.dependencyHash(depIface), state)
+        (nextState, hashes.updated(depName, depHash))
+      }
+
     runF(
       cache.generateKey(
         pack,
-        deps,
+        depHashes,
         compileOptions,
         "compiler-id",
         "phase-id"
-      )
+      ),
+      stateAfterDepHashes
     )._2
+  }
 
   test("sourceExprHash ignores statement regions") {
     val sourceA =
@@ -175,6 +189,61 @@ class CompileCacheTest extends FunSuite {
     )
   }
 
+  test("generateKey requires dependencyHash lookup for dependency interfaces") {
+    val consumerSource =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep
+        |""".stripMargin
+    val depSource =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+
+    val consumer = parsePackage(consumerSource)
+    val depIface = Package.interfaceOf(compilePackage(depSource))
+    val isolatedCache = CompileCache.filesystem(cacheDir, platform)
+    val depHashes = SortedMap(
+      depIface.name -> CompileCache.interfaceHash(depIface).getOrElse {
+        fail("failed to compute dependency interface hash")
+      }
+    )
+
+    val missingLookup =
+      isolatedCache
+        .generateKey(
+          consumer,
+          depHashes,
+          CompileOptions.Default,
+          "compiler-id",
+          "phase-id"
+        )
+        .run(MemoryMain.State.empty)
+    assert(missingLookup.isLeft)
+
+    val (stateWithLookup, _) = runF(isolatedCache.dependencyHash(depIface))
+    val seededKey =
+      runF(
+        isolatedCache.generateKey(
+          consumer,
+          depHashes,
+          CompileOptions.Default,
+          "compiler-id",
+          "phase-id"
+        ),
+        stateWithLookup
+      )._2
+
+    val helperKey =
+      compileKey(consumer, SortedMap(depIface.name -> depIface))
+
+    assertEquals(
+      CompileCache.keyHashHex(seededKey),
+      CompileCache.keyHashHex(helperKey)
+    )
+  }
+
   test("corrupt links and missing cas entries are treated as cache misses") {
     val source =
       """package Cache/Foo
@@ -217,5 +286,30 @@ class CompileCacheTest extends FunSuite {
 
     val (_, missFromMissingCas) = runF(cache.get(key), missingCasState)
     assertEquals(missFromMissingCas, None)
+  }
+
+  test("cached packages with imports decode on warm hits") {
+    val depSource =
+      """package Cache/Dep
+        |export dep
+        |dep = 1
+        |""".stripMargin
+    val appSource =
+      """package Cache/App
+        |from Cache/Dep import dep
+        |main = dep.add(1)
+        |""".stripMargin
+
+    val depCompiled = compilePackage(depSource)
+    val depIface = Package.interfaceOf(depCompiled)
+    val appParsed = parsePackage(appSource)
+    val appCompiled = compilePackage(appSource, depIfaces = depIface :: Nil)
+    val key = compileKey(appParsed, SortedMap(depIface.name -> depIface))
+
+    val (stateWithCache, _) = runF(cache.put(key, appCompiled))
+    val (_, warmHit) = runF(cache.get(key), stateWithCache)
+
+    assert(warmHit.nonEmpty, "expected warm cache hit for package with imports")
+    assertEquals(warmHit.map(_.name), Some(appParsed.name))
   }
 }
