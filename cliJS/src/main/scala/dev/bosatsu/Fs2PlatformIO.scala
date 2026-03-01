@@ -183,6 +183,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def readUtf8(p: Path): IO[String] =
     FilesIO.readUtf8(p).compile.string
 
+  def readBytes(p: Path): IO[Array[Byte]] =
+    FilesIO.readAll(p).compile.to(Array)
+
   def fsDataType(p: Path): IO[Option[PlatformIO.FSDataType]] =
     FilesIO
       .exists(p, followLinks = true)

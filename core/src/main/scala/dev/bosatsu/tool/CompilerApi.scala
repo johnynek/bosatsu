@@ -113,6 +113,7 @@ object CompilerApi {
         cache,
         InferPhases.default
       )
+      _ <- cache.statsSnapshot.traverse_(platformIO.println)
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
       res <-
