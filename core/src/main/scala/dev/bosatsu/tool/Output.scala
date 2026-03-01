@@ -16,7 +16,6 @@ import dev.bosatsu.{
   Value,
   rankn
 }
-import java.math.BigInteger
 import org.typelevel.paiges.Doc
 import dev.bosatsu.LocationMap.Colorize
 import BInt.*
@@ -291,16 +290,10 @@ object Output {
   private def mainRunResult(
       run: PredefImpl.ProgRunResult
   ): (ExitCode, Option[Doc]) = {
-    val maxInt = BigInteger.valueOf(Int.MaxValue.toLong)
-    val minInt = BigInteger.valueOf(Int.MinValue.toLong)
-
     def asExitCode(value: Value): Either[String, ExitCode] =
       value match {
         case Value.ExternalValue(BInt(i)) =>
-          val bi = i.toBigInteger
-          if (bi.compareTo(minInt) >= 0 && bi.compareTo(maxInt) <= 0)
-            Right(ExitCode.fromInt(bi.intValue))
-          else Left(s"expected Main to return an Int exit code, found: $value")
+          Right(ExitCode.fromInt(i.toBigInteger.intValue))
         case other =>
           Left(s"expected Main to return an Int exit code, found: $other")
       }
