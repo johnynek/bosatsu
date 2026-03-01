@@ -194,11 +194,13 @@ case object ClangTranspiler extends Transpiler {
         rootOpt <- platformIO.gitTopLevel
         root <- platformIO.getOrError(
           rootOpt,
-          "could not find .git directory to locate default cc_conf"
+          CliException.Basic("could not find .git directory to locate default cc_conf")
         )
         gitSha <- platformIO.getOrError(
           BuildInfo.gitHeadCommit,
-          s"compiler version ${BuildInfo.version} was built without a git-sha"
+          CliException.Basic(
+            s"compiler version ${BuildInfo.version} was built without a git-sha"
+          )
         )
         confPath = platformIO.resolve(
           root,
