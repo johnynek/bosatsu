@@ -143,6 +143,12 @@ if [ ! -f "$artifact_path" ]; then
   fail "missing ${artifact_path} after installation"
 fi
 
+# `./bosatsu --fetch` is used as a setup step; auto-install c runtime so
+# subsequent `lib test` commands don't fail on missing cc_conf.
+if [ "$fetch" -eq 1 ] && [ "${#args[@]}" -eq 0 ]; then
+  args=("c-runtime" "install")
+fi
+
 case "$platform" in
   java)
     command -v java >/dev/null 2>&1 || fail "java not found"
