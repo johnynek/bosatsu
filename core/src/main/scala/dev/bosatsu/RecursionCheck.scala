@@ -142,8 +142,10 @@ object RecursionCheck {
     private def missingRecursiveCallMessage =
       s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}"
 
-    private def likelyRenameMessage(calledName: Bindable, count: Int) =
-      s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count occurrences)"
+    private def likelyRenameMessage(calledName: Bindable, count: Int) = {
+      val occurrenceWord = if (count == 1) "occurrence" else "occurrences"
+      s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count $occurrenceWord)"
+    }
 
     private val nonRecursiveRecurHint =
       "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
