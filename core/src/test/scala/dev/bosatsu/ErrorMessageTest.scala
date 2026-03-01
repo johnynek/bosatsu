@@ -89,6 +89,30 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("matches identifier binding is reported as a source-converter error") {
+    evalFail(List("""
+package MatchesBinding
+
+main = int_to_String(42) matches str
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "`matches` uses pattern matching and this pattern introduces bindings:"
+        ),
+        msg
+      )
+      assert(
+        msg.contains(
+          "`matches` pattern is definitely total, so this expression is always `True`:"
+        ),
+        msg
+      )
+      assert(msg.contains("use explicit equality"), msg)
+      ()
+    }
+  }
+
   test("shadowed binding type mismatch has a focused message") {
     val source =
       """package Shadowed
