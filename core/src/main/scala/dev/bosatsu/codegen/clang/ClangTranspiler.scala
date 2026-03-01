@@ -156,8 +156,28 @@ case object ClangTranspiler extends Transpiler {
     def ccConfOpt[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[CcConf]] = {
       import platformIO.{moduleIOMonad, pathArg, showPath}
 
+      def validateExplicitCcConfPath(confPath: P): F[Unit] =
+        platformIO.fsDataType(confPath).flatMap {
+          case Some(PlatformIO.FSDataType.File) =>
+            moduleIOMonad.unit
+          case None =>
+            moduleIOMonad.raiseError(
+              CliException.Basic(
+                show"cc_conf file not found: $confPath\n" +
+                  "Run `bosatsu c-runtime install` or provide a valid `--cc_conf` path."
+              )
+            )
+          case Some(PlatformIO.FSDataType.Dir) =>
+            moduleIOMonad.raiseError(
+              CliException.Basic(
+                show"cc_conf path is not a file: $confPath"
+              )
+            )
+        }
+
       def parseCCFile(confPath: P): F[CcConf] =
         for {
+          _ <- validateExplicitCcConfPath(confPath)
           json <- platformIO.parseUtf8(confPath, Json.parserFile)
           ccConf <- CcConf.parse(json) match {
             case Right(cc)            => moduleIOMonad.pure(cc)

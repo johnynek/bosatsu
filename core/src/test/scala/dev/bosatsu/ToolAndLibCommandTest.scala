@@ -4675,6 +4675,49 @@ main = 0
   }
 
   test(
+    "lib test with missing --cc_conf reports a concise validation error"
+  ) {
+    val targetSrc =
+      """test_one = Assertion(True, "ok")
+"""
+    val files = baseLibFiles(targetSrc)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--cc_conf",
+        "repo/does_not_exist_cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected missing cc_conf failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(
+          msg.contains(
+            "runtime readiness preflight failed before running `lib test`"
+          ),
+          msg
+        )
+        assert(
+          msg.contains("cc_conf file not found: repo/does_not_exist_cc_conf.json"),
+          msg
+        )
+        assert(
+          msg.contains(
+            "Run `bosatsu c-runtime install` or provide a valid `--cc_conf` path."
+          ),
+          msg
+        )
+        assert(!msg.contains("unknown error"), msg)
+        assert(!msg.contains("NoSuchFileException"), msg)
+    }
+  }
+
+  test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
