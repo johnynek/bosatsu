@@ -208,7 +208,12 @@ typedef struct BSTS_Test_Result {
 
 // This is the constructor to get a Test value for the given package name
 // and print to stdout
-BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value);
+_Bool bsts_test_argv_has_quiet(int argc, char** argv);
+BSTS_Test_Result bsts_test_run(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+);
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results);
 
 #endif

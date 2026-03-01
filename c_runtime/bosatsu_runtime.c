@@ -2753,6 +2753,15 @@ static void bsts_print_test_summary(int indent, int passes, int fails) {
   }
 }
 
+_Bool bsts_test_argv_has_quiet(int argc, char** argv) {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--quiet") == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 BSTS_PassFail bsts_check_test(BValue v, int indent) {
   int passes = 0;
   int fails = 0;
@@ -2798,13 +2807,88 @@ BSTS_PassFail bsts_check_test(BValue v, int indent) {
   return res;
 }
 
-BSTS_Test_Result bsts_test_run(char* package_name, BConstruct test_value) {
-  BValue res = test_value();
-  printf("%s:\n", package_name);
-  BSTS_PassFail this_test = bsts_check_test(res, 4);
-  if (get_variant(res) == 0) {
-    bsts_print_test_summary(4, this_test.passes, this_test.fails);
+static BSTS_PassFail bsts_count_test(BValue v) {
+  int passes = 0;
+  int fails = 0;
+  if (get_variant(v) == 0) {
+    _Bool success = get_variant(get_enum_index(v, 0));
+    if (success) {
+      ++passes;
+    }
+    else {
+      ++fails;
+    }
   }
+  else {
+    BValue suite_tests = get_enum_index(v, 1);
+    while(get_variant(suite_tests) != 0) {
+      BValue t1 = get_enum_index(suite_tests, 0);
+      suite_tests = get_enum_index(suite_tests, 1);
+      BSTS_PassFail tests = bsts_count_test(t1);
+      passes += tests.passes;
+      fails += tests.fails;
+    }
+  }
+
+  BSTS_PassFail res = { passes, fails };
+  return res;
+}
+
+static void bsts_print_test_failures(BValue v, int indent) {
+  if (get_variant(v) == 0) {
+    _Bool success = get_variant(get_enum_index(v, 0));
+    if (!success) {
+      BValue message = get_enum_index(v, 1);
+      print_indent(indent);
+      printf("\033[31mfailure: ");
+      bsts_string_println(message);
+      printf("\033[0m");
+    }
+    return;
+  }
+
+  BValue suite_name = get_enum_index(v, 0);
+  BValue suite_tests = get_enum_index(v, 1);
+  _Bool wrote_header = 0;
+  int next_indent = indent + 4;
+  while(get_variant(suite_tests) != 0) {
+    BValue t1 = get_enum_index(suite_tests, 0);
+    suite_tests = get_enum_index(suite_tests, 1);
+    BSTS_PassFail tests = bsts_count_test(t1);
+    if (tests.fails > 0) {
+      if (!wrote_header) {
+        print_indent(indent);
+        bsts_string_print(suite_name);
+        printf(":\n");
+        wrote_header = 1;
+      }
+      bsts_print_test_failures(t1, next_indent);
+    }
+  }
+}
+
+BSTS_Test_Result bsts_test_run(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+) {
+  BValue res = test_value();
+  BSTS_PassFail this_test;
+  if (quiet) {
+    this_test = bsts_count_test(res);
+    if (this_test.fails > 0) {
+      printf("%s:\n", package_name);
+      bsts_print_test_failures(res, 4);
+    }
+  }
+  else {
+    printf("%s:\n", package_name);
+    this_test = bsts_check_test(res, 4);
+    if (get_variant(res) == 0) {
+      bsts_print_test_summary(4, this_test.passes, this_test.fails);
+    }
+  }
+
   BSTS_Test_Result test_res = { package_name, this_test.passes, this_test.fails };
   return test_res;
 }
@@ -2827,11 +2911,14 @@ int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
     printf("\n");
   }
 
-  if (total_fails == 0) {
-    printf("\npassed: \033[32m%i\033[0m\n", total_passes);
-  }
-  else {
-    printf("\npassed: \033[32m%i\033[0m, failed: \033[31m%i\033[0m\n", total_passes, total_fails);
-  }
+  const char* fail_color = total_fails > 0 ? "\033[31m" : "";
+  const char* fail_reset = total_fails > 0 ? "\033[0m" : "";
+  printf(
+      "\npassed: \033[32m%i\033[0m, failed: %s%i%s\n",
+      total_passes,
+      fail_color,
+      total_fails,
+      fail_reset
+  );
   return (total_fails > 0);
 }

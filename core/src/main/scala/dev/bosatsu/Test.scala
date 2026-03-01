@@ -100,63 +100,86 @@ object Test {
 
   def outputFor(
       resultList: List[(PackageName, Option[Test])],
-      color: LocationMap.Colorize
+      color: LocationMap.Colorize,
+      quiet: Boolean = false
   ): Report = {
     val noTests = resultList.collect { case (p, None) => p }
-    val results = resultList
-      .collect { case (p, Some(t)) => (p, Test.report(t, color)) }
+    val tests = resultList
+      .collect { case (p, Some(t)) => (p, t) }
       .sortBy(_._1)
 
-    val successes = results.iterator.map { case (_, Report(s, _, _)) => s }.sum
-    val failures = results.iterator.map { case (_, Report(_, f, _)) => f }.sum
+    val successes =
+      tests.iterator.map { case (_, t) => t.assertions - t.failureCount }.sum
+    val failures = tests.iterator.map(_._2.failureCount).sum
     val success = noTests.isEmpty && (failures == 0)
-    val suffix =
-      if (results.lengthCompare(1) > 0)
-        (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
-      else Doc.empty
 
-    val docRes: Doc =
-      Doc.intercalate(
-        Doc.hardLine + Doc.hardLine,
-        results.map { case (p, Report(_, _, d)) =>
+    val missingDoc =
+      if (noTests.isEmpty) Nil
+      else {
+        val prefix = Doc.text("packages with missing tests: ")
+        val missing = Doc.intercalate(
+          Doc.comma + Doc.lineOrSpace,
+          noTests.sorted.map(p => Doc.text(p.asString))
+        )
+        (prefix + missing.nested(2)) :: Nil
+      }
+
+    if (quiet) {
+      val failureDocs = tests.collect {
+        case (p, t) if t.failureCount > 0 =>
+          val Report(_, _, d) = Test.report(t.failures.get, color)
           Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-        }
-      ) + suffix
+      }
 
-    if (success) Report(successes, failures, docRes)
-    else {
-      val missingDoc =
-        if (noTests.isEmpty) Nil
-        else {
-          val prefix = Doc.text("packages with missing tests: ")
-          val missingDoc = Doc.intercalate(
-            Doc.comma + Doc.lineOrSpace,
-            noTests.sorted.map(p => Doc.text(p.asString))
-          )
-          (prefix + missingDoc.nested(2)) :: Nil
-        }
+      val sumDoc = Test.summary(successes, failures, color)
+      val body = failureDocs ++ missingDoc
+      val fullDoc =
+        if (body.isEmpty) sumDoc
+        else Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          body :+ sumDoc
+        )
 
-      val fullOut = Doc.intercalate(
-        Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line,
-        docRes :: missingDoc
-      )
+      Report(successes, failures, fullDoc)
+    } else {
+      val results = tests.map { case (p, t) => (p, Test.report(t, color)) }
+      val suffix =
+        if (results.lengthCompare(1) > 0)
+          (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
+        else Doc.empty
 
-      val failureStr =
-        if (failures == 1) "1 test failure"
-        else s"$failures test failures"
+      val docRes: Doc =
+        Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          results.map { case (p, Report(_, _, d)) =>
+            Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+          }
+        ) + suffix
 
-      val missingCount = noTests.size
-      val excepMessage =
-        if (missingCount > 0) {
-          val packString = if (missingCount == 1) "package" else "packages"
-          s"$failureStr and $missingCount $packString with no tests found"
-        } else failureStr
+      if (success) Report(successes, failures, docRes)
+      else {
+        val fullOut = Doc.intercalate(
+          Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line,
+          docRes :: missingDoc
+        )
 
-      Report(
-        successes,
-        failures,
-        fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)
-      )
+        val failureStr =
+          if (failures == 1) "1 test failure"
+          else s"$failures test failures"
+
+        val missingCount = noTests.size
+        val excepMessage =
+          if (missingCount > 0) {
+            val packString = if (missingCount == 1) "package" else "packages"
+            s"$failureStr and $missingCount $packString with no tests found"
+          } else failureStr
+
+        Report(
+          successes,
+          failures,
+          fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)
+        )
+      }
     }
   }
 

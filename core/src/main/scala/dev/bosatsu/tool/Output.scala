@@ -28,7 +28,7 @@ sealed abstract class Output[+Path] {
     import platformIO._
 
     this match {
-      case Output.TestOutput(resMap, color) =>
+      case Output.TestOutput(resMap, color, quiet) =>
         val hasMissing = resMap.exists(_._2.isEmpty)
         // it would be nice to run in parallel, but
         // MatchlessToValue is not currently threadsafe
@@ -38,7 +38,7 @@ sealed abstract class Output[+Path] {
           case (p, None) => (p, None)
         }
 
-        val testReport = Test.outputFor(evalTest, color)
+        val testReport = Test.outputFor(evalTest, color, quiet)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
         writeStdout(testReport.doc).as(code)
@@ -245,7 +245,8 @@ sealed abstract class Output[+Path] {
 object Output {
   case class TestOutput(
       tests: List[(PackageName, Option[Eval[Test]])],
-      colorize: Colorize
+      colorize: Colorize,
+      quiet: Boolean = false
   ) extends Output[Nothing]
 
   case class EvaluationResult(
