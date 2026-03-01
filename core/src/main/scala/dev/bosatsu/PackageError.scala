@@ -84,6 +84,20 @@ object PackageError {
         Doc.empty
     }
 
+  private def unknownOperatorHint(
+      name: Identifier,
+      region: Region,
+      lets: List[(Identifier.Bindable, RecursionKind, Expr[Declaration])]
+  ): Doc =
+    name match {
+      case op: Identifier.Operator =>
+        OperatorHints
+          .hint(op, region, lets)
+          .fold(Doc.empty)(msg => Doc.hardLine + Doc.text(msg))
+      case _ =>
+        Doc.empty
+    }
+
   private def nearestConstructorsDoc(
       suggestions: List[Identifier.Constructor]
   ): Doc =
@@ -799,7 +813,8 @@ object PackageError {
                   }
                 (
                   Doc.text("Unknown name ") + quoted(name) + Doc.char('.') +
-                    didYouMeanDoc(candidates) + occurrenceDoc(
+                    didYouMeanDoc(candidates) +
+                    unknownOperatorHint(name, region, lets) + occurrenceDoc(
                       "name",
                       occurrences
                     ) + checkModeTodoHint(name) + Doc.hardLine + ctx,
