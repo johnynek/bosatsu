@@ -64,7 +64,7 @@ class StoreTest extends munit.FunSuite {
 
   test("cmdHandler test args return TestOutput") {
     assertCommandOutput(Action.Cmd.Test) {
-      case Output.TestOutput(_, _) => ()
+      case Output.TestOutput(_, _, _) => ()
       case other =>
         fail(s"expected Output.TestOutput, got: $other")
     }
