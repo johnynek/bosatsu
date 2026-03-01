@@ -51,7 +51,7 @@ workflow =
           Step {
             name: Set("run tests with coverage"),
             run: Set(cat_lines([
-              "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
+              "sbt \"coverage; clean; coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; coverageReport\"",
               "",
             ])),
           },

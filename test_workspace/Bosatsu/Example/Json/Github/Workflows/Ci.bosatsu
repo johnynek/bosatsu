@@ -168,7 +168,7 @@ workflow =
           Step {
             name: Set("run JVM tests"),
             run: Set(cat_lines([
-              "sbt \"coreJVM/test; cli/test; doc; paradox\"",
+              "sbt \"coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox\"",
               "./test_cli.sh",
               "",
             ])),
@@ -209,8 +209,8 @@ workflow =
           Step {
             name: Set("run coreJS tests"),
             run: Set(cat_lines([
-              "sbt \"coreJS/test; jsapiJS/compile\"",
-              "sbt \"jsuiJS/test\"",
+              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/compile\"",
+              "sbt \"jsuiJS/testOnly * -- --log=failure\"",
               "",
             ])),
           },
@@ -226,7 +226,7 @@ workflow =
           Step {
             name: Set("run tests with coverage"),
             run: Set(cat_lines([
-              "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\"",
+              "sbt \"coverage; clean; coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; coverageReport\"",
               "",
             ])),
           },

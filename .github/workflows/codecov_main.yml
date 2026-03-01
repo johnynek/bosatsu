@@ -22,7 +22,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run tests with coverage"
         run: |
-          sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
+          sbt "coverage; clean; coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; coverageReport"
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:

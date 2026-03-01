@@ -23,7 +23,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run JVM tests"
         run: |
-          sbt "coreJVM/test; cli/test; doc; paradox"
+          sbt "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
           ./test_cli.sh
     strategy:
       matrix:
@@ -95,8 +95,8 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run coreJS tests"
         run: |
-          sbt "coreJS/test; jsapiJS/compile"
-          sbt "jsuiJS/test"
+          sbt "coreJS/testOnly * -- --log=failure; jsapiJS/compile"
+          sbt "jsuiJS/testOnly * -- --log=failure"
     strategy:
       matrix:
         java:
@@ -129,7 +129,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run tests with coverage"
         run: |
-          sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
+          sbt "coverage; clean; coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; coverageReport"
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
