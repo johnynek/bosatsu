@@ -77,4 +77,22 @@ class StoreTest extends munit.FunSuite {
         fail(s"expected Output.ShowOutput, got: $other")
     }
   }
+
+  test("evaluate error renders source paths with slash form") {
+    val reproSource =
+      """package Repro/Issue1
+        |
+        |test = Assertion(int_to_String(42) matches str, "msg")
+        |""".stripMargin
+
+    val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
+    Store.memoryMain.runWith(files = Map(webDemoPath -> reproSource))(args) match {
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("in file: root/WebDemo"), msg)
+        assert(!msg.contains("Chain(root, WebDemo)"), msg)
+      case Right(output) =>
+        fail(s"expected evaluate to fail with type errors, got: $output")
+    }
+  }
 }

@@ -1617,7 +1617,10 @@ object Command {
                   if (tpe == progMainType) {
                     val run =
                       memoE.map(
-                        PredefImpl.runProgMain(_, PredefImpl.evalRunArgs(runArgs))
+                        PredefImpl.runProgMainWithSystemStdin(
+                          _,
+                          PredefImpl.evalRunArgs(runArgs)
+                        )
                       )
                     moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
                   } else {

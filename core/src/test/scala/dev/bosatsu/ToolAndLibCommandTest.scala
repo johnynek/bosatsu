@@ -9,6 +9,8 @@ import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.tool.{CliException, ExitCode, GraphOutput, Output, ShowEdn}
+import java.io.{ByteArrayInputStream, InputStream}
+import java.nio.charset.StandardCharsets
 import munit.FunSuite
 import org.typelevel.paiges.Doc
 import scala.collection.immutable.SortedMap
@@ -22,6 +24,18 @@ class ToolAndLibCommandTest extends FunSuite {
 
   private def renderJson[A: Json.Writer](value: A): String =
     Json.Writer.write(value).render
+
+  private def withSystemStdin[A](stdin: String)(fn: => A): A = {
+    val previous: InputStream = System.in
+    val next =
+      new ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8))
+    System.setIn(next)
+    try fn
+    finally {
+      System.setIn(previous)
+      next.close()
+    }
+  }
 
   private def runWithState(
       cmd: List[String],
@@ -1626,6 +1640,149 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval --run reads stdin for IO/Std read_line and read_all_stdin") {
+    val ioCoreSrc =
+      """package Bosatsu/IO/Core
+|
+|from Bosatsu/Prog import Prog
+|from Bosatsu/IO/Error import IOError
+|
+|export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
+|
+|external struct Handle
+|external stdin: Handle
+|external stdout: Handle
+|external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
+|external def write_utf8(h: Handle, s: String) -> Prog[IOError, Unit]
+|external def flush(h: Handle) -> Prog[IOError, Unit]
+|""".stripMargin
+    val ioStdSrc =
+      """package Bosatsu/IO/Std
+|
+|from Bosatsu/Prog import Prog, pure, await, recursive
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Core import stdin, stdout, read_utf8, write_utf8, flush
+|
+|export (println, read_line, read_all_stdin)
+|
+|def println(str: String) -> Prog[IOError, Unit]:
+|  (
+|    _ <- write_utf8(stdout, "${str}\n").await()
+|    flush(stdout)
+|  )
+|
+|def trim_trailing_cr(s: String) -> String:
+|  match s.rpartition_String("\r"):
+|    case Some((prefix, suffix)):
+|      if suffix matches "":
+|        prefix
+|      else:
+|        s
+|    case None:
+|      s
+|
+|def concat_rev_chunks(rev_chunks: List[String]) -> String:
+|  concat_String(rev_chunks.reverse())
+|
+|read_line: Prog[IOError, Option[String]] =
+|  recursive(rec -> rev_chunks ->
+|    read_utf8(stdin, 1).await(chunk ->
+|      match chunk:
+|        case None:
+|          if rev_chunks matches []:
+|            pure(None)
+|          else:
+|            pure(Some(trim_trailing_cr(concat_rev_chunks(rev_chunks))))
+|        case Some(piece):
+|          match piece.partition_String("\n"):
+|            case Some((before, _)):
+|              pure(Some(trim_trailing_cr(concat_rev_chunks([before, *rev_chunks]))))
+|            case None:
+|              rec([piece, *rev_chunks])
+|    )
+|  )([])
+|
+|read_all_stdin: Prog[IOError, String] =
+|  recursive(rec -> rev_chunks ->
+|    read_utf8(stdin, 4096).await(chunk ->
+|      match chunk:
+|        case None: pure(concat_rev_chunks(rev_chunks))
+|        case Some(piece): rec([piece, *rev_chunks])
+|    )
+|  )([])
+|""".stripMargin
+    val appSrc =
+      """package Tool/StdinEcho
+|
+|from Bosatsu/Prog import Prog, Main, pure, recover, await
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Std import read_line, read_all_stdin, println
+|
+|def render_opt_String(opt: Option[String]) -> String:
+|  match opt:
+|    case Some(s): s
+|    case None: "<none>"
+|
+|run_prog: Prog[IOError, Int] = (
+|  first <- read_line.await()
+|  _ <- println("line=${render_opt_String(first)}").await()
+|  rest <- read_all_stdin.await()
+|  _ <- println("rest=${rest}").await()
+|  pure(0)
+|)
+|
+|main = Main(_ -> recover(run_prog, _ -> pure(1)))
+|""".stripMargin
+
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("src", "Bosatsu", "IO", "Error.bosatsu") -> minimalIoErrorModuleSrc,
+      Chain("src", "Bosatsu", "IO", "Core.bosatsu") -> ioCoreSrc,
+      Chain("src", "Bosatsu", "IO", "Std.bosatsu") -> ioStdSrc,
+      Chain("src", "Tool", "StdinEcho.bosatsu") -> appSrc
+    )
+
+    val result = withSystemStdin("alpha\nbeta\ngamma") {
+      for {
+        s0 <- MemoryMain.State.from[ErrorOr](files)
+        s1 <- runWithStateAndExit(
+          List(
+            "tool",
+            "eval",
+            "--run",
+            "--main",
+            "Tool/StdinEcho",
+            "--package_root",
+            "src",
+            "--input",
+            "src/Bosatsu/Prog.bosatsu",
+            "--input",
+            "src/Bosatsu/IO/Error.bosatsu",
+            "--input",
+            "src/Bosatsu/IO/Core.bosatsu",
+            "--input",
+            "src/Bosatsu/IO/Std.bosatsu",
+            "--input",
+            "src/Tool/StdinEcho.bosatsu"
+          ),
+          s0
+        )
+      } yield s1
+    }
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        assertEquals(state.stdOut.render(200), "line=alpha\nrest=beta\ngamma\n\n")
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
   test("tool eval --run truncates Main exit code to low 32 bits") {
     val progSrc =
       """package Bosatsu/Prog
@@ -1740,6 +1897,138 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(err.getMessage)
       case Right((_, out, exitCode)) =>
         assertEquals(exitCode, ExitCode.fromInt(3))
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run reads stdin for IO/Std read_line and read_all_stdin") {
+    val ioCoreSrc =
+      """package Bosatsu/IO/Core
+|
+|from Bosatsu/Prog import Prog
+|from Bosatsu/IO/Error import IOError
+|
+|export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
+|
+|external struct Handle
+|external stdin: Handle
+|external stdout: Handle
+|external def read_utf8(h: Handle, max_chars: Int) -> Prog[IOError, Option[String]]
+|external def write_utf8(h: Handle, s: String) -> Prog[IOError, Unit]
+|external def flush(h: Handle) -> Prog[IOError, Unit]
+|""".stripMargin
+    val ioStdSrc =
+      """package Bosatsu/IO/Std
+|
+|from Bosatsu/Prog import Prog, pure, await, recursive
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Core import stdin, stdout, read_utf8, write_utf8, flush
+|
+|export (println, read_line, read_all_stdin)
+|
+|def println(str: String) -> Prog[IOError, Unit]:
+|  (
+|    _ <- write_utf8(stdout, "${str}\n").await()
+|    flush(stdout)
+|  )
+|
+|def trim_trailing_cr(s: String) -> String:
+|  match s.rpartition_String("\r"):
+|    case Some((prefix, suffix)):
+|      if suffix matches "":
+|        prefix
+|      else:
+|        s
+|    case None:
+|      s
+|
+|def concat_rev_chunks(rev_chunks: List[String]) -> String:
+|  concat_String(rev_chunks.reverse())
+|
+|read_line: Prog[IOError, Option[String]] =
+|  recursive(rec -> rev_chunks ->
+|    read_utf8(stdin, 1).await(chunk ->
+|      match chunk:
+|        case None:
+|          if rev_chunks matches []:
+|            pure(None)
+|          else:
+|            pure(Some(trim_trailing_cr(concat_rev_chunks(rev_chunks))))
+|        case Some(piece):
+|          match piece.partition_String("\n"):
+|            case Some((before, _)):
+|              pure(Some(trim_trailing_cr(concat_rev_chunks([before, *rev_chunks]))))
+|            case None:
+|              rec([piece, *rev_chunks])
+|    )
+|  )([])
+|
+|read_all_stdin: Prog[IOError, String] =
+|  recursive(rec -> rev_chunks ->
+|    read_utf8(stdin, 4096).await(chunk ->
+|      match chunk:
+|        case None: pure(concat_rev_chunks(rev_chunks))
+|        case Some(piece): rec([piece, *rev_chunks])
+|    )
+|  )([])
+|""".stripMargin
+    val appSrc =
+      """from Bosatsu/Prog import Prog, Main, pure, recover, await
+|
+|from Bosatsu/IO/Error import IOError
+|from Bosatsu/IO/Std import read_line, read_all_stdin, println
+|
+|def render_opt_String(opt: Option[String]) -> String:
+|  match opt:
+|    case Some(s): s
+|    case None: "<none>"
+|
+|run_prog: Prog[IOError, Int] = (
+|  first <- read_line.await()
+|  _ <- println("line=${render_opt_String(first)}").await()
+|  rest <- read_all_stdin.await()
+|  _ <- println("rest=${rest}").await()
+|  pure(0)
+|)
+|
+|main = Main(_ -> recover(run_prog, _ -> pure(1)))
+|""".stripMargin
+
+    val files =
+      baseLibFiles(appSrc) ++ List(
+        Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+        Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") -> minimalIoErrorModuleSrc,
+        Chain("repo", "src", "Bosatsu", "IO", "Core.bosatsu") -> ioCoreSrc,
+        Chain("repo", "src", "Bosatsu", "IO", "Std.bosatsu") -> ioStdSrc
+      )
+
+    val result = withSystemStdin("alpha\nbeta\ngamma") {
+      for {
+        s0 <- MemoryMain.State.from[ErrorOr](files)
+        s1 <- runWithStateAndExit(
+          List(
+            "lib",
+            "eval",
+            "--repo_root",
+            "repo",
+            "--main",
+            "MyLib/Foo",
+            "--run"
+          ),
+          s0
+        )
+      } yield s1
+    }
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        assertEquals(state.stdOut.render(200), "line=alpha\nrest=beta\ngamma\n\n")
         out match {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")
@@ -2828,6 +3117,75 @@ main = depValue
     }
   }
 
+  test("tool deps parses explicit package declarations with body statements") {
+    val aSrc =
+      """package QA/A
+x = 1
+"""
+    val bSrc =
+      """package QA/B
+from QA/A import x
+y = x
+"""
+    val files = List(
+      Chain("src", "QA", "A.bosatsu") -> aSrc,
+      Chain("src", "QA", "B.bosatsu") -> bSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "deps",
+          "--package_root",
+          "src",
+          "--input",
+          "src/QA/A.bosatsu",
+          "--input",
+          "src/QA/B.bosatsu",
+          "--graph_format",
+          "json",
+          "--output",
+          "out/deps.json"
+        ),
+        s0
+      )
+    } yield s1._1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(state) =>
+        val jsonStr = readStringFile(state, Chain("out", "deps.json"))
+        Json.parserFile.parseAll(jsonStr) match {
+          case Right(Json.JArray(items)) =>
+            val packageDeps = items.toList.collect {
+              case Json.JObject(fields) =>
+                val pkg = fields.collectFirst {
+                  case ("package", Json.JString(p)) => p
+                } match {
+                  case Some(p) => p
+                  case None    => fail(show"missing package in output row: $fields")
+                }
+                val deps = fields
+                  .collectFirst { case ("dependsOn", Json.JArray(values)) =>
+                    values.toList.collect { case Json.JString(s) => s }
+                  }
+                  .getOrElse(Nil)
+                (pkg, deps)
+            }.toMap
+
+            assertEquals(packageDeps.get("QA/A"), Some(Nil))
+            assertEquals(packageDeps.get("QA/B"), Some(List("QA/A")))
+          case Right(other) =>
+            fail(show"expected deps json array output, found: $other")
+          case Left(err) =>
+            fail(show"failed to parse deps json output: $err")
+        }
+    }
+  }
+
   test(
     "tool assemble fails when previous public dependencies are not provided"
   ) {
@@ -3168,7 +3526,7 @@ main = depBox
     }
   }
 
-  test("tool json traverse rejects non-array inputs") {
+  test("tool json traverse supports object inputs") {
     val src =
       """main = (x) -> x.add(1)
 """
@@ -3186,14 +3544,49 @@ main = depBox
         "--main",
         "Json/Foo",
         "--json_string",
-        "{}"
+        """{"a":[1],"b":[4]}"""
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JObject(items), _)) =>
+        assertEquals(items, List("a" -> Json.JNumberStr("2"), "b" -> Json.JNumberStr("5")))
+      case Right(out) =>
+        fail(s"expected traverse object output, got output: $out")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool json traverse rejects non-array/object inputs") {
+    val src =
+      """main = (x) -> x.add(1)
+"""
+    val files = List(Chain("src", "Json", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "json",
+        "traverse",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--json_string",
+        "1"
       )
     ) match {
       case Right(out) =>
         fail(s"expected traverse error, got output: $out")
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("require an array or arrays for traverse"), msg)
+        assert(
+          msg.contains(
+            "require an array of argument arrays or an object of argument arrays for traverse"
+          ),
+          msg
+        )
         assert(
           module.mainExceptionToString(err).nonEmpty,
           show"expected CliException: $msg"

@@ -795,6 +795,7 @@ object PredefImpl {
   final case class ProgRuntimeState(
       stdin: Array[Byte],
       var stdinOffset: Int,
+      stdinStream: Option[InputStream],
       stdout: StringBuilder,
       stderr: StringBuilder
   )
@@ -917,29 +918,46 @@ object PredefImpl {
       runtime: ProgRuntimeState,
       count: Int
   ): Array[Byte] = {
-    val remaining = runtime.stdin.length - runtime.stdinOffset
-    if (count <= 0 || remaining <= 0) Array.emptyByteArray
-    else {
-      val toRead = if (count <= remaining) count else remaining
-      val out = java.util.Arrays.copyOfRange(
-        runtime.stdin,
-        runtime.stdinOffset,
-        runtime.stdinOffset + toRead
-      )
-      runtime.stdinOffset = runtime.stdinOffset + toRead
-      out
+    runtime.stdinStream match {
+      case Some(stream) =>
+        if (count <= 0) Array.emptyByteArray
+        else {
+          val buffer = new Array[Byte](count)
+          val readCount = stream.read(buffer, 0, count)
+          if (readCount <= 0) Array.emptyByteArray
+          else if (readCount == count) buffer
+          else java.util.Arrays.copyOf(buffer, readCount)
+        }
+      case None =>
+        val remaining = runtime.stdin.length - runtime.stdinOffset
+        if (count <= 0 || remaining <= 0) Array.emptyByteArray
+        else {
+          val toRead = if (count <= remaining) count else remaining
+          val out = java.util.Arrays.copyOfRange(
+            runtime.stdin,
+            runtime.stdinOffset,
+            runtime.stdinOffset + toRead
+          )
+          runtime.stdinOffset = runtime.stdinOffset + toRead
+          out
+        }
     }
   }
 
-  private def runtimeReadOne(runtime: ProgRuntimeState): Option[Byte] = {
-    val remaining = runtime.stdin.length - runtime.stdinOffset
-    if (remaining <= 0) None
-    else {
-      val b = runtime.stdin(runtime.stdinOffset)
-      runtime.stdinOffset = runtime.stdinOffset + 1
-      Some(b)
+  private def runtimeReadOne(runtime: ProgRuntimeState): Option[Byte] =
+    runtime.stdinStream match {
+      case Some(stream) =>
+        val value = stream.read()
+        if (value < 0) None else Some(value.toByte)
+      case None =>
+        val remaining = runtime.stdin.length - runtime.stdinOffset
+        if (remaining <= 0) None
+        else {
+          val b = runtime.stdin(runtime.stdinOffset)
+          runtime.stdinOffset = runtime.stdinOffset + 1
+          Some(b)
+        }
     }
-  }
 
   private def read_utf8_chunk(
       runtime: ProgRuntimeState,
@@ -2682,6 +2700,16 @@ object PredefImpl {
     Left(Str("unreachable"))
   }
 
+  private def runProgWithRuntime(
+      prog: Value,
+      runtime: ProgRuntimeState
+  ): ProgRunResult = {
+    val result = currentProgRuntime.withValue(Some(runtime)) {
+      run_prog(prog)
+    }
+    ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
+  }
+
   def runProg(
       prog: Value,
       stdin: String = ""
@@ -2690,14 +2718,27 @@ object PredefImpl {
       ProgRuntimeState(
         stdin = stdin.getBytes(StandardCharsets.UTF_8),
         stdinOffset = 0,
+        stdinStream = None,
         stdout = new StringBuilder,
         stderr = new StringBuilder
       )
 
-    val result = currentProgRuntime.withValue(Some(runtime)) {
-      run_prog(prog)
-    }
-    ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
+    runProgWithRuntime(prog, runtime)
+  }
+
+  private def runProgWithSystemStdin(
+      prog: Value
+  ): ProgRunResult = {
+    val runtime =
+      ProgRuntimeState(
+        stdin = Array.emptyByteArray,
+        stdinOffset = 0,
+        stdinStream = Some(System.in),
+        stdout = new StringBuilder,
+        stderr = new StringBuilder
+      )
+
+    runProgWithRuntime(prog, runtime)
   }
 
   private def unwrapMain(value: Value): Value =
@@ -2722,6 +2763,18 @@ object PredefImpl {
       case other       => other
     }
     runProg(prog, stdin)
+  }
+
+  def runProgMainWithSystemStdin(
+      main: Value,
+      args: List[String]
+  ): ProgRunResult = {
+    val argList = VList(args.map(Str(_)))
+    val prog = unwrapMain(main) match {
+      case fn: FnValue => callFn1(fn, argList)
+      case other       => other
+    }
+    runProgWithSystemStdin(prog)
   }
 
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {

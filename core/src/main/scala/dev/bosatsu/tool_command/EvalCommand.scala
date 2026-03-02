@@ -32,7 +32,10 @@ object EvalCommand {
   ): Either[Exception & CliException, Output[Path]] =
     if (result.tpe == progMainType) {
       val run = result.value.map(
-        PredefImpl.runProgMain(_, PredefImpl.evalRunArgs(args))
+        PredefImpl.runProgMainWithSystemStdin(
+          _,
+          PredefImpl.evalRunArgs(args)
+        )
       )
       Right(Output.RunMainResult(run))
     } else {
