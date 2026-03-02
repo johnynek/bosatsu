@@ -87,7 +87,37 @@ main = Main(0)
     }
   }
 
-  test("invalid main reports known packages") {
+  test("invalid main package suggests nearest package name") {
+    val cmd =
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "--outdir",
+        "out",
+        "-m",
+        "MyLib/Fbi"
+      )
+
+    module.runWith(baseFiles)(cmd) match {
+      case Right(out) =>
+        fail(s"expected failure, got output: $out")
+      case Left(err) =>
+        val msg = errMsg(err)
+        assert(msg.contains("invalid main package `MyLib/Fbi`: unknown package."), msg)
+        assert(msg.contains("Did you mean: MyLib/Fib ?"), msg)
+        assert(
+          msg.matches(
+            """(?s).*\([0-9]+ packages? available\.\).*"""
+          ),
+          msg
+        )
+        assert(!msg.contains("known packages:"), msg)
+    }
+  }
+
+  test("invalid main package with no close match avoids known package dump") {
     val cmd =
       List(
         "lib",
@@ -105,8 +135,18 @@ main = Main(0)
         fail(s"expected failure, got output: $out")
       case Left(err) =>
         val msg = errMsg(err)
-        assert(msg.contains("known packages"), msg)
-        assert(msg.contains("MyLib/Fib"), msg)
+        assert(
+          msg.contains("invalid main package `Does/NotExist`: unknown package."),
+          msg
+        )
+        assert(
+          msg.matches(
+            """(?s).*\([0-9]+ packages? available\.\).*"""
+          ),
+          msg
+        )
+        assert(!msg.contains("Did you mean:"), msg)
+        assert(!msg.contains("known packages:"), msg)
     }
   }
 

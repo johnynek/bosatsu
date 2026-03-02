@@ -8,6 +8,7 @@ import dev.bosatsu.{
   BuildInfo,
   Identifier,
   Json,
+  NameSuggestion,
   PackageName,
   Par,
   PlatformIO,
@@ -372,12 +373,46 @@ case object ClangTranspiler extends Transpiler {
   }
 
   case class InvalidMainValue(pack: PackageName, message: String)
-      extends Exception(s"invalid main ${pack.asString}: $message.")
+      extends Exception(message)
       with CliException {
     def errDoc = Doc.text(getMessage())
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
   }
+
+  private def packageIdent(pack: PackageName): Identifier =
+    Identifier.Synthetic(pack.asString)
+
+  private def nearestPackage(
+      query: PackageName,
+      known: List[PackageName]
+  ): Option[PackageName] =
+    NameSuggestion
+      .best(
+        packageIdent(query),
+        known.map { pack =>
+          NameSuggestion.Candidate(packageIdent(pack), pack)
+        }
+      )
+      .map(_.value)
+
+  private def packageCountMsg(count: Int): String = {
+    val packWord = if (count == 1) "package" else "packages"
+    s"($count $packWord available.)"
+  }
+
+  private def unknownMainPackMsg(
+      mainPack: PackageName,
+      knownPacks: List[PackageName]
+  ): String = {
+    val suggestion =
+      nearestPackage(mainPack, knownPacks)
+        .fold("")(pack => s"\nDid you mean: ${pack.asString} ?")
+    s"invalid main package `${mainPack.asString}`: unknown package.$suggestion\n${packageCountMsg(knownPacks.size)}"
+  }
+
+  private def invalidMainPackMsg(mainPack: PackageName, detail: String): String =
+    s"invalid main package `${mainPack.asString}`: $detail"
 
   case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String])
       extends Exception(show"no tests found in $packs with regex $regex")
@@ -441,15 +476,14 @@ case object ClangTranspiler extends Transpiler {
                       case Left(invalid) =>
                         moduleIOMonad
                           .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
-                            InvalidMainValue(p, invalid)
+                            InvalidMainValue(
+                              p,
+                              invalidMainPackMsg(p, invalid)
+                            )
                           )
                     }
                   case None =>
-                    val known = ns.rootPackages.toList
-                    val knownMsg =
-                      if (known.nonEmpty) {
-                        s"known packages: ${known.map(_.asString).mkString(", ")}"
-                      } else "no packages found"
+                    val knownPacks = ns.rootPackages.toList.sorted
 
                     val mainPacks = mains.keys.toList.sorted
                     val mainMsg =
@@ -461,9 +495,12 @@ case object ClangTranspiler extends Transpiler {
 
                     val message =
                       if (!ns.rootPackages.contains(p)) {
-                        s"unknown package. $knownMsg"
+                        unknownMainPackMsg(p, knownPacks)
                       } else {
-                        s"no value of type Bosatsu/Prog::Main in ${p.asString}. $mainMsg"
+                        invalidMainPackMsg(
+                          p,
+                          s"no value of type Bosatsu/Prog::Main in ${p.asString}. $mainMsg"
+                        )
                       }
                     moduleIOMonad
                       .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
