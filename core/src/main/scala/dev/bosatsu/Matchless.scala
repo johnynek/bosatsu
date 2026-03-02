@@ -1528,14 +1528,26 @@ object Matchless {
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
     // often we have several LetMut at once, return all them
-    def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
-      span match {
-        case next @ LetMut(_, _) =>
-          val (anons, expr) = next.flatten
-          (name :: anons, expr)
-        case notLetMut =>
-          (NonEmptyList.one(name), notLetMut)
+    def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) = {
+      var reverseNames: List[LocalAnonMut] = name :: Nil
+      var tailExpr: Expr[A] = span
+      var done = false
+
+      while (!done) {
+        tailExpr match {
+          case LetMut(nextName, nextTail) =>
+            reverseNames = nextName :: reverseNames
+            tailExpr = nextTail
+          case _ =>
+            done = true
+        }
       }
+
+      (
+        NonEmptyList.fromListUnsafe(reverseNames.reverse),
+        tailExpr
+      )
+    }
   }
   case class Literal(lit: Lit) extends CheapExpr[Nothing]
 

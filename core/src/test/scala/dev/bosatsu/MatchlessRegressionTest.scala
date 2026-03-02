@@ -259,6 +259,12 @@ def branch_blowup(args: L) -> Nat:
     assertMatchlessToValueNoStackOverflow(expr)
   }
 
+  test(
+    "issue 1942: deep LetMut chain with MakeStruct(0) does not overflow MatchlessToValue"
+  ) {
+    assertMatchlessToValueNoStackOverflow(nestedLetMut(20000))
+  }
+
   test("MatchlessToValue evaluates static If conditions without dynamic branching") {
     val trueIf =
       Matchless.If(
