@@ -2747,6 +2747,11 @@ object PredefImpl {
       case other                                => other
     }
 
+  val EvalRunArgv0: String = "bosatsu-eval"
+
+  def evalRunArgs(args: List[String]): List[String] =
+    EvalRunArgv0 :: args
+
   def runProgMain(
       main: Value,
       args: List[String],

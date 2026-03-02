@@ -1616,7 +1616,12 @@ object Command {
                 out <- if (runMain) {
                   if (tpe == progMainType) {
                     val run =
-                      memoE.map(PredefImpl.runProgMainWithSystemStdin(_, runArgs))
+                      memoE.map(
+                        PredefImpl.runProgMainWithSystemStdin(
+                          _,
+                          PredefImpl.evalRunArgs(runArgs)
+                        )
+                      )
                     moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
                   } else {
                     val actual =
