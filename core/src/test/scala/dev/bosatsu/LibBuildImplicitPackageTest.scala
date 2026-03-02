@@ -109,7 +109,7 @@ main = Main(0)
         assert(msg.contains("Did you mean: MyLib/Fib ?"), msg)
         assert(
           msg.matches(
-            """(?s).*\([0-9]+ packages? available; use `bosatsu lib list` for full list\).*"""
+            """(?s).*\([0-9]+ packages? available\.\).*"""
           ),
           msg
         )
@@ -141,7 +141,7 @@ main = Main(0)
         )
         assert(
           msg.matches(
-            """(?s).*\([0-9]+ packages? available; use `bosatsu lib list` for full list\).*"""
+            """(?s).*\([0-9]+ packages? available\.\).*"""
           ),
           msg
         )

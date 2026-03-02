@@ -398,7 +398,7 @@ case object ClangTranspiler extends Transpiler {
 
   private def packageCountMsg(count: Int): String = {
     val packWord = if (count == 1) "package" else "packages"
-    s"($count $packWord available; use `bosatsu lib list` for full list)"
+    s"($count $packWord available.)"
   }
 
   private def unknownMainPackMsg(
