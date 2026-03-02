@@ -4,6 +4,7 @@
 * [Design Philosophy](design.md)
 * [Design Docs](design-docs/index.md)
 * [Getting Started](getting_started.md)
+* [Writing Bosatsu in 5 Minutes](writing_bosatsu_5_minutes.md)
 * [Language Guide](language_guide.md)
 * [Recursion In Bosatsu](recursion.md)
 * [Bosatsu for JSON Generation](generating_json.md)
