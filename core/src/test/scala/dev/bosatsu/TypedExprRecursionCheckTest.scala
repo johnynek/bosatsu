@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import IorMethods.IorExtension
+import scala.util.Try
 
 class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
   private val pack = PackageName.parts("TypedRecursionCheck")
@@ -73,6 +74,45 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
             assertMessage(recursionErrs.map(_.err.message).mkString("\n-----\n"))
         }
     }
+
+  private def typedLetsOf(
+      source: String
+  ): (
+      rankn.TypeEnv[Kind.Arg],
+      List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])],
+      List[Statement]
+  ) = {
+    val stmts = TestUtils.statementsOf(source)
+    val parsed = Package.fromStatements(pack, stmts)
+    given Show[String] = Show.fromToString
+    PackageMap
+      .typeCheckParsed(
+        NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
+        Nil,
+        "<predef>",
+        CompileOptions.Default
+      ) match {
+      case cats.data.Ior.Left(errs) =>
+        fail(s"failed to infer test source:\n${formatErrors(source, errs)}")
+      case cats.data.Ior.Right(inferred) =>
+        inferred.toMap.get(pack) match {
+          case Some(pkg) =>
+            val (prog, _) = pkg.program
+            (prog.types, prog.lets, stmts)
+          case None      =>
+            fail("internal test error: inferred package missing")
+        }
+      case cats.data.Ior.Both(errs, inferred) =>
+        fail(s"unexpected warnings/errors while inferring test source:\n${formatErrors(source, errs)}")
+        inferred.toMap.get(pack) match {
+          case Some(pkg) =>
+            val (prog, _) = pkg.program
+            (prog.types, prog.lets, stmts)
+          case None      =>
+            fail("internal test error: inferred package missing")
+        }
+    }
+  }
 
   test("substructural recursion remains allowed in typed checker") {
     allowed("""#
@@ -331,6 +371,19 @@ def bad(i: Int) -> Int:
 """)
   }
 
+  test("Int recursion allows divide-and-conquer recursion on integer splits") {
+    allowed("""#
+def split_sum(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 1) matches GT:
+      i1 = i.div(2)
+      i2 = i.sub(i1)
+      split_sum(i1).add(split_sum(i2))
+    case _:
+      i
+""")
+  }
+
   test("nested matches in recur branches contribute pattern and guard path facts") {
     allowed("""#
 def via_match(i: Int) -> Int:
@@ -435,4 +488,66 @@ def loop(x): x
 main = loop(1)
 """)
   }
+
+  test("Platform.onJvm only evaluates on JVM") {
+    assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
+  }
+
+  Platform.onJvm(
+    test("moderately large list literals do not overflow recursion checker stack") {
+      val n = 211
+      val items = List.fill(n)("\"x\"").mkString(", ")
+      val source = s"""#
+vals: List[String] = [$items]
+main = vals
+"""
+
+      val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
+      val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+      var failure: Option[Throwable] = None
+      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              result = Some(
+                TypedExprRecursionCheck.checkLets(
+                  pack,
+                  fullTypeEnv,
+                  lets,
+                  topLevelDefs
+                )
+              )
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-recursion-check-small-stack",
+        96L * 1024L
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(_: StackOverflowError) =>
+          fail("recursion checker overflowed on a moderately large list literal")
+        case Some(other) =>
+          throw other
+        case None =>
+          result match {
+            case Some(Validated.Valid(_)) => ()
+            case Some(Validated.Invalid(errs)) =>
+              fail(
+                s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
+              )
+            case None =>
+              fail("recursion checker thread did not produce a result")
+          }
+        }
+    }
+  )
 }

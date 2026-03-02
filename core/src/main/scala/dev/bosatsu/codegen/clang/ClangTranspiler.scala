@@ -150,6 +150,7 @@ case object ClangTranspiler extends Transpiler {
       cOut: P,
       cOutRelativeToOutDir: Boolean,
       exeOut: Option[(P, F[CcConf])],
+      exeOutRelativeToOutDir: Boolean = true,
       ccFlags: List[String],
       ccLibs: List[String]
   )
@@ -282,9 +283,10 @@ case object ClangTranspiler extends Transpiler {
       (cOpt, exeOpt.orNone, ccFlagsOpt, ccLibsOpt).mapN {
         (cOut, exeOut, ccFlags, ccLibs) =>
           Output(
-            cOut,
+            cOut = cOut,
             cOutRelativeToOutDir = true,
             exeOut = exeOut,
+            exeOutRelativeToOutDir = true,
             ccFlags = ccFlags,
             ccLibs = ccLibs
           )
@@ -520,8 +522,18 @@ case object ClangTranspiler extends Transpiler {
                  val r = clangGen.renderTests(values = tvs.toList.sorted)
 
                  val exeIO = args.output match {
-                   case Output(_, _, Some((exeName, _)), _, _) if execute =>
-                     val exePath = args.platformIO.resolve(args.outDir, exeName)
+                   case Output(
+                         _,
+                         _,
+                         Some((exeName, _)),
+                         exeOutRelativeToOutDir,
+                         _,
+                         _
+                       ) if execute =>
+                     val exePath =
+                       if (exeOutRelativeToOutDir)
+                         args.platformIO.resolve(args.outDir, exeName)
+                       else exeName
                      val exeArgs = if (quiet) "--quiet" :: Nil else Nil
                      args.platformIO
                        .system(args.platformIO.showPath.show(exePath), exeArgs)
@@ -567,13 +579,18 @@ case object ClangTranspiler extends Transpiler {
                   (outputName -> doc) :: externalHeaders
                 )
               case Some((exe, fcc)) =>
+                val exeOutName =
+                  // lib build can compile in a temp outdir while still targeting a cwd-relative exe path.
+                  if (args.output.exeOutRelativeToOutDir)
+                    resolve(args.outDir, exe)
+                  else exe
                 for {
                   ccConf <- fcc
                   // we have to write the c code before we can compile
                   _ <- args.platformIO.writeDoc(outputName, doc)
                   _ <- ccConf.compile(
                     outputName,
-                    resolve(args.outDir, exe),
+                    exeOutName,
                     extraFlags = args.output.ccFlags,
                     extraLibs = args.output.ccLibs
                   )(args.platformIO)

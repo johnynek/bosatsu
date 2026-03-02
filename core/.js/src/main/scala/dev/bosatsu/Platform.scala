@@ -5,6 +5,15 @@ object Platform {
   final val isScalaJs = true
   @inline
   final val isScalaJvm = false
+  @inline
+  final val isJvm = false
+
+  inline def onJvm(inline expr: => Unit): Unit =
+    inline if (isJvm) expr
+    else ()
+
+  inline def onlyJvm(inline expr: => Unit): Unit =
+    onJvm(expr)
 
   def detectOs(): OsPlatformId = {
     import scala.scalajs.js

@@ -1576,7 +1576,9 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("tool eval --run executes Bosatsu/Prog::Main and forwards trailing args") {
+  test(
+    "tool eval --run executes Bosatsu/Prog::Main and includes synthetic argv[0]"
+  ) {
     val progSrc =
       """package Bosatsu/Prog
 |
@@ -1630,7 +1632,7 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err) =>
         fail(err.getMessage)
       case Right((_, out, exitCode)) =>
-        assertEquals(exitCode, ExitCode.fromInt(3))
+        assertEquals(exitCode, ExitCode.fromInt(4))
         out match {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")
@@ -1845,7 +1847,9 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run executes Bosatsu/Prog::Main and forwards trailing args") {
+  test(
+    "lib eval --run executes Bosatsu/Prog::Main and includes synthetic argv[0]"
+  ) {
     val progSrc =
       """package Bosatsu/Prog
 |
@@ -1892,7 +1896,7 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err) =>
         fail(err.getMessage)
       case Right((_, out, exitCode)) =>
-        assertEquals(exitCode, ExitCode.fromInt(2))
+        assertEquals(exitCode, ExitCode.fromInt(3))
         out match {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")

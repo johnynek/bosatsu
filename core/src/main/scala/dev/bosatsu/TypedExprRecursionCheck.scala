@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import cats.data.{NonEmptyChain, NonEmptyList, StateT, Validated, ValidatedNec}
+import cats.{Eval, StackSafeMonad}
+import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.implicits._
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
@@ -1846,8 +1847,90 @@ object TypedExprRecursionCheck {
      * to a sequential (Monadic) State tracking, and can only accumulate errors
      * until we hit the first one.
      */
-    type ErrorOr[A] = Either[NonEmptyChain[RecursionCheck.Error], A]
-    type St[A] = StateT[ErrorOr, State, A]
+    type ErrorOr[+A] = Either[NonEmptyChain[RecursionCheck.Error], A]
+
+    sealed trait St[+A] { self =>
+      def run(state: State): Eval[ErrorOr[(State, A)]]
+
+      final def map[B](fn: A => B): St[B] =
+        new St[B] {
+          def run(state: State): Eval[ErrorOr[(State, B)]] =
+            self.run(state).map {
+              case Right((st1, a)) => Right((st1, fn(a)))
+              case Left(errs)      => Left(errs)
+            }
+        }
+
+      final def flatMap[B](fn: A => St[B]): St[B] =
+        new St[B] {
+          def run(state: State): Eval[ErrorOr[(State, B)]] =
+            self.run(state).flatMap {
+              case Right((st1, a)) =>
+                Eval.defer(fn(a).run(st1))
+              case Left(errs)      =>
+                Eval.now(Left(errs))
+            }
+        }
+
+      final def runA(state: State): ErrorOr[A] =
+        run(state).value.map(_._2)
+    }
+
+    object St {
+      def pure[A](a: A): St[A] =
+        new St[A] {
+          def run(state: State): Eval[ErrorOr[(State, A)]] =
+            Eval.now(Right((state, a)))
+        }
+
+      def liftEither[A](res: ErrorOr[A]): St[A] =
+        new St[A] {
+          def run(state: State): Eval[ErrorOr[(State, A)]] =
+            Eval.now(res.map((state, _)))
+        }
+
+      val get: St[State] =
+        new St[State] {
+          def run(state: State): Eval[ErrorOr[(State, State)]] =
+            Eval.now(Right((state, state)))
+        }
+
+      def set(state: State): St[Unit] =
+        new St[Unit] {
+          def run(state0: State): Eval[ErrorOr[(State, Unit)]] = {
+            val _ = state0
+            Eval.now(Right((state, ())))
+          }
+        }
+
+      implicit val monadForSt: StackSafeMonad[St] =
+        new StackSafeMonad[St] {
+          def pure[A](a: A): St[A] = St.pure(a)
+
+          override def map[A, B](fa: St[A])(fn: A => B): St[B] =
+            fa.map(fn)
+
+          def flatMap[A, B](fa: St[A])(fn: A => St[B]): St[B] =
+            fa.flatMap(fn)
+
+          override def tailRecM[A, B](init: A)(fn: A => St[Either[A, B]]): St[B] =
+            new St[B] {
+              def run(state: State): Eval[ErrorOr[(State, B)]] = {
+                def loop(st: State, a: A): Eval[ErrorOr[(State, B)]] =
+                  fn(a).run(st).flatMap {
+                    case Left(errs)                 =>
+                      Eval.now(Left(errs))
+                    case Right((st1, Left(nextA)))  =>
+                      Eval.defer(loop(st1, nextA))
+                    case Right((st1, Right(doneB))) =>
+                      Eval.now(Right((st1, doneB)))
+                  }
+
+                Eval.defer(loop(state, init))
+              }
+            }
+        }
+    }
 
     implicit val parallelSt: cats.Parallel[St] = {
       val m = cats.Monad[St]
@@ -1855,23 +1938,22 @@ object TypedExprRecursionCheck {
       new ParallelViaProduct[St] {
         def monad = m
         def parallelProduct[A, B](fa: St[A], fb: St[B]) = {
-          type E[+X] = ErrorOr[X]
-          val fna: E[State => E[(State, A)]] = fa.runF
-          val fnb: E[State => E[(State, B)]] = fb.runF
-
-          new cats.data.IndexedStateT((fna, fnb).parMapN {
-            (fn1, fn2) => (state: State) =>
-              fn1(state) match {
+          new St[(A, B)] {
+            def run(state: State): Eval[ErrorOr[(State, (A, B))]] =
+              fa.run(state).flatMap {
                 case Right((s2, a)) =>
-                  fn2(s2).map { case (st, b) => (st, (a, b)) }
-                case Left(nel1) =>
-                  // just skip and merge
-                  fn2(state) match {
-                    case Right(_)   => Left(nel1)
-                    case Left(nel2) => Left(nel1 ++ nel2)
+                  fb.run(s2).map {
+                    case Right((st, b)) => Right((st, (a, b)))
+                    case Left(errs)     => Left(errs)
+                  }
+                case Left(errs1) =>
+                  // skip state changes in fb and merge errors if both fail
+                  fb.run(state).map {
+                    case Right(_)      => Left(errs1)
+                    case Left(errs2)   => Left(errs1 ++ errs2)
                   }
               }
-          })
+          }
         }
       }
     }
@@ -1879,12 +1961,12 @@ object TypedExprRecursionCheck {
     // Scala has trouble inferring types like St, so we make these typed
     // helper functions to use below.
     private def failSt[A](err: RecursionCheck.Error): St[A] =
-      StateT.liftF(Left(NonEmptyChain.one(err)))
-    private val getSt: St[State] = StateT.get
-    private def setSt(s: State): St[Unit] = StateT.set(s)
+      St.liftEither(Left(NonEmptyChain.one(err)))
+    private val getSt: St[State] = St.get
+    private def setSt(s: State): St[Unit] = St.set(s)
     private def toSt[A](v: Res[A]): St[A] =
-      StateT.liftF(v.toEither)
-    private def pureSt[A](a: A): St[A] = StateT.pure(a)
+      St.liftEither(v.toEither)
+    private def pureSt[A](a: A): St[A] = St.pure(a)
     private val unitSt: St[Unit] = pureSt(())
 
     private def checkForIllegalBindsSt(
