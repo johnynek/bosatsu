@@ -173,14 +173,38 @@ main = Main(0)
     }
   }
 
-  test("lib build requires --outdir or -o") {
+  test("lib build allows -e without --outdir or -o") {
+    val cmd =
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "-m",
+        "MyLib/Fib",
+        "-e",
+        "fib"
+      )
+
+    module.run(cmd) match {
+      case Right(_)  => ()
+      case Left(help) =>
+        fail(s"expected parse success with -e only, got help: $help")
+    }
+  }
+
+  test("lib build requires --outdir, -o, or -e") {
     val cmd =
       List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib")
 
     module.run(cmd) match {
-      case Left(_)  => ()
+      case Left(help) =>
+        val msg = help.toString
+        assert(msg.contains("--outdir"), msg)
+        assert(msg.contains("-o"), msg)
+        assert(msg.contains("-e"), msg)
       case Right(_) =>
-        fail("expected parse failure when neither --outdir nor -o is set")
+        fail("expected parse failure when no output selector is set")
     }
   }
 

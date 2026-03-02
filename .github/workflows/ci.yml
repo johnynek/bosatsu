@@ -224,6 +224,10 @@ jobs:
           ./bosatsu_node lib test --outdir node_out_lib
           echo "now test without a given outdir"
           ./bosatsu_node lib test
+      - name: "run lib build"
+        run: |
+          ./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_node 10
     strategy:
       matrix:
         java:
@@ -300,6 +304,8 @@ jobs:
           mkdir c_out_build
           ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
+          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_no_outdir 10
     timeout-minutes: 30
   testCMacOS:
     needs: test
@@ -361,6 +367,8 @@ jobs:
           mkdir c_out_build
           ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
+          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_no_outdir 10
     timeout-minutes: 30
   libPublishDryRun:
     needs: testC
