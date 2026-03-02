@@ -31,7 +31,9 @@ object EvalCommand {
       args: List[String]
   ): Either[Exception & CliException, Output[Path]] =
     if (result.tpe == progMainType) {
-      val run = result.value.map(PredefImpl.runProgMain(_, args))
+      val run = result.value.map(
+        PredefImpl.runProgMain(_, PredefImpl.evalRunArgs(args))
+      )
       Right(Output.RunMainResult(run))
     } else {
       val actual = rankn.Type.fullyResolvedDocument.document(result.tpe).render(80)
