@@ -108,6 +108,91 @@ test_int = TestSuite("Int tests", [
       Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
 
+def cmp_to_int(c: Comparison) -> Int:
+  match c:
+    case LT: -1
+    case EQ: 0
+    case GT: 1
+
+def cmp_char(left: Char, right: Char) -> Comparison:
+  cmp_Int(char_to_Int(left), char_to_Int(right))
+
+def cmp_string_model(left: String, right: String) -> Comparison:
+  recur (left, right):
+    case ("", ""): EQ
+    case ("", _): LT
+    case (_, ""): GT
+    case ("$.{left_head}${left_tail}", "$.{right_head}${right_tail}"):
+      head_cmp = cmp_char(left_head, right_head)
+      match head_cmp:
+        case LT: LT
+        case EQ: cmp_string_model(left_tail, right_tail)
+        case GT: GT
+
+def cmp_string_matches_model(left: String, right: String) -> Bool:
+  cmp_Int(
+    cmp_to_int(cmp_String(left, right)),
+    cmp_to_int(cmp_string_model(left, right))
+  ) matches EQ
+
+def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
+  recur rights:
+    case []: True
+    case [right, *tail]:
+      if cmp_string_matches_model(left, right):
+        cmp_string_row_law(left, tail)
+      else:
+        False
+
+def cmp_string_matrix_law(lefts: List[String], rights: List[String]) -> Bool:
+  recur lefts:
+    case []: True
+    case [left, *tail]:
+      if cmp_string_row_law(left, rights):
+        cmp_string_matrix_law(tail, rights)
+      else:
+        False
+
+cmp_string_samples = [
+  "",
+  "A",
+  "B",
+  "BARBARA",
+  "LINDA",
+  "alpha",
+  "alphabet",
+  "alphabeta",
+  "bar",
+  "baz",
+  "foo",
+  "food",
+  "fool",
+  "z",
+  "zz",
+  "0",
+  "2",
+  "9",
+  "10",
+  "hello",
+  "hello!",
+  "hello?",
+  "Hello",
+  "é",
+  "ê",
+  "Ω",
+  "δ",
+  "👋",
+  "👋a",
+  "a👋",
+  "日本",
+  "日本語",
+  "~tilde",
+  "{brace}",
+  "|pipe",
+  "🙂",
+  "🙃",
+]
+
 test_string = TestSuite("String tests", [
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
   Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
@@ -126,6 +211,10 @@ test_string = TestSuite("String tests", [
   Assertion(tail_or_empty_String("") matches "", "tail_or_empty empty"),
   Assertion(tail_or_empty_String("abc") matches "bc", "tail_or_empty ascii"),
   Assertion(tail_or_empty_String("éa") matches "a", "tail_or_empty unicode"),
+  Assertion(cmp_String("BARBARA", "LINDA") matches LT, "cmp_String BARBARA vs LINDA"),
+  Assertion(
+    cmp_string_matrix_law(cmp_string_samples, cmp_string_samples),
+    "cmp_String agrees with recursive model on sample matrix"),
 
   Assertion(notb("bbb" matches "ab${_}"), "literal prefix not found"),
   Assertion(notb("zabq" matches "ab${_}"), "literal found later is not a prefix"),
