@@ -230,3 +230,46 @@ ignore = y
         (punctuation))
       (line_item
         (identifier)))))
+
+==================
+Unit Def And Call Sugar
+==================
+
+package Unit/Sugar
+
+def foo():
+  0
+
+x = foo()
+
+---
+
+(source_file
+  (package_declaration
+    (package_name
+      (package_segment)
+      (package_segment)))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple))
+      (line_item
+        (punctuation))))
+  (simple_statement
+    (line_items
+      (line_item
+        (number))))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple)))))
