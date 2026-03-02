@@ -3206,6 +3206,97 @@ main = depBox
     }
   }
 
+  test("tool check unknown import package includes span context and hint") {
+    val src =
+      """package QA/UnknownImport
+        |
+        |from Foo/Bar import baz
+        |x = 1
+        |""".stripMargin
+    val files = List(
+      Chain("tmp", "UnknownImport.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--color",
+        "none",
+        "--input",
+        "tmp/UnknownImport.bosatsu",
+        "--output",
+        "tmp/out",
+        "--interface_out",
+        "tmp/iface"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected unknown-import package failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(
+          msg.contains(":3:6, package QA/UnknownImport"),
+          msg
+        )
+        assert(msg.contains("Unknown package `Foo/Bar` in import."), msg)
+        assert(msg.contains("from Foo/Bar import baz"), msg)
+        assert(msg.linesIterator.exists(_.contains("^^^^^^^")), msg)
+        assert(
+          msg.contains("Hint: add source containing package `Foo/Bar`"),
+          msg
+        )
+        assert(msg.contains("--input/--input_dir"), msg)
+        assert(msg.contains("--package_root"), msg)
+        assert(msg.contains("--pub_dep/--priv_dep"), msg)
+    }
+  }
+
+  test("tool check unknown import package suggests nearest package typo") {
+    val depSrc =
+      """package Foo/Baz
+        |export baz
+        |
+        |baz = 1
+        |""".stripMargin
+    val appSrc =
+      """package QA/UnknownImport
+        |
+        |from Foo/Bar import baz
+        |x = 1
+        |""".stripMargin
+    val files = List(
+      Chain("src", "Foo", "Baz.bosatsu") -> depSrc,
+      Chain("src", "QA", "UnknownImport.bosatsu") -> appSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--color",
+        "none",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Foo/Baz.bosatsu",
+        "--input",
+        "src/QA/UnknownImport.bosatsu",
+        "--output",
+        "tmp/out",
+        "--interface_out",
+        "tmp/iface"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected unknown-import package failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("Unknown package `Foo/Bar` in import."), msg)
+        assert(msg.contains("Did you mean package `Foo/Baz`?"), msg)
+    }
+  }
+
   test("tool check accepts todo but tool show rejects it") {
     val src =
       """package Todo/Foo
