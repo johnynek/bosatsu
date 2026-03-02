@@ -1548,6 +1548,107 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("lib eval handles parse/sort repro without StackOverflowError") {
+    val src =
+      """package MyLib/Repro22EvalStack2
+|
+|def operator <=(a: String, b: String) -> Bool:
+|  cmp_String(a, b) matches LT | EQ
+|
+|def parse_names(s: String) -> List[String]:
+|  recur s:
+|    case "":
+|      []
+|    case "\"${name}\",${rest}":
+|      [name, *parse_names(rest)]
+|    case "\"${name}\"":
+|      [name]
+|    case ",${rest}":
+|      parse_names(rest)
+|    case "$.{_}${rest}":
+|      parse_names(rest)
+|
+|def insert_sorted(name: String, sorted: List[String]) -> List[String]:
+|  recur sorted:
+|    case []:
+|      [name]
+|    case [h, *t]:
+|      if name <= h:
+|        [name, h, *t]
+|      else:
+|        [h, *insert_sorted(name, t)]
+|
+|def sort_names(names: List[String]) -> List[String]:
+|  names.foldl_List([], (acc, name) -> insert_sorted(name, acc))
+|
+|def list_len(xs: List[String], acc: Int) -> Int:
+|  recur xs:
+|    case []:
+|      acc
+|    case [_, *t]:
+|      list_len(t, acc.add(1))
+|
+|def pad3(i: Int) -> String:
+|  a = i.div(100)
+|  b = i.mod_Int(100).div(10)
+|  c = i.mod_Int(10)
+|  "${int_to_String(a)}${int_to_String(b)}${int_to_String(c)}"
+|
+|def quoted(i: Int) -> String:
+|  "\"${pad3(i)}\""
+|
+|def make_csv(n: Int) -> String:
+|  int_loop(n, "", (i, acc) ->
+|    part = quoted(i)
+|    next =
+|      if acc matches "":
+|        part
+|      else:
+|        "${part},${acc}"
+|    (i.sub(1), next))
+|
+|names_csv = make_csv(178)
+|computed = list_len(sort_names(parse_names(names_csv)), 0)
+|
+|test = Assertion(computed.eq_Int(178), "repro22 eval stack 2")
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Repro22EvalStack2.bosatsu") -> src
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/Repro22EvalStack2::computed"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.EvaluationResult(_, _, _) => ()
+          case other                            => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
   test("tool eval missing value reports CliException without stack trace") {
     val src =
       """main = 42
