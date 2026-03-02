@@ -3164,7 +3164,7 @@ main = depBox
     }
   }
 
-  test("tool json traverse rejects non-array inputs") {
+  test("tool json traverse supports object inputs") {
     val src =
       """main = (x) -> x.add(1)
 """
@@ -3182,14 +3182,49 @@ main = depBox
         "--main",
         "Json/Foo",
         "--json_string",
-        "{}"
+        """{"a":[1],"b":[4]}"""
+      )
+    ) match {
+      case Right(Output.JsonOutput(Json.JObject(items), _)) =>
+        assertEquals(items, List("a" -> Json.JNumberStr("2"), "b" -> Json.JNumberStr("5")))
+      case Right(out) =>
+        fail(s"expected traverse object output, got output: $out")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool json traverse rejects non-array/object inputs") {
+    val src =
+      """main = (x) -> x.add(1)
+"""
+    val files = List(Chain("src", "Json", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "json",
+        "traverse",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Json/Foo.bosatsu",
+        "--main",
+        "Json/Foo",
+        "--json_string",
+        "1"
       )
     ) match {
       case Right(out) =>
         fail(s"expected traverse error, got output: $out")
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("require an array or arrays for traverse"), msg)
+        assert(
+          msg.contains(
+            "require an array of argument arrays or an object of argument arrays for traverse"
+          ),
+          msg
+        )
         assert(
           module.mainExceptionToString(err).nonEmpty,
           show"expected CliException: $msg"
