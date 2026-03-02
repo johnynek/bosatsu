@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.data.NonEmptyList
 import Value._
 
 import scala.concurrent.duration.DurationInt
@@ -3092,6 +3093,70 @@ tests = TestSuite("bytes eval", [
       "Bosatsu/IO/Bytes",
       14
     )
+  }
+
+  test("lazy externals evaluate") {
+    runBosatsuTest(
+      List(
+        """
+package Bosatsu/Lazy
+
+export (Lazy, lazy, get_Lazy)
+
+external struct Lazy[a: +*]
+
+external def lazy[a](fn: Unit -> a) -> Lazy[a]
+external def get_Lazy[a](l: Lazy[a]) -> a
+""",
+        """
+package LazyEval
+
+from Bosatsu/Lazy import Lazy, lazy, get_Lazy
+
+def force_twice[a](l: Lazy[a]) -> (a, a):
+  (get_Lazy(l), get_Lazy(l))
+
+tests = TestSuite("lazy eval", [
+  Assertion(get_Lazy(lazy(_ -> 1)) matches 1, "force"),
+  Assertion(force_twice(lazy(_ -> 2)) matches (2, 2), "force twice"),
+  Assertion(get_Lazy(lazy(_ -> (1, "x"))) matches (1, "x"), "tuple"),
+])
+"""
+      ),
+      "LazyEval",
+      3
+    )
+  }
+
+  test("lazy runtime memoizes and is non-strict") {
+    var calls = 0
+    val thunk = FnValue { case NonEmptyList(_, _) =>
+      calls += 1
+      VInt(42)
+    }
+
+    val lazyValue = PredefImpl.lazy_Lazy(thunk)
+    assertEquals(calls, 0)
+    assertEquals(PredefImpl.get_Lazy(lazyValue), VInt(42))
+    assertEquals(calls, 1)
+    assertEquals(PredefImpl.get_Lazy(lazyValue), VInt(42))
+    assertEquals(calls, 1)
+  }
+
+  test("lazy runtime retries after failed force") {
+    var calls = 0
+    val thunk = FnValue { case NonEmptyList(_, _) =>
+      calls += 1
+      if (calls == 1) throw new RuntimeException("boom")
+      else VInt(7)
+    }
+
+    val lazyValue = PredefImpl.lazy_Lazy(thunk)
+    val _ = intercept[RuntimeException](PredefImpl.get_Lazy(lazyValue))
+    assertEquals(calls, 1)
+    assertEquals(PredefImpl.get_Lazy(lazyValue), VInt(7))
+    assertEquals(PredefImpl.get_Lazy(lazyValue), VInt(7))
+    assertEquals(calls, 2)
   }
 
   if (Platform.isScalaJvm)

@@ -52,5 +52,9 @@
     utf8_bytes_from_String: ProgExt.utf8_bytes_from_String,
     utf8_bytes_to_String: ProgExt.utf8_bytes_to_String,
     utf8_Char_at: ProgExt.utf8_Char_at
+  },
+  Bosatsu/Lazy: {
+    lazy: ProgExt.lazy,
+    get_Lazy: ProgExt.get_Lazy
   }
 }

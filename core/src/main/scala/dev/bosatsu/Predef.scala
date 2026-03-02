@@ -37,6 +37,7 @@ import java.nio.file.{
   StandardOpenOption
 }
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
 object Predef {
@@ -65,6 +66,8 @@ object Predef {
     PackageName.parts("Bosatsu", "IO", "Bytes")
   private def ioCorePackageName: PackageName =
     PackageName.parts("Bosatsu", "IO", "Core")
+  private def lazyPackageName: PackageName =
+    PackageName.parts("Bosatsu", "Lazy")
 
   private def addIoBytesExternals(externals: Externals): Externals =
     externals
@@ -420,6 +423,12 @@ object Predef {
         "int_to_Float64",
         FfiCall.Fn1(PredefImpl.int_to_Float64(_))
       )
+      .add(lazyPackageName, "lazy", FfiCall.Fn1(PredefImpl.lazy_Lazy(_)))
+      .add(
+        lazyPackageName,
+        "get_Lazy",
+        FfiCall.Fn1(PredefImpl.get_Lazy(_))
+      )
       .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
       .add(
         progPackageName,
@@ -466,6 +475,8 @@ object PredefImpl {
     Require(len >= 0, s"len must be >= 0: $len")
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
+
+  final case class LazyCell(state: AtomicReference[Either[Value, Value]])
 
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
@@ -630,11 +641,41 @@ object PredefImpl {
       // $COVERAGE-ON$
     }
 
+  private def asLazy(a: Value): LazyCell =
+    a.asExternal.toAny match {
+      case lazyCell: LazyCell => lazyCell
+      case other              =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected lazy external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
   private def normalizeByte(intValue: Value.BosatsuInt): Byte =
     (Value.intToBigInteger(intValue).intValue() & 0xff).toByte
 
   private def byteToIntValue(byte: Byte): Value =
     VInt(byte.toInt & 0xff)
+
+  def lazy_Lazy(fn: Value): Value =
+    ExternalValue(LazyCell(new AtomicReference(Left(fn))))
+
+  def get_Lazy(cellValue: Value): Value = {
+    val cell = asLazy(cellValue)
+
+    @annotation.tailrec
+    def loop: Value =
+      cell.state.get() match {
+        case Right(value) =>
+          value
+        case left @ Left(thunk) =>
+          val value = callFn1(thunk, UnitValue)
+          // If another thread wins the race, read the stored value.
+          if (cell.state.compareAndSet(left, Right(value))) value
+          else loop
+      }
+
+    loop
+  }
 
   def add(a: Value, b: Value): Value =
     ExternalValue(addInt(intRaw(a), intRaw(b)))
