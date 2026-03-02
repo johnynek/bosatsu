@@ -150,8 +150,15 @@ def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
   recur i:
     case _ if cmp_Int(i, 0) matches GT:
       (next_i, next_state) = fn(i, state)
-      if cmp_Int(next_i, 0) matches GT:
-        if cmp_Int(next_i, i) matches LT:
+      c = match cmp_Int(next_i, 0):
+        case LT | EQ: False
+        case _: True
+      if c:
+        cmp = cmp_Int(next_i, i)
+        decreasing = match cmp:
+          case LT | EQ: cmp matches LT
+          case _: False
+        if decreasing:
           int_loop(next_i, next_state, fn)
         else:
           next_state
@@ -159,6 +166,26 @@ def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
         next_state
     case _:
       state
+""")
+  }
+
+  test("tuple recur targets allow mixed structural and Int decreases") {
+    allowed("""#
+enum Nat: Zero, Succ(prev: Nat)
+
+def mixed(n: Nat, i: Int) -> Int:
+  recur (n, i):
+    case (Zero, _):
+      i
+    case (Succ(prev), _):
+      next_i = i.sub(1)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, i) matches LT:
+          mixed(n, next_i)
+        else:
+          mixed(prev, 10)
+      else:
+        mixed(prev, 10)
 """)
   }
 

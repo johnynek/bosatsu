@@ -324,11 +324,10 @@ presentations: each nested layer needs its own decreasing argument/evidence.
 recurses on that size while splitting the list. This is the same termination
 proof idea as sorting: derive a bound, decrease it, recurse.
 
-## Int Loops And Trusted Externals
-Bosatsu does not allow direct recursion on `Int` with an arbitrary comparison.
-When needed, the standard library uses trusted externals like `int_loop` (for
-example, in Euler problems and parsers). This keeps user recursion total while
-still allowing practical bounded integer iteration.
+## Int Loops
+Bosatsu supports direct recursion on `Int` when the checker can prove the next
+recursive argument is non-negative and strictly smaller on the recursive path.
+The standard library `int_loop` is implemented in Bosatsu using these checks.
 
 ## Relation To Fuel And Bove-Capretta
 The design request for this page is tracked at

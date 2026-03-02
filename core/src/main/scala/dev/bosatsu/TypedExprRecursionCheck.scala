@@ -616,18 +616,29 @@ object TypedExprRecursionCheck {
       }
 
     private def mkAnd(args: Vector[SmtExpr.BoolExpr]): SmtExpr.BoolExpr =
-      args.toList match {
-        case Nil          => SmtExpr.BoolConst(true)
-        case one :: Nil   => one
-        case _ :: _ :: _  => SmtExpr.And(args)
+      args.size match {
+        case 0 => SmtExpr.BoolConst(true)
+        case 1 => args.head
+        case _ => SmtExpr.And(args)
       }
 
     private def mkOr(args: Vector[SmtExpr.BoolExpr]): SmtExpr.BoolExpr =
-      args.toList match {
-        case Nil          => SmtExpr.BoolConst(false)
-        case one :: Nil   => one
-        case _ :: _ :: _  => SmtExpr.Or(args)
+      args.size match {
+        case 0 => SmtExpr.BoolConst(false)
+        case 1 => args.head
+        case _ => SmtExpr.Or(args)
       }
+
+    private def comparisonInDomain(
+        term: SmtExpr.IntExpr
+    ): SmtExpr.BoolExpr =
+      mkOr(
+        Vector(
+          SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(-1))),
+          SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(0))),
+          SmtExpr.EqInt(term, SmtExpr.IntConst(BigInt(1)))
+        )
+      )
 
     private def sanitizeSymbolPart(part: String): String = {
       val mapped = part.iterator
@@ -688,7 +699,12 @@ object TypedExprRecursionCheck {
         case None       =>
           val (sym, state1) = freshSymbol(state, name.sourceCodeRepr, SmtSort.IntS)
           val expr = SmtExpr.Var[SmtSort.IntSort](sym)
-          (expr, state1.withComparisonBinding(name, expr))
+          (
+            expr,
+            state1
+              .withComparisonBinding(name, expr)
+              .addPathFact(comparisonInDomain(expr))
+          )
       }
 
     private def predefFnName(
@@ -747,6 +763,25 @@ object TypedExprRecursionCheck {
           (None, state)
       }
 
+    private def lowerWithLetBinding[A](
+        name: Bindable,
+        valueExpr: TypedExpr[Declaration],
+        inExpr: TypedExpr[Declaration],
+        rec: RecursionKind,
+        state: SmtBranchState
+    )(
+        lower: (
+            TypedExpr[Declaration],
+            SmtBranchState
+        ) => (Option[A], SmtBranchState)
+    ): (Option[A], SmtBranchState) = {
+      val state0 = state.removeBindings(name :: Nil)
+      val state1 =
+        if (rec.isRecursive) bindSymbolForType(name, valueExpr.getType, state0)
+        else state0
+      lower(inExpr, bindLetName(name, valueExpr, state1))
+    }
+
     private def lowerCmpIntArgs(
         expr: TypedExpr[Declaration],
         state: SmtBranchState
@@ -759,6 +794,8 @@ object TypedExprRecursionCheck {
             case _ =>
               (None, state)
           }
+        case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
+          lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerCmpIntArgs)
         case _ =>
           (None, state)
       }
@@ -790,9 +827,35 @@ object TypedExprRecursionCheck {
             case _ =>
               (None, state)
           }
+        case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
+          lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerComparisonExpr)
         case other =>
           val lit = comparisonLiteralValue(other).map(SmtExpr.IntConst(_))
           (lit, state)
+      }
+
+    private def lowerMatchBranchCondition(
+        argExpr: TypedExpr[Declaration],
+        branch: TypedExpr.Branch[Declaration],
+        state: SmtBranchState
+    ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
+      val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
+      val (guardOpt, state2) =
+        branch.guard match {
+          case Some(guard) => lowerBoolExpr(guard, state1)
+          case None        => (Some(SmtExpr.BoolConst(true)), state1)
+        }
+      ((patOpt, guardOpt).mapN((pat, guard) => mkAnd(Vector(pat, guard))), state2)
+    }
+
+    private def isDefinitelyTrue(expr: SmtExpr.BoolExpr): Boolean =
+      expr match {
+        case SmtExpr.BoolConst(true) =>
+          true
+        case SmtExpr.And(args)       =>
+          args.forall(isDefinitelyTrue)
+        case _                       =>
+          false
       }
 
     private def lowerIntIfExpr(
@@ -816,6 +879,50 @@ object TypedExprRecursionCheck {
           val (thenOpt, state2) = lowerIntExpr(trueBranch.expr, state1)
           val (elseOpt, state3) = lowerIntExpr(falseBranch.expr, state2)
           ((condOpt, thenOpt, elseOpt).mapN(SmtExpr.Ite(_, _, _)), state3)
+        case _ =>
+          (None, state)
+      }
+
+    private def lowerIntFromMatches(
+        argExpr: TypedExpr[Declaration],
+        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
+        state: SmtBranchState
+    ): (Option[SmtExpr.IntExpr], SmtBranchState) =
+      branches.toList match {
+        case Nil =>
+          (None, state)
+        case init :+ last =>
+          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
+          val (lastExprOpt, state2) = lowerIntExpr(last.expr, state1)
+          (lastCondOpt, lastExprOpt) match {
+            case (Some(lastCond), Some(lastExpr)) if isDefinitelyTrue(lastCond) =>
+              val initState = (Vector.empty[(SmtExpr.BoolExpr, SmtExpr.IntExpr)], state2, true)
+              val (items, stateN, ok) =
+                init.foldLeft(initState) { case ((acc, st, allOk), branch) =>
+                  val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
+                  val (exprOpt, st2) = lowerIntExpr(branch.expr, st1)
+                  (condOpt, exprOpt) match {
+                    case (Some(cond), Some(value)) =>
+                      (acc :+ (cond -> value), st2, allOk)
+                    case _ =>
+                      (acc, st2, false)
+                  }
+                }
+              if (ok) {
+                val lowered =
+                  items.foldRight((lastExpr, SmtExpr.BoolConst(true): SmtExpr.BoolExpr)) {
+                    case ((cond, value), (elseExpr, priorMiss)) =>
+                      val hit = mkAnd(Vector(priorMiss, cond))
+                      (
+                        SmtExpr.Ite(hit, value, elseExpr),
+                        mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
+                      )
+                  }._1
+                (Some(lowered), stateN)
+              } else (None, stateN)
+            case _ =>
+              (None, state2)
+          }
         case _ =>
           (None, state)
       }
@@ -858,8 +965,12 @@ object TypedExprRecursionCheck {
             case _ =>
               (None, state)
           }
-        case TypedExpr.Match(arg, branches, _) =>
+        case TypedExpr.Match(arg, branches, _) if isBoolType(arg.getType) =>
           lowerIntIfExpr(arg, branches, state)
+        case TypedExpr.Match(arg, branches, _) =>
+          lowerIntFromMatches(arg, branches, state)
+        case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
+          lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerIntExpr)
         case _ =>
           (None, state)
       }
@@ -952,27 +1063,46 @@ object TypedExprRecursionCheck {
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         state: SmtBranchState
-    ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
-      val init = (List.empty[SmtExpr.BoolExpr], state, true)
-      val (condsRev, state1, ok) =
-        branches.toList.foldLeft(init) { case ((acc, st, allOk), branch) =>
-          boolLiteralValue(branch.expr) match {
-            case Some(true) if branch.guard.isEmpty =>
-              val (condOpt, st1) = lowerPatternCondition(argExpr, branch.pattern, st)
-              condOpt match {
-                case Some(cond) => (cond :: acc, st1, allOk)
-                case None       => (acc, st1, false)
-              }
-            case Some(false) if branch.guard.isEmpty =>
-              (acc, st, allOk)
+    ): (Option[SmtExpr.BoolExpr], SmtBranchState) =
+      branches.toList match {
+        case Nil =>
+          (None, state)
+        case init :+ last =>
+          val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
+          val (lastExprOpt, state2) = lowerBoolExpr(last.expr, state1)
+          (lastCondOpt, lastExprOpt) match {
+            case (Some(lastCond), Some(lastExpr)) if isDefinitelyTrue(lastCond) =>
+              val initState =
+                (Vector.empty[(SmtExpr.BoolExpr, SmtExpr.BoolExpr)], state2, true)
+              val (items, stateN, ok) =
+                init.foldLeft(initState) { case ((acc, st, allOk), branch) =>
+                  val (condOpt, st1) = lowerMatchBranchCondition(argExpr, branch, st)
+                  val (exprOpt, st2) = lowerBoolExpr(branch.expr, st1)
+                  (condOpt, exprOpt) match {
+                    case (Some(cond), Some(value)) =>
+                      (acc :+ (cond -> value), st2, allOk)
+                    case _ =>
+                      (acc, st2, false)
+                  }
+                }
+              if (ok) {
+                val lowered =
+                  items.foldRight((lastExpr, SmtExpr.BoolConst(true): SmtExpr.BoolExpr)) {
+                    case ((cond, value), (elseExpr, priorMiss)) =>
+                      val hit = mkAnd(Vector(priorMiss, cond))
+                      (
+                        SmtExpr.Ite(hit, value, elseExpr),
+                        mkAnd(Vector(priorMiss, SmtExpr.Not(cond)))
+                      )
+                  }._1
+                (Some(lowered), stateN)
+              } else (None, stateN)
             case _ =>
-              (acc, st, false)
+              (None, state2)
           }
-        }
-
-      if (ok) (Some(mkOr(condsRev.reverse.toVector)), state1)
-      else (None, state1)
-    }
+        case _ =>
+          (None, state)
+      }
 
     private def lowerBoolExpr(
         expr: TypedExpr[Declaration],
@@ -986,19 +1116,13 @@ object TypedExprRecursionCheck {
           predefFnName(fn) match {
             case Some(Identifier.Name("eq_Int")) =>
               lowerBinaryInt(args, state)(SmtExpr.EqInt(_, _))
-            case Some(Identifier.Operator(">")) =>
-              lowerBinaryInt(args, state)(SmtExpr.Gt(_, _))
-            case Some(Identifier.Operator("<")) =>
-              lowerBinaryInt(args, state)(SmtExpr.Lt(_, _))
-            case Some(Identifier.Operator(">=")) =>
-              lowerBinaryInt(args, state)(SmtExpr.Gte(_, _))
-            case Some(Identifier.Operator("<=")) =>
-              lowerBinaryInt(args, state)(SmtExpr.Lte(_, _))
             case _ =>
               (None, state)
           }
         case TypedExpr.Match(arg, branches, _) =>
           lowerBoolFromMatches(arg, branches, state)
+        case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
+          lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerBoolExpr)
         case other =>
           (boolLiteralValue(other).map(SmtExpr.BoolConst(_)), state)
       }
@@ -1082,6 +1206,30 @@ object TypedExprRecursionCheck {
     private def buildPathCondition(state: SmtBranchState): SmtExpr.BoolExpr =
       mkAnd(state.pathFacts)
 
+    private def pathImplies(
+        goal: SmtExpr.BoolExpr,
+        state: SmtBranchState
+    ): Boolean = {
+      val facts = state.pathFacts
+      facts.contains(goal) ||
+      (goal match {
+        case SmtExpr.Gte(left, right) =>
+          facts.exists {
+            case SmtExpr.Gt(l1, r1)    => (l1 == left) && (r1 == right)
+            case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
+            case _                     => false
+          }
+        case SmtExpr.Lte(left, right) =>
+          facts.exists {
+            case SmtExpr.Lt(l1, r1)    => (l1 == left) && (r1 == right)
+            case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
+            case _                     => false
+          }
+        case _ =>
+          false
+      })
+    }
+
     private def renderPathCondition(state: SmtBranchState): String =
       SmtLibRender.renderExpr(buildPathCondition(state)).render(120)
 
@@ -1092,41 +1240,45 @@ object TypedExprRecursionCheck {
         goal: SmtExpr.BoolExpr,
         state: SmtBranchState
     ): ProofOutcome = {
-      val declarations = state.declarations.toList.sortBy(_._1).map {
-        case (name, sort) =>
-          SmtCommand.DeclareConst(name, sort)
-      }
-      val script = SmtScript(
-        Vector(SmtCommand.SetLogic("QF_LIA")) ++
-          declarations ++
-          Vector(
-            SmtCommand.Assert(buildPathCondition(state)),
-            SmtCommand.Assert(SmtExpr.Not(goal)),
-            SmtCommand.CheckSat
-          )
-      )
+      if (pathImplies(goal, state)) {
+        ProofOutcome.Proved
+      } else {
+        val declarations = state.declarations.toList.sortBy(_._1).map {
+          case (name, sort) =>
+            SmtCommand.DeclareConst(name, sort)
+        }
+        val script = SmtScript(
+          Vector(SmtCommand.SetLogic("QF_LIA")) ++
+            declarations ++
+            Vector(
+              SmtCommand.Assert(buildPathCondition(state)),
+              SmtCommand.Assert(SmtExpr.Not(goal)),
+              SmtCommand.CheckSat
+            )
+        )
 
-      Z3Api.run(script, parseModel = false, z3Runner) match {
-        case Right(res) =>
-          res.status match {
-            case Z3Api.Status.Unsat =>
-              ProofOutcome.Proved
-            case Z3Api.Status.Sat   =>
-              val withModel = SmtScript(script.commands :+ SmtCommand.GetModel)
-              Z3Api.run(withModel, z3Runner) match {
-                case Right(modelRes) =>
-                  ProofOutcome.Failed(renderModel(modelRes.model), None)
-                case Left(err)       =>
-                  ProofOutcome.Failed(None, Some(err.message))
-              }
-            case Z3Api.Status.Unknown =>
-              ProofOutcome.Failed(None, Some("solver returned unknown"))
-          }
-        case Left(err) =>
-          ProofOutcome.Failed(
-            None,
-            Some(err.message)
-          )
+        Z3Api.run(script, parseModel = false, z3Runner) match {
+          case Right(res) =>
+            res.status match {
+              case Z3Api.Status.Unsat =>
+                ProofOutcome.Proved
+              case Z3Api.Status.Sat   =>
+                val withModel = SmtScript(script.commands :+ SmtCommand.GetModel)
+                Z3Api.run(withModel, z3Runner) match {
+                  case Right(modelRes) =>
+                    ProofOutcome.Failed(renderModel(modelRes.model), None)
+                  case Left(err)       =>
+                    ProofOutcome.Failed(None, Some(err.message))
+                }
+              case Z3Api.Status.Unknown =>
+                ProofOutcome.Failed(None, Some("solver returned unknown"))
+            }
+          case Left(err) =>
+            ProofOutcome.Failed(
+              None,
+              Some(err.message)
+            )
+        }
       }
     }
 

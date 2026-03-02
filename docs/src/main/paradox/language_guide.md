@@ -994,31 +994,25 @@ safety story gets much weaker.
 So "use with caution" mostly applies to maintainers of trusted runtime/predef
 code, not to ordinary Bosatsu library authors.
 
-An example function we cannot implement in Bosatsu is:
+A function that can now be implemented directly in Bosatsu is:
 ```
 def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  if cmp_Int(int_v, 0) matches GT:
-    (next_i, next_state) = fn(int_v, state)
-    if cmp_Int(next_i, int_v) matches LT:
-      # make sure we always decrease int_v
-      int_loop(next_i, next_state, fn)
-    else:
-      next_state
-  else:
-    state
+  recur int_v:
+    case _ if cmp_Int(int_v, 0) matches GT:
+      (next_i, next_state) = fn(int_v, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, int_v) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
 ```
-We cannot write this function, even though it is total, because Bosatsu cannot
-prove that the loop terminates. The only recursions we can do are on values that
-are substructures of the `recur`/`loop` targets (single-target structural
-decrease or tuple-target lexicographic decrease). This gives a simple proof that
-the loop will terminate.
 
-Instead, we implement this function in Predef as an external def that has to be
-supplied to the compiler with a promise that it is total and matches its
-declared type.
-```
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
-```
+This typechecks because `recur` on `Int` uses obligations that the next recursive
+argument is non-negative and strictly smaller on the recursive path.
 
 External values and types work exactly like internally defined types from any
 other point of view.
