@@ -120,27 +120,34 @@ external def get_Lazy[a](l: Lazy[a]) -> a
   - `lazy` -> `FfiCall.Fn1(...)`
   - `get_Lazy` -> `FfiCall.Fn1(...)`
 - In `PredefImpl`, add a runtime cell representation, for example:
-  - `LazyCell(thunk: Value, cached: AtomicReference[Value | Null])`
+  - `LazyCell(state: AtomicReference[Either[Value, Value]])`
+  - `Left(thunk)` means not yet forced, `Right(value)` means memoized.
 - Implement:
   - `lazy_Lazy(fn: Value): Value` -> wraps cell in `ExternalValue`
-  - `get_Lazy(cellValue: Value): Value` -> fast-path cached value, else evaluate thunk with `UnitValue`, then CAS-store winner
+  - `get_Lazy(cellValue: Value): Value` -> read state:
+    - if `Right(value)`, return immediately
+    - if `Left(thunk)`, run `thunk(())`, then CAS `Left(thunk)` -> `Right(result)`; return winner's memoized value
+- Ensure the thunk reference is released after successful force by transitioning to `Right(result)` so the cell no longer holds the thunk.
 - Keep this implementation in shared `core` code so JVM and Scala.js evaluator behavior stays aligned.
 
 ### 3) Python transpile runtime
 
 - Add `Bosatsu/Lazy` mapping in `test_workspace/Prog.bosatsu_externals`.
 - Add runtime support in `test_workspace/ProgExt.py`:
-  - `_BosatsuLazy` cell with thunk + cached sentinel
+  - `_BosatsuLazy` cell with explicit forced-state + cached value
   - `lazy(fn)` constructor
   - `get_Lazy(l)` force-and-cache path
+- After first successful force, clear/drop the thunk reference in the Python cell to allow GC.
 
 ### 4) C runtime support
 
 - Add `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.h` declarations.
 - Add `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c` implementation with external struct cell:
   - stored thunk `BValue`
-  - `_Atomic BValue` cached value sentinel (`BSTS_BVALUE_NULL` when empty)
+  - cached `BValue` result slot
+  - `_Atomic _Bool` forced flag (avoid using `BValue` null/sentinel state so `Float64(0.0)` and other zero-bit patterns are safe)
   - `___bsts_g_Bosatsu_l_Lazy_l_lazy` and `___bsts_g_Bosatsu_l_Lazy_l_get__Lazy` functions
+- On successful first force, write cached result, set forced flag, and clear the thunk field (for example to `bsts_unit_value()`) so the original closure can be collected.
 - Update `c_runtime/Makefile` to compile/install the new C runtime external file and header.
 
 ### 5) Tests
@@ -158,8 +165,9 @@ external def get_Lazy[a](l: Lazy[a]) -> a
 4. `tool eval` and `lib eval` can evaluate programs importing `Bosatsu/Lazy` when forcing to non-`Lazy` output values.
 5. Python externals mapping includes `Bosatsu/Lazy` and has working implementations for both functions.
 6. C runtime exports lazy symbols and `c_runtime` build/install succeeds with the new files.
-7. `core_alpha` configuration exports `Bosatsu/Lazy` for library distribution.
-8. Existing tests and CI paths continue to pass.
+7. Implementations release the thunk reference after first successful force (cell stores only the memoized result thereafter).
+8. `core_alpha` configuration exports `Bosatsu/Lazy` for library distribution.
+9. Existing tests and CI paths continue to pass.
 
 ## Risks and mitigations
 
