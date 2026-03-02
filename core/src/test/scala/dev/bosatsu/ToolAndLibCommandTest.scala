@@ -5787,6 +5787,98 @@ main = 0
     }
   }
 
+  test("lib build defaults to tree-shaking unused external packages") {
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Main()
+|
+|struct Main(x: Int)
+|""".stripMargin
+    val appSrc =
+      """package MyLib/Main
+|
+|from Bosatsu/Prog import Main
+|
+|main = Main(1)
+|""".stripMargin
+    val lazySrc =
+      """package Bosatsu/Lazy
+|
+|external struct LazyInt
+|external def mk_LazyInt(i: Int) -> LazyInt
+|
+|ignored = mk_LazyInt(1)
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> progSrc,
+      Chain("repo", "src", "Bosatsu", "Lazy.bosatsu") -> lazySrc,
+      Chain("repo", "src", "MyLib", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "build",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out",
+          "-m",
+          "MyLib/Main"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "lib",
+          "build",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out_all",
+          "-m",
+          "MyLib/Main",
+          "--emitmode",
+          "all"
+        ),
+        state1
+      )
+    } yield (s1, s2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(((stateDefault, outDefault), (stateAll, outAll))) =>
+        outDefault match {
+          case Output.Basic(_, _) => ()
+          case other              => fail(s"unexpected output: $other")
+        }
+        outAll match {
+          case Output.Basic(_, _) => ()
+          case other              => fail(s"unexpected output: $other")
+        }
+        val lazyHeaderInclude = "#include \"bosatsu_ext_Bosatsu_l_Lazy.h\""
+        val outputCDefault =
+          readStringFile(stateDefault, Chain("out", "output.c"))
+        assert(
+          !outputCDefault.contains(lazyHeaderInclude),
+          outputCDefault
+        )
+        val outputCAll = readStringFile(stateAll, Chain("out_all", "output.c"))
+        assert(outputCAll.contains(lazyHeaderInclude), outputCAll)
+    }
+  }
+
   test(
     "lib test runs runtime readiness preflight before executing tests"
   ) {

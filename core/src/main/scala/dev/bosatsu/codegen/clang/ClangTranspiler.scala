@@ -62,8 +62,8 @@ case object ClangTranspiler extends Transpiler {
 
     val opts: Opts[EmitMode] =
       Opts
-        .option[EmitMode]("emitmode", "emit mode: shake|all, default = all")
-        .withDefault(All)
+        .option[EmitMode]("emitmode", "emit mode: shake|all, default = shake")
+        .withDefault(Shake)
   }
   sealed abstract class Mode[F[_]](val name: String)
   object Mode {
