@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.Traverse
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel}
+import cats.parse.{Parser => P}
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{LocationMap, Package, PackageName, PlatformIO}
@@ -148,9 +149,10 @@ sealed abstract class PackageResolver[IO[_], Path] {
     paths
       .traverse { path =>
         val defaultPack = packageNameFor(path)(platformIO)
+        val headerParser = Package.headerParser(defaultPack) <* P.anyChar.rep0
         platformIO.readUtf8(path).map { str =>
           PathParseError
-            .parseString(Package.headerParser(defaultPack), path, str)
+            .parseString(headerParser, path, str)
             .map { case (_, pp) => (path, pp) }
         }
       }

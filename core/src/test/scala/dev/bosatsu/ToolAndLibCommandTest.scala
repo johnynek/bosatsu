@@ -2824,6 +2824,75 @@ main = depValue
     }
   }
 
+  test("tool deps parses explicit package declarations with body statements") {
+    val aSrc =
+      """package QA/A
+x = 1
+"""
+    val bSrc =
+      """package QA/B
+from QA/A import x
+y = x
+"""
+    val files = List(
+      Chain("src", "QA", "A.bosatsu") -> aSrc,
+      Chain("src", "QA", "B.bosatsu") -> bSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "deps",
+          "--package_root",
+          "src",
+          "--input",
+          "src/QA/A.bosatsu",
+          "--input",
+          "src/QA/B.bosatsu",
+          "--graph_format",
+          "json",
+          "--output",
+          "out/deps.json"
+        ),
+        s0
+      )
+    } yield s1._1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(state) =>
+        val jsonStr = readStringFile(state, Chain("out", "deps.json"))
+        Json.parserFile.parseAll(jsonStr) match {
+          case Right(Json.JArray(items)) =>
+            val packageDeps = items.toList.collect {
+              case Json.JObject(fields) =>
+                val pkg = fields.collectFirst {
+                  case ("package", Json.JString(p)) => p
+                } match {
+                  case Some(p) => p
+                  case None    => fail(show"missing package in output row: $fields")
+                }
+                val deps = fields
+                  .collectFirst { case ("dependsOn", Json.JArray(values)) =>
+                    values.toList.collect { case Json.JString(s) => s }
+                  }
+                  .getOrElse(Nil)
+                (pkg, deps)
+            }.toMap
+
+            assertEquals(packageDeps.get("QA/A"), Some(Nil))
+            assertEquals(packageDeps.get("QA/B"), Some(List("QA/A")))
+          case Right(other) =>
+            fail(show"expected deps json array output, found: $other")
+          case Left(err) =>
+            fail(show"failed to parse deps json output: $err")
+        }
+    }
+  }
+
   test(
     "tool assemble fails when previous public dependencies are not provided"
   ) {
