@@ -109,6 +109,19 @@ def _ioerror_from_errno(err: Optional[int], context: str):
 _none = (0,)
 def _some(value): return (1, value)
 
+class _BosatsuLazy:
+    __slots__ = ("_thunk", "_value", "_forced")
+
+    def __init__(self, thunk):
+        self._thunk = thunk
+        self._value = None
+        self._forced = False
+
+def _as_bosatsu_lazy(value):
+    if isinstance(value, _BosatsuLazy):
+        return value
+    return None
+
 class _BosatsuBytes:
     __slots__ = ("data", "offset", "length")
 
@@ -310,6 +323,23 @@ def _kind_from_lstat(st):
     if _stat.S_ISLNK(mode):
         return (2,)  # Symlink
     return (3,)      # Other
+
+# Bosatsu/Lazy externals
+def lazy(fn):
+    return _BosatsuLazy(fn)
+
+def get_Lazy(lazy_value):
+    l = _as_bosatsu_lazy(lazy_value)
+    if l is None:
+        raise ValueError(f"invalid Lazy value: {lazy_value!r}")
+    if l._forced:
+        return l._value
+
+    value = l._thunk(())
+    l._value = value
+    l._forced = True
+    l._thunk = None
+    return value
 
 # Bosatsu/IO/Bytes externals
 empty_Bytes = _BosatsuBytes(b"", 0, 0)
