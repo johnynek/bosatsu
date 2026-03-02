@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-10e743a4*
+0.0.0+1-d9b8297e*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-10e743a4*
+0.0.0+1-d9b8297e*
 </div>
 </div>
 <div class="nav-toc">
@@ -293,6 +293,19 @@ add_curried = x -&gt; y -&gt; add(x, y)    # Fn1 returning Fn1
 add_tuple = ((x, y)) -&gt; add(x, y)    # Fn1 taking a tuple
 </code></pre>
 <p>Note the distinction between <code>(x, y) -&gt; ...</code> (Fn2) and <code>((x, y)) -&gt; ...</code> (Fn1 that takes a tuple).</p>
+<p>Bosatsu also supports Python-style zero-arg function sugar for <code>Unit -&gt; a</code>:</p>
+<pre><code>def later():
+  compute()
+
+value = later()
+</code></pre>
+<p>These are equivalent to:</p>
+<pre><code>def later(()):
+  compute()
+
+value = later(())
+</code></pre>
+<p>The corresponding function type is still written as <code>() -&gt; a</code>.</p>
 <p>Function parameters are patterns, so you can destructure arguments directly:</p>
 <pre><code>def fst((a, _)): a
 sum = ((x, y)) -&gt; add(x, y)
@@ -454,7 +467,7 @@ my_file_rec = File {
   <li>A field with a default must have an explicit type annotation.</li>
   <li>A default expression may only reference imports, or top-level values defined earlier in the same file (including earlier defaults). It may not reference constructor parameters, including earlier parameters.</li>
 </ol>
-<p>If all required fields are defaulted, <code>Rec {}</code> is valid and means &ldquo;construct using defaults.&rdquo; This is different from <code>Rec</code> by itself: bare <code>Rec</code> refers to the constructor value (and only behaves like a zero-argument construction for truly zero-argument constructors).</p>
+<p>If all required fields are defaulted, <code>Rec {}</code> is valid and means &ldquo;construct using defaults.&rdquo; This is different from <code>Rec</code> by itself: bare <code>Rec</code> refers to the constructor value (and only behaves like a zero-argument construction for truly zero-argument constructors). <code>Rec()</code> is not constructor syntax.</p>
 <p>Like Rust, if a value is already in scope matching a field name, we can omit the colon:</p>
 <pre><code>name = &quot;readme.txt&quot;
 size = 10240
@@ -850,7 +863,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-10e743a4-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d9b8297e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
