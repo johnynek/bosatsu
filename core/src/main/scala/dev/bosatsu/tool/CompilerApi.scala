@@ -125,6 +125,7 @@ object CompilerApi {
               }
             moduleIOMonad.pure((p, pathToName))
           case Validated.Invalid(errs) =>
+            given cats.Show[Path] = platformIO.showPath
             val sourceMap = PackageMap.buildSourceMap(packs)
             moduleIOMonad.raiseError(
               PackageErrors(sourceMap, errs, errColor)

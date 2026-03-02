@@ -716,12 +716,12 @@ object PackageMap {
     )
   }
 
-  def buildSourceMap[F[_]: Foldable, A](
+  def buildSourceMap[F[_]: Foldable, A: Show](
       parsedFiles: F[((A, LocationMap), Package.Parsed)]
   ): Map[PackageName, (LocationMap, String)] =
     parsedFiles.foldLeft(Map.empty[PackageName, (LocationMap, String)]) {
       case (map, ((path, lm), pack)) =>
-        map.updated(pack.name, (lm, path.toString))
+        map.updated(pack.name, (lm, path.show))
     }
 
   /** typecheck a list of packages given a list of interface dependencies

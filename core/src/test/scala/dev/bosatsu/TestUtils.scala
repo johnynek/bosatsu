@@ -449,6 +449,7 @@ object TestUtils {
 
       case Some(errs) if errs.collect(errFn).nonEmpty =>
         // make sure we can print the messages:
+        given cats.Show[String] = cats.Show.fromToString
         val sm = PackageMap.buildSourceMap(withPre)
         errs.toList.foreach(_.message(sm, LocationMap.Colorize.None))
         assert(true)
