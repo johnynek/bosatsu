@@ -158,6 +158,22 @@ class PatternTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("normalizeStrPatParts re-compacts literals after duplicate removal") {
+    val e = Identifier.Name("e")
+    val input = NonEmptyList.of(
+      Pattern.StrPart.LitStr("v"),
+      Pattern.StrPart.NamedStr(e),
+      Pattern.StrPart.LitStr("jptmabf"),
+      Pattern.StrPart.NamedStr(e)
+    )
+    val expected = NonEmptyList.of(
+      Pattern.StrPart.LitStr("vjptmabf"),
+      Pattern.StrPart.NamedStr(e)
+    )
+
+    assertEquals(Generators.normalizeStrPatParts(input), expected)
+  }
+
   test("definitelyTotal detects obvious total patterns") {
     val n = Identifier.Name("n")
 

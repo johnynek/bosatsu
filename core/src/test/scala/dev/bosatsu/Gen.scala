@@ -626,6 +626,57 @@ object Generators {
       useAnnotation = false
     )
 
+  private def strPartNames(part: Pattern.StrPart): Set[Identifier.Bindable] =
+    part match {
+      case Pattern.StrPart.NamedStr(n)  => Set(n)
+      case Pattern.StrPart.NamedChar(n) => Set(n)
+      case _                            => Set.empty
+    }
+
+  private def strPartNames(
+      parts: List[Pattern.StrPart]
+  ): Set[Identifier.Bindable] =
+    parts.iterator.flatMap(strPartNames(_)).toSet
+
+  private def isStringWild(part: Pattern.StrPart): Boolean =
+    part match {
+      case Pattern.StrPart.LitStr(_) | Pattern.StrPart.NamedChar(_) |
+          Pattern.StrPart.WildChar =>
+        false
+      case _ => true
+    }
+
+  private[bosatsu] def normalizeStrPatParts(
+      nel: NonEmptyList[Pattern.StrPart]
+  ): NonEmptyList[Pattern.StrPart] =
+    nel match {
+      case NonEmptyList(_, Nil) => nel
+      case NonEmptyList(h1, h2 :: t)
+          if strPartNames(h1).exists(strPartNames(h2 :: t).contains) =>
+        normalizeStrPatParts(NonEmptyList(h2, t))
+      case NonEmptyList(
+            Pattern.StrPart.LitStr(h1),
+            Pattern.StrPart.LitStr(h2) :: t
+          ) =>
+        normalizeStrPatParts(
+          NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t)
+        )
+      case NonEmptyList(h1, h2 :: t) =>
+        val tail = normalizeStrPatParts(NonEmptyList(h2, t))
+        if (isStringWild(tail.head) && isStringWild(h1)) {
+          tail
+        } else {
+          (h1, tail.head) match {
+            case (Pattern.StrPart.LitStr(s1), Pattern.StrPart.LitStr(s2)) =>
+              normalizeStrPatParts(
+                NonEmptyList(Pattern.StrPart.LitStr(s1 + s2), tail.tail)
+              )
+            case _ =>
+              h1 :: tail
+          }
+        }
+    }
+
   lazy val genStrPat: Gen[Pattern.StrPat] = {
     val recurse = Gen.lzy(genStrPat)
 
@@ -638,43 +689,10 @@ object Generators {
         Gen.const(Pattern.StrPart.WildChar)
       )
 
-    def isWild(p: Pattern.StrPart): Boolean =
-      p match {
-        case Pattern.StrPart.LitStr(_) | Pattern.StrPart.NamedChar(_) |
-            Pattern.StrPart.WildChar =>
-          false
-        case _ => true
-      }
-
-    def makeValid(
-        nel: NonEmptyList[Pattern.StrPart]
-    ): NonEmptyList[Pattern.StrPart] =
-      nel match {
-        case NonEmptyList(_, Nil) => nel
-        case NonEmptyList(h1, h2 :: t)
-            if Pattern
-              .StrPat(NonEmptyList.one(h1))
-              .names
-              .exists(Pattern.StrPat(NonEmptyList(h2, t)).names.toSet) =>
-          makeValid(NonEmptyList(h2, t))
-        case NonEmptyList(
-              Pattern.StrPart.LitStr(h1),
-              Pattern.StrPart.LitStr(h2) :: t
-            ) =>
-          makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
-        case NonEmptyList(h1, h2 :: t) =>
-          val tail = makeValid(NonEmptyList(h2, t))
-          if (isWild(tail.head) && isWild(h1)) {
-            tail
-          } else {
-            h1 :: tail
-          }
-      }
-
     for {
       sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
       inner <- nonEmptyN(genPart, sz)
-      p0 = Pattern.StrPat(makeValid(inner))
+      p0 = Pattern.StrPat(normalizeStrPatParts(inner))
       notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
     } yield notStr
   }
