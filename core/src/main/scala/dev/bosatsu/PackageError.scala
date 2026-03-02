@@ -244,6 +244,26 @@ object PackageError {
         " to --input/--input_dir (and verify --package_root), or include a dependency library with --pub_dep/--priv_dep. Also check for package-name typos."
       )
 
+  private def unknownImportPackageTypoHint(
+      sourceMap: SourceMap,
+      importingPackage: PackageName,
+      importedPackage: PackageName
+  ): Doc = {
+    val query = Identifier.Name(importedPackage.asString)
+    val knownPackages =
+      sourceMap.keysIterator
+        .filterNot(pn => (pn == importingPackage) || (pn == importedPackage))
+        .map { pn =>
+          (Identifier.Name(pn.asString): Identifier, ())
+        }
+        .toList
+    val suggestions =
+      nearest(query, knownPackages, 3)
+        .map { case (ident, _) => (ident, Some("package")) }
+
+    didYouMeanDoc(suggestions)
+  }
+
   case class UnknownExport[A](
       ex: ExportedName[A],
       in: PackageName,
@@ -315,7 +335,8 @@ object PackageError {
       val base =
         sourceMap.headLine(fromName, region) + Doc.hardLine +
           Doc.text("Unknown package ") + quotedPackageName(pack) +
-          Doc.text(" in import.")
+          Doc.text(" in import.") +
+          unknownImportPackageTypoHint(sourceMap, fromName, pack)
       (context match {
         case Some(ctx) =>
           base + Doc.hardLine + ctx + Doc.hardLine + unknownImportPackageHint(

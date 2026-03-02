@@ -3188,6 +3188,51 @@ main = depBox
     }
   }
 
+  test("tool check unknown import package suggests nearest package typo") {
+    val depSrc =
+      """package Foo/Baz
+        |export baz
+        |
+        |baz = 1
+        |""".stripMargin
+    val appSrc =
+      """package QA/UnknownImport
+        |
+        |from Foo/Bar import baz
+        |x = 1
+        |""".stripMargin
+    val files = List(
+      Chain("src", "Foo", "Baz.bosatsu") -> depSrc,
+      Chain("src", "QA", "UnknownImport.bosatsu") -> appSrc
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--color",
+        "none",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Foo/Baz.bosatsu",
+        "--input",
+        "src/QA/UnknownImport.bosatsu",
+        "--output",
+        "tmp/out",
+        "--interface_out",
+        "tmp/iface"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected unknown-import package failure, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("Unknown package `Foo/Bar` in import."), msg)
+        assert(msg.contains("Did you mean package `Foo/Baz`?"), msg)
+    }
+  }
+
   test("tool check accepts todo but tool show rejects it") {
     val src =
       """package Todo/Foo
