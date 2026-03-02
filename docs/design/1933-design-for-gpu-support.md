@@ -131,7 +131,6 @@ API sketch:
 
     package Bosatsu/GPU/Core
 
-    from Bosatsu/Prog import Prog
     from Bosatsu/Collection/Array import Array
     from Bosatsu/GPU/Error import GPUError
 
@@ -139,6 +138,13 @@ API sketch:
       Backend(),
       PackMode(),
       DeviceInfo(),
+      GPU(),
+      GPUResult(),
+      pure_GPU,
+      flat_map_GPU,
+      recover_GPU,
+      await_GPU,
+      run_GPU,
       Session,
       list_devices,
       open,
@@ -161,12 +167,25 @@ API sketch:
 
     struct DeviceInfo(id: Int, backend: Backend, name: String, unified_memory: Bool)
 
+    enum GPUResult[a]:
+      GPUFailed(err: GPUError)
+      GPUSuccess(result: a)
+
+    external struct GPU[a: +*]
+    external def pure_GPU[a](value: a) -> GPU[a]
+    external def flat_map_GPU[a, b](ga: GPU[a], fn: a -> GPU[b]) -> GPU[b]
+    external def recover_GPU[a](ga: GPU[a], fn: GPUError -> GPU[a]) -> GPU[a]
+    external def run_GPU[a](ga: GPU[a]) -> GPUResult[a]
+
+    def await_GPU[a, b](ga: GPU[a], fn: a -> GPU[b]) -> GPU[b]:
+      flat_map_GPU(ga, fn)
+
     external struct Session
 
-    external list_devices: Prog[GPUError, Array[DeviceInfo]]
-    external def open(preferred: Array[Backend], device_id: Option[Int]) -> Prog[GPUError, Session]
-    external def close(session: Session) -> Prog[GPUError, Unit]
-    external def active_backend(session: Session) -> Backend
+    external list_devices: GPU[Array[DeviceInfo]]
+    external def open(preferred: Array[Backend], device_id: Option[Int]) -> GPU[Session]
+    external def close(session: Session) -> GPU[Unit]
+    external def active_backend(session: Session) -> GPU[Backend]
 
 ### `Bosatsu/GPU/Tensor`
 
@@ -176,9 +195,8 @@ API sketch:
 
     package Bosatsu/GPU/Tensor
 
-    from Bosatsu/Prog import Prog
     from Bosatsu/Collection/Array import Array
-    from Bosatsu/GPU/Core import Session, PackMode
+    from Bosatsu/GPU/Core import Session, PackMode, GPU
     from Bosatsu/GPU/Error import GPUError
 
     export (
@@ -210,8 +228,16 @@ Notes:
 
 1. `from_ArrayN_*` validates shape product equals array length.
 2. `PackMode` is explicit per upload call.
-3. All tensor ops return `Prog[GPUError, ...]` to model runtime failures.
+3. All tensor ops return `GPU[...]` values; `run_GPU` turns a GPU program into `GPUResult[...]` in a pure context.
 4. The same API is used for CPU fallback, Metal, and CUDA.
+
+### Why not `Tensor1[a]` in v1?
+
+1. v1 kernels are intentionally only defined for `Int` and `Float64`. A generic `Tensor1[a]` suggests support that the backends do not actually provide.
+2. Bosatsu externals currently do not have a numeric typeclass/evidence bridge that can be shared across Scala evaluator, Python externals, and C runtime. A generic shape would still require runtime type tags and dynamic dispatch in each backend.
+3. Packing modes are type-specific (`PreferF16`, `PreferF32`, integer narrowing), so the runtime behavior is clearer when tensor types are concrete.
+4. Separate concrete external structs keep FFI symbols and backend ABI simple for initial Metal/CUDA bring-up.
+5. We can add a higher-level generic facade later once there is stable typeclass evidence passing for numeric externals.
 
 ## Minimal useful operations in v1
 
@@ -236,15 +262,16 @@ This set is sufficient for dense scoring and basic model inference patterns. Ext
 
 Example usage sketch:
 
-    main = (
-      s <- open([Metal, Cuda, Cpu], None).await()
-      a <- from_Array2_Float64(s, 2, 3, from_List_Array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), Exact).await()
-      b <- from_Array2_Float64(s, 3, 2, from_List_Array([7.0, 8.0, 9.0, 10.0, 11.0, 12.0]), Exact).await()
-      c <- matmul_2_Float64(s, a, b).await()
-      out <- to_Array2_Float64(s, c).await()
-      _ <- close(s).await()
-      pure(out)
-    )
+    plan =
+      open([Metal, Cuda, Cpu], None).await_GPU(s ->
+        from_Array2_Float64(s, 2, 3, from_List_Array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), Exact).await_GPU(a ->
+          from_Array2_Float64(s, 3, 2, from_List_Array([7.0, 8.0, 9.0, 10.0, 11.0, 12.0]), Exact).await_GPU(b ->
+            matmul_2_Float64(s, a, b).await_GPU(c ->
+              to_Array2_Float64(s, c).await_GPU(out ->
+                close(s).await_GPU(_ ->
+                  pure_GPU(out))))))
+
+    result = run_GPU(plan)
 
 ## Backend architecture
 
@@ -287,7 +314,18 @@ Selection order:
 2. otherwise caller-provided `preferred` order from `open`,
 3. otherwise `Cpu`.
 
-### 6) Evaluator and Python behavior
+### 6) `bosatsu c-runtime install` integration
+
+GPU backend selection is surfaced through `bosatsu c-runtime install` and forwarded into `c_runtime/Makefile`.
+
+1. Add `--gpu-backends=cpu,metal,cuda` (comma-separated) with default `cpu`.
+2. Add `--cuda-home=<path>` (optional) to help locate CUDA headers and libs when auto-discovery fails.
+3. Add `--metal-sdk=<path>` (optional) for non-default SDK selection on macOS.
+4. Add `--gpu-strict` (optional): fail install if any requested backend cannot be built.
+5. Without `--gpu-strict`, unavailable backends are skipped with a warning and CPU remains installed.
+6. Record enabled GPU backends in installed config metadata so transpilation can emit accurate compile/link flags.
+
+### 7) Evaluator and Python behavior
 
 1. `Predef.scala` adds `Bosatsu/GPU/*` externals with CPU implementation in `PredefImpl` so `tool eval` and `lib eval` work everywhere.
 2. `ProgExt.py` and `Prog.bosatsu_externals` add the same symbols with CPU fallback.
