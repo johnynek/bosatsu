@@ -38,6 +38,22 @@ class MatchlessRegressionTest extends munit.FunSuite {
         )
     }
 
+  private def assertMatchlessToValueNoStackOverflow(
+      expr: Matchless.Expr[Unit]
+  ): Unit =
+    try {
+      val evaluated =
+        MatchlessToValue
+          .traverse(Vector(expr))((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+      assertEquals(evaluated, Vector(Value.UnitValue))
+    } catch {
+      case _: StackOverflowError =>
+        fail(
+          "MatchlessToValue should not overflow on deeply nested expressions"
+        )
+    }
+
   private def countWhileExprs(e: Matchless.Expr[Unit]): Int =
     e match {
       case Matchless.WhileExpr(cond, effectExpr, _) =>
@@ -229,6 +245,18 @@ def branch_blowup(args: L) -> Nat:
         Matchless.MakeStruct(0)
       )
     assertReuseConstructorsNoStackOverflow(expr)
+  }
+
+  test(
+    "issue 1942: deeply nested LetMutBool condition does not overflow MatchlessToValue"
+  ) {
+    val expr =
+      Matchless.If(
+        nestedLetMutBool(20000),
+        Matchless.MakeStruct(0),
+        Matchless.MakeStruct(0)
+      )
+    assertMatchlessToValueNoStackOverflow(expr)
   }
 
   test("MatchlessToValue evaluates static If conditions without dynamic branching") {

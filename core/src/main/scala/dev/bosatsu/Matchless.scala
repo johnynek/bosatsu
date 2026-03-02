@@ -1696,7 +1696,29 @@ object Matchless {
   ) extends BoolExpr[A]
 
   case class LetMutBool[A](name: LocalAnonMut, span: BoolExpr[A])
-      extends BoolExpr[A]
+      extends BoolExpr[A] {
+    // often we have several LetMutBool at once, return all them
+    def flatten: (NonEmptyList[LocalAnonMut], BoolExpr[A]) = {
+      var reverseNames: List[LocalAnonMut] = name :: Nil
+      var tailBool: BoolExpr[A] = span
+      var done = false
+
+      while (!done) {
+        tailBool match {
+          case LetMutBool(nextName, nextTail) =>
+            reverseNames = nextName :: reverseNames
+            tailBool = nextTail
+          case _ =>
+            done = true
+        }
+      }
+
+      (
+        NonEmptyList.fromListUnsafe(reverseNames.reverse),
+        tailBool
+      )
+    }
+  }
   object LetMutBool {
     def apply[A](lst: List[LocalAnonMut], span: BoolExpr[A]): BoolExpr[A] =
       lst.foldRight(span)(LetMutBool(_, _))

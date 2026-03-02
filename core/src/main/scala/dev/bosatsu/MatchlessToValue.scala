@@ -204,7 +204,6 @@ object MatchlessToValue {
         }
       }
       def toFn: Scope => A
-
       def withScope(ws: Scope => Scope): Scoped[A]
     }
     case class Dynamic[A](toFn: Scope => A) extends Scoped[A] {
@@ -328,10 +327,11 @@ object MatchlessToValue {
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
             }
-          case LetMutBool(LocalAnonMut(ident), in) =>
+          case lm @ LetMutBool(_, _) =>
+            val (anonMuts, in) = lm.flatten
             val inF = boolExpr(in)
             Dynamic { (scope: Scope) =>
-              val scope1 = scope.letMut(ident)
+              val scope1 = scope.letMuts(anonMuts.iterator.map(_.ident))
               inF(scope1)
             }
         }
