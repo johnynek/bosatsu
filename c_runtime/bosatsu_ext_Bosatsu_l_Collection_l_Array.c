@@ -1,5 +1,6 @@
 #include "bosatsu_runtime.h"
 
+#include <errno.h>
 #include <gc.h>
 #include <limits.h>
 #include <stdio.h>
@@ -290,8 +291,11 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_filter__Array(BValue array, BVal
     return array;
   }
 
-  BValue* data = bsts_array_alloc_data(arr->len);
+  int max_out = arr->len - 1;
+  BValue* data = bsts_array_alloc_data(max_out);
   if (idx > 0) {
+    // Items before idx are already known to pass. Copy directly so we don't
+    // re-run the predicate and change evaluation count/ordering.
     memcpy(data, arr->data + arr->offset, sizeof(BValue) * (size_t)idx);
   }
 
@@ -330,7 +334,9 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_flat__map__Array(BValue array, B
     mapped[idx] = mapped_arr;
     total += (long)mapped_arr->len;
     if (total > (long)INT_MAX) {
-      return bsts_array_empty();
+      errno = EOVERFLOW;
+      perror("flat_map_Array total length overflow");
+      abort();
     }
   }
 
