@@ -20,6 +20,8 @@ export (
   get_or_Array,
   foldl_Array,
   map_Array,
+  filter_Array,
+  flat_map_Array,
   set_or_self_Array,
   sort_Array,
   concat_all_Array,
@@ -51,6 +53,8 @@ external def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -> b, fn: 
 external def get_or_Array[a](ary: Array[a], idx: Int, default: () -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
+external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
+external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
 external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
@@ -100,7 +104,7 @@ def reverse_Array[a](ary: Array[a]) -> Array[a]:
   from_List_Array(rev_list)
 
 def flatten_Array[a](arrays: Array[Array[a]]) -> Array[a]:
-  concat_all_Array(to_List_Array(arrays))
+  flat_map_Array(arrays, arr -> arr)
 
 ########
 ## test code below
@@ -120,6 +124,7 @@ eq_oi = eq_Option(eq_Int)
 a0 = empty_Array
 
 a5 = range_Array(5)
+a5_tail = slice_Array(a5, 2, 5)
 a_from = range_from_Array(10, 4)
 a_set = set_or_self_Array(a5, 2, 99)
 a_sorted = sort_Array(
@@ -150,6 +155,26 @@ tests = TestSuite("Array tests", [
   Assertion(get_or_Array(a5, 10, () -> 100) matches 100, "get_or fallback"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "foldl add"),
   Assertion(to_List_Array(map_Array(a5, i -> i.add(1))) matches [1, 2, 3, 4, 5], "map add 1"),
+  Assertion(to_List_Array(filter_Array(a5, i -> i.mod_Int(2) matches 0)) matches [0, 2, 4], "filter evens"),
+  Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, i -> from_List_Array([i, i.add(10)]))) matches [0, 10, 1, 11, 2, 12, 3, 13, 4, 14],
+    "flat_map dup"
+  ),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, i ->
+      if i.mod_Int(2) matches 0:
+        from_List_Array([i])
+      else:
+        empty_Array
+    )) matches [0, 2, 4],
+    "flat_map selective"
+  ),
+  Assertion(to_List_Array(filter_Array(a5_tail, i -> i.mod_Int(2) matches 1)) matches [3], "filter slice"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5_tail, i -> from_List_Array([i, i.add(20)]))) matches [2, 22, 3, 23, 4, 24],
+    "flat_map slice"
+  ),
   Assertion(to_List_Array(a_set) matches [0, 1, 99, 3, 4], "set_or_self in range"),
   Assertion(eq_ai(set_or_self_Array(a5, 9, 77), a5), "set_or_self out of range keeps self"),
   Assertion(set_in_range_ok(), "set_Array in range"),

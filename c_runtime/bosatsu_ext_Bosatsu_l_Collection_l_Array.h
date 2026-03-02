@@ -18,6 +18,10 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValu
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue fn);
 
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_filter__Array(BValue array, BValue fn);
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_flat__map__Array(BValue array, BValue fn);
+
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value);
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sort__Array(BValue array, BValue cmp_fn);
