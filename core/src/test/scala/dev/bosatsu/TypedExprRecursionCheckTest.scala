@@ -245,6 +245,109 @@ def bad(i: Int) -> Int:
     }
   }
 
+  test("Int recursion lowers bool matches to ite when computing next Int") {
+    allowed("""#
+def bool_if(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      next_i = match cmp_Int(i, 1) matches GT:
+        case True: i.sub(2)
+        case False: i.sub(1)
+      bool_if(next_i)
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers comparison matches with let-bound guards") {
+    allowed("""#
+def cmp_guarded(i: Int) -> Int:
+  recur i:
+    case _ if (
+      c = match cmp_Int(i, 2):
+        case LT if cmp_Int(i, 0) matches GT: GT
+        case LT: LT
+        case EQ: GT
+        case GT: LT
+      c
+    ) matches GT:
+      next_i = match cmp_Int(i, 2):
+        case LT: 0
+        case EQ: 1
+        case GT: i.sub(1)
+      cmp_guarded(next_i)
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion reports unsupported SMT Int lowering in recursive args") {
+    disallowedWithMessage("""#
+def id(i: Int) -> Int:
+  i
+
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(id(i))
+    case _:
+      i
+""") { msg =>
+      assert(clue(msg).contains("unable to lower recursive argument"))
+      assert(clue(msg).contains("recur target: i"))
+    }
+  }
+
+  test("Int recursion rejects non-local Int expressions that are equal to current value") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(i.add(0))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion rejects increasing Int expressions immediately") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(i.add(1))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowering handles div/mod by zero semantics") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(i.div(0).add(i.mod_Int(0)))
+    case _:
+      i
+""")
+  }
+
+  test("nested matches in recur branches contribute pattern and guard path facts") {
+    allowed("""#
+def via_match(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      match cmp_Int(i, 2):
+        case LT if eq_Int(i, 1):
+          via_match(0)
+        case EQ:
+          via_match(1)
+        case _:
+          via_match(i.sub(1))
+    case _:
+      i
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
