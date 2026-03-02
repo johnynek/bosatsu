@@ -379,7 +379,7 @@ main = later(())"""
 
   test("constructor empty-parens syntax is rejected in source conversion") {
     val errs = conversionErrors("""#
-struct Foo(a)
+struct Foo
 main = Foo()
 """)
 
