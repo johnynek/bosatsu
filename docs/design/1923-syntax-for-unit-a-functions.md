@@ -80,7 +80,7 @@ The implementation keeps Bosatsu core invariants intact: internal function and a
 
 1. No new true nullary function representation in `Expr`, `TypedExpr`, or runtime IR.
 2. No change to general application semantics beyond Unit sugar.
-3. No change to constructor defaulting semantics.
+3. No constructor syntax change: zero-arg constructors remain constant-style (`True`, `False`), and `Foo()` remains unsupported.
 4. No feature flag or staged runtime rollout.
 
 ## Architecture
@@ -109,8 +109,8 @@ In `Declaration.parser`:
 
 Constructor compatibility decision:
 
-1. Preserve existing constructor ergonomics by treating `Foo()` as constructor value syntax (not `Foo(())`) when callee is syntactically a constructor.
-2. This keeps behavior aligned with existing language guide guidance about bare constructor values and zero-arg constructors.
+1. Keep constructor behavior unchanged: zero-arg constructors are written as constants (`True`, `False`) without `()`.
+2. `Foo()` remains unsupported in this design; this syntax is only for Unit-arg function calls.
 
 ### 3) SourceConverter lowering for empty-paren calls
 
@@ -119,6 +119,7 @@ In `SourceConverter.fromDecl`:
 1. Add handling for `ApplyKind.Parens0`.
 2. Convert the callee normally.
 3. Build application with a single Unit value argument (`Predef.Unit`).
+4. Constructors are unaffected because `Foo()` is not accepted by the parser.
 
 All downstream compiler phases continue to operate on the same non-empty-arg internal forms.
 
@@ -137,7 +138,7 @@ All downstream compiler phases continue to operate on the same non-empty-arg int
 2. Enable zero-arg def parsing in `Declaration.scala` and `Statement.scala` call sites.
 3. Extend `Declaration.ApplyKind` with the empty-parens call marker.
 4. Update direct apply suffix parsing in `Declaration.scala` to emit the new marker.
-5. Preserve constructor behavior for syntactic constructor no-arg calls.
+5. Preserve constructor behavior by continuing to reject `Foo()` syntax.
 6. Add SourceConverter lowering from empty-parens calls to Unit-arg application.
 7. Remove/update the zero-arg-def ParserHints rule.
 8. Add parser and source-converter tests for new syntax.
@@ -153,7 +154,7 @@ All downstream compiler phases continue to operate on the same non-empty-arg int
 4. Nested zero-arg defs parse.
 5. Round-trip rendering uses `def f():` and `f()` forms.
 6. Existing `() -> 1` lambda parsing remains green.
-7. Constructor regressions are covered (`Foo` and `Foo()` behavior per decision).
+7. Constructor regressions are covered (`Foo` remains a constructor value, and `Foo()` is rejected).
 
 ### SourceConverter tests
 
@@ -175,7 +176,7 @@ All downstream compiler phases continue to operate on the same non-empty-arg int
 5. `() -> a` and `() -> expr` continue to parse/typecheck as Unit-arg forms.
 6. ParserHints no longer reports zero-arg defs as unsupported.
 7. Existing dot-call no-arg behavior remains unchanged.
-8. Constructor syntax behavior is preserved per architecture decision.
+8. Constructor syntax behavior is unchanged: zero-arg constructors remain constant-style, and `Foo()` is unsupported.
 9. New parser and source-converter tests pass.
 10. Language guide includes the new syntax and equivalence notes.
 
@@ -185,8 +186,8 @@ All downstream compiler phases continue to operate on the same non-empty-arg int
    Mitigation: add targeted tests for chaining, operators, dot calls, and parentheses.
 2. Risk: confusion between explicit `f(())` and sugar `f()`.
    Mitigation: document equivalence and keep canonical pretty-printer behavior.
-3. Risk: constructor-call ambiguity (`Foo()`).
-   Mitigation: explicit parser decision plus constructor regression tests.
+3. Risk: accidentally expanding syntax to accept `Foo()`.
+   Mitigation: explicit parser rejection plus constructor regression tests.
 4. Risk: synthetic Unit argument may reduce error-region precision.
    Mitigation: keep original call-site tags and verify message quality in tests.
 5. Risk: formatting diffs from new canonical rendering (`def f(()):` to `def f():`).
