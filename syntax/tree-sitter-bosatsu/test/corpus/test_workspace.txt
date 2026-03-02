@@ -1,0 +1,232 @@
+==================
+Bo Test Fixture
+==================
+
+package Bo/Test
+
+test = Assertion(True, "trivial")
+
+---
+
+(source_file
+  (package_declaration
+    (package_name
+      (package_segment)
+      (package_segment)))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (type_identifier))
+      (line_item
+        (tuple
+          (line_item
+            (unknown))
+          (line_item
+            (string)))))))
+
+==================
+Option Fixture
+==================
+
+package Bosatsu/Option
+
+export eq_Option
+
+def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
+  match (left, right):
+    case (Some(a), Some(b)): eq(a, b)
+    case (None, None):       True
+    case _:                  False
+
+---
+
+(source_file
+  (package_declaration
+    (package_name
+      (package_segment)
+      (package_segment)))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (tuple
+              (line_item
+                (unknown))
+              (line_item
+                (identifier))))
+          (line_item
+            (operator))
+          (line_item
+            (type_identifier))))
+      (line_item
+        (tuple
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))
+          (line_item
+            (list
+              (line_item
+                (identifier))))
+          (line_item
+            (punctuation))
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))
+          (line_item
+            (list
+              (line_item
+                (identifier))))))
+      (line_item
+        (operator))
+      (line_item
+        (type_identifier))
+      (line_item
+        (punctuation))))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (tuple
+          (line_item
+            (unknown))
+          (line_item
+            (identifier))))
+      (line_item
+        (punctuation))))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (tuple
+          (line_item
+            (type_identifier))
+          (line_item
+            (tuple
+              (line_item
+                (identifier))))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))
+          (line_item
+            (tuple
+              (line_item
+                (identifier))))))
+      (line_item
+        (punctuation))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple
+          (line_item
+            (unknown))
+          (line_item
+            (identifier))))))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (tuple
+          (line_item
+            (unknown))
+          (line_item
+            (type_identifier))))
+      (line_item
+        (punctuation))
+      (line_item
+        (type_identifier))))
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (type_identifier)))))
+
+==================
+Foo Fixture
+==================
+
+export x,
+
+# testing an implicit package name
+
+x = 1
+y = x
+# now we shadow x with a different type
+x = "this is Foo"
+
+ignore = y
+
+---
+
+(source_file
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (unknown))))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (number))))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (identifier))))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (string))))
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (identifier)))))
