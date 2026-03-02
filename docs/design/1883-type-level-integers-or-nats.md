@@ -158,6 +158,28 @@ def filter(ary: Vec[n, a], fn: a -> Bool) ->
 The review concern is valid: utility depends on whether realistic programs are
 both writable and checkable. Below are concrete sketches in proposed syntax.
 
+#### Shared stack-safe helper
+
+`reverse_vec` is used below to convert accumulator-in-reverse-order loops into
+the expected output order without sacrificing stack safety. In
+`reverse_append`, self-calls are in tail position under `loop`, so it is
+constant-stack.
+
+```bosatsu
+def reverse_append[a](left: Vec[n, a], right: Vec[m, a]) ->
+  exists r: Nat. Vec[r, a] where r == n + m:
+  loop left:
+    case EVec:
+      right
+    case CVec(x, tail):
+      reverse_append(tail, CVec(x, right))
+
+def reverse_vec[a](xs: Vec[n, a]) -> Vec[n, a]:
+  tmp = reverse_append(xs, EVec)
+  # tmp has length n + 0; SMT discharges n + 0 == n
+  tmp
+```
+
 #### `append`
 
 ```bosatsu
@@ -167,61 +189,65 @@ enum Vec[n: Nat, a]:
 
 def append[a](xs: Vec[n, a], ys: Vec[m, a]) ->
   exists r: Nat. Vec[r, a] where r == n + m:
-  recur xs:
-    case EVec:
-      ys
-    case CVec(head, tail):
-      atail = append(tail, ys)
-      CVec(head, atail)
+  rev_xs = reverse_vec(xs)
+  reverse_append(rev_xs, ys)
 ```
 
 Typechecking outline:
 
-1. In branch `EVec`, pattern gives assumption `n == 0`, so returning `ys` (length `m`) satisfies goal `r == n + m` by choosing `r = m`.
-2. In branch `CVec(head, tail)`, pattern gives `n == t + 1` for some `t`, and `tail: Vec[t, a]`.
-3. Recursive call yields `append(tail, ys): exists rt. Vec[rt, a] where rt == t + m`.
-4. `CVec(head, atail)` introduces new length `rt + 1`; SMT discharges `(rt == t + m) and (n == t + 1) => (rt + 1 == n + m)`.
+1. `reverse_vec(xs)` is stack-safe (internally uses `loop`) and preserves length `n`.
+2. `reverse_append(rev_xs, ys)` yields `exists r. Vec[r, a] where r == n + m`.
+3. No recursive call in `append` itself is non-tail; stack safety comes from the helper loops.
 
 #### `zip`
 
 ```bosatsu
 def zip_vec[a, b](xs: Vec[n, a], ys: Vec[n, b]) -> Vec[n, (a, b)]:
-  recur (xs, ys):
-    case (EVec, EVec):
-      EVec
-    case (CVec(xh, xt), CVec(yh, yt)):
-      CVec((xh, yh), zip_vec(xt, yt))
+  def zip_acc(todo_x: Vec[t, a], todo_y: Vec[t, b], acc_rev: Vec[r, (a, b)]) ->
+    exists out: Nat. Vec[out, (a, b)] where out == t + r:
+    loop (todo_x, todo_y):
+      case (EVec, EVec):
+        acc_rev
+      case (CVec(xh, xt), CVec(yh, yt)):
+        zip_acc(xt, yt, CVec((xh, yh), acc_rev))
+
+  reverse_vec(zip_acc(xs, ys, EVec))
 ```
 
 Typechecking outline:
 
-1. First branch adds assumptions `n == 0` from both patterns, so `EVec` is valid.
-2. Second branch adds assumptions `n == nx + 1` and `n == ny + 1`, forcing `nx == ny`; recursive call is therefore well-typed.
-3. Recursive result has length `nx`; applying `CVec` yields `nx + 1`, equal to `n`.
-4. Mixed-shape branches such as `(EVec, CVec(...))` are impossible under `xs: Vec[n, _]` and `ys: Vec[n, _]`; refinement + inhabitedness can mark them unreachable.
+1. `zip_acc` has an explicit invariant `out == t + r`.
+2. Base case returns `acc_rev`, proving `out == 0 + r`.
+3. Step case peels one element from each input and prepends one pair to `acc_rev`; SMT proves invariant preservation.
+4. Initial call `zip_acc(xs, ys, EVec)` gives length `n`, and `reverse_vec` preserves that length while restoring order.
+5. The implementation is stack-safe because recursion is under `loop` and self-calls are tail-position.
 
 #### `take`
 
 ```bosatsu
 def take[a](xs: Vec[n, a], k: Int) ->
   exists r: Nat. Vec[r, a] where r <= n:
-  recur xs:
-    case EVec:
-      EVec
-    case CVec(head, tail):
-      if cmp_Int(k, 0) matches GT:
-        t = take(tail, sub_Int(k, 1))
-        CVec(head, t)
-      else:
-        EVec
+  def take_acc(todo: Vec[t, a], remain: Int, acc_rev: Vec[r, a]) ->
+    exists out: Nat. Vec[out, a] where out <= t + r:
+    loop todo:
+      case EVec:
+        acc_rev
+      case CVec(head, tail):
+        if cmp_Int(remain, 0) matches GT:
+          take_acc(tail, sub_Int(remain, 1), CVec(head, acc_rev))
+        else:
+          acc_rev
+
+  reverse_vec(take_acc(xs, k, EVec))
 ```
 
 Typechecking outline:
 
-1. `EVec` branch has `n == 0`; choosing `r = 0` proves `r <= n`.
-2. In `CVec` branch, pattern gives `n == nt + 1` and `tail: Vec[nt, a]`.
-3. False sub-branch returns `EVec`, so `0 <= n` holds immediately.
-4. True sub-branch gets recursive `t: exists rt. Vec[rt, a] where rt <= nt`; constructing `CVec(head, t)` gives length `rt + 1`, and SMT proves `rt <= nt => rt + 1 <= nt + 1 == n`.
+1. `take_acc` carries a relaxed invariant `out <= t + r` where `t` is remaining input and `r` is accumulated output.
+2. Base case (`todo == EVec`) returns `acc_rev` and satisfies `out == r <= 0 + r`.
+3. Step-continue case consumes one input and adds one output; SMT proves invariant preservation.
+4. Step-stop case returns `acc_rev` immediately; inequality remains true because `r <= t + r`.
+5. Initial call gives `out <= n`, and `reverse_vec` preserves length; result order is restored with stack safety.
 
 #### `transpose`
 
@@ -264,23 +290,10 @@ Typechecking outline:
 
 #### Stack-safe `map` with `loop`
 
-The `append`-style recursive `map` is useful, but here is a constant-stack
-version that uses `loop`.
+Using the shared `reverse_vec` helper above, here is a constant-stack
+implementation.
 
 ```bosatsu
-def reverse_append[a](left: Vec[n, a], right: Vec[m, a]) ->
-  exists r: Nat. Vec[r, a] where r == n + m:
-  loop left:
-    case EVec:
-      right
-    case CVec(x, tail):
-      reverse_append(tail, CVec(x, right))
-
-def reverse_vec[a](xs: Vec[n, a]) -> Vec[n, a]:
-  tmp = reverse_append(xs, EVec)
-  # tmp has length n + 0; SMT discharges n + 0 == n
-  tmp
-
 def map_vec_loop[a, b](xs: Vec[n, a], fn: a -> b) -> Vec[n, b]:
   def map_acc(todo: Vec[t, a], acc_rev: Vec[r, b]) ->
     exists out: Nat. Vec[out, b] where out == t + r:
