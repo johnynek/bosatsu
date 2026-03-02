@@ -26,8 +26,6 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(BValue a, BValue b);
 
-BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue a, BValue b, BValue c);
-
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__Char(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__String(BValue a);

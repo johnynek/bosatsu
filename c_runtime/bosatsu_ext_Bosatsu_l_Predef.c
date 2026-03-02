@@ -141,42 +141,6 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(BValue a, BValue b) {
   return a;
 }
 
-/*
-this loops until the returned Int is <= 0 or the returned Int is >= intValue
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
-*/
-BValue ___bsts_g_Bosatsu_l_Predef_l_int__loop(BValue i, BValue a, BValue fn) {
-  // def int_loop(i, a, fn):
-  //   cont = (0 < i)
-  //   res = a
-  //   _i = i
-  //   _a = a
-  //   while cont:
-  //     res = fn(_i, _a)
-  //     tmp_i = res[0]
-  //     _a = res[1][0]
-  //     cont = (0 < tmp_i) and (tmp_i < _i)
-  //     _i = tmp_i
-  //   return _a
-  BValue zero = bsts_integer_from_int(0);
-  int cont = bsts_integer_cmp(zero, i) < 0;
-  BValue _i = i;
-  BValue _a = a;
-  while (cont) {
-    // we have to keep a ref to _i to compare below
-    BValue i_clone = _i;
-    // _i and _a are consumed here, so
-    BValue res = call_fn2(fn, _i, _a);
-    BValue tmp_i = get_struct_index(res, 0);
-    _a = get_struct_index(res, 1);
-    // we have to be strictly decreasing _i but > 0
-    cont = (bsts_integer_cmp(zero, tmp_i) < 0) && (bsts_integer_cmp(tmp_i, i_clone) < 0);
-    _i = tmp_i;
-  }
-  // all the rest of the values are references
-  return _a;
-}
-
 BValue ___bsts_g_Bosatsu_l_Predef_l_int__to__Char(BValue a) {
   BValue zero = bsts_integer_from_int(0);
   BValue max_cp = bsts_integer_from_int(0x10FFFF);

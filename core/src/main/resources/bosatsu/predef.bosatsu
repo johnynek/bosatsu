@@ -191,10 +191,6 @@ def map_List(lst: List[a], fn: a -> b) -> List[b]:
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldl_List([], (t, a) -> fn(a).reverse_concat(t)).reverse()
 
-# Repeat `item` `cnt` times.
-def replicate_List[a](item: a, cnt: Int) -> List[a]:
-  int_loop(cnt, EmptyList, (i, acc) -> (i.sub(1), NonEmptyList(item, acc)))
-
 #############
 # Some utilities for dealing with functions
 #############
@@ -263,21 +259,54 @@ external def divf(a: Float64, b: Float64) -> Float64
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 
 # Loop until the returned Int is <= 0 or >= intValue.
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
+def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+  loop intValue:
+    case _ if cmp_Int(intValue, 0) matches GT:
+      (next_i, next_state) = fn(intValue, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, intValue) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
+
+# Repeat `item` `cnt` times.
+def replicate_List[a](item: a, cnt: Int) -> List[a]:
+  def go(i: Int, acc: List[a]) -> List[a]:
+    loop i:
+      case _ if cmp_Int(i, 0) matches GT:
+        go(i.sub(1), NonEmptyList(item, acc))
+      case _:
+        acc
+
+  go(cnt, EmptyList)
 
 # Build `[0, 1, ..., exclusiveUpper - 1]`.
 def range(exclusiveUpper: Int) -> List[Int]:
-  int_loop(exclusiveUpper, [], (i, tail) ->
-    inext = i.sub(1)
-    (inext, [inext, *tail]))
+  def go(i: Int, tail: List[Int]) -> List[Int]:
+    loop i:
+      case _ if cmp_Int(i, 0) matches GT:
+        inext = i.sub(1)
+        go(inext, [inext, *tail])
+      case _:
+        tail
+
+  go(exclusiveUpper, [])
 
 # Fold over `[inclusiveLower, ..., exclusiveUpper - 1]`.
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
-  diff = exclusiveUpper.sub(inclusiveLower)
-  int_loop(diff, init, (diff0, a) ->
-    idx = exclusiveUpper.sub(diff0)
-    a1 = fn(a, idx)
-    (diff0.sub(1), a1))
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
 
 #############
 # String functions

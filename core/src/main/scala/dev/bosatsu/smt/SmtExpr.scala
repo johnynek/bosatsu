@@ -6,7 +6,13 @@ object SmtExpr {
   type BoolExpr = SmtExpr[SmtSort.BoolSort]
 
   final case class IntConst(value: BigInt) extends SmtExpr[SmtSort.IntSort]
-  final case class BoolConst(value: Boolean) extends SmtExpr[SmtSort.BoolSort]
+  final case class BoolConst private (value: Boolean)
+      extends SmtExpr[SmtSort.BoolSort]
+  object BoolConst {
+    val True: BoolConst = new BoolConst(true)
+    val False: BoolConst = new BoolConst(false)
+    inline def apply(b: Boolean): BoolConst = if (b) True else False
+  }
 
   final case class Var[S <: SmtSort](name: String) extends SmtExpr[S]
   final case class App[S <: SmtSort](name: String, args: Vector[SmtExpr[?]])

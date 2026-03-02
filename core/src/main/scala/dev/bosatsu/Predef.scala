@@ -49,7 +49,7 @@ object Predef {
   private[bosatsu] inline def loadFileInCompile(file: String): String =
     ${ Macro.loadFileInCompileImpl('file) }
 
-  /** String representation of the predef
+  /** String representation of the predef.
     */
   val predefString: String =
     loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
@@ -207,11 +207,6 @@ object Predef {
       .add(predefPackageName, "or_Int", FfiCall.Fn2(PredefImpl.or_Int(_, _)))
       .add(predefPackageName, "xor_Int", FfiCall.Fn2(PredefImpl.xor_Int(_, _)))
       .add(predefPackageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
-      .add(
-        predefPackageName,
-        "int_loop",
-        FfiCall.Fn3(PredefImpl.intLoop(_, _, _))
-      )
       .add(
         predefPackageName,
         "int_to_String",
@@ -3372,29 +3367,6 @@ object PredefImpl {
         ExternalValue(ArrayValue(arr.data, arr.offset + startIdx, sliceLen))
       }
     }
-  }
-
-  // def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, a]) -> a
-  final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
-    val fnT = fn.asFn
-
-    @annotation.tailrec
-    def loop(biValue: Value, bi: BigInteger, state: Value): Value =
-      if (bi.compareTo(BigInteger.ZERO) <= 0) state
-      else {
-        fnT(NonEmptyList(biValue, state :: Nil)) match {
-          case ProductValue(nextI, nextA) =>
-            val n = i(nextI)
-            if (n.compareTo(bi) >= 0) {
-              // we are done in this case
-              nextA
-            } else loop(nextI, n, nextA)
-          case other =>
-            sys.error(s"unexpected ill-typed value: at $bi, $state, $other")
-        }
-      }
-
-    loop(intValue, i(intValue), state)
   }
 
   final def int_to_String(intValue: Value): Value =

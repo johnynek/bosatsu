@@ -1013,30 +1013,24 @@ safety story gets much weaker.
 So "use with caution" mostly applies to maintainers of trusted runtime/predef
 code, not to ordinary Bosatsu library authors.
 
-An example function we cannot implement in Bosatsu is:
+Bosatsu allows recursion on `Int` when the recursion checker can prove that on
+recursive paths (for example under `cmp_Int(int_v, 0) matches GT`), the next
+recursive argument is still non-negative and strictly smaller than the current
+value. For tail recursion, use `loop`:
 ```
 def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  if cmp_Int(int_v, 0) matches GT:
-    (next_i, next_state) = fn(int_v, state)
-    if cmp_Int(next_i, int_v) matches LT:
-      # make sure we always decrease int_v
-      int_loop(next_i, next_state, fn)
-    else:
-      next_state
-  else:
-    state
-```
-We cannot write this function, even though it is total, because Bosatsu cannot
-prove that the loop terminates. The only recursions we can do are on values that
-are substructures of the `recur`/`loop` targets (single-target structural
-decrease or tuple-target lexicographic decrease). This gives a simple proof that
-the loop will terminate.
-
-Instead, we implement this function in Predef as an external def that has to be
-supplied to the compiler with a promise that it is total and matches its
-declared type.
-```
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
+  loop int_v:
+    case _ if cmp_Int(int_v, 0) matches GT:
+      (next_i, next_state) = fn(int_v, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, int_v) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
 ```
 
 External values and types work exactly like internally defined types from any
