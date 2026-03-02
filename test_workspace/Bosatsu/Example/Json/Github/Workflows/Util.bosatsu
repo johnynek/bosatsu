@@ -46,6 +46,7 @@ export (
   run_c_runtime_ci,
   run_lib_test_c,
   run_lib_build_c,
+  run_lib_build_node_c,
   run_python_tests_cmd,
   checkout_v2_step,
   checkout_v4_step,
@@ -329,5 +330,14 @@ run_lib_build_c =
     "mkdir c_out_build",
     "./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
     "./c_out_build/fib_bench 10",
+    "./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
+    "./fib_bench_no_outdir 10",
+    "",
+  ])
+
+run_lib_build_node_c =
+  cat_lines([
+    "./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm",
+    "./fib_bench_node 10",
     "",
   ])

@@ -4,7 +4,6 @@ import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{
   Chain,
-  Ior,
   NonEmptyChain,
   NonEmptyList,
   Validated,
@@ -2132,14 +2131,6 @@ object Command {
             help = "name of output c code file.",
             short = "o"
           )
-
-        val outDirOrFileOpt: Opts[Ior[P, P]] =
-          (Transpiler.outDir[P], outFileOpt.orNone)
-            .mapN {
-              case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
-              case (outDir, None)          => Ior.left(outDir)
-            }
-            .orElse(outFileOpt.map(Ior.right(_)))
         val ccFlagsOpt =
           Opts
             .options[String](
@@ -2161,7 +2152,8 @@ object Command {
 
         val outputSpecOpt: Opts[(Option[P], ClangTranspiler.Output[F, P])] =
           (
-            outDirOrFileOpt,
+            Transpiler.outDir[P].orNone,
+            outFileOpt.orNone,
             Opts("output.c").mapValidated(platformIO.path(_)),
             (
               Opts.option[P](
@@ -2173,41 +2165,33 @@ object Command {
             ).tupled.orNone,
             ccFlagsOpt,
             ccLibsOpt
-          ).mapN { (outDirOrFile, defaultOut, exeOut, ccFlags, ccLibs) =>
-            outDirOrFile match {
-              case Ior.Left(outDir) =>
+          ).tupled.mapValidated {
+            case (outDirOpt, outOpt, defaultOut, exeOut, ccFlags, ccLibs) =>
+            if (outDirOpt.isDefined || outOpt.isDefined || exeOut.isDefined) {
+              val (cOut, cOutRelativeToOutDir) =
+                outOpt match {
+                  case Some(out) => (out, false)
+                  case None      => (defaultOut, true)
+                }
+
+              Validated.validNel(
                 (
-                  Some(outDir),
+                  outDirOpt,
                   ClangTranspiler.Output(
-                    defaultOut,
-                    cOutRelativeToOutDir = true,
+                    cOut = cOut,
+                    cOutRelativeToOutDir = cOutRelativeToOutDir,
                     exeOut = exeOut,
+                    // If --outdir is omitted, we compile in a temp dir but keep -e relative to cwd.
+                    exeOutRelativeToOutDir = outDirOpt.isDefined,
                     ccFlags = ccFlags,
                     ccLibs = ccLibs
                   )
                 )
-              case Ior.Both(outDir, out) =>
-                (
-                  Some(outDir),
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
-              case Ior.Right(out) =>
-                (
-                  None,
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
+              )
+            } else {
+              Validated.invalidNel(
+                "expected one of --outdir, -o/--output, -e/--exe_out"
+              )
             }
           }
 
@@ -2319,9 +2303,10 @@ object Command {
             ccLibsOpt
           ).mapN { (o, e, conf, ccFlags, ccLibs) =>
             ClangTranspiler.Output(
-              o,
+              cOut = o,
               cOutRelativeToOutDir = true,
-              Some((e, conf)),
+              exeOut = Some((e, conf)),
+              exeOutRelativeToOutDir = true,
               ccFlags = ccFlags,
               ccLibs = ccLibs
             )
