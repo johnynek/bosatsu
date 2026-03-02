@@ -632,6 +632,81 @@ object TypedExprRecursionCheck {
         case _ => SmtExpr.Or(args)
       }
 
+    private def simplifyBoolExpr(expr: SmtExpr.BoolExpr): SmtExpr.BoolExpr =
+      expr match {
+        case SmtExpr.BoolConst(_) | SmtExpr.EqInt(_, _) | SmtExpr.Lt(_, _) |
+            SmtExpr.Lte(_, _) | SmtExpr.Gt(_, _) | SmtExpr.Gte(_, _) =>
+          expr
+        case SmtExpr.Not(in) =>
+          simplifyBoolExpr(in) match {
+            case SmtExpr.BoolConst(value) => SmtExpr.BoolConst(!value)
+            case SmtExpr.Not(in1)         => in1
+            case other                    => SmtExpr.Not(other)
+          }
+        case SmtExpr.And(args) =>
+          val simp = args.map(simplifyBoolExpr)
+          if (simp.contains(SmtExpr.BoolConst(false))) SmtExpr.BoolConst(false)
+          else mkAnd(simp.filterNot(_ == SmtExpr.BoolConst(true)))
+        case SmtExpr.Or(args)  =>
+          val simp = args.map(simplifyBoolExpr)
+          if (simp.contains(SmtExpr.BoolConst(true))) SmtExpr.BoolConst(true)
+          else mkOr(simp.filterNot(_ == SmtExpr.BoolConst(false)))
+        case SmtExpr.Ite(cond, ifTrue, ifFalse) =>
+          val c = simplifyBoolExpr(cond)
+          val t = simplifyBoolExpr(ifTrue)
+          val f = simplifyBoolExpr(ifFalse)
+          (c, t, f) match {
+            case (_, SmtExpr.BoolConst(true), SmtExpr.BoolConst(false)) =>
+              c
+            case (_, SmtExpr.BoolConst(false), SmtExpr.BoolConst(true)) =>
+              simplifyBoolExpr(SmtExpr.Not(c))
+            case (SmtExpr.BoolConst(true), _, _) =>
+              t
+            case (SmtExpr.BoolConst(false), _, _) =>
+              f
+            case _ if t == f =>
+              t
+            case _ =>
+              SmtExpr.Ite(c, t, f)
+          }
+        case _ =>
+          expr
+      }
+
+    private def asNegativeConstMul(expr: SmtExpr.IntExpr): Option[BigInt] =
+      expr match {
+        case SmtExpr.Mul(args) =>
+          args.toList match {
+            case SmtExpr.IntConst(negOne) :: SmtExpr.IntConst(n) :: Nil
+                if (negOne == BigInt(-1)) && (n > 0) =>
+              Some(n)
+            case SmtExpr.IntConst(n) :: SmtExpr.IntConst(negOne) :: Nil
+                if (negOne == BigInt(-1)) && (n > 0) =>
+              Some(n)
+            case _ =>
+              None
+          }
+        case _ =>
+          None
+      }
+
+    private def asSubByPositiveConst(
+        expr: SmtExpr.IntExpr
+    ): Option[(SmtExpr.IntExpr, BigInt)] =
+      expr match {
+        case SmtExpr.Add(args) =>
+          args.toList match {
+            case left :: right :: Nil =>
+              asNegativeConstMul(right)
+                .map((left, _))
+                .orElse(asNegativeConstMul(left).map((right, _)))
+            case _ =>
+              None
+          }
+        case _ =>
+          None
+      }
+
     private def comparisonInDomain(
         term: SmtExpr.IntExpr
     ): SmtExpr.BoolExpr =
@@ -714,7 +789,7 @@ object TypedExprRecursionCheck {
         fn: TypedExpr[Declaration]
     ): Option[Identifier] =
       stripExprWrappers(fn) match {
-        case TypedExpr.Global(pack, name, _, _) if pack == PackageName.PredefName =>
+        case TypedExpr.Global(PackageName.PredefName, name, _, _) =>
           Some(name)
         case _ =>
           None
@@ -724,8 +799,12 @@ object TypedExprRecursionCheck {
         expr: TypedExpr[Declaration]
     ): Option[Boolean] =
       stripExprWrappers(expr) match {
-        case TypedExpr.Global(pack, cons: Identifier.Constructor, _, _)
-            if pack == PackageName.PredefName =>
+        case TypedExpr.Global(
+              PackageName.PredefName,
+              cons: Identifier.Constructor,
+              _,
+              _
+            ) =>
           cons.asString match {
             case "True"  => Some(true)
             case "False" => Some(false)
@@ -739,8 +818,12 @@ object TypedExprRecursionCheck {
         expr: TypedExpr[Declaration]
     ): Option[BigInt] =
       stripExprWrappers(expr) match {
-        case TypedExpr.Global(pack, cons: Identifier.Constructor, _, _)
-            if pack == PackageName.PredefName =>
+        case TypedExpr.Global(
+              PackageName.PredefName,
+              cons: Identifier.Constructor,
+              _,
+              _
+            ) =>
           cons.asString match {
             case "LT" => Some(BigInt(-1))
             case "EQ" => Some(BigInt(0))
@@ -850,20 +933,13 @@ object TypedExprRecursionCheck {
           case Some(guard) => lowerBoolExpr(guard, state1)
           case None        => (Some(SmtExpr.BoolConst(true)), state1)
         }
-      ((patOpt, guardOpt).mapN((pat, guard) => mkAnd(Vector(pat, guard))), state2)
+      (
+        (patOpt, guardOpt).mapN((pat, guard) =>
+          simplifyBoolExpr(mkAnd(Vector(pat, guard)))
+        ),
+        state2
+      )
     }
-
-    private def isDefinitelyTrue(expr: SmtExpr.BoolExpr): Boolean =
-      expr match {
-        case SmtExpr.BoolConst(true) =>
-          true
-        case SmtExpr.And(args)       =>
-          args.forall(isDefinitelyTrue)
-        case SmtExpr.Or(args)        =>
-          args.exists(isDefinitelyTrue)
-        case _                       =>
-          false
-      }
 
     private def lowerIntIfExpr(
         arg: TypedExpr[Declaration],
@@ -902,9 +978,10 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val (lastExprOpt, state2) = lowerIntExpr(last.expr, state1)
           (lastCondOpt, lastExprOpt) match {
-            // We only lower to nested ite when the last branch is guaranteed to
-            // match. Otherwise, this would need explicit exhaustiveness checking.
-            case (Some(lastCond), Some(lastExpr)) if isDefinitelyTrue(lastCond) =>
+            // Totality checking guarantees match exhaustiveness, so once every
+            // branch condition/result lowers we can use the final branch as the
+            // default arm in the ite chain.
+            case (Some(_), Some(lastExpr)) =>
               val initState = (Vector.empty[(SmtExpr.BoolExpr, SmtExpr.IntExpr)], state2, true)
               val (items, stateN, ok) =
                 init.foldLeft(initState) { case ((acc, st, allOk), branch) =>
@@ -1012,7 +1089,7 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val (lastExprOpt, state2) = lowerComparisonExpr(last.expr, state1)
           (lastCondOpt, lastExprOpt) match {
-            case (Some(lastCond), Some(lastExpr)) if isDefinitelyTrue(lastCond) =>
+            case (Some(_), Some(lastExpr)) =>
               val initState = (Vector.empty[(SmtExpr.BoolExpr, SmtExpr.IntExpr)], state2, true)
               val (items, stateN, ok) =
                 init.foldLeft(initState) { case ((acc, st, allOk), branch) =>
@@ -1146,7 +1223,7 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val (lastExprOpt, state2) = lowerBoolExpr(last.expr, state1)
           (lastCondOpt, lastExprOpt) match {
-            case (Some(lastCond), Some(lastExpr)) if isDefinitelyTrue(lastCond) =>
+            case (Some(_), Some(lastExpr)) =>
               val initState =
                 (Vector.empty[(SmtExpr.BoolExpr, SmtExpr.BoolExpr)], state2, true)
               val (items, stateN, ok) =
@@ -1260,7 +1337,7 @@ object TypedExprRecursionCheck {
       val (patCondOpt, state1) = lowerPatternCondition(argExpr, pattern, state0)
       val state2 = patCondOpt match {
         case Some(SmtExpr.BoolConst(true)) => state1
-        case Some(cond)                    => state1.addPathFact(cond)
+        case Some(cond)                    => state1.addPathFact(simplifyBoolExpr(cond))
         case None                          => state1
       }
       bindPatternNames(argExpr, pattern, state2)
@@ -1273,7 +1350,7 @@ object TypedExprRecursionCheck {
       val (guardOpt, state1) = lowerBoolExpr(guard, state)
       guardOpt match {
         case Some(SmtExpr.BoolConst(true)) => state1
-        case Some(cond)                    => state1.addPathFact(cond)
+        case Some(cond)                    => state1.addPathFact(simplifyBoolExpr(cond))
         case None                          => state1
       }
     }
@@ -1286,20 +1363,45 @@ object TypedExprRecursionCheck {
         state: SmtBranchState
     ): Boolean = {
       // Cheap implication checks for common facts avoid unnecessary solver calls.
-      val facts = state.pathFacts
-      facts.contains(goal) ||
-      (goal match {
+      val goal1 = simplifyBoolExpr(goal)
+      val facts = state.pathFacts.map(simplifyBoolExpr)
+
+      def hasFact(p: SmtExpr.BoolExpr => Boolean): Boolean =
+        facts.exists(p)
+
+      def hasGte(base: SmtExpr.IntExpr, lower: BigInt): Boolean =
+        hasFact {
+          case SmtExpr.Gte(l, SmtExpr.IntConst(c)) => (l == base) && (c >= lower)
+          case SmtExpr.Gt(l, SmtExpr.IntConst(c))  => (l == base) && (c >= (lower - 1))
+          case SmtExpr.EqInt(l, SmtExpr.IntConst(c)) => (l == base) && (c >= lower)
+          case _                                    => false
+        }
+
+      facts.contains(goal1) ||
+      (goal1 match {
         case SmtExpr.Gte(left, right) =>
-          facts.exists {
+          hasFact {
             case SmtExpr.Gt(l1, r1)    => (l1 == left) && (r1 == right)
             case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
             case _                     => false
-          }
+          } ||
+            (right match {
+              case SmtExpr.IntConst(zero) if zero == BigInt(0) =>
+                asSubByPositiveConst(left).exists { case (base, by) =>
+                  hasGte(base, by)
+                }
+              case _ =>
+                false
+            })
         case SmtExpr.Lte(left, right) =>
-          facts.exists {
+          hasFact {
             case SmtExpr.Lt(l1, r1)    => (l1 == left) && (r1 == right)
             case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
             case _                     => false
+          }
+        case SmtExpr.Lt(left, right)  =>
+          asSubByPositiveConst(left).exists { case (base, by) =>
+            (base == right) && (by > 0)
           }
         case _ =>
           false

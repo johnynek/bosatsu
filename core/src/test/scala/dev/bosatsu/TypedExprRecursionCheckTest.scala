@@ -196,12 +196,20 @@ def mixed(n: Nat, i: Int) -> Int:
     case (Succ(prev), _):
       next_i = i.sub(1)
       if cmp_Int(next_i, 0) matches GT:
-        if cmp_Int(next_i, i) matches LT:
-          mixed(n, next_i)
-        else:
-          mixed(prev, 10)
+        mixed(n, next_i)
       else:
         mixed(prev, 10)
+""")
+  }
+
+  test("Int recursion allows i.sub(2) when guard proves i > 1") {
+    allowed("""#
+def ok(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 1) matches GT:
+      ok(i.sub(2))
+    case _:
+      i
 """)
   }
 
@@ -229,7 +237,7 @@ def bad(i: Int) -> Int:
     case _:
       i
 """) { msg =>
-      assert(clue(msg).contains("cannot prove Int recursion obligation for bad"))
+      assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (>= "))
       assert(clue(msg).contains("recur target: i"))
       assert(clue(msg).contains("path condition:"))
     }
