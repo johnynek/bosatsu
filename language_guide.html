@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d9b8297e*
+0.0.0+1-3676ebd1*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d9b8297e*
+0.0.0+1-3676ebd1*
 </div>
 </div>
 <div class="nav-toc">
@@ -755,21 +755,20 @@ def foldO(oo, if_none, if_some):
 <p>There is syntax for declaring external values and functions, but regular Bosatsu library code cannot define new externals today.</p>
 <p>At the moment, external defs are only allowed in trusted libraries implemented inside the bosatsu compiler repository. This is intentional: Bosatsu is designed for safe composition, and if any dependency could hide unsafe behavior, that safety story gets much weaker.</p>
 <p>So &ldquo;use with caution&rdquo; mostly applies to maintainers of trusted runtime/predef code, not to ordinary Bosatsu library authors.</p>
-<p>An example function we cannot implement in Bosatsu is:</p>
+<p>Bosatsu allows recursion on <code>Int</code> when the recursion checker can prove that on recursive paths (for example under <code>cmp_Int(int_v, 0) matches GT</code>), the next recursive argument is still non-negative and strictly smaller than the current value. For tail recursion, use <code>loop</code>:</p>
 <pre><code>def int_loop(int_v: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a:
-  if cmp_Int(int_v, 0) matches GT:
-    (next_i, next_state) = fn(int_v, state)
-    if cmp_Int(next_i, int_v) matches LT:
-      # make sure we always decrease int_v
-      int_loop(next_i, next_state, fn)
-    else:
-      next_state
-  else:
-    state
-</code></pre>
-<p>We cannot write this function, even though it is total, because Bosatsu cannot prove that the loop terminates. The only recursions we can do are on values that are substructures of the <code>recur</code>/<code>loop</code> targets (single-target structural decrease or tuple-target lexicographic decrease). This gives a simple proof that the loop will terminate.</p>
-<p>Instead, we implement this function in Predef as an external def that has to be supplied to the compiler with a promise that it is total and matches its declared type.</p>
-<pre><code>external def int_loop(intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
+  loop int_v:
+    case _ if cmp_Int(int_v, 0) matches GT:
+      (next_i, next_state) = fn(int_v, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, int_v) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
 </code></pre>
 <p>External values and types work exactly like internally defined types from any other point of view.</p>
 <p>External defs are only supported in libraries implemented inside the compiler repo. The functions must be implemented in the C runtime, and there is currently no provision for providing external implementations from outside the compiler repo. This restriction is intentional to preserve totality, and we do not expect to lift it any time soon.</p>
@@ -863,7 +862,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d9b8297e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3676ebd1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
