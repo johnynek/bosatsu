@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Compiling to Python · Bosatsu Documentation</title>
+<title>Writing Bosatsu in 5 minutes · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsutranspile_python.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsuwriting_bosatsu_5_minutes.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="js/page.js"></script>
@@ -40,13 +40,13 @@
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="design-docs/index.html" class="page">Design Docs</a></li>
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
-  <li><a href="writing_bosatsu_5_minutes.html" class="page">Writing Bosatsu in 5 minutes</a></li>
+  <li><a href="writing_bosatsu_5_minutes.html" class="active page">Writing Bosatsu in 5 minutes</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
   <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
-  <li><a href="transpile_python.html" class="active page">Compiling to Python</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
 </div>
@@ -87,13 +87,13 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="design-docs/index.html" class="page">Design Docs</a></li>
   <li><a href="getting_started.html" class="page">Getting started (new repo)</a></li>
-  <li><a href="writing_bosatsu_5_minutes.html" class="page">Writing Bosatsu in 5 minutes</a></li>
+  <li><a href="writing_bosatsu_5_minutes.html" class="active page">Writing Bosatsu in 5 minutes</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
   <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
   <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
-  <li><a href="transpile_python.html" class="active page">Compiling to Python</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
 </div>
@@ -111,7 +111,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Compiling to Python</li>
+  <li>Writing Bosatsu in 5 minutes</li>
 </ul>
 </div>
 </div>
@@ -119,21 +119,101 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#compiling-to-python" name="compiling-to-python" class="anchor"><span class="anchor-link"></span></a>Compiling to Python</h1>
-<p>Bosatsu can currently be interpreted using <code>tool eval</code>, or it can be compiled to Python using <code>tool transpile</code>. This assumes you have installed the Bosatsu CLI; see <a href="getting_started.html">Getting started</a>.</p>
-<p>For instance, to compile all our test code into Python:</p>
-<pre><code>./bosatsu tool transpile --input_dir test_workspace/ --package_root test_workspace/ python --outdir pyout
+<h1><a href="#writing-bosatsu-in-5-minutes" name="writing-bosatsu-in-5-minutes" class="anchor"><span class="anchor-link"></span></a>Writing Bosatsu in 5 minutes</h1>
+<p>This page is for programmers who already know Python and immutable functional programming (Haskell/Scala style), and want the shortest path to writing useful Bosatsu.</p>
+<p>If you need repo/bootstrap setup first, see <a href="getting_started.html">Getting started</a>. For full syntax details, see the <a href="language_guide.html">Language guide</a>.</p>
+<h2><a href="#1-minimal-file-shape" name="1-minimal-file-shape" class="anchor"><span class="anchor-link"></span></a>1) Minimal file shape</h2>
+<pre class="prettyprint"><code class="language-bosatsu">package Quick/Hello
+
+export (Mood(), greet, tests)
+
+enum Mood: Happy, Sad
+
+def greet(m: Mood) -&gt; String:
+  match m:
+    case Happy: &quot;hello&quot;
+    case Sad: &quot;cheer up&quot;
+
+tests = TestSuite(&quot;hello tests&quot;, [
+  Assertion(greet(Happy) matches &quot;hello&quot;, &quot;happy greeting&quot;),
+])
 </code></pre>
-<p>Then in the pyout directory we will find one Python file for each Bosatsu package.</p>
+<p>Top-order bits:</p>
+<ol>
+  <li>Every file starts with exactly one <code>package</code>.</li>
+  <li>Imports and exports are explicit.</li>
+  <li><code>enum</code>/<code>struct</code> replace class + inheritance style modeling.</li>
+  <li><code>match</code> is the normal way to branch on data shape.</li>
+  <li>Tests are regular values (<code>Assertion</code>, <code>TestSuite</code>).</li>
+</ol>
+<h2><a href="#2-python-to-bosatsu-quick-mental-map" name="2-python-to-bosatsu-quick-mental-map" class="anchor"><span class="anchor-link"></span></a>2) Python to Bosatsu: quick mental map</h2>
+<ol>
+  <li>Everything is immutable. You can shadow names, but not mutate values.</li>
+  <li>Blocks are expressions: the last line is the return value.</li>
+  <li>No <code>while</code>/mutation loops; use <code>recur</code>, <code>int_loop</code>, folds, or comprehensions.</li>
+  <li>No exceptions as control flow in normal code. Model errors in types.</li>
+  <li>Side effects are explicit <code>Prog[...]</code> values, not implicit execution.</li>
+</ol>
+<p>If you are writing I/O code, expect this style:</p>
+<pre class="prettyprint"><code class="language-bosatsu">main = (
+  _ &lt;- println(&quot;hello&quot;).await()
+  pure(0)
+)
+</code></pre>
+<p><code>&lt;-</code> with <code>.await()</code> is the common way to sequence <code>Prog</code> values.</p>
+<h2><a href="#3-recurring-tricks-from-test-workspace" name="3-recurring-tricks-from-test-workspace" class="anchor"><span class="anchor-link"></span></a>3) Recurring tricks from <code>test_workspace</code></h2>
+<ol>
+  <li>Prefer <code>match</code> + pattern guards (<code>if ...</code>) for branching.</li>
+  <li>Use list patterns heavily: <code>[]</code>, <code>[head, *tail]</code>.</li>
+  <li>Write local helper loops with accumulators for performance and clarity.</li>
+  <li>Use <code>matches</code> for concise checks in tests and conditionals.</li>
+  <li>Keep package APIs intentional with <code>export</code> and <code>Type()</code> (export constructors).</li>
+</ol>
+<h2><a href="#4-always-be-compiling-with-lib-check-todo" name="4-always-be-compiling-with-lib-check-todo" class="anchor"><span class="anchor-link"></span></a>4) Always-be-compiling with <code>lib check</code> + <code>todo</code></h2>
+<p>Run typecheck continuously while editing:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib check
+</code></pre>
+<p>When you know types but not implementation, use <code>todo</code> to keep moving:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def hard_part(a: String, b: Int) -&gt; Bool:
+  todo((a, b))
+</code></pre>
+<p>Rules:</p>
+<ol>
+  <li><code>todo</code> is only available in check-only commands (<code>tool check</code> / <code>lib check</code>).</li>
+  <li>Commands that emit or run code (<code>lib test</code>, <code>lib build</code>, <code>tool eval</code>, etc.)  fail until <code>todo</code> is removed.</li>
+  <li>Keep <code>todo</code> arguments meaningful (usually tuple all planned inputs) so you do  not lose type information during refactors.</li>
+</ol>
+<p>Once placeholders are removed, run:</p>
+<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+</code></pre>
+<h2><a href="#5-practical-5-minute-loop" name="5-practical-5-minute-loop" class="anchor"><span class="anchor-link"></span></a>5) Practical 5-minute loop</h2>
+<ol>
+  <li>Create one package with one exported function.</li>
+  <li>Add a tiny <code>tests</code> value immediately.</li>
+  <li>Iterate with <code>lib check</code>, using <code>todo</code> for unfinished branches.</li>
+  <li>Replace <code>todo</code> incrementally.</li>
+  <li>Finish with <code>lib test</code>.</li>
+</ol>
+<p>That loop matches how most code in <code>test_workspace</code> evolves: explicit data models, explicit imports/exports, and constant typechecked feedback.</p>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/transpile_python.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/writing_bosatsu_5_minutes.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="generated/core_alpha/index.html">Core Alpha API</a></p>
+<p><strong>Next:</strong> <a href="language_guide.html">Language Guide</a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="writing_bosatsu_5_minutes.html#writing-bosatsu-in-5-minutes" class="header">Writing Bosatsu in 5 minutes</a></li>
+</ul>
+</div>
+</div>
+</nav>
 </div>
 </div>
 
