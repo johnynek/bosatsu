@@ -11,11 +11,19 @@ object TypedExprRecursionCheck {
 
   type Res[+A] = ValidatedNec[RecursionCheck.Error, A]
 
+  private def normalizedDefArgs(
+      groups: NonEmptyList[List[Pattern.Parsed]]
+  ): NonEmptyList[NonEmptyList[Pattern.Parsed]] =
+    groups.map {
+      case h :: tail => NonEmptyList(h, tail)
+      case Nil       => NonEmptyList.one(Pattern.tuple(Nil))
+    }
+
   def topLevelDefArgs(
       stmts: List[Statement]
   ): Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]] =
     stmts.collect { case Statement.Def(defstmt) =>
-      defstmt.name -> defstmt.args
+      defstmt.name -> normalizedDefArgs(defstmt.args)
     }.toMap
 
   def checkLets(
@@ -950,7 +958,8 @@ object TypedExprRecursionCheck {
           if (isDefLike(rec, tag)) {
             val fromSource =
               tag match {
-                case Declaration.DefFn(defstmt) => Some(defstmt.args)
+                case Declaration.DefFn(defstmt) =>
+                  Some(normalizedDefArgs(defstmt.args))
                 case _                          => None
               }
             getSt.flatMap { state =>

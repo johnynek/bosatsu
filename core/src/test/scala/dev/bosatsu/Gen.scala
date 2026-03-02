@@ -287,7 +287,7 @@ object Generators {
     } yield DefStatement(
       name,
       NonEmptyList.fromList(tpes),
-      args.map(_.map(argToPat)),
+      args.map(_.map(argToPat).toList),
       retType,
       body
     )

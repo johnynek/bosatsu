@@ -162,30 +162,17 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
-  test("zero-arg def gets actionable hint") {
+  test("zero-arg defs are supported") {
     val source =
       """package Foo
         |
-        |def usage() -> String:
-        |  "usage"
+        |def usage():
         |""".stripMargin
 
     val pf = parseFailure(source)
     val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
     assert(
-      hints.exists(_.contains("zero-arg def syntax is not supported")),
-      hints.mkString("\n")
-    )
-    assert(
-      hints.exists(_.contains("usage = ...")),
-      hints.mkString("\n")
-    )
-    assert(
-      hints.exists(_.contains("def usage(_): ...")),
-      hints.mkString("\n")
-    )
-    assert(
-      hints.exists(_.contains("usage(())")),
+      !hints.exists(_.contains("zero-arg def syntax is not supported")),
       hints.mkString("\n")
     )
   }

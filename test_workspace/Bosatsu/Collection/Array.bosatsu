@@ -47,8 +47,8 @@ external def tabulate_Array[a](n: Int, fn: Int -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
 external def size_Array[a](ary: Array[a]) -> Int
-external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
-external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
+external def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -> b, fn: a -> b) -> b
+external def get_or_Array[a](ary: Array[a], idx: Int, default: () -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
 external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
@@ -75,7 +75,7 @@ def int_Array_to_String(code_points: Array[Int]) -> Option[String]:
   int_List_to_String(to_List_Array(code_points))
 
 def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  get_map_Array(ary, idx, _ -> None, x -> Some(x))
+  get_map_Array(ary, idx, () -> None, x -> Some(x))
 
 def index_in_range_Array[a](ary: Array[a], idx: Int) -> Bool:
   if cmp_Int(idx, 0) matches LT:
@@ -127,12 +127,12 @@ a_sorted = sort_Array(
   cmp_pair
 )
 
-def set_in_range_ok(_: Unit) -> Bool:
+def set_in_range_ok() -> Bool:
   match set_Array(a5, 1, 8):
     case Some(arr): to_List_Array(arr) matches [0, 8, 2, 3, 4]
     case None: False
 
-def int_to_char_array_some(_: Unit) -> Bool:
+def int_to_char_array_some() -> Bool:
   match int_Array_to_Char_Array(from_List_Array([65, 128075])):
     case Some(chars): to_List_Array(chars) matches [.'A', .'👋']
     case None: False
@@ -146,13 +146,13 @@ tests = TestSuite("Array tests", [
   Assertion(get_Array(a5, 4).eq_oi(Some(4)), "get last"),
   Assertion(get_Array(a5, -1).eq_oi(None), "get negative"),
   Assertion(get_Array(a5, 5).eq_oi(None), "get out of range"),
-  Assertion(get_or_Array(a5, 2, _ -> 100) matches 2, "get_or in range"),
-  Assertion(get_or_Array(a5, 10, _ -> 100) matches 100, "get_or fallback"),
+  Assertion(get_or_Array(a5, 2, () -> 100) matches 2, "get_or in range"),
+  Assertion(get_or_Array(a5, 10, () -> 100) matches 100, "get_or fallback"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "foldl add"),
   Assertion(to_List_Array(map_Array(a5, i -> i.add(1))) matches [1, 2, 3, 4, 5], "map add 1"),
   Assertion(to_List_Array(a_set) matches [0, 1, 99, 3, 4], "set_or_self in range"),
   Assertion(eq_ai(set_or_self_Array(a5, 9, 77), a5), "set_or_self out of range keeps self"),
-  Assertion(set_in_range_ok(()), "set_Array in range"),
+  Assertion(set_in_range_ok(), "set_Array in range"),
   Assertion(set_Array(a5, 10, 8) matches None, "set_Array out of range"),
   Assertion(to_List_Array(concat_all_Array([a5, range_Array(3), empty_Array])) matches [0, 1, 2, 3, 4, 0, 1, 2], "concat_all"),
   Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice mid"),
@@ -166,7 +166,7 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(string_to_Char_Array("hi👋")) matches [.'h', .'i', .'👋'], "string_to_Char_Array"),
   Assertion(to_List_Array(char_Array_to_Int_Array(from_List_Array([.'A', .'👋']))) matches [65, 128075], "char_Array_to_Int_Array"),
   Assertion(to_List_Array(string_to_Int_Array("A👋")) matches [65, 128075], "string_to_Int_Array"),
-  Assertion(int_to_char_array_some(()), "int_Array_to_Char_Array some"),
+  Assertion(int_to_char_array_some(), "int_Array_to_Char_Array some"),
   Assertion(
     int_Array_to_Char_Array(from_List_Array([55296])) matches None,
     "int_Array_to_Char_Array none"
@@ -182,8 +182,8 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
   Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
-  Assertion(get_map_Array(a5, 3, _ -> 100, x -> x.add(7)) matches 10, "get_map some"),
-  Assertion(get_map_Array(a5, 30, _ -> 100, x -> x.add(7)) matches 100, "get_map none"),
+  Assertion(get_map_Array(a5, 3, () -> 100, x -> x.add(7)) matches 10, "get_map some"),
+  Assertion(get_map_Array(a5, 30, () -> 100, x -> x.add(7)) matches 100, "get_map none"),
   Assertion(index_in_range_Array(a5, 0), "index in range 0"),
   Assertion(index_in_range_Array(a5, 4), "index in range 4"),
   Assertion(index_in_range_Array(a5, 5) matches False, "index not in range"),

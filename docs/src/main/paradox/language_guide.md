@@ -282,6 +282,24 @@ add_tuple = ((x, y)) -> add(x, y)    # Fn1 taking a tuple
 Note the distinction between `(x, y) -> ...` (Fn2) and `((x, y)) -> ...`
 (Fn1 that takes a tuple).
 
+Bosatsu also supports Python-style zero-arg function sugar for `Unit -> a`:
+```
+def later():
+  compute()
+
+value = later()
+```
+
+These are equivalent to:
+```
+def later(()):
+  compute()
+
+value = later(())
+```
+
+The corresponding function type is still written as `() -> a`.
+
 Function parameters are patterns, so you can destructure arguments directly:
 ```
 def fst((a, _)): a
@@ -536,6 +554,7 @@ If all required fields are defaulted, `Rec {}` is valid and means "construct
 using defaults." This is different from `Rec` by itself: bare `Rec` refers to
 the constructor value (and only behaves like a zero-argument construction for
 truly zero-argument constructors).
+`Rec()` is not constructor syntax.
 
 Like Rust, if a value is already in scope matching a field name, we can omit
 the colon:

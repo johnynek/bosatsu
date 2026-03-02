@@ -132,7 +132,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
           DefStatement(
             Name("mfLjwok"),
             None,
-            NonEmptyList.one(NonEmptyList.one(Pattern.Var(Name("foo")))),
+            NonEmptyList.one(Pattern.Var(Name("foo")) :: Nil),
             None,
             (
               NotSameLine(Padding(10, Indented(10, Var(Backticked(""))))),
@@ -149,7 +149,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
                           Backticked(""),
                           None,
                           NonEmptyList.one(
-                            NonEmptyList.one(Pattern.Var(Name("bar")))
+                            Pattern.Var(Name("bar")) :: Nil
                           ),
                           None,
                           (
@@ -166,9 +166,7 @@ class DeclarationTest extends munit.ScalaCheckSuite {
                                   Name("gkxAckqpatu"),
                                   None,
                                   NonEmptyList.one(
-                                    NonEmptyList.one(
-                                      Pattern.Var(Name("quux"))
-                                    )
+                                    Pattern.Var(Name("quux")) :: Nil
                                   ),
                                   Some(
                                     TypeRef.TypeName(

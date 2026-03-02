@@ -933,7 +933,7 @@ object WellTypedGen {
         DefStatement(
           name = name,
           typeArgs = None,
-          args = NonEmptyList.one(argPatterns),
+          args = NonEmptyList.one(argPatterns.toList),
           retType = None,
           result = OptIndent.SameLine(body)
         )
