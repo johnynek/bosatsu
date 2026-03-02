@@ -1688,6 +1688,12 @@ object Command {
             .orFalse,
           Opts
             .flag(
+              "package-names",
+              help = "show only package names in package entries"
+            )
+            .orFalse,
+          Opts
+            .flag(
               "no-opt",
               help = "disable normalization/optimization to inspect typed expressions before optimization"
             )
@@ -1708,6 +1714,7 @@ object Command {
               types,
               values,
               externalsOnly,
+              packageNamesOnly,
               noOpt,
               jsonOut,
               output,
@@ -1755,7 +1762,23 @@ object Command {
                 )
               } yield (
                 if (jsonOut)
-                  Output.JsonOutput(ShowEdn.showJson(packs, Nil), output)
+                  Output.JsonOutput(
+                    ShowEdn.showJson(
+                      packs,
+                      Nil,
+                      packageNamesOnly = packageNamesOnly
+                    ),
+                    output
+                  )
+                else if (packageNamesOnly)
+                  Output.Basic(
+                    ShowEdn.showDoc(
+                      packs,
+                      Nil,
+                      packageNamesOnly = true
+                    ),
+                    output
+                  )
                 else Output.ShowOutput(packs, Nil, output): Output[P]
               )
             }

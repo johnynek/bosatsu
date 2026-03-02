@@ -1539,6 +1539,9 @@ object ShowEdn {
     )
   }
 
+  private def encodePackageNameOnlyForShow(name: PackageName): Edn =
+    EList(List(sym("package"), kw("name"), nameAtom(name.asString)))
+
   private val showFormField = "$form"
   private val listField = "$list"
   private val vectorField = "$vec"
@@ -1704,7 +1707,8 @@ object ShowEdn {
 
   private def showEdnValue(
       packs: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface]
+      ifaces: List[Package.Interface],
+      packageNamesOnly: Boolean
   ): Edn =
     EList(
       List(
@@ -1712,10 +1716,15 @@ object ShowEdn {
         kw("interfaces"),
         EVector(ifaces.map(encodeInterfaceForShow)),
         kw("packages"),
-        EVector(packs.map(p => normalizeForRoundTrip(p.void).fold(msg =>
-          EList(List(sym("show-error"), str(msg), str(p.name.asString))),
-          encodePackageForShow
-        )))
+        EVector(
+          if (packageNamesOnly)
+            packs.map(p => encodePackageNameOnlyForShow(p.name))
+          else
+            packs.map(p => normalizeForRoundTrip(p.void).fold(msg =>
+              EList(List(sym("show-error"), str(msg), str(p.name.asString))),
+              encodePackageForShow
+            ))
+        )
       )
     )
 
@@ -1732,13 +1741,15 @@ object ShowEdn {
 
   def showJson(
       packs: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface]
+      ifaces: List[Package.Interface],
+      packageNamesOnly: Boolean = false
   ): Json =
-    ednToJson(showEdnValue(packs, ifaces))
+    ednToJson(showEdnValue(packs, ifaces, packageNamesOnly))
 
   def showDoc(
       packs: List[Package.Typed[Any]],
-      ifaces: List[Package.Interface]
+      ifaces: List[Package.Interface],
+      packageNamesOnly: Boolean = false
   ): Doc =
-    Edn.toDoc(showEdnValue(packs, ifaces))
+    Edn.toDoc(showEdnValue(packs, ifaces, packageNamesOnly))
 }
