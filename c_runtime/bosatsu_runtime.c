@@ -660,13 +660,9 @@ int bsts_string_cmp(BValue left, BValue right) {
   size_t rlen = rview.len;
   size_t min_len = (llen <= rlen) ? llen : rlen;
   int cmp = memcmp(lview.bytes, rview.bytes, min_len);
-
-  if (cmp == 0) {
-    return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
-  }
-  else {
-    return cmp;
-  }
+  if (cmp < 0) return -1;
+  if (cmp > 0) return 1;
+  return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
 }
 
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
