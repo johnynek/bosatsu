@@ -2978,6 +2978,8 @@ external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn
 external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
+external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
+external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
 external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
@@ -2992,6 +2994,7 @@ def cmp_pair(left: (Int, String), right: (Int, String)) -> Comparison:
   cmp_Int(li, ri)
 
 a5 = tabulate_Array(5, i -> i)
+a5_tail = slice_Array(a5, 2, 5)
 
 tests = TestSuite("array eval", [
   Assertion(to_List_Array(a5) matches [0, 1, 2, 3, 4], "tabulate"),
@@ -3001,6 +3004,26 @@ tests = TestSuite("array eval", [
   Assertion(get_or_Array(a5, 20, _ -> 10) matches 10, "get_or"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "fold"),
   Assertion(to_List_Array(map_Array(a5, x -> x.add(1))) matches [1, 2, 3, 4, 5], "map"),
+  Assertion(to_List_Array(filter_Array(a5, x -> x.mod_Int(2) matches 0)) matches [0, 2, 4], "filter"),
+  Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, x -> from_List_Array([x, x.add(10)]))) matches [0, 10, 1, 11, 2, 12, 3, 13, 4, 14],
+    "flat_map"
+  ),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, x ->
+      if x.mod_Int(2) matches 0:
+        from_List_Array([x])
+      else:
+        empty_Array
+    )) matches [0, 2, 4],
+    "flat_map selective"
+  ),
+  Assertion(to_List_Array(filter_Array(a5_tail, x -> x.mod_Int(2) matches 1)) matches [3], "filter slice"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5_tail, x -> from_List_Array([x, x.add(20)]))) matches [2, 22, 3, 23, 4, 24],
+    "flat_map slice"
+  ),
   Assertion(to_List_Array(set_or_self_Array(a5, 1, 9)) matches [0, 9, 2, 3, 4], "set in range"),
   Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice"),
   Assertion(to_List_Array(slice_Array(a5, -2, 2)) matches [0, 1], "slice clamp"),
@@ -3018,7 +3041,7 @@ tests = TestSuite("array eval", [
 ])
 """),
       "Bosatsu/Collection/Array",
-      13
+      19
     )
   }
 

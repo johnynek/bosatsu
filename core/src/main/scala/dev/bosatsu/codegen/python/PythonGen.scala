@@ -1839,6 +1839,156 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("filter_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, out, item) =>
+                  Env.onLasts(input) {
+                    case ary :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          out := Code.MakeList(Nil),
+                          idx := Code.Const.Zero,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              item := selectItem(data, offset.evalPlus(idx)),
+                              Code.ifElseS(
+                                fn(item),
+                                Code.Call(out.dot(Code.Ident("append"))(item)),
+                                Code.pass
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(out, Code.Const.Zero, out.len()))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("flat_map_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (
+                        data,
+                        offset,
+                        size,
+                        idx,
+                        total,
+                        parts,
+                        item,
+                        part,
+                        out,
+                        write,
+                        partIdx,
+                        partData,
+                        partOffset,
+                        partLen,
+                        innerIdx
+                      ) =>
+                    Env.onLasts(input) {
+                      case ary :: fn :: Nil =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            idx := Code.Const.Zero,
+                            total := Code.Const.Zero,
+                            parts := Code.MakeList(Nil),
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                item := selectItem(data, offset.evalPlus(idx)),
+                                part := fn(item),
+                                Code.Call(
+                                  parts.dot(Code.Ident("append"))(part)
+                                ),
+                                total := total.evalPlus(arrayLen(part)),
+                                idx := idx + 1
+                              )
+                            ),
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(total),
+                            write := Code.Const.Zero,
+                            partIdx := Code.Const.Zero,
+                            Code.While(
+                              partIdx :< parts.len(),
+                              Code.block(
+                                part := selectItem(parts, partIdx),
+                                partData := arrayData(part),
+                                partOffset := arrayOffset(part),
+                                partLen := arrayLen(part),
+                                innerIdx := Code.Const.Zero,
+                                Code.While(
+                                  innerIdx :< partLen,
+                                  Code.block(
+                                    selectItem(
+                                      out,
+                                      write.evalPlus(innerIdx)
+                                    ) := selectItem(
+                                      partData,
+                                      partOffset.evalPlus(innerIdx)
+                                    ),
+                                    innerIdx := innerIdx + 1
+                                  )
+                                ),
+                                write := write.evalPlus(partLen),
+                                partIdx := partIdx + 1
+                              )
+                            )
+                          )
+                          .withValue(makeArray(out, Code.Const.Zero, total))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              2
+            )
+          ),
+          (
             Identifier.Name("set_or_self_Array"),
             (
               { input =>

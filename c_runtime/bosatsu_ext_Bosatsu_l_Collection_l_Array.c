@@ -33,6 +33,19 @@ static BValue* bsts_array_alloc_data(int len) {
   return data;
 }
 
+static BSTS_Array** bsts_array_alloc_parts(int len) {
+  if (len <= 0) {
+    return NULL;
+  }
+
+  BSTS_Array** parts = (BSTS_Array**)GC_malloc(sizeof(BSTS_Array*) * (size_t)len);
+  if (parts == NULL) {
+    perror("GC_malloc failure in bsts_array_alloc_parts");
+    abort();
+  }
+  return parts;
+}
+
 static BValue bsts_array_wrap(BValue* data, int offset, int len) {
   BSTS_Array* arr = (BSTS_Array*)GC_malloc(sizeof(BSTS_Array));
   if (arr == NULL) {
@@ -254,6 +267,93 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue 
   }
 
   return bsts_array_wrap(data, 0, arr->len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_filter__Array(BValue array, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  int idx = 0;
+  while (idx < arr->len) {
+    BValue item = arr->data[arr->offset + idx];
+    BValue keep = call_fn1(fn, item);
+    if (get_variant(keep) != 1) {
+      break;
+    }
+    idx += 1;
+  }
+
+  if (idx >= arr->len) {
+    return array;
+  }
+
+  BValue* data = bsts_array_alloc_data(arr->len);
+  if (idx > 0) {
+    memcpy(data, arr->data + arr->offset, sizeof(BValue) * (size_t)idx);
+  }
+
+  int out = idx;
+  idx += 1;
+  while (idx < arr->len) {
+    BValue item = arr->data[arr->offset + idx];
+    BValue keep = call_fn1(fn, item);
+    if (get_variant(keep) == 1) {
+      data[out] = item;
+      out += 1;
+    }
+    idx += 1;
+  }
+
+  if (out <= 0) {
+    return bsts_array_empty();
+  }
+
+  return bsts_array_wrap(data, 0, out);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_flat__map__Array(BValue array, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BSTS_Array** mapped = bsts_array_alloc_parts(arr->len);
+  long total = 0;
+
+  for (int idx = 0; idx < arr->len; idx++) {
+    BValue item = arr->data[arr->offset + idx];
+    BSTS_Array* mapped_arr = bsts_array_unbox(call_fn1(fn, item));
+    mapped[idx] = mapped_arr;
+    total += (long)mapped_arr->len;
+    if (total > (long)INT_MAX) {
+      return bsts_array_empty();
+    }
+  }
+
+  if (total <= 0) {
+    return bsts_array_empty();
+  }
+
+  int total_len = (int)total;
+  BValue* data = bsts_array_alloc_data(total_len);
+  int write = 0;
+
+  for (int idx = 0; idx < arr->len; idx++) {
+    BSTS_Array* mapped_arr = mapped[idx];
+    if (mapped_arr->len > 0) {
+      memcpy(
+          data + write,
+          mapped_arr->data + mapped_arr->offset,
+          sizeof(BValue) * (size_t)mapped_arr->len);
+      write += mapped_arr->len;
+    }
+  }
+
+  return bsts_array_wrap(data, 0, total_len);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value) {

@@ -315,6 +315,16 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "filter_Array",
+        FfiCall.Fn2(PredefImpl.filter_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
+        "flat_map_Array",
+        FfiCall.Fn2(PredefImpl.flat_map_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
         "set_or_self_Array",
         FfiCall.Fn3(PredefImpl.set_or_self_Array(_, _, _))
       )
@@ -3260,6 +3270,91 @@ object PredefImpl {
         idx = idx + 1
       }
       ExternalValue(ArrayValue(mapped, 0, arr.len))
+    }
+  }
+
+  def filter_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val len = arr.len
+
+    if (len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      var idx = 0
+
+      while (
+        idx < len &&
+        (fnT(NonEmptyList(arr.data(arr.offset + idx), Nil)) == True)
+      ) {
+        idx = idx + 1
+      }
+
+      if (idx >= len) array
+      else {
+        val filtered = new Array[Value](len)
+        if (idx > 0) {
+          java.lang.System.arraycopy(arr.data, arr.offset, filtered, 0, idx)
+        }
+
+        var out = idx
+        idx = idx + 1
+        while (idx < len) {
+          val item = arr.data(arr.offset + idx)
+          if (fnT(NonEmptyList(item, Nil)) == True) {
+            filtered(out) = item
+            out = out + 1
+          }
+          idx = idx + 1
+        }
+
+        if (out == 0) emptyArray
+        else if (out == filtered.length) ExternalValue(ArrayValue(filtered, 0, out))
+        else {
+          val trimmed = java.util.Arrays.copyOf(filtered, out)
+          ExternalValue(ArrayValue(trimmed, 0, out))
+        }
+      }
+    }
+  }
+
+  def flat_map_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[ArrayValue](arr.len)
+      var idx = 0
+      var total = 0L
+      while (idx < arr.len) {
+        val item = arr.data(arr.offset + idx)
+        val itemArray = asArray(fnT(NonEmptyList(item, Nil)))
+        mapped(idx) = itemArray
+        total = total + itemArray.len.toLong
+        idx = idx + 1
+      }
+
+      if (total <= 0L || total > Int.MaxValue.toLong) emptyArray
+      else {
+        val totalInt = total.toInt
+        val data = new Array[Value](totalInt)
+        var write = 0
+        idx = 0
+        while (idx < mapped.length) {
+          val itemArray = mapped(idx)
+          if (itemArray.len > 0) {
+            java.lang.System.arraycopy(
+              itemArray.data,
+              itemArray.offset,
+              data,
+              write,
+              itemArray.len
+            )
+            write = write + itemArray.len
+          }
+          idx = idx + 1
+        }
+        ExternalValue(ArrayValue(data, 0, totalInt))
+      }
     }
   }
 
