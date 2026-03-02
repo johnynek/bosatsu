@@ -35,6 +35,7 @@ import dev.bosatsu.{
   Identifier,
   Json,
   JsonEncodingError,
+  LocationMap,
   Package,
   PackageName,
   PackageMap,
@@ -170,12 +171,36 @@ object Command {
 
     def libsPath(root: P): P = platformIO.resolve(root, "bosatsu_libs.json")
 
+    def parseConfigJson(path: P, jsonString: String): F[Json] =
+      Json.parserFile.parseAll(jsonString) match {
+        case Right(json) => moduleIOMonad.pure(json)
+        case Left(err)   =>
+          val locations = LocationMap(jsonString)
+          val lineColSuffix =
+            locations
+              .toLineCol(err.failedAtOffset)
+              .map { case (line, col) => s":${line + 1}:${col + 1}" }
+              .getOrElse("")
+          val summary = show"config parse failed: $path$lineColSuffix"
+          val parseDoc = Parser.Error.showExpectations(
+            locations,
+            err.expected,
+            Colorize.None
+          )
+          val errDoc = Doc.intercalate(
+            Doc.hardLine,
+            List(Doc.text(summary), parseDoc)
+          )
+          moduleIOMonad.raiseError(CliException(summary, err = errDoc))
+      }
+
     def readJson[A: Json.Reader](path: P, onEmpty: => F[A]): F[A] =
       platformIO.fsDataType(path).flatMap {
         case None                             => onEmpty
         case Some(PlatformIO.FSDataType.File) =>
           platformIO
-            .parseUtf8(path, Json.parserFile)
+            .readUtf8(path)
+            .flatMap(parseConfigJson(path, _))
             .flatMap { json =>
               Json.Reader[A].read(Json.Path.Root, json) match {
                 case Right(a)          => moduleIOMonad.pure(a)

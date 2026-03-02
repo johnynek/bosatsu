@@ -4635,6 +4635,73 @@ main = 0
     }
   }
 
+  test("lib check malformed bosatsu_libs.json reports parse error without stack trace") {
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> "{ bad json"
+    )
+
+    val result = for {
+      state0 <- MemoryMain.State.from[ErrorOr](files)
+      stateAndExit <- runAndReportWithState(
+        List("lib", "check", "--color", "none", "--repo_root", "repo"),
+        state0
+      )
+    } yield stateAndExit
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(
+          errOutput.contains("config parse failed: repo/bosatsu_libs.json:1:3"),
+          errOutput
+        )
+        assert(errOutput.contains("expected"), errOutput)
+        assert(!errOutput.contains("unknown error"), errOutput)
+        assert(!errOutput.contains("java.lang.Exception"), errOutput)
+        assert(!errOutput.contains("\tat dev.bosatsu"), errOutput)
+    }
+  }
+
+  test("lib check malformed <lib>_conf.json reports parse error without stack trace") {
+    val libs = Libraries(SortedMap(Name("qa") -> "src"))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "qa_conf.json") -> "{ bad json",
+      Chain("repo", "src", "QA", "Foo.bosatsu") ->
+        """package QA/Foo
+          |
+          |x = 1
+          |""".stripMargin
+    )
+
+    val result = for {
+      state0 <- MemoryMain.State.from[ErrorOr](files)
+      stateAndExit <- runAndReportWithState(
+        List("lib", "check", "--color", "none", "--repo_root", "repo"),
+        state0
+      )
+    } yield stateAndExit
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val errOutput = state.stdErr.render(200)
+        assert(
+          errOutput.contains("config parse failed: repo/src/qa_conf.json:1:3"),
+          errOutput
+        )
+        assert(errOutput.contains("expected"), errOutput)
+        assert(!errOutput.contains("unknown error"), errOutput)
+        assert(!errOutput.contains("java.lang.Exception"), errOutput)
+        assert(!errOutput.contains("\tat dev.bosatsu"), errOutput)
+    }
+  }
+
   test("lib fetch reports total fetched objects by default") {
     val files = baseLibFiles("main = 1\n")
 
