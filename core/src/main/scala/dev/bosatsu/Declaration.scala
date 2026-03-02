@@ -50,6 +50,8 @@ sealed abstract class Declaration derives CanEqual {
           kind match {
             case ApplyKind.Parens =>
               (fnDoc, args.toList)
+            case ApplyKind.Parens0 =>
+              (fnDoc, Nil)
             case ApplyKind.Dot =>
               (args.head.toDoc + Doc.char('.') + fnDoc, args.tail)
           }
@@ -476,6 +478,7 @@ object Declaration {
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
+    case object Parens0 extends ApplyKind
   }
 
   sealed abstract class MatchKind(val isRecursive: Boolean, val keyword: String)
@@ -1138,7 +1141,11 @@ object Declaration {
 
     restParser.mapF { rp =>
       DefStatement
-        .parser(Pattern.bindParser, maybeSpace.with1 *> rp)
+        .parser(
+          Pattern.bindParser,
+          maybeSpace.with1 *> rp,
+          emptyArg = Some(Pattern.tuple(Nil))
+        )
         .region
         .map { case (r, d) => DefFn(d)(using r) }
     }
@@ -1350,12 +1357,19 @@ object Declaration {
         '}'
       ))
 
-    // here is tuple style: Foo(a, b)
-    val tupArgs = declP.parensLines1Cut.region
-      .map {
-        case (r, args) => { (nm: Var) =>
-          Apply(nm, args, ApplyKind.Parens)(using nm.region + r)
-        }
+    // here is tuple style: Foo(a, b), but explicitly reject Foo()
+    val tupArgs = declP.parensLines0Cut.region
+      .flatMap {
+        case (_, Nil) =>
+          P.failWith(
+            "constructor call syntax does not support empty parentheses; use the constructor value (`Foo`) or record syntax (`Foo {}`)"
+          )
+        case (r, h :: tail) =>
+          P.pure { (nm: Var) =>
+            Apply(nm, NonEmptyList(h, tail), ApplyKind.Parens)(using
+              nm.region + r
+            )
+          }
       }
 
     (Identifier.consParser ~ Parser.either(recArgs, tupArgs).?).region
@@ -1548,11 +1562,11 @@ object Declaration {
             '\\'
           ) ~ toEOL1).backtrack ~ Parser.maybeSpacesAndLines).?.void
           // 0 or more args
-          val params0 = recNonBind.parensLines0Cut
+          val dotParams = recNonBind.parensLines0Cut
           val justDot =
             P.not(P.string(".\"") | P.string(".'")).with1 *> P.char('.')
           val dotApply: P[NonBinding => NonBinding] =
-            (slashcontinuation.with1 *> justDot *> (fn ~ params0)).region
+            (slashcontinuation.with1 *> justDot *> (fn ~ dotParams)).region
               .map {
                 case (r2, (fn, args)) => { (head: NonBinding) =>
                   Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(using
@@ -1561,14 +1575,22 @@ object Declaration {
                 }
               }
 
-          // 1 or more args
-          val params1 = recNonBind.parensLines1Cut
           // here we directly call a function foo(1, 2)
           val applySuffix: P[NonBinding => NonBinding] =
-            params1.region
+            recNonBind.parensLines0Cut.region
               .map {
                 case (r, args) => { (fn: NonBinding) =>
-                  Apply(fn, args, ApplyKind.Parens)(using fn.region + r)
+                  args match {
+                    case Nil =>
+                      val unitArg = TupleCons(Nil)(using r)
+                      Apply(fn, NonEmptyList.one(unitArg), ApplyKind.Parens0)(
+                        using fn.region + r
+                      )
+                    case h :: tail =>
+                      Apply(fn, NonEmptyList(h, tail), ApplyKind.Parens)(using
+                        fn.region + r
+                      )
+                  }
                 }
               }
 

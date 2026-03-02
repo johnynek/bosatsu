@@ -40,11 +40,19 @@ object DefStatement {
         Doc.intercalate(
           Doc.empty,
           args.toList.map { args =>
+            val argDocs = args.map(Document[A].document(_)).toList
+            val inner =
+              if (
+                args.tail.isEmpty &&
+                  argDocs.head.render(80) == "()"
+              ) Doc.empty
+              else
+                Doc.intercalate(
+                  commaSpace,
+                  argDocs
+                )
             Doc.char('(') +
-              Doc.intercalate(
-                commaSpace,
-                args.map(Document[A].document(_)).toList
-              ) +
+              inner +
               Doc.char(')')
           }
         )
@@ -59,9 +67,18 @@ object DefStatement {
     */
   def parser[A, B](
       argParser: P[A],
-      resultTParser: P[B]
+      resultTParser: P[B],
+      emptyArg: Option[A] = None
   ): P[DefStatement[A, B]] = {
-    val args = argParser.parensLines1Cut
+    val args: P[NonEmptyList[A]] =
+      emptyArg match {
+        case None => argParser.parensLines1Cut
+        case Some(unitArg) =>
+          argParser.parensLines0Cut.map {
+            case Nil         => NonEmptyList.one(unitArg)
+            case h :: tail   => NonEmptyList(h, tail)
+          }
+      }
     val result = (P.string("->") *> maybeSpacesAndLines *> TypeRef.parser).?
     val kindAnnot: P[Kind] =
       (maybeSpace.soft.with1 *> (P.char(

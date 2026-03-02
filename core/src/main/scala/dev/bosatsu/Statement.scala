@@ -251,7 +251,11 @@ object Statement {
     val defBody = maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")
     val defP: P[Statement] =
       DefStatement
-        .parser(Pattern.bindParser, defBody <* toEOL)
+        .parser(
+          Pattern.bindParser,
+          defBody <* toEOL,
+          emptyArg = Some(Pattern.tuple(Nil))
+        )
         .region
         .map { case (region, DefStatement(nm, ta, args, ret, body)) =>
           Def(DefStatement(nm, ta, args, ret, body))(region)

@@ -1067,12 +1067,28 @@ x"""
   test("we can parse any Apply") {
     import Declaration._
 
-    import ApplyKind.{Dot => ADot, Parens => AParens}
+    import ApplyKind.{Dot => ADot, Parens => AParens, Parens0 => AParens0}
 
     parseTestAll(
       parser(""),
       "x(f)",
       Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), AParens)
+    )
+
+    parseTestAll(
+      parser(""),
+      "x()",
+      Apply(mkVar("x"), NonEmptyList.of(TupleCons(Nil)), AParens0)
+    )
+
+    parseTestAll(
+      parser(""),
+      "x()()",
+      Apply(
+        Apply(mkVar("x"), NonEmptyList.of(TupleCons(Nil)), AParens0),
+        NonEmptyList.of(TupleCons(Nil)),
+        AParens0
+      )
     )
 
     parseTestAll(
@@ -1159,6 +1175,9 @@ x"""
 
     parseTestAll(parser(""), expected.toDoc.render(80), expected)
 
+    assert(parser("").parseAll("Foo").isRight)
+    assert(parser("").parseAll("Foo()").isLeft)
+
   }
 
   test("bare style lambdas work") {
@@ -1175,6 +1194,7 @@ x"""
     roundTrip(Pattern.matchParser, "Foo(a, ...)")
     roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, c }")
     roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, ... }")
+    roundTrip(Pattern.bindParser, "Foo { first, ... }")
     roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,c}")
     roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,...}")
     roundTrip(Pattern.matchParser, "Foo{a}")
@@ -1581,6 +1601,12 @@ x"""
 
     roundTrip(
       Declaration.parser(""),
+      """Foo { x, ... } = Foo{x:1}
+x"""
+    )
+
+    roundTrip(
+      Declaration.parser(""),
       """match x:
   case Some(_) | None: 1"""
     )
@@ -1820,6 +1846,28 @@ def foo(x): x"""
       """#
 def foo(x):
   x"""
+    )
+
+    roundTrip(
+      Statement.parser,
+      """#
+def usage():
+  "usage"
+
+main = usage()
+"""
+    )
+
+    roundTrip(
+      Statement.parser,
+      """#
+def outer(x):
+  def usage():
+    x
+  usage()
+
+main = outer(1)
+"""
     )
 
     roundTrip(

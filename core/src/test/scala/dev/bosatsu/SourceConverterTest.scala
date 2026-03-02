@@ -355,6 +355,28 @@ main = match True:
     }
   }
 
+  test("no-arg call syntax desugars to an explicit unit argument") {
+    assertMainDesugarsAs(
+      """main = later()""",
+      """main = later(())"""
+    )
+    assertMainDesugarsAs(
+      """main = later()()""",
+      """main = later(())(())"""
+    )
+  }
+
+  test("zero-arg defs desugar to explicit unit-pattern defs") {
+    assertMainDesugarsAs(
+      """def later():
+  1
+main = later()""",
+      """def later(()):
+  1
+main = later(())"""
+    )
+  }
+
   test("left-apply desugars by appending continuation to the outermost apply") {
     val examples = List(
       (

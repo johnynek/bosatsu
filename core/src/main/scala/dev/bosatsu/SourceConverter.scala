@@ -278,6 +278,16 @@ final class SourceConverter(
       case Annotation(term, tpe) =>
         (loop(term), toType(tpe, decl.region))
           .parMapN(Expr.Annotation(_, _, decl))
+      case Apply(fn, args, ApplyKind.Parens0) =>
+        val unitExpr: Expr[Declaration] =
+          Expr.Global(PackageName.PredefName, unitName, decl)
+        // `f()` parses as `Parens0` with a synthetic unit placeholder arg.
+        // Ignore that placeholder here and inject the real predef Unit value.
+        // Any additional args (e.g. from left-apply desugaring) are preserved.
+        (loop(fn), args.tail.toList.traverse(loop(_)))
+          .parMapN { (fnExpr, tailArgs) =>
+            Expr.buildApp(fnExpr, unitExpr :: tailArgs, decl)
+          }
       case Apply(fn, args, _) =>
         (loop(fn), args.toList.traverse(loop(_)))
           .parMapN(Expr.buildApp(_, _, decl))
