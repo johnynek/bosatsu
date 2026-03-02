@@ -12,7 +12,7 @@ import cats.syntax.all._
 case class DefStatement[A, B](
     name: Bindable,
     typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind])]],
-    args: NonEmptyList[NonEmptyList[A]],
+    args: NonEmptyList[List[A]],
     retType: Option[TypeRef],
     result: B
 )
@@ -39,18 +39,13 @@ object DefStatement {
       val argDoc =
         Doc.intercalate(
           Doc.empty,
-          args.toList.map { args =>
-            val argDocs = args.map(Document[A].document(_)).toList
+          args.toList.map { group =>
+            val argDocs = group.map(Document[A].document(_))
             val inner =
-              if (
-                args.tail.isEmpty &&
-                  argDocs.head.render(80) == "()"
-              ) Doc.empty
-              else
-                Doc.intercalate(
-                  commaSpace,
-                  argDocs
-                )
+              Doc.intercalate(
+                commaSpace,
+                argDocs
+              )
             Doc.char('(') +
               inner +
               Doc.char(')')
@@ -67,18 +62,9 @@ object DefStatement {
     */
   def parser[A, B](
       argParser: P[A],
-      resultTParser: P[B],
-      emptyArg: Option[A] = None
+      resultTParser: P[B]
   ): P[DefStatement[A, B]] = {
-    val args: P[NonEmptyList[A]] =
-      emptyArg match {
-        case None => argParser.parensLines1Cut
-        case Some(unitArg) =>
-          argParser.parensLines0Cut.map {
-            case Nil         => NonEmptyList.one(unitArg)
-            case h :: tail   => NonEmptyList(h, tail)
-          }
-      }
+    val args: P[List[A]] = argParser.parensLines0Cut
     val result = (P.string("->") *> maybeSpacesAndLines *> TypeRef.parser).?
     val kindAnnot: P[Kind] =
       (maybeSpace.soft.with1 *> (P.char(

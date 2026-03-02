@@ -253,8 +253,7 @@ object Statement {
       DefStatement
         .parser(
           Pattern.bindParser,
-          defBody <* toEOL,
-          emptyArg = Some(Pattern.tuple(Nil))
+          defBody <* toEOL
         )
         .region
         .map { case (region, DefStatement(nm, ta, args, ret, body)) =>

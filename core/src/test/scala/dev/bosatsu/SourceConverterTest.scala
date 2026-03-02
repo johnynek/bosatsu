@@ -377,6 +377,26 @@ main = later(())"""
     )
   }
 
+  test("constructor empty-parens syntax is rejected in source conversion") {
+    val errs = conversionErrors("""#
+struct Foo(a)
+main = Foo()
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorEmptyParens(
+              Identifier.Constructor("Foo"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorEmptyParens in errors: $errs"
+    )
+  }
+
   test("left-apply desugars by appending continuation to the outermost apply") {
     val examples = List(
       (

@@ -162,7 +162,7 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
-  test("zero-arg defs no longer trigger unsupported-syntax hint") {
+  test("zero-arg defs are supported") {
     val source =
       """package Foo
         |

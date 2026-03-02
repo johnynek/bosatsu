@@ -1007,7 +1007,7 @@ foo"""
         DefStatement(
           Identifier.Name("foo"),
           None,
-          NonEmptyList.one(NonEmptyList.one(Pattern.Var(Identifier.Name("a")))),
+          NonEmptyList.one(Pattern.Var(Identifier.Name("a")) :: Nil),
           None,
           (
             OptIndent.paddedIndented(
@@ -1176,7 +1176,15 @@ x"""
     parseTestAll(parser(""), expected.toDoc.render(80), expected)
 
     assert(parser("").parseAll("Foo").isRight)
-    assert(parser("").parseAll("Foo()").isLeft)
+    parseTestAll(
+      parser(""),
+      "Foo()",
+      Apply(
+        Var(Identifier.Constructor("Foo")),
+        NonEmptyList.of(TupleCons(Nil)),
+        AParens0
+      )
+    )
 
   }
 
