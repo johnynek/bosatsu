@@ -193,8 +193,10 @@ def mixed(n: Nat, i: Int) -> Int:
   recur (n, i):
     case (Zero, _):
       i
-    case (Succ(prev), _):
-      next_i = i.sub(1)
+    case (Succ(prev), (1 | 2) as one_or_two):
+      mixed(prev, one_or_two.sub(1))
+    case (Succ(prev), i1):
+      next_i = i1.sub(1)
       if cmp_Int(next_i, 0) matches GT:
         mixed(n, next_i)
       else:
