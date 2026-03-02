@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.data.Validated
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import org.scalacheck.Gen
@@ -7,23 +8,86 @@ import org.typelevel.paiges.Document
 
 import scala.annotation.tailrec
 import scala.io.{Codec, Source}
+import scala.jdk.CollectionConverters._
 
 object TreeSitterDifferential {
 
-  private final case class ParseResult(exitCode: Int, output: String) {
+  private sealed trait BuiltInParse derives CanEqual
+  private object BuiltInParse {
+    case object Success extends BuiltInParse
+    final case class Failure(offset: Int) extends BuiltInParse
+  }
+
+  private final case class ParseResult(
+      exitCode: Int,
+      output: String,
+      firstErrorOffset: Option[Int]
+  ) {
     def hasErrorOrMissing: Boolean =
       (exitCode != 0) || output.contains("ERROR") || output.contains("MISSING")
   }
 
-  private val fixtureFiles: List[String] =
-    List(
-      "test_workspace/bo_test.bosatsu",
-      "test_workspace/Option.bosatsu",
-      "test_workspace/Foo.bosatsu"
-    )
+  private val treeSitterPointRegex =
+    raw"\[(\d+),\s*(\d+)\]".r
 
-  private def builtInParses(source: String): Boolean =
-    Parser.parse(Package.parser(None), source).isValid
+  private def builtInParse(source: String): BuiltInParse =
+    Parser.parse(Package.parser(None), source) match {
+      case Validated.Valid(_) =>
+        BuiltInParse.Success
+      case Validated.Invalid(errs) =>
+        errs.head match {
+          case Parser.Error.ParseFailure(position, _, _) =>
+            BuiltInParse.Failure(position)
+        }
+    }
+
+  private def lineColToOffset(source: String, row: Int, col: Int): Int = {
+    val len = source.length
+    var idx = 0
+    var currentRow = 0
+
+    while ((currentRow < row) && (idx < len)) {
+      val next = source.indexOf('\n', idx)
+      if (next < 0) {
+        idx = len
+        currentRow = row
+      } else {
+        idx = next + 1
+        currentRow = currentRow + 1
+      }
+    }
+
+    (idx + col).min(len)
+  }
+
+  private def firstTreeSitterErrorOffset(
+      source: String,
+      output: String
+  ): Option[Int] = {
+    val fromTaggedLine =
+      output.linesIterator
+        .filter(line => line.contains("ERROR") || line.contains("MISSING"))
+        .flatMap { line =>
+          treeSitterPointRegex.findFirstMatchIn(line).iterator.map { m =>
+            val row = m.group(1).nn.toInt
+            val col = m.group(2).nn.toInt
+            lineColToOffset(source, row, col)
+          }
+        }
+        .take(1)
+        .toList
+        .headOption
+
+    fromTaggedLine.orElse {
+      if (output.contains("ERROR") || output.contains("MISSING")) {
+        treeSitterPointRegex.findFirstMatchIn(output).map { m =>
+          val row = m.group(1).nn.toInt
+          val col = m.group(2).nn.toInt
+          lineColToOffset(source, row, col)
+        }
+      } else None
+    }
+  }
 
   private def treeSitterParse(
       source: String,
@@ -54,7 +118,8 @@ object TreeSitterDifferential {
         finally src.close()
       }
       val exitCode = process.waitFor()
-      ParseResult(exitCode, output)
+      val firstErrorOffset = firstTreeSitterErrorOffset(source, output)
+      ParseResult(exitCode, output, firstErrorOffset)
     } finally {
       Files.deleteIfExists(tmpFile): Unit
     }
@@ -62,19 +127,35 @@ object TreeSitterDifferential {
 
   private def loadFixtureSources(
       repoRoot: Path
-  ): List[(String, String)] =
-    fixtureFiles.map { rel =>
-      val path = repoRoot.resolve(rel)
-      val source = Files.readString(path, StandardCharsets.UTF_8)
-      (rel, source)
+  ): List[(String, String)] = {
+    val root = repoRoot.resolve("test_workspace")
+    val walk = Files.walk(root)
+    try {
+      walk.iterator().asScala
+        .filter(path => Files.isRegularFile(path) && path.toString.endsWith(".bosatsu"))
+        .toList
+        .sortBy(_.toString)
+        .map { path =>
+          val rel = repoRoot.relativize(path).toString.replace('\\', '/')
+          val source = Files.readString(path, StandardCharsets.UTF_8)
+          (rel, source)
+        }
+    } finally {
+      walk.close()
     }
+  }
 
   private def generatedSources(sampleCount: Int): List[(String, String)] = {
-    val generatedPackage: Gen[String] =
-      Generators.genStatements(0, 2).map { stmts =>
+    val generatedPackage: Gen[(Int, Int, String)] =
+      for {
+        width <- Gen.choose(60, 200)
+        statementCount <- Gen.choose(12, 40)
+        statements <- Gen.listOfN(statementCount, Generators.genStatement(depth = 3))
+      } yield {
         val parsedPack =
-          Package.fromStatements(PackageName.parts("Diff", "Generated"), stmts)
-        Document[Package.Parsed].document(parsedPack).render(80)
+          Package.fromStatements(PackageName.parts("Diff", "Generated"), statements)
+        val source = Document[Package.Parsed].document(parsedPack).render(width)
+        (width, statementCount, source)
       }
 
     @tailrec
@@ -82,18 +163,58 @@ object TreeSitterDifferential {
         idx: Int,
         accepted: List[(String, String)]
     ): List[(String, String)] =
-      if (accepted.size >= sampleCount || idx > (sampleCount * 20)) {
+      if (accepted.size >= sampleCount || idx > (sampleCount * 60)) {
         accepted.reverse
       } else {
         generatedPackage.sample match {
-          case Some(src) =>
-            loop(idx + 1, (s"generated-$idx", src) :: accepted)
+          case Some((width, statementCount, source)) =>
+            val label =
+              s"generated-$idx-width-$width-statements-$statementCount"
+            loop(idx + 1, (label, source) :: accepted)
           case None =>
             loop(idx + 1, accepted)
         }
       }
 
     loop(1, Nil)
+  }
+
+  private def malformedFromRandomCuts(
+      validSources: List[(String, String)],
+      sampleCount: Int
+  ): List[(String, String)] = {
+    val cuttable = validSources.filter { case (_, source) => source.length > 1 }
+    if (cuttable.isEmpty) Nil
+    else {
+      val randomCut: Gen[(String, String)] =
+        Gen.oneOf(cuttable).flatMap { case (name, source) =>
+          val len = source.length
+          for {
+            start <- Gen.choose(0, len - 1)
+            maxRemove = ((len - start) min ((len / 2) max 1)) max 1
+            remove <- Gen.choose(1, maxRemove)
+            mutated = source.take(start) + source.drop(start + remove)
+          } yield (s"negative-cut-$name-$start-$remove", mutated)
+        }
+
+      @tailrec
+      def loop(
+          idx: Int,
+          accepted: List[(String, String)]
+      ): List[(String, String)] =
+        if (accepted.size >= sampleCount || idx > (sampleCount * 80)) {
+          accepted.reverse
+        } else {
+          randomCut.sample match {
+            case Some((name, source)) =>
+              loop(idx + 1, (s"$name-$idx", source) :: accepted)
+            case None =>
+              loop(idx + 1, accepted)
+          }
+        }
+
+      loop(1, Nil)
+    }
   }
 
   private def malformedInputs: List[(String, String)] =
@@ -115,6 +236,22 @@ object TreeSitterDifferential {
         "package Broken\nx = [Assertion(True, \"ok\")\n"
       )
     )
+
+  private def failuresNear(
+      source: String,
+      builtInOffset: Int,
+      treeSitterOffset: Int
+  ): Boolean = {
+    val offsetDiff = math.abs(builtInOffset - treeSitterOffset)
+    val lm = LocationMap(source)
+    val rowDiff =
+      (for {
+        (builtInRow, _) <- lm.toLineCol(builtInOffset)
+        (treeSitterRow, _) <- lm.toLineCol(treeSitterOffset)
+      } yield math.abs(builtInRow - treeSitterRow)).getOrElse(Int.MaxValue)
+
+    (offsetDiff <= 200) || (rowDiff <= 2)
+  }
 
   private def failFrom(label: String, failures: List[(String, String)]): Unit = {
     val rendered =
@@ -142,30 +279,96 @@ object TreeSitterDifferential {
     val treeSitterBin = sys.env.getOrElse("TREE_SITTER_BIN", "tree-sitter")
 
     val fixtureSources = loadFixtureSources(repoRoot)
-    val randomSources = generatedSources(sampleCount = 20)
-    val positiveSources = fixtureSources ++ randomSources
+    val generatedSourcesList = generatedSources(sampleCount = 1000)
+    val generatedBuiltInValid = generatedSourcesList.flatMap { case (name, source) =>
+      builtInParse(source) match {
+        case BuiltInParse.Success => Some((name, source))
+        case BuiltInParse.Failure(_) => None
+      }
+    }
 
-    val positiveFailures =
-      positiveSources.collect {
-        case (name, source) if builtInParses(source) =>
-          val parsed = treeSitterParse(source, treeSitterBin, repoRoot)
-          if (parsed.hasErrorOrMissing)
-            Some(name -> parsed.output)
-          else None
-      }.flatten
+    if (fixtureSources.isEmpty) {
+      sys.error("No .bosatsu files found under test_workspace.")
+    }
 
-    if (positiveFailures.nonEmpty) {
-      failFrom(
-        "Tree-sitter produced ERROR/MISSING for built-in-valid input.",
-        positiveFailures
+    if (generatedSourcesList.size < 1000) {
+      sys.error(
+        s"Failed to generate required random sources: expected 1000, got ${generatedSourcesList.size}."
       )
     }
 
-    val malformed = malformedInputs
+    val fixtureEvaluations =
+      fixtureSources.map { case (name, source) =>
+        val builtIn = builtInParse(source)
+        val parsed = treeSitterParse(source, treeSitterBin, repoRoot)
+        (name, source, builtIn, parsed)
+      }
 
-    val malformedRejectedByBuiltIn = malformed.filterNot { case (_, source) =>
-      builtInParses(source)
+    val fixtureBuiltInValid =
+      fixtureEvaluations.flatMap {
+        case (name, source, BuiltInParse.Success, _) =>
+          Some((name, source))
+        case _ =>
+          None
+      }
+
+    val fixtureFailures =
+      fixtureEvaluations.collect {
+        case (name, _, builtIn, parsed) =>
+          builtIn match {
+            case BuiltInParse.Success =>
+              if (parsed.hasErrorOrMissing) Some(name -> parsed.output)
+              else None
+            case BuiltInParse.Failure(offset) =>
+              if (parsed.hasErrorOrMissing) None
+              else {
+                Some(
+                  name ->
+                    s"built-in failed at offset $offset, but tree-sitter accepted:\n${parsed.output}"
+                )
+              }
+          }
+      }.flatten
+
+    if (fixtureFailures.nonEmpty) {
+      failFrom(
+        "Fixture differential failure (all test_workspace .bosatsu files are parsed): built-in and tree-sitter disagreed.",
+        fixtureFailures
+      )
     }
+
+    val generatedPositiveFailures =
+      generatedBuiltInValid.collect {
+        case (name, source) =>
+          val parsed = treeSitterParse(source, treeSitterBin, repoRoot)
+          if (parsed.hasErrorOrMissing) Some(name -> parsed.output)
+          else None
+      }.flatten
+
+    if (generatedPositiveFailures.nonEmpty) {
+      failFrom(
+        "Tree-sitter produced ERROR/MISSING for built-in-valid generated input.",
+        generatedPositiveFailures
+      )
+    }
+
+    val randomMalformed =
+      malformedFromRandomCuts(
+        fixtureBuiltInValid ++ generatedBuiltInValid,
+        sampleCount = 300
+      )
+    val malformed = malformedInputs ++ randomMalformed
+
+    val malformedRejectedByBuiltIn = malformed.collect {
+      case (name, source) =>
+        builtInParse(source) match {
+          case BuiltInParse.Success =>
+            None
+          case BuiltInParse.Failure(offset) =>
+            Some((name, source, offset))
+        }
+    }
+    .flatten
 
     if (malformedRejectedByBuiltIn.isEmpty) {
       sys.error(
@@ -173,10 +376,15 @@ object TreeSitterDifferential {
       )
     }
 
+    val malformedEvaluations =
+      malformedRejectedByBuiltIn.map { case (name, source, builtInOffset) =>
+        val parsed = treeSitterParse(source, treeSitterBin, repoRoot)
+        (name, source, builtInOffset, parsed)
+      }
+
     val negativeFailures =
-      malformedRejectedByBuiltIn.collect {
-        case (name, source) =>
-          val parsed = treeSitterParse(source, treeSitterBin, repoRoot)
+      malformedEvaluations.collect {
+        case (name, _, _, parsed) =>
           if (!parsed.hasErrorOrMissing)
             Some(name -> parsed.output)
           else None
@@ -189,8 +397,37 @@ object TreeSitterDifferential {
       )
     }
 
+    val negativeLocationFailures =
+      malformedEvaluations.collect {
+        case (name, source, builtInOffset, parsed) =>
+          if (parsed.hasErrorOrMissing) {
+            parsed.firstErrorOffset match {
+              case Some(treeSitterOffset) =>
+                if (failuresNear(source, builtInOffset, treeSitterOffset)) None
+                else {
+                  Some(
+                    name ->
+                      s"built-in failed at $builtInOffset, tree-sitter first ERROR/MISSING at $treeSitterOffset"
+                  )
+                }
+              case None =>
+                Some(
+                  name ->
+                    s"tree-sitter reported syntax failure but no ERROR/MISSING location was found in output: ${parsed.output.take(240).replace('\n', ' ')}"
+                )
+            }
+          } else None
+      }.flatten
+
+    if (negativeLocationFailures.nonEmpty) {
+      failFrom(
+        "Tree-sitter and built-in parser failed far apart on malformed input.",
+        negativeLocationFailures
+      )
+    }
+
     println(
-      s"tree-sitter differential checks passed (fixtures=${fixtureSources.size}, generated=${randomSources.size}, malformed=${malformedRejectedByBuiltIn.size})"
+      s"tree-sitter differential checks passed (fixtures=${fixtureSources.size}, generated=${generatedSourcesList.size}, generatedBuiltInValid=${generatedBuiltInValid.size}, malformed=${malformedRejectedByBuiltIn.size})"
     )
   }
 }
