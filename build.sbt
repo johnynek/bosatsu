@@ -326,7 +326,7 @@ lazy val core =
         catsParse.value,
         decline.value,
         paiges.value,
-        scalawasiz3.value % Test,
+        scalawasiz3.value,
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,

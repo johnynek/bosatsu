@@ -144,6 +144,46 @@ def bad(n, m):
 """)
   }
 
+  test("recur supports Int targets with provable decrease and non-negative next values") {
+    allowed("""#
+def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      (next_i, next_state) = fn(i, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, i) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
+""")
+  }
+
+  test("Int recursion rejects non-decreasing recursive calls") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(i)
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion rejects calls that do not prove non-negative next values") {
+    disallowed("""#
+def bad(i: Int) -> Int:
+  recur i:
+    case _ if cmp_Int(i, 0) matches GT:
+      bad(i.sub(2))
+    case _:
+      i
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):

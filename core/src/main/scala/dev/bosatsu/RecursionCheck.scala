@@ -123,6 +123,27 @@ object RecursionCheck {
     }
   }
 
+  case class IntRecursionObligationFailed(
+      fnname: Bindable,
+      targetParam: Bindable,
+      obligation: String,
+      pathCondition: String,
+      model: Option[String],
+      detail: Option[String],
+      illegalPosition: Region
+  ) extends Error {
+    def region = illegalPosition
+    def message = {
+      val base =
+        s"cannot prove Int recursion obligation for ${fnname.sourceCodeRepr}: $obligation"
+      val targetLine = s"recur target: ${targetParam.sourceCodeRepr}"
+      val pcLine = s"path condition: $pathCondition"
+      val detailLine = detail.fold("")(d => s"\nsolver detail: $d")
+      val modelLine = model.fold("")(m => s"\nmodel:\n$m")
+      s"$base\n$targetLine\n$pcLine$detailLine$modelLine"
+    }
+  }
+
   case class LoopRequiresTailRecursion(
       fnname: Bindable,
       illegalPosition: Region
