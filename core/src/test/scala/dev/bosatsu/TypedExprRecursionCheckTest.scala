@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import IorMethods.IorExtension
+import scala.util.Try
 
 class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
   private val pack = PackageName.parts("TypedRecursionCheck")
@@ -271,59 +272,65 @@ main = loop(1)
 """)
   }
 
-  test("moderately large list literals do not overflow recursion checker stack") {
-    val n = 211
-    val items = List.fill(n)("\"x\"").mkString(", ")
-    val source = s"""#
+  test("Platform.onJvm only evaluates on JVM") {
+    assertEquals(Try(Platform.onJvm(sys.error("boom"))).isFailure, Platform.isJvm)
+  }
+
+  Platform.onJvm(
+    test("moderately large list literals do not overflow recursion checker stack") {
+      val n = 211
+      val items = List.fill(n)("\"x\"").mkString(", ")
+      val source = s"""#
 vals: List[String] = [$items]
 main = vals
 """
 
-    val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
-    val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
-    var failure: Option[Throwable] = None
-    var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
+      val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
+      val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+      var failure: Option[Throwable] = None
+      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
 
-    val thread = new Thread(
-      null,
-      new Runnable {
-        def run(): Unit =
-          try {
-            result = Some(
-              TypedExprRecursionCheck.checkLets(
-                pack,
-                fullTypeEnv,
-                lets,
-                topLevelDefs
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              result = Some(
+                TypedExprRecursionCheck.checkLets(
+                  pack,
+                  fullTypeEnv,
+                  lets,
+                  topLevelDefs
+                )
               )
-            )
-          } catch {
-            case t: Throwable =>
-              failure = Some(t)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-recursion-check-small-stack",
+        96L * 1024L
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(_: StackOverflowError) =>
+          fail("recursion checker overflowed on a moderately large list literal")
+        case Some(other) =>
+          throw other
+        case None =>
+          result match {
+            case Some(Validated.Valid(_)) => ()
+            case Some(Validated.Invalid(errs)) =>
+              fail(
+                s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
+              )
+            case None =>
+              fail("recursion checker thread did not produce a result")
           }
-      },
-      "typed-recursion-check-small-stack",
-      96L * 1024L
-    )
-
-    thread.start()
-    thread.join()
-
-    failure match {
-      case Some(_: StackOverflowError) =>
-        fail("recursion checker overflowed on a moderately large list literal")
-      case Some(other) =>
-        throw other
-      case None =>
-        result match {
-          case Some(Validated.Valid(_)) => ()
-          case Some(Validated.Invalid(errs)) =>
-            fail(
-              s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
-            )
-          case None =>
-            fail("recursion checker thread did not produce a result")
         }
     }
-  }
+  )
 }
