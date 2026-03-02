@@ -153,6 +153,156 @@ def filter(ary: Vec[n, a], fn: a -> Bool) ->
 3. `take(xs: Vec[n, a], k: Int) -> exists r: Nat. Vec[r, a] where r <= n`
 4. `transpose(m: Mat[rows, cols, a]) -> Mat[cols, rows, a]`
 
+### Concrete implementations and how each typechecks
+
+The review concern is valid: utility depends on whether realistic programs are
+both writable and checkable. Below are concrete sketches in proposed syntax.
+
+#### `append`
+
+```bosatsu
+enum Vec[n: Nat, a]:
+  EVec where n == 0
+  CVec[m: Nat](head: a, tail: Vec[m, a]) where n == m + 1
+
+def append[a](xs: Vec[n, a], ys: Vec[m, a]) ->
+  exists r: Nat. Vec[r, a] where r == n + m:
+  recur xs:
+    case EVec:
+      ys
+    case CVec(head, tail):
+      atail = append(tail, ys)
+      CVec(head, atail)
+```
+
+Typechecking outline:
+
+1. In branch `EVec`, pattern gives assumption `n == 0`, so returning `ys` (length `m`) satisfies goal `r == n + m` by choosing `r = m`.
+2. In branch `CVec(head, tail)`, pattern gives `n == t + 1` for some `t`, and `tail: Vec[t, a]`.
+3. Recursive call yields `append(tail, ys): exists rt. Vec[rt, a] where rt == t + m`.
+4. `CVec(head, atail)` introduces new length `rt + 1`; SMT discharges `(rt == t + m) and (n == t + 1) => (rt + 1 == n + m)`.
+
+#### `zip`
+
+```bosatsu
+def zip_vec[a, b](xs: Vec[n, a], ys: Vec[n, b]) -> Vec[n, (a, b)]:
+  recur (xs, ys):
+    case (EVec, EVec):
+      EVec
+    case (CVec(xh, xt), CVec(yh, yt)):
+      CVec((xh, yh), zip_vec(xt, yt))
+```
+
+Typechecking outline:
+
+1. First branch adds assumptions `n == 0` from both patterns, so `EVec` is valid.
+2. Second branch adds assumptions `n == nx + 1` and `n == ny + 1`, forcing `nx == ny`; recursive call is therefore well-typed.
+3. Recursive result has length `nx`; applying `CVec` yields `nx + 1`, equal to `n`.
+4. Mixed-shape branches such as `(EVec, CVec(...))` are impossible under `xs: Vec[n, _]` and `ys: Vec[n, _]`; refinement + inhabitedness can mark them unreachable.
+
+#### `take`
+
+```bosatsu
+def take[a](xs: Vec[n, a], k: Int) ->
+  exists r: Nat. Vec[r, a] where r <= n:
+  recur xs:
+    case EVec:
+      EVec
+    case CVec(head, tail):
+      if cmp_Int(k, 0) matches GT:
+        t = take(tail, sub_Int(k, 1))
+        CVec(head, t)
+      else:
+        EVec
+```
+
+Typechecking outline:
+
+1. `EVec` branch has `n == 0`; choosing `r = 0` proves `r <= n`.
+2. In `CVec` branch, pattern gives `n == nt + 1` and `tail: Vec[nt, a]`.
+3. False sub-branch returns `EVec`, so `0 <= n` holds immediately.
+4. True sub-branch gets recursive `t: exists rt. Vec[rt, a] where rt <= nt`; constructing `CVec(head, t)` gives length `rt + 1`, and SMT proves `rt <= nt => rt + 1 <= nt + 1 == n`.
+
+#### `transpose`
+
+For a fully total version over `rows`, we pass a shape witness for `cols`.
+
+```bosatsu
+def empty_cols[a](shape: Vec[cols, Unit]) -> Vec[cols, Vec[0, a]]:
+  recur shape:
+    case EVec:
+      EVec
+    case CVec(_, tail):
+      CVec(EVec, empty_cols(tail))
+
+def cons_each[a](row: Vec[cols, a], cols_acc: Vec[cols, Vec[r, a]]) ->
+  Vec[cols, Vec[r + 1, a]]:
+  recur (row, cols_acc):
+    case (EVec, EVec):
+      EVec
+    case (CVec(x, xs), CVec(col, rest)):
+      CVec(CVec(x, col), cons_each(xs, rest))
+
+def transpose_with_shape[a](
+  shape: Vec[cols, Unit],
+  m: Vec[rows, Vec[cols, a]]
+) -> Vec[cols, Vec[rows, a]]:
+  recur m:
+    case EVec:
+      empty_cols(shape)
+    case CVec(row, tail):
+      ttail = transpose_with_shape(shape, tail)
+      cons_each(row, ttail)
+```
+
+Typechecking outline:
+
+1. `empty_cols` preserves the shape index while setting inner vector length to `0`.
+2. `cons_each` zips same-length vectors (`cols`) and increments inner length from `r` to `r + 1`.
+3. In `transpose_with_shape`, `EVec` branch corresponds to `rows == 0`.
+4. `CVec(row, tail)` branch has `rows == rt + 1`; recursive call gives `Vec[cols, Vec[rt, a]]`, then `cons_each` yields `Vec[cols, Vec[rt + 1, a]]`, equal to target.
+
+#### Stack-safe `map` with `loop`
+
+The `append`-style recursive `map` is useful, but here is a constant-stack
+version that uses `loop`.
+
+```bosatsu
+def reverse_append[a](left: Vec[n, a], right: Vec[m, a]) ->
+  exists r: Nat. Vec[r, a] where r == n + m:
+  loop left:
+    case EVec:
+      right
+    case CVec(x, tail):
+      reverse_append(tail, CVec(x, right))
+
+def reverse_vec[a](xs: Vec[n, a]) -> Vec[n, a]:
+  tmp = reverse_append(xs, EVec)
+  # tmp has length n + 0; SMT discharges n + 0 == n
+  tmp
+
+def map_vec_loop[a, b](xs: Vec[n, a], fn: a -> b) -> Vec[n, b]:
+  def map_acc(todo: Vec[t, a], acc_rev: Vec[r, b]) ->
+    exists out: Nat. Vec[out, b] where out == t + r:
+    loop todo:
+      case EVec:
+        acc_rev
+      case CVec(x, tail):
+        map_acc(tail, CVec(fn(x), acc_rev))
+
+  acc = map_acc(xs, EVec)
+  reverse_vec(acc)
+```
+
+Typechecking outline:
+
+1. `map_acc` loop invariant is explicit in the return contract: output length is `t + r`.
+2. Base branch (`todo == EVec`) returns `acc_rev`, proving `out == 0 + r == r`.
+3. Step branch updates `(t, r)` to `(t - 1, r + 1)` in Nat terms; SMT proves invariant preservation.
+4. Calling `map_acc(xs, EVec)` yields `out == n + 0 == n`.
+5. `reverse_vec` preserves length, so final result has index `n`.
+6. Because recursion is under `loop` and self-calls are tail-position, this variant is stack safe.
+
 ## Core design decisions
 
 1. Nat-first semantics, Int-ready syntax:
