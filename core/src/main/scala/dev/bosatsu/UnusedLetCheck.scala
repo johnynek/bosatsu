@@ -21,9 +21,9 @@ object UnusedLetCheck {
   private val empty: WriterChain[Set[Bindable]] =
     ap.pure(Set.empty)
 
-  private def checkArg(
+  private inline def checkArg(
       arg: Bindable,
-      reg: => Region,
+      inline reg: => Region,
       w: WriterChain[Set[Bindable]]
   ) =
     w.flatMap { free =>
