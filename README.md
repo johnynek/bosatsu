@@ -48,5 +48,13 @@ Please feel free to file an issue to discuss making a change to Bosatsu or
 to ask a question about how Bosatsu might be useful for a use-case that is
 interesting to you.
 
+## Tree-sitter + Neovim
+Bosatsu has an in-repo Tree-sitter grammar at
+`syntax/tree-sitter-bosatsu`.
+
+For local parser workflows and Neovim setup (`:TSInstall bosatsu`,
+`:TSUpdate bosatsu`), see:
+`syntax/tree-sitter-bosatsu/README.md`.
+
 ## Release
 See [release.md](release.md) for the release workflow and tagging steps.

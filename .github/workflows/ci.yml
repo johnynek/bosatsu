@@ -30,6 +30,38 @@ jobs:
         java:
           - '17'
     timeout-minutes: 30
+  treeSitter:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - name: "Cache sbt directories"
+        uses: "actions/cache@v4"
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: "sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"
+          restore-keys: |
+            sbt-${{ runner.os }}-
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "install tree-sitter cli"
+        run: "npm install -g tree-sitter-cli@0.24.7"
+      - name: "run tree-sitter and differential parser checks"
+        run: "./scripts/test_tree_sitter.sh"
+    strategy:
+      matrix:
+        java:
+          - '17'
+    timeout-minutes: 30
   testPY:
     needs: test
     runs-on: ubuntu-latest

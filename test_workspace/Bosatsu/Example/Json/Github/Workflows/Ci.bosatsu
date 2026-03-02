@@ -98,6 +98,7 @@ struct WorkflowJobsLibPublishDryRun(
 
 struct WorkflowJobs(
   test: WorkflowJobsTest,
+  treeSitter: WorkflowJobsTestJS,
   testPY: WorkflowJobsTestPY,
   testJS: WorkflowJobsTestJS,
   testWithCoverageReport: WorkflowJobsTestWithCoverageReport,
@@ -173,6 +174,23 @@ workflow =
               "./test_cli.sh",
               "",
             ])),
+          },
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsTestJS(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          *java_matrix_bootstrap_steps,
+          Step {
+            name: Set("install tree-sitter cli"),
+            run: Set("npm install -g tree-sitter-cli@0.24.7"),
+          },
+          Step {
+            name: Set("run tree-sitter and differential parser checks"),
+            run: Set("./scripts/test_tree_sitter.sh"),
           },
         ],
         java_strategy_17,

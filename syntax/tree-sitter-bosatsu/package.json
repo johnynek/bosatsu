@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-bosatsu",
+  "version": "0.1.0",
+  "description": "Bosatsu grammar for tree-sitter",
+  "license": "Apache-2.0",
+  "keywords": [
+    "incremental",
+    "parsing",
+    "tree-sitter",
+    "bosatsu"
+  ],
+  "main": "bindings/node",
+  "files": [
+    "grammar.js",
+    "tree-sitter.json",
+    "queries/*",
+    "src/*"
+  ],
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.24.7"
+  }
+}

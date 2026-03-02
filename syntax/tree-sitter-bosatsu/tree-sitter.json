@@ -1,0 +1,21 @@
+{
+  "grammars": [
+    {
+      "name": "bosatsu",
+      "camelcase": "Bosatsu",
+      "scope": "source.bosatsu",
+      "path": ".",
+      "file-types": [
+        "bosatsu"
+      ],
+      "highlights": "queries/highlights.scm",
+      "folds": "queries/folds.scm",
+      "locals": "queries/locals.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "Bosatsu grammar for tree-sitter"
+  }
+}
