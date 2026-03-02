@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Bosatsu/LsExample · Bosatsu Documentation</title>
+<title>Bosatsu/Lazy · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
-<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/LsExample.html"/>
+<link rel="canonical" href="https://github.com/johnynek/bosatsugenerated/core_alpha/Bosatsu/Lazy.html"/>
 <link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="../../../lib/jquery/jquery.min.js"></script>
 <script type="text/javascript" src="../../../js/page.js"></script>
@@ -112,7 +112,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><a href="../../../index.html">Bosatsu Documentation</a></li>
   <li><a href="../../../generated/core_alpha/index.html">Core Alpha API</a></li>
-  <li><code>Bosatsu/LsExample</code></li>
+  <li><code>Bosatsu/Lazy</code></li>
 </ul>
 </div>
 </div>
@@ -120,17 +120,45 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#bosatsu-lsexample" name="bosatsu-lsexample" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/LsExample</code></h1>
-<p>No exported values or types.</p>
+<h1><a href="#bosatsu-lazy" name="bosatsu-lazy" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Lazy</code></h1>
+<h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
+<ul>
+  <li>Types: <a href="#type-lazy"><code>Lazy</code></a></li>
+  <li>Values: <a href="#value-get-lazy"><code>get_Lazy</code></a>, <a href="#value-lazy"><code>lazy</code></a></li>
+</ul>
+<h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
+<a id="type-lazy"></a>
+<h3><a href="#lazy-a-" name="lazy-a-" class="anchor"><span class="anchor-link"></span></a><code>Lazy[a]</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">type Lazy[a: +*]
+</code></pre>
+<h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
+<a id="value-get-lazy"></a>
+<h3><a href="#get-lazy" name="get-lazy" class="anchor"><span class="anchor-link"></span></a><code>get_Lazy</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def get_Lazy[a](l: Lazy[a]) -&gt; a
+</code></pre>
+<a id="value-lazy"></a>
+<h3><a href="#lazy" name="lazy" class="anchor"><span class="anchor-link"></span></a><code>lazy</code></h3>
+<pre class="prettyprint"><code class="language-bosatsu">def lazy[a](fn: (()) -&gt; a) -&gt; Lazy[a]
+</code></pre>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/LsExample.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generated/core_alpha/Bosatsu/Lazy.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="../../../generated/core_alpha/Bosatsu/Nothing.html"><code>Bosatsu/Nothing</code></a></p>
+<p><strong>Next:</strong> <a href="../../../generated/core_alpha/Bosatsu/List.html"><code>Bosatsu/List</code></a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="../../../generated/core_alpha/Bosatsu/Lazy.html#bosatsu-lazy" class="header"><code>Bosatsu/Lazy</code></a></li>
+</ul>
+</div>
+</div>
+</nav>
 </div>
 </div>
 
