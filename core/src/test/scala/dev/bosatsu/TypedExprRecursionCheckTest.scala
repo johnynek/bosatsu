@@ -58,6 +58,22 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         else fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
     }
 
+  private def disallowedWithMessage(source: String)(assertMessage: String => Unit): Unit =
+    recursionErrorsOf(source) match {
+      case Right(_) =>
+        fail("expected recursion-check failure")
+      case Left(errs) =>
+        val recursionErrs = errs.toList.collect { case r: PackageError.RecursionError =>
+          r
+        }
+        recursionErrs match {
+          case Nil =>
+            fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
+          case _   =>
+            assertMessage(recursionErrs.map(_.err.message).mkString("\n-----\n"))
+        }
+    }
+
   test("substructural recursion remains allowed in typed checker") {
     allowed("""#
 def len(lst):
@@ -190,25 +206,33 @@ def mixed(n: Nat, i: Int) -> Int:
   }
 
   test("Int recursion rejects non-decreasing recursive calls") {
-    disallowed("""#
+    disallowedWithMessage("""#
 def bad(i: Int) -> Int:
   recur i:
     case _ if cmp_Int(i, 0) matches GT:
       bad(i)
     case _:
       i
-""")
+""") { msg =>
+      assert(clue(msg).contains("cannot prove Int recursion obligation for bad"))
+      assert(clue(msg).contains("recur target: i"))
+      assert(clue(msg).contains("path condition:"))
+    }
   }
 
   test("Int recursion rejects calls that do not prove non-negative next values") {
-    disallowed("""#
+    disallowedWithMessage("""#
 def bad(i: Int) -> Int:
   recur i:
     case _ if cmp_Int(i, 0) matches GT:
       bad(i.sub(2))
     case _:
       i
-""")
+""") { msg =>
+      assert(clue(msg).contains("cannot prove Int recursion obligation for bad"))
+      assert(clue(msg).contains("recur target: i"))
+      assert(clue(msg).contains("path condition:"))
+    }
   }
 
   test("recur target must be argument name or tuple of names") {

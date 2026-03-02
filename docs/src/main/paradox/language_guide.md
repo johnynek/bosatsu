@@ -994,10 +994,13 @@ safety story gets much weaker.
 So "use with caution" mostly applies to maintainers of trusted runtime/predef
 code, not to ordinary Bosatsu library authors.
 
-A function that can now be implemented directly in Bosatsu is:
+Bosatsu allows recursion on `Int` when the recursion checker can prove that on
+recursive paths (for example under `cmp_Int(int_v, 0) matches GT`), the next
+recursive argument is still non-negative and strictly smaller than the current
+value. For tail recursion, use `loop`:
 ```
 def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  recur int_v:
+  loop int_v:
     case _ if cmp_Int(int_v, 0) matches GT:
       (next_i, next_state) = fn(int_v, state)
       if cmp_Int(next_i, 0) matches GT:
@@ -1010,9 +1013,6 @@ def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
     case _:
       state
 ```
-
-This typechecks because `recur` on `Int` uses obligations that the next recursive
-argument is non-negative and strictly smaller on the recursive path.
 
 External values and types work exactly like internally defined types from any
 other point of view.
