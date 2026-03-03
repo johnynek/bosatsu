@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b211354f*
+0.0.0+1-dce4a8f5*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-b211354f*
+0.0.0+1-dce4a8f5*
 </div>
 </div>
 <div class="nav-toc">
@@ -691,8 +691,12 @@ def foldO(oo, if_none, if_some):
 <ol>
   <li>an exported value</li>
   <li>the package main value (the last top-level value in the package)</li>
-  <li>the package test value (the last top-level value with type <code>Bosatsu/Predef::Test</code>)</li>
+  <li>the package test entry:</li>
 </ol>
+<ul>
+  <li>if no <code>Bosatsu/Prog::ProgTest</code> exists, the last top-level  <code>Bosatsu/Predef::Test</code></li>
+  <li>if one or more <code>ProgTest</code> values exist, the last top-level <code>ProgTest</code></li>
+</ul>
 <p>If a top-level value is not reachable from any of those roots, compilation fails with an unused-value error.</p>
 <p>This rule is intentional. Unused names are often caused by typos, mistaken refactors, or dead code that is no longer needed. Requiring explicit reachability adds a small amount of friction that catches these issues early.</p>
 <p>When you intentionally want to evaluate/check something and then discard it, bind it to <code>_</code>:</p>
@@ -710,7 +714,12 @@ def foldO(oo, if_none, if_some):
 <p>This is useful for an &ldquo;always-be-compiling&rdquo; workflow: keep moving from one typechecking state to the next, then remove placeholders incrementally.</p>
 <p><code>todo</code> is intentionally unsound, so it is only available in check-only commands (<code>tool check</code> and <code>lib check</code>). Commands that emit or execute outputs (<code>show</code>/<code>json</code>/<code>eval</code>/<code>build</code>/<code>transpile</code>/<code>test</code>) do not include <code>todo</code>, so those commands fail until all <code>todo</code> calls are removed.</p>
 <h2><a href="#testing" name="testing" class="anchor"><span class="anchor-link"></span></a>Testing</h2>
-<p>Bosatsu tests are regular values of type <code>Bosatsu/Predef::Test</code>. <code>Bosatsu/Predef</code> defines:</p>
+<p>Bosatsu supports two test entrypoint styles:</p>
+<ol>
+  <li>Plain tests as values of type <code>Bosatsu/Predef::Test</code></li>
+  <li>Effectful tests as <code>Bosatsu/Prog::ProgTest</code></li>
+</ol>
+<p><code>Bosatsu/Predef</code> defines:</p>
 <ol>
   <li><code>Assertion(value: Bool, message: String)</code></li>
   <li><code>TestSuite(name: String, tests: List[Test])</code></li>
@@ -737,7 +746,17 @@ def foldO(oo, if_none, if_some):
 ])
 </code></pre></li>
 </ol>
-<p>Test discovery rule: <code>bosatsu lib test</code> runs the final top-level value in each package whose type is <code>Bosatsu/Predef::Test</code> (the last such value in source order). In practice, keep one final <code>test</code>/<code>tests</code> value per package and make it include all child tests you want run.</p>
+<p><code>Bosatsu/Prog</code> defines:</p>
+<ol>
+  <li><code>ProgTest(test_fn: List[String] -&gt; forall e. Prog[e, Test])</code></li>
+</ol>
+<p>Test discovery rules (<code>tool test</code> and <code>lib test</code>) are:</p>
+<ol>
+  <li>If no <code>ProgTest</code> exists, run the final top-level <code>Test</code> value in source  order.</li>
+  <li>If one or more <code>ProgTest</code> values exist, run the final top-level <code>ProgTest</code>  value in source order.</li>
+  <li>If any plain <code>Test</code> value appears after that selected <code>ProgTest</code>, test  discovery fails for that package with an ordering error.</li>
+</ol>
+<p>Current argument behavior: runners pass <code>[]</code> into <code>ProgTest.test_fn</code>.</p>
 <p>From the repo root, run tests with:</p>
 <pre class="prettyprint"><code class="language-sh">./bosatsu lib test
 </code></pre>
@@ -862,7 +881,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-b211354f-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-dce4a8f5-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
