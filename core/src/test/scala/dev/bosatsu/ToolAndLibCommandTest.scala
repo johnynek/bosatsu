@@ -2727,6 +2727,7 @@ mk = (x) -> Thing(x)
         assert(markdown.contains("# `MyLib/Foo`"), markdown)
         assert(markdown.contains("Thing docs."), markdown)
         assert(markdown.contains("Mk docs."), markdown)
+        assert(!markdown.contains("source code:"), markdown)
         assert(!markdown.contains("public dependencies:"), markdown)
         assert(
           markdown.indexOf("## Types") < markdown.indexOf("## Values"),
@@ -2737,6 +2738,53 @@ mk = (x) -> Thing(x)
         assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
         assert(markdown.contains("## Values"), markdown)
         assert(markdown.contains("## Types"), markdown)
+    }
+  }
+
+  test("lib doc --source_repo_url includes source code links") {
+    val src =
+      """export Thing(), mk
+
+# Thing docs.
+struct Thing(v: Int)
+
+# Mk docs.
+mk = (x) -> Thing(x)
+"""
+    val files = baseLibFiles(src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "outdocs",
+          "--source_repo_url",
+          "https://example.com/repo/blob/main"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown =
+          readStringFile(state, Chain("outdocs", "MyLib", "Foo.md"))
+        assert(markdown.contains("source code:"), markdown)
+        assert(
+          markdown.contains(
+            "[`src/MyLib/Foo.bosatsu`](https://example.com/repo/blob/main/src/MyLib/Foo.bosatsu)"
+          ),
+          markdown
+        )
     }
   }
 
