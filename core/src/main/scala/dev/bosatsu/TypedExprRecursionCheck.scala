@@ -44,8 +44,18 @@ object TypedExprRecursionCheck {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
     val _ = fullTypeEnv
+    val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
+    val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
     lets.traverse_ { case (name, rec, expr) =>
-      Impl.checkTopLevelLet(pack, name, rec, expr, topLevelDefs.get(name))
+      Impl.checkTopLevelLet(
+        pack,
+        name,
+        rec,
+        expr,
+        topLevelDefs.get(name),
+        topLevelLowerableAliases,
+        topLevelPredefAliases
+      )
     }
   }
 
@@ -59,6 +69,13 @@ object TypedExprRecursionCheck {
     case class RecurTargetItem(group: Int, index: Int, paramName: Bindable)
         derives CanEqual
     type RecurTarget = NonEmptyList[RecurTargetItem]
+    type TopLevelLowerableAliases = Map[(PackageName, Bindable), TopLevelAlias]
+    type TopLevelPredefAliases = Map[(PackageName, Bindable), Identifier.Name]
+
+    case class TopLevelAlias(
+        params: NonEmptyList[Bindable],
+        body: TypedExpr[Declaration]
+    )
 
     private val comparisonType: Type =
       Type.TyConst(Type.Const.predef("Comparison"))
@@ -77,7 +94,9 @@ object TypedExprRecursionCheck {
         comparisonBindings: Map[Bindable, SmtExpr.IntExpr],
         declarations: Map[String, SmtSort],
         pathFacts: Vector[SmtExpr.BoolExpr],
-        freshId: Int
+        freshId: Int,
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
     ) {
       def withIntBinding(name: Bindable, expr: SmtExpr.IntExpr): SmtBranchState =
         copy(intBindings = intBindings.updated(name, expr))
@@ -110,7 +129,16 @@ object TypedExprRecursionCheck {
     }
     object SmtBranchState {
       val Empty: SmtBranchState =
-        SmtBranchState(Map.empty, Map.empty, Map.empty, Map.empty, Vector.empty, 0)
+        SmtBranchState(
+          Map.empty,
+          Map.empty,
+          Map.empty,
+          Map.empty,
+          Vector.empty,
+          0,
+          Map.empty,
+          Map.empty
+        )
     }
 
     // We keep wrapper scope tracking explicit so each recursive call-site is
@@ -144,7 +172,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel        => Set.empty
           case ids: InDefState =>
-            val InDef(outer, n, _, _, _, _) = ids.inDef
+            val InDef(outer, n, _, _, _, _, _, _) = ids.inDef
             outer.outerDefNames + n
         }
 
@@ -153,7 +181,7 @@ object TypedExprRecursionCheck {
         this match {
           case TopLevel        => false
           case ids: InDefState =>
-            val InDef(outer, dn, _, _, _, _) = ids.inDef
+            val InDef(outer, dn, _, _, _, _, _, _) = ids.inDef
             (dn == n) || outer.defNamesContain(n)
         }
 
@@ -161,15 +189,26 @@ object TypedExprRecursionCheck {
           fnname: Bindable,
           typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
           sourceArgs: NonEmptyList[NonEmptyList[Pattern.Parsed]],
-          fnType: Type
+          topLevelLowerableAliases: TopLevelLowerableAliases,
+          fnType: Type,
+          topLevelPredefAliases: TopLevelPredefAliases
       ): InDef =
-        InDef(this, fnname, typedArgs, sourceArgs, fnType, Set.empty)
+        InDef(
+          this,
+          fnname,
+          typedArgs,
+          sourceArgs,
+          topLevelLowerableAliases,
+          fnType,
+          topLevelPredefAliases,
+          Set.empty
+        )
     }
 
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id @ InDef(_, _, _, _, _, _)             => id
+          case id @ InDef(_, _, _, _, _, _, _, _)       => id
           case InDefRecurred(ir, _, _, _, _)            => ir.inDef
           case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _, _, _) =>
             ir.inDef
@@ -185,11 +224,22 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         typedArgs: NonEmptyList[NonEmptyList[(Bindable, Type)]],
         sourceArgs: NonEmptyList[NonEmptyList[Pattern.Parsed]],
+        topLevelLowerableAliases: TopLevelLowerableAliases,
         fnType: Type,
+        topLevelPredefAliases: TopLevelPredefAliases,
         localScope: Set[Bindable]
     ) extends InDefState {
       def addLocal(b: Bindable): InDef =
-        InDef(outer, fnname, typedArgs, sourceArgs, fnType, localScope + b)
+        InDef(
+          outer,
+          fnname,
+          typedArgs,
+          sourceArgs,
+          topLevelLowerableAliases,
+          fnType,
+          topLevelPredefAliases,
+          localScope + b
+        )
 
       def setRecur(target: RecurTarget, m: Declaration.Match): InDefRecurred =
         InDefRecurred(this, target, m, 0, Map.empty)
@@ -777,6 +827,14 @@ object TypedExprRecursionCheck {
           None
       }
 
+    private def asNegativeConst(expr: SmtExpr.IntExpr): Option[BigInt] =
+      expr match {
+        case SmtExpr.IntConst(n) if n < 0 =>
+          Some(-n)
+        case _ =>
+          None
+      }
+
     private def asSubByPositiveConst(
         expr: SmtExpr.IntExpr
     ): Option[(SmtExpr.IntExpr, BigInt)] =
@@ -785,8 +843,13 @@ object TypedExprRecursionCheck {
           args.toList match {
             case left :: right :: Nil =>
               asNegativeConstMul(right)
+                .orElse(asNegativeConst(right))
                 .map((left, _))
-                .orElse(asNegativeConstMul(left).map((right, _)))
+                .orElse(
+                  asNegativeConstMul(left)
+                    .orElse(asNegativeConst(left))
+                    .map((right, _))
+                )
             case _ =>
               None
           }
@@ -882,6 +945,52 @@ object TypedExprRecursionCheck {
           None
       }
 
+    private val lowerablePredefFnNames: Set[Identifier.Name] = Set(
+      Identifier.Name("add"),
+      Identifier.Name("sub"),
+      Identifier.Name("mul"),
+      Identifier.Name("div"),
+      Identifier.Name("mod_Int"),
+      Identifier.Name("cmp_Int"),
+      Identifier.Name("eq_Int")
+    )
+
+    private def resolvedPredefFnName(
+        fn: TypedExpr[Declaration],
+        state: SmtBranchState
+    ): Option[Identifier.Name] =
+      predefFnName(fn)
+        .collect { case n: Identifier.Name => n }
+        .filter(lowerablePredefFnNames)
+        .orElse {
+          stripExprWrappers(fn) match {
+            case TypedExpr.Global(pack, nm: Bindable, _, _) =>
+              state.topLevelPredefAliases.get((pack, nm))
+            case _ =>
+              None
+          }
+        }
+
+    private def inlinedTopLevelAliasApp(
+        fn: TypedExpr[Declaration],
+        args: NonEmptyList[TypedExpr[Declaration]],
+        state: SmtBranchState
+    ): Option[TypedExpr[Declaration]] =
+      stripExprWrappers(fn) match {
+        case TypedExpr.Global(pack, nm: Bindable, _, _) =>
+          state.topLevelLowerableAliases.get((pack, nm)).flatMap { alias =>
+            if (alias.params.length == args.length) {
+              val substitutions = alias.params.iterator.zip(args.iterator).map {
+                case (param, argExpr) =>
+                  param -> ((_: TypedExpr.Local[Declaration]) => argExpr)
+              }.toMap
+              TypedExpr.substituteAll(substitutions, alias.body, enterLambda = true)
+            } else None
+          }
+        case _ =>
+          None
+      }
+
     private def boolLiteralValue(
         expr: TypedExpr[Declaration]
     ): Option[Boolean] =
@@ -961,11 +1070,14 @@ object TypedExprRecursionCheck {
     ): (Option[(SmtExpr.IntExpr, SmtExpr.IntExpr)], SmtBranchState) =
       stripExprWrappers(expr) match {
         case TypedExpr.App(fn, args, _, _) =>
-          predefFnName(fn) match {
+          resolvedPredefFnName(fn, state) match {
             case Some(Identifier.Name("cmp_Int")) =>
               lowerBinaryInt(args, state)((_, _))
             case _ =>
-              (None, state)
+              inlinedTopLevelAliasApp(fn, args, state) match {
+                case Some(inlined) => lowerCmpIntArgs(inlined, state)
+                case None          => (None, state)
+              }
           }
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerCmpIntArgs)
@@ -982,7 +1094,7 @@ object TypedExprRecursionCheck {
           val (cmpExpr, state1) = ensureComparisonLocal(name, state)
           (Some(cmpExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          predefFnName(fn) match {
+          resolvedPredefFnName(fn, state) match {
             case Some(Identifier.Name("cmp_Int")) =>
               val (pair, state1) = lowerBinaryInt(args, state)((_, _))
               val compared = pair.map { case (left, right) =>
@@ -998,7 +1110,10 @@ object TypedExprRecursionCheck {
               }
               (compared, state1)
             case _ =>
-              (None, state)
+              inlinedTopLevelAliasApp(fn, args, state) match {
+                case Some(inlined) => lowerComparisonExpr(inlined, state)
+                case None          => (None, state)
+              }
           }
         case TypedExpr.Let(name, valueExpr, inExpr, rec, _) =>
           lowerWithLetBinding(name, valueExpr, inExpr, rec, state)(lowerComparisonExpr)
@@ -1111,7 +1226,7 @@ object TypedExprRecursionCheck {
           val (intExpr, state1) = ensureIntLocal(name, state)
           (Some(intExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          predefFnName(fn) match {
+          resolvedPredefFnName(fn, state) match {
             case Some(Identifier.Name("add")) =>
               lowerBinaryInt(args, state)((left, right) =>
                 SmtExpr.Add(Vector(left, right))
@@ -1150,7 +1265,10 @@ object TypedExprRecursionCheck {
                 )
               )
             case _ =>
-              (None, state)
+              inlinedTopLevelAliasApp(fn, args, state) match {
+                case Some(inlined) => lowerIntExpr(inlined, state)
+                case None          => (None, state)
+              }
           }
         case TypedExpr.Match(arg, branches, _) if isBoolType(arg.getType) =>
           val loweredIf @ (ifOpt, state1) = lowerIntIfExpr(arg, branches, state)
@@ -1347,11 +1465,14 @@ object TypedExprRecursionCheck {
           val (boolExpr, state1) = ensureBoolLocal(name, state)
           (Some(boolExpr), state1)
         case TypedExpr.App(fn, args, _, _) =>
-          predefFnName(fn) match {
+          resolvedPredefFnName(fn, state) match {
             case Some(Identifier.Name("eq_Int")) =>
               lowerBinaryInt(args, state)(SmtExpr.EqInt(_, _))
             case _ =>
-              (None, state)
+              inlinedTopLevelAliasApp(fn, args, state) match {
+                case Some(inlined) => lowerBoolExpr(inlined, state)
+                case None          => (None, state)
+              }
           }
         case TypedExpr.Match(arg, branches, _) =>
           lowerBoolFromMatches(arg, branches, state)
@@ -1573,9 +1694,13 @@ object TypedExprRecursionCheck {
       } else state
 
     private def initBranchSmtState(inrec: InDefRecurred): SmtBranchState =
-      inrec.inRec.typedArgs.iterator.flatMap(_.iterator).foldLeft(SmtBranchState.Empty) {
-        case (state, (name, tpe)) =>
-          bindSymbolForType(name, tpe, state)
+      inrec.inRec.typedArgs.iterator.flatMap(_.iterator).foldLeft(
+        SmtBranchState.Empty.copy(
+          topLevelLowerableAliases = inrec.inRec.topLevelLowerableAliases,
+          topLevelPredefAliases = inrec.inRec.topLevelPredefAliases
+        )
+      ) { case (state, (name, tpe)) =>
+        bindSymbolForType(name, tpe, state)
       }
 
     private def bindLetName(
@@ -1661,9 +1786,12 @@ object TypedExprRecursionCheck {
         case Some(intExpr) =>
           (Some(intExpr), state1, None)
         case None          =>
+          val targetRepr = target.paramName.sourceCodeRepr
+          val hint =
+            s"hint: rewrite recursive argument using canonical Int operations, e.g. $targetRepr.sub(1) or $targetRepr.add(-1)"
           val detail =
             Some(
-              s"unable to lower recursive argument ${arg.reprString} to SMT Int expression"
+              s"unable to lower recursive argument ${arg.reprString} to SMT Int expression; $hint"
             )
           (
             None,
@@ -1985,8 +2113,10 @@ object TypedExprRecursionCheck {
         state <- getSt
         _ <- toSt(checkForIllegalBinds(state, bs, region)(unitValid))
         _ <- (state match {
-          case id @ InDef(_, _, _, _, _, _) => setSt(bs.foldLeft(id)(_.addLocal(_)))
-          case _                             => unitSt
+          case id @ InDef(_, _, _, _, _, _, _, _) =>
+            setSt(bs.foldLeft(id)(_.addLocal(_)))
+          case _                                =>
+            unitSt
         })
       } yield ()
 
@@ -2331,7 +2461,7 @@ object TypedExprRecursionCheck {
                 case TopLevel | InRecurBranch(_, _, _, _, _) |
                     InDefRecurred(_, _, _, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
-                case InDef(_, defname, typedArgs, sourceArgs, _, locals) =>
+                case InDef(_, defname, typedArgs, sourceArgs, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
                       val sourcePatterns = recur.cases.get.toList.map(_.pattern)
@@ -2343,7 +2473,7 @@ object TypedExprRecursionCheck {
                           compiledPat: Pattern[(PackageName, Identifier.Constructor), Type]
                       ): St[Unit] =
                         getSt.flatMap {
-                          case ir @ InDef(_, _, _, _, _, _) =>
+                          case ir @ InDef(_, _, _, _, _, _, _, _) =>
                             val rec = ir.setRecur(target, recur)
                             setSt(rec) *> beginBranch(matchArg, sourcePat, compiledPat)
                           case irr @ InDefRecurred(_, _, _, _, _) =>
@@ -2472,6 +2602,61 @@ object TypedExprRecursionCheck {
       loop(expr, Nil)
     }
 
+    private def directPredefAliasTarget(
+        expr: TypedExpr[Declaration]
+    ): Option[Identifier.Name] =
+      collectArgGroupsAndBody(expr).flatMap { case (argGroups, body) =>
+        val argNames = argGroups.iterator.flatMap(_.iterator.map(_._1)).toList
+        stripExprWrappers(body) match {
+          case TypedExpr.App(fn, args, _, _) if args.length == argNames.length =>
+            val forwardsArgs =
+              argNames.iterator.zip(args.iterator).forall { case (argName, argExpr) =>
+                localNameOf(argExpr).contains(argName)
+              }
+            if (forwardsArgs)
+              predefFnName(fn)
+                .collect { case n: Identifier.Name => n }
+                .filter(lowerablePredefFnNames)
+            else None
+          case _ =>
+            None
+        }
+      }
+
+    private def directLowerableAlias(
+        expr: TypedExpr[Declaration]
+    ): Option[TopLevelAlias] =
+      collectArgGroupsAndBody(expr).flatMap { case (argGroups, body) =>
+        argGroups.toList match {
+          case params :: Nil =>
+            Some(TopLevelAlias(params.map(_._1), body))
+          case _             =>
+            None
+        }
+      }
+
+    def topLevelLowerableAliases(
+        currentPackage: PackageName,
+        lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
+    ): TopLevelLowerableAliases =
+      lets.iterator.flatMap { case (name, rec, expr) =>
+        if (rec.isRecursive) None
+        else
+          directLowerableAlias(expr).map { alias =>
+            ((currentPackage, name), alias)
+          }
+      }.toMap
+
+    def topLevelPredefAliases(
+        currentPackage: PackageName,
+        lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
+    ): TopLevelPredefAliases =
+      lets.iterator.flatMap { case (name, _, expr) =>
+        directPredefAliasTarget(expr).map { predefName =>
+          ((currentPackage, name), predefName)
+        }
+      }.toMap
+
     /*
      * Binds are not allowed to be recursive, only defs, so here we just make sure
      * none of the free variables of the pattern are used in expr.
@@ -2481,15 +2666,38 @@ object TypedExprRecursionCheck {
         state: State,
         fnname: Bindable,
         expr: TypedExpr[Declaration],
-        sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]]
+        sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
+        topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
+        topLevelPredefAliases: TopLevelPredefAliases = Map.empty
     ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>
           checkExprV(currentPackage, state, expr)
         case Some((typedArgs, body)) =>
+          val inheritedLowerableAliases =
+            state match {
+              case inDefState: InDefState =>
+                inDefState.inDef.topLevelLowerableAliases
+              case TopLevel              =>
+                topLevelLowerableAliases
+            }
+          val inheritedPredefAliases =
+            state match {
+              case inDefState: InDefState =>
+                inDefState.inDef.topLevelPredefAliases
+              case TopLevel              =>
+                topLevelPredefAliases
+            }
           val sourceArgs = sourceArgsForDef(sourceArgPatterns, typedArgs)
           val nameArgs = sourceArgs.toList.flatMap(_.patternNames)
-          val state1 = state.inDef(fnname, typedArgs, sourceArgs, expr.getType)
+          val state1 = state.inDef(
+            fnname,
+            typedArgs,
+            sourceArgs,
+            inheritedLowerableAliases,
+            expr.getType,
+            inheritedPredefAliases
+          )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
             val st = setSt(state1) *> checkExpr(
               currentPackage,
@@ -2497,7 +2705,7 @@ object TypedExprRecursionCheck {
               WrapperScope.Empty
             ) *> (
               getSt.flatMap {
-                case InDef(_, _, _, _, _, _) =>
+                case InDef(_, _, _, _, _, _, _, _) =>
                   // we never hit a recur
                   unitSt
                 case InDefRecurred(_, _, recur, cnt, _) if cnt > 0 =>
@@ -2535,11 +2743,21 @@ object TypedExprRecursionCheck {
         name: Bindable,
         rec: RecursionKind,
         expr: TypedExpr[Declaration],
-        sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]]
+        sourceArgs: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
+        topLevelLowerableAliases: TopLevelLowerableAliases,
+        topLevelPredefAliases: TopLevelPredefAliases
     ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
       if (shouldCheckAsDef)
-        checkDef(currentPackage, TopLevel, name, expr, sourceArgs)
+        checkDef(
+          currentPackage,
+          TopLevel,
+          name,
+          expr,
+          sourceArgs,
+          topLevelLowerableAliases,
+          topLevelPredefAliases
+        )
       else checkExprV(currentPackage, TopLevel, expr)
     }
   }

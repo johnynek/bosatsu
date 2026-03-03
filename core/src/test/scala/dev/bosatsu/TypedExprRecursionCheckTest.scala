@@ -255,6 +255,38 @@ def ok(i: Int) -> Int:
 """)
   }
 
+  test("loop Int recursion accepts equivalent add(-1) decrement") {
+    allowed("""#
+def demo(n: Int) -> Int:
+  def go(rem: Int, acc: Int) -> Int:
+    loop rem:
+      case _ if cmp_Int(rem, 0) matches GT:
+        go(rem.add(-1), acc.add(rem))
+      case _:
+        acc
+
+  go(n, 0)
+""")
+  }
+
+  test("loop Int recursion accepts infix decrement via top-level operator alias") {
+    allowed("""#
+def operator +(a, b): a.add(b)
+def operator -(a, b): a.sub(b)
+def operator >(a, b): cmp_Int(a, b) matches GT
+
+def demo(n: Int) -> Int:
+  def go(rem: Int, acc: Int) -> Int:
+    loop rem:
+      case _ if rem > 0:
+        go(rem - 1, acc + rem)
+      case _:
+        acc
+
+  go(n, 0)
+""")
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -324,7 +356,8 @@ def cmp_guarded(i: Int) -> Int:
   test("Int recursion reports unsupported SMT Int lowering in recursive args") {
     disallowedWithMessage("""#
 def id(i: Int) -> Int:
-  i
+  f = x -> x
+  f(i)
 
 def bad(i: Int) -> Int:
   recur i:
@@ -335,6 +368,7 @@ def bad(i: Int) -> Int:
 """) { msg =>
       assert(clue(msg).contains("unable to lower recursive argument"))
       assert(clue(msg).contains("recur target: i"))
+      assert(clue(msg).contains("hint: rewrite recursive argument using canonical Int operations"))
     }
   }
 
