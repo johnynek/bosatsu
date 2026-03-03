@@ -8,6 +8,9 @@ from Bosatsu/Predef import (
 export (
   char_to_Int,
   int_to_Char,
+  max_Char,
+  cmp_Char,
+  range_Char,
   string_to_Char,
   last_String,
   is_scalar_value,
@@ -42,6 +45,9 @@ def char_to_Int(c: Char) -> Int:
 def int_to_Char(code_point: Int) -> Option[Char]:
   int_to_Char_predef(code_point)
 
+def cmp_Char(a: Char, b: Char) -> Comparison:
+  cmp_Int(char_to_Int(a), char_to_Int(b))
+
 def andb(left: Bool, right: Bool) -> Bool:
   if left:
     right
@@ -64,6 +70,10 @@ def in_range_Int(item: Int, low: Int, high: Int) -> Bool:
   andb(gte_Int(item, low), lte_Int(item, high))
 
 max_scalar_value = 1114111
+max_Char = match int_to_Char(max_scalar_value):
+  case Some(c): c
+  case None: .'?'
+
 surrogate_start = 55296
 surrogate_end = 57343
 
@@ -248,6 +258,32 @@ def int_List_to_String(code_points: List[Int]) -> Option[String]:
     case None:
       None
 
+# Returns chars in the half-open interval [start, end), ordered by code point.
+# Build candidate code points with a comprehension, then drop invalid values.
+def range_Char(start: Char, end: Char) -> List[Char]:
+  start_cp = char_to_Int(start)
+  end_cp = char_to_Int(end)
+  width = end_cp.sub(start_cp)
+
+  if cmp_Int(width, 0) matches LT | EQ:
+    []
+  else:
+    maybe_chars = [int_to_Char(start_cp.add(offset)) for offset in range(width)]
+    maybe_chars.foldl_List([], (rev_chars, maybe_char) ->
+      match maybe_char:
+        case Some(c):
+          [c, *rev_chars]
+        case None:
+          rev_chars
+    ).reverse()
+
+def max_char_round_trip() -> Bool:
+  match int_to_Char(max_scalar_value):
+    case Some(c):
+      eq_Int(char_to_Int(c), char_to_Int(max_Char))
+    case None:
+      False
+
 str_to_char_tests = TestSuite("string_to_Char", [
   Assertion(string_to_Char("s") matches Some(.'s'), "s"),
   Assertion(string_to_Char("") matches None, "empty"),
@@ -278,6 +314,8 @@ code_point_tests = TestSuite("codepoint tests", [
   Assertion(int_to_Char(55296) matches None, "int_to_Char surrogate start"),
   Assertion(int_to_Char(57343) matches None, "int_to_Char surrogate end"),
   Assertion(int_to_Char(1114112) matches None, "int_to_Char too large"),
+  Assertion(eq_Int(char_to_Int(max_Char), max_scalar_value), "max_Char value"),
+  Assertion(max_char_round_trip(), "max_Char round trip"),
 
   Assertion(is_scalar_value(-1) matches False, "scalar negative"),
   Assertion(is_scalar_value(0), "scalar zero"),
@@ -327,6 +365,18 @@ unit_separator_char = match int_to_Char(31):
   case None: .'?'
 
 delete_char = match int_to_Char(127):
+  case Some(c): c
+  case None: .'?'
+
+before_surrogate_char = match int_to_Char(55295):
+  case Some(c): c
+  case None: .'?'
+
+after_surrogate_next_char = match int_to_Char(57345):
+  case Some(c): c
+  case None: .'?'
+
+before_max_char = match int_to_Char(max_scalar_value.sub(1)):
   case Some(c): c
   case None: .'?'
 
@@ -388,6 +438,24 @@ interop_tests = TestSuite("interop tests", [
   Assertion(int_List_to_String([55296]) matches None, "int_List_to_String invalid"),
 ])
 
+cmp_range_tests = TestSuite("cmp/range tests", [
+  Assertion(cmp_Char(.'a', .'a') matches EQ, "cmp_Char EQ"),
+  Assertion(cmp_Char(.'a', .'b') matches LT, "cmp_Char LT"),
+  Assertion(cmp_Char(.'👋', .'b') matches GT, "cmp_Char GT"),
+
+  Assertion(char_List_to_Int_List(range_Char(.'a', .'d')) matches [97, 98, 99], "range_Char ascii"),
+  Assertion(range_Char(.'a', .'a') matches [], "range_Char empty"),
+  Assertion(range_Char(.'d', .'a') matches [], "range_Char reversed"),
+  Assertion(
+    char_List_to_Int_List(range_Char(before_surrogate_char, after_surrogate_next_char)) matches [55295, 57344],
+    "range_Char skips surrogate code points"
+  ),
+  Assertion(
+    char_List_to_Int_List(range_Char(before_max_char, max_Char)) matches [1114110],
+    "range_Char end exclusive"
+  ),
+])
+
 partition_tests = TestSuite("partition tests", [
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
   Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
@@ -433,6 +501,7 @@ tests = TestSuite("Char tests", [
   radix_tests,
   ascii_tests,
   interop_tests,
+  cmp_range_tests,
   match_tests,
   glob_match_tests,
   partition_tests,
