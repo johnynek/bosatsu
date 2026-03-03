@@ -5,6 +5,7 @@ touch_paths:
   - docs/design/1883-type-level-integers-or-nats.md
   - build.sbt
   - proto/src/main/protobuf/bosatsu/TypedAst.proto
+  - core/src/main/scala/dev/bosatsu/Kind.scala
   - core/src/main/scala/dev/bosatsu/TypeParser.scala
   - core/src/main/scala/dev/bosatsu/TypeRef.scala
   - core/src/main/scala/dev/bosatsu/TypeRefConverter.scala
@@ -41,7 +42,7 @@ _Issue: #1883 (https://github.com/johnynek/bosatsu/issues/1883)_
 
 ## Summary
 
-Proposes a Nat-first refinement typing architecture (Int-ready) that adds `where` predicates on constructors and signatures, checks obligations in a new post-inference refinement pass, and discharges proofs through existing SMT/Z3 infrastructure with clear acceptance criteria, risks, and rollout sequencing.
+Proposes a Nat-first refinement typing architecture (Int-ready) that adds constructor invariants plus function contracts (`requires` input obligations, `ensures` output guarantees), introduces index-aware kinding (`Nat ~> * -> *` style constructor shape), checks obligations in a new post-inference refinement pass, and discharges proofs through existing SMT/Z3 infrastructure with clear acceptance criteria, risks, and rollout sequencing.
 
 ---
 issue: 1883
@@ -52,6 +53,7 @@ touch_paths:
   - docs/design/1883-type-level-integers-or-nats.md
   - build.sbt
   - proto/src/main/protobuf/bosatsu/TypedAst.proto
+  - core/src/main/scala/dev/bosatsu/Kind.scala
   - core/src/main/scala/dev/bosatsu/TypeParser.scala
   - core/src/main/scala/dev/bosatsu/TypeRef.scala
   - core/src/main/scala/dev/bosatsu/TypeRefConverter.scala
@@ -90,7 +92,7 @@ Status: proposed
 
 ## Summary
 
-Add first-class index sorts (`Nat` and `Int`) and `where` predicates to type definitions and value signatures, then discharge generated proof obligations with Z3 during typechecking. The initial scope is a tractable subset: explicit contracts plus quantifier-free linear integer arithmetic.
+Add first-class index sorts (`Nat` and `Int`), constructor invariants, and split function refinements (`requires` + `ensures`), then discharge generated proof obligations with Z3 during typechecking. The initial scope is a tractable subset: explicit contracts plus quantifier-free linear integer arithmetic.
 
 ## Problem statement
 
@@ -103,16 +105,18 @@ Bosatsu already has:
 Bosatsu does not currently have:
 
 1. A way to declare indexed ADTs such as `Vec[n, a]` where `n` is an arithmetic index.
-2. `where` clauses on constructors or value signatures.
+2. Constructor invariants plus split function contracts (`requires` / `ensures`).
 3. A pass that turns typing facts into SMT obligations.
 
 As a result, examples like length-safe vectors cannot be checked beyond simple syntactic type equality.
 
 ## Goals
 
-1. Support indexed ADTs with explicit index sorts (`Nat`, `Int`).
+1. Support indexed ADTs with explicit index sorts (`Nat`, `Int`) and index-aware constructor kinding.
 2. Support `where` predicates on enum/struct constructors.
-3. Support `where` predicates on value type annotations (including `def` return signatures).
+3. Support split function contracts:
+   - `requires` for caller obligations on inputs.
+   - `ensures` (or return-type refinement) for callee guarantees on outputs.
 4. Make pattern matching add constructor predicates as branch assumptions.
 5. Make constructor application require proving constructor predicates.
 6. Reuse existing SMT/Z3 infrastructure and keep obligations in QF_LIA.
@@ -136,33 +140,49 @@ enum Vec[n: Nat, a]:
   CVec[m: Nat](head: a, tail: Vec[m, a]) where n == m + 1
 ```
 
-### Function contracts
+### Function contracts: `requires` vs `ensures`
 
 ```bosatsu
 def filter(ary: Vec[n, a], fn: a -> Bool) ->
-  exists r: Nat. Vec[r, a] where r <= n:
+  exists r: Nat. Vec[r, a]
+  ensures r <= n:
   ...
 ```
-
-### Kind boundary and literal indices
-
-Phase 1 keeps `Kind` focused on type constructors (`Type` and `Cons`) and does
-not add `Nat`/`Int` variants to `core/src/main/scala/dev/bosatsu/Kind.scala`.
-Arithmetic indices are tracked in refinement metadata via `IndexSort` (`Nat` or
-`Int`), separate from higher-kinded type structure.
-
-This means singleton-style argument annotations like `i: m` where `m: Nat` are
-out of scope in phase 1. The phase-1 shape for safe vector indexing is:
 
 ```bosatsu
 def get_Vec[n: Nat, a](v: Vec[n, a], i: Int) ->
-  a where 0 <= i and i < n:
+  a
+  requires 0 <= i and i < n:
   ...
 ```
 
-Literal calls such as `get_Vec(v, 3)` are still useful: `3` is lowered as an
-integer literal term in SMT obligations, so bound checks can be discharged from
-`0 <= 3` and `3 < n` assumptions.
+`requires` and `ensures` play different checking roles:
+
+1. At each call site, the caller must prove the callee `requires`.
+2. Inside the callee body, `requires` is added as an assumption.
+3. At function definition, the callee body must prove `ensures`.
+4. At call sites, the callee `ensures` is available as a post-call fact.
+
+Phase 1 allows at most one `requires` and one `ensures` clause per signature;
+multiple constraints in the same role are written with conjunction (`and`).
+
+A return type refinement `... -> exists r: Nat. T where P(r, ...)` is treated as
+`ensures` sugar in phase 1.
+
+### Kinding indexed parameters and literal Nat arguments
+
+Phase 1 makes indexed-argument shape explicit in kinding metadata. For an
+indexed type like `Vec[n: Nat, a]`, the constructor shape is:
+
+1. one index argument of sort `Nat`,
+2. one type argument of kind `*`,
+3. result kind `*`.
+
+Shorthand: `Vec : Nat ~> * -> *`.
+
+This prevents `Vec[Long, Long]`: the first slot expects an index term of sort
+`Nat`, not a type expression. `Vec[3, Long]` is valid; integer literals are
+accepted in index positions and lowered as literal terms in SMT obligations.
 
 ### Additional useful examples
 
@@ -346,10 +366,10 @@ Typechecking outline:
 3. Keep rank-n type inference as the primary type pass:
    - Refinement proof is a separate typed pass after inference.
    - This avoids destabilizing existing unification behavior.
-4. Keep `Kind` unchanged in phase 1:
-   - No new `Kind` constructor for `Nat`/`Int`.
-   - Index sorts live in refinement binders/metadata (`IndexSort`), not in
-     higher-kinded type shape.
+4. Use index-aware kinding for indexed constructors:
+   - `Kind` metadata tracks index-argument positions and sorts.
+   - Example: `Vec : Nat ~> * -> *`.
+   - Type application checks index slots and type slots separately.
 
 ## Architecture
 
@@ -360,7 +380,8 @@ Add a dedicated refinement model under `dev.bosatsu.refinement`:
 1. `IndexSort`: `Nat | Int`.
 2. `Term`: variable, integer literal, arithmetic nodes.
 3. `Predicate`: comparisons and conjunction.
-4. Parser for `where` clauses and index-sort annotations.
+4. `Contract`: optional `requires` and `ensures`.
+5. Parser for constructor `where`, function contracts, and index-sort annotations.
 
 Parser integration points:
 
@@ -369,20 +390,22 @@ Parser integration points:
    - type parameter annotations accept `Nat` and `Int`.
 2. `TypeParser.scala` and `TypeRef.scala`:
    - type quantifier binders (`forall`/`exists`) accept index sorts.
-   - postfix `where` on type annotations.
+   - parse `requires`/`ensures` on function signatures.
+   - keep postfix return-type `where` as `ensures` sugar.
 3. `Declaration.scala`:
-   - add `where` as keyword to prevent identifier ambiguity.
+   - add `where`, `requires`, and `ensures` as keywords to prevent identifier ambiguity.
 
 ### 2) Type and environment representation
 
 Extend type-definition/value metadata, not runtime values:
 
-1. `rankn.ConstructorFn` gets `wherePredicate: Option[Predicate]`.
-2. `DefinedType`/`TypeEnv` expose index-parameter metadata.
-3. Annotated value signatures carry optional `wherePredicate`.
-4. Interface/package serialization carries new metadata (`TypedAst.proto`, `ProtoConverter.scala`).
+1. `Kind` (and related helpers) represent index-argument shape (for example, `Nat ~> * -> *`).
+2. `rankn.ConstructorFn` gets `wherePredicate: Option[Predicate]`.
+3. `DefinedType`/`TypeEnv` expose index-parameter and index-aware kind metadata.
+4. Annotated value signatures carry optional `requiresPredicate` and `ensuresPredicate`.
+5. Interface/package serialization carries new metadata (`TypedAst.proto`, `ProtoConverter.scala`).
 
-Existing `rankn.Type` continues to represent structural type shape. Index reasoning is attached as refinement metadata plus index-sorted binders.
+Existing `rankn.Type` continues to represent structural type shape. Refinement checking consults contract metadata and index-aware kinding metadata.
 
 ### 3) Refinement checking pass
 
@@ -396,10 +419,13 @@ High-level flow per typed let:
    - accumulated assumptions.
 3. Generate obligations:
    - constructor application must satisfy constructor `where`,
-   - expression checked against annotated signature must satisfy signature `where`.
+   - function application must satisfy callee `requires`,
+   - expression checked against annotated signature must satisfy callee `ensures` (or return-type `where` sugar).
 4. At `match`:
    - each constructor pattern introduces its instantiated constructor `where` predicate as an assumption in that branch.
-5. Send each obligation to SMT as entailment: prove `assumptions => goal`.
+5. On function entry, add declared `requires` as assumptions for checking body obligations.
+6. On function call return, add instantiated callee `ensures` as an assumption for subsequent checks.
+7. Send each obligation to SMT as entailment: prove `assumptions => goal`.
 
 Result handling:
 
@@ -436,7 +462,7 @@ Refinement metadata must round-trip through interface/package artifacts so impor
 
 1. old artifacts without refinement metadata still decode,
 2. missing metadata means no refinement obligations for that artifact,
-3. new artifacts carry constructor/value `where` data.
+3. new artifacts carry constructor invariants and function `requires`/`ensures` data.
 
 ## Tractability and expected capability
 
@@ -451,6 +477,7 @@ Not tractable in phase 1:
 1. Non-linear constraints.
 2. Deep quantified properties requiring lemma discovery.
 3. Contracts that depend on arbitrary runtime booleans unless explicitly reflected as refinement assumptions.
+4. Singleton parameter typing like `i: m` where `m` is a Nat index binder.
 
 ## Relation to Liquid Haskell
 
@@ -463,51 +490,59 @@ This design is a strict subset of Liquid Haskell-style refinement typing:
 ## Detailed implementation plan
 
 1. Introduce refinement AST/parser (`RefinementAst.scala`, `RefinementParser.scala`).
-2. Extend syntax and AST plumbing in `TypeParser.scala`, `TypeRef.scala`, `Statement.scala`, and `Declaration.scala`.
-3. Extend source conversion to produce refinement metadata (`SourceConverter.scala`).
-4. Extend rank-n definition metadata (`ConstructorFn.scala`, `DefinedType.scala`, `TypeEnv.scala`).
+2. Extend syntax and AST plumbing in `TypeParser.scala`, `TypeRef.scala`, `Statement.scala`, and `Declaration.scala` for constructor `where` plus function `requires`/`ensures`.
+3. Extend kinding metadata in `Kind.scala` and definition metadata (`ConstructorFn.scala`, `DefinedType.scala`, `TypeEnv.scala`) for index-aware constructor shapes.
+4. Extend source conversion to produce contract metadata (`SourceConverter.scala`).
 5. Add proto schema fields and converter support (`TypedAst.proto`, `ProtoConverter.scala`).
 6. Implement SMT lowering (`RefinementToSmt.scala`) and solver wrapper reuse.
 7. Implement `RefinementCheck.scala` and integrate it into `Package.scala`.
 8. Add `PackageError` rendering for refinement failures.
 9. Add parser/source-converter/infer/refinement/error-message tests.
-10. Keep refinement pass no-op when no `where` clauses or index sorts are present.
+10. Keep refinement pass no-op when no constructor invariants or function contracts are present.
 
 ## Testing strategy
 
 Unit tests:
 
 1. Parse and pretty-print round-trip for index sorts and `where` clauses.
-2. SMT lowering golden tests from predicate AST to SMT-LIB snippets.
-3. Refinement checker tests for constructor obligations and match assumptions.
+2. Parse and pretty-print round-trip for `requires` and `ensures`.
+3. SMT lowering golden tests from predicate AST to SMT-LIB snippets.
+4. Refinement checker tests for constructor obligations, function call preconditions, and postcondition propagation.
 
 Integration tests:
 
 1. Positive: `Vec` + `filter` example typechecks.
 2. Positive: `append`/`zip` style constraints typecheck.
-3. Negative: intentionally false constructor or function `where` fails with readable error.
-4. Unknown/timeout path surfaces deterministic error text.
-5. Interface round-trip preserves refinement metadata.
-6. Existing non-refinement suites remain green.
+3. Negative: intentionally false constructor invariant, `requires`, or `ensures` fails with readable error.
+4. Negative: invalid type application such as `Vec[Long, Long]` is rejected before refinement solving.
+5. Unknown/timeout path surfaces deterministic error text.
+6. Interface round-trip preserves refinement metadata.
+7. Existing non-refinement suites remain green.
 
 ## Acceptance criteria
 
 1. Parser accepts index-sort annotations (`Nat`, `Int`) in relevant type binders.
-2. Parser accepts constructor-level and signature-level `where` clauses.
-3. Constructors carry `where` predicates in typed metadata.
-4. Imported interfaces preserve refinement metadata.
-5. A new refinement pass runs during typechecking of typed lets.
-6. Pattern matching with constructors introduces constructor `where` assumptions.
-7. Constructor application fails unless constructor `where` is provable.
-8. Signature `where` clauses on annotated values are checked against bodies.
-9. Obligations are lowered to SMT `QF_LIA` and solved through `Z3Api`.
-10. `sat` and `unknown` solver outcomes are reported as user-facing compiler errors.
-11. `Vec` + `filter` style program from the issue typechecks under this feature.
-12. At least one negative vector-size example fails with a refinement-specific message.
-13. No-refinement programs preserve existing behavior and test outcomes.
-14. Existing `TypeErrorIn`/`TotalityCheck` diagnostics remain unaffected for unrelated failures.
-15. `Kind` behavior for existing programs is unchanged (`Type`/`Cons` only).
-16. Integer literals in call sites participate in refinement obligations (for
+2. Parser accepts constructor-level `where` clauses.
+3. Parser accepts function-level `requires` and `ensures` clauses.
+4. Duplicate `requires` or duplicate `ensures` clauses are rejected; conjunction is written explicitly with `and`.
+5. Return-type `where` refinements are accepted as `ensures` sugar.
+6. Indexed constructors carry index-aware kind shape (for example, `Vec : Nat ~> * -> *`).
+7. Invalid application of a type expression into an index slot (for example, `Vec[Long, Long]`) fails with a kind/index error.
+8. Constructors carry `where` predicates in typed metadata.
+9. Annotated function signatures carry `requires` and `ensures` metadata.
+10. Imported interfaces preserve refinement and index-aware kind metadata.
+11. A new refinement pass runs during typechecking of typed lets.
+12. Pattern matching with constructors introduces constructor `where` assumptions.
+13. Constructor application fails unless constructor `where` is provable.
+14. Function calls fail unless callee `requires` is provable at the call site.
+15. Function bodies are checked under declared `requires` assumptions and must prove declared `ensures`.
+16. Obligations are lowered to SMT `QF_LIA` and solved through `Z3Api`.
+17. `sat` and `unknown` solver outcomes are reported as user-facing compiler errors.
+18. `Vec` + `filter` style program from the issue typechecks under this feature.
+19. At least one negative vector-size example fails with a refinement-specific message.
+20. No-refinement programs preserve existing behavior and test outcomes.
+21. Existing `TypeErrorIn`/`TotalityCheck` diagnostics remain unaffected for unrelated failures.
+22. Integer literals in index positions participate in refinement obligations (for
     example, proving bounds in `get_Vec(v, 3)`-style checks).
 
 ## Risks and mitigations
@@ -515,13 +550,15 @@ Integration tests:
 1. Solver performance regressions:
    - Mitigation: normalize and cache obligations; keep phase 1 logic QF_LIA only.
 2. Solver availability/platform issues:
-   - Mitigation: fail with explicit actionable error when `where` is used but solver execution is unavailable.
+   - Mitigation: fail with explicit actionable error when refinement contracts are used but solver execution is unavailable.
 3. Diagnostic complexity:
    - Mitigation: include minimal assumption set plus focused failed goal and source region.
 4. Metadata compatibility risk:
    - Mitigation: additive proto fields and backward-compatible decoding.
 5. Scope creep into full refinement inference:
    - Mitigation: keep explicit-contract-only boundary for phase 1.
+6. Kinding migration complexity for indexed constructors:
+   - Mitigation: keep backward-compatible defaults for existing `* -> ... -> *` constructors and only require index-aware shape when index binders are present.
 
 ## Rollout notes
 
