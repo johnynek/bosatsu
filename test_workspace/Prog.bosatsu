@@ -30,4 +30,4 @@ def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err,
 unit: forall err. Prog[err, ()] = pure(())
 
 struct Main(run: List[String] -> forall err. Prog[err, Int])
-struct ProgTest(test_fn: forall err. List[String] -> Prog[err, Test])
+struct ProgTest(test_fn: List[String] -> forall err. Prog[err, Test])

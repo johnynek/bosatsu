@@ -970,7 +970,7 @@ tests = TestSuite("all tests", [
 
 `Bosatsu/Prog` defines:
 
-1. `ProgTest(test_fn: forall e. List[String] -> Prog[e, Test])`
+1. `ProgTest(test_fn: List[String] -> forall e. Prog[e, Test])`
 
 Test discovery rules (`tool test` and `lib test`) are:
 

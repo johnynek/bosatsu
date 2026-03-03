@@ -450,7 +450,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |unit: forall err. Prog[err, ()] = pure(())
 |
 |struct Main(run: List[String] -> forall err. Prog[err, Int])
-|struct ProgTest(test_fn: forall err. List[String] -> Prog[err, Test])
+|struct ProgTest(test_fn: List[String] -> forall err. Prog[err, Test])
 |""".stripMargin
 
   private val minimalIoErrorModuleSrc: String =
@@ -2190,7 +2190,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |unit: forall err. Prog[err, ()] = pure(())
 |
 |struct Main(run: List[String] -> forall err. Prog[err, Int])
-|struct ProgTest(test_fn: forall err. List[String] -> Prog[err, Test])
+|struct ProgTest(test_fn: List[String] -> forall err. Prog[err, Test])
 |""".stripMargin
 
     val ioErrorSrc =
