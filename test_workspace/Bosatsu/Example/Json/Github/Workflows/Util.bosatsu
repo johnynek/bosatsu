@@ -90,6 +90,7 @@ struct StepEnv(
   `OUTDIR`: Optional[String] = Missing,
   `GIT_SHA`: Optional[String] = Missing,
   `URI_BASE`: Optional[String] = Missing,
+  `PUBLISH_DRY_RUN`: Optional[String] = Missing,
   `C_RUNTIME_ARCHIVE`: Optional[String] = Missing,
   `GITHUB_TOKEN`: Optional[String] = Missing,
   `GITHUB_REF_NAME`: Optional[String] = Missing,

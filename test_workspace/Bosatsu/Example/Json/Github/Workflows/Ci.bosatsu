@@ -393,6 +393,7 @@ workflow =
               `OUTDIR`: Set("\${{ runner.temp }}/bosatsu_lib_publish"),
               `GIT_SHA`: Set("\${{ github.sha }}"),
               `URI_BASE`: Set("https://example.invalid/"),
+              `PUBLISH_DRY_RUN`: Set("1"),
             }),
           },
         ],
