@@ -2744,6 +2744,43 @@ build = (a, b, c, d, e, f, g, h, i, j, k) -> Massive(a, b, c, d, e, f, g, h, i, 
     }
   }
 
+  test("tool doc renders Unit -> a as () -> a in external signatures") {
+    val src =
+      """export apply_default
+external def apply_default[a](default: Unit -> a) -> a
+"""
+    val files = List(Chain("src", "UnitFn", "Main.bosatsu") -> src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/UnitFn/Main.bosatsu",
+          "--outdir",
+          "docs"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "UnitFn", "Main.md"))
+        assert(
+          markdown.contains("def apply_default[a](default: () -> a) -> a"),
+          markdown
+        )
+        assert(!markdown.contains("default: (()) -> a"), markdown)
+    }
+  }
+
   test("tool doc --include_predef includes Bosatsu/Predef markdown") {
     val src =
       """export main,
