@@ -435,6 +435,69 @@ def via_match(i: Int) -> Int:
 """)
   }
 
+  test("loop branches inherit negated guarded fallthrough facts for Int recursion") {
+    allowed("""#
+def countdown(fuel, stack):
+  loop (fuel, stack):
+    case (_, []): fuel
+    case (_, _) if cmp_Int(fuel, 0) matches LT | EQ: fuel
+    case (_, [_, *tail]): countdown(fuel.sub(1), tail)
+""")
+  }
+
+  test("vector-style loop uses negated guarded fallthrough facts for Int recursion") {
+    allowed("""#
+enum Vector[a: *]:
+  Leaf(size: Int, items: List[a])
+  Branch(depth: Int, left: Int, right: Int, children: List[Vector[a]])
+
+def foldl_Array[a: *, b: *](arr: List[a], init: b, fn: (b, a) -> b) -> b:
+  recur (arr, init):
+    case ([], acc): acc
+    case ([head, *tail], acc):
+      foldl_Array(tail, fn(acc, head), fn)
+
+def push_children_ltr[a: *](_: List[Vector[a]], tail: List[Vector[a]]) -> List[Vector[a]]:
+  tail
+
+def traversal_fuel[a: *](_: Vector[a]) -> Int:
+  2
+
+def foldl_Vector[a: *, b: *](vec: Vector[a], init: b, fn: (b, a) -> b) -> b:
+  def go(fuel, stack, acc):
+    loop (fuel, stack):
+      case (_, []): acc
+      case (_, _) if cmp_Int(fuel, 0) matches LT | EQ: acc
+      case (_, [Leaf(_, items), *tail]):
+        next_acc = foldl_Array(items, acc, fn)
+        go(fuel.sub(1), tail, next_acc)
+      case (_, [Branch(_, _, _, children), *tail]):
+        next_stack = push_children_ltr(children, tail)
+        go(fuel.sub(1), next_stack, acc)
+  go(traversal_fuel(vec), [vec], init)
+""")
+  }
+
+  test("loop uses negated guard fallthrough when total branch pattern is not directly lowerable") {
+    allowed("""#
+enum Node:
+  Leaf
+  Branch
+
+enum Frame:
+  Frame(stack: List[Node])
+
+def walk(fuel: Int, frame: Frame) -> Int:
+  loop (fuel, frame):
+    case (_, Frame([])): fuel
+    case (_, Frame(_)) if cmp_Int(fuel, 0) matches LT | EQ: fuel
+    case (_, Frame([Leaf, *tail])):
+      walk(fuel.sub(1), Frame(tail))
+    case (_, Frame([Branch, *tail])):
+      walk(fuel.sub(1), Frame(tail))
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
