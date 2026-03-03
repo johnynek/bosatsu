@@ -157,8 +157,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgc1 libgc-dev pkg-config
+          release_dir="$(mktemp -d)"
           repro_dir="$(mktemp -d)"
-          trap 'rm -rf "$repro_dir"' EXIT
+          trap 'rm -rf "$release_dir" "$repro_dir"' EXIT
+          git clone https://github.com/johnynek/zafu.git "$release_dir/zafu"
+          cd "$release_dir/zafu"
+          git fetch origin pull/9/merge:pr-9-merge
+          git checkout pr-9-merge
+          ulimit -s 1024
+          set +e
+          ./bosatsu --fetch
+          control_fetch_status="$?"
+          if [ "$control_fetch_status" -eq 0 ]; then
+            scripts/test.sh
+            control_status="$?"
+          else
+            control_status="$control_fetch_status"
+          fi
+          set -e
+          echo "release_0_0_39_status=$control_status"
+          if [ "$control_status" -eq 0 ]; then
+            echo "::warning::zafu control run with released bosatsu 0.0.39 succeeded unexpectedly"
+          else
+            echo "zafu control run with released bosatsu 0.0.39 failed as expected"
+          fi
           git clone https://github.com/johnynek/zafu.git "$repro_dir/zafu"
           cd "$repro_dir/zafu"
           git fetch origin pull/9/merge:pr-9-merge
