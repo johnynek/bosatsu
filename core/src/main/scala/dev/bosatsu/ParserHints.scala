@@ -15,6 +15,7 @@ object ParserHints {
     elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
+      matchesHeaderKeywordRule ::
       missingColonAfterHeaderRule ::
       Nil
 
@@ -202,10 +203,48 @@ object ParserHints {
                 tail.startsWith("=") && !tail.startsWith("==") =>
             // Handled by assignmentInConditionRule with a more specific message.
             None
+          case Some((keyword, _))
+              if (keyword == "if" || keyword == "elif") &&
+                wordAtOrAfter(source, pos).exists { case (word, _, _) =>
+                  word == "match"
+                } =>
+            Some(
+              Doc.text(
+                "hint: this condition uses 'match'. It looks like you meant 'matches'."
+              )
+            )
           case Some((k, _)) =>
             Some(Doc.text(s"hint: missing ':' after $k header."))
           case None =>
             None
+        }
+      }
+    }
+  }
+
+  private def matchesHeaderKeywordRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (pos < 0 || pos > source.length) {
+      None
+    } else {
+      lineInfo(locations, pos).flatMap { case (_, col, line) =>
+        val words = wordsIn(line)
+        val wordAtError =
+          words.find { case (_, start, end) => start <= col && col < end }
+        val wordBeforeError =
+          words.takeWhile { case (_, _, end) => end <= col }.lastOption
+
+        (wordAtError.toList ::: wordBeforeError.toList).collectFirst {
+          case ("matches", start, end)
+              if startsExpressionLikePrefix(line, start) &&
+                line.drop(end).contains(':') =>
+            Doc.text(
+              "hint: match headers start with 'match', not 'matches'. It looks like you meant 'match'."
+            )
         }
       }
     }
@@ -274,6 +313,12 @@ object ParserHints {
 
   private def isWordChar(c: Char): Boolean =
     c == '_' || c.isLetterOrDigit
+
+  private def startsExpressionLikePrefix(line: String, wordStart: Int): Boolean = {
+    val prevSignificant =
+      line.take(wordStart).reverseIterator.find(!_.isWhitespace)
+    prevSignificant.forall("=([{,:".contains(_))
+  }
 
   private val intLiteralRegex =
     raw"""[+-]?(?:0|[1-9][0-9_]*|0[bB][01_]+|0[oO][0-7_]+|0[xX][0-9a-fA-F_]+)""".r
