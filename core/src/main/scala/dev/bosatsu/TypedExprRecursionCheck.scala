@@ -519,23 +519,6 @@ object TypedExprRecursionCheck {
           }
       }
 
-    private def allowedByTargetFromCompiled(
-        target: RecurTarget,
-        branchPat: Pattern[(PackageName, Identifier.Constructor), Type]
-    ): NonEmptyList[Set[Bindable]] =
-      target.tail match {
-        case Nil =>
-          NonEmptyList.one(branchPat.substructures.toSet)
-        case _ =>
-          branchPat match {
-            case Pattern.PositionalStruct(_, parts)
-                if parts.length == target.length =>
-              NonEmptyList.fromListUnsafe(parts.map(_.substructures.toSet))
-            case _ =>
-              target.map(_ => Set.empty[Bindable])
-          }
-      }
-
     private def targetPatternPartsFromParsed(
         targetLength: Int,
         branchPat: Pattern.Parsed
@@ -2572,7 +2555,7 @@ object TypedExprRecursionCheck {
                       // on all these branches, use the same parent state
                       def beginBranch(
                           matchArg: TypedExpr[Declaration],
-                          sourcePat: Option[Pattern.Parsed],
+                          sourcePat: Pattern.Parsed,
                           compiledPat: Pattern[(PackageName, Identifier.Constructor), Type],
                           fallthroughFact: SmtExpr.BoolExpr
                       ): St[Unit] =
@@ -2587,12 +2570,7 @@ object TypedExprRecursionCheck {
                             )
                           case irr @ InDefRecurred(_, _, _, _, _) =>
                             val allowed =
-                              sourcePat match {
-                                case Some(sp) =>
-                                  allowedByTargetFromParsed(irr.target, sp)
-                                case None     =>
-                                  allowedByTargetFromCompiled(irr.target, compiledPat)
-                              }
+                              allowedByTargetFromParsed(irr.target, sourcePat)
                             val reachable = allowed.iterator.flatMap(_.iterator).toSet
                             val smtState0 =
                               addPatternFactsAndBindings(
@@ -2603,12 +2581,7 @@ object TypedExprRecursionCheck {
                             val smtState1 =
                               addPathFactIfNonTrivial(fallthroughFact, smtState0)
                             val smtState =
-                              sourcePat match {
-                                case Some(sp) =>
-                                  bindSourcePatternAliases(irr, sp, smtState1)
-                                case None     =>
-                                  smtState1
-                              }
+                              bindSourcePatternAliases(irr, sourcePat, smtState1)
                             setSt(
                               InRecurBranch(
                                 irr,
@@ -2639,7 +2612,7 @@ object TypedExprRecursionCheck {
                             _ <- checkForIllegalBindsSt(branch.pattern.names, tag.region)
                             _ <- beginBranch(
                               arg,
-                              Some(sourcePat),
+                              sourcePat,
                               branch.pattern,
                               fallthroughFact
                             )
