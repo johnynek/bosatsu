@@ -8,6 +8,7 @@ from Bosatsu/Predef import (
 export (
   char_to_Int,
   int_to_Char,
+  max_Char,
   string_to_Char,
   last_String,
   is_scalar_value,
@@ -64,6 +65,10 @@ def in_range_Int(item: Int, low: Int, high: Int) -> Bool:
   andb(gte_Int(item, low), lte_Int(item, high))
 
 max_scalar_value = 1114111
+max_Char = match int_to_Char(max_scalar_value):
+  case Some(c): c
+  case None: .'?'
+
 surrogate_start = 55296
 surrogate_end = 57343
 
@@ -248,6 +253,13 @@ def int_List_to_String(code_points: List[Int]) -> Option[String]:
     case None:
       None
 
+def max_char_round_trip() -> Bool:
+  match int_to_Char(max_scalar_value):
+    case Some(c):
+      eq_Int(char_to_Int(c), char_to_Int(max_Char))
+    case None:
+      False
+
 str_to_char_tests = TestSuite("string_to_Char", [
   Assertion(string_to_Char("s") matches Some(.'s'), "s"),
   Assertion(string_to_Char("") matches None, "empty"),
@@ -278,6 +290,8 @@ code_point_tests = TestSuite("codepoint tests", [
   Assertion(int_to_Char(55296) matches None, "int_to_Char surrogate start"),
   Assertion(int_to_Char(57343) matches None, "int_to_Char surrogate end"),
   Assertion(int_to_Char(1114112) matches None, "int_to_Char too large"),
+  Assertion(eq_Int(char_to_Int(max_Char), max_scalar_value), "max_Char value"),
+  Assertion(max_char_round_trip(), "max_Char round trip"),
 
   Assertion(is_scalar_value(-1) matches False, "scalar negative"),
   Assertion(is_scalar_value(0), "scalar zero"),
