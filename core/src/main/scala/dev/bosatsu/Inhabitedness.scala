@@ -67,9 +67,10 @@ object Inhabitedness {
       env: TypeEnv[Kind.Arg]
   ): Result[State] = {
     val an = Analyzer(env)
-    (an.validateType(scrutinee), an.validatePattern(pattern)).mapN { (_, _) =>
-      an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
-    }
+    an.validateType(scrutinee) *>
+      an.validatePattern(pattern).as(
+        an.checkPattern(scrutinee, pattern, Map.empty, Set.empty)
+      )
   }
 
   private final case class Analyzer(env: TypeEnv[Kind.Arg]) {
