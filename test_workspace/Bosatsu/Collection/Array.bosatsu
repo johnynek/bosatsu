@@ -3,7 +3,7 @@ package Bosatsu/Collection/Array
 from Bosatsu/List import eq_List
 from Bosatsu/Option import eq_Option
 from Bosatsu/Testing/Properties import forall_Prop, run_Prop
-from Bosatsu/Rand import (Rand, flat_map_Rand, geometric_Int, int_range, map_Rand, prod_Rand, sequence_Rand)
+from Bosatsu/Rand import (Rand, int_range, map_Rand, prod_Rand)
 from Bosatsu/Char import (
   char_to_Int,
   string_to_Char_List,
@@ -147,13 +147,9 @@ def int_to_char_array_some() -> Bool:
     case None: False
 
 rand_Int: Rand[Int] = map_Rand(int_range(200), i -> i.sub(100))
-rand_Int_List: Rand[List[Int]] = flat_map_Rand(
-  geometric_Int,
-  len -> sequence_Rand(replicate_List(rand_Int, len))
-)
-rand_Array_and_Init: Rand[(Array[Int], Int)] = prod_Rand(
-  map_Rand(rand_Int_List, from_List_Array),
-  rand_Int
+rand_Array_and_Init: Rand[(Array[Int], Int)] = map_Rand(
+  prod_Rand(prod_Rand(rand_Int, int_range(40)), rand_Int),
+  (((start, len), init)) -> (range_from_Array(start, len), init)
 )
 
 foldr_reverse_law = forall_Prop(
