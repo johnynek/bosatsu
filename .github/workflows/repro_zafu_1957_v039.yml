@@ -1,0 +1,61 @@
+name: repro-zafu-1957-v039
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - codex/repro-1957-v039-baseline
+      - codex/repro-1957-v039-eval
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache sbt directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}
+          restore-keys: |
+            sbt-${{ runner.os }}-
+
+      - name: java setup
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: install sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: build native image
+        run: |
+          sbt "cli/nativeImage"
+          cp cli/target/native-image/bosatsu-cli bosatsu
+
+      - name: repro zafu stack overflow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgc1 libgc-dev pkg-config
+
+          repro_dir="$(mktemp -d)"
+          trap 'rm -rf "$repro_dir"' EXIT
+
+          git clone https://github.com/johnynek/zafu.git "$repro_dir/zafu"
+          cd "$repro_dir/zafu"
+          git fetch origin pull/9/merge:pr-9-merge
+          git checkout pr-9-merge
+
+          ./bosatsu --artifact "$GITHUB_WORKSPACE/bosatsu" version
+          runtime_version="$("$GITHUB_WORKSPACE/bosatsu" version -g)"
+          make -C "$GITHUB_WORKSPACE/c_runtime" install VERSION="$runtime_version" ROOTDIR="$PWD"
+
+          ulimit -s 1024
+          scripts/test.sh
