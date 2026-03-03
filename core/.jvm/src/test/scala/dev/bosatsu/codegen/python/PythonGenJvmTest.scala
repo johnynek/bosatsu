@@ -11,7 +11,10 @@ class PythonGenJvmTest extends munit.FunSuite {
         "test_workspace/Option.bosatsu",
         "test_workspace/Char.bosatsu",
         "test_workspace/Bool.bosatsu",
-        "test_workspace/Nat.bosatsu"
+        "test_workspace/Nat.bosatsu",
+        "test_workspace/BinNat.bosatsu",
+        "test_workspace/Rand.bosatsu",
+        "test_workspace/Properties.bosatsu"
       )
       val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
       val doc =

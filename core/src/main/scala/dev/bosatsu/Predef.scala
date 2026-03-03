@@ -310,6 +310,11 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "foldr_Array",
+        FfiCall.Fn3(PredefImpl.foldr_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
         "map_Array",
         FfiCall.Fn2(PredefImpl.map_Array(_, _))
       )
@@ -3254,6 +3259,18 @@ object PredefImpl {
     while (idx < arr.len) {
       acc = fnT(NonEmptyList(acc, arr.data(arr.offset + idx) :: Nil))
       idx = idx + 1
+    }
+    acc
+  }
+
+  def foldr_Array(array: Value, init: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val fnT = fn.asFn
+    var idx = arr.len - 1
+    var acc = init
+    while (idx >= 0) {
+      acc = fnT(NonEmptyList(arr.data(arr.offset + idx), acc :: Nil))
+      idx = idx - 1
     }
     acc
   }

@@ -2,6 +2,8 @@ package Bosatsu/Collection/Array
 
 from Bosatsu/List import eq_List
 from Bosatsu/Option import eq_Option
+from Bosatsu/Testing/Properties import forall_Prop, run_Prop
+from Bosatsu/Rand import (Rand, int_range, map_Rand, prod_Rand)
 from Bosatsu/Char import (
   char_to_Int,
   string_to_Char_List,
@@ -19,6 +21,7 @@ export (
   get_Array,
   get_or_Array,
   foldl_Array,
+  foldr_Array,
   map_Array,
   filter_Array,
   flat_map_Array,
@@ -52,6 +55,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 external def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -> b, fn: a -> b) -> b
 external def get_or_Array[a](ary: Array[a], idx: Int, default: () -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
 external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
 external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
@@ -142,6 +146,21 @@ def int_to_char_array_some() -> Bool:
     case Some(chars): to_List_Array(chars) matches [.'A', .'👋']
     case None: False
 
+rand_Int: Rand[Int] = map_Rand(int_range(200), i -> i.sub(100))
+rand_Array_and_Init: Rand[(Array[Int], Int)] = map_Rand(
+  prod_Rand(prod_Rand(rand_Int, int_range(40)), rand_Int),
+  (((start, len), init)) -> (range_from_Array(start, len), init)
+)
+
+foldr_reverse_law = forall_Prop(
+  rand_Array_and_Init,
+  "reverse + foldl == foldr",
+  ((arr, init)) -> (
+    foldr_res = foldr_Array(arr, init, (item, acc) -> add(mul(item, 31), acc))
+    foldl_res = foldl_Array(reverse_Array(arr), init, (acc, item) -> add(mul(item, 31), acc))
+    Assertion(eq_Int(foldr_res, foldl_res), "foldr follows reverse + foldl")
+  ))
+
 tests = TestSuite("Array tests", [
   Assertion(size_Array(a0) matches 0, "empty size"),
   Assertion(to_List_Array(a0) matches [], "empty to list"),
@@ -154,6 +173,7 @@ tests = TestSuite("Array tests", [
   Assertion(get_or_Array(a5, 2, () -> 100) matches 2, "get_or in range"),
   Assertion(get_or_Array(a5, 10, () -> 100) matches 100, "get_or fallback"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "foldl add"),
+  Assertion(foldr_Array(a5, 0, (x, acc) -> sub(x, acc)) matches 2, "foldr order"),
   Assertion(to_List_Array(map_Array(a5, i -> i.add(1))) matches [1, 2, 3, 4, 5], "map add 1"),
   Assertion(to_List_Array(filter_Array(a5, i -> i.mod_Int(2) matches 0)) matches [0, 2, 4], "filter evens"),
   Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
@@ -212,4 +232,5 @@ tests = TestSuite("Array tests", [
   Assertion(index_in_range_Array(a5, 0), "index in range 0"),
   Assertion(index_in_range_Array(a5, 4), "index in range 4"),
   Assertion(index_in_range_Array(a5, 5) matches False, "index not in range"),
+  run_Prop(foldr_reverse_law, 100, 4242),
 ])

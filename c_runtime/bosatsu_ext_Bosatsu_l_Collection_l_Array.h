@@ -16,6 +16,8 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(BValue array, BVa
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValue init, BValue fn);
 
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldr__Array(BValue array, BValue init, BValue fn);
+
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue fn);
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_filter__Array(BValue array, BValue fn);

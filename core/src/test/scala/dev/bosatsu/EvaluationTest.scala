@@ -2977,6 +2977,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
 external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
 external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
 external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
@@ -3003,6 +3004,7 @@ tests = TestSuite("array eval", [
   Assertion(get_Array(a5, -1) matches None, "get none"),
   Assertion(get_or_Array(a5, 20, _ -> 10) matches 10, "get_or"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "fold"),
+  Assertion(foldr_Array(a5, 0, (x, acc) -> sub(x, acc)) matches 2, "foldr"),
   Assertion(to_List_Array(map_Array(a5, x -> x.add(1))) matches [1, 2, 3, 4, 5], "map"),
   Assertion(to_List_Array(filter_Array(a5, x -> x.mod_Int(2) matches 0)) matches [0, 2, 4], "filter"),
   Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
@@ -3041,7 +3043,7 @@ tests = TestSuite("array eval", [
 ])
 """),
       "Bosatsu/Collection/Array",
-      19
+      20
     )
   }
 
