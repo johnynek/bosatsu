@@ -255,6 +255,17 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValu
   return acc;
 }
 
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldr__Array(BValue array, BValue init, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  BValue acc = init;
+  for (int idx = arr->len - 1; idx >= 0; idx--) {
+    acc = call_fn2(fn, arr->data[arr->offset + idx], acc);
+  }
+
+  return acc;
+}
+
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 

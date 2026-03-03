@@ -1795,6 +1795,50 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("foldr_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLasts(input) {
+                    case ary :: init :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          idx := size.evalMinus(Code.Const.One),
+                          acc := init,
+                          Code.While(
+                            !(idx :< Code.Const.Zero),
+                            Code.block(
+                              acc := fn(
+                                selectItem(data, offset.evalPlus(idx)),
+                                acc
+                              ),
+                              idx := idx.evalMinus(Code.Const.One)
+                            )
+                          )
+                        )
+                        .withValue(acc)
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              3
+            )
+          ),
+          (
             Identifier.Name("map_Array"),
             (
               { input =>
