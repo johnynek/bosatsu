@@ -173,6 +173,7 @@ repro_zafu_issue_1957_step =
       "./bosatsu --artifact \"$GITHUB_WORKSPACE/bosatsu\" version",
       "runtime_version=\"$(\"$GITHUB_WORKSPACE/bosatsu\" version -g)\"",
       "make -C \"$GITHUB_WORKSPACE/c_runtime\" install VERSION=\"$runtime_version\" ROOTDIR=\"$PWD\"",
+      "ulimit -s 2048",
       "scripts/test.sh",
       "",
     ])),
