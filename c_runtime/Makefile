@@ -65,8 +65,8 @@ test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }
 	touch test_out
 
-bench_exe: bench.c bosatsu_runtime.o
-	$(CC) $(ALL_CPPFLAGS) $(CFLAGS) -Wall -o bench_exe bench.c bosatsu_runtime.o $(LDFLAGS) $(ALL_LIBS)
+bench_exe: bench.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Prog.o
+	$(CC) $(ALL_CPPFLAGS) $(CFLAGS) -Wall -o bench_exe bench.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Prog.o $(LDFLAGS) $(ALL_LIBS)
 
 bench: bench_exe
 	./bench_exe
