@@ -10,7 +10,7 @@ import dev.bosatsu.{Lit, PackageName, Par, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
-import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
+import org.python.core.{PyInteger, PyFunction, PyObject, PySystemState, PyTuple}
 
 import TestUtils.compileFile
 
@@ -262,7 +262,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       extraPaths: String*
   ) =
     JythonBarrier.run {
-      val intr = new PythonInterpreter()
+      val intr = new PythonInterpreter(null, new PySystemState())
 
       val packMap =
         Par.noParallelism {
@@ -311,6 +311,20 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       PackageName.parts("PredefTests"),
       "test",
       "test_workspace/Float64.bosatsu"
+    )
+  }
+
+  test("issue #1961: array externals work as function values") {
+    runBoTests(
+      "test_workspace/Issue1961.bosatsu",
+      PackageName.parts("Issue1961"),
+      "tests",
+      "test_workspace/Bosatsu/Collection/Array.bosatsu",
+      "test_workspace/List.bosatsu",
+      "test_workspace/Option.bosatsu",
+      "test_workspace/Char.bosatsu",
+      "test_workspace/Bool.bosatsu",
+      "test_workspace/Nat.bosatsu"
     )
   }
 
