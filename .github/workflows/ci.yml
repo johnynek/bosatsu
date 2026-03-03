@@ -173,6 +173,17 @@ jobs:
       - name: "run bosatsu tests"
         run: |
           ./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/
+      - name: "reproduce zafu stack overflow (issue #1957)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgc1 libgc-dev pkg-config
+          repro_dir="$(mktemp -d)"
+          trap 'rm -rf "$repro_dir"' EXIT
+          git clone https://github.com/johnynek/zafu.git "$repro_dir/zafu"
+          cd "$repro_dir/zafu"
+          git checkout a8bfd22055028495e65f29cba382bae15fd009b4
+          ./bosatsu --artifact "$GITHUB_WORKSPACE/bosatsu" --fetch
+          scripts/test.sh
     strategy:
       matrix:
         java:
