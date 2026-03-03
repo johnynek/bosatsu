@@ -2513,9 +2513,13 @@ object Matchless {
         case gs: GetStructElement[?] =>
           gs.copy(arg = substituteLocalsCheap(m, gs.arg))
         case Lambda(c, r, as, b) =>
-          val m1 = m -- as.toList
-          val b1 = substituteLocals(m1, b)
-          Lambda(c, r, as, b1)
+          // Captures are evaluated at lambda creation site, so they see the
+          // outer substitution map. The body additionally excludes lambda-bound
+          // names (args and optional recursive name).
+          val bodyMap = m -- as.toList -- r.toList
+          val c1 = c.map(substituteLocals(m, _))
+          val b1 = substituteLocals(bodyMap, b)
+          Lambda(c1, r, as, b1)
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
         case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |
