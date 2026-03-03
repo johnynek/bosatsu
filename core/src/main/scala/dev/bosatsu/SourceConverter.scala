@@ -106,11 +106,17 @@ final class SourceConverter(
         (unTypedBody, t, tag).parMapN(Expr.Annotation(_, _, _))
       }
 
+    val parsedArgGroups: NonEmptyList[NonEmptyList[Pattern.Parsed]] =
+      ds.args.map {
+        case h :: tail => NonEmptyList(h, tail)
+        case Nil       => NonEmptyList.one(Pattern.tuple(Nil))
+      }
+
     val travNE2 = Traverse[NonEmptyList].compose[NonEmptyList]
 
     type Pat = Pattern[(PackageName, Constructor), Type]
     val convertedArgs: Result[NonEmptyList[NonEmptyList[Pat]]] =
-      travNE2.traverse(ds.args)(convertPattern(_, region))
+      travNE2.traverse(parsedArgGroups)(convertPattern(_, region))
 
     // If we have the full type of the lambda, apply it. This
     // helps in recursive cases since we can see at the call site
@@ -278,6 +284,33 @@ final class SourceConverter(
       case Annotation(term, tpe) =>
         (loop(term), toType(tpe, decl.region))
           .parMapN(Expr.Annotation(_, _, decl))
+      case Apply(fn, args, ApplyKind.Parens0) =>
+        val unitExpr: Expr[Declaration] =
+          Expr.Global(PackageName.PredefName, unitName, decl)
+        val shapeChecked: Result[Unit] =
+          args.toList match {
+            case Declaration.TupleCons(Nil) :: Nil =>
+              success(())
+            case _ =>
+              SourceConverter.partial(
+                SourceConverter.InvalidParens0Apply(args.size, decl.region),
+                ()
+              )
+          }
+        fn match {
+          case Declaration.Var(cons: Constructor) =>
+            val withShape = (shapeChecked, loop(fn)).parMapN((_, fnExpr) => fnExpr)
+            SourceConverter.addErrorKeepGoing(
+              withShape,
+              SourceConverter.ConstructorEmptyParens(cons, decl.region)
+            )
+          case _ =>
+            // `f()` is sugar for `f(())`.
+            (shapeChecked, loop(fn))
+              .parMapN { (_, fnExpr) =>
+                Expr.buildApp(fnExpr, unitExpr :: Nil, decl)
+              }
+        }
       case Apply(fn, args, _) =>
         (loop(fn), args.toList.traverse(loop(_)))
           .parMapN(Expr.buildApp(_, _, decl))
@@ -2228,7 +2261,7 @@ final class SourceConverter(
               if (dstmt.name == bind) dstmt.copy(name = newNameV) else dstmt
             val res =
               if (
-                dstmt.args.flatten.iterator.flatMap(_.names).exists(_ == bind)
+                dstmt.args.toList.flatten.iterator.flatMap(_.names).exists(_ == bind)
               ) {
                 // the args are shadowing the binding, so we don't need to substitute
                 dstmt.result
@@ -2308,7 +2341,7 @@ final class SourceConverter(
             )((res: OptIndent[Declaration]) =>
               fromDecl(
                 res.get,
-                argGroups.flatten.iterator
+                argGroups.toList.flatten.iterator
                   .flatMap(_.names)
                   .toSet + boundName,
                 topBound1,
@@ -3013,6 +3046,18 @@ object SourceConverter {
   final case class UnknownTypeName(tpe: Constructor, region: Region)
       extends Error {
     def message = s"unknown type: ${tpe.sourceCodeRepr}"
+  }
+
+  final case class ConstructorEmptyParens(name: Constructor, region: Region)
+      extends Error {
+    def message =
+      s"constructor call syntax does not support empty parentheses; use `${name.sourceCodeRepr}` or `${name.sourceCodeRepr} {}`"
+  }
+
+  final case class InvalidParens0Apply(argCount: Int, region: Region)
+      extends Error {
+    def message =
+      s"invariant violation: empty-paren apply should have exactly one synthetic unit argument, found $argCount"
   }
 
   final case class InvalidArity(size: Int, region: Region) extends Error {

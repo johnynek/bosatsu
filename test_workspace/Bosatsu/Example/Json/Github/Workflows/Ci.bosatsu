@@ -29,6 +29,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   run_c_runtime_ci,
   run_lib_test_c,
   run_lib_build_c,
+  run_lib_build_node_c,
   setup_sbt_step,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
@@ -97,6 +98,7 @@ struct WorkflowJobsLibPublishDryRun(
 
 struct WorkflowJobs(
   test: WorkflowJobsTest,
+  treeSitter: WorkflowJobsTestJS,
   testPY: WorkflowJobsTestPY,
   testJS: WorkflowJobsTestJS,
   testWithCoverageReport: WorkflowJobsTestWithCoverageReport,
@@ -177,6 +179,23 @@ workflow =
         java_strategy_17,
         timeout_minutes_default,
       ),
+      WorkflowJobsTestJS(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          *java_matrix_bootstrap_steps,
+          Step {
+            name: Set("install tree-sitter cli"),
+            run: Set("npm install -g tree-sitter-cli@0.24.7"),
+          },
+          Step {
+            name: Set("run tree-sitter and differential parser checks"),
+            run: Set("./scripts/test_tree_sitter.sh"),
+          },
+        ],
+        java_strategy_17,
+        timeout_minutes_default,
+      ),
       WorkflowJobsTestPY(
         needs_test,
         runner_ubuntu_latest,
@@ -211,6 +230,14 @@ workflow =
             run: Set(cat_lines([
               "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/compile\"",
               "sbt \"jsuiJS/testOnly * -- --log=failure\"",
+              "",
+            ])),
+          },
+          Step {
+            name: Set("verify jsui browser bundle"),
+            run: Set(cat_lines([
+              "export NODE_OPTIONS=--openssl-legacy-provider",
+              "sbt \"jsuiJS/fullOptJS::webpack\"",
               "",
             ])),
           },
@@ -297,6 +324,7 @@ workflow =
               "",
             ])),
           },
+          Step { name: Set("run lib build"), run: Set(run_lib_build_node_c) },
         ],
         java_strategy_17,
       ),
@@ -365,6 +393,7 @@ workflow =
               `OUTDIR`: Set("\${{ runner.temp }}/bosatsu_lib_publish"),
               `GIT_SHA`: Set("\${{ github.sha }}"),
               `URI_BASE`: Set("https://example.invalid/"),
+              `PUBLISH_DRY_RUN`: Set("1"),
             }),
           },
         ],

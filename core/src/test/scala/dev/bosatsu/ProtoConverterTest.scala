@@ -56,7 +56,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   def tabLaw[A: Eq, B](
       f: A => ProtoConverter.Tab[B]
   )(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { (a: A) =>
-    f(a).run(ProtoConverter.SerState.empty) match {
+    ProtoConverter.runTab(f(a)) match {
       case Success((ss, b)) =>
         val ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
         g(ss, b).run(ds) match {

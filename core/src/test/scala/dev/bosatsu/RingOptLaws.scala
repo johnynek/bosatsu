@@ -1209,6 +1209,33 @@ class RingOptLaws extends munit.ScalaCheckSuite {
           2,
           Weights(3, 1, 1)
         ) ::
+        (
+          // issue #1932
+          Add(
+            Mult(
+              Add(
+                One,
+                Add(
+                  Symbol(BigInt("-9223372036854775808")),
+                  Symbol(BigInt("-1"))
+                )
+              ),
+              Integer(BigInt("-9223372036854775809"))
+            ),
+            Mult(
+              Integer(BigInt("-9327526714483220380375219972304915541328013433")),
+              Add(
+                Symbol(BigInt("-19744576984966573129269796274849165441")),
+                Add(
+                  Symbol(BigInt("-3219933437254141254")),
+                  Symbol(BigInt("-1"))
+                )
+              )
+            )
+          ),
+          5,
+          Weights(4, 2, 1)
+        ) ::
         Nil
 
     regressions.foreach { case (e, c, w) => law(e, c, w) }

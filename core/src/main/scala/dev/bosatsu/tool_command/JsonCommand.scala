@@ -213,19 +213,65 @@ object JsonCommand {
                       json => json
                     )
                   case JsonMode.Traverse(in) =>
-                    process[Vector](
-                      in.read,
-                      {
-                        case Json.JArray(items) => moduleIOMonad.pure(items)
-                        case other              =>
-                          moduleIOMonad.raiseError(
-                            CliException.Basic(
-                              show"require an array or arrays for traverse, found: ${other.getClass.getName}"
+                    valueToJson.valueFnToJsonFn(res.tpe) match {
+                      case Left(unsup)           => unsupported(unsup)
+                      case Right((arity, fnGen)) =>
+                        fnGen(res.value.value) match {
+                          case Right(fn) =>
+                            def applyFnToArgArray(otherJson: Json): F[Json] =
+                              otherJson match {
+                                case ary @ Json.JArray(items)
+                                    if items.length == arity =>
+                                  fn(ary) match {
+                                    case Left(dataError) =>
+                                      moduleIOMonad.raiseError(
+                                        CliException.Basic(
+                                          show"invalid input json: $dataError"
+                                        )
+                                      )
+                                    case Right(json) =>
+                                      moduleIOMonad.pure(json)
+                                  }
+                                case invalid =>
+                                  moduleIOMonad.raiseError(
+                                    CliException.Basic(
+                                      show"required a json array of size $arity, found:\n\n${invalid.render}"
+                                    )
+                                  )
+                              }
+
+                            ioJson(in.read).flatMap {
+                              case Json.JArray(items) =>
+                                items
+                                  .traverse(applyFnToArgArray)
+                                  .map { out =>
+                                    outputFor(Json.JArray(out), yamlOut, outputOpt)
+                                  }
+                              case obj @ Json.JObject(_) =>
+                                obj.keys
+                                  .traverse { key =>
+                                    applyFnToArgArray(obj.toMap(key)).map(key -> _)
+                                  }
+                                  .map { out =>
+                                    outputFor(Json.JObject(out), yamlOut, outputOpt)
+                                  }
+                              case other =>
+                                moduleIOMonad.raiseError(
+                                  CliException.Basic(
+                                    show"require an array of argument arrays or an object of argument arrays for traverse, found: ${other.getClass.getName}"
+                                  )
+                                )
+                            }
+                          // $COVERAGE-OFF$ defensive fallback for ill-typed runtime values
+                          case Left(valueError) =>
+                            moduleIOMonad.raiseError(
+                              CliException.Basic(
+                                show"unexpected value error: $valueError"
+                              )
                             )
-                          )
-                      },
-                      items => Json.JArray(items)
-                    )
+                        // $COVERAGE-ON$
+                        }
+                    }
                 }
               }
           }

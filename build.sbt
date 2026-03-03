@@ -326,7 +326,7 @@ lazy val core =
         catsParse.value,
         decline.value,
         paiges.value,
-        scalawasiz3.value % Test,
+        scalawasiz3.value,
         scalaCheck.value % Test,
         munit.value % Test,
         munitScalaCheck.value % Test,
@@ -405,7 +405,13 @@ lazy val jsui =
         )
     )
     .jsSettings(
-      scalaJSUseMainModuleInitializer := true
+      scalaJSUseMainModuleInitializer := true,
+      Compile / fastOptJS / webpackConfigFile := Some(
+        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
+      ),
+      Compile / fullOptJS / webpackConfigFile := Some(
+        (LocalRootProject / baseDirectory).value / "jsui" / "webpack.config.js"
+      )
     )
     .enablePlugins(ScalaJSPlugin)
     .enablePlugins(ScalaJSBundlerPlugin)

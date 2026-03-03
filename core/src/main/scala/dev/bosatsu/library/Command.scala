@@ -4,7 +4,6 @@ import cats.{Monad, MonoidK}
 import cats.arrow.FunctionK
 import cats.data.{
   Chain,
-  Ior,
   NonEmptyChain,
   NonEmptyList,
   Validated,
@@ -35,6 +34,7 @@ import dev.bosatsu.{
   Identifier,
   Json,
   JsonEncodingError,
+  LocationMap,
   Package,
   PackageName,
   PackageMap,
@@ -170,12 +170,36 @@ object Command {
 
     def libsPath(root: P): P = platformIO.resolve(root, "bosatsu_libs.json")
 
+    def parseConfigJson(path: P, jsonString: String): F[Json] =
+      Json.parserFile.parseAll(jsonString) match {
+        case Right(json) => moduleIOMonad.pure(json)
+        case Left(err)   =>
+          val locations = LocationMap(jsonString)
+          val lineColSuffix =
+            locations
+              .toLineCol(err.failedAtOffset)
+              .map { case (line, col) => s":${line + 1}:${col + 1}" }
+              .getOrElse("")
+          val summary = show"config parse failed: $path$lineColSuffix"
+          val parseDoc = Parser.Error.showExpectations(
+            locations,
+            err.expected,
+            Colorize.None
+          )
+          val errDoc = Doc.intercalate(
+            Doc.hardLine,
+            List(Doc.text(summary), parseDoc)
+          )
+          moduleIOMonad.raiseError(CliException(summary, err = errDoc))
+      }
+
     def readJson[A: Json.Reader](path: P, onEmpty: => F[A]): F[A] =
       platformIO.fsDataType(path).flatMap {
         case None                             => onEmpty
         case Some(PlatformIO.FSDataType.File) =>
           platformIO
-            .parseUtf8(path, Json.parserFile)
+            .readUtf8(path)
+            .flatMap(parseConfigJson(path, _))
             .flatMap { json =>
               Json.Reader[A].read(Json.Path.Root, json) match {
                 case Right(a)          => moduleIOMonad.pure(a)
@@ -365,13 +389,45 @@ object Command {
         )
         .orNone
         .map {
-          case None => { root =>
-            platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
-          }
-          case Some(d) => { _ => d }
+          case Some(d) =>
+            (_: P) => d
+          case None    =>
+            (root: P) => platformIO.resolve(root, ".bosatsuc" :: "cas" :: Nil)
         }
 
-    case class ConfigConf(conf: LibConfig, cas: Cas[F, P], confDir: P) {
+    val compileCacheDirOpt: Opts[P => Option[P]] = {
+      val defaultDirFn: P => Option[P] = (root: P) =>
+        Some(platformIO.resolve(root, ".bosatsuc" :: "infer-cache" :: Nil))
+      val noCacheFn: P => Option[P] = (_: P) => None
+
+      // Shared across all lib commands that invoke compiler inference/typechecking.
+      // --cache_dir and --no_cache are mutually exclusive via orElse branches.
+      Opts
+        .option[P](
+          "cache_dir",
+          help =
+            "cache directory for compiled package artifacts (default: .bosatsuc/infer-cache in repo root)"
+        )
+        .map { cacheDir =>
+          (_: P) => Some(cacheDir)
+        }
+        .orElse(
+          Opts
+            .flag(
+              "no_cache",
+              help = "disable compiled package artifact cache for this run"
+            )
+            .as(noCacheFn)
+        )
+        .orElse(Opts(defaultDirFn))
+    }
+
+    case class ConfigConf(
+        conf: LibConfig,
+        cas: Cas[F, P],
+        confDir: P,
+        gitRoot: P
+    ) {
       private def loadFromCas(
           dep: proto.LibDependency
       ): F[Hashed[Algo.Blake3, proto.Library]] =
@@ -459,7 +515,8 @@ object Command {
         def packageMap(
             colorize: Colorize,
             sourcePackageFilter: Option[PackageName => Boolean] = None,
-            compileOptions: CompileOptions
+            compileOptions: CompileOptions,
+            compileCacheDirOpt: Option[P] = None
         ): F[PackageMap.Inferred] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
@@ -552,7 +609,8 @@ object Command {
                             ),
                           colorize,
                           inputRes,
-                          compileOptions
+                          compileOptions,
+                          compileCacheDirOpt
                         )
                       }
                       .map(_._1)
@@ -583,7 +641,8 @@ object Command {
       def docPackages(
           colorize: Colorize,
           outdir: P,
-          includePredef: Boolean
+          includePredef: Boolean,
+          compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
           cs <- checkState
@@ -606,7 +665,8 @@ object Command {
               ),
               colorize,
               inputRes,
-              CompileOptions.Default
+              CompileOptions.Default,
+              compileCacheDirOpt
             )
           }
           (compiled, sourcePaths) = checked
@@ -627,11 +687,17 @@ object Command {
       def check(
           colorize: Colorize,
           sourcePackageFilter: Option[PackageName => Boolean] = None,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[LibConfig.ValidationResult] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, sourcePackageFilter, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            sourcePackageFilter,
+            compileOptions,
+            compileCacheDirOpt
+          )
           res <- sourcePackageFilter match {
             case None =>
               val validated = conf.validate(
@@ -650,11 +716,17 @@ object Command {
 
       def decodedWithDeps(
           colorize: Colorize,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
-          allPacks <- cs.packageMap(colorize, None, compileOptions)
+          allPacks <- cs.packageMap(
+            colorize,
+            None,
+            compileOptions,
+            compileCacheDirOpt
+          )
           validated = conf.validate(
             cs.prevThis,
             allPacks.toMap.values.toList,
@@ -673,14 +745,16 @@ object Command {
       def decodedWithDepsFiltered(
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
-          compileOptions: CompileOptions
+          compileOptions: CompileOptions,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             Some(sourcePackageFilter),
-            compileOptions
+            compileOptions,
+            compileCacheDirOpt
           )
           decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
         } yield decWithLibs
@@ -743,24 +817,36 @@ object Command {
 
       def decodedWithDepsFilteredForTest(
           colorize: Colorize,
-          sourcePackageFilter: PackageName => Boolean
+          sourcePackageFilter: PackageName => Boolean,
+          compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         decodedWithDepsFiltered(
           colorize,
           sourcePackageFilter,
-          CompileOptions.Default
+          CompileOptions.Default,
+          compileCacheDirOpt
         )
 
       def build(
           colorize: Colorize,
           trans: Transpiler.Optioned[F, P],
-          sourcePackageFilter: Option[PackageName => Boolean] = None
+          sourcePackageFilter: Option[PackageName => Boolean] = None,
+          compileCacheDirOpt: Option[P] = None
       ): F[Doc] =
         for {
           decWithLibs <- sourcePackageFilter match {
-            case None         => decodedWithDeps(colorize, CompileOptions.Default)
+            case None         =>
+              decodedWithDeps(
+                colorize,
+                CompileOptions.Default,
+                compileCacheDirOpt
+              )
             case Some(filter) =>
-              decodedWithDepsFilteredForTest(colorize, filter)
+              decodedWithDepsFilteredForTest(
+                colorize,
+                filter,
+                compileCacheDirOpt
+              )
           }
           outputs <- platformIO.withEC {
             trans.renderAll(decWithLibs)
@@ -770,13 +856,18 @@ object Command {
           }
         } yield Doc.empty
 
-      def buildLibrary(vcsIdent: String, colorize: Colorize): F[proto.Library] =
+      def buildLibrary(
+          vcsIdent: String,
+          colorize: Colorize,
+          compileCacheDirOpt: Option[P] = None
+      ): F[proto.Library] =
         for {
           cs <- checkState
           allPacks <- cs.packageMap(
             colorize,
             None,
-            CompileOptions.Default
+            CompileOptions.Default,
+            compileCacheDirOpt
           )
           validated = conf.assemble(
             vcsIdent = vcsIdent,
@@ -885,7 +976,7 @@ object Command {
             conf <- readLibConf(name, confPath(confDir, name))
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-          } yield ConfigConf(conf, cas, confDir)
+          } yield ConfigConf(conf, cas, confDir, gitRoot)
         }
     }
 
@@ -1375,14 +1466,20 @@ object Command {
         val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
           ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
 
-        (ConfigConf.opts, sourceFilterOpt, Colorize.optsConsoleDefault).mapN {
-          (fcc, sourceFilter, colorize) =>
+        (
+          ConfigConf.opts,
+          sourceFilterOpt,
+          compileCacheDirOpt,
+          Colorize.optsConsoleDefault
+        ).mapN { (fcc, sourceFilter, cacheDirFn, colorize) =>
             for {
               cc <- fcc
+              cacheDir = cacheDirFn(cc.gitRoot)
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.TypeCheckOnly
+                CompileOptions.TypeCheckOnly,
+                cacheDir
               )
               msg = Doc.text("")
             } yield (Output.Basic(msg, None): Output[P])
@@ -1487,8 +1584,9 @@ object Command {
             )
             .orFalse,
           Opts.arguments[String]("arg").orEmpty,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, runMain, runArgs, colorize) =>
+        ).mapN { (fcc, target, runMain, runArgs, cacheDirFn, colorize) =>
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
@@ -1497,12 +1595,14 @@ object Command {
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
                 dec <- cc.decodedWithDepsFiltered(
                   colorize,
                   sourcePackageFilter,
-                  CompileOptions.Default
+                  CompileOptions.Default,
+                  cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
@@ -1515,7 +1615,12 @@ object Command {
                 out <- if (runMain) {
                   if (tpe == progMainType) {
                     val run =
-                      memoE.map(PredefImpl.runProgMain(_, runArgs))
+                      memoE.map(
+                        PredefImpl.runProgMainWithSystemStdin(
+                          _,
+                          PredefImpl.evalRunArgs(runArgs)
+                        )
+                      )
                     moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
                   } else {
                     val actual =
@@ -1587,6 +1692,12 @@ object Command {
             .orFalse,
           Opts
             .flag(
+              "package-names",
+              help = "show only package names in package entries"
+            )
+            .orFalse,
+          Opts
+            .flag(
               "no-opt",
               help = "disable normalization/optimization to inspect typed expressions before optimization"
             )
@@ -1598,6 +1709,7 @@ object Command {
             )
             .orFalse,
           Opts.option[P]("output", help = "output path").orNone,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN {
           (
@@ -1606,9 +1718,11 @@ object Command {
               types,
               values,
               externalsOnly,
+              packageNamesOnly,
               noOpt,
               jsonOut,
               output,
+              cacheDirFn,
               colorize
           ) =>
           val compileOptions =
@@ -1623,16 +1737,18 @@ object Command {
             }
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
                 dec <- sourceFilterOpt match {
                   case None =>
-                    cc.decodedWithDeps(colorize, compileOptions)
+                    cc.decodedWithDeps(colorize, compileOptions, cacheDir)
                   case Some(sourceFilter) =>
                     cc.decodedWithDepsFiltered(
                       colorize,
                       sourceFilter,
-                      compileOptions
+                      compileOptions,
+                      cacheDir
                     )
                 }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
@@ -1650,7 +1766,23 @@ object Command {
                 )
               } yield (
                 if (jsonOut)
-                  Output.JsonOutput(ShowEdn.showJson(packs, Nil), output)
+                  Output.JsonOutput(
+                    ShowEdn.showJson(
+                      packs,
+                      Nil,
+                      packageNamesOnly = packageNamesOnly
+                    ),
+                    output
+                  )
+                else if (packageNamesOnly)
+                  Output.Basic(
+                    ShowEdn.showDoc(
+                      packs,
+                      Nil,
+                      packageNamesOnly = true
+                    ),
+                    output
+                  )
                 else Output.ShowOutput(packs, Nil, output): Output[P]
               )
             }
@@ -1672,11 +1804,17 @@ object Command {
               help = "include Bosatsu/Predef in generated docs"
             )
             .orFalse,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, outdir, includePredef, colorize) =>
+        ).mapN { (fcc, outdir, includePredef, cacheDirFn, colorize) =>
           for {
             cc <- fcc
-            docs <- cc.docPackages(colorize, outdir, includePredef)
+            docs <- cc.docPackages(
+              colorize,
+              outdir,
+              includePredef,
+              cacheDirFn(cc.gitRoot)
+            )
           } yield (Output.TranspileOut(docs): Output[P])
         }
       }
@@ -1745,8 +1883,9 @@ object Command {
             .orFalse,
           mainOpt,
           outputOpt,
+          compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, mode, yamlOut, target, output, colorize) =>
+        ).mapN { (fcc, mode, yamlOut, target, output, cacheDirFn, colorize) =>
           def showError[A](prefix: String, str: String, idx: Int): F[A] = {
             val errMsg0 = str.substring(idx + 1)
             val errMsg =
@@ -1820,9 +1959,14 @@ object Command {
 
           for {
             cc <- fcc
+            cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
-                dec <- cc.decodedWithDeps(colorize, CompileOptions.Default)
+                dec <- cc.decodedWithDeps(
+                  colorize,
+                  CompileOptions.Default,
+                  cacheDir
+                )
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
                   target match {
@@ -1992,14 +2136,6 @@ object Command {
             help = "name of output c code file.",
             short = "o"
           )
-
-        val outDirOrFileOpt: Opts[Ior[P, P]] =
-          (Transpiler.outDir[P], outFileOpt.orNone)
-            .mapN {
-              case (outDir, Some(outFile)) => Ior.both(outDir, outFile)
-              case (outDir, None)          => Ior.left(outDir)
-            }
-            .orElse(outFileOpt.map(Ior.right(_)))
         val ccFlagsOpt =
           Opts
             .options[String](
@@ -2021,7 +2157,8 @@ object Command {
 
         val outputSpecOpt: Opts[(Option[P], ClangTranspiler.Output[F, P])] =
           (
-            outDirOrFileOpt,
+            Transpiler.outDir[P].orNone,
+            outFileOpt.orNone,
             Opts("output.c").mapValidated(platformIO.path(_)),
             (
               Opts.option[P](
@@ -2033,41 +2170,33 @@ object Command {
             ).tupled.orNone,
             ccFlagsOpt,
             ccLibsOpt
-          ).mapN { (outDirOrFile, defaultOut, exeOut, ccFlags, ccLibs) =>
-            outDirOrFile match {
-              case Ior.Left(outDir) =>
+          ).tupled.mapValidated {
+            case (outDirOpt, outOpt, defaultOut, exeOut, ccFlags, ccLibs) =>
+            if (outDirOpt.isDefined || outOpt.isDefined || exeOut.isDefined) {
+              val (cOut, cOutRelativeToOutDir) =
+                outOpt match {
+                  case Some(out) => (out, false)
+                  case None      => (defaultOut, true)
+                }
+
+              Validated.validNel(
                 (
-                  Some(outDir),
+                  outDirOpt,
                   ClangTranspiler.Output(
-                    defaultOut,
-                    cOutRelativeToOutDir = true,
+                    cOut = cOut,
+                    cOutRelativeToOutDir = cOutRelativeToOutDir,
                     exeOut = exeOut,
+                    // If --outdir is omitted, we compile in a temp dir but keep -e relative to cwd.
+                    exeOutRelativeToOutDir = outDirOpt.isDefined,
                     ccFlags = ccFlags,
                     ccLibs = ccLibs
                   )
                 )
-              case Ior.Both(outDir, out) =>
-                (
-                  Some(outDir),
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
-              case Ior.Right(out) =>
-                (
-                  None,
-                  ClangTranspiler.Output(
-                    out,
-                    cOutRelativeToOutDir = false,
-                    exeOut = exeOut,
-                    ccFlags = ccFlags,
-                    ccLibs = ccLibs
-                  )
-                )
+              )
+            } else {
+              Validated.invalidNel(
+                "expected one of --outdir, -o/--output, -e/--exe_out"
+              )
             }
           }
 
@@ -2076,12 +2205,23 @@ object Command {
             ConfigConf.opts,
             mainPack,
             outputSpecOpt,
+            compileCacheDirOpt,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts
           ).tupled
 
         (buildArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, mainPackOpt, (outDirOpt, output), emit, gen), colorize) =>
+          case (
+                (
+                  fcc,
+                  mainPackOpt,
+                  (outDirOpt, output),
+                  cacheDirFn,
+                  emit,
+                  gen
+                ),
+                colorize
+              ) =>
             def mode(cc: ConfigConf): F[ClangTranspiler.Mode[F]] =
               mainPackOpt match {
                 case Some(m) =>
@@ -2120,7 +2260,11 @@ object Command {
                     platformIO
                   )
                 }
-                msg <- cc.build(colorize, trans)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  compileCacheDirOpt = cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
 
             outDirOpt match {
@@ -2164,9 +2308,10 @@ object Command {
             ccLibsOpt
           ).mapN { (o, e, conf, ccFlags, ccLibs) =>
             ClangTranspiler.Output(
-              o,
+              cOut = o,
               cOutRelativeToOutDir = true,
-              Some((e, conf)),
+              exeOut = Some((e, conf)),
+              exeOutRelativeToOutDir = true,
               ccFlags = ccFlags,
               ccLibs = ccLibs
             )
@@ -2180,11 +2325,12 @@ object Command {
             clangOut,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts,
+            compileCacheDirOpt,
             Transpiler.outDir[P].orNone
           ).tupled
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, test, out, emit, gen, outDirOpt), colorize) =>
+          case ((fcc, test, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
             def runtimePreflight(
                 output: ClangTranspiler.Output[F, P]
             ): F[ClangTranspiler.Output[F, P]] =
@@ -2223,7 +2369,12 @@ object Command {
                 }
                 cc <- fcc
                 // build is the same as test, Transpiler controls the difference
-                msg <- cc.build(colorize, trans, test.filter)
+                msg <- cc.build(
+                  colorize,
+                  trans,
+                  test.filter,
+                  cacheDirFn(cc.gitRoot)
+                )
               } yield (Output.Basic(msg, None): Output[P])
             }
 
@@ -2259,62 +2410,105 @@ object Command {
           Colorize.optsConsoleDefault,
           gitShaOpt,
           Transpiler.outDir[P],
+          compileCacheDirOpt,
           Opts
             .option[String](
               long = "uri-base",
               short = "u",
               help = "uri prefix where all the libraries will be accessible."
             )
-            .orNone
-        ).mapN { (readGitLibs, casDirFn, colorize, gitShaF, outDir, uriBaseOpt) =>
+            .orNone,
+          Opts
+            .flag(
+              "dry-run",
+              help =
+                "run publish validations and emit libraries without mutating config files or CAS"
+            )
+            .orFalse
+        ).mapN {
+          (
+              readGitLibs,
+              casDirFn,
+              colorize,
+              gitShaF,
+              outDir,
+              cacheDirFn,
+              uriBaseOpt,
+              dryRun
+          ) =>
           for {
             gitRootlibs <- readGitLibs
             gitSha <- gitShaF
             (gitRoot, libs) = gitRootlibs
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-            allLibs <- libs.transform { case (name, (conf, path)) =>
-              val cc = ConfigConf(conf, cas, path)
-              val libOut: P = libraryPath(outDir, name, conf.nextVersion)
-              for {
-                protoLib <- cc.buildLibrary(vcsIdent = gitSha, colorize)
-                hashedLib = Hashed(
-                  Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
-                  protoLib
-                )
-                _ <- cas.putIfAbsent(hashedLib)
-              } yield (hashedLib, libOut, cc)
-            }.parSequence
-            // if we get here, we have successfully built all the libraries, now update the libconfig
-            // and mutate those
-            confOuts = allLibs.values.iterator.map { case (hashedLib, _, cc) =>
-              val uris = uriBaseOpt match {
-                case None          => Nil
-                case Some(uriBase) =>
-                  val uriBase1 =
-                    if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
-                  val uri = uriBase1 + Library.defaultFileName(
-                    cc.conf.name,
-                    cc.conf.nextVersion
-                  )
+            cacheDirOpt = cacheDirFn(gitRoot)
+            out <- {
+              def publishAll(
+                  compileCacheDirOpt: Option[P]
+              ): F[Output[P]] =
+                libs.transform { case (name, (conf, path)) =>
+                  val cc = ConfigConf(conf, cas, path, gitRoot)
+                  val libOut: P = libraryPath(outDir, name, conf.nextVersion)
+                  for {
+                    protoLib <- cc.buildLibrary(
+                      vcsIdent = gitSha,
+                      colorize = colorize,
+                      compileCacheDirOpt = compileCacheDirOpt
+                    )
+                    hashedLib = Hashed(
+                      Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
+                      protoLib
+                    )
+                    _ <-
+                      if (dryRun) moduleIOMonad.unit
+                      else cas.putIfAbsent(hashedLib)
+                  } yield (hashedLib, libOut, cc)
+                }.parSequence.map { allLibs =>
+                  val libOuts = allLibs.iterator.map { case (_, (lib, path, _)) =>
+                    (Output.Library(lib.arg, path): Output[P])
+                  }
+                  val allOutputs =
+                    if (dryRun) libOuts
+                    else {
+                      // if we get here, we have successfully built all the libraries, now update the libconfig
+                      // and mutate those
+                      val confOuts = allLibs.values.iterator.map {
+                        case (hashedLib, _, cc) =>
+                          val uris = uriBaseOpt match {
+                            case None          => Nil
+                            case Some(uriBase) =>
+                              val uriBase1 =
+                                if (uriBase.endsWith("/")) uriBase
+                                else s"${uriBase}/"
+                              val uri = uriBase1 + Library.defaultFileName(
+                                cc.conf.name,
+                                cc.conf.nextVersion
+                              )
 
-                  uri :: Nil
+                              uri :: Nil
+                          }
+                          val conf1 = cc.conf.copy(
+                            previous = Some(toDesc(hashedLib, uris)),
+                            nextVersion = cc.conf.nextVersion.nextPatch
+                          )
+
+                          confOutput(cc.confDir, conf1)
+                      }
+                      libOuts ++ confOuts
+                    }
+
+                  Output.Many(Chain.fromIterableOnce(allOutputs))
+                }
+
+              if (dryRun && cacheDirOpt.isDefined) {
+                platformIO.withTempPrefix("publish_infer_cache") { tempCache =>
+                  publishAll(Some(tempCache))
+                }
+              } else {
+                publishAll(cacheDirOpt)
               }
-              val conf1 = cc.conf.copy(
-                previous = Some(toDesc(hashedLib, uris)),
-                nextVersion = cc.conf.nextVersion.nextPatch
-              )
-
-              confOutput(cc.confDir, conf1)
             }
-            out = Output.Many(
-              Chain.fromIterableOnce(
-                allLibs.iterator.map { case (_, (lib, path, _)) =>
-                  Output.Library(lib.arg, path)
-                } ++
-                  confOuts
-              )
-            )
           } yield (out: Output[P])
         }
       }

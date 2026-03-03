@@ -225,8 +225,7 @@ object DecodedLibraryWithDeps {
               .to(SortedMap)
               .transform((_, p) => Par.await(p))
 
-          lazy val testValues: Map[PackageName, Identifier.Bindable] =
-            a.lib.implementations.testValues
+          lazy val testEntries = a.lib.implementations.testEntries
 
           def mainValues(
               mainTypeFn: Type => Boolean

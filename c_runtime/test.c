@@ -371,6 +371,17 @@ void test_runtime_strings() {
   }
 
   {
+    BValue barbara = bsts_string_from_utf8_bytes_static(7, "BARBARA");
+    BValue linda = bsts_string_from_utf8_bytes_static(5, "LINDA");
+    BValue a = bsts_string_from_utf8_bytes_static(1, "A");
+    BValue c = bsts_string_from_utf8_bytes_static(1, "C");
+    assert(bsts_string_cmp(barbara, linda) == -1, "cmp BARBARA < LINDA normalized");
+    assert(bsts_string_cmp(linda, barbara) == 1, "cmp LINDA > BARBARA normalized");
+    assert(bsts_string_cmp(a, c) == -1, "cmp A < C normalized");
+    assert(bsts_string_cmp(c, a) == 1, "cmp C > A normalized");
+  }
+
+  {
     BValue long_s = bsts_string_from_utf8_bytes_static(10, "0123456789");
     BValue mid = bsts_string_substring(long_s, 3, 7);
     BValue tail = bsts_string_substring_tail(long_s, 8);

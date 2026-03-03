@@ -355,6 +355,48 @@ main = match True:
     }
   }
 
+  test("no-arg call syntax desugars to an explicit unit argument") {
+    assertMainDesugarsAs(
+      """main = later()""",
+      """main = later(())"""
+    )
+    assertMainDesugarsAs(
+      """main = later()()""",
+      """main = later(())(())"""
+    )
+  }
+
+  test("zero-arg defs desugar to explicit unit-pattern defs") {
+    assertMainDesugarsAs(
+      """def later():
+  1
+main = later()""",
+      """def later(()):
+  1
+main = later(())"""
+    )
+  }
+
+  test("constructor empty-parens syntax is rejected in source conversion") {
+    val errs = conversionErrors("""#
+struct Foo
+main = Foo()
+""")
+
+    assert(
+      errs.exists {
+        case SourceConverter.ConstructorEmptyParens(
+              Identifier.Constructor("Foo"),
+              _
+            ) =>
+          true
+        case _ =>
+          false
+      },
+      s"missing ConstructorEmptyParens in errors: $errs"
+    )
+  }
+
   test("left-apply desugars by appending continuation to the outermost apply") {
     val examples = List(
       (

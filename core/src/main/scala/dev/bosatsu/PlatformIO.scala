@@ -42,6 +42,7 @@ trait PlatformIO[F[_], Path] {
     }
 
   def readUtf8(p: Path): F[String]
+  def readBytes(p: Path): F[Array[Byte]]
   def parseUtf8[A](path: Path, p0: P0[A]): F[A] =
     readUtf8(path)
       .flatMap { str =>
@@ -54,10 +55,10 @@ trait PlatformIO[F[_], Path] {
         }
       }
 
-  def getOrError[A](oa: Option[A], msg: => String): F[A] =
+  final inline def getOrError[A](oa: Option[A], inline msg: => Throwable): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
-      case None    => moduleIOMonad.raiseError(new Exception(msg))
+      case None    => moduleIOMonad.raiseError(msg)
     }
 
   def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]

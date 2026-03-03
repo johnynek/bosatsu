@@ -2,7 +2,7 @@ package dev.bosatsu.codegen
 
 import cats.Show
 import cats.data.NonEmptyList
-import dev.bosatsu.{PackageName, Identifier, MatchlessFromTypedExpr}
+import dev.bosatsu.{Package, PackageName, Identifier, MatchlessFromTypedExpr}
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.graph.Toposort
 import scala.collection.immutable.{SortedMap, SortedSet}
@@ -22,7 +22,15 @@ trait CompilationNamespace[K] {
 
   def topoSort: Toposort.Result[(K, PackageName)]
   def compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]]
-  def testValues: Map[PackageName, Identifier.Bindable]
+  def testEntries
+      : Map[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[
+        Any
+      ]]]
+  def testValues: Map[PackageName, Identifier.Bindable] =
+    testEntries.collect {
+      case (pn, Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+        (pn, bindable)
+    }
   def mainValues(
       mainTypeFn: Type => Boolean
   ): Map[PackageName, (Identifier.Bindable, Type)]

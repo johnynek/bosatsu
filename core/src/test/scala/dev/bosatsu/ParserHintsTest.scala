@@ -162,30 +162,52 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
-  test("zero-arg def gets actionable hint") {
+  test("using match in a condition suggests matches") {
     val source =
       """package Foo
         |
-        |def usage() -> String:
-        |  "usage"
+        |x = (
+        |  if value match Foo: 1
+        |  else: 0
+        |)
         |""".stripMargin
 
     val pf = parseFailure(source)
     val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
     assert(
-      hints.exists(_.contains("zero-arg def syntax is not supported")),
+      hints.exists(_.contains("meant 'matches'")),
       hints.mkString("\n")
     )
+  }
+
+  test("using matches as a match header suggests match") {
+    val source =
+      """package Foo
+        |
+        |x = matches value:
+        |  case _: 1
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
     assert(
-      hints.exists(_.contains("usage = ...")),
-      hints.mkString("\n")
+      hints.exists(_.contains("meant 'match'")),
+      hints.mkString("\n") + "\n" + shown
     )
+  }
+
+  test("zero-arg defs are supported") {
+    val source =
+      """package Foo
+        |
+        |def usage():
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
     assert(
-      hints.exists(_.contains("def usage(_): ...")),
-      hints.mkString("\n")
-    )
-    assert(
-      hints.exists(_.contains("usage(())")),
+      !hints.exists(_.contains("zero-arg def syntax is not supported")),
       hints.mkString("\n")
     )
   }

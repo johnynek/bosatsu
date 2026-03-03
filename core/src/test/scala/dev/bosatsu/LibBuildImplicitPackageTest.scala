@@ -87,7 +87,37 @@ main = Main(0)
     }
   }
 
-  test("invalid main reports known packages") {
+  test("invalid main package suggests nearest package name") {
+    val cmd =
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "--outdir",
+        "out",
+        "-m",
+        "MyLib/Fbi"
+      )
+
+    module.runWith(baseFiles)(cmd) match {
+      case Right(out) =>
+        fail(s"expected failure, got output: $out")
+      case Left(err) =>
+        val msg = errMsg(err)
+        assert(msg.contains("invalid main package `MyLib/Fbi`: unknown package."), msg)
+        assert(msg.contains("Did you mean: MyLib/Fib ?"), msg)
+        assert(
+          msg.matches(
+            """(?s).*\([0-9]+ packages? available\.\).*"""
+          ),
+          msg
+        )
+        assert(!msg.contains("known packages:"), msg)
+    }
+  }
+
+  test("invalid main package with no close match avoids known package dump") {
     val cmd =
       List(
         "lib",
@@ -105,8 +135,18 @@ main = Main(0)
         fail(s"expected failure, got output: $out")
       case Left(err) =>
         val msg = errMsg(err)
-        assert(msg.contains("known packages"), msg)
-        assert(msg.contains("MyLib/Fib"), msg)
+        assert(
+          msg.contains("invalid main package `Does/NotExist`: unknown package."),
+          msg
+        )
+        assert(
+          msg.matches(
+            """(?s).*\([0-9]+ packages? available\.\).*"""
+          ),
+          msg
+        )
+        assert(!msg.contains("Did you mean:"), msg)
+        assert(!msg.contains("known packages:"), msg)
     }
   }
 
@@ -133,14 +173,38 @@ main = Main(0)
     }
   }
 
-  test("lib build requires --outdir or -o") {
+  test("lib build allows -e without --outdir or -o") {
+    val cmd =
+      List(
+        "lib",
+        "build",
+        "--repo_root",
+        "repo",
+        "-m",
+        "MyLib/Fib",
+        "-e",
+        "fib"
+      )
+
+    module.run(cmd) match {
+      case Right(_)  => ()
+      case Left(help) =>
+        fail(s"expected parse success with -e only, got help: $help")
+    }
+  }
+
+  test("lib build requires --outdir, -o, or -e") {
     val cmd =
       List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib")
 
     module.run(cmd) match {
-      case Left(_)  => ()
+      case Left(help) =>
+        val msg = help.toString
+        assert(msg.contains("--outdir"), msg)
+        assert(msg.contains("-o"), msg)
+        assert(msg.contains("-e"), msg)
       case Right(_) =>
-        fail("expected parse failure when neither --outdir nor -o is set")
+        fail("expected parse failure when no output selector is set")
     }
   }
 

@@ -34,8 +34,8 @@ external def from_Array_Int(ints: Array[Int]) -> Bytes
 external def to_List_Int(bytes: Bytes) -> List[Int]
 external def to_Array_Int(bytes: Bytes) -> Array[Int]
 external def size_Bytes(bytes: Bytes) -> Int
-external def get_map_Bytes[a](bytes: Bytes, idx: Int, default: Unit -> a, fn: Int -> a) -> a
-external def get_or_Bytes(bytes: Bytes, idx: Int, default: Unit -> Int) -> Int
+external def get_map_Bytes[a](bytes: Bytes, idx: Int, default: () -> a, fn: Int -> a) -> a
+external def get_or_Bytes(bytes: Bytes, idx: Int, default: () -> Int) -> Int
 external def foldl_Bytes[a](bytes: Bytes, init: a, fn: (a, Int) -> a) -> a
 external def concat_all_Bytes(chunks: List[Bytes]) -> Bytes
 external def slice_Bytes(bytes: Bytes, start: Int, end: Int) -> Bytes
@@ -47,7 +47,7 @@ external def utf8_bytes_to_String(bytes: Bytes) -> Option[String]
 external def utf8_Char_at(bytes: Bytes, idx: Int) -> Option[Char]
 
 def get_Bytes(bytes: Bytes, idx: Int) -> Option[Int]:
-  get_map_Bytes(bytes, idx, _ -> None, i -> Some(i))
+  get_map_Bytes(bytes, idx, () -> None, i -> Some(i))
 
 def index_in_range_Bytes(bytes: Bytes, idx: Int) -> Bool:
   if cmp_Int(idx, 0) matches LT:
@@ -86,7 +86,7 @@ tests = TestSuite("Bytes tests", [
   ),
   Assertion(get_Bytes(base, 0) matches Some(1), "get first"),
   Assertion(get_Bytes(base, -1) matches None, "get out of range"),
-  Assertion(get_or_Bytes(base, 10, _ -> 99) matches 99, "get_or fallback"),
+  Assertion(get_or_Bytes(base, 10, () -> 99) matches 99, "get_or fallback"),
   Assertion(foldl_Bytes(base, 0, add) matches 15, "foldl add"),
   Assertion(eq_int_list(to_List_Int(slice_Bytes(base, 1, 4)), [2, 3, 4]), "slice middle"),
   Assertion(eq_int_list(to_List_Int(slice_Bytes(base, -2, 2)), [1, 2]), "slice clamps start"),

@@ -1317,83 +1317,6 @@ object PythonGen {
               2
             )
           ),
-          // external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a) -> a
-          // def int_loop(i, a, fn):
-          //   if i <= 0: a
-          //   else:
-          //     (i1, a1) = fn(i, a)
-          //     if i <= i1: a
-          //     else int_loop(i1, a, fn)
-          //
-          // def int_loop(i, a, fn):
-          //   cont = (0 < i)
-          //   res = a
-          //   _i = i
-          //   _a = a
-          //   while cont:
-          //     res = fn(_i, _a)
-          //     tmp_i = res[0]
-          //     _a = res[1][0]
-          //     cont = (0 < tmp_i) and (tmp_i < _i)
-          //     _i = tmp_i
-          //   return _a
-          (
-            Identifier.Name("int_loop"),
-            (
-              { input =>
-                (
-                  Env.newAssignableVar,
-                  Env.newAssignableVar,
-                  Env.newAssignableVar,
-                  Env.newAssignableVar,
-                  Env.newAssignableVar
-                ).tupled
-                  .flatMap { case (cont, res, _i, _a, tmp_i) =>
-                    Env.onLasts(input) {
-                      case i :: a :: fn :: Nil =>
-                        Code
-                          .block(
-                            cont := (Code.fromInt(0) :< i),
-                            res := a,
-                            _i := i,
-                            _a := a,
-                            Code.While(
-                              cont,
-                              fn(_i, _a).simplify match {
-                                case Code.MakeTuple(fst :: snd :: Nil) =>
-                                  // inline the tuple allocation and destructuring
-                                  Code.block(
-                                    tmp_i := fst,
-                                    _a := snd,
-                                    cont := (Code.fromInt(0) :< tmp_i)
-                                      .evalAnd(tmp_i :< _i),
-                                    _i := tmp_i
-                                  )
-                                case notTup =>
-                                  Code.block(
-                                    res := notTup,
-                                    tmp_i := res.get(0),
-                                    _a := res.get(1),
-                                    cont := (Code.fromInt(0) :< tmp_i)
-                                      .evalAnd(tmp_i :< _i),
-                                    _i := tmp_i
-                                  )
-                              }
-                            )
-                          )
-                          .withValue(_a)
-                      case other =>
-                        // $COVERAGE-OFF$
-                        throw new IllegalStateException(
-                          s"expected arity 3 got: $other"
-                        )
-                      // $COVERAGE-ON$
-                    }
-                  }
-              },
-              3
-            )
-          ),
           (
             Identifier.Name("concat_String"),
             (
@@ -1872,6 +1795,50 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("foldr_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLasts(input) {
+                    case ary :: init :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          idx := size.evalMinus(Code.Const.One),
+                          acc := init,
+                          Code.While(
+                            !(idx :< Code.Const.Zero),
+                            Code.block(
+                              acc := fn(
+                                selectItem(data, offset.evalPlus(idx)),
+                                acc
+                              ),
+                              idx := idx.evalMinus(Code.Const.One)
+                            )
+                          )
+                        )
+                        .withValue(acc)
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              3
+            )
+          ),
+          (
             Identifier.Name("map_Array"),
             (
               { input =>
@@ -1910,6 +1877,156 @@ object PythonGen {
                       )
                     // $COVERAGE-ON$
                   }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("filter_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, out, item) =>
+                  Env.onLasts(input) {
+                    case ary :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          out := Code.MakeList(Nil),
+                          idx := Code.Const.Zero,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              item := selectItem(data, offset.evalPlus(idx)),
+                              Code.ifElseS(
+                                fn(item),
+                                Code.Call(out.dot(Code.Ident("append"))(item)),
+                                Code.pass
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(out, Code.Const.Zero, out.len()))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("flat_map_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (
+                        data,
+                        offset,
+                        size,
+                        idx,
+                        total,
+                        parts,
+                        item,
+                        part,
+                        out,
+                        write,
+                        partIdx,
+                        partData,
+                        partOffset,
+                        partLen,
+                        innerIdx
+                      ) =>
+                    Env.onLasts(input) {
+                      case ary :: fn :: Nil =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            idx := Code.Const.Zero,
+                            total := Code.Const.Zero,
+                            parts := Code.MakeList(Nil),
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                item := selectItem(data, offset.evalPlus(idx)),
+                                part := fn(item),
+                                Code.Call(
+                                  parts.dot(Code.Ident("append"))(part)
+                                ),
+                                total := total.evalPlus(arrayLen(part)),
+                                idx := idx + 1
+                              )
+                            ),
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(total),
+                            write := Code.Const.Zero,
+                            partIdx := Code.Const.Zero,
+                            Code.While(
+                              partIdx :< parts.len(),
+                              Code.block(
+                                part := selectItem(parts, partIdx),
+                                partData := arrayData(part),
+                                partOffset := arrayOffset(part),
+                                partLen := arrayLen(part),
+                                innerIdx := Code.Const.Zero,
+                                Code.While(
+                                  innerIdx :< partLen,
+                                  Code.block(
+                                    selectItem(
+                                      out,
+                                      write.evalPlus(innerIdx)
+                                    ) := selectItem(
+                                      partData,
+                                      partOffset.evalPlus(innerIdx)
+                                    ),
+                                    innerIdx := innerIdx + 1
+                                  )
+                                ),
+                                write := write.evalPlus(partLen),
+                                partIdx := partIdx + 1
+                              )
+                            )
+                          )
+                          .withValue(makeArray(out, Code.Const.Zero, total))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
                 }
               },
               2
@@ -2273,10 +2390,17 @@ object PythonGen {
           for {
             vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
             body <- fn(vars)
-            // TODO: if body isn't an expression, how can just adding a lambda
-            // at the end be correct? the arguments will be below points that used it.
-            // the onLast has to handle Code.Lambda specially
-            res <- Env.onLast(body)(Code.Lambda(vars, _))
+            res <- body match {
+              case expr: Expression =>
+                Env.pure(Code.Lambda(vars, expr))
+              case _                =>
+                val args = NonEmptyList.fromListUnsafe(vars)
+                for {
+                  defName <- Env.newHoistedDefName
+                } yield Code
+                  .block(Env.makeDef(defName, args, body))
+                  .withValue(defName)
+            }
           } yield res
     }
 

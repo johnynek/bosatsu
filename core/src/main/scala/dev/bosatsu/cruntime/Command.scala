@@ -54,7 +54,9 @@ object Command {
           Opts(
             platformIO.getOrError(
               BuildInfo.gitHeadCommit,
-              s"compiler version ${BuildInfo.version} was built without a git-sha; pass --git_sha"
+              CliException.Basic(
+                s"compiler version ${BuildInfo.version} was built without a git-sha; pass --git_sha"
+              )
             )
           )
         )

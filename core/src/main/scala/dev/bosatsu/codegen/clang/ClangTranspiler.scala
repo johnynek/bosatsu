@@ -8,6 +8,8 @@ import dev.bosatsu.{
   BuildInfo,
   Identifier,
   Json,
+  NameSuggestion,
+  Package,
   PackageName,
   Par,
   PlatformIO,
@@ -17,8 +19,6 @@ import dev.bosatsu.tool.{CliException, ExitCode}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
-
-import Identifier.Bindable
 
 import cats.syntax.all._
 import cats.Applicative
@@ -61,8 +61,8 @@ case object ClangTranspiler extends Transpiler {
 
     val opts: Opts[EmitMode] =
       Opts
-        .option[EmitMode]("emitmode", "emit mode: shake|all, default = all")
-        .withDefault(All)
+        .option[EmitMode]("emitmode", "emit mode: shake|all, default = shake")
+        .withDefault(Shake)
   }
   sealed abstract class Mode[F[_]](val name: String)
   object Mode {
@@ -75,13 +75,22 @@ case object ClangTranspiler extends Transpiler {
     ) extends Mode[F]("test") {
       def values[K](
           ns: CompilationNamespace[K]
-      ): List[(PackageName, Bindable)] =
-        (filter match {
+      ): Either[List[(PackageName, Package.TestDiscoveryError)], List[(
+        PackageName,
+        Package.TestEntry[Any]
+      )]] = {
+        val filtered = (filter match {
           case None =>
-            ns.testValues.toList
+            ns.testEntries.toList
           case Some(k) =>
-            ns.testValues.iterator.filter { case (p, _) => k(p) }.toList
+            ns.testEntries.iterator.filter { case (p, _) => k(p) }.toList
         }).sortBy(_._1)
+
+        val errors =
+          filtered.collect { case (pn, Left(err)) => (pn, err) }
+        if (errors.nonEmpty) Left(errors)
+        else Right(filtered.collect { case (pn, Right(entry)) => (pn, entry) })
+      }
     }
 
     def testOpts[F[_]](executeOpts: Opts[Boolean]): Opts[Mode.Test[F]] =
@@ -149,6 +158,7 @@ case object ClangTranspiler extends Transpiler {
       cOut: P,
       cOutRelativeToOutDir: Boolean,
       exeOut: Option[(P, F[CcConf])],
+      exeOutRelativeToOutDir: Boolean = true,
       ccFlags: List[String],
       ccLibs: List[String]
   )
@@ -194,11 +204,17 @@ case object ClangTranspiler extends Transpiler {
         rootOpt <- platformIO.gitTopLevel
         root <- platformIO.getOrError(
           rootOpt,
-          "could not find .git directory to locate default cc_conf"
+          CliException.Basic(
+            "could not find .git directory to locate default cc_conf.\n" +
+              "Pass --cc_conf <path/to/cc_conf.json>, or run from a git checkout with .git available."
+          )
         )
         gitSha <- platformIO.getOrError(
           BuildInfo.gitHeadCommit,
-          s"compiler version ${BuildInfo.version} was built without a git-sha"
+          CliException.Basic(
+            s"compiler version ${BuildInfo.version} was built without a git-sha.\n" +
+              "Pass --cc_conf <path/to/cc_conf.json>, or run `bosatsu c-runtime install --git_sha <sha>` and use the generated cc_conf."
+          )
         )
         confPath = platformIO.resolve(
           root,
@@ -275,9 +291,10 @@ case object ClangTranspiler extends Transpiler {
       (cOpt, exeOpt.orNone, ccFlagsOpt, ccLibsOpt).mapN {
         (cOut, exeOut, ccFlags, ccLibs) =>
           Output(
-            cOut,
+            cOut = cOut,
             cOutRelativeToOutDir = true,
             exeOut = exeOut,
+            exeOutRelativeToOutDir = true,
             ccFlags = ccFlags,
             ccLibs = ccLibs
           )
@@ -366,12 +383,60 @@ case object ClangTranspiler extends Transpiler {
   }
 
   case class InvalidMainValue(pack: PackageName, message: String)
-      extends Exception(s"invalid main ${pack.asString}: $message.")
+      extends Exception(message)
       with CliException {
     def errDoc = Doc.text(getMessage())
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
   }
+
+  private def packageIdent(pack: PackageName): Identifier =
+    Identifier.Synthetic(pack.asString)
+
+  private def nearestPackage(
+      query: PackageName,
+      known: List[PackageName]
+  ): Option[PackageName] =
+    NameSuggestion
+      .best(
+        packageIdent(query),
+        known.map { pack =>
+          NameSuggestion.Candidate(packageIdent(pack), pack)
+        }
+      )
+      .map(_.value)
+
+  private def packageCountMsg(count: Int): String = {
+    val packWord = if (count == 1) "package" else "packages"
+    s"($count $packWord available.)"
+  }
+
+  private def unknownMainPackMsg(
+      mainPack: PackageName,
+      knownPacks: List[PackageName]
+  ): String = {
+    val suggestion =
+      nearestPackage(mainPack, knownPacks)
+        .fold("")(pack => s"\nDid you mean: ${pack.asString} ?")
+    s"invalid main package `${mainPack.asString}`: unknown package.$suggestion\n${packageCountMsg(knownPacks.size)}"
+  }
+
+  private def invalidMainPackMsg(mainPack: PackageName, detail: String): String =
+    s"invalid main package `${mainPack.asString}`: $detail"
+
+  private def testDiscoveryErrMsg(
+      err: Package.TestDiscoveryError
+  ): String =
+    err match {
+      case Package.TestDiscoveryError.PlainTestAfterProgTest(
+            packageName,
+            progTest,
+            plainTestsAfter
+          ) =>
+        val plainTestStr =
+          plainTestsAfter.toList.map(_.sourceCodeRepr).mkString(", ")
+        s"${packageName.asString}: found top-level Test value(s) after ProgTest ${progTest.sourceCodeRepr}: $plainTestStr"
+    }
 
   case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String])
       extends Exception(show"no tests found in $packs with regex $regex")
@@ -383,6 +448,24 @@ case object ClangTranspiler extends Transpiler {
           .intercalate(Doc.line, regex.toList.map(Doc.text(_)))
           .nested(4)).grouped)
 
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
+
+  case class InvalidTestDiscovery(
+      errors: NonEmptyList[(PackageName, Package.TestDiscoveryError)]
+  ) extends Exception("invalid test discovery")
+      with CliException {
+    def errDoc: Doc =
+      (Doc.text("invalid test discovery:") +
+        (Doc.line + Doc
+          .intercalate(
+            Doc.line,
+            errors.toList.map { case (_, err) =>
+              Doc.text(testDiscoveryErrMsg(err))
+            }
+          )
+          .nested(2)).grouped)
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
   }
@@ -435,15 +518,14 @@ case object ClangTranspiler extends Transpiler {
                       case Left(invalid) =>
                         moduleIOMonad
                           .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
-                            InvalidMainValue(p, invalid)
+                            InvalidMainValue(
+                              p,
+                              invalidMainPackMsg(p, invalid)
+                            )
                           )
                     }
                   case None =>
-                    val known = ns.rootPackages.toList
-                    val knownMsg =
-                      if (known.nonEmpty) {
-                        s"known packages: ${known.map(_.asString).mkString(", ")}"
-                      } else "no packages found"
+                    val knownPacks = ns.rootPackages.toList.sorted
 
                     val mainPacks = mains.keys.toList.sorted
                     val mainMsg =
@@ -455,9 +537,12 @@ case object ClangTranspiler extends Transpiler {
 
                     val message =
                       if (!ns.rootPackages.contains(p)) {
-                        s"unknown package. $knownMsg"
+                        unknownMainPackMsg(p, knownPacks)
                       } else {
-                        s"no value of type Bosatsu/Prog::Main in ${p.asString}. $mainMsg"
+                        invalidMainPackMsg(
+                          p,
+                          s"no value of type Bosatsu/Prog::Main in ${p.asString}. $mainMsg"
+                        )
                       }
                     moduleIOMonad
                       .raiseError[Either[ClangGen.Error, (Doc, F[Unit])]](
@@ -466,34 +551,55 @@ case object ClangTranspiler extends Transpiler {
                 })
               }
             case test @ Mode.Test(_, re, execute, quiet) =>
-              val tvs = test.values(ns)
-              (if (tvs.isEmpty) {
-                 moduleIOMonad.raiseError(
-                   NoTestsFound(ns.rootPackages.toList, re)
-                 )
-               } else {
-                 val ns1 = args.emit(ns, tvs.toSet)
-                 val clangGen = new ClangGen(ns1)
-                 val r = clangGen.renderTests(values = tvs.toList.sorted)
+              test.values(ns) match {
+                case Left(errors) =>
+                  moduleIOMonad.raiseError(
+                    InvalidTestDiscovery(
+                      NonEmptyList.fromListUnsafe(errors)
+                    )
+                  )
+                case Right(tvs)   =>
+                  if (tvs.isEmpty) {
+                    moduleIOMonad.raiseError(
+                      NoTestsFound(ns.rootPackages.toList, re)
+                    )
+                  } else {
+                    val roots = tvs.iterator.map { case (p, entry) =>
+                      (p, entry.bindable: Identifier)
+                    }.toSet
+                    val ns1 = args.emit(ns, roots)
+                    val clangGen = new ClangGen(ns1)
+                    val r = clangGen.renderTests(values = tvs)
 
-                 val exeIO = args.output match {
-                   case Output(_, _, Some((exeName, _)), _, _) if execute =>
-                     val exePath = args.platformIO.resolve(args.outDir, exeName)
-                     val exeArgs = if (quiet) "--quiet" :: Nil else Nil
-                     args.platformIO
-                       .system(args.platformIO.showPath.show(exePath), exeArgs)
-                       .handleErrorWith {
-                         case _: CliException =>
-                           moduleIOMonad.raiseError(TestExecutionFailed)
-                         case other =>
-                           moduleIOMonad.raiseError(other)
-                       }
-                   case _ =>
-                     moduleIOMonad.unit
-                 }
+                    val exeIO = args.output match {
+                      case Output(
+                            _,
+                            _,
+                            Some((exeName, _)),
+                            exeOutRelativeToOutDir,
+                            _,
+                            _
+                          ) if execute =>
+                        val exePath =
+                          if (exeOutRelativeToOutDir)
+                            args.platformIO.resolve(args.outDir, exeName)
+                          else exeName
+                        val exeArgs = if (quiet) "--quiet" :: Nil else Nil
+                        args.platformIO
+                          .system(args.platformIO.showPath.show(exePath), exeArgs)
+                          .handleErrorWith {
+                            case _: CliException =>
+                              moduleIOMonad.raiseError(TestExecutionFailed)
+                            case other =>
+                              moduleIOMonad.raiseError(other)
+                          }
+                      case _ =>
+                        moduleIOMonad.unit
+                    }
 
-                 moduleIOMonad.pure(r.map((_, exeIO)))
-               })
+                    moduleIOMonad.pure(r.map((_, exeIO)))
+                  }
+              }
           }
 
         docAndEffect.flatMap {
@@ -524,13 +630,18 @@ case object ClangTranspiler extends Transpiler {
                   (outputName -> doc) :: externalHeaders
                 )
               case Some((exe, fcc)) =>
+                val exeOutName =
+                  // lib build can compile in a temp outdir while still targeting a cwd-relative exe path.
+                  if (args.output.exeOutRelativeToOutDir)
+                    resolve(args.outDir, exe)
+                  else exe
                 for {
                   ccConf <- fcc
                   // we have to write the c code before we can compile
                   _ <- args.platformIO.writeDoc(outputName, doc)
                   _ <- ccConf.compile(
                     outputName,
-                    resolve(args.outDir, exe),
+                    exeOutName,
                     extraFlags = args.output.ccFlags,
                     extraLibs = args.output.ccLibs
                   )(args.platformIO)

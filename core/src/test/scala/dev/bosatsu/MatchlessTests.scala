@@ -2455,4 +2455,47 @@ def matches_five(xs):
 
     assert(containsWhile(compiled), compiled.toString)
   }
+
+  test(
+    "TypedExpr.Loop lowering rewrites loop arg references in lambda captures"
+  ) {
+    val intType = rankn.Type.IntType
+    val loopArg = Identifier.Name("i")
+    val lamArg = Identifier.Name("n")
+    val consumer = Identifier.Name("consume")
+    val lamType = rankn.Type.Fun(NonEmptyList.one(intType), intType)
+    val consumerType = rankn.Type.Fun(NonEmptyList.one(lamType), intType)
+
+    val capturedLambda =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((lamArg, intType)),
+        TypedExpr.Local(loopArg, intType, ()),
+        ()
+      )
+
+    val loopBody =
+      TypedExpr.App(
+        TypedExpr.Global(TestUtils.testPackage, consumer, consumerType, ()),
+        NonEmptyList.one(capturedLambda),
+        intType,
+        ()
+      )
+
+    val loopExpr =
+      TypedExpr.Loop(
+        NonEmptyList.one((loopArg, intLit(1))),
+        loopBody,
+        ()
+      )
+
+    val lowered =
+      Matchless.fromLet(
+        (),
+        Identifier.Name("loop_capture"),
+        RecursionKind.NonRecursive,
+        loopExpr
+      )(fnFromTypeEnv(rankn.TypeEnv.empty))
+
+    assertEquals(Matchless.Expr.referencesBindable(lowered, loopArg), false)
+  }
 }

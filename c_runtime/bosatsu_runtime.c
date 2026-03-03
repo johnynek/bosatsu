@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Prog.h"
 
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -660,13 +661,9 @@ int bsts_string_cmp(BValue left, BValue right) {
   size_t rlen = rview.len;
   size_t min_len = (llen <= rlen) ? llen : rlen;
   int cmp = memcmp(lview.bytes, rview.bytes, min_len);
-
-  if (cmp == 0) {
-    return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
-  }
-  else {
-    return cmp;
-  }
+  if (cmp < 0) return -1;
+  if (cmp > 0) return 1;
+  return (llen < rlen) ? -1 : ((llen > rlen) ? 1 : 0);
 }
 
 int bsts_utf8_code_point_bytes(const char* utf8data, int offset, int len) {
@@ -2867,12 +2864,11 @@ static void bsts_print_test_failures(BValue v, int indent) {
   }
 }
 
-BSTS_Test_Result bsts_test_run(
+static BSTS_Test_Result bsts_test_run_value(
     char* package_name,
-    BConstruct test_value,
+    BValue res,
     _Bool quiet
 ) {
-  BValue res = test_value();
   BSTS_PassFail this_test;
   if (quiet) {
     this_test = bsts_count_test(res);
@@ -2891,6 +2887,36 @@ BSTS_Test_Result bsts_test_run(
 
   BSTS_Test_Result test_res = { package_name, this_test.passes, this_test.fails };
   return test_res;
+}
+
+BSTS_Test_Result bsts_test_run(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+) {
+  return bsts_test_run_value(package_name, test_value(), quiet);
+}
+
+BSTS_Test_Result bsts_test_run_prog(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+) {
+  BSTS_Prog_Test_Result prog_result = bsts_Bosatsu_Prog_run_test(test_value());
+  if (prog_result.is_error) {
+    BSTS_PassFail failed = { 0, 1 };
+    printf("%s:\n", package_name);
+    print_indent(4);
+    printf("\033[31mfailure: ProgTest raised an uncaught error\033[0m\n");
+    if (!quiet) {
+      bsts_print_test_summary(4, failed.passes, failed.fails);
+    }
+
+    BSTS_Test_Result test_res = { package_name, failed.passes, failed.fails };
+    return test_res;
+  }
+
+  return bsts_test_run_value(package_name, prog_result.value, quiet);
 }
 
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {

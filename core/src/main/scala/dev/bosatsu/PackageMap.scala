@@ -68,9 +68,21 @@ case class PackageMap[A, B, C, +D](
   def testValues(implicit
       ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Map[PackageName, Identifier.Bindable] =
+    testEntries.collect {
+      case (pn, Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+        (pn, bindable)
+    }
+
+  def testEntries(implicit
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  ): Map[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[
+    Any
+  ]]] =
     toMap.iterator.flatMap { case (n, pack) =>
-      Package.testValue(ev(pack)).iterator.map { case (bn, _, _) =>
-        (n, bn)
+      Package.testEntry(ev(pack)) match {
+        case Right(Some(entry)) => Iterator.single((n, Right(entry)))
+        case Right(None)        => Iterator.empty
+        case Left(err)          => Iterator.single((n, Left(err)))
       }
     }.toMap
 
@@ -435,6 +447,13 @@ object PackageMap {
       (List[Statement], ImportMap[PackageName, Unit])
     ]
     type ErrorOr[A] = Ior[NonEmptyList[PackageError], A]
+    type CacheDepHash = cache.DepHash
+
+    final case class InferredPack[H](
+        inferred: Package.Inferred,
+        depInterface: Package.Interface,
+        depInterfaceHash: H
+    )
 
     val resolvedByName: SortedMap[PackageName, ResolvedU] = ps.toMap
 
@@ -456,25 +475,33 @@ object PackageMap {
       sys.error("invariant violation: resolved package graph has a cycle")
     }
 
-    val inferPack: ResolvedU => F[ErrorOr[Package.Inferred]] =
-      Memoize.memoizeDag[F, ResolvedU, ErrorOr[Package.Inferred]] {
+    def toInferredPack(inferred: Package.Inferred): F[InferredPack[CacheDepHash]] = {
+      val depInterface = phases.dependencyInterface(inferred)
+      cache.dependencyHash(depInterface).map { depInterfaceHash =>
+        InferredPack(inferred, depInterface, depInterfaceHash)
+      }
+    }
+
+    val inferPack: ResolvedU => F[ErrorOr[InferredPack[CacheDepHash]]] =
+      Memoize.memoizeDag[F, ResolvedU, ErrorOr[InferredPack[CacheDepHash]]] {
         case (pack, recurse) =>
           pack match {
             case Package(nm, imports, exports, (stmt, imps)) =>
-              val depResultsF: F[ErrorOr[SortedMap[PackageName, Package.Inferred]]] =
+              val depResultsF
+                  : F[ErrorOr[SortedMap[PackageName, InferredPack[CacheDepHash]]]] =
                 imports.foldLeft(
                   Monad[F].pure(
                     Ior.right[NonEmptyList[PackageError], SortedMap[
                       PackageName,
-                      Package.Inferred
+                      InferredPack[CacheDepHash]
                     ]](SortedMap.empty)
                   )
                 ) { (accF, imp) =>
                   Package.unfix(imp.pack) match {
                     case Left(_)        => accF
                     case Right(depPack) =>
-                      val nextF: F[ErrorOr[(PackageName, Package.Inferred)]] =
-                        recurse(depPack).map(_.map(dep => dep.name -> dep))
+                      val nextF: F[ErrorOr[(PackageName, InferredPack[CacheDepHash])]] =
+                        recurse(depPack).map(_.map(dep => dep.inferred.name -> dep))
                       (accF, nextF).parMapN { (acc, next) =>
                         (acc, next).parMapN { (deps, dep) =>
                           deps.updated(dep._1, dep._2)
@@ -488,6 +515,13 @@ object PackageMap {
                   def depPackResult(depPack: ResolvedU): ErrorOr[Package.Inferred] =
                     Ior.right(depResults.get(depPack.name).expect {
                       s"invariant violation: missing dependency result for ${depPack.name}"
+                    }.inferred)
+
+                  def depPackMeta(
+                      depPack: ResolvedU
+                  ): ErrorOr[InferredPack[CacheDepHash]] =
+                    Ior.right(depResults.get(depPack.name).expect {
+                      s"invariant violation: missing dependency result for ${depPack.name}"
                     })
 
                   val parsedForKey: Package.Parsed =
@@ -498,7 +532,7 @@ object PackageMap {
                       stmt
                     )
 
-                  val depInterfaces
+                  def depInterfaces
                       : ErrorOr[SortedMap[PackageName, Package.Interface]] =
                     imports.foldLeft(
                       Ior.right[NonEmptyList[PackageError], SortedMap[
@@ -509,8 +543,8 @@ object PackageMap {
                       val next: ErrorOr[(PackageName, Package.Interface)] =
                         Package.unfix(imp.pack) match {
                           case Right(depPack) =>
-                            depPackResult(depPack).map { typedDep =>
-                              typedDep.name -> phases.dependencyInterface(typedDep)
+                            depPackMeta(depPack).map { inferredDep =>
+                              inferredDep.inferred.name -> inferredDep.depInterface
                             }
                           case Left(iface)    =>
                             Ior.right(iface.name -> iface)
@@ -518,6 +552,37 @@ object PackageMap {
 
                       (acc, next).parMapN { (ifaces, iface) =>
                         ifaces.updated(iface._1, iface._2)
+                      }
+                    }
+
+                  val depInterfaceHashesF
+                      : F[ErrorOr[SortedMap[PackageName, CacheDepHash]]] =
+                    imports.foldLeft(
+                      Monad[F].pure(
+                        Ior.right[NonEmptyList[PackageError], SortedMap[
+                          PackageName,
+                          CacheDepHash
+                        ]](SortedMap.empty)
+                      )
+                    ) { (accF, imp) =>
+                      val nextF: F[ErrorOr[(PackageName, CacheDepHash)]] =
+                        Package.unfix(imp.pack) match {
+                          case Right(depPack) =>
+                            Monad[F].pure(
+                              depPackMeta(depPack).map { inferredDep =>
+                                inferredDep.inferred.name -> inferredDep.depInterfaceHash
+                              }
+                            )
+                          case Left(iface)    =>
+                            cache
+                              .dependencyHash(iface)
+                              .map(hash => Ior.right(iface.name -> hash))
+                        }
+
+                      (accF, nextF).parMapN { (acc, next) =>
+                        (acc, next).parMapN { (hashes, hash) =>
+                          hashes.updated(hash._1, hash._2)
+                        }
                       }
                     }
 
@@ -571,40 +636,38 @@ object PackageMap {
                     }
                   }
 
-                  IorT
-                    .fromIor[F](depInterfaces)
-                    .flatMap { depIfaces =>
-                      IorT
-                        .liftF(
-                          cache.generateKey(
-                            parsedForKey,
-                            depIfaces,
-                            compileOptions,
-                            CompileCache.compilerIdentity,
-                            phases.id
-                          )
-                        )
-                        .flatMap { key =>
-                          IorT.liftF(cache.get(key)).flatMap {
-                            case Some(hit) =>
-                              IorT.rightT[F, NonEmptyList[PackageError]](hit)
-                            case None      =>
-                              IorT
-                                .fromIor[F](inferOnMiss(depIfaces))
-                                .flatMap { compiled =>
-                                  IorT
-                                    .liftF(cache.put(key, compiled))
-                                    .as(compiled)
-                                }
-                          }
-                        }
+                  import IorT.{fromIor, liftF}
+
+                  (for {
+                    depIfaceHashes <- IorT(depInterfaceHashesF)
+                    key <- liftF(
+                      cache.generateKey(
+                        parsedForKey,
+                        depIfaceHashes,
+                        compileOptions,
+                        CompileCache.compilerIdentity,
+                        phases.id
+                      )
+                    )
+                    getRes <- liftF(cache.get(key))
+                    res <- getRes match {
+                      case Some(hit) =>
+                        IorT.rightT[F, NonEmptyList[PackageError]](hit)
+                      case None      =>
+                        for {
+                          depIfaces <- fromIor[F](depInterfaces)
+                          compiled <- fromIor[F](inferOnMiss(depIfaces))
+                          _ <- liftF(cache.put(key, compiled))
+                        } yield compiled
                     }
+                    inferredPack <- liftF(toInferredPack(res))
+                  } yield inferredPack)
                 }
                 .value
           }
       }
 
-    val allResults: F[SortedMap[PackageName, ErrorOr[Package.Inferred]]] =
+    val allResults: F[SortedMap[PackageName, ErrorOr[InferredPack[CacheDepHash]]]] =
       resolvedByName.values.toList
         .parTraverse { pack =>
           inferPack(pack).map(pack.name -> _)
@@ -623,7 +686,15 @@ object PackageMap {
           s"invariant violation: missing inference results for: ${missingKeys.mkString(", ")}"
         )
       } else {
-        dedupeErrors(resultMap.sequence.map(PackageMap(_)))
+        dedupeErrors(resultMap.sequence.map { inferredByName =>
+          PackageMap(
+            SortedMap.from(
+              inferredByName.iterator.map { case (name, inferredPack) =>
+                name -> inferredPack.inferred
+              }
+            )
+          )
+        })
       }
     }
   }
@@ -657,12 +728,12 @@ object PackageMap {
     )
   }
 
-  def buildSourceMap[F[_]: Foldable, A](
+  def buildSourceMap[F[_]: Foldable, A: Show](
       parsedFiles: F[((A, LocationMap), Package.Parsed)]
   ): Map[PackageName, (LocationMap, String)] =
     parsedFiles.foldLeft(Map.empty[PackageName, (LocationMap, String)]) {
       case (map, ((path, lm), pack)) =>
-        map.updated(pack.name, (lm, path.toString))
+        map.updated(pack.name, (lm, path.show))
     }
 
   /** typecheck a list of packages given a list of interface dependencies

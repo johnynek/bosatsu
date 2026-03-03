@@ -37,6 +37,7 @@ import java.nio.file.{
   StandardOpenOption
 }
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
 object Predef {
@@ -48,7 +49,7 @@ object Predef {
   private[bosatsu] inline def loadFileInCompile(file: String): String =
     ${ Macro.loadFileInCompileImpl('file) }
 
-  /** String representation of the predef
+  /** String representation of the predef.
     */
   val predefString: String =
     loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
@@ -65,6 +66,8 @@ object Predef {
     PackageName.parts("Bosatsu", "IO", "Bytes")
   private def ioCorePackageName: PackageName =
     PackageName.parts("Bosatsu", "IO", "Core")
+  private def lazyPackageName: PackageName =
+    PackageName.parts("Bosatsu", "Lazy")
 
   private def addIoBytesExternals(externals: Externals): Externals =
     externals
@@ -206,11 +209,6 @@ object Predef {
       .add(predefPackageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
       .add(
         predefPackageName,
-        "int_loop",
-        FfiCall.Fn3(PredefImpl.intLoop(_, _, _))
-      )
-      .add(
-        predefPackageName,
         "int_to_String",
         FfiCall.Fn1(PredefImpl.int_to_String(_))
       )
@@ -312,8 +310,23 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "foldr_Array",
+        FfiCall.Fn3(PredefImpl.foldr_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
         "map_Array",
         FfiCall.Fn2(PredefImpl.map_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
+        "filter_Array",
+        FfiCall.Fn2(PredefImpl.filter_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
+        "flat_map_Array",
+        FfiCall.Fn2(PredefImpl.flat_map_Array(_, _))
       )
       .add(
         arrayPackageName,
@@ -420,6 +433,12 @@ object Predef {
         "int_to_Float64",
         FfiCall.Fn1(PredefImpl.int_to_Float64(_))
       )
+      .add(lazyPackageName, "lazy", FfiCall.Fn1(PredefImpl.lazy_Lazy(_)))
+      .add(
+        lazyPackageName,
+        "get_Lazy",
+        FfiCall.Fn1(PredefImpl.get_Lazy(_))
+      )
       .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
       .add(
         progPackageName,
@@ -466,6 +485,8 @@ object PredefImpl {
     Require(len >= 0, s"len must be >= 0: $len")
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
+
+  final case class LazyCell(state: AtomicReference[Either[Value, Value]])
 
   private val EmptyArrayData: Array[Value] = Array.empty[Value]
   private val EmptyArrayRepr: ArrayValue = ArrayValue(EmptyArrayData, 0, 0)
@@ -630,11 +651,41 @@ object PredefImpl {
       // $COVERAGE-ON$
     }
 
+  private def asLazy(a: Value): LazyCell =
+    a.asExternal.toAny match {
+      case lazyCell: LazyCell => lazyCell
+      case other              =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected lazy external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
   private def normalizeByte(intValue: Value.BosatsuInt): Byte =
     (Value.intToBigInteger(intValue).intValue() & 0xff).toByte
 
   private def byteToIntValue(byte: Byte): Value =
     VInt(byte.toInt & 0xff)
+
+  def lazy_Lazy(fn: Value): Value =
+    ExternalValue(LazyCell(new AtomicReference(Left(fn))))
+
+  def get_Lazy(cellValue: Value): Value = {
+    val cell = asLazy(cellValue)
+
+    @annotation.tailrec
+    def loop: Value =
+      cell.state.get() match {
+        case Right(value) =>
+          value
+        case left @ Left(thunk) =>
+          val value = callFn1(thunk, UnitValue)
+          // If another thread wins the race, read the stored value.
+          if (cell.state.compareAndSet(left, Right(value))) value
+          else loop
+      }
+
+    loop
+  }
 
   def add(a: Value, b: Value): Value =
     ExternalValue(addInt(intRaw(a), intRaw(b)))
@@ -795,6 +846,7 @@ object PredefImpl {
   final case class ProgRuntimeState(
       stdin: Array[Byte],
       var stdinOffset: Int,
+      stdinStream: Option[InputStream],
       stdout: StringBuilder,
       stderr: StringBuilder
   )
@@ -917,29 +969,46 @@ object PredefImpl {
       runtime: ProgRuntimeState,
       count: Int
   ): Array[Byte] = {
-    val remaining = runtime.stdin.length - runtime.stdinOffset
-    if (count <= 0 || remaining <= 0) Array.emptyByteArray
-    else {
-      val toRead = if (count <= remaining) count else remaining
-      val out = java.util.Arrays.copyOfRange(
-        runtime.stdin,
-        runtime.stdinOffset,
-        runtime.stdinOffset + toRead
-      )
-      runtime.stdinOffset = runtime.stdinOffset + toRead
-      out
+    runtime.stdinStream match {
+      case Some(stream) =>
+        if (count <= 0) Array.emptyByteArray
+        else {
+          val buffer = new Array[Byte](count)
+          val readCount = stream.read(buffer, 0, count)
+          if (readCount <= 0) Array.emptyByteArray
+          else if (readCount == count) buffer
+          else java.util.Arrays.copyOf(buffer, readCount)
+        }
+      case None =>
+        val remaining = runtime.stdin.length - runtime.stdinOffset
+        if (count <= 0 || remaining <= 0) Array.emptyByteArray
+        else {
+          val toRead = if (count <= remaining) count else remaining
+          val out = java.util.Arrays.copyOfRange(
+            runtime.stdin,
+            runtime.stdinOffset,
+            runtime.stdinOffset + toRead
+          )
+          runtime.stdinOffset = runtime.stdinOffset + toRead
+          out
+        }
     }
   }
 
-  private def runtimeReadOne(runtime: ProgRuntimeState): Option[Byte] = {
-    val remaining = runtime.stdin.length - runtime.stdinOffset
-    if (remaining <= 0) None
-    else {
-      val b = runtime.stdin(runtime.stdinOffset)
-      runtime.stdinOffset = runtime.stdinOffset + 1
-      Some(b)
+  private def runtimeReadOne(runtime: ProgRuntimeState): Option[Byte] =
+    runtime.stdinStream match {
+      case Some(stream) =>
+        val value = stream.read()
+        if (value < 0) None else Some(value.toByte)
+      case None =>
+        val remaining = runtime.stdin.length - runtime.stdinOffset
+        if (remaining <= 0) None
+        else {
+          val b = runtime.stdin(runtime.stdinOffset)
+          runtime.stdinOffset = runtime.stdinOffset + 1
+          Some(b)
+        }
     }
-  }
 
   private def read_utf8_chunk(
       runtime: ProgRuntimeState,
@@ -2682,6 +2751,16 @@ object PredefImpl {
     Left(Str("unreachable"))
   }
 
+  private def runProgWithRuntime(
+      prog: Value,
+      runtime: ProgRuntimeState
+  ): ProgRunResult = {
+    val result = currentProgRuntime.withValue(Some(runtime)) {
+      run_prog(prog)
+    }
+    ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
+  }
+
   def runProg(
       prog: Value,
       stdin: String = ""
@@ -2690,33 +2769,73 @@ object PredefImpl {
       ProgRuntimeState(
         stdin = stdin.getBytes(StandardCharsets.UTF_8),
         stdinOffset = 0,
+        stdinStream = None,
         stdout = new StringBuilder,
         stderr = new StringBuilder
       )
 
-    val result = currentProgRuntime.withValue(Some(runtime)) {
-      run_prog(prog)
-    }
-    ProgRunResult(result, runtime.stdout.toString, runtime.stderr.toString)
+    runProgWithRuntime(prog, runtime)
   }
 
-  private def unwrapMain(value: Value): Value =
+  private def runProgWithSystemStdin(
+      prog: Value
+  ): ProgRunResult = {
+    val runtime =
+      ProgRuntimeState(
+        stdin = Array.emptyByteArray,
+        stdinOffset = 0,
+        stdinStream = Some(System.in),
+        stdout = new StringBuilder,
+        stderr = new StringBuilder
+      )
+
+    runProgWithRuntime(prog, runtime)
+  }
+
+  private def unwrapSingleFieldStruct(value: Value): Value =
     value match {
-      case p: ProductValue if p.values.nonEmpty => unwrapMain(p.get(0))
+      case p: ProductValue if p.values.nonEmpty => unwrapSingleFieldStruct(
+          p.get(0)
+        )
       case other                                => other
     }
+
+  private def runProgFnWithArgs(value: Value, args: List[String]): Value = {
+    val argList = VList(args.map(Str(_)))
+    unwrapSingleFieldStruct(value) match {
+      case fn: FnValue => callFn1(fn, argList)
+      case other       => other
+    }
+  }
+
+  val EvalRunArgv0: String = "bosatsu-eval"
+
+  def evalRunArgs(args: List[String]): List[String] =
+    EvalRunArgv0 :: args
 
   def runProgMain(
       main: Value,
       args: List[String],
       stdin: String = ""
   ): ProgRunResult = {
-    val argList = VList(args.map(Str(_)))
-    val prog = unwrapMain(main) match {
-      case fn: FnValue => callFn1(fn, argList)
-      case other       => other
-    }
+    val prog = runProgFnWithArgs(main, args)
     runProg(prog, stdin)
+  }
+
+  def runProgMainWithSystemStdin(
+      main: Value,
+      args: List[String]
+  ): ProgRunResult = {
+    val prog = runProgFnWithArgs(main, args)
+    runProgWithSystemStdin(prog)
+  }
+
+  def runProgTest(
+      progTest: Value,
+      args: List[String]
+  ): Either[Value, Value] = {
+    val prog = runProgFnWithArgs(progTest, args)
+    runProg(prog).result
   }
 
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {
@@ -3154,6 +3273,18 @@ object PredefImpl {
     acc
   }
 
+  def foldr_Array(array: Value, init: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val fnT = fn.asFn
+    var idx = arr.len - 1
+    var acc = init
+    while (idx >= 0) {
+      acc = fnT(NonEmptyList(arr.data(arr.offset + idx), acc :: Nil))
+      idx = idx - 1
+    }
+    acc
+  }
+
   def map_Array(array: Value, fn: Value): Value = {
     val arr = asArray(array)
     if (arr.len == 0) emptyArray
@@ -3166,6 +3297,91 @@ object PredefImpl {
         idx = idx + 1
       }
       ExternalValue(ArrayValue(mapped, 0, arr.len))
+    }
+  }
+
+  def filter_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val len = arr.len
+
+    if (len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      var idx = 0
+
+      while (
+        idx < len &&
+        (fnT(NonEmptyList(arr.data(arr.offset + idx), Nil)) == True)
+      ) {
+        idx = idx + 1
+      }
+
+      if (idx >= len) array
+      else {
+        val filtered = new Array[Value](len)
+        if (idx > 0) {
+          java.lang.System.arraycopy(arr.data, arr.offset, filtered, 0, idx)
+        }
+
+        var out = idx
+        idx = idx + 1
+        while (idx < len) {
+          val item = arr.data(arr.offset + idx)
+          if (fnT(NonEmptyList(item, Nil)) == True) {
+            filtered(out) = item
+            out = out + 1
+          }
+          idx = idx + 1
+        }
+
+        if (out == 0) emptyArray
+        else if (out == filtered.length) ExternalValue(ArrayValue(filtered, 0, out))
+        else {
+          val trimmed = java.util.Arrays.copyOf(filtered, out)
+          ExternalValue(ArrayValue(trimmed, 0, out))
+        }
+      }
+    }
+  }
+
+  def flat_map_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[ArrayValue](arr.len)
+      var idx = 0
+      var total = 0L
+      while (idx < arr.len) {
+        val item = arr.data(arr.offset + idx)
+        val itemArray = asArray(fnT(NonEmptyList(item, Nil)))
+        mapped(idx) = itemArray
+        total = total + itemArray.len.toLong
+        idx = idx + 1
+      }
+
+      if (total <= 0L || total > Int.MaxValue.toLong) emptyArray
+      else {
+        val totalInt = total.toInt
+        val data = new Array[Value](totalInt)
+        var write = 0
+        idx = 0
+        while (idx < mapped.length) {
+          val itemArray = mapped(idx)
+          if (itemArray.len > 0) {
+            java.lang.System.arraycopy(
+              itemArray.data,
+              itemArray.offset,
+              data,
+              write,
+              itemArray.len
+            )
+            write = write + itemArray.len
+          }
+          idx = idx + 1
+        }
+        ExternalValue(ArrayValue(data, 0, totalInt))
+      }
     }
   }
 
@@ -3273,29 +3489,6 @@ object PredefImpl {
         ExternalValue(ArrayValue(arr.data, arr.offset + startIdx, sliceLen))
       }
     }
-  }
-
-  // def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, a]) -> a
-  final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
-    val fnT = fn.asFn
-
-    @annotation.tailrec
-    def loop(biValue: Value, bi: BigInteger, state: Value): Value =
-      if (bi.compareTo(BigInteger.ZERO) <= 0) state
-      else {
-        fnT(NonEmptyList(biValue, state :: Nil)) match {
-          case ProductValue(nextI, nextA) =>
-            val n = i(nextI)
-            if (n.compareTo(bi) >= 0) {
-              // we are done in this case
-              nextA
-            } else loop(nextI, n, nextA)
-          case other =>
-            sys.error(s"unexpected ill-typed value: at $bi, $state, $other")
-        }
-      }
-
-    loop(intValue, i(intValue), state)
   }
 
   final def int_to_String(intValue: Value): Value =

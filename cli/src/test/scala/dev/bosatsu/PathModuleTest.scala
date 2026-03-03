@@ -205,7 +205,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool eval --run executes Bosatsu/FibBench::main") {
     val cmd =
-      "tool eval --run --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu fibbench 20"
+      "tool eval --run --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu 20"
         .split("\\s+")
         .toSeq
     val exitCode = runAndReport(cmd*)

@@ -30,6 +30,38 @@ jobs:
         java:
           - '17'
     timeout-minutes: 30
+  treeSitter:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - name: "Cache sbt directories"
+        uses: "actions/cache@v4"
+        with:
+          path: |
+            .sbt-local
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: "sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"
+          restore-keys: |
+            sbt-${{ runner.os }}-
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "install tree-sitter cli"
+        run: "npm install -g tree-sitter-cli@0.24.7"
+      - name: "run tree-sitter and differential parser checks"
+        run: "./scripts/test_tree_sitter.sh"
+    strategy:
+      matrix:
+        java:
+          - '17'
+    timeout-minutes: 30
   testPY:
     needs: test
     runs-on: ubuntu-latest
@@ -97,6 +129,10 @@ jobs:
         run: |
           sbt "coreJS/testOnly * -- --log=failure; jsapiJS/compile"
           sbt "jsuiJS/testOnly * -- --log=failure"
+      - name: "verify jsui browser bundle"
+        run: |
+          export NODE_OPTIONS=--openssl-legacy-provider
+          sbt "jsuiJS/fullOptJS::webpack"
     strategy:
       matrix:
         java:
@@ -220,6 +256,10 @@ jobs:
           ./bosatsu_node lib test --outdir node_out_lib
           echo "now test without a given outdir"
           ./bosatsu_node lib test
+      - name: "run lib build"
+        run: |
+          ./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_node 10
     strategy:
       matrix:
         java:
@@ -296,6 +336,8 @@ jobs:
           mkdir c_out_build
           ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
+          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_no_outdir 10
     timeout-minutes: 30
   testCMacOS:
     needs: test
@@ -357,6 +399,8 @@ jobs:
           mkdir c_out_build
           ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
+          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./fib_bench_no_outdir 10
     timeout-minutes: 30
   libPublishDryRun:
     needs: testC
@@ -389,6 +433,7 @@ jobs:
           OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish
           GIT_SHA: ${{ github.sha }}
           URI_BASE: https://example.invalid/
+          PUBLISH_DRY_RUN: "1"
         run: |
           chmod +x scripts/publish_bosatsu_libs.sh
           scripts/publish_bosatsu_libs.sh

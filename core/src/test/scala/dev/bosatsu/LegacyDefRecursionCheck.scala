@@ -24,6 +24,14 @@ object LegacyDefRecursionCheck {
 
   type Res = ValidatedNel[RecursionError, Unit]
 
+  private def normalizedDefArgs(
+      groups: NonEmptyList[List[Pattern.Parsed]]
+  ): NonEmptyList[NonEmptyList[Pattern.Parsed]] =
+    groups.map {
+      case h :: tail => NonEmptyList(h, tail)
+      case Nil       => NonEmptyList.one(Pattern.tuple(Nil))
+    }
+
   sealed abstract class RecursionError {
     def region: Region
     def message: String
@@ -868,7 +876,7 @@ object LegacyDefRecursionCheck {
     ): Res = {
       val body = defstmt.result._1.get
       val nameArgs = defstmt.args.toList.flatMap(_.patternNames)
-      val state1 = state.inDef(defstmt.name, defstmt.args)
+      val state1 = state.inDef(defstmt.name, normalizedDefArgs(defstmt.args))
       checkForIllegalBinds(state, defstmt.name :: nameArgs, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
           case InDef(_, _, _, _) =>

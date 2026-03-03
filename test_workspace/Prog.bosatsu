@@ -1,6 +1,6 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main())
+export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
 
 external struct Prog[err: +*, res: +*]
 
@@ -30,3 +30,4 @@ def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err,
 unit: forall err. Prog[err, ()] = pure(())
 
 struct Main(run: List[String] -> forall err. Prog[err, Int])
+struct ProgTest(test_fn: List[String] -> forall err. Prog[err, Test])

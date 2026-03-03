@@ -3,12 +3,14 @@ package dev.bosatsu.codegen.python
 import cats.{Eq, Show}
 import cats.syntax.all._
 import java.io.{ByteArrayInputStream, InputStream}
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
 import java.util.concurrent.Semaphore
-import dev.bosatsu.{Lit, PackageName, Par, TestUtils}
+import dev.bosatsu.{Lit, PackageName, Par, Platform, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
-import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
+import org.python.core.{PyInteger, PyFunction, PyObject, PySystemState, PyTuple}
 
 import TestUtils.compileFile
 
@@ -85,6 +87,43 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   def isfromString(s: String): InputStream =
     new ByteArrayInputStream(s.getBytes("UTF-8"))
 
+  private def pyStringLiteral(str: String): String =
+    s"'${str.replace("\\", "\\\\").replace("'", "\\'")}'"
+
+  private def modulePath(
+      root: Path,
+      module: PythonGen.Module
+  ): Path =
+    module.toList.foldLeft(root) { (curr, ident) =>
+      curr.resolve(ident.name)
+    }
+
+  private def writeModules(
+      rendered: Map[PackageName, (PythonGen.Module, org.typelevel.paiges.Doc)]
+  ): Path = {
+    val root = Files.createTempDirectory("bosatsu_python_test_")
+    rendered.values.foreach { case (module, doc) =>
+      val path = modulePath(root, module)
+      val parent = path.getParent
+      if (parent != null) {
+        Files.createDirectories(parent)
+        // Jython import resolution needs __init__.py in package dirs.
+        val parts = module.toList.map(_.name)
+        (1 until parts.size).foreach { idx =>
+          val dir = parts.take(idx).foldLeft(root) { (curr, part) =>
+            curr.resolve(part)
+          }
+          Files.createDirectories(dir)
+          val initFile = dir.resolve("__init__.py")
+          if (!Files.exists(initFile))
+            Files.writeString(initFile, "", StandardCharsets.UTF_8): Unit
+        }
+      }
+      Files.writeString(path, doc.renderTrim(80), StandardCharsets.UTF_8)
+    }
+    root
+  }
+
   val intr = JythonBarrier.run(new PythonInterpreter())
 
   test("we can compile Nat.bosatsu") {
@@ -95,19 +134,22 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         val bosatsuPM = compileFile(natPathBosatu)
         PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
       }
-    val natDoc = packMap(())(PackageName.parts("Bosatsu", "Num", "Nat"))._2
-    val natStr = natDoc.renderTrim(80)
+    val rendered = packMap(())
+    val natModule = rendered(PackageName.parts("Bosatsu", "Num", "Nat"))._1
+    val root = writeModules(rendered)
+    val natPath = modulePath(root, natModule)
 
     JythonBarrier.run {
       try {
-        intr.execfile(isfromString(natStr), "nat.py")
+        intr.exec(s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})")
+        intr.execfile(natPath.toString)
         checkTest(intr.get("tests"), "Nat.bosatsu")
       } catch {
         case t: Throwable =>
           System.err.println("=" * 80)
           System.err.println("couldn't compile nat.py")
           System.err.println("=" * 80)
-          System.err.println(natStr)
+          System.err.println(Files.readString(natPath, StandardCharsets.UTF_8))
           System.err.println("=" * 80)
           throw t
       }
@@ -220,16 +262,20 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       extraPaths: String*
   ) =
     JythonBarrier.run {
-      val intr = new PythonInterpreter()
+      val intr = new PythonInterpreter(null, new PySystemState())
 
       val packMap =
         Par.noParallelism {
           val bosatsuPM = compileFile(path, extraPaths*)
           PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
         }
-      val doc = packMap(())(pn)._2
+      val rendered = packMap(())
+      val module = rendered(pn)._1
+      val root = writeModules(rendered)
+      val moduleFile = modulePath(root, module)
 
-      intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
+      intr.exec(s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})")
+      intr.execfile(moduleFile.toString)
       checkTest(intr.get(testName), pn.asString)
 
       intr.close()
@@ -267,5 +313,24 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       "test_workspace/Float64.bosatsu"
     )
   }
+
+  Platform.onJvm(
+    test("issue #1961: array externals work as function values") {
+      runBoTests(
+        "test_workspace/Issue1961.bosatsu",
+        PackageName.parts("Issue1961"),
+        "tests",
+        "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "test_workspace/Properties.bosatsu",
+        "test_workspace/Rand.bosatsu",
+        "test_workspace/BinNat.bosatsu",
+        "test_workspace/List.bosatsu",
+        "test_workspace/Option.bosatsu",
+        "test_workspace/Char.bosatsu",
+        "test_workspace/Bool.bosatsu",
+        "test_workspace/Nat.bosatsu"
+      )
+    }
+  )
 
 }

@@ -1528,14 +1528,26 @@ object Matchless {
 
   case class LetMut[A](name: LocalAnonMut, span: Expr[A]) extends Expr[A] {
     // often we have several LetMut at once, return all them
-    def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) =
-      span match {
-        case next @ LetMut(_, _) =>
-          val (anons, expr) = next.flatten
-          (name :: anons, expr)
-        case notLetMut =>
-          (NonEmptyList.one(name), notLetMut)
+    def flatten: (NonEmptyList[LocalAnonMut], Expr[A]) = {
+      var reverseNames: List[LocalAnonMut] = name :: Nil
+      var tailExpr: Expr[A] = span
+      var done = false
+
+      while (!done) {
+        tailExpr match {
+          case LetMut(nextName, nextTail) =>
+            reverseNames = nextName :: reverseNames
+            tailExpr = nextTail
+          case _ =>
+            done = true
+        }
       }
+
+      (
+        NonEmptyList.fromListUnsafe(reverseNames.reverse),
+        tailExpr
+      )
+    }
   }
   case class Literal(lit: Lit) extends CheapExpr[Nothing]
 
@@ -1696,7 +1708,29 @@ object Matchless {
   ) extends BoolExpr[A]
 
   case class LetMutBool[A](name: LocalAnonMut, span: BoolExpr[A])
-      extends BoolExpr[A]
+      extends BoolExpr[A] {
+    // often we have several LetMutBool at once, return all them
+    def flatten: (NonEmptyList[LocalAnonMut], BoolExpr[A]) = {
+      var reverseNames: List[LocalAnonMut] = name :: Nil
+      var tailBool: BoolExpr[A] = span
+      var done = false
+
+      while (!done) {
+        tailBool match {
+          case LetMutBool(nextName, nextTail) =>
+            reverseNames = nextName :: reverseNames
+            tailBool = nextTail
+          case _ =>
+            done = true
+        }
+      }
+
+      (
+        NonEmptyList.fromListUnsafe(reverseNames.reverse),
+        tailBool
+      )
+    }
+  }
   object LetMutBool {
     def apply[A](lst: List[LocalAnonMut], span: BoolExpr[A]): BoolExpr[A] =
       lst.foldRight(span)(LetMutBool(_, _))
@@ -2479,9 +2513,13 @@ object Matchless {
         case gs: GetStructElement[?] =>
           gs.copy(arg = substituteLocalsCheap(m, gs.arg))
         case Lambda(c, r, as, b) =>
-          val m1 = m -- as.toList
-          val b1 = substituteLocals(m1, b)
-          Lambda(c, r, as, b1)
+          // Captures are evaluated at lambda creation site, so they see the
+          // outer substitution map. The body additionally excludes lambda-bound
+          // names (args and optional recursive name).
+          val bodyMap = m -- as.toList -- r.toList
+          val c1 = c.map(substituteLocals(m, _))
+          val b1 = substituteLocals(bodyMap, b)
+          Lambda(c1, r, as, b1)
         case WhileExpr(c, ef, r) =>
           WhileExpr(substituteLocalsBool(m, c), substituteLocals(m, ef), r)
         case ClosureSlot(_) | Global(_, _, _) | LocalAnon(_) | LocalAnonMut(_) |

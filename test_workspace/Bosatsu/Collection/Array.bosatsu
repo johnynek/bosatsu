@@ -2,6 +2,8 @@ package Bosatsu/Collection/Array
 
 from Bosatsu/List import eq_List
 from Bosatsu/Option import eq_Option
+from Bosatsu/Testing/Properties import forall_Prop, run_Prop
+from Bosatsu/Rand import (Rand, int_range, map_Rand, prod_Rand)
 from Bosatsu/Char import (
   char_to_Int,
   string_to_Char_List,
@@ -19,7 +21,10 @@ export (
   get_Array,
   get_or_Array,
   foldl_Array,
+  foldr_Array,
   map_Array,
+  filter_Array,
+  flat_map_Array,
   set_or_self_Array,
   sort_Array,
   concat_all_Array,
@@ -47,10 +52,13 @@ external def tabulate_Array[a](n: Int, fn: Int -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
 external def size_Array[a](ary: Array[a]) -> Int
-external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
-external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
+external def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -> b, fn: a -> b) -> b
+external def get_or_Array[a](ary: Array[a], idx: Int, default: () -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
+external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
+external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
 external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
@@ -75,7 +83,7 @@ def int_Array_to_String(code_points: Array[Int]) -> Option[String]:
   int_List_to_String(to_List_Array(code_points))
 
 def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  get_map_Array(ary, idx, _ -> None, x -> Some(x))
+  get_map_Array(ary, idx, () -> None, x -> Some(x))
 
 def index_in_range_Array[a](ary: Array[a], idx: Int) -> Bool:
   if cmp_Int(idx, 0) matches LT:
@@ -100,7 +108,7 @@ def reverse_Array[a](ary: Array[a]) -> Array[a]:
   from_List_Array(rev_list)
 
 def flatten_Array[a](arrays: Array[Array[a]]) -> Array[a]:
-  concat_all_Array(to_List_Array(arrays))
+  flat_map_Array(arrays, arr -> arr)
 
 ########
 ## test code below
@@ -120,6 +128,7 @@ eq_oi = eq_Option(eq_Int)
 a0 = empty_Array
 
 a5 = range_Array(5)
+a5_tail = slice_Array(a5, 2, 5)
 a_from = range_from_Array(10, 4)
 a_set = set_or_self_Array(a5, 2, 99)
 a_sorted = sort_Array(
@@ -127,15 +136,30 @@ a_sorted = sort_Array(
   cmp_pair
 )
 
-def set_in_range_ok(_: Unit) -> Bool:
+def set_in_range_ok() -> Bool:
   match set_Array(a5, 1, 8):
     case Some(arr): to_List_Array(arr) matches [0, 8, 2, 3, 4]
     case None: False
 
-def int_to_char_array_some(_: Unit) -> Bool:
+def int_to_char_array_some() -> Bool:
   match int_Array_to_Char_Array(from_List_Array([65, 128075])):
     case Some(chars): to_List_Array(chars) matches [.'A', .'👋']
     case None: False
+
+rand_Int: Rand[Int] = map_Rand(int_range(200), i -> i.sub(100))
+rand_Array_and_Init: Rand[(Array[Int], Int)] = map_Rand(
+  prod_Rand(prod_Rand(rand_Int, int_range(40)), rand_Int),
+  (((start, len), init)) -> (range_from_Array(start, len), init)
+)
+
+foldr_reverse_law = forall_Prop(
+  rand_Array_and_Init,
+  "reverse + foldl == foldr",
+  ((arr, init)) -> (
+    foldr_res = foldr_Array(arr, init, (item, acc) -> add(mul(item, 31), acc))
+    foldl_res = foldl_Array(reverse_Array(arr), init, (acc, item) -> add(mul(item, 31), acc))
+    Assertion(eq_Int(foldr_res, foldl_res), "foldr follows reverse + foldl")
+  ))
 
 tests = TestSuite("Array tests", [
   Assertion(size_Array(a0) matches 0, "empty size"),
@@ -146,13 +170,34 @@ tests = TestSuite("Array tests", [
   Assertion(get_Array(a5, 4).eq_oi(Some(4)), "get last"),
   Assertion(get_Array(a5, -1).eq_oi(None), "get negative"),
   Assertion(get_Array(a5, 5).eq_oi(None), "get out of range"),
-  Assertion(get_or_Array(a5, 2, _ -> 100) matches 2, "get_or in range"),
-  Assertion(get_or_Array(a5, 10, _ -> 100) matches 100, "get_or fallback"),
+  Assertion(get_or_Array(a5, 2, () -> 100) matches 2, "get_or in range"),
+  Assertion(get_or_Array(a5, 10, () -> 100) matches 100, "get_or fallback"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "foldl add"),
+  Assertion(foldr_Array(a5, 0, (x, acc) -> sub(x, acc)) matches 2, "foldr order"),
   Assertion(to_List_Array(map_Array(a5, i -> i.add(1))) matches [1, 2, 3, 4, 5], "map add 1"),
+  Assertion(to_List_Array(filter_Array(a5, i -> i.mod_Int(2) matches 0)) matches [0, 2, 4], "filter evens"),
+  Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, i -> from_List_Array([i, i.add(10)]))) matches [0, 10, 1, 11, 2, 12, 3, 13, 4, 14],
+    "flat_map dup"
+  ),
+  Assertion(
+    to_List_Array(flat_map_Array(a5, i ->
+      if i.mod_Int(2) matches 0:
+        from_List_Array([i])
+      else:
+        empty_Array
+    )) matches [0, 2, 4],
+    "flat_map selective"
+  ),
+  Assertion(to_List_Array(filter_Array(a5_tail, i -> i.mod_Int(2) matches 1)) matches [3], "filter slice"),
+  Assertion(
+    to_List_Array(flat_map_Array(a5_tail, i -> from_List_Array([i, i.add(20)]))) matches [2, 22, 3, 23, 4, 24],
+    "flat_map slice"
+  ),
   Assertion(to_List_Array(a_set) matches [0, 1, 99, 3, 4], "set_or_self in range"),
   Assertion(eq_ai(set_or_self_Array(a5, 9, 77), a5), "set_or_self out of range keeps self"),
-  Assertion(set_in_range_ok(()), "set_Array in range"),
+  Assertion(set_in_range_ok(), "set_Array in range"),
   Assertion(set_Array(a5, 10, 8) matches None, "set_Array out of range"),
   Assertion(to_List_Array(concat_all_Array([a5, range_Array(3), empty_Array])) matches [0, 1, 2, 3, 4, 0, 1, 2], "concat_all"),
   Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice mid"),
@@ -166,7 +211,7 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(string_to_Char_Array("hi👋")) matches [.'h', .'i', .'👋'], "string_to_Char_Array"),
   Assertion(to_List_Array(char_Array_to_Int_Array(from_List_Array([.'A', .'👋']))) matches [65, 128075], "char_Array_to_Int_Array"),
   Assertion(to_List_Array(string_to_Int_Array("A👋")) matches [65, 128075], "string_to_Int_Array"),
-  Assertion(int_to_char_array_some(()), "int_Array_to_Char_Array some"),
+  Assertion(int_to_char_array_some(), "int_Array_to_Char_Array some"),
   Assertion(
     int_Array_to_Char_Array(from_List_Array([55296])) matches None,
     "int_Array_to_Char_Array none"
@@ -182,9 +227,10 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
   Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
-  Assertion(get_map_Array(a5, 3, _ -> 100, x -> x.add(7)) matches 10, "get_map some"),
-  Assertion(get_map_Array(a5, 30, _ -> 100, x -> x.add(7)) matches 100, "get_map none"),
+  Assertion(get_map_Array(a5, 3, () -> 100, x -> x.add(7)) matches 10, "get_map some"),
+  Assertion(get_map_Array(a5, 30, () -> 100, x -> x.add(7)) matches 100, "get_map none"),
   Assertion(index_in_range_Array(a5, 0), "index in range 0"),
   Assertion(index_in_range_Array(a5, 4), "index in range 4"),
   Assertion(index_in_range_Array(a5, 5) matches False, "index not in range"),
+  run_Prop(foldr_reverse_law, 100, 4242),
 ])

@@ -95,7 +95,7 @@ BValue bsts_string_from_utf8_bytes_static_null_term(const char* bytes);
 int bsts_string_code_point_to_utf8(int codepoint, char* bytes);
 // (&String, &String) -> Bool
 _Bool bsts_string_equals(BValue left, BValue right);
-// (&String, &String) -> int 
+// (&String, &String) -> int in {-1, 0, 1}
 int bsts_string_cmp(BValue left, BValue right);
 // &String -> int (length in bytes)
 size_t bsts_string_utf8_len_ref(const BValue* str);
@@ -210,6 +210,11 @@ typedef struct BSTS_Test_Result {
 // and print to stdout
 _Bool bsts_test_argv_has_quiet(int argc, char** argv);
 BSTS_Test_Result bsts_test_run(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+);
+BSTS_Test_Result bsts_test_run_prog(
     char* package_name,
     BConstruct test_value,
     _Bool quiet

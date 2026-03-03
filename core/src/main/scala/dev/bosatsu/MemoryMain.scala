@@ -344,6 +344,32 @@ object MemoryMain {
             }
           }
 
+      def readBytes(p: Path): F[Array[Byte]] =
+        StateT
+          .get[G, State]
+          .flatMap { files =>
+            files.get(p) match {
+              case Some(Right(MemoryMain.FileContent.Bytes(bytes))) =>
+                moduleIOMonad.pure(bytes)
+              case Some(Right(MemoryMain.FileContent.Str(res))) =>
+                moduleIOMonad.pure(res.getBytes(StandardCharsets.UTF_8))
+              case Some(Right(MemoryMain.FileContent.Packages(packs))) =>
+                moduleIOMonad.fromTry(
+                  ProtoConverter.packagesToProto(packs).map(_.toByteArray)
+                )
+              case Some(Right(MemoryMain.FileContent.Interfaces(ifs))) =>
+                moduleIOMonad.fromTry(
+                  ProtoConverter.interfacesToProto(ifs).map(_.toByteArray)
+                )
+              case Some(Right(MemoryMain.FileContent.Lib(lib))) =>
+                moduleIOMonad.pure(lib.arg.toByteArray)
+              case other =>
+                moduleIOMonad.raiseError(
+                  new Exception(s"expect binary content, found: $other")
+                )
+            }
+          }
+
       def fsDataType(p: Path): StateT[G, State, Option[PlatformIO.FSDataType]] =
         StateT
           .get[G, State]

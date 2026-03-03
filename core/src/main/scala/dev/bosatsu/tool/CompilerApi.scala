@@ -113,6 +113,7 @@ object CompilerApi {
         cache,
         InferPhases.default
       )
+      _ <- cache.statsSnapshot.traverse_(platformIO.println)
       // TODO, we could use applicative, to report both duplicate packages and the other
       // errors
       res <-
@@ -124,6 +125,7 @@ object CompilerApi {
               }
             moduleIOMonad.pure((p, pathToName))
           case Validated.Invalid(errs) =>
+            given cats.Show[Path] = platformIO.showPath
             val sourceMap = PackageMap.buildSourceMap(packs)
             moduleIOMonad.raiseError(
               PackageErrors(sourceMap, errs, errColor)

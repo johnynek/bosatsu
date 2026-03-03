@@ -297,7 +297,7 @@ object PackageCustoms {
 
     val roots: List[Node] =
       (exports ::
-        Package.testValue(pack).map { case (b, _, _) => Right(b) }.toList :::
+        Package.testRootBindables(pack).iterator.map(Right(_)).toList :::
         Package
           .mainValue(pack)
           .map { case (b, _, _) => Right(b) }

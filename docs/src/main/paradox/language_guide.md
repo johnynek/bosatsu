@@ -282,6 +282,24 @@ add_tuple = ((x, y)) -> add(x, y)    # Fn1 taking a tuple
 Note the distinction between `(x, y) -> ...` (Fn2) and `((x, y)) -> ...`
 (Fn1 that takes a tuple).
 
+Bosatsu also supports Python-style zero-arg function sugar for `Unit -> a`:
+```
+def later():
+  compute()
+
+value = later()
+```
+
+These are equivalent to:
+```
+def later(()):
+  compute()
+
+value = later(())
+```
+
+The corresponding function type is still written as `() -> a`.
+
 Function parameters are patterns, so you can destructure arguments directly:
 ```
 def fst((a, _)): a
@@ -536,6 +554,7 @@ If all required fields are defaulted, `Rec {}` is valid and means "construct
 using defaults." This is different from `Rec` by itself: bare `Rec` refers to
 the constructor value (and only behaves like a zero-argument construction for
 truly zero-argument constructors).
+`Rec()` is not constructor syntax.
 
 Like Rust, if a value is already in scope matching a field name, we can omit
 the colon:
@@ -873,7 +892,10 @@ transitively reachable from at least one of these roots:
 
 1. an exported value
 1. the package main value (the last top-level value in the package)
-1. the package test value (the last top-level value with type `Bosatsu/Predef::Test`)
+1. the package test entry:
+   - if no `Bosatsu/Prog::ProgTest` exists, the last top-level
+     `Bosatsu/Predef::Test`
+   - if one or more `ProgTest` values exist, the last top-level `ProgTest`
 
 If a top-level value is not reachable from any of those roots, compilation
 fails with an unused-value error.
@@ -913,7 +935,11 @@ typechecking state to the next, then remove placeholders incrementally.
 those commands fail until all `todo` calls are removed.
 
 ## Testing
-Bosatsu tests are regular values of type `Bosatsu/Predef::Test`.
+Bosatsu supports two test entrypoint styles:
+
+1. Plain tests as values of type `Bosatsu/Predef::Test`
+1. Effectful tests as `Bosatsu/Prog::ProgTest`
+
 `Bosatsu/Predef` defines:
 
 1. `Assertion(value: Bool, message: String)`
@@ -942,10 +968,20 @@ tests = TestSuite("all tests", [
 ])
 ```
 
-Test discovery rule: `bosatsu lib test` runs the final top-level value in each
-package whose type is `Bosatsu/Predef::Test` (the last such value in source
-order). In practice, keep one final `test`/`tests` value per package and make
-it include all child tests you want run.
+`Bosatsu/Prog` defines:
+
+1. `ProgTest(test_fn: List[String] -> forall e. Prog[e, Test])`
+
+Test discovery rules (`tool test` and `lib test`) are:
+
+1. If no `ProgTest` exists, run the final top-level `Test` value in source
+   order.
+1. If one or more `ProgTest` values exist, run the final top-level `ProgTest`
+   value in source order.
+1. If any plain `Test` value appears after that selected `ProgTest`, test
+   discovery fails for that package with an ordering error.
+
+Current argument behavior: runners pass `[]` into `ProgTest.test_fn`.
 
 From the repo root, run tests with:
 ```sh
@@ -994,30 +1030,24 @@ safety story gets much weaker.
 So "use with caution" mostly applies to maintainers of trusted runtime/predef
 code, not to ordinary Bosatsu library authors.
 
-An example function we cannot implement in Bosatsu is:
+Bosatsu allows recursion on `Int` when the recursion checker can prove that on
+recursive paths (for example under `cmp_Int(int_v, 0) matches GT`), the next
+recursive argument is still non-negative and strictly smaller than the current
+value. For tail recursion, use `loop`:
 ```
 def int_loop(int_v: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  if cmp_Int(int_v, 0) matches GT:
-    (next_i, next_state) = fn(int_v, state)
-    if cmp_Int(next_i, int_v) matches LT:
-      # make sure we always decrease int_v
-      int_loop(next_i, next_state, fn)
-    else:
-      next_state
-  else:
-    state
-```
-We cannot write this function, even though it is total, because Bosatsu cannot
-prove that the loop terminates. The only recursions we can do are on values that
-are substructures of the `recur`/`loop` targets (single-target structural
-decrease or tuple-target lexicographic decrease). This gives a simple proof that
-the loop will terminate.
-
-Instead, we implement this function in Predef as an external def that has to be
-supplied to the compiler with a promise that it is total and matches its
-declared type.
-```
-external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
+  loop int_v:
+    case _ if cmp_Int(int_v, 0) matches GT:
+      (next_i, next_state) = fn(int_v, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, int_v) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
 ```
 
 External values and types work exactly like internally defined types from any
