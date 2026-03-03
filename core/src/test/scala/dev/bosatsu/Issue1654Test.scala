@@ -67,10 +67,14 @@ tests = TestSuite("all", [
 
       val eval =
         library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
-      val testRes = eval
-        .evalTest(reproPackage)
-        .getOrElse(fail(s"expected test value in ${reproPackage.asString}"))
-        .value
+      val testRes = eval.evalTest(reproPackage) match {
+        case Left(err) =>
+          fail(s"unexpected test discovery error: $err")
+        case Right(None) =>
+          fail(s"expected test value in ${reproPackage.asString}")
+        case Right(Some(test)) =>
+          test.value
+      }
 
       assertEquals(testRes.assertions, 3)
       assertEquals(testRes.failureCount, 1)
@@ -109,5 +113,103 @@ tests = TestSuite("all", [
       assertEquals(Package.testValue(rewritten).map(_._1), Some(testsName))
       assert(rewritten.lets.exists(_._1 == stringTestsName))
     }
+  }
+
+  test("test discovery selects ProgTest over plain Test values") {
+    val progSource = """
+package Repro/ProgTestPick
+
+from Bosatsu/Prog import ProgTest, pure
+
+tests = ProgTest(_ -> pure(TestSuite("prog", [
+  Assertion(True, "prog test")
+])))
+"""
+    val progPackage = PackageName.parts("Repro", "ProgTestPick")
+    val progPrelude = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+
+    TestUtils.testInferred(
+      List(progPrelude, progSource),
+      progPackage.asString,
+      { (pm, _) =>
+        val pack = pm.toMap.getOrElse(
+          progPackage,
+          fail(s"missing inferred package: ${progPackage.asString}")
+        )
+        Package.testEntry(pack) match {
+          case Right(Some(Package.TestEntry.ProgTest(bindable, _, _))) =>
+            assertEquals(bindable, Identifier.Name("tests"))
+          case other =>
+            fail(s"expected ProgTest entry, got: $other")
+        }
+
+        val eval =
+          library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+        val testValue = eval.evalTest(progPackage) match {
+          case Left(err) =>
+            fail(s"unexpected test discovery error: $err")
+          case Right(Some(test)) =>
+            test.value
+          case Right(None) =>
+            fail(s"missing test output for ${progPackage.asString}")
+        }
+
+        assertEquals(testValue.assertions, 1)
+        assertEquals(testValue.failureCount, 0)
+      }
+    )
+  }
+
+  test("test discovery fails when plain Test appears after ProgTest") {
+    val progSource = """
+package Repro/ProgTestOrder
+
+from Bosatsu/Prog import ProgTest, pure
+
+tests = ProgTest(_ -> pure(Assertion(True, "prog test")))
+late = Assertion(True, "plain test after prog test")
+"""
+    val progPackage = PackageName.parts("Repro", "ProgTestOrder")
+    val progPrelude = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+
+    TestUtils.testInferred(
+      List(progPrelude, progSource),
+      progPackage.asString,
+      { (pm, _) =>
+        val pack = pm.toMap.getOrElse(
+          progPackage,
+          fail(s"missing inferred package: ${progPackage.asString}")
+        )
+        Package.testEntry(pack) match {
+          case Left(
+                Package.TestDiscoveryError.PlainTestAfterProgTest(
+                  packageName,
+                  progTest,
+                  plainAfter
+                )
+              ) =>
+            assertEquals(packageName, progPackage)
+            assertEquals(progTest, Identifier.Name("tests"))
+            assertEquals(plainAfter.toList, List(Identifier.Name("late")))
+          case other =>
+            fail(s"expected ordering error, got: $other")
+        }
+
+        val eval =
+          library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+        eval.evalTest(progPackage) match {
+          case Left(
+                Package.TestDiscoveryError.PlainTestAfterProgTest(
+                  packageName,
+                  _,
+                  _
+                )
+              ) =>
+            assertEquals(packageName, progPackage)
+          case other =>
+            fail(s"expected discovery error while evaluating tests, got: $other")
+        }
+      }
+    )
   }
 }

@@ -154,14 +154,100 @@ object Package {
       }
     }
 
-  /** Return the last binding in the file with the test type
+  sealed trait TestEntry[+A] {
+    def bindable: Identifier.Bindable
+    def recursionKind: RecursionKind
+    def expr: TypedExpr[A]
+  }
+
+  object TestEntry {
+    final case class PlainTest[+A](
+        bindable: Identifier.Bindable,
+        recursionKind: RecursionKind,
+        expr: TypedExpr[A]
+    ) extends TestEntry[A]
+
+    final case class ProgTest[+A](
+        bindable: Identifier.Bindable,
+        recursionKind: RecursionKind,
+        expr: TypedExpr[A]
+    ) extends TestEntry[A]
+  }
+
+  sealed trait TestDiscoveryError {
+    def packageName: PackageName
+  }
+
+  object TestDiscoveryError {
+    final case class PlainTestAfterProgTest(
+        packageName: PackageName,
+        progTest: Identifier.Bindable,
+        plainTestsAfter: NonEmptyList[Identifier.Bindable]
+    ) extends TestDiscoveryError
+  }
+
+  /** Return the selected test entry for a package.
+    *
+    * Discovery rules:
+    *   1. If there are no ProgTest values, select the last plain Test.
+    *   2. If there is at least one ProgTest, select the last ProgTest.
+    *   3. If a plain Test appears after the selected ProgTest, report an
+    *      ordering error.
+    */
+  def testEntry[A](
+      tp: Typed[A]
+  ): Either[TestDiscoveryError, Option[TestEntry[A]]] = {
+    val indexedLets = tp.lets.zipWithIndex
+    val plainTests = indexedLets.collect {
+      case ((name, rec, te), idx) if te.getType.sameAs(Type.TestType) =>
+        (idx, TestEntry.PlainTest(name, rec, te))
+    }
+    val progTests = indexedLets.collect {
+      case ((name, rec, te), idx) if te.getType.sameAs(Type.ProgTestType) =>
+        (idx, TestEntry.ProgTest(name, rec, te))
+    }
+
+    progTests.lastOption match {
+      case None =>
+        Right(plainTests.lastOption.map(_._2))
+      case Some((progIdx, progTest)) =>
+        val plainAfter = plainTests.collect {
+          case (idx, plain) if idx > progIdx => plain.bindable
+        }
+        NonEmptyList.fromList(plainAfter) match {
+          case Some(plainTestsAfter) =>
+            Left(
+              TestDiscoveryError.PlainTestAfterProgTest(
+                tp.name,
+                progTest.bindable,
+                plainTestsAfter
+              )
+            )
+          case None =>
+            Right(Some(progTest))
+        }
+    }
+  }
+
+  /** Return the selected plain Test binding in the file.
     */
   def testValue[A](
       tp: Typed[A]
   ): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
-    tp.lets.filter { case (_, _, te) =>
-      te.getType.sameAs(Type.TestType)
-    }.lastOption
+    testEntry(tp).toOption.flatten.collect {
+      case TestEntry.PlainTest(bindable, recursionKind, expr) =>
+        (bindable, recursionKind, expr)
+    }
+
+  def testRootBindables[A](tp: Typed[A]): Set[Identifier.Bindable] =
+    testEntry(tp) match {
+      case Right(Some(entry)) =>
+        Set(entry.bindable)
+      case Right(None) =>
+        Set.empty
+      case Left(TestDiscoveryError.PlainTestAfterProgTest(_, prog, plainAfter)) =>
+        plainAfter.toList.toSet + prog
+    }
 
   def mainValue[A](
       tp: Typed[A]
@@ -189,7 +275,7 @@ object Package {
     val pinned: Set[Identifier] =
       tp.exports.iterator.map(_.name).toSet ++
         tp.lets.lastOption.map(_._1) ++
-        testValue(tp).map(_._1) ++
+        testRootBindables(tp) ++
         constructorDefaultHelpers
 
     def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =

@@ -214,6 +214,11 @@ BSTS_Test_Result bsts_test_run(
     BConstruct test_value,
     _Bool quiet
 );
+BSTS_Test_Result bsts_test_run_prog(
+    char* package_name,
+    BConstruct test_value,
+    _Bool quiet
+);
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results);
 
 #endif

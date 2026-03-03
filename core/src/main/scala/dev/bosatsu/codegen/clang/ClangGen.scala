@@ -6,7 +6,7 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, Lit, Matchless, Predef, PackageName}
+import dev.bosatsu.{Identifier, Lit, Matchless, Package, Predef, PackageName}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -204,7 +204,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
     render(env.renderMain(pn, value, runner))
 
   def renderTests(
-      values: List[(PackageName, Bindable)]
+      values: List[(PackageName, Package.TestEntry[Any])]
   ): Either[Error, Doc] =
     render(env.renderTests(values))
 
@@ -924,7 +924,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         } yield ()
 
       def renderMain(p: PackageName, b: Bindable, mainRun: Code.Ident): T[Unit]
-      def renderTests(values: List[(PackageName, Bindable)]): T[Unit]
+      def renderTests(values: List[(PackageName, Package.TestEntry[Any])]): T[
+        Unit
+      ]
     }
 
     object Env {
@@ -1390,11 +1392,19 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               )
             }
 
-          def renderTests(values: List[(PackageName, Bindable)]): T[Unit] =
+          def renderTests(
+              values: List[(PackageName, Package.TestEntry[Any])]
+          ): T[Unit] =
             values
-              .traverse { case (p, b) =>
-                globalIdent(ns.rootKey, p, b).map { i =>
-                  (Code.StrLiteral(p.asString), i)
+              .traverse { case (p, entry) =>
+                globalIdent(ns.rootKey, p, entry.bindable).map { i =>
+                  val runFn = entry match {
+                    case Package.TestEntry.PlainTest(_, _, _) =>
+                      Code.Ident("bsts_test_run")
+                    case Package.TestEntry.ProgTest(_, _, _)  =>
+                      Code.Ident("bsts_test_run_prog")
+                  }
+                  (Code.StrLiteral(p.asString), i, runFn)
                 }
               }
               .flatMap { packVals =>
@@ -1415,11 +1425,11 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 val results = Code.Ident("results")
                 val quiet = Code.Ident("quiet")
                 val quietFn = Code.Ident("bsts_test_argv_has_quiet")
-                val runFn = Code.Ident("bsts_test_run")
                 val summaryFn = Code.Ident("bsts_test_result_print_summary")
                 val testCount = packVals.length
-                val allTests = packVals.mapWithIndex { case ((n, tv), idx) =>
-                  results.bracket(Code.IntLiteral(idx)) := runFn(n, tv, quiet)
+                val allTests = packVals.mapWithIndex {
+                  case ((n, tv, runFn), idx) =>
+                    results.bracket(Code.IntLiteral(idx)) := runFn(n, tv, quiet)
                 }
                 val header = Code.Statements(
                   Code.Ident("GC_init")().stmt,

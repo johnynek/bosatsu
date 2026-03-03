@@ -16,6 +16,7 @@ import dev.bosatsu.{
   PackageMap,
   PackageName,
   Par,
+  PredefImpl,
   Test,
   Value,
   ValueToDoc,
@@ -225,14 +226,46 @@ case class LibraryEvaluation[K] private (
       (value, tpe)
     }
 
-  def evalTest(pn: PackageName): Option[Eval[Test]] =
-    selectScopeFor(pn).toOption.flatMap { scope =>
-      for {
-        pack <- packageInScope(scope, pn)
-        (name, _, _) <- Package.testValue(pack)
-        value <- evaluate(scope, pn).get(name)
-      } yield value.map(Test.fromValue(_))
+  private def testEntryValue(
+      pn: PackageName
+  ): Either[Package.TestDiscoveryError, Option[(Package.TestEntry[Any], Eval[
+    Value
+  ])]] =
+    selectScopeFor(pn).toOption match {
+      case None => Right(None)
+      case Some(scope) =>
+        packageInScope(scope, pn) match {
+          case None => Right(None)
+          case Some(pack) =>
+            Package.testEntry(pack).map(_.flatMap { entry =>
+              evaluate(scope, pn).get(entry.bindable).map((entry, _))
+            })
+        }
     }
+
+  def evalTest(
+      pn: PackageName
+  ): Either[Package.TestDiscoveryError, Option[Eval[Test]]] =
+    testEntryValue(pn).map(
+      _.map { case (entry, evalValue) =>
+        entry match {
+          case Package.TestEntry.PlainTest(_, _, _) =>
+            evalValue.map(Test.fromValue(_))
+          case progTest @ Package.TestEntry.ProgTest(_, _, _) =>
+            evalValue.map { value =>
+              PredefImpl.runProgTest(value, Nil) match {
+                case Right(testValue) =>
+                  Test.fromValue(testValue)
+                case Left(errValue)   =>
+                  Test.Assertion(
+                    false,
+                    s"ProgTest ${pn.asString}::${progTest.bindable.sourceCodeRepr} raised an uncaught error: $errValue"
+                  )
+              }
+            }
+        }
+      }
+    )
 
   private def resolveDefinedType(
       scope: K,
