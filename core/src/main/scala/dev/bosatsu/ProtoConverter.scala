@@ -1,8 +1,8 @@
 package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.{Foldable, Monad, MonadError}
-import cats.data.{NonEmptyList, ReaderT, StateT}
+import cats.{Eval, Foldable, Monad, MonadError}
+import cats.data.{NonEmptyList, ReaderT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
@@ -125,25 +125,94 @@ object ProtoConverter {
       )
   }
 
-  type Tab[A] = StateT[Try, SerState, A]
+  trait ProtoState[+A] {
+    self =>
+    def run(s: SerState): Eval[Try[(SerState, A)]]
+
+    final def map[B](fn: A => B): ProtoState[B] =
+      ProtoState { s =>
+        Eval.defer(run(s)).map {
+          case Success((ss, a)) => Success((ss, fn(a)))
+          case Failure(err)     => Failure(err)
+        }
+      }
+
+    final def flatMap[B](fn: A => ProtoState[B]): ProtoState[B] =
+      ProtoState { s =>
+        Eval.defer(run(s)).flatMap {
+          case Success((ss, a)) => Eval.defer(fn(a).run(ss))
+          case Failure(err)     => Eval.now(Failure(err))
+        }
+      }
+  }
+
+  object ProtoState {
+    def apply[A](fn: SerState => Eval[Try[(SerState, A)]]): ProtoState[A] =
+      new ProtoState[A] {
+        def run(s: SerState): Eval[Try[(SerState, A)]] = fn(s)
+      }
+
+    def pure[A](a: A): ProtoState[A] =
+      ProtoState(s => Eval.now(Success((s, a))))
+
+    def fail[A](e: Throwable): ProtoState[A] =
+      ProtoState(_ => Eval.now(Failure(e)))
+
+    val get: ProtoState[SerState] =
+      ProtoState(s => Eval.now(Success((s, s))))
+
+    def set(s: SerState): ProtoState[Unit] =
+      ProtoState(_ => Eval.now(Success((s, ()))))
+
+    given MonadError[ProtoState, Throwable] with
+      def pure[A](a: A): ProtoState[A] =
+        ProtoState.pure(a)
+
+      override def map[A, B](fa: ProtoState[A])(f: A => B): ProtoState[B] =
+        fa.map(f)
+
+      def flatMap[A, B](fa: ProtoState[A])(f: A => ProtoState[B]): ProtoState[B] =
+        fa.flatMap(f)
+
+      def tailRecM[A, B](a: A)(
+          fn: A => ProtoState[Either[A, B]]
+      ): ProtoState[B] =
+        ProtoState { s0 =>
+          def loop(s: SerState, a: A): Eval[Try[(SerState, B)]] =
+            Eval.defer(fn(a).run(s)).flatMap {
+              case Success((nextS, Right(b))) => Eval.now(Success((nextS, b)))
+              case Success((nextS, Left(a1))) => loop(nextS, a1)
+              case Failure(err)               => Eval.now(Failure(err))
+            }
+
+          loop(s0, a)
+        }
+
+      def raiseError[A](e: Throwable): ProtoState[A] =
+        ProtoState.fail(e)
+
+      def handleErrorWith[A](
+          fa: ProtoState[A]
+      )(f: Throwable => ProtoState[A]): ProtoState[A] =
+        ProtoState { s =>
+          Eval.defer(fa.run(s)).flatMap {
+            case success @ Success(_) => Eval.now(success)
+            case Failure(err)         => Eval.defer(f(err).run(s))
+          }
+        }
+  }
+
+  type Tab[A] = ProtoState[A]
 
   implicit class TabMethods[A](val self: Tab[A]) extends AnyVal {
     inline def onFailPrint(inline message: => String): Tab[A] =
-      self.runF match {
-        case Success(fn) =>
-          def run(state: SerState): Try[(SerState, A)] =
-            fn(state) match {
-              case success @ Success(_) => success
-              case failure @ Failure(_) =>
-                System.err.println(message)
-                failure
-            }
-
-          StateT[Try, SerState, A](run)
-
-        case Failure(_) =>
-          System.err.println(message)
-          self
+      ProtoState { state =>
+        Eval.defer(self.run(state)).map {
+          case success @ Success(_) => success
+          case failure @ Failure(_) =>
+            System.err.println(message)
+            failure
+        }
       }
   }
 
@@ -153,63 +222,65 @@ object ProtoConverter {
     Monad[Tab].pure(a)
 
   private def getId(s: String): Tab[Int] =
-    def run(ss: SerState): Try[(SerState, Int)] =
-      ss.stringId(s) match {
-        case Right(idx) =>
-          Success((ss, idx + 1))
-        case Left((next, idx)) =>
-          Success((next, idx + 1))
+    ProtoState { ss =>
+      Eval.now {
+        ss.stringId(s) match {
+          case Right(idx) =>
+            Success((ss, idx + 1))
+          case Left((next, idx)) =>
+            Success((next, idx + 1))
+        }
       }
-
-    StateT[Try, SerState, Int](run)
+    }
 
   private inline def getTypeId(t: Type, inline pt: => proto.Type): Tab[Int] =
-    def run(ss: SerState): Try[(SerState, Int)] =
-      ss.typeId(t, pt) match {
-        case Right(idx) =>
-          Success((ss, idx + 1))
-        case Left((next, idx)) =>
-          Success((next, idx + 1))
+    ProtoState { ss =>
+      Eval.now {
+        ss.typeId(t, pt) match {
+          case Right(idx) =>
+            Success((ss, idx + 1))
+          case Left((next, idx)) =>
+            Success((next, idx + 1))
+        }
       }
-
-    StateT[Try, SerState, Int](run)
+    }
 
   private def getProtoTypeTab(t: Type): Tab[Option[Int]] =
-    StateT
-      .get[Try, SerState]
+    ProtoState
+      .get
       .map(_.types.indexOf(t).map(_ + 1))
 
   private def writePattern(
       p: Pattern[(PackageName, Constructor), Type],
       pp: proto.Pattern
   ): Tab[Int] =
-    StateT
-      .get[Try, SerState]
+    ProtoState
+      .get
       .flatMap { s =>
         s.patterns.get(p, pp) match {
           case Right(_) =>
             // this is a programming error in this code, if this is hit
             tabFail(new Exception(s"expected $p to be absent"))
           case Left((next, id)) =>
-            StateT.set[Try, SerState](s.copy(patterns = next)).as(id + 1)
+            ProtoState.set(s.copy(patterns = next)).as(id + 1)
         }
       }
 
   private def writeExpr(te: TypedExpr[Any], pte: proto.TypedExpr): Tab[Int] =
-    StateT
-      .get[Try, SerState]
+    ProtoState
+      .get
       .flatMap { s =>
         s.expressions.get(te, pte) match {
           case Right(_) =>
             // this is a programming error in this code, if this is hit
             tabFail(new Exception(s"expected $te to be absent"))
           case Left((next, id)) =>
-            StateT.set[Try, SerState](s.copy(expressions = next)).as(id + 1)
+            ProtoState.set(s.copy(expressions = next)).as(id + 1)
         }
       }
 
   def runTab[A](t: Tab[A]): Try[(SerState, A)] =
-    t.run(SerState.empty)
+    t.run(SerState.empty).value
 
   class DecodeState private (
       strings: Array[String],
@@ -860,8 +931,8 @@ object ProtoConverter {
     }
 
   def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
-    StateT
-      .get[Try, SerState]
+    ProtoState
+      .get
       .map(_.patterns.indexOf(p))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)
@@ -1037,8 +1108,8 @@ object ProtoConverter {
     }
 
   def typedExprToProto(te: TypedExpr[Any]): Tab[Int] =
-    StateT
-      .get[Try, SerState]
+    ProtoState
+      .get
       .map(_.expressions.indexOf(te))
       .flatMap {
         case Some(idx) => tabPure(idx + 1)

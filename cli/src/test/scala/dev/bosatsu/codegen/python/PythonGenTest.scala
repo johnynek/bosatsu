@@ -6,7 +6,7 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util.concurrent.Semaphore
-import dev.bosatsu.{Lit, PackageName, Par, TestUtils}
+import dev.bosatsu.{Lit, PackageName, Par, Platform, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
@@ -314,18 +314,23 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     )
   }
 
-  test("issue #1961: array externals work as function values") {
-    runBoTests(
-      "test_workspace/Issue1961.bosatsu",
-      PackageName.parts("Issue1961"),
-      "tests",
-      "test_workspace/Bosatsu/Collection/Array.bosatsu",
-      "test_workspace/List.bosatsu",
-      "test_workspace/Option.bosatsu",
-      "test_workspace/Char.bosatsu",
-      "test_workspace/Bool.bosatsu",
-      "test_workspace/Nat.bosatsu"
-    )
-  }
+  Platform.onJvm(
+    test("issue #1961: array externals work as function values") {
+      runBoTests(
+        "test_workspace/Issue1961.bosatsu",
+        PackageName.parts("Issue1961"),
+        "tests",
+        "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "test_workspace/Properties.bosatsu",
+        "test_workspace/Rand.bosatsu",
+        "test_workspace/BinNat.bosatsu",
+        "test_workspace/List.bosatsu",
+        "test_workspace/Option.bosatsu",
+        "test_workspace/Char.bosatsu",
+        "test_workspace/Bool.bosatsu",
+        "test_workspace/Nat.bosatsu"
+      )
+    }
+  )
 
 }
