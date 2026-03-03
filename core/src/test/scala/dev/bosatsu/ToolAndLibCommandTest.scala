@@ -86,6 +86,24 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected string file at ${path.mkString_("/")}, found: $other")
     }
 
+  private def readJsonFile[A: Json.Reader](
+      state: MemoryMain.State,
+      path: Chain[String]
+  ): A = {
+    val jsonStr = readStringFile(state, path)
+    val json = Json.parserFile.parseAll(jsonStr) match {
+      case Right(value) => value
+      case Left(err)    =>
+        fail(s"expected valid json at ${path.mkString_("/")}, found error: $err")
+    }
+
+    Json.Reader[A].read(Json.Path.Root, json) match {
+      case Right(value)         => value
+      case Left((msg, got, jp)) =>
+        fail(show"failed to decode json at ${path.mkString_("/")}: $msg, json=$got, path=$jp")
+    }
+  }
+
   private def assertNoFile(state: MemoryMain.State, path: Chain[String]): Unit =
     state.get(path) match {
       case None  => ()
@@ -5742,6 +5760,103 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("failed to fetch previous"), msg)
+    }
+  }
+
+  test("lib publish --dry-run validates without mutating config, CAS, or default cache") {
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = baseLibFilesWithConf("main = 1\n", conf)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "publish",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out",
+          "--git_sha",
+          "deadbeef",
+          "--dry-run"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out)) =>
+        val confPath = Chain("repo", "src", "mylib_conf.json")
+        assertEquals(readStringFile(state, confPath), renderJson(conf))
+
+        val publishedPath = Chain("out", "mylib-v0.0.1.bosatsu_lib")
+        val publishedLib = readLibraryFile(state, publishedPath)
+        assertNoFile(state, casPathFor(Chain("repo"), publishedLib))
+        assertEquals(
+          filePathsUnder(state, Chain("repo", ".bosatsuc", "infer-cache")),
+          Set.empty
+        )
+
+        out match {
+          case Output.Many(items) =>
+            assert(
+              items.toList.forall {
+                case Output.Library(_, _) => true
+                case _                    => false
+              }
+            )
+          case other =>
+            fail(s"expected publish output list, found: $other")
+        }
+    }
+  }
+
+  test("lib publish updates config and CAS when not in dry-run mode") {
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = baseLibFilesWithConf("main = 1\n", conf)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "publish",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out",
+          "--git_sha",
+          "deadbeef"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val publishedPath = Chain("out", "mylib-v0.0.1.bosatsu_lib")
+        val publishedLib = readLibraryFile(state, publishedPath)
+
+        val confAfter =
+          readJsonFile[LibConfig](state, Chain("repo", "src", "mylib_conf.json"))
+        assertEquals(confAfter.nextVersion, Version(0, 0, 2))
+        confAfter.previous match {
+          case Some(prev) =>
+            assertEquals(prev.version, Some(Version(0, 0, 1).toProto))
+            assert(prev.hashes.contains(publishedLib.hash.toIdent))
+          case None       =>
+            fail("expected previous descriptor to be written during publish")
+        }
+
+        val cachedLib = readLibraryFile(state, casPathFor(Chain("repo"), publishedLib))
+        assertEquals(cachedLib.hash, publishedLib.hash)
     }
   }
 

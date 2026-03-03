@@ -2417,7 +2417,14 @@ object Command {
               short = "u",
               help = "uri prefix where all the libraries will be accessible."
             )
-            .orNone
+            .orNone,
+          Opts
+            .flag(
+              "dry-run",
+              help =
+                "run publish validations and emit libraries without mutating config files or CAS"
+            )
+            .orFalse
         ).mapN {
           (
               readGitLibs,
@@ -2426,7 +2433,8 @@ object Command {
               gitShaF,
               outDir,
               cacheDirFn,
-              uriBaseOpt
+              uriBaseOpt,
+              dryRun
           ) =>
           for {
             gitRootlibs <- readGitLibs
@@ -2434,52 +2442,73 @@ object Command {
             (gitRoot, libs) = gitRootlibs
             casDir = casDirFn(gitRoot)
             cas = new Cas(casDir, platformIO)
-            allLibs <- libs.transform { case (name, (conf, path)) =>
-              val cc = ConfigConf(conf, cas, path, gitRoot)
-              val libOut: P = libraryPath(outDir, name, conf.nextVersion)
-              for {
-                protoLib <- cc.buildLibrary(
-                  vcsIdent = gitSha,
-                  colorize = colorize,
-                  compileCacheDirOpt = cacheDirFn(gitRoot)
-                )
-                hashedLib = Hashed(
-                  Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
-                  protoLib
-                )
-                _ <- cas.putIfAbsent(hashedLib)
-              } yield (hashedLib, libOut, cc)
-            }.parSequence
-            // if we get here, we have successfully built all the libraries, now update the libconfig
-            // and mutate those
-            confOuts = allLibs.values.iterator.map { case (hashedLib, _, cc) =>
-              val uris = uriBaseOpt match {
-                case None          => Nil
-                case Some(uriBase) =>
-                  val uriBase1 =
-                    if (uriBase.endsWith("/")) uriBase else s"${uriBase}/"
-                  val uri = uriBase1 + Library.defaultFileName(
-                    cc.conf.name,
-                    cc.conf.nextVersion
-                  )
+            cacheDirOpt = cacheDirFn(gitRoot)
+            out <- {
+              def publishAll(
+                  compileCacheDirOpt: Option[P]
+              ): F[Output[P]] =
+                libs.transform { case (name, (conf, path)) =>
+                  val cc = ConfigConf(conf, cas, path, gitRoot)
+                  val libOut: P = libraryPath(outDir, name, conf.nextVersion)
+                  for {
+                    protoLib <- cc.buildLibrary(
+                      vcsIdent = gitSha,
+                      colorize = colorize,
+                      compileCacheDirOpt = compileCacheDirOpt
+                    )
+                    hashedLib = Hashed(
+                      Algo[Algo.Blake3].hashBytes(protoLib.toByteArray),
+                      protoLib
+                    )
+                    _ <-
+                      if (dryRun) moduleIOMonad.unit
+                      else cas.putIfAbsent(hashedLib)
+                  } yield (hashedLib, libOut, cc)
+                }.parSequence.map { allLibs =>
+                  val libOuts = allLibs.iterator.map { case (_, (lib, path, _)) =>
+                    (Output.Library(lib.arg, path): Output[P])
+                  }
+                  val allOutputs =
+                    if (dryRun) libOuts
+                    else {
+                      // if we get here, we have successfully built all the libraries, now update the libconfig
+                      // and mutate those
+                      val confOuts = allLibs.values.iterator.map {
+                        case (hashedLib, _, cc) =>
+                          val uris = uriBaseOpt match {
+                            case None          => Nil
+                            case Some(uriBase) =>
+                              val uriBase1 =
+                                if (uriBase.endsWith("/")) uriBase
+                                else s"${uriBase}/"
+                              val uri = uriBase1 + Library.defaultFileName(
+                                cc.conf.name,
+                                cc.conf.nextVersion
+                              )
 
-                  uri :: Nil
+                              uri :: Nil
+                          }
+                          val conf1 = cc.conf.copy(
+                            previous = Some(toDesc(hashedLib, uris)),
+                            nextVersion = cc.conf.nextVersion.nextPatch
+                          )
+
+                          confOutput(cc.confDir, conf1)
+                      }
+                      libOuts ++ confOuts
+                    }
+
+                  Output.Many(Chain.fromIterableOnce(allOutputs))
+                }
+
+              if (dryRun && cacheDirOpt.isDefined) {
+                platformIO.withTempPrefix("publish_infer_cache") { tempCache =>
+                  publishAll(Some(tempCache))
+                }
+              } else {
+                publishAll(cacheDirOpt)
               }
-              val conf1 = cc.conf.copy(
-                previous = Some(toDesc(hashedLib, uris)),
-                nextVersion = cc.conf.nextVersion.nextPatch
-              )
-
-              confOutput(cc.confDir, conf1)
             }
-            out = Output.Many(
-              Chain.fromIterableOnce(
-                allLibs.iterator.map { case (_, (lib, path, _)) =>
-                  Output.Library(lib.arg, path)
-                } ++
-                  confOuts
-              )
-            )
           } yield (out: Output[P])
         }
       }

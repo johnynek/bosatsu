@@ -433,6 +433,7 @@ jobs:
           OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish
           GIT_SHA: ${{ github.sha }}
           URI_BASE: https://example.invalid/
+          PUBLISH_DRY_RUN: "1"
         run: |
           chmod +x scripts/publish_bosatsu_libs.sh
           scripts/publish_bosatsu_libs.sh

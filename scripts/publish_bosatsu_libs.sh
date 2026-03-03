@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Optional: REPO_ROOT, OUTDIR, GIT_SHA, URI_BASE can be passed via env.
+# Optional: REPO_ROOT, OUTDIR, GIT_SHA, URI_BASE, PUBLISH_DRY_RUN can be passed via env.
 # Reasonable defaults for local use:
 
 if [[ -n "${REPO_ROOT:-}" ]]; then
@@ -12,6 +12,12 @@ fi
 
 OUTDIR="${OUTDIR:-"$REPO_ROOT/.bosatsu_lib_publish"}"
 GIT_SHA="${GIT_SHA:-"$(git rev-parse HEAD)"}"
+PUBLISH_DRY_RUN="${PUBLISH_DRY_RUN:-0}"
+
+PUBLISH_ARGS=()
+if [[ "$PUBLISH_DRY_RUN" == "1" || "$PUBLISH_DRY_RUN" == "true" ]]; then
+  PUBLISH_ARGS+=(--dry-run)
+fi
 
 if [[ -z "${URI_BASE:-}" ]]; then
   echo "ERROR: URI_BASE must be set (e.g. https://github.com/OWNER/REPO/releases/download/TAG/)" >&2
@@ -25,6 +31,7 @@ echo "  repo_root = $REPO_ROOT"
 echo "  outdir    = $OUTDIR"
 echo "  git_sha   = $GIT_SHA"
 echo "  uri-base  = $URI_BASE"
+echo "  dry-run   = $PUBLISH_DRY_RUN"
 
 cd "$REPO_ROOT"
 
@@ -75,7 +82,8 @@ fi
   --repo_root "$REPO_ROOT" \
   --outdir "$OUTDIR" \
   --git_sha "$GIT_SHA" \
-  --uri-base "$URI_BASE"
+  --uri-base "$URI_BASE" \
+  "${PUBLISH_ARGS[@]}"
 
 echo
 echo "Generated .bosatsu_lib files:"
