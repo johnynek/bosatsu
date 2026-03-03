@@ -162,6 +162,41 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
+  test("using match in a condition suggests matches") {
+    val source =
+      """package Foo
+        |
+        |x = (
+        |  if value match Foo: 1
+        |  else: 0
+        |)
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    assert(
+      hints.exists(_.contains("meant 'matches'")),
+      hints.mkString("\n")
+    )
+  }
+
+  test("using matches as a match header suggests match") {
+    val source =
+      """package Foo
+        |
+        |x = matches value:
+        |  case _: 1
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(
+      hints.exists(_.contains("meant 'match'")),
+      hints.mkString("\n") + "\n" + shown
+    )
+  }
+
   test("zero-arg defs are supported") {
     val source =
       """package Foo
