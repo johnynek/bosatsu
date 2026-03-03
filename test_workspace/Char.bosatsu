@@ -267,9 +267,9 @@ def range_Char(start: Char, end: Char) -> List[Char]:
   if cmp_Int(width, 0) matches LT | EQ:
     []
   else:
-    range(width).foldl_List([], (rev_chars, offset) ->
-      cp = start_cp.add(offset)
-      match int_to_Char(cp):
+    maybe_chars = [int_to_Char(start_cp.add(offset)) for offset in range(width)]
+    maybe_chars.foldl_List([], (rev_chars, maybe_char) ->
+      match maybe_char:
         case Some(c):
           [c, *rev_chars]
         case None:
