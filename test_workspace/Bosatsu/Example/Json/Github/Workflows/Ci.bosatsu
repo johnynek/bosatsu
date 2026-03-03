@@ -184,16 +184,13 @@ workflow =
     WorkflowJobs(
       WorkflowJobsTest(
         runner_ubuntu_latest,
-        [
-          *java_matrix_bootstrap_steps,
-          Step {
-            name: Set("run JVM tests"),
+        [ Step {
+            name: Set("skip test gate for repro"),
             run: Set(cat_lines([
-              "echo \"Skipping full JVM test gate in repro workflow\"",
+              "echo \"Skipping test job in repro workflow\"",
               "",
             ])),
-          },
-        ],
+          } ],
         java_strategy_17,
         timeout_minutes_default,
       ),
