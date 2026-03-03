@@ -161,11 +161,12 @@ jobs:
           trap 'rm -rf "$repro_dir"' EXIT
           git clone https://github.com/johnynek/zafu.git "$repro_dir/zafu"
           cd "$repro_dir/zafu"
-          git checkout a8bfd22055028495e65f29cba382bae15fd009b4
+          git fetch origin pull/9/merge:pr-9-merge
+          git checkout pr-9-merge
           ./bosatsu --artifact "$GITHUB_WORKSPACE/bosatsu" version
           runtime_version="$("$GITHUB_WORKSPACE/bosatsu" version -g)"
           make -C "$GITHUB_WORKSPACE/c_runtime" install VERSION="$runtime_version" ROOTDIR="$PWD"
-          ulimit -s 2048
+          ulimit -s 1024
           scripts/test.sh
     strategy:
       matrix:
