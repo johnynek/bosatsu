@@ -753,6 +753,32 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected show json object, found: $other")
     }
 
+  private def libShowJsonSize(
+      files: List[(Chain[String], String)],
+      value: String,
+      noOpt: Boolean
+  ): Int = {
+    val cmd =
+      List(
+        "lib",
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        value,
+        "--json"
+      ) ::: (if (noOpt) List("--no-opt") else Nil)
+
+    module.runWith(files)(cmd) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        json.render.length
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   private def withInjectedPublicDep(
       state: MemoryMain.State,
       previousLibPath: Chain[String],
@@ -1252,6 +1278,52 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err) =>
         fail(err.getMessage)
     }
+  }
+
+  test("lib show avoids exploding repeated non-lambda global calls") {
+    val ranges = List(
+      (0, 10),
+      (20, 30),
+      (40, 50),
+      (60, 70),
+      (80, 90),
+      (100, 110),
+      (120, 130),
+      (140, 150)
+    )
+    val condExpr = ranges.reverse.foldLeft("True") { case (acc, (lo, hi)) =>
+      s"andb(in_range_Int(i, $lo, $hi), $acc)"
+    }
+
+    val src =
+      s"""def andb(left: Bool, right: Bool) -> Bool:
+|  if left:
+|    right
+|  else:
+|    False
+|
+|def lte_Int(left: Int, right: Int) -> Bool:
+|  cmp_Int(left, right) matches LT | EQ
+|
+|def gte_Int(left: Int, right: Int) -> Bool:
+|  cmp_Int(left, right) matches GT | EQ
+|
+|def in_range_Int(item: Int, low: Int, high: Int) -> Bool:
+|  andb(gte_Int(item, low), lte_Int(item, high))
+|
+|def main(i: Int) -> Bool:
+|  $condExpr
+|""".stripMargin
+
+    val files = baseLibFiles(src)
+    val optSize = libShowJsonSize(files, "MyLib/Foo::main", noOpt = false)
+    val noOptSize = libShowJsonSize(files, "MyLib/Foo::main", noOpt = true)
+
+    assert(noOptSize > 0)
+    assert(
+      optSize <= ((noOptSize * 14) / 10),
+      s"expected optimized main size to stay close to no-opt: opt=$optSize noOpt=$noOptSize"
+    )
   }
 
   test("lib show --value includes local value dependencies and only needed imports") {
