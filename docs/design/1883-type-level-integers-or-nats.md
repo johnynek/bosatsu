@@ -5,7 +5,6 @@ touch_paths:
   - docs/design/1883-type-level-integers-or-nats.md
   - build.sbt
   - proto/src/main/protobuf/bosatsu/TypedAst.proto
-  - core/src/main/scala/dev/bosatsu/Kind.scala
   - core/src/main/scala/dev/bosatsu/TypeParser.scala
   - core/src/main/scala/dev/bosatsu/TypeRef.scala
   - core/src/main/scala/dev/bosatsu/TypeRefConverter.scala
@@ -53,7 +52,6 @@ touch_paths:
   - docs/design/1883-type-level-integers-or-nats.md
   - build.sbt
   - proto/src/main/protobuf/bosatsu/TypedAst.proto
-  - core/src/main/scala/dev/bosatsu/Kind.scala
   - core/src/main/scala/dev/bosatsu/TypeParser.scala
   - core/src/main/scala/dev/bosatsu/TypeRef.scala
   - core/src/main/scala/dev/bosatsu/TypeRefConverter.scala
@@ -145,6 +143,26 @@ def filter(ary: Vec[n, a], fn: a -> Bool) ->
   exists r: Nat. Vec[r, a] where r <= n:
   ...
 ```
+
+### Kind boundary and literal indices
+
+Phase 1 keeps `Kind` focused on type constructors (`Type` and `Cons`) and does
+not add `Nat`/`Int` variants to `core/src/main/scala/dev/bosatsu/Kind.scala`.
+Arithmetic indices are tracked in refinement metadata via `IndexSort` (`Nat` or
+`Int`), separate from higher-kinded type structure.
+
+This means singleton-style argument annotations like `i: m` where `m: Nat` are
+out of scope in phase 1. The phase-1 shape for safe vector indexing is:
+
+```bosatsu
+def get_Vec[n: Nat, a](v: Vec[n, a], i: Int) ->
+  a where 0 <= i and i < n:
+  ...
+```
+
+Literal calls such as `get_Vec(v, 3)` are still useful: `3` is lowered as an
+integer literal term in SMT obligations, so bound checks can be discharged from
+`0 <= 3` and `3 < n` assumptions.
 
 ### Additional useful examples
 
@@ -328,6 +346,10 @@ Typechecking outline:
 3. Keep rank-n type inference as the primary type pass:
    - Refinement proof is a separate typed pass after inference.
    - This avoids destabilizing existing unification behavior.
+4. Keep `Kind` unchanged in phase 1:
+   - No new `Kind` constructor for `Nat`/`Int`.
+   - Index sorts live in refinement binders/metadata (`IndexSort`), not in
+     higher-kinded type shape.
 
 ## Architecture
 
@@ -484,6 +506,9 @@ Integration tests:
 12. At least one negative vector-size example fails with a refinement-specific message.
 13. No-refinement programs preserve existing behavior and test outcomes.
 14. Existing `TypeErrorIn`/`TotalityCheck` diagnostics remain unaffected for unrelated failures.
+15. `Kind` behavior for existing programs is unchanged (`Type`/`Cons` only).
+16. Integer literals in call sites participate in refinement obligations (for
+    example, proving bounds in `get_Vec(v, 3)`-style checks).
 
 ## Risks and mitigations
 
