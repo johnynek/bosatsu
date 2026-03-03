@@ -259,6 +259,7 @@ def int_List_to_String(code_points: List[Int]) -> Option[String]:
       None
 
 # Returns chars in the half-open interval [start, end), ordered by code point.
+# Build candidate code points with a comprehension, then drop invalid values.
 def range_Char(start: Char, end: Char) -> List[Char]:
   start_cp = char_to_Int(start)
   end_cp = char_to_Int(end)
