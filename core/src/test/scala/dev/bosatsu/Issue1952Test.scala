@@ -1,16 +1,9 @@
 package dev.bosatsu
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
-
 class Issue1952Test extends munit.FunSuite with ParTest {
   import TestUtils._
 
-  private val charPack = new String(
-    Files.readAllBytes(Paths.get("test_workspace/Char.bosatsu")),
-    StandardCharsets.UTF_8
-  )
+  private val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
   private val reproPack = """
 package Repro/Issue1952
 
