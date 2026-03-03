@@ -1069,9 +1069,22 @@ object TypedExprNormalization {
           // we should still be able ton convert this to a let by
           // instantiating to the right args
           case ws.ResolveToLambda(Nil, args1, body, ftag) =>
-            val lam = AnnotatedLambda(args1, body, ftag)
-            val l = appLambda[A](lam, args, tpe, tag)
-            normalize1(namerec, l, scope, typeEnv)
+            val inlineResolved =
+              stripTypeWrappers(f1) match {
+                case Global(_, _: Bindable, _, _) =>
+                  val hasLambdaArg =
+                    args.exists(ws.ResolveToLambda.unapply(_).nonEmpty)
+                  // Keep tiny globals inlineable for simple algebraic rewrites.
+                  hasLambdaArg || (body.size <= 3)
+                case _ =>
+                  true
+              }
+            if (inlineResolved) {
+              val lam = AnnotatedLambda(args1, body, ftag)
+              val l = appLambda[A](lam, args, tpe, tag)
+              normalize1(namerec, l, scope, typeEnv)
+            } else if ((f1 eq fn) && (tpe == tpe0) && (a1 eq args)) None
+            else Some(App(f1, a1, tpe, tag))
           case lam @ AnnotatedLambda(_, _, _) =>
             val l = appLambda[A](lam, args, tpe, tag)
             normalize1(namerec, l, scope, typeEnv)
@@ -1195,8 +1208,14 @@ object TypedExprNormalization {
                       if (cnt > 0) {
                         // the arg is needed
                         val isSimp = Impl.isSimple(ex2, lambdaSimple = true)
+                        val isLambdaExpr = stripTypeWrappers(ex2) match {
+                          case AnnotatedLambda(_, _, _) => true
+                          case _                        => false
+                        }
+                        val inlineSimple =
+                          isSimp && !isLambdaExpr
                         val shouldInline = (!rec1.isRecursive) && {
-                          (cnt == 1) || isSimp
+                          (cnt == 1) || inlineSimple
                         }
                         // we don't want to inline a value that is itself a function call
                         // inside of lambdas
@@ -1490,11 +1509,13 @@ object TypedExprNormalization {
         }
 
       object ResolveToLambda {
-        // this is a parameter that we can tune to change inlining Global Lambdas
+        // Base callee-size budget for lambda-arg global inlining.
         val MaxSize = 10
+        // Local alias inlining is disabled by default to avoid repeated blowups.
+        val MaxLocalSize = 0
         // Allow a larger inlining budget for global calls that expose
         // an immediate lambda beta-reduction opportunity.
-        val LambdaArgInlineBonus = 24
+        val LambdaArgInlineBonus = 80
 
         // TODO: don't we need to worry about the type environment for locals? They
         // can also capture type references to outer Generics
@@ -1534,10 +1555,9 @@ object TypedExprNormalization {
               Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
-                // only inline global lambdas if they are somewhat small, otherwise we will
-                // tend to transitively inline everything into one big function and blow the stack
+                // Keep global alias inlining conservative and only for small values.
                 case (RecursionKind.NonRecursive, te, scope1)
-                    if te.size < MaxSize =>
+                    if te.size <= MaxSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -1553,8 +1573,9 @@ object TypedExprNormalization {
               }
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
-                // Local lambdas tend to be small, so inline them always if we can
-                case (RecursionKind.NonRecursive, te, scope1) =>
+                // Keep local alias inlining conservative to avoid repeated blowups.
+                case (RecursionKind.NonRecursive, te, scope1)
+                    if te.size <= MaxLocalSize =>
                   val s1 = WithScope(scope1, typeEnv)
                   te match {
                     case s1.ResolveToLambda(frees, args, expr, ltag) =>
@@ -1582,72 +1603,33 @@ object TypedExprNormalization {
             scope1
           )
 
-        private def hasAnyDirectLambdaBetaCandidate(
+        private def isDirectLambdaBetaCandidate(
+            argName: Bindable,
+            argExpr: TypedExpr[A],
+            body: TypedExpr[A]
+        ): Boolean =
+          // Candidate argument checks:
+          // 1) closed argument (prefer closure-free lambda values)
+          // 2) simple argument
+          // 3) argument resolves to a lambda
+          // 4) parameter use is direct-call-only (non-escaping)
+          argExpr.freeVarsDup.isEmpty &&
+            Impl.isSimple(argExpr, lambdaSimple = true) &&
+            ResolveToLambda.unapply(argExpr).nonEmpty &&
+            !hasEscapingFnRef(body, argName, fnVisible = true)
+
+        private def directLambdaArgInlineBudget(
             lamArgs: NonEmptyList[(Bindable, Type)],
             body: TypedExpr[A],
             callArgs: NonEmptyList[TypedExpr[A]]
-        ): Boolean =
-          // This is a profitability signal, not a whole-call safety check.
-          // We only need one argument to likely unlock an immediate beta-reduction
-          // win after inlining.
-          lamArgs.iterator.zip(callArgs.iterator).exists {
-            case ((argName, _), argExpr) =>
-              // Candidate argument checks:
-              // 1) closed argument (prefer closure-free lambda values)
-              // 2) simple argument
-              // 3) argument resolves to a lambda
-              // 4) corresponding parameter used exactly once
-              // 5) that use is direct-call-only (non-escaping)
-              argExpr.freeVarsDup.isEmpty &&
-              Impl.isSimple(argExpr, lambdaSimple = true) &&
-              ResolveToLambda.unapply(argExpr).nonEmpty &&
-              (body.freeVarsDup.count(_ == argName) == 1) &&
-              !hasEscapingFnRef(body, argName, fnVisible = true)
-          }
-
-        private def hasDirectLambdaArgBonus(
-            lamArgs: NonEmptyList[(Bindable, Type)],
-            body: TypedExpr[A],
-            callArgs: NonEmptyList[TypedExpr[A]]
-        ): Boolean =
-          // Whole-call safety is handled separately:
-          // - full saturation (all parameters have call arguments)
-          // - global scope-compatibility for free vars in the callee body
-          //
-          // Argument duplication/capture concerns are also handled by appLambda:
-          // it rewrites calls into let-bound arguments after unshadowing.
-          // Therefore this bonus check only looks for at least one profitable
-          // beta-reduction candidate argument.
-          !containsRecursiveControl(body) &&
-            hasAnyDirectLambdaBetaCandidate(lamArgs, body, callArgs)
-
-        private def containsRecursiveControl(te: TypedExpr[A]): Boolean =
-          te match {
-            case Generic(_, in) =>
-              containsRecursiveControl(in)
-            case Annotation(in, _, _) =>
-              containsRecursiveControl(in)
-            case AnnotatedLambda(_, in, _) =>
-              containsRecursiveControl(in)
-            case App(fn, args, _, _) =>
-              containsRecursiveControl(fn) || args.exists(
-                containsRecursiveControl
-              )
-            case Let(_, expr, in, rec, _) =>
-              rec.isRecursive || containsRecursiveControl(
-                expr
-              ) || containsRecursiveControl(in)
-            case Loop(_, _, _) | Recur(_, _, _) =>
-              true
-            case Match(arg, branches, _) =>
-              containsRecursiveControl(arg) || branches.exists {
-                case Branch(_, guard, branchExpr) =>
-                  guard.exists(containsRecursiveControl) ||
-                  containsRecursiveControl(branchExpr)
-              }
-            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-              false
-          }
+        ): Int =
+          lamArgs.iterator
+            .zip(callArgs.iterator)
+            .foldLeft(0) { case (acc, ((argName, _), argExpr)) =>
+              if (isDirectLambdaBetaCandidate(argName, argExpr, body))
+                acc + argExpr.size
+              else acc
+            }
 
         def resolveGlobalCallWithBonus(
             pack: PackageName,
@@ -1664,11 +1646,13 @@ object TypedExprNormalization {
                     if args.length == callArgs.length &&
                       // scopeSafe
                       isScopeSafeGlobalInline(args, body, scope1) &&
-                      // hasBonusSignal =
-                      hasDirectLambdaArgBonus(args, body, callArgs) &&
                       // size is small enough
                       (te.size < MaxSize + LambdaArgInlineBonus) =>
-                  Some((args, body, ltag))
+                  val lambdaArgBudget =
+                    directLambdaArgInlineBudget(args, body, callArgs)
+                  if (lambdaArgBudget > 0)
+                    Some((args, body, ltag))
+                  else None
                 case _ =>
                   None
               }
