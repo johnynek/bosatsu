@@ -435,6 +435,16 @@ def via_match(i: Int) -> Int:
 """)
   }
 
+  test("loop branches inherit negated guarded fallthrough facts for Int recursion") {
+    allowed("""#
+def countdown(fuel, stack):
+  loop (fuel, stack):
+    case (_, []): fuel
+    case (_, _) if cmp_Int(fuel, 0) matches LT | EQ: fuel
+    case (_, [_, *tail]): countdown(fuel.sub(1), tail)
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):

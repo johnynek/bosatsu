@@ -1408,6 +1408,13 @@ object TypedExprRecursionCheck {
             case _ =>
               (None, state)
           }
+        case Pattern.PositionalStruct(_, params)
+            if Type.Tuple
+              .unapply(argExpr.getType)
+              .exists(_.length == params.length) &&
+              params.forall(_.definitelyTotal) =>
+          // Tuple constructors are irrefutable for tuple-typed scrutinees.
+          (Some(SmtExpr.BoolConst.True), state)
         case Pattern.PositionalStruct(_, _) =>
           (None, state)
         case Pattern.ListPat(_) | Pattern.StrPat(_) =>
@@ -1556,6 +1563,59 @@ object TypedExprRecursionCheck {
         case Some(cond)                    => state1.addPathFact(simplifyBoolExpr(cond))
         case None                          => state1
       }
+    }
+
+    private def addPathFactIfNonTrivial(
+        fact: SmtExpr.BoolExpr,
+        state: SmtBranchState
+    ): SmtBranchState =
+      simplifyBoolExpr(fact) match {
+        case SmtExpr.BoolConst.True => state
+        case other                  => state.addPathFact(other)
+      }
+
+    private def lowerBranchHitCondition(
+        argExpr: TypedExpr[Declaration],
+        branch: TypedExpr.Branch[Declaration],
+        state: SmtBranchState
+    ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
+      val state0 = state.removeBindings(branch.pattern.names)
+      val state1 = bindPatternNames(argExpr, branch.pattern, state0)
+      lowerMatchBranchCondition(argExpr, branch, state1)
+    }
+
+    private def matchFallthroughFacts(
+        argExpr: TypedExpr[Declaration],
+        branches: NonEmptyList[TypedExpr.Branch[Declaration]],
+        initialState: SmtBranchState
+    ): Vector[SmtExpr.BoolExpr] = {
+      val baseIntBindings = initialState.intBindings
+      val baseBoolBindings = initialState.boolBindings
+      val baseComparisonBindings = initialState.comparisonBindings
+      val basePathFacts = initialState.pathFacts
+
+      def resetBranchBindings(state: SmtBranchState): SmtBranchState =
+        state.copy(
+          intBindings = baseIntBindings,
+          boolBindings = baseBoolBindings,
+          comparisonBindings = baseComparisonBindings,
+          pathFacts = basePathFacts
+        )
+
+      val init: (Vector[SmtExpr.BoolExpr], SmtExpr.BoolExpr, SmtBranchState) =
+        (Vector.empty, SmtExpr.BoolConst.True, initialState)
+
+      branches.toList.foldLeft(init) { case ((acc, priorMiss, state), branch) =>
+        val state0 = resetBranchBindings(state)
+        val (hitOpt, state1) = lowerBranchHitCondition(argExpr, branch, state0)
+        val nextMiss = hitOpt match {
+          case Some(hit) =>
+            simplifyBoolExpr(mkAnd(Vector(priorMiss, SmtExpr.Not(hit))))
+          case None      =>
+            priorMiss
+        }
+        (acc :+ priorMiss, nextMiss, state1)
+      }._1
     }
 
     private def buildPathCondition(state: SmtBranchState): SmtExpr.BoolExpr =
@@ -2427,32 +2487,51 @@ object TypedExprRecursionCheck {
             case None =>
               // the arg can't use state, but cases introduce new bindings:
               val argRes = checkExpr(currentPackage, arg, wrappers)
-              val optRes = branches.parTraverse_ { branch =>
-                val branchExprCheck =
-                  branch.guard match {
-                    case Some(guardExpr) =>
-                      checkExpr(currentPackage, guardExpr, wrappers) *>
-                        {
-                          val bodyCheck = checkExpr(currentPackage, branch.expr, wrappers)
-                          withTemporaryRecurBranchSmtState(
-                            bodyCheck,
-                            _ => bodyCheck
-                          ) { smtState =>
-                            addGuardPathFact(guardExpr, smtState)
-                          }
-                        }
-                    case None =>
-                      checkExpr(currentPackage, branch.expr, wrappers)
+              val optRes = getSt.flatMap { state =>
+                val fallthroughFacts =
+                  state match {
+                    case InRecurBranch(_, _, _, _, smtState) =>
+                      matchFallthroughFacts(arg, branches, smtState).toList
+                    case _                                  =>
+                      List.fill(branches.length)(SmtExpr.BoolConst.True)
                   }
-                val withPatternContext =
-                  withTemporaryRecurBranchSmtState(
-                    branchExprCheck,
-                    _ => branchExprCheck
-                  ) { smtState =>
-                    addPatternFactsAndBindings(arg, branch.pattern, smtState)
-                  }
-                checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
-                  filterNames(branch.pattern.names)(withPatternContext)
+
+                branches.toList.zip(fallthroughFacts).parTraverse_ {
+                  case (branch, fallthroughFact) =>
+                    val branchExprCheck =
+                      branch.guard match {
+                        case Some(guardExpr) =>
+                          checkExpr(currentPackage, guardExpr, wrappers) *>
+                            {
+                              val bodyCheck =
+                                checkExpr(currentPackage, branch.expr, wrappers)
+                              withTemporaryRecurBranchSmtState(
+                                bodyCheck,
+                                _ => bodyCheck
+                              ) { smtState =>
+                                addGuardPathFact(guardExpr, smtState)
+                              }
+                            }
+                        case None            =>
+                          checkExpr(currentPackage, branch.expr, wrappers)
+                      }
+                    val withPatternContext =
+                      withTemporaryRecurBranchSmtState(
+                        branchExprCheck,
+                        _ => branchExprCheck
+                      ) { smtState =>
+                        addPatternFactsAndBindings(arg, branch.pattern, smtState)
+                      }
+                    val withFallthroughContext =
+                      withTemporaryRecurBranchSmtState(
+                        withPatternContext,
+                        _ => withPatternContext
+                      ) { smtState =>
+                        addPathFactIfNonTrivial(fallthroughFact, smtState)
+                      }
+                    checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
+                      filterNames(branch.pattern.names)(withFallthroughContext)
+                }
               }
               argRes *> optRes
             case Some(recur) =>
@@ -2461,21 +2540,30 @@ object TypedExprRecursionCheck {
                 case TopLevel | InRecurBranch(_, _, _, _, _) |
                     InDefRecurred(_, _, _, _, _) =>
                   failSt(RecursionCheck.UnexpectedRecur(recur.region))
-                case InDef(_, defname, typedArgs, sourceArgs, _, _, _, locals) =>
+                case ir @ InDef(_, defname, typedArgs, sourceArgs, _, _, _, locals) =>
                   toSt(getRecurTarget(defname, sourceArgs, typedArgs, recur, locals)).flatMap {
                     target =>
                       val sourcePatterns = recur.cases.get.toList.map(_.pattern)
+                      val inrec = ir.setRecur(target, recur)
+                      val fallthroughFacts =
+                        matchFallthroughFacts(arg, branches, initBranchSmtState(inrec)).toList
 
                       // on all these branches, use the same parent state
                       def beginBranch(
                           matchArg: TypedExpr[Declaration],
                           sourcePat: Option[Pattern.Parsed],
-                          compiledPat: Pattern[(PackageName, Identifier.Constructor), Type]
+                          compiledPat: Pattern[(PackageName, Identifier.Constructor), Type],
+                          fallthroughFact: SmtExpr.BoolExpr
                       ): St[Unit] =
                         getSt.flatMap {
                           case ir @ InDef(_, _, _, _, _, _, _, _) =>
                             val rec = ir.setRecur(target, recur)
-                            setSt(rec) *> beginBranch(matchArg, sourcePat, compiledPat)
+                            setSt(rec) *> beginBranch(
+                              matchArg,
+                              sourcePat,
+                              compiledPat,
+                              fallthroughFact
+                            )
                           case irr @ InDefRecurred(_, _, _, _, _) =>
                             val allowed =
                               sourcePat match {
@@ -2491,12 +2579,14 @@ object TypedExprRecursionCheck {
                                 compiledPat,
                                 initBranchSmtState(irr)
                               )
+                            val smtState1 =
+                              addPathFactIfNonTrivial(fallthroughFact, smtState0)
                             val smtState =
                               sourcePat match {
                                 case Some(sp) =>
-                                  bindSourcePatternAliases(irr, sp, smtState0)
+                                  bindSourcePatternAliases(irr, sp, smtState1)
                                 case None     =>
-                                  smtState0
+                                  smtState1
                               }
                             setSt(
                               InRecurBranch(
@@ -2522,11 +2612,16 @@ object TypedExprRecursionCheck {
                           // $COVERAGE-ON$
                         }
 
-                      branches.toList.zipWithIndex.parTraverse_ {
-                        case (branch, idx) =>
+                      branches.toList.zipWithIndex.zip(fallthroughFacts).parTraverse_ {
+                        case ((branch, idx), fallthroughFact) =>
                           for {
                             _ <- checkForIllegalBindsSt(branch.pattern.names, tag.region)
-                            _ <- beginBranch(arg, sourcePatterns.lift(idx), branch.pattern)
+                            _ <- beginBranch(
+                              arg,
+                              sourcePatterns.lift(idx),
+                              branch.pattern,
+                              fallthroughFact
+                            )
                             _ <- branch.guard.parTraverse_(
                               checkExpr(currentPackage, _, wrappers)
                             )
