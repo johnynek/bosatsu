@@ -159,6 +159,23 @@ run_bosatsu_node_tests_step =
     ..run_bosatsu_tests_step,
   }
 
+repro_zafu_issue_1957_step =
+  Step {
+    name: Set("reproduce zafu stack overflow (issue #1957)"),
+    run: Set(cat_lines([
+      "sudo apt-get update",
+      "sudo apt-get install -y libgc1 libgc-dev pkg-config",
+      "repro_dir=\"$(mktemp -d)\"",
+      "trap 'rm -rf \"$repro_dir\"' EXIT",
+      "git clone https://github.com/johnynek/zafu.git \"$repro_dir/zafu\"",
+      "cd \"$repro_dir/zafu\"",
+      "git checkout a8bfd22055028495e65f29cba382bae15fd009b4",
+      "./bosatsu --artifact \"$GITHUB_WORKSPACE/bosatsu\" --fetch",
+      "scripts/test.sh",
+      "",
+    ])),
+  }
+
 workflow =
   Workflow(
     WorkflowJobs(
@@ -262,6 +279,7 @@ workflow =
             ])),
           },
           run_bosatsu_tests_step,
+          repro_zafu_issue_1957_step,
         ],
         java_strategy_17,
       ),
