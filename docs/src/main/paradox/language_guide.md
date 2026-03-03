@@ -892,7 +892,10 @@ transitively reachable from at least one of these roots:
 
 1. an exported value
 1. the package main value (the last top-level value in the package)
-1. the package test value (the last top-level value with type `Bosatsu/Predef::Test`)
+1. the package test entry:
+   - if no `Bosatsu/Prog::ProgTest` exists, the last top-level
+     `Bosatsu/Predef::Test`
+   - if one or more `ProgTest` values exist, the last top-level `ProgTest`
 
 If a top-level value is not reachable from any of those roots, compilation
 fails with an unused-value error.
@@ -932,7 +935,11 @@ typechecking state to the next, then remove placeholders incrementally.
 those commands fail until all `todo` calls are removed.
 
 ## Testing
-Bosatsu tests are regular values of type `Bosatsu/Predef::Test`.
+Bosatsu supports two test entrypoint styles:
+
+1. Plain tests as values of type `Bosatsu/Predef::Test`
+1. Effectful tests as `Bosatsu/Prog::ProgTest`
+
 `Bosatsu/Predef` defines:
 
 1. `Assertion(value: Bool, message: String)`
@@ -961,10 +968,20 @@ tests = TestSuite("all tests", [
 ])
 ```
 
-Test discovery rule: `bosatsu lib test` runs the final top-level value in each
-package whose type is `Bosatsu/Predef::Test` (the last such value in source
-order). In practice, keep one final `test`/`tests` value per package and make
-it include all child tests you want run.
+`Bosatsu/Prog` defines:
+
+1. `ProgTest(test_fn: forall e. List[String] -> Prog[e, Test])`
+
+Test discovery rules (`tool test` and `lib test`) are:
+
+1. If no `ProgTest` exists, run the final top-level `Test` value in source
+   order.
+1. If one or more `ProgTest` values exist, run the final top-level `ProgTest`
+   value in source order.
+1. If any plain `Test` value appears after that selected `ProgTest`, test
+   discovery fails for that package with an ordering error.
+
+Current argument behavior: runners pass `[]` into `ProgTest.test_fn`.
 
 From the repo root, run tests with:
 ```sh

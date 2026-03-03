@@ -4,9 +4,23 @@ import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.{LocationMap, PackageName, PlatformIO, Predef}
 import dev.bosatsu.library.LibraryEvaluation
-import dev.bosatsu.tool.{CommonOpts, Output}
+import dev.bosatsu.tool.{CliException, CommonOpts, Output}
 
 object TestCommand {
+  private def testDiscoveryError(
+      err: dev.bosatsu.Package.TestDiscoveryError
+  ): String =
+    err match {
+      case dev.bosatsu.Package.TestDiscoveryError.PlainTestAfterProgTest(
+            packageName,
+            progTest,
+            plainTestsAfter
+          ) =>
+        val plainTestStr =
+          plainTestsAfter.toList.map(_.sourceCodeRepr).mkString(", ")
+        s"${packageName.asString}: found top-level Test value(s) after ProgTest ${progTest.sourceCodeRepr}: $plainTestStr"
+    }
+
   def opts[F[_], Path](
       platformIO: PlatformIO[F, Path],
       commonOpts: CommonOpts[F, Path]
@@ -55,33 +69,51 @@ object TestCommand {
               testPacks,
               errColor
             )
-            testPackIdents <-
-              testPacks.traverse(_.getMain(nameMap)(platformIO))
-          } yield {
-            val testPackNames: List[PackageName] = testPackIdents.map(_._1)
-            val testIt: Iterator[PackageName] =
-              if (testPacks.isEmpty) {
-                // if there are no given files or packages to test, assume
-                // we test all the files
-                nameMap.iterator.map(_._2)
+            testPackIdents <- testPacks.traverse(_.getMain(nameMap)(platformIO))
+            out <- {
+              val testPackNames: List[PackageName] = testPackIdents.map(_._1)
+              val testIt: Iterator[PackageName] =
+                if (testPacks.isEmpty) {
+                  // if there are no given files or packages to test, assume
+                  // we test all the files
+                  nameMap.iterator.map(_._2)
+                } else {
+                  // otherwise we have a specific list packages/files to test
+                  testPackNames.iterator
+                }
+
+              val testPackages: List[PackageName] =
+                testIt.toList.sorted.distinct
+              val ev =
+                LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
+              val discovered = testPackages.map(p => (p, ev.evalTest(p)))
+              val discoveryErrors =
+                discovered.collect { case (_, Left(err)) =>
+                  testDiscoveryError(err)
+                }
+
+              if (discoveryErrors.nonEmpty) {
+                moduleIOMonad.raiseError[Output[Path]](
+                  CliException.Basic(
+                    "invalid test discovery:\n" + discoveryErrors.mkString("\n")
+                  )
+                )
               } else {
-                // otherwise we have a specific list packages/files to test
-                testPackNames.iterator
-              }
+                val res0 = discovered.collect { case (p, Right(testResult)) =>
+                  (p, testResult)
+                }
+                val res =
+                  if (testPacks.isEmpty) res0.filter { case (_, testRes) =>
+                    testRes.isDefined
+                  }
+                  else res0
 
-            val testPackages: List[PackageName] =
-              testIt.toList.sorted.distinct
-            val ev =
-              LibraryEvaluation.fromPackageMap(packs, Predef.jvmExternals)
-            val res0 = testPackages.map(p => (p, ev.evalTest(p)))
-            val res =
-              if (testPacks.isEmpty) res0.filter { case (_, testRes) =>
-                testRes.isDefined
+                moduleIOMonad.pure(
+                  Output.TestOutput(res, errColor, quiet): Output[Path]
+                )
               }
-              else res0
-
-            (Output.TestOutput(res, errColor, quiet): Output[Path])
-          }
+            }
+          } yield out
         }
     }
 

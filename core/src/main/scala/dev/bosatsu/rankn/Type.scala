@@ -1427,6 +1427,13 @@ object Type {
   val StrType: Type.TyConst = TyConst(Const.predef("String"))
   val CharType: Type.TyConst = TyConst(Const.predef("Char"))
   val TestType: Type.TyConst = TyConst(Const.predef("Test"))
+  val ProgTestType: Type.TyConst =
+    TyConst(
+      Const.Defined(
+        PackageName.parts("Bosatsu", "Prog"),
+        TypeName("ProgTest")
+      )
+    )
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
 
   def const(pn: PackageName, name: TypeName): Type.Leaf =

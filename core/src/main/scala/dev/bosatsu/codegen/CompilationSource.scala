@@ -54,7 +54,7 @@ object CompilationSource {
 
           lazy val topoSort = pm.topoSort.map(p => ((), p))
 
-          lazy val testValues = pm.testValues
+          lazy val testEntries = pm.testEntries
 
           def mainValues(
               mainTypeFn: Type => Boolean

@@ -68,9 +68,21 @@ case class PackageMap[A, B, C, +D](
   def testValues(implicit
       ev: Package[A, B, C, D] <:< Package.Typed[Any]
   ): Map[PackageName, Identifier.Bindable] =
+    testEntries.collect {
+      case (pn, Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+        (pn, bindable)
+    }
+
+  def testEntries(implicit
+      ev: Package[A, B, C, D] <:< Package.Typed[Any]
+  ): Map[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[
+    Any
+  ]]] =
     toMap.iterator.flatMap { case (n, pack) =>
-      Package.testValue(ev(pack)).iterator.map { case (bn, _, _) =>
-        (n, bn)
+      Package.testEntry(ev(pack)) match {
+        case Right(Some(entry)) => Iterator.single((n, Right(entry)))
+        case Right(None)        => Iterator.empty
+        case Left(err)          => Iterator.single((n, Left(err)))
       }
     }.toMap
 

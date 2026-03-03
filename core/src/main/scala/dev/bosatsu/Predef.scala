@@ -2787,11 +2787,21 @@ object PredefImpl {
     runProgWithRuntime(prog, runtime)
   }
 
-  private def unwrapMain(value: Value): Value =
+  private def unwrapSingleFieldStruct(value: Value): Value =
     value match {
-      case p: ProductValue if p.values.nonEmpty => unwrapMain(p.get(0))
+      case p: ProductValue if p.values.nonEmpty => unwrapSingleFieldStruct(
+          p.get(0)
+        )
       case other                                => other
     }
+
+  private def runProgFnWithArgs(value: Value, args: List[String]): Value = {
+    val argList = VList(args.map(Str(_)))
+    unwrapSingleFieldStruct(value) match {
+      case fn: FnValue => callFn1(fn, argList)
+      case other       => other
+    }
+  }
 
   val EvalRunArgv0: String = "bosatsu-eval"
 
@@ -2803,11 +2813,7 @@ object PredefImpl {
       args: List[String],
       stdin: String = ""
   ): ProgRunResult = {
-    val argList = VList(args.map(Str(_)))
-    val prog = unwrapMain(main) match {
-      case fn: FnValue => callFn1(fn, argList)
-      case other       => other
-    }
+    val prog = runProgFnWithArgs(main, args)
     runProg(prog, stdin)
   }
 
@@ -2815,12 +2821,16 @@ object PredefImpl {
       main: Value,
       args: List[String]
   ): ProgRunResult = {
-    val argList = VList(args.map(Str(_)))
-    val prog = unwrapMain(main) match {
-      case fn: FnValue => callFn1(fn, argList)
-      case other       => other
-    }
+    val prog = runProgFnWithArgs(main, args)
     runProgWithSystemStdin(prog)
+  }
+
+  def runProgTest(
+      progTest: Value,
+      args: List[String]
+  ): Either[Value, Value] = {
+    val prog = runProgFnWithArgs(progTest, args)
+    runProg(prog).result
   }
 
   final def shiftRight(a: BigInteger, b: BigInteger): BigInteger = {

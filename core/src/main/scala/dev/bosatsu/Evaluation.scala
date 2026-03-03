@@ -89,15 +89,18 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       value <- evaluate(p).get(name)
     } yield (value, tpe.getType)
 
-  /** Return the last test, if any, in the package. this is the test that is run
-    * when we test the package
-    */
-  def testValue(p: PackageName): Option[Eval[Value]] =
-    for {
-      pack <- pm.toMap.get(p)
-      (name, _, _) <- Package.testValue(pack)
-      value <- evaluate(p).get(name)
-    } yield value
+  private def testEntryValue(
+      p: PackageName
+  ): Either[Package.TestDiscoveryError, Option[(Package.TestEntry[T], Eval[
+    Value
+  ])]] =
+    pm.toMap.get(p) match {
+      case None => Right(None)
+      case Some(pack) =>
+        Package.testEntry(pack).map(_.flatMap { entry =>
+          evaluate(p).get(entry.bindable).map((entry, _))
+        })
+    }
 
   def evaluateMain(p: PackageName): Option[(Eval[Value], Type)] =
     for {
@@ -124,10 +127,29 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
    */
 
-  def evalTest(ps: PackageName): Option[Eval[Test]] =
-    testValue(ps).map { ea =>
-      ea.map(Test.fromValue(_))
-    }
+  def evalTest(
+      ps: PackageName
+  ): Either[Package.TestDiscoveryError, Option[Eval[Test]]] =
+    testEntryValue(ps).map(
+      _.map { case (entry, evalValue) =>
+        entry match {
+          case Package.TestEntry.PlainTest(_, _, _) =>
+            evalValue.map(Test.fromValue(_))
+          case progTest @ Package.TestEntry.ProgTest(_, _, _) =>
+            evalValue.map { value =>
+              PredefImpl.runProgTest(value, Nil) match {
+                case Right(testValue) =>
+                  Test.fromValue(testValue)
+                case Left(errValue)   =>
+                  Test.Assertion(
+                    false,
+                    s"ProgTest ${ps.asString}::${progTest.bindable.sourceCodeRepr} raised an uncaught error: $errValue"
+                  )
+              }
+            }
+        }
+      }
+    )
 
   /** Convert a typechecked value to Json this code ASSUMES the type is correct.
     * If not, we may throw or return incorrect data.

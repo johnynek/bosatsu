@@ -9,6 +9,7 @@ import dev.bosatsu.{
   Identifier,
   Json,
   NameSuggestion,
+  Package,
   PackageName,
   Par,
   PlatformIO,
@@ -18,8 +19,6 @@ import dev.bosatsu.tool.{CliException, ExitCode}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
 import scala.util.{Failure, Success, Try}
-
-import Identifier.Bindable
 
 import cats.syntax.all._
 import cats.Applicative
@@ -76,13 +75,22 @@ case object ClangTranspiler extends Transpiler {
     ) extends Mode[F]("test") {
       def values[K](
           ns: CompilationNamespace[K]
-      ): List[(PackageName, Bindable)] =
-        (filter match {
+      ): Either[List[(PackageName, Package.TestDiscoveryError)], List[(
+        PackageName,
+        Package.TestEntry[Any]
+      )]] = {
+        val filtered = (filter match {
           case None =>
-            ns.testValues.toList
+            ns.testEntries.toList
           case Some(k) =>
-            ns.testValues.iterator.filter { case (p, _) => k(p) }.toList
+            ns.testEntries.iterator.filter { case (p, _) => k(p) }.toList
         }).sortBy(_._1)
+
+        val errors =
+          filtered.collect { case (pn, Left(err)) => (pn, err) }
+        if (errors.nonEmpty) Left(errors)
+        else Right(filtered.collect { case (pn, Right(entry)) => (pn, entry) })
+      }
     }
 
     def testOpts[F[_]](executeOpts: Opts[Boolean]): Opts[Mode.Test[F]] =
@@ -416,6 +424,20 @@ case object ClangTranspiler extends Transpiler {
   private def invalidMainPackMsg(mainPack: PackageName, detail: String): String =
     s"invalid main package `${mainPack.asString}`: $detail"
 
+  private def testDiscoveryErrMsg(
+      err: Package.TestDiscoveryError
+  ): String =
+    err match {
+      case Package.TestDiscoveryError.PlainTestAfterProgTest(
+            packageName,
+            progTest,
+            plainTestsAfter
+          ) =>
+        val plainTestStr =
+          plainTestsAfter.toList.map(_.sourceCodeRepr).mkString(", ")
+        s"${packageName.asString}: found top-level Test value(s) after ProgTest ${progTest.sourceCodeRepr}: $plainTestStr"
+    }
+
   case class NoTestsFound(packs: List[PackageName], regex: NonEmptyList[String])
       extends Exception(show"no tests found in $packs with regex $regex")
       with CliException {
@@ -426,6 +448,24 @@ case object ClangTranspiler extends Transpiler {
           .intercalate(Doc.line, regex.toList.map(Doc.text(_)))
           .nested(4)).grouped)
 
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
+
+  case class InvalidTestDiscovery(
+      errors: NonEmptyList[(PackageName, Package.TestDiscoveryError)]
+  ) extends Exception("invalid test discovery")
+      with CliException {
+    def errDoc: Doc =
+      (Doc.text("invalid test discovery:") +
+        (Doc.line + Doc
+          .intercalate(
+            Doc.line,
+            errors.toList.map { case (_, err) =>
+              Doc.text(testDiscoveryErrMsg(err))
+            }
+          )
+          .nested(2)).grouped)
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
   }
@@ -511,44 +551,55 @@ case object ClangTranspiler extends Transpiler {
                 })
               }
             case test @ Mode.Test(_, re, execute, quiet) =>
-              val tvs = test.values(ns)
-              (if (tvs.isEmpty) {
-                 moduleIOMonad.raiseError(
-                   NoTestsFound(ns.rootPackages.toList, re)
-                 )
-               } else {
-                 val ns1 = args.emit(ns, tvs.toSet)
-                 val clangGen = new ClangGen(ns1)
-                 val r = clangGen.renderTests(values = tvs.toList.sorted)
+              test.values(ns) match {
+                case Left(errors) =>
+                  moduleIOMonad.raiseError(
+                    InvalidTestDiscovery(
+                      NonEmptyList.fromListUnsafe(errors)
+                    )
+                  )
+                case Right(tvs)   =>
+                  if (tvs.isEmpty) {
+                    moduleIOMonad.raiseError(
+                      NoTestsFound(ns.rootPackages.toList, re)
+                    )
+                  } else {
+                    val roots = tvs.iterator.map { case (p, entry) =>
+                      (p, entry.bindable: Identifier)
+                    }.toSet
+                    val ns1 = args.emit(ns, roots)
+                    val clangGen = new ClangGen(ns1)
+                    val r = clangGen.renderTests(values = tvs)
 
-                 val exeIO = args.output match {
-                   case Output(
-                         _,
-                         _,
-                         Some((exeName, _)),
-                         exeOutRelativeToOutDir,
-                         _,
-                         _
-                       ) if execute =>
-                     val exePath =
-                       if (exeOutRelativeToOutDir)
-                         args.platformIO.resolve(args.outDir, exeName)
-                       else exeName
-                     val exeArgs = if (quiet) "--quiet" :: Nil else Nil
-                     args.platformIO
-                       .system(args.platformIO.showPath.show(exePath), exeArgs)
-                       .handleErrorWith {
-                         case _: CliException =>
-                           moduleIOMonad.raiseError(TestExecutionFailed)
-                         case other =>
-                           moduleIOMonad.raiseError(other)
-                       }
-                   case _ =>
-                     moduleIOMonad.unit
-                 }
+                    val exeIO = args.output match {
+                      case Output(
+                            _,
+                            _,
+                            Some((exeName, _)),
+                            exeOutRelativeToOutDir,
+                            _,
+                            _
+                          ) if execute =>
+                        val exePath =
+                          if (exeOutRelativeToOutDir)
+                            args.platformIO.resolve(args.outDir, exeName)
+                          else exeName
+                        val exeArgs = if (quiet) "--quiet" :: Nil else Nil
+                        args.platformIO
+                          .system(args.platformIO.showPath.show(exePath), exeArgs)
+                          .handleErrorWith {
+                            case _: CliException =>
+                              moduleIOMonad.raiseError(TestExecutionFailed)
+                            case other =>
+                              moduleIOMonad.raiseError(other)
+                          }
+                      case _ =>
+                        moduleIOMonad.unit
+                    }
 
-                 moduleIOMonad.pure(r.map((_, exeIO)))
-               })
+                    moduleIOMonad.pure(r.map((_, exeIO)))
+                  }
+              }
           }
 
         docAndEffect.flatMap {

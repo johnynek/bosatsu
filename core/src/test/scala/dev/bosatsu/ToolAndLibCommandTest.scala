@@ -420,7 +420,7 @@ class ToolAndLibCommandTest extends FunSuite {
   private val minimalProgModuleSrc: String =
     """package Bosatsu/Prog
 |
-|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main())
+|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
 |
 |external struct Prog[err: +*, res: +*]
 |
@@ -450,6 +450,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |unit: forall err. Prog[err, ()] = pure(())
 |
 |struct Main(run: List[String] -> forall err. Prog[err, Int])
+|struct ProgTest(test_fn: forall err. List[String] -> Prog[err, Test])
 |""".stripMargin
 
   private val minimalIoErrorModuleSrc: String =
@@ -2159,7 +2160,7 @@ class ToolAndLibCommandTest extends FunSuite {
     val progSrc =
       """package Bosatsu/Prog
 |
-|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main())
+|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
 |
 |external struct Prog[err: +*, res: +*]
 |
@@ -2189,6 +2190,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |unit: forall err. Prog[err, ()] = pure(())
 |
 |struct Main(run: List[String] -> forall err. Prog[err, Int])
+|struct ProgTest(test_fn: forall err. List[String] -> Prog[err, Test])
 |""".stripMargin
 
     val ioErrorSrc =
@@ -6328,6 +6330,158 @@ main = 0
         assert(out.contains("passed"), out)
         assert(out.contains("failed"), out)
         assert(!out.contains("pass one"), out)
+    }
+  }
+
+  test("tool test runs ProgTest values") {
+    val appSrc =
+      """package App/ProgTest
+|
+|from Bosatsu/Prog import ProgTest, pure
+|
+|prog_tests = ProgTest(_ -> pure(
+|  TestSuite("prog", [Assertion(True, "ok")])
+|))
+|""".stripMargin
+    val files = List(
+      Chain("Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("App", "ProgTest.bosatsu") -> appSrc
+    )
+    val cmd = List(
+      "tool",
+      "test",
+      "--package_root",
+      "",
+      "--input",
+      "Bosatsu/Prog.bosatsu",
+      "--input",
+      "App/ProgTest.bosatsu"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      out <- runWithStateAndExit(cmd, s0)
+    } yield out
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, Output.TestOutput(tests, _, _), exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        val appTest = tests.collectFirst {
+          case (pn, Some(test))
+              if pn == PackageName.parts("App", "ProgTest") =>
+            test.value
+        }.getOrElse(fail("missing App/ProgTest test output"))
+        assertEquals(appTest.assertions, 1)
+        assertEquals(appTest.failureCount, 0)
+      case Right((_, other, _)) =>
+        fail(s"expected test output, got: $other")
+    }
+  }
+
+  test("tool test reports discovery error when Test appears after ProgTest") {
+    val appSrc =
+      """package App/BadOrder
+|
+|from Bosatsu/Prog import ProgTest, pure
+|
+|prog_tests = ProgTest(_ -> pure(Assertion(True, "prog test")))
+|tests = Assertion(True, "plain test after prog test")
+|""".stripMargin
+    val files = List(
+      Chain("Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("App", "BadOrder.bosatsu") -> appSrc
+    )
+    val cmd = List(
+      "tool",
+      "test",
+      "--package_root",
+      "",
+      "--input",
+      "Bosatsu/Prog.bosatsu",
+      "--input",
+      "App/BadOrder.bosatsu"
+    )
+
+    module.runWith(files)(cmd) match {
+      case Right(out) =>
+        fail(s"expected discovery error, got: $out")
+      case Left(err)  =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid test discovery"), msg)
+        assert(msg.contains("App/BadOrder"), msg)
+        assert(msg.contains("prog_tests"), msg)
+        assert(msg.contains("tests"), msg)
+    }
+  }
+
+  test("tool test converts uncaught ProgTest errors into failures") {
+    val progSrc =
+      """package Bosatsu/Prog
+|
+|export Prog(), ProgTest(), pure, raise_error
+|
+|enum Prog[e, a]:
+|  Pure(get: a)
+|  Raise(get: e)
+|
+|def pure[a](a: a) -> forall e. Prog[e, a]:
+|  Pure(a)
+|
+|def raise_error[e, a](e: e) -> Prog[e, a]:
+|  Raise(e)
+|
+|struct ProgTest(test_fn: List[String] -> Prog[String, Test])
+|""".stripMargin
+    val appSrc =
+      """package App/ProgBoom
+|
+|from Bosatsu/Prog import ProgTest, raise_error
+|
+|prog_tests = ProgTest(_ -> raise_error("boom"))
+|""".stripMargin
+    val files = List(
+      Chain("Bosatsu", "Prog.bosatsu") -> progSrc,
+      Chain("App", "ProgBoom.bosatsu") -> appSrc
+    )
+    val cmd = List(
+      "tool",
+      "test",
+      "--package_root",
+      "",
+      "--input",
+      "Bosatsu/Prog.bosatsu",
+      "--input",
+      "App/ProgBoom.bosatsu"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      out <- runWithStateAndExit(cmd, s0)
+    } yield out
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, Output.TestOutput(tests, _, _), exitCode)) =>
+        assertEquals(exitCode, ExitCode.Error)
+        val appTest = tests.collectFirst {
+          case (pn, Some(test))
+              if pn == PackageName.parts("App", "ProgBoom") =>
+            test.value
+        }.getOrElse(fail("missing App/ProgBoom test output"))
+        assertEquals(appTest.assertions, 1)
+        assertEquals(appTest.failureCount, 1)
+        appTest match {
+          case Test.Assertion(false, msg) =>
+            assert(msg.contains("uncaught error"), msg)
+            assert(msg.contains("boom"), msg)
+          case other =>
+            fail(s"expected synthetic assertion, got: $other")
+        }
+      case Right((_, other, _)) =>
+        fail(s"expected test output, got: $other")
     }
   }
 

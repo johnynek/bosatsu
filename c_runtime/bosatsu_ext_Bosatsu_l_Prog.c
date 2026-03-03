@@ -1,4 +1,4 @@
-#include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Prog.h"
 
 #include <stdio.h>
 
@@ -55,17 +55,14 @@ BValue bsts_prog_step_fix(BValue arg, BValue fixfn)
   return call_fn1(ap1, arg);
 }
 
-int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
+static BSTS_Prog_Test_Result bsts_prog_result(_Bool is_error, BValue value)
 {
-  BValue arg_list = alloc_enum0(0);
-  for (int i = argc; i > 0; i--)
-  {
-    // TODO
-    // we are assuming this null terminated string is utf8
-    // but we should check that is is valid
-    BValue arg = bsts_string_from_utf8_bytes_static_null_term(argv[i - 1]);
-    arg_list = alloc_enum2(1, arg, arg_list);
-  }
+  BSTS_Prog_Test_Result result = { is_error, value };
+  return result;
+}
+
+static BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run(BValue prog)
+{
   /*
   # the stack ADT:
   done = (0,)
@@ -73,7 +70,7 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
   def recstep(fn, stack): return (2, fn, stack)
   */
   BValue stack = alloc_enum0(0);
-  BValue arg = call_fn1(main_fn, arg_list);
+  BValue arg = prog;
   while (1)
   {
     switch (get_variant(arg))
@@ -88,8 +85,8 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
         switch (get_variant(stack))
         {
         case 0:
-          // done, the result must be an int
-          return (int)bsts_integer_to_int32(item);
+          // done, return the successful value.
+          return bsts_prog_result(0, item);
         case 1:
         {
           // fmstep
@@ -117,9 +114,8 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
         switch (get_variant(stack))
         {
         case 0:
-          // done, the result must be an int
-          printf("unexpected top error");
-          return 1;
+          // done, this is an uncaught top-level error.
+          return bsts_prog_result(1, error);
         case 1:
           // fmstep, but we have an error
           stack = get_enum_index(stack, 1);
@@ -167,8 +163,35 @@ int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
     }
     default:
       fprintf(stderr, "bosatsu Prog execution fault: invalid Prog tag: %u\n", get_variant(arg));
-      return 1;
+      return bsts_prog_result(1, arg);
     }
   }
-  return 0;
+  return bsts_prog_result(1, arg);
+}
+
+int bsts_Bosatsu_Prog_run_main(BValue main_fn, int argc, char **argv)
+{
+  BValue arg_list = alloc_enum0(0);
+  for (int i = argc; i > 0; i--)
+  {
+    // TODO
+    // we are assuming this null terminated string is utf8
+    // but we should check that is is valid
+    BValue arg = bsts_string_from_utf8_bytes_static_null_term(argv[i - 1]);
+    arg_list = alloc_enum2(1, arg, arg_list);
+  }
+
+  BSTS_Prog_Test_Result result = bsts_Bosatsu_Prog_run(call_fn1(main_fn, arg_list));
+  if (result.is_error)
+  {
+    printf("unexpected top error");
+    return 1;
+  }
+  return (int)bsts_integer_to_int32(result.value);
+}
+
+BSTS_Prog_Test_Result bsts_Bosatsu_Prog_run_test(BValue test_fn)
+{
+  BValue arg_list = alloc_enum0(0);
+  return bsts_Bosatsu_Prog_run(call_fn1(test_fn, arg_list));
 }
