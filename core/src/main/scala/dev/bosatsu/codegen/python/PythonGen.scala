@@ -2390,10 +2390,17 @@ object PythonGen {
           for {
             vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
             body <- fn(vars)
-            // TODO: if body isn't an expression, how can just adding a lambda
-            // at the end be correct? the arguments will be below points that used it.
-            // the onLast has to handle Code.Lambda specially
-            res <- Env.onLast(body)(Code.Lambda(vars, _))
+            res <- body match {
+              case expr: Expression =>
+                Env.pure(Code.Lambda(vars, expr))
+              case _                =>
+                val args = NonEmptyList.fromListUnsafe(vars)
+                for {
+                  defName <- Env.newHoistedDefName
+                } yield Code
+                  .block(Env.makeDef(defName, args, body))
+                  .withValue(defName)
+            }
           } yield res
     }
 
