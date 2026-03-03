@@ -1074,8 +1074,11 @@ object TypedExprNormalization {
                 case Global(_, _: Bindable, _, _) =>
                   val hasLambdaArg =
                     args.exists(ws.ResolveToLambda.unapply(_).nonEmpty)
+                  val loopBodyInline =
+                    ws.ResolveToLambda.containsLoopOrRecur(body) &&
+                      (body.size <= 80)
                   // Keep tiny globals inlineable for simple algebraic rewrites.
-                  hasLambdaArg || (body.size <= 3)
+                  hasLambdaArg || (body.size <= 3) || loopBodyInline
                 case _ =>
                   true
               }
@@ -1658,6 +1661,30 @@ object TypedExprNormalization {
               }
             case _ =>
               None
+          }
+
+        def containsLoopOrRecur(te: TypedExpr[A]): Boolean =
+          te match {
+            case Generic(_, in) =>
+              containsLoopOrRecur(in)
+            case Annotation(in, _, _) =>
+              containsLoopOrRecur(in)
+            case AnnotatedLambda(_, in, _) =>
+              containsLoopOrRecur(in)
+            case App(fn, args, _, _) =>
+              containsLoopOrRecur(fn) || args.exists(containsLoopOrRecur)
+            case Let(_, expr, in, _, _) =>
+              containsLoopOrRecur(expr) || containsLoopOrRecur(in)
+            case Loop(_, _, _) | Recur(_, _, _) =>
+              true
+            case Match(arg, branches, _) =>
+              containsLoopOrRecur(arg) || branches.exists {
+                case Branch(_, guard, branchExpr) =>
+                  guard.exists(containsLoopOrRecur) ||
+                  containsLoopOrRecur(branchExpr)
+              }
+            case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+              false
           }
       }
     }
