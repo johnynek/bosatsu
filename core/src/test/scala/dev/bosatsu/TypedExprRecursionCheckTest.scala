@@ -273,11 +273,12 @@ def demo(n: Int) -> Int:
     allowed("""#
 def operator +(a, b): a.add(b)
 def operator -(a, b): a.sub(b)
+def operator >(a, b): cmp_Int(a, b) matches GT
 
 def demo(n: Int) -> Int:
   def go(rem: Int, acc: Int) -> Int:
     loop rem:
-      case _ if cmp_Int(rem, 0) matches GT:
+      case _ if rem > 0:
         go(rem - 1, acc + rem)
       case _:
         acc
@@ -355,7 +356,8 @@ def cmp_guarded(i: Int) -> Int:
   test("Int recursion reports unsupported SMT Int lowering in recursive args") {
     disallowedWithMessage("""#
 def id(i: Int) -> Int:
-  i
+  f = x -> x
+  f(i)
 
 def bad(i: Int) -> Int:
   recur i:
