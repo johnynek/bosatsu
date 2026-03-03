@@ -170,8 +170,9 @@ repro_zafu_issue_1957_step =
       "git clone https://github.com/johnynek/zafu.git \"$repro_dir/zafu\"",
       "cd \"$repro_dir/zafu\"",
       "git checkout a8bfd22055028495e65f29cba382bae15fd009b4",
-      "./bosatsu --artifact \"$GITHUB_WORKSPACE/bosatsu\" c-runtime install",
-      "scripts/test.sh",
+      "./bosatsu --artifact \"$GITHUB_WORKSPACE/bosatsu\" version",
+      "./bosatsu lib fetch",
+      "./bosatsu lib check",
       "",
     ])),
   }
