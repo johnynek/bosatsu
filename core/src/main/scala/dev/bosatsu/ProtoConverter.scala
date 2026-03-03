@@ -131,7 +131,7 @@ object ProtoConverter {
 
     final def map[B](fn: A => B): ProtoState[B] =
       ProtoState { s =>
-        run(s).map {
+        Eval.defer(run(s)).map {
           case Success((ss, a)) => Success((ss, fn(a)))
           case Failure(err)     => Failure(err)
         }
@@ -139,7 +139,7 @@ object ProtoConverter {
 
     final def flatMap[B](fn: A => ProtoState[B]): ProtoState[B] =
       ProtoState { s =>
-        run(s).flatMap {
+        Eval.defer(run(s)).flatMap {
           case Success((ss, a)) => Eval.defer(fn(a).run(ss))
           case Failure(err)     => Eval.now(Failure(err))
         }
@@ -195,7 +195,7 @@ object ProtoConverter {
           fa: ProtoState[A]
       )(f: Throwable => ProtoState[A]): ProtoState[A] =
         ProtoState { s =>
-          fa.run(s).flatMap {
+          Eval.defer(fa.run(s)).flatMap {
             case success @ Success(_) => Eval.now(success)
             case Failure(err)         => Eval.defer(f(err).run(s))
           }
@@ -207,7 +207,7 @@ object ProtoConverter {
   implicit class TabMethods[A](val self: Tab[A]) extends AnyVal {
     inline def onFailPrint(inline message: => String): Tab[A] =
       ProtoState { state =>
-        self.run(state).map {
+        Eval.defer(self.run(state)).map {
           case success @ Success(_) => success
           case failure @ Failure(_) =>
             System.err.println(message)
