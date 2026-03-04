@@ -394,6 +394,71 @@ object TypedExprNormalization {
         None
     }
 
+  private val TruePattern: Pattern[(PackageName, Constructor), Type] =
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+  private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+  private def containsRecur[A](te: TypedExpr[A]): Boolean =
+    te match {
+      case Generic(_, in) =>
+        containsRecur(in)
+      case Annotation(in, _, _) =>
+        containsRecur(in)
+      case AnnotatedLambda(_, in, _) =>
+        containsRecur(in)
+      case App(fn, args, _, _) =>
+        containsRecur(fn) || args.exists(containsRecur)
+      case Let(_, expr, in, _, _) =>
+        containsRecur(expr) || containsRecur(in)
+      case Loop(args, body, _) =>
+        args.exists { case (_, init) =>
+          containsRecur(init)
+        } || containsRecur(body)
+      case Recur(_, _, _) =>
+        true
+      case Match(arg, branches, _) =>
+        containsRecur(arg) || branches.exists {
+          case Branch(_, guard, branchExpr) =>
+            guard.exists(containsRecur) || containsRecur(branchExpr)
+        }
+      case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+        false
+    }
+
+  private def flattenBoolMatchArg[A](
+      arg: TypedExpr[A],
+      branches: NonEmptyList[Branch[A]],
+      tag: A
+  ): Option[TypedExpr[A]] = {
+    def asBoolSelector(
+        bs: NonEmptyList[Branch[A]]
+    ): Option[(TypedExpr[A], TypedExpr[A])] =
+      bs.toList match {
+        case List(Branch(truePat, None, ifTrue), Branch(falsePat, None, ifFalse))
+            if (truePat == TruePattern) &&
+              (falsePat == FalsePattern || falsePat == Pattern.WildCard) =>
+          Some((ifTrue, ifFalse))
+        case _ =>
+          None
+      }
+
+    (arg, asBoolSelector(branches)) match {
+      case (Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
+        innerBranches.traverse { inner =>
+          boolConst(inner.expr).map { cond =>
+            val selected = if (cond) ifTrue else ifFalse
+            if (selected eq inner.expr) inner
+            else inner.copy(expr = selected)
+          }
+        }.map { mapped =>
+          Match(innerArg, mapped, tag)
+        }
+      case _ =>
+        None
+    }
+  }
+
   @annotation.tailrec
   private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
     te match {
@@ -1343,6 +1408,15 @@ object TypedExprNormalization {
         if ((recur1: TypedExpr[A]) === te) None
         else Some(recur1)
 
+      case Match(arg, branches, tag)
+          if flattenBoolMatchArg(arg, branches, tag).nonEmpty =>
+        normalize1(
+          namerec,
+          flattenBoolMatchArg(arg, branches, tag).get,
+          scope,
+          typeEnv
+        )
+
       case Match(_, NonEmptyList(Branch(p, None, e), Nil), _)
           if !e.freeVarsDup.exists(p.names.toSet) =>
         // match x:
@@ -1455,8 +1529,38 @@ object TypedExprNormalization {
             case _ =>
               (changed0, branches1)
           }
+
+        def rewriteTrailingGuardPair(
+            bs: NonEmptyList[Branch[A]]
+        ): Option[NonEmptyList[Branch[A]]] =
+          bs.toList match {
+            case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
+                if (p1 == p2) && p1.names.isEmpty && p2.names.isEmpty &&
+                  containsRecur(e1) =>
+              val ifExpr = Match(
+                g,
+                NonEmptyList.of(
+                  Branch(TruePattern, None, e1),
+                  Branch(FalsePattern, None, e2)
+                ),
+                g.tag
+              )
+              val rewritten = init :+ Branch(p2, None, ifExpr)
+              Some(NonEmptyList.fromListUnsafe(rewritten))
+            case _ =>
+              None
+          }
+
+        val (changed2, branches1b) =
+          rewriteTrailingGuardPair(branches1a) match {
+            case Some(rewritten) =>
+              (changed1 + 1, rewritten)
+            case None =>
+              (changed1, branches1a)
+          }
+
         val a1 = normalize1(None, arg, scope, typeEnv).get
-        if (changed1 == 0) {
+        if (changed2 == 0) {
           val m1 = Match(a1, branches, tag)
           Impl.maybeEvalMatch(m1, scope) match {
             case None =>
@@ -1475,7 +1579,7 @@ object TypedExprNormalization {
         } else {
           // there has been some change, so
           // see if that unlocked any new changes
-          normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
+          normalize1(namerec, Match(a1, branches1b, tag), scope, typeEnv)
         }
     }
   }

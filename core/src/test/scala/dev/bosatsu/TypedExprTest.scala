@@ -3423,6 +3423,68 @@ def f(x):
     assertEquals(ifNormalized, matchNormalized)
   }
 
+  test(
+    "normalization rewrites wildcard guarded recur branches into a single match"
+  ) {
+    val normalizedExpr =
+      Par.withEC {
+        var out: Option[TypedExpr[Unit]] = None
+        TestUtils.testInferred(
+          List("""
+package Test
+
+def loop(n, cnt):
+  recur n:
+    case _ if cmp_Int(n, 0) matches GT:
+      loop(n.div(2), cnt.add(1))
+    case _:
+      cnt
+"""),
+          "Test",
+          { (pm, mainPack) =>
+            val pack = pm.toMap(mainPack)
+            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
+              case Some((_, _, te)) => te
+              case None             =>
+                fail(s"missing let loop in ${pack.lets.map(_._1)}")
+            }
+            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
+              loopExpr
+            )
+            val normalized =
+              TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
+            out = Some(normalized)
+          }
+        )
+        out.getOrElse(fail("failed to infer normalized expression for loop"))
+      }
+
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Loop(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Recur(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      countMatch(normalizedExpr),
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) {
+        case TypedExpr.Match(_, branches, _)
+            if branches.length == 2 && branches.forall(_.guard.isEmpty) =>
+          true
+      },
+      1,
+      normalizedExpr.reprString
+    )
+  }
+
   test("test match removed from some examples") {
     checkLast("""
 x = _ -> 1
