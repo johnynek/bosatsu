@@ -3,9 +3,10 @@ package dev.bosatsu
 import cats.{Eval, StackSafeMonad}
 import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.implicits._
+import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
-import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtSort, Z3Api}
+import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
 
 import Identifier.Bindable
 
@@ -71,6 +72,7 @@ object TypedExprRecursionCheck {
         derives CanEqual
     type RecurTarget = NonEmptyList[RecurTargetItem]
     type TypedPattern = Pattern[(PackageName, Identifier.Constructor), Type]
+
     type TopLevelLowerableAliases = Map[(PackageName, Bindable), TopLevelAlias]
     type TopLevelPredefAliases = Map[(PackageName, Bindable), Identifier.Name]
 
@@ -1530,11 +1532,25 @@ object TypedExprRecursionCheck {
       lowerMatchBranchCondition(argExpr, branch, state1)
     }
 
+    private case class FallthroughFacts(
+        facts: NonEmptyList[(TypedExpr.Branch[Declaration], SmtExpr.BoolExpr)],
+        symbolState: SmtBranchState
+    )
+
+    private def mergeSymbolState(
+        symbols: SmtBranchState,
+        state: SmtBranchState
+    ): SmtBranchState =
+      state.copy(
+        declarations = state.declarations ++ symbols.declarations,
+        freshId = state.freshId.max(symbols.freshId)
+      )
+
     private def matchFallthroughFacts(
         argExpr: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
         initialState: SmtBranchState
-    ): NonEmptyList[(TypedExpr.Branch[Declaration], SmtExpr.BoolExpr)] = {
+    ): FallthroughFacts = {
       val baseIntBindings = initialState.intBindings
       val baseBoolBindings = initialState.boolBindings
       val baseComparisonBindings = initialState.comparisonBindings
@@ -1557,7 +1573,7 @@ object TypedExprRecursionCheck {
       ) =
         (Nil, SmtExpr.BoolConst.True, initialState)
 
-      val (revFacts, _, _) =
+      val (revFacts, _, stateN) =
         branches.toList.foldLeft(init) {
           case ((acc, priorMiss, state), branch) =>
             val state0 = resetBranchBindings(state)
@@ -1571,7 +1587,13 @@ object TypedExprRecursionCheck {
             ((branch, priorMiss) :: acc, nextMiss, state1)
         }
 
-      NonEmptyList.fromListUnsafe(revFacts.reverse)
+      FallthroughFacts(
+        NonEmptyList.fromListUnsafe(revFacts.reverse),
+        // Keep only declaration/fresh-symbol effects from lowering branch-hit
+        // conditions; branch-local bindings/path facts should not leak across
+        // branches.
+        resetBranchBindings(stateN)
+      )
     }
 
     private def patternSubsumes(
@@ -1581,165 +1603,25 @@ object TypedExprRecursionCheck {
     ): Boolean =
       state.totalityCheck.difference(subPattern, superPattern).isEmpty
 
-    @annotation.tailrec
-    private def unwrapNamedTypedPattern(
-        pattern: TypedPattern
-    ): TypedPattern =
-      pattern match {
-        case Pattern.Annotation(inner, _) => unwrapNamedTypedPattern(inner)
-        case Pattern.Named(_, inner)      => unwrapNamedTypedPattern(inner)
-        case p                            => p
-      }
-
-    private def mergeAlignedNames(
-        left: Map[Bindable, Bindable],
-        right: Map[Bindable, Bindable]
-    ): Option[Map[Bindable, Bindable]] =
-      right.foldLeft(Option(left)) { case (accOpt, (from, to)) =>
-        accOpt.flatMap { acc =>
-          acc.get(from) match {
-            case Some(existing) if existing != to => None
-            case Some(_)                          => Some(acc)
-            case None                             => Some(acc.updated(from, to))
-          }
-        }
-      }
-
-    private def alignSubsumedListPartNames(
-        superPart: Pattern.ListPart[TypedPattern],
-        subPart: Pattern.ListPart[TypedPattern]
-    ): Option[Map[Bindable, Bindable]] =
-      (superPart, subPart) match {
-        case (Pattern.ListPart.Item(superItem), Pattern.ListPart.Item(subItem)) =>
-          alignSubsumedPatternNames(superItem, subItem)
-        case (Pattern.ListPart.NamedList(superName), Pattern.ListPart.NamedList(subName)) =>
-          Some(Map(superName -> subName))
-        case (Pattern.ListPart.NamedList(_), Pattern.ListPart.WildList) =>
-          Some(Map.empty)
-        case (
-              Pattern.ListPart.WildList,
-              Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_)
-            ) =>
-          Some(Map.empty)
-        case _ =>
-          None
-      }
-
-    private def alignSubsumedStrPartNames(
-        superPart: Pattern.StrPart,
-        subPart: Pattern.StrPart
-    ): Option[Map[Bindable, Bindable]] =
-      (superPart, subPart) match {
-        case (Pattern.StrPart.NamedStr(superName), Pattern.StrPart.NamedStr(subName)) =>
-          Some(Map(superName -> subName))
-        case (Pattern.StrPart.NamedChar(superName), Pattern.StrPart.NamedChar(subName)) =>
-          Some(Map(superName -> subName))
-        case (Pattern.StrPart.NamedStr(_), Pattern.StrPart.WildStr) =>
-          Some(Map.empty)
-        case (Pattern.StrPart.NamedChar(_), Pattern.StrPart.WildChar) =>
-          Some(Map.empty)
-        case (
-              Pattern.StrPart.WildStr,
-              Pattern.StrPart.WildStr | Pattern.StrPart.NamedStr(_)
-            ) =>
-          Some(Map.empty)
-        case (
-              Pattern.StrPart.WildChar,
-              Pattern.StrPart.WildChar | Pattern.StrPart.NamedChar(_)
-            ) =>
-          Some(Map.empty)
-        case (Pattern.StrPart.LitStr(left), Pattern.StrPart.LitStr(right))
-            if left == right =>
-          Some(Map.empty)
-        case _ =>
-          None
-      }
-
-    private def alignSubsumedPatternNames(
-        superPattern: TypedPattern,
-        subPattern: TypedPattern
-    ): Option[Map[Bindable, Bindable]] = {
-      val topAligned: Map[Bindable, Bindable] =
-        subPattern.topNames.headOption match {
-          case Some(subTop) =>
-            superPattern.topNames.iterator.map(_ -> subTop).toMap
-          case None         =>
-            Map.empty
-        }
-
-      val coreAligned =
-        (unwrapNamedTypedPattern(superPattern), unwrapNamedTypedPattern(subPattern)) match {
-          case (Pattern.WildCard | Pattern.Literal(_), _) =>
-            Some(Map.empty[Bindable, Bindable])
-          case (Pattern.Var(superName), subPat) =>
-            val subTopName = subPat.topNames.headOption
-            Some(subTopName.fold(Map.empty[Bindable, Bindable])(subName =>
-              Map(superName -> subName)
-            ))
-          case (
-                Pattern.PositionalStruct(superName, superParams),
-                Pattern.PositionalStruct(subName, subParams)
-              )
-              if (superName == subName) && (superParams.length == subParams.length) =>
-            superParams
-              .zip(subParams)
-              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
-                case (accOpt, (superItem, subItem)) =>
-                  for {
-                    acc <- accOpt
-                    next <- alignSubsumedPatternNames(superItem, subItem)
-                    merged <- mergeAlignedNames(acc, next)
-                  } yield merged
-              }
-          case (Pattern.ListPat(superParts), Pattern.ListPat(subParts))
-              if superParts.length == subParts.length =>
-            superParts
-              .zip(subParts)
-              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
-                case (accOpt, (superItem, subItem)) =>
-                  for {
-                    acc <- accOpt
-                    next <- alignSubsumedListPartNames(superItem, subItem)
-                    merged <- mergeAlignedNames(acc, next)
-                  } yield merged
-              }
-          case (Pattern.StrPat(superParts), Pattern.StrPat(subParts))
-              if superParts.length == subParts.length =>
-            superParts.toList
-              .zip(subParts.toList)
-              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
-                case (accOpt, (superItem, subItem)) =>
-                  for {
-                    acc <- accOpt
-                    next <- alignSubsumedStrPartNames(superItem, subItem)
-                    merged <- mergeAlignedNames(acc, next)
-                  } yield merged
-              }
-          case _ =>
-            None
-        }
-
-      coreAligned.flatMap(mergeAlignedNames(topAligned, _))
-    }
-
-    private def alignSubsumedGuardExpr(
+    private def alignSubsumedGuardExprAlternatives(
         guardExpr: TypedExpr[Declaration],
         superPattern: TypedPattern,
         subPattern: TypedPattern
-    ): Option[TypedExpr[Declaration]] = {
+    ): List[TypedExpr[Declaration]] = {
       val guardFree = guardExpr.freeVarsDup.toSet
       val superBoundNames = superPattern.names.toSet
       val guardBoundByPattern = guardFree.intersect(superBoundNames)
-      alignSubsumedPatternNames(superPattern, subPattern).flatMap { alignedNames =>
-        if (!guardBoundByPattern.subsetOf(alignedNames.keySet)) None
-        else {
+      NameMap
+        .alignSubsumedPatternNames(superPattern, subPattern)
+        .toList
+        .flatMap(_.substitutionAlternatives(guardBoundByPattern))
+        .flatMap { renames =>
           val substitutions: Map[
             Bindable,
             TypedExpr.Local[Declaration] => TypedExpr[Declaration]
           ] =
-            guardBoundByPattern.iterator.collect {
-              case from if alignedNames.get(from).exists(_ != from) =>
-                val to = alignedNames(from)
+            renames.iterator.collect {
+              case (from, to) if to != from =>
                 from -> { (local: TypedExpr.Local[Declaration]) =>
                   TypedExpr.Local(to, local.tpe, local.tag): TypedExpr[
                     Declaration
@@ -1747,10 +1629,13 @@ object TypedExprRecursionCheck {
                 }
             }.toMap
 
-          if (substitutions.isEmpty) Some(guardExpr)
-          else TypedExpr.substituteAll(substitutions, guardExpr, enterLambda = true)
+          if (substitutions.isEmpty) List(guardExpr)
+          else
+            TypedExpr
+              .substituteAll(substitutions, guardExpr, enterLambda = true)
+              .toList
         }
-      }
+        .distinct
     }
 
     private def availableBranchNames(
@@ -1773,21 +1658,32 @@ object TypedExprRecursionCheck {
         priorBranch.guard match {
           case Some(guardExpr)
               if patternSubsumes(priorBranch.pattern, currentPattern, st) =>
-            alignSubsumedGuardExpr(guardExpr, priorBranch.pattern, currentPattern) match {
-              case Some(alignedGuardExpr) =>
-                val guardFree = alignedGuardExpr.freeVarsDup.toSet
-                if (guardFree.subsetOf(availableBranchNames(currentPattern, st))) {
-                  val (guardOpt, st1) = lowerBoolExpr(alignedGuardExpr, st)
-                  guardOpt match {
-                    case Some(guardCond) =>
-                      addPathFactIfNonTrivial(SmtExpr.Not(guardCond), st1)
-                    case None =>
-                      st
-                  }
-                } else st
-              case None                   =>
-                st
-            }
+            val alignedGuards =
+              alignSubsumedGuardExprAlternatives(
+                guardExpr,
+                priorBranch.pattern,
+                currentPattern
+              )
+
+            val (condsRev, st1) =
+              alignedGuards.foldLeft((List.empty[SmtExpr.BoolExpr], st)) {
+                case ((conds, st0), alignedGuardExpr) =>
+                  val guardFree = alignedGuardExpr.freeVarsDup.toSet
+                  if (guardFree.subsetOf(availableBranchNames(currentPattern, st0))) {
+                    val (guardOpt, stNext) = lowerBoolExpr(alignedGuardExpr, st0)
+                    guardOpt match {
+                      case Some(guardCond) =>
+                        (simplifyBoolExpr(guardCond) :: conds, stNext)
+                      case None =>
+                        (conds, stNext)
+                    }
+                  } else (conds, st0)
+              }
+
+            addPathFactIfNonTrivial(
+              SmtExpr.Not(mkOr(condsRev.reverse.distinct.toVector)),
+              st1
+            )
           case _ =>
             st
         }
@@ -1825,7 +1721,16 @@ object TypedExprRecursionCheck {
             )
         )
 
-        Z3Api.run(script, parseModel = false, z3Runner) match {
+        val undeclared = SmtScriptScope.undeclaredVars(script)
+        if (undeclared.nonEmpty) {
+          ProofOutcome.Failed(
+            None,
+            Some(
+              s"internal SMT script uses undeclared variables: ${undeclared.toList.sorted.mkString(", ")}"
+            )
+          )
+        } else
+          Z3Api.run(script, parseModel = false, z3Runner) match {
           case Right(res) =>
             res.status match {
               case Z3Api.Status.Unsat =>
@@ -2615,12 +2520,17 @@ object TypedExprRecursionCheck {
               // the arg can't use state, but cases introduce new bindings:
               val argRes = checkExpr(currentPackage, arg, wrappers)
               val optRes = getSt.flatMap { state =>
-                val fallthroughFacts =
+                val (fallthroughFacts, fallthroughSymbols) =
                   state match {
                     case InRecurBranch(_, _, _, _, smtState) =>
-                      matchFallthroughFacts(arg, branches, smtState)
+                      val analyzed =
+                        matchFallthroughFacts(arg, branches, smtState)
+                      (analyzed.facts, Some(analyzed.symbolState))
                     case _                                  =>
-                      branches.map(_ -> (SmtExpr.BoolConst.True: SmtExpr.BoolExpr))
+                      (
+                        branches.map(_ -> (SmtExpr.BoolConst.True: SmtExpr.BoolExpr)),
+                        None
+                      )
                   }
 
                 val branchFacts = fallthroughFacts.toList
@@ -2667,7 +2577,9 @@ object TypedExprRecursionCheck {
                         withSubsumedGuardContext,
                         _ => withSubsumedGuardContext
                       ) { smtState =>
-                        addPatternFactsAndBindings(arg, branch.pattern, smtState)
+                        val smtState0 =
+                          fallthroughSymbols.fold(smtState)(mergeSymbolState(_, smtState))
+                        addPatternFactsAndBindings(arg, branch.pattern, smtState0)
                       }
                     checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
                       filterNames(branch.pattern.names)(withPatternContext)
@@ -2686,8 +2598,10 @@ object TypedExprRecursionCheck {
                       val sourcePatterns = recur.cases.get.map(_.pattern)
                       val inrec = ir.setRecur(target, recur)
                       // Same order and length as `branches`.
-                      val fallthroughFacts =
+                      val fallthroughAnalyzed =
                         matchFallthroughFacts(arg, branches, initBranchSmtState(inrec))
+                      val fallthroughFacts = fallthroughAnalyzed.facts
+                      val fallthroughSymbols = fallthroughAnalyzed.symbolState
 
                       // on all these branches, use the same parent state
                       def beginBranch(
@@ -2715,7 +2629,10 @@ object TypedExprRecursionCheck {
                               addPatternFactsAndBindings(
                                 matchArg,
                                 compiledPat,
-                                initBranchSmtState(irr)
+                                mergeSymbolState(
+                                  fallthroughSymbols,
+                                  initBranchSmtState(irr)
+                                )
                               )
                             val smtState1 =
                               addSubsumedGuardFallthroughFacts(

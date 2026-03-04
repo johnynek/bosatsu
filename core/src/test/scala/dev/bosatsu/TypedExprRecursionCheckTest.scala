@@ -581,6 +581,61 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
+  test("loop aligns subsumed guard facts through union super patterns") {
+    allowed("""#
+enum Either:
+  Left(value: Int)
+  Right(value: Int)
+
+def walk(stack: List[Either]) -> Int:
+  loop stack:
+    case []: 0
+    case [((Left(s) | Right(s))), *_] if cmp_Int(s, 0) matches LT:
+      0
+    case [Right(t), *tail] if cmp_Int(t, 0) matches GT:
+      walk(tail)
+    case _:
+      0
+""")
+  }
+
+  test("loop uses disjunctive union-derived guard facts for Int recursion proofs") {
+    allowed("""#
+enum Duo:
+  Pair(left: Int, right: Int)
+
+def walk(idx: Int, node: Duo) -> Int:
+  loop (idx, node):
+    case _ if cmp_Int(idx, 0) matches LT:
+      idx
+    case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(idx, s) matches LT:
+      idx
+    case (_, Pair(x, y)) if cmp_Int(x.add(y), 1) matches GT | EQ:
+      walk(idx.sub(1), Pair(x, y))
+    case _:
+      idx
+""")
+  }
+
+  test("loop int obligations keep union-fallthrough symbols declared") {
+    allowed("""#
+enum Either:
+  Left(value: Int)
+  Right(value: Int)
+
+def walk(idx: Int, node: Either) -> Int:
+  loop (idx, node):
+    case _ if cmp_Int(idx, 0) matches LT:
+      idx
+    case (_, (Left(s) | Right(s))) if cmp_Int(idx, s) matches LT:
+      idx
+    case (_, Right(t)) if cmp_Int(t, 0) matches GT:
+      walk(idx.sub(1), Right(t))
+    case _:
+      idx
+""")
+  }
+
   test("loop aligns list prefix wildcard-to-named splice bindings in subsumed branches") {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
