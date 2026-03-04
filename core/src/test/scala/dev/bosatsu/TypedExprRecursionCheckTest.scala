@@ -287,6 +287,22 @@ def demo(n: Int) -> Int:
 """)
   }
 
+  test("loop Int recursion accepts infix decrement via operator assignment alias") {
+    allowed("""#
+operator - = sub
+
+def demo(n: Int) -> Int:
+  def go(rem: Int, acc: Int) -> Int:
+    loop rem:
+      case _ if cmp_Int(rem, 0) matches GT:
+        go(rem - 1, acc.add(rem))
+      case _:
+        acc
+
+  go(n, 0)
+""")
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -495,6 +511,20 @@ def walk(fuel: Int, frame: Frame) -> Int:
       walk(fuel.sub(1), Frame(tail))
     case (_, Frame([Branch, *tail])):
       walk(fuel.sub(1), Frame(tail))
+""")
+  }
+
+  test("loop uses negated guard fallthrough when prior non-lowerable pattern subsumes current") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [s, *_]) if cmp_Int(idx, s) matches LT: idx
+    case (_, [s, *tail]) if cmp_Int(s, 0) matches GT:
+      walk(idx.sub(s), tail)
+    case _:
+      idx
 """)
   }
 
