@@ -642,6 +642,7 @@ object Command {
           colorize: Colorize,
           outdir: P,
           includePredef: Boolean,
+          sourceRepoUrlOpt: Option[String],
           compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
@@ -670,6 +671,34 @@ object Command {
             )
           }
           (compiled, sourcePaths) = checked
+          sourceLinksByPackage = sourceRepoUrlOpt match {
+            case Some(sourceRepoUrl) =>
+              val normalizedRepoUrl =
+                if (sourceRepoUrl.endsWith("/")) sourceRepoUrl
+                else sourceRepoUrl + "/"
+              sourcePaths.toList
+                .foldLeft(Map.empty[PackageName, List[(String, String)]]) {
+                  case (acc, (path, packageName)) =>
+                    platformIO.relativize(gitRoot, path) match {
+                      case Some(relPath) =>
+                        val relPathString =
+                          platformIO.pathToString(relPath).replace('\\', '/')
+                        val sourceLink =
+                          (relPathString, normalizedRepoUrl + relPathString)
+                        acc.updated(
+                          packageName,
+                          sourceLink :: acc.getOrElse(packageName, Nil)
+                        )
+                      case None =>
+                        acc
+                    }
+                }
+                .view
+                .mapValues(_.distinct.sortBy(_._1))
+                .toMap
+            case None =>
+              Map.empty[PackageName, List[(String, String)]]
+          }
           compiledPacks = {
             val packs0 = compiled.toMap.values.toList
             if (includePredef) packs0
@@ -680,7 +709,8 @@ object Command {
             compiledPacks,
             sourcePaths.toList,
             outdir,
-            colorize
+            colorize,
+            sourceLinksByPackage
           )
         } yield docs
 
@@ -1804,15 +1834,31 @@ object Command {
               help = "include Bosatsu/Predef in generated docs"
             )
             .orFalse,
+          Opts
+            .option[String](
+              "source_repo_url",
+              help =
+                "optional URL to the repo root used to generate source code links in docs"
+            )
+            .orNone,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, outdir, includePredef, cacheDirFn, colorize) =>
+        ).mapN {
+          (
+              fcc,
+              outdir,
+              includePredef,
+              sourceRepoUrlOpt,
+              cacheDirFn,
+              colorize
+          ) =>
           for {
             cc <- fcc
             docs <- cc.docPackages(
               colorize,
               outdir,
               includePredef,
+              sourceRepoUrlOpt,
               cacheDirFn(cc.gitRoot)
             )
           } yield (Output.TranspileOut(docs): Output[P])

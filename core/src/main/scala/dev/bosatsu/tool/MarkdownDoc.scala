@@ -623,7 +623,29 @@ object MarkdownDoc {
       Some(Doc.text("public dependencies: ") + list)
     }
 
-  private def packageDoc(pack: Package.Typed[Any], docs: SourceDocs): Doc = {
+  private def sourceCodeLinksDoc(
+      sourceLinks: List[(String, String)]
+  ): Option[Doc] =
+    if (sourceLinks.isEmpty) None
+    else {
+      val list =
+        Doc.intercalate(
+          Doc.hardLine,
+          sourceLinks.map { case (path, url) =>
+            Doc.text(show"- [`${path.replace("`", "\\`")}`]($url)")
+          }
+        )
+
+      Some(
+        Doc.text("source code:") + Doc.hardLine + list
+      )
+    }
+
+  private def packageDoc(
+      pack: Package.Typed[Any],
+      docs: SourceDocs,
+      sourceLinks: List[(String, String)]
+  ): Doc = {
     val ctx = TypeRenderer.Context(pack.name, localTypeNames(pack))
     val values = valueDocs(pack)
     val types = typeDocs(pack)
@@ -685,7 +707,9 @@ object MarkdownDoc {
     val header = Doc.text("# ") + inlineCode(pack.name.asString)
     Doc.intercalate(
       Doc.hardLine + Doc.hardLine,
-      header :: dependenciesDoc(deps).toList ::: body :: Nil
+      header ::
+        sourceCodeLinksDoc(sourceLinks).toList :::
+        dependenciesDoc(deps).toList ::: body :: Nil
     )
   }
 
@@ -743,7 +767,8 @@ object MarkdownDoc {
       packages: List[Package.Typed[Any]],
       sourcePaths: List[(Path, PackageName)],
       outdir: Path,
-      color: dev.bosatsu.LocationMap.Colorize
+      color: dev.bosatsu.LocationMap.Colorize,
+      sourceLinksByPackage: Map[PackageName, List[(String, String)]] = Map.empty
   ): F[List[(Path, Doc)]] = {
     import platformIO.moduleIOMonad
 
@@ -753,7 +778,7 @@ object MarkdownDoc {
           .map { pack =>
             val path = outputPath(platformIO, outdir, pack.name)
             val docs = packageDocs.getOrElse(pack.name, SourceDocs.empty)
-            (path, packageDoc(pack, docs))
+            (path, packageDoc(pack, docs, sourceLinksByPackage.getOrElse(pack.name, Nil)))
           }
       }
   }
