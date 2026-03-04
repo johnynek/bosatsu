@@ -71,13 +71,8 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
             case (_, [Branch(s, _, t1, t2), *rest]) if cmp_Int(idx, s) matches LT:
                 # we can either skip just one, or skip the entire Tree
                 go([t1, t2, *rest], idx.sub(1))
-            case (_, [Branch(s, _, _, _), *rest]):
-                if cmp_Int(s, 0) matches GT:
-                    if cmp_Int(idx, s) matches GT | EQ:
-                        # this always happens but the int checker can't see it yet as of this writing
-                        go(rest, idx.sub(s))
-                    else: None
-                else: None
+            case (_, [Branch(s, _, _, _), *rest]) if cmp_Int(s, 0) matches GT:
+                go(rest, idx.sub(s))
             case _: None
     go(trees, idx)
 
