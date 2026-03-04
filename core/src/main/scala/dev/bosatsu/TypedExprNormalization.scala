@@ -434,10 +434,11 @@ object TypedExprNormalization {
     def asBoolSelector(
         bs: NonEmptyList[Branch[A]]
     ): Option[(TypedExpr[A], TypedExpr[A])] =
-      bs.toList match {
-        case List(Branch(truePat, None, ifTrue), Branch(falsePat, None, ifFalse))
-            if (truePat == TruePattern) &&
-              (falsePat == FalsePattern || falsePat == Pattern.WildCard) =>
+      bs match {
+        case NonEmptyList(
+              Branch(TruePattern, None, ifTrue),
+              Branch(FalsePattern, None, ifFalse) :: Nil
+            ) =>
           Some((ifTrue, ifFalse))
         case _ =>
           None
@@ -1530,23 +1531,26 @@ object TypedExprNormalization {
               (changed0, branches1)
           }
 
+        val totalityCheck =
+          TotalityCheck(ev.substituteCo[[x] =>> TypeEnv[x]](typeEnv))
+
         def rewriteTrailingGuardPair(
             bs: NonEmptyList[Branch[A]]
         ): Option[NonEmptyList[Branch[A]]] =
           bs.toList match {
             case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
-                if (p1 == p2) && p1.names.isEmpty && p2.names.isEmpty &&
+                if totalityCheck.difference(p2, p1).isEmpty &&
+                  p1.names.isEmpty && p2.names.isEmpty &&
                   containsRecur(e1) =>
               val ifExpr = Match(
                 g,
-                NonEmptyList.of(
+                NonEmptyList(
                   Branch(TruePattern, None, e1),
-                  Branch(FalsePattern, None, e2)
+                  Branch(FalsePattern, None, e2) :: Nil
                 ),
                 g.tag
               )
-              val rewritten = init :+ Branch(p2, None, ifExpr)
-              Some(NonEmptyList.fromListUnsafe(rewritten))
+              Some(NonEmptyList.ofInitLast(init, Branch(p1, None, ifExpr)))
             case _ =>
               None
           }
