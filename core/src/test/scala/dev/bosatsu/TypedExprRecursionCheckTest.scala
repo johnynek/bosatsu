@@ -528,6 +528,40 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
+  test("loop aligns subsumed guard facts when current branch renames pattern bindings") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Branch(s), *_]) if cmp_Int(idx, s) matches LT: idx
+    case (_, [Branch(t), *tail]) if cmp_Int(t, 0) matches GT:
+      walk(idx.sub(t), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop does not conflate subsumed guard names bound at different pattern positions") {
+    disallowed("""#
+enum Node:
+  Pair(left: Int, right: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Pair(a, _), *_]) if cmp_Int(idx, a) matches LT: idx
+    case (_, [Pair(_, a), *tail]) if cmp_Int(a, 0) matches GT:
+      walk(idx.sub(a), tail)
+    case _:
+      idx
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):

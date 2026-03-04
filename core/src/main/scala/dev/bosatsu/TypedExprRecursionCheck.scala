@@ -70,6 +70,7 @@ object TypedExprRecursionCheck {
     case class RecurTargetItem(group: Int, index: Int, paramName: Bindable)
         derives CanEqual
     type RecurTarget = NonEmptyList[RecurTargetItem]
+    type TypedPattern = Pattern[(PackageName, Identifier.Constructor), Type]
     type TopLevelLowerableAliases = Map[(PackageName, Bindable), TopLevelAlias]
     type TopLevelPredefAliases = Map[(PackageName, Bindable), Identifier.Name]
 
@@ -1623,14 +1624,179 @@ object TypedExprRecursionCheck {
     }
 
     private def patternSubsumes(
-        superPattern: Pattern[(PackageName, Identifier.Constructor), Type],
-        subPattern: Pattern[(PackageName, Identifier.Constructor), Type],
+        superPattern: TypedPattern,
+        subPattern: TypedPattern,
         state: SmtBranchState
     ): Boolean =
       state.totalityCheck.difference(subPattern, superPattern).isEmpty
 
+    @annotation.tailrec
+    private def unwrapNamedTypedPattern(
+        pattern: TypedPattern
+    ): TypedPattern =
+      pattern match {
+        case Pattern.Annotation(inner, _) => unwrapNamedTypedPattern(inner)
+        case Pattern.Named(_, inner)      => unwrapNamedTypedPattern(inner)
+        case p                            => p
+      }
+
+    private def mergeAlignedNames(
+        left: Map[Bindable, Bindable],
+        right: Map[Bindable, Bindable]
+    ): Option[Map[Bindable, Bindable]] =
+      right.foldLeft(Option(left)) { case (accOpt, (from, to)) =>
+        accOpt.flatMap { acc =>
+          acc.get(from) match {
+            case Some(existing) if existing != to => None
+            case Some(_)                          => Some(acc)
+            case None                             => Some(acc.updated(from, to))
+          }
+        }
+      }
+
+    private def alignSubsumedListPartNames(
+        superPart: Pattern.ListPart[TypedPattern],
+        subPart: Pattern.ListPart[TypedPattern]
+    ): Option[Map[Bindable, Bindable]] =
+      (superPart, subPart) match {
+        case (Pattern.ListPart.Item(superItem), Pattern.ListPart.Item(subItem)) =>
+          alignSubsumedPatternNames(superItem, subItem)
+        case (Pattern.ListPart.NamedList(superName), Pattern.ListPart.NamedList(subName)) =>
+          Some(Map(superName -> subName))
+        case (Pattern.ListPart.NamedList(_), Pattern.ListPart.WildList) =>
+          Some(Map.empty)
+        case (
+              Pattern.ListPart.WildList,
+              Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_)
+            ) =>
+          Some(Map.empty)
+        case _ =>
+          None
+      }
+
+    private def alignSubsumedStrPartNames(
+        superPart: Pattern.StrPart,
+        subPart: Pattern.StrPart
+    ): Option[Map[Bindable, Bindable]] =
+      (superPart, subPart) match {
+        case (Pattern.StrPart.NamedStr(superName), Pattern.StrPart.NamedStr(subName)) =>
+          Some(Map(superName -> subName))
+        case (Pattern.StrPart.NamedChar(superName), Pattern.StrPart.NamedChar(subName)) =>
+          Some(Map(superName -> subName))
+        case (Pattern.StrPart.NamedStr(_), Pattern.StrPart.WildStr) =>
+          Some(Map.empty)
+        case (Pattern.StrPart.NamedChar(_), Pattern.StrPart.WildChar) =>
+          Some(Map.empty)
+        case (
+              Pattern.StrPart.WildStr,
+              Pattern.StrPart.WildStr | Pattern.StrPart.NamedStr(_)
+            ) =>
+          Some(Map.empty)
+        case (
+              Pattern.StrPart.WildChar,
+              Pattern.StrPart.WildChar | Pattern.StrPart.NamedChar(_)
+            ) =>
+          Some(Map.empty)
+        case (Pattern.StrPart.LitStr(left), Pattern.StrPart.LitStr(right))
+            if left == right =>
+          Some(Map.empty)
+        case _ =>
+          None
+      }
+
+    private def alignSubsumedPatternNames(
+        superPattern: TypedPattern,
+        subPattern: TypedPattern
+    ): Option[Map[Bindable, Bindable]] = {
+      val topAligned: Map[Bindable, Bindable] =
+        subPattern.topNames.headOption match {
+          case Some(subTop) =>
+            superPattern.topNames.iterator.map(_ -> subTop).toMap
+          case None         =>
+            Map.empty
+        }
+
+      val coreAligned =
+        (unwrapNamedTypedPattern(superPattern), unwrapNamedTypedPattern(subPattern)) match {
+          case (Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_), _) =>
+            Some(Map.empty[Bindable, Bindable])
+          case (
+                Pattern.PositionalStruct(superName, superParams),
+                Pattern.PositionalStruct(subName, subParams)
+              )
+              if (superName == subName) && (superParams.length == subParams.length) =>
+            superParams
+              .zip(subParams)
+              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
+                case (accOpt, (superItem, subItem)) =>
+                  for {
+                    acc <- accOpt
+                    next <- alignSubsumedPatternNames(superItem, subItem)
+                    merged <- mergeAlignedNames(acc, next)
+                  } yield merged
+              }
+          case (Pattern.ListPat(superParts), Pattern.ListPat(subParts))
+              if superParts.length == subParts.length =>
+            superParts
+              .zip(subParts)
+              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
+                case (accOpt, (superItem, subItem)) =>
+                  for {
+                    acc <- accOpt
+                    next <- alignSubsumedListPartNames(superItem, subItem)
+                    merged <- mergeAlignedNames(acc, next)
+                  } yield merged
+              }
+          case (Pattern.StrPat(superParts), Pattern.StrPat(subParts))
+              if superParts.length == subParts.length =>
+            superParts.toList
+              .zip(subParts.toList)
+              .foldLeft(Option(Map.empty[Bindable, Bindable])) {
+                case (accOpt, (superItem, subItem)) =>
+                  for {
+                    acc <- accOpt
+                    next <- alignSubsumedStrPartNames(superItem, subItem)
+                    merged <- mergeAlignedNames(acc, next)
+                  } yield merged
+              }
+          case _ =>
+            None
+        }
+
+      coreAligned.flatMap(mergeAlignedNames(topAligned, _))
+    }
+
+    private def alignSubsumedGuardExpr(
+        guardExpr: TypedExpr[Declaration],
+        superPattern: TypedPattern,
+        subPattern: TypedPattern
+    ): Option[TypedExpr[Declaration]] = {
+      val superBoundNames = superPattern.names.toSet
+      val guardBoundByPattern = guardExpr.freeVarsDup.toSet.intersect(superBoundNames)
+      alignSubsumedPatternNames(superPattern, subPattern).flatMap { alignedNames =>
+        if (!guardBoundByPattern.subsetOf(alignedNames.keySet)) None
+        else {
+          val substitutions: Map[
+            Bindable,
+            TypedExpr.Local[Declaration] => TypedExpr[Declaration]
+          ] =
+            guardBoundByPattern.iterator.collect {
+              case from if alignedNames(from) != from =>
+                from -> { (local: TypedExpr.Local[Declaration]) =>
+                  TypedExpr.Local(alignedNames(from), local.tpe, local.tag): TypedExpr[
+                    Declaration
+                  ]
+                }
+            }.toMap
+
+          if (substitutions.isEmpty) Some(guardExpr)
+          else TypedExpr.substituteAll(substitutions, guardExpr, enterLambda = true)
+        }
+      }
+    }
+
     private def availableBranchNames(
-        currentPattern: Pattern[(PackageName, Identifier.Constructor), Type],
+        currentPattern: TypedPattern,
         state: SmtBranchState
     ): Set[Bindable] =
       state.intBindings.keySet ++
@@ -1640,7 +1806,7 @@ object TypedExprRecursionCheck {
 
     private def addSubsumedGuardFallthroughFacts(
         priorBranches: List[TypedExpr.Branch[Declaration]],
-        currentPattern: Pattern[(PackageName, Identifier.Constructor), Type],
+        currentPattern: TypedPattern,
         state: SmtBranchState
     ): SmtBranchState =
       // If a previous branch pattern fully covers the current pattern, falling
@@ -1649,16 +1815,21 @@ object TypedExprRecursionCheck {
         priorBranch.guard match {
           case Some(guardExpr)
               if patternSubsumes(priorBranch.pattern, currentPattern, st) =>
-            val guardFree = guardExpr.freeVarsDup.toSet
-            if (guardFree.subsetOf(availableBranchNames(currentPattern, st))) {
-              val (guardOpt, st1) = lowerBoolExpr(guardExpr, st)
-              guardOpt match {
-                case Some(guardCond) =>
-                  addPathFactIfNonTrivial(SmtExpr.Not(guardCond), st1)
-                case None =>
-                  st
-              }
-            } else st
+            alignSubsumedGuardExpr(guardExpr, priorBranch.pattern, currentPattern) match {
+              case Some(alignedGuardExpr) =>
+                val guardFree = alignedGuardExpr.freeVarsDup.toSet
+                if (guardFree.subsetOf(availableBranchNames(currentPattern, st))) {
+                  val (guardOpt, st1) = lowerBoolExpr(alignedGuardExpr, st)
+                  guardOpt match {
+                    case Some(guardCond) =>
+                      addPathFactIfNonTrivial(SmtExpr.Not(guardCond), st1)
+                    case None =>
+                      st
+                  }
+                } else st
+              case None                   =>
+                st
+            }
           case _ =>
             st
         }
