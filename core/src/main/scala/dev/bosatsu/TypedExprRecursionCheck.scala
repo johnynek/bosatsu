@@ -1778,17 +1778,9 @@ object TypedExprRecursionCheck {
     ): Option[TypedExpr[Declaration]] = {
       val guardFree = guardExpr.freeVarsDup.toSet
       val superBoundNames = superPattern.names.toSet
-      val subBoundNames = subPattern.names.toSet
       val guardBoundByPattern = guardFree.intersect(superBoundNames)
       alignSubsumedPatternNames(superPattern, subPattern).flatMap { alignedNames =>
-        val alignedTargets = alignedNames.values.toSet
-        val guardSharedAcrossPatterns =
-          guardBoundByPattern
-            .intersect(subBoundNames)
-            .intersect(alignedTargets)
-        val requiredAligned =
-          guardBoundByPattern -- guardSharedAcrossPatterns
-        if (!requiredAligned.subsetOf(alignedNames.keySet)) None
+        if (!guardBoundByPattern.subsetOf(alignedNames.keySet)) None
         else {
           val substitutions: Map[
             Bindable,

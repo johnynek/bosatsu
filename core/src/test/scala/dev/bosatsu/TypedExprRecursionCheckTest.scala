@@ -562,6 +562,178 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
+  test("loop combines renamed subsumed guards with shared loop-variable guards") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Branch(s), *_]) if cmp_Int(s, 0) matches LT | EQ: idx
+    case (_, [Branch(t), *tail]) if cmp_Int(idx, t) matches EQ | GT:
+      walk(idx.sub(t), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop currently rejects list prefix wildcard-to-named splice in subsumed guard alignment") {
+    disallowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*_, x] if cmp_Int(idx, x) matches LT:
+          idx
+        case [*prefix, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(x), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop currently rejects list prefix named-to-wildcard splice in subsumed guard alignment") {
+    disallowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*prefix, x] if cmp_Int(idx, x) matches LT:
+          match prefix:
+            case _:
+              idx
+        case [*_, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(x), stack)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns list prefix named-to-named splice bindings in subsumed branches") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*before, s] if cmp_Int(idx, s) matches LT:
+          match before:
+            case _:
+              idx
+        case [*tail, t] if cmp_Int(t, 0) matches GT:
+          walk(idx.sub(1), tail)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with wildcard captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "${_}$.{_}" if cmp_Int(idx, 1) matches GT:
+          idx
+        case "${prefix}$.{ch}" if cmp_Int(idx, 0) matches GT:
+          match ch:
+            case _:
+              walk(idx.sub(1), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with named-to-wildcard captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "${prefix}$.{ch}" if cmp_Int(idx, 1) matches GT:
+          match ch:
+            case _:
+              match prefix:
+                case _:
+                  idx
+        case "${_}$.{_}" if cmp_Int(idx, 0) matches GT:
+          walk(idx.sub(1), txt)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with literal prefixes and renamed captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "ab${left}$.{lc}" if cmp_Int(idx, 1) matches GT:
+          match lc:
+            case _:
+              match left:
+                case _:
+                  idx
+        case "ab${right}$.{rc}" if cmp_Int(idx, 0) matches GT:
+          match rc:
+            case _:
+              walk(idx.sub(1), right)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop tolerates non-lowerable aligned subsumed guards") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*_, x] if (
+          id = y -> y
+          id(cmp_Int(idx, x) matches LT)
+        ):
+          idx
+        case [*prefix, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(1), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop ignores subsumed guard facts when required Int binders cannot align") {
+    disallowed("""#
+def walk(idx: Int, pair: (Int, Int)) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match pair:
+        case (x, y) if cmp_Int(idx, x) matches LT:
+          idx
+        case (_, y) if cmp_Int(y, 0) matches GT:
+          walk(idx.sub(y), pair)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
   test("loop does not conflate subsumed guard names bound at different pattern positions") {
     disallowed("""#
 enum Node:
