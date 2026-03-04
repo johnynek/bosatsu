@@ -581,8 +581,8 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
-  test("loop currently rejects list prefix wildcard-to-named splice in subsumed guard alignment") {
-    disallowed("""#
+  test("loop aligns list prefix wildcard-to-named splice bindings in subsumed branches") {
+    allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   recur idx:
     case _ if cmp_Int(idx, 0) matches GT:
@@ -598,8 +598,8 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop currently rejects list prefix named-to-wildcard splice in subsumed guard alignment") {
-    disallowed("""#
+  test("loop aligns list prefix named-to-wildcard splice bindings in subsumed branches") {
+    allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
   recur idx:
     case _ if cmp_Int(idx, 0) matches GT:

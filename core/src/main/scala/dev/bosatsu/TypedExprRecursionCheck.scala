@@ -2644,17 +2644,17 @@ object TypedExprRecursionCheck {
                         case None            =>
                           checkExpr(currentPackage, branch.expr, wrappers)
                       }
-                    val withPatternContext =
+                    val withFallthroughContext =
                       withTemporaryRecurBranchSmtState(
                         branchExprCheck,
                         _ => branchExprCheck
                       ) { smtState =>
-                        addPatternFactsAndBindings(arg, branch.pattern, smtState)
+                        addPathFactIfNonTrivial(fallthroughFact, smtState)
                       }
                     val withSubsumedGuardContext =
                       withTemporaryRecurBranchSmtState(
-                        withPatternContext,
-                        _ => withPatternContext
+                        withFallthroughContext,
+                        _ => withFallthroughContext
                       ) { smtState =>
                         addSubsumedGuardFallthroughFacts(
                           priorBranches,
@@ -2662,15 +2662,15 @@ object TypedExprRecursionCheck {
                           smtState
                         )
                       }
-                    val withFallthroughContext =
+                    val withPatternContext =
                       withTemporaryRecurBranchSmtState(
                         withSubsumedGuardContext,
                         _ => withSubsumedGuardContext
                       ) { smtState =>
-                        addPathFactIfNonTrivial(fallthroughFact, smtState)
+                        addPatternFactsAndBindings(arg, branch.pattern, smtState)
                       }
                     checkForIllegalBindsSt(branch.pattern.names, tag.region) *>
-                      filterNames(branch.pattern.names)(withFallthroughContext)
+                      filterNames(branch.pattern.names)(withPatternContext)
                 }
               }
               argRes *> optRes
