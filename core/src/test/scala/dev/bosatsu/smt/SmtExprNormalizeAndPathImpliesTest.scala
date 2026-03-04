@@ -309,7 +309,7 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   private def varsInBool(expr: BoolExpr): Set[String] =
     varsInExpr(expr)
 
-  private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Option[Boolean] = {
+  private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Boolean = {
     val vars = (varsInBool(goal) ++ facts.iterator.flatMap(varsInBool)).toList.sorted
     val declarations = vars.map(name => DeclareConst(name, SmtSort.IntS))
     val pathCond =
@@ -330,10 +330,7 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
 
     Z3Api.run(script, parseModel = false, liveRunner) match {
       case Right(res) =>
-        Some(res.status == Z3Api.Status.Unsat)
-      case Left(err)
-          if err.message.contains("Trapped on unreachable instruction") =>
-        None
+        res.status == Z3Api.Status.Unsat
       case Left(err)  =>
         fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
     }
@@ -589,9 +586,8 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   test("pathImplies either declines to judge or agrees with z3") {
     forAll(z3SoundnessCaseGen) { case (goal, facts) =>
       val fast = pathImplies(goal, facts)
-      z3Implies(goal, facts).foreach { z3 =>
-        assert(!fast || z3)
-      }
+      val z3 = z3Implies(goal, facts)
+      assert(!fast || z3)
     }
   }
 }
