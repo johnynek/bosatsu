@@ -46,14 +46,19 @@ def first_of(n: Int, fn: Int -> Option[a]) -> Option[a]:
                     case not_none: not_none
     loop(to_Nat(n), n)
 
-# we use int_loop here since we are recuring on Int
+# direct Int recursion with loop
 def digit_list(n):
-  rev_list = int_loop(n, [], (n, acc) ->
-    this_digit = n.mod_Int(10)
-    next_acc = [this_digit, *acc]
-    next_n = n.div(10)
-    (next_n, next_acc))
-  reverse(rev_list)
+  def loop_digits(curr, acc):
+    loop curr:
+      case _ if cmp_Int(curr, 0) matches GT:
+        this_digit = curr.mod_Int(10)
+        next_acc = [this_digit, *acc]
+        next_n = curr.div(10)
+        loop_digits(next_n, next_acc)
+      case _:
+        reverse(acc)
+
+  loop_digits(n, [])
 
 def is_palindrome(eq_fn, lst):
   eq_List(eq_fn)(lst, reverse(lst))

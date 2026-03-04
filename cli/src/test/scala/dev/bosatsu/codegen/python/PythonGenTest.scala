@@ -313,7 +313,8 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       "test_workspace/PredefTests.bosatsu",
       PackageName.parts("PredefTests"),
       "test",
-      "test_workspace/Float64.bosatsu"
+      "test_workspace/Float64.bosatsu",
+      "test_workspace/Loops.bosatsu"
     )
   }
 
