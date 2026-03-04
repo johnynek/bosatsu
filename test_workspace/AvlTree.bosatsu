@@ -234,9 +234,13 @@ size_tests = (
 )
 
 def log2(i):
-     int_loop(i, 0, (n, cnt) ->
-        rr = n.div(2)
-        (rr, cnt.add(1)))
+    def loop_log2(n, cnt):
+        loop n:
+            case _ if cmp_Int(n, 0) matches GT:
+                loop_log2(n.div(2), cnt.add(1))
+            case _:
+                cnt
+    loop_log2(i, 0)
 
 def all_n(n): range(n).foldl_List(Empty, add_i)
 

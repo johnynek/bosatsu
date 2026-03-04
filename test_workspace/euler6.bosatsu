@@ -24,15 +24,20 @@ package Euler/P6
 # diff(n) = sum(x -> x*(x+1)*(x+1), n)
 
 operator + = add
-operator - = sub
 operator * = mul
 operator == = eq_Int
 
 # sum 0 to n on the given function
 def sum(fn, n):
-  int_loop(n, 0, (i, r) ->
-    i = i - 1
-    (i, r + fn(i)))
+  def loop_sum(i, acc):
+    loop i:
+      case _ if cmp_Int(i, 0) matches GT:
+        next_i = i.sub(1)
+        loop_sum(next_i, acc.add(fn(next_i)))
+      case _:
+        acc
+
+  loop_sum(n, 0)
 
 # keeping n curried here, note diff is a function
 diff = n -> sum((x ->
