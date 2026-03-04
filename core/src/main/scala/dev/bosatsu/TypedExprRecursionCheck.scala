@@ -1718,8 +1718,13 @@ object TypedExprRecursionCheck {
 
       val coreAligned =
         (unwrapNamedTypedPattern(superPattern), unwrapNamedTypedPattern(subPattern)) match {
-          case (Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_), _) =>
+          case (Pattern.WildCard | Pattern.Literal(_), _) =>
             Some(Map.empty[Bindable, Bindable])
+          case (Pattern.Var(superName), subPat) =>
+            val subTopName = subPat.topNames.headOption
+            Some(subTopName.fold(Map.empty[Bindable, Bindable])(subName =>
+              Map(superName -> subName)
+            ))
           case (
                 Pattern.PositionalStruct(superName, superParams),
                 Pattern.PositionalStruct(subName, subParams)
@@ -1771,19 +1776,29 @@ object TypedExprRecursionCheck {
         superPattern: TypedPattern,
         subPattern: TypedPattern
     ): Option[TypedExpr[Declaration]] = {
+      val guardFree = guardExpr.freeVarsDup.toSet
       val superBoundNames = superPattern.names.toSet
-      val guardBoundByPattern = guardExpr.freeVarsDup.toSet.intersect(superBoundNames)
+      val subBoundNames = subPattern.names.toSet
+      val guardBoundByPattern = guardFree.intersect(superBoundNames)
       alignSubsumedPatternNames(superPattern, subPattern).flatMap { alignedNames =>
-        if (!guardBoundByPattern.subsetOf(alignedNames.keySet)) None
+        val alignedTargets = alignedNames.values.toSet
+        val guardSharedAcrossPatterns =
+          guardBoundByPattern
+            .intersect(subBoundNames)
+            .intersect(alignedTargets)
+        val requiredAligned =
+          guardBoundByPattern -- guardSharedAcrossPatterns
+        if (!requiredAligned.subsetOf(alignedNames.keySet)) None
         else {
           val substitutions: Map[
             Bindable,
             TypedExpr.Local[Declaration] => TypedExpr[Declaration]
           ] =
             guardBoundByPattern.iterator.collect {
-              case from if alignedNames(from) != from =>
+              case from if alignedNames.get(from).exists(_ != from) =>
+                val to = alignedNames(from)
                 from -> { (local: TypedExpr.Local[Declaration]) =>
-                  TypedExpr.Local(alignedNames(from), local.tpe, local.tag): TypedExpr[
+                  TypedExpr.Local(to, local.tpe, local.tag): TypedExpr[
                     Declaration
                   ]
                 }

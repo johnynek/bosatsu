@@ -545,6 +545,23 @@ def walk(idx: Int, stack: List[Node]) -> Int:
 """)
   }
 
+  test("loop aligns subsumed guard facts when current branch shadows recur names") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (i0, [Branch(s), *_]) if cmp_Int(i0, s) matches LT: i0
+    case (i0, [Branch(idx), *tail]) if cmp_Int(idx, 0) matches GT:
+      walk(i0.sub(idx), tail)
+    case _:
+      idx
+""")
+  }
+
   test("loop does not conflate subsumed guard names bound at different pattern positions") {
     disallowed("""#
 enum Node:
