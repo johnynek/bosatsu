@@ -379,6 +379,10 @@
         },
         {
           "type": "STRING",
+          "value": "matches"
+        },
+        {
+          "type": "STRING",
           "value": "case"
         },
         {

@@ -175,6 +175,24 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
         (type_identifier)))))
 
 ==================
+Matches Keyword
+==================
+
+foo matches pattern
+
+---
+
+(source_file
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (keyword))
+      (line_item
+        (identifier)))))
+
+==================
 Foo Fixture
 ==================
 

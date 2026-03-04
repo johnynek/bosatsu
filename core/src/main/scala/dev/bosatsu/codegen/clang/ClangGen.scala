@@ -343,6 +343,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   fnName <- liftedFnName(fn)
                   result <- bind(arg, Some((fnName, false, fn.arity)))(in)
                 } yield result
+              case Global(k, pack, fnName) =>
+                // Preserve direct-call metadata through simple aliases:
+                // let f = globalFn in f(x) should stay a direct call.
+                directFn(k, pack, fnName).flatMap {
+                  case Some((ident, arity)) =>
+                    bind(arg, Some((ident, false, arity)))(in)
+                  case None =>
+                    // arg isn't in scope for argV
+                    innerToValue(argV).flatMap { v =>
+                      bind(arg, directFn = None) {
+                        for {
+                          name <- getBinding(arg)
+                          result <- in
+                          stmt <- Code.ValueLike.declareVar(
+                            Code.TypeIdent.BValue,
+                            name,
+                            v
+                          )(newLocalName)
+                        } yield stmt +: result
+                      }
+                    }
+                }
               case _ =>
                 // arg isn't in scope for argV
                 innerToValue(argV).flatMap { v =>

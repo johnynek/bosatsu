@@ -88,6 +88,13 @@ lazy val docs = (project in file("docs"))
       val paradoxGeneratedRoot =
         (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
       val generatedDocsRoot = repoRoot / "core_alpha_docs"
+      val sourceRepoUrl = "https://github.com/johnynek/bosatsu/blob/main"
+      val disableParadoxSourceMarkdownLink =
+        """---
+          |github.base_url=
+          |---
+          |
+          |""".stripMargin
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
@@ -107,7 +114,9 @@ lazy val docs = (project in file("docs"))
         "doc",
         "--outdir",
         "core_alpha_docs",
-        "--include_predef"
+        "--include_predef",
+        "--source_repo_url",
+        sourceRepoUrl
       )
       log.info(docCmd.mkString("running: ", " ", ""))
       val docExit = Process(docCmd, repoRoot).!
@@ -157,7 +166,7 @@ lazy val docs = (project in file("docs"))
         s"""# Core Alpha API
            |
            |This section is generated from `test_workspace` using:
-           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef`
+           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
            |
            |@@@ index
            |${tocLinkLines.mkString("\n")}
@@ -168,7 +177,13 @@ lazy val docs = (project in file("docs"))
            |${pageLinkLines.mkString("\n")}
            |""".stripMargin
 
-      IO.write(paradoxGeneratedRoot / "index.md", generatedIndex)
+      markdownFiles.foreach { file =>
+        IO.write(file, disableParadoxSourceMarkdownLink + IO.read(file))
+      }
+      IO.write(
+        paradoxGeneratedRoot / "index.md",
+        disableParadoxSourceMarkdownLink + generatedIndex
+      )
       log.info(
         s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
       )
