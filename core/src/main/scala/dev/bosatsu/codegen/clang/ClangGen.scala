@@ -544,29 +544,40 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
             } catch {
               case _: ArithmeticException =>
-                // emit the uint32 words and sign
-                val isPos = toBigInteger.signum >= 0
-                var current = if (isPos) toBigInteger else toBigInteger.negate()
-                val two32 = BigInteger.ONE.shiftLeft(32)
-                val bldr = List.newBuilder[Code.IntLiteral]
-                while (current.compareTo(BigInteger.ZERO) > 0) {
-                  bldr += Code.IntLiteral(current.mod(two32).longValue())
-                  current = current.shiftRight(32)
-                }
-                val lits = bldr.result()
-                // call:
-                // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
-                newLocalName("int").map { ident =>
-                  Code.DeclareArray(
-                    Code.TypeIdent.UInt32,
-                    ident,
-                    Right(lits)
-                  ) +:
-                    Code.Ident("bsts_integer_from_words_copy")(
-                      if (isPos) Code.TrueLit else Code.FalseLit,
-                      Code.IntLiteral(lits.length),
-                      ident
+                try {
+                  val lv = toBigInteger.longValueExact()
+                  pv(
+                    Code.Ident("bsts_integer_from_int64")(
+                      Code.IntLiteral(BigInt(lv))
                     )
+                  )
+                } catch {
+                  case _: ArithmeticException =>
+                    // emit the uint32 words and sign
+                    val isPos = toBigInteger.signum >= 0
+                    var current =
+                      if (isPos) toBigInteger else toBigInteger.negate()
+                    val two32 = BigInteger.ONE.shiftLeft(32)
+                    val bldr = List.newBuilder[Code.IntLiteral]
+                    while (current.compareTo(BigInteger.ZERO) > 0) {
+                      bldr += Code.IntLiteral(current.mod(two32).longValue())
+                      current = current.shiftRight(32)
+                    }
+                    val lits = bldr.result()
+                    // call:
+                    // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+                    newLocalName("int").map { ident =>
+                      Code.DeclareArray(
+                        Code.TypeIdent.UInt32,
+                        ident,
+                        Right(lits)
+                      ) +:
+                        Code.Ident("bsts_integer_from_words_copy")(
+                          if (isPos) Code.TrueLit else Code.FalseLit,
+                          Code.IntLiteral(lits.length),
+                          ident
+                        )
+                    }
                 }
             }
 

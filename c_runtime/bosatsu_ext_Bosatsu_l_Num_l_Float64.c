@@ -26,15 +26,7 @@ static BValue bsts_some(BValue value) {
 }
 
 static BValue bsts_uint64_to_int(uint64_t bits) {
-  uint32_t words[2] = {
-    (uint32_t)(bits & UINT32_C(0xffffffff)),
-    (uint32_t)((bits >> 32) & UINT32_C(0xffffffff))
-  };
-
-  if (words[1] == 0 && words[0] <= INT32_MAX) {
-    return bsts_integer_from_int((int32_t)words[0]);
-  }
-  return bsts_integer_from_words_copy(1, words[1] == 0 ? 1 : 2, words);
+  return bsts_integer_from_uint64(bits);
 }
 
 static double bsts_round_ties_even(double d) {
