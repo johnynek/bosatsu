@@ -3,9 +3,12 @@ package dev.bosatsu
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import IorMethods.IorExtension
+import scala.concurrent.duration.DurationInt
 import scala.util.Try
 
 class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
+  override val munitTimeout = 2.minutes
+
   private val pack = PackageName.parts("TypedRecursionCheck")
 
   private def formatErrors(

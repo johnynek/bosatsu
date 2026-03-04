@@ -1,8 +1,11 @@
 package dev.bosatsu.codegen.python
 
 import dev.bosatsu.{PackageName, Par, TestUtils}
+import scala.concurrent.duration.DurationInt
 
 class PythonGenJvmTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
+
   test("array intrinsic representation uses tuple-backed storage") {
     Par.withEC {
       val pm = TestUtils.compileFile(

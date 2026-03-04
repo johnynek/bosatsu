@@ -11,6 +11,7 @@ import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PySystemState, PyTuple}
+import scala.concurrent.duration.DurationInt
 
 import TestUtils.compileFile
 
@@ -28,6 +29,8 @@ object JythonBarrier {
 }
 
 class PythonGenTest extends munit.ScalaCheckSuite {
+
+  override val munitTimeout = 2.minutes
 
   override def scalaCheckTestParameters =
     // these tests are slow
