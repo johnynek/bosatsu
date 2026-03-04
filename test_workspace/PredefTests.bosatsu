@@ -10,6 +10,7 @@ from Bosatsu/Num/Float64 import (
   is_nan,
   string_to_Float64,
 )
+from Bosatsu/Loops import range_foldr
 
 operator / = div
 operator % = mod_Int
@@ -279,7 +280,7 @@ def next_u64(seed: Int) -> Int:
   seed.mul(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
 
 def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
@@ -287,12 +288,12 @@ def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
     ok1 = match is_nan(f):
       case True: ok
       case False: andb(ok, eqi(bits_back, seed1))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
@@ -301,44 +302,44 @@ def string_roundtrip_law(trials: Int, seed0: Int) -> Bool:
       case Some(f1) if is_nan(f): is_nan(f1)
       case Some(f1): eqf(f, f1)
       case None: False
-    (n.sub(1), (seed1, andb(ok, ok1)))
+    (seed1, andb(ok, ok1))
   ))
   state matches (_, True)
 
 def pos_inf_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches GT)
     ok1 = andb(ok, eqb(f matches ∞, rhs))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def neg_inf_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     rhs = andb(is_infinite(f), cmp_Float64(f, 0.0) matches LT)
     ok1 = andb(ok, eqb(f matches -∞, rhs))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def nan_matches_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     f = int_bits_to_Float64(seed1)
     ok1 = andb(ok, eqb(is_nan(f), f matches .NaN))
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
 def int_float_roundtrip_law(trials: Int, seed0: Int) -> Bool:
-  state = int_loop(trials, (seed0, True), (n, state) -> (
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
     (seed, ok) = state
     seed1 = next_u64(seed)
     i0 = seed1.mod_Int(two_pow_53).sub(two_pow_52)
@@ -346,7 +347,7 @@ def int_float_roundtrip_law(trials: Int, seed0: Int) -> Bool:
     ok1 = match back:
       case Some(i1): andb(ok, eqi(i0, i1))
       case None: False
-    (n.sub(1), (seed1, ok1))
+    (seed1, ok1)
   ))
   state matches (_, True)
 
