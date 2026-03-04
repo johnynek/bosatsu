@@ -32,16 +32,12 @@ def to_Nat(b: BinNat) -> Nat:
 
 # Convert a built in integer to a BinNat. <= 0 is converted to 0
 def to_BinNat(n: Int) -> BinNat:
-  # build up a list in reverse of transformations
-  fns = int_loop(n, [], (n, fns) ->
-    is_even = n.and_Int(1) matches 0
-    (hfn, dec) = (bn -> Even(bn), i -> i.sub(1)) if is_even else (bn -> Odd(bn), i -> i)
-    fns = [hfn, *fns]
-    n = n.shift_right_Int(1)
-    (dec(n), fns)
-  )
-  # Now apply all the transformations
-  fns.foldl_List(Zero, (bn, fn) -> fn(bn))
+    recur n:
+        case _ if cmp_Int(n, 0) matches LT | EQ: Zero
+        case _:
+            even = n.and_Int(1) matches 0
+            if even: Even(to_BinNat(n.sub(1).div(2)))
+            else: Odd(to_BinNat(n.div(2)))
 
 def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
   recur a:
