@@ -163,6 +163,9 @@ int main(int argc, char** argv) {
   BValue small_neg = bsts_integer_from_int(-1);
   BValue small_10 = bsts_integer_from_int(10);
   BValue small_mask = bsts_integer_from_int(0x12345678);
+  BValue small62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 12345);
+  BValue small62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 12345));
+  BValue small62_mask = bsts_integer_from_int64((INT64_C(1) << 40) + 0x12345678);
   BValue shift_left = bsts_integer_from_int(5);
   BValue shift_right = bsts_integer_from_int(-5);
 
@@ -177,11 +180,18 @@ int main(int argc, char** argv) {
   printf("iters=%zu\n", iters);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
   bench_add_big_small("add_big_small_neg", iters, big_neg, small_pos, small_neg);
+  bench_add_big_small("add_big_small62_pos", iters, big_pos, small62_pos, small62_neg);
+  bench_add_big_small("add_big_small62_neg", iters, big_neg, small62_pos, small62_neg);
   bench_mul_big_small("mul_big_small_pos", iters, big_pos, small_10);
   bench_mul_big_small("mul_big_small_neg", iters, big_neg, small_10);
+  bench_mul_big_small("mul_big_small62_pos", iters, big_pos, small62_pos);
+  bench_mul_big_small("mul_big_small62_neg", iters, big_neg, small62_pos);
   bench_bitwise("and_neg_mixed", iters, big_neg, small_mask, '&');
   bench_bitwise("or_neg_mixed", iters, big_neg, small_mask, '|');
   bench_bitwise("xor_neg_mixed", iters, big_neg, small_mask, '^');
+  bench_bitwise("and_neg_mixed62", iters, big_neg, small62_mask, '&');
+  bench_bitwise("or_neg_mixed62", iters, big_neg, small62_mask, '|');
+  bench_bitwise("xor_neg_mixed62", iters, big_neg, small62_mask, '^');
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
   bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnopqrstuvwx");

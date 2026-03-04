@@ -29,6 +29,10 @@ static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
 #define BSTS_STRING_INLINE16_FLAG (((size_t)1) << 63)
 #define BSTS_STRING_MAX_LEN ((size_t)(BSTS_STRING_INLINE16_FLAG - 1))
 
+#define BSTS_SMALL_INT_PAYLOAD_BITS 62
+#define BSTS_SMALL_INT_MIN (-(INT64_C(1) << 61))
+#define BSTS_SMALL_INT_MAX ((INT64_C(1) << 61) - 1)
+
 typedef struct BSTS_String_View {
   size_t len;
   const char* bytes;
@@ -140,6 +144,9 @@ BValue bsts_char_from_code_point(int codepoint);
 int bsts_char_code_point_from_value(BValue ch);
 
 BValue bsts_integer_from_int(int32_t small_int);
+// Construct from 64-bit values, using immediate representation when possible.
+BValue bsts_integer_from_int64(int64_t value);
+BValue bsts_integer_from_uint64(uint64_t value);
 int32_t bsts_integer_to_int32(BValue bint);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 _Bool bsts_integer_equals(BValue left, BValue right);

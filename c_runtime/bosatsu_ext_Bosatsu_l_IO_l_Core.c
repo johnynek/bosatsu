@@ -284,34 +284,6 @@ static BValue bsts_core_make_handle(
   return alloc_external(h, bsts_core_handle_free);
 }
 
-static BValue bsts_integer_from_int64_local(int64_t value)
-{
-  if ((value >= INT32_MIN) && (value <= INT32_MAX))
-  {
-    return bsts_integer_from_int((int32_t)value);
-  }
-
-  uint64_t mag;
-  _Bool pos;
-  if (value >= 0)
-  {
-    pos = 1;
-    mag = (uint64_t)value;
-  }
-  else
-  {
-    pos = 0;
-    mag = (uint64_t)(-(value + 1));
-    mag += 1;
-  }
-
-  uint32_t words[2];
-  words[0] = (uint32_t)(mag & 0xFFFFFFFFULL);
-  words[1] = (uint32_t)((mag >> 32) & 0xFFFFFFFFULL);
-  size_t size = (words[1] == 0U) ? 1U : 2U;
-  return bsts_integer_from_words_copy(pos, size, words);
-}
-
 static char *bsts_string_to_cstr(BValue str)
 {
   BSTS_String_View view = bsts_string_view_ref(&str);
@@ -1791,7 +1763,7 @@ static BValue bsts_core_stat_effect(BValue path_value)
   }
 
   BValue kind = alloc_enum0((ENUM_TAG)kind_tag);
-  BValue size_bytes = bsts_integer_from_int64_local((int64_t)st.st_size);
+  BValue size_bytes = bsts_integer_from_int64((int64_t)st.st_size);
 
 #if defined(__APPLE__)
   int64_t sec = (int64_t)st.st_mtimespec.tv_sec;
@@ -1801,7 +1773,7 @@ static BValue bsts_core_stat_effect(BValue path_value)
   long nsec = st.st_mtim.tv_nsec;
 #endif
 
-  BValue sec_i = bsts_integer_from_int64_local(sec);
+  BValue sec_i = bsts_integer_from_int64(sec);
   BValue billion = bsts_integer_from_int(1000000000);
   BValue nsec_i = bsts_integer_from_int((int32_t)nsec);
   BValue mtime = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);
@@ -1959,7 +1931,7 @@ static BValue bsts_core_now_wall_effect(BValue unit)
         bsts_ioerror_from_errno_default(errno, "reading wall clock"));
   }
 
-  BValue sec_i = bsts_integer_from_int64_local((int64_t)ts.tv_sec);
+  BValue sec_i = bsts_integer_from_int64((int64_t)ts.tv_sec);
   BValue billion = bsts_integer_from_int(1000000000);
   BValue nsec_i = bsts_integer_from_int((int32_t)ts.tv_nsec);
   BValue nanos = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);
@@ -1976,7 +1948,7 @@ static BValue bsts_core_now_mono_effect(BValue unit)
         bsts_ioerror_from_errno_default(errno, "reading monotonic clock"));
   }
 
-  BValue sec_i = bsts_integer_from_int64_local((int64_t)ts.tv_sec);
+  BValue sec_i = bsts_integer_from_int64((int64_t)ts.tv_sec);
   BValue billion = bsts_integer_from_int(1000000000);
   BValue nsec_i = bsts_integer_from_int((int32_t)ts.tv_nsec);
   BValue nanos = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);

@@ -450,6 +450,28 @@ main = 1.5
     }
   }
 
+  test("int literals in int64 range use bsts_integer_from_int64") {
+    TestUtils.checkPackageMap("""
+main = 4294967296
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("bsts_integer_from_int64(4294967296)"))
+          assert(!rendered.contains("bsts_integer_from_words_copy"))
+      }
+    }
+  }
+
   test("float literals with sign bit use unsigned bit literals") {
     TestUtils.checkPackageMap("""
 main = -0.0
