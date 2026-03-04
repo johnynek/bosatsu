@@ -801,52 +801,10 @@ object TypedExprRecursionCheck {
           expr
       }
 
-    private def asNegativeConstMul(expr: SmtExpr.IntExpr): Option[BigInt] =
-      expr match {
-        case SmtExpr.Mul(args) =>
-          args.toList match {
-            case SmtExpr.IntConst(negOne) :: SmtExpr.IntConst(n) :: Nil
-                if (negOne == BigInt(-1)) && (n > 0) =>
-              Some(n)
-            case SmtExpr.IntConst(n) :: SmtExpr.IntConst(negOne) :: Nil
-                if (negOne == BigInt(-1)) && (n > 0) =>
-              Some(n)
-            case _ =>
-              None
-          }
-        case _ =>
-          None
-      }
-
-    private def asNegativeConst(expr: SmtExpr.IntExpr): Option[BigInt] =
-      expr match {
-        case SmtExpr.IntConst(n) if n < 0 =>
-          Some(-n)
-        case _ =>
-          None
-      }
-
-    private def asSubByPositiveConst(
-        expr: SmtExpr.IntExpr
-    ): Option[(SmtExpr.IntExpr, BigInt)] =
-      expr match {
-        case SmtExpr.Add(args) =>
-          args.toList match {
-            case left :: right :: Nil =>
-              asNegativeConstMul(right)
-                .orElse(asNegativeConst(right))
-                .map((left, _))
-                .orElse(
-                  asNegativeConstMul(left)
-                    .orElse(asNegativeConst(left))
-                    .map((right, _))
-                )
-            case _ =>
-              None
-          }
-        case _ =>
-          None
-      }
+    private def renderBoolForSolver(expr: SmtExpr.BoolExpr): String =
+      SmtLibRender
+        .renderExpr(SmtExpr.normalizeBoolForSolver(expr))
+        .render(120)
 
     private def comparisonInDomain(
         term: SmtExpr.IntExpr
@@ -1224,14 +1182,7 @@ object TypedExprRecursionCheck {
               )
             case Some(Identifier.Name("sub")) =>
               lowerBinaryInt(args, state)((left, right) =>
-                SmtExpr.Add(
-                  Vector(
-                    left,
-                    SmtExpr.Mul(
-                      Vector(SmtExpr.IntConst(BigInt(-1)), right)
-                    )
-                  )
-                )
+                SmtExpr.Sub(Vector(left, right))
               )
             case Some(Identifier.Name("mul")) =>
               lowerBinaryInt(args, state)((left, right) =>
@@ -1845,58 +1796,8 @@ object TypedExprRecursionCheck {
     private def buildPathCondition(state: SmtBranchState): SmtExpr.BoolExpr =
       mkAnd(state.pathFacts)
 
-    private def pathImplies(
-        goal: SmtExpr.BoolExpr,
-        state: SmtBranchState
-    ): Boolean = {
-      // Cheap implication checks for common facts avoid unnecessary solver calls.
-      val goal1 = simplifyBoolExpr(goal)
-      val facts = state.pathFacts.map(simplifyBoolExpr)
-
-      def hasFact(p: SmtExpr.BoolExpr => Boolean): Boolean =
-        facts.exists(p)
-
-      def hasGte(base: SmtExpr.IntExpr, lower: BigInt): Boolean =
-        hasFact {
-          case SmtExpr.Gte(l, SmtExpr.IntConst(c)) => (l == base) && (c >= lower)
-          case SmtExpr.Gt(l, SmtExpr.IntConst(c))  => (l == base) && (c >= (lower - 1))
-          case SmtExpr.EqInt(l, SmtExpr.IntConst(c)) => (l == base) && (c >= lower)
-          case _                                    => false
-        }
-
-      facts.contains(goal1) ||
-      (goal1 match {
-        case SmtExpr.Gte(left, right) =>
-          hasFact {
-            case SmtExpr.Gt(l1, r1)    => (l1 == left) && (r1 == right)
-            case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
-            case _                     => false
-          } ||
-            (right match {
-              case SmtExpr.IntConst(zero) if zero == BigInt(0) =>
-                asSubByPositiveConst(left).exists { case (base, by) =>
-                  hasGte(base, by)
-                }
-              case _ =>
-                false
-            })
-        case SmtExpr.Lte(left, right) =>
-          hasFact {
-            case SmtExpr.Lt(l1, r1)    => (l1 == left) && (r1 == right)
-            case SmtExpr.EqInt(l1, r1) => (l1 == left) && (r1 == right)
-            case _                     => false
-          }
-        case SmtExpr.Lt(left, right)  =>
-          asSubByPositiveConst(left).exists { case (base, by) =>
-            (base == right) && (by > 0)
-          }
-        case _ =>
-          false
-      })
-    }
-
     private def renderPathCondition(state: SmtBranchState): String =
-      SmtLibRender.renderExpr(buildPathCondition(state)).render(120)
+      renderBoolForSolver(buildPathCondition(state))
 
     private def renderModel(model: Option[Vector[SExpr]]): Option[String] =
       model.map(SExpr.renderAll(_))
@@ -1905,9 +1806,11 @@ object TypedExprRecursionCheck {
         goal: SmtExpr.BoolExpr,
         state: SmtBranchState
     ): ProofOutcome = {
-      if (pathImplies(goal, state)) {
+      if (SmtExpr.pathImplies(goal, state.pathFacts)) {
         ProofOutcome.Proved
       } else {
+        val goal1 = SmtExpr.normalizeBoolForSolver(goal)
+        val pathCondition1 = SmtExpr.normalizeBoolForSolver(buildPathCondition(state))
         val declarations = state.declarations.toList.sortBy(_._1).map {
           case (name, sort) =>
             SmtCommand.DeclareConst(name, sort)
@@ -1916,8 +1819,8 @@ object TypedExprRecursionCheck {
           Vector(SmtCommand.SetLogic("QF_LIA")) ++
             declarations ++
             Vector(
-              SmtCommand.Assert(buildPathCondition(state)),
-              SmtCommand.Assert(SmtExpr.Not(goal)),
+              SmtCommand.Assert(pathCondition1),
+              SmtCommand.Assert(SmtExpr.Not(goal1)),
               SmtCommand.CheckSat
             )
         )
@@ -2050,7 +1953,7 @@ object TypedExprRecursionCheck {
       RecursionCheck.IntRecursionObligationFailed(
         fnname,
         target.paramName,
-        SmtLibRender.renderExpr(obligation).render(120),
+        renderBoolForSolver(obligation),
         renderPathCondition(state),
         model,
         detail,

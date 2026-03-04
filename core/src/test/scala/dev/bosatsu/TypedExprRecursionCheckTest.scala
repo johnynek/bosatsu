@@ -328,6 +328,8 @@ def bad(i: Int) -> Int:
       i
 """) { msg =>
       assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (>= "))
+      assert(clue(msg).contains("(- "))
+      assert(!clue(msg).contains("(* (- 1)"))
       assert(clue(msg).contains("recur target: i"))
       assert(clue(msg).contains("path condition:"))
     }
