@@ -1,6 +1,6 @@
 package dev.bosatsu.smt
 
-import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
+import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import scala.concurrent.duration.DurationInt
 
 class Z3ApiTest extends munit.FunSuite {
@@ -9,8 +9,9 @@ class Z3ApiTest extends munit.FunSuite {
 
   override val munitTimeout = 2.minutes
 
+  private val z3Solver = Z3Platform.create()
   private val liveRunner: Z3Api.RunSmt2 = { smt2 =>
-    Z3Solver.default.runSmt2(smt2) match {
+    z3Solver.runSmt2(smt2) match {
       case Z3Result.Success(stdout, stderr, _) =>
         Right(Z3Api.SolverOutput(stdout, stderr))
       case Z3Result.Failure(msg, _, stdout, stderr, _) =>
