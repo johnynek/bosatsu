@@ -437,7 +437,12 @@ object TypedExprNormalization {
       bs match {
         case NonEmptyList(
               Branch(TruePattern, None, ifTrue),
-              Branch(FalsePattern, None, ifFalse) :: Nil
+              Branch((FalsePattern | Pattern.WildCard), None, ifFalse) :: Nil
+            ) =>
+          Some((ifTrue, ifFalse))
+        case NonEmptyList(
+              Branch(FalsePattern, None, ifFalse),
+              Branch((TruePattern | Pattern.WildCard), None, ifTrue) :: Nil
             ) =>
           Some((ifTrue, ifFalse))
         case _ =>
