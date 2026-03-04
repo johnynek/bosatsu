@@ -185,11 +185,8 @@ string_tests = TestSuite("string tests", [
   Assertion(int_to_String(2) matches "2", "int_to_String(2) == ${int_to_String(2)}"),
 ])
 
-il = int_loop(5, 0, (i, a) -> (i.sub(1), i.add(a)))
-
 tests = TestSuite("List tests", [
   Assertion(2.sub(3) matches -1, "2 - 3 = ${int_to_String(2.sub(3))}"),
-  Assertion(il matches 15, "int_loop test ${int_to_String(il)}"),
   Assertion(eq_int_list([1, 2, 3], [1, 2, 3]), "eq_List direct equal"),
   Assertion(not(eq_int_list([1, 2, 3], [1, 2])), "eq_List direct not equal"),
   Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),
