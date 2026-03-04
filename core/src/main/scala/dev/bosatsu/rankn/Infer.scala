@@ -2284,13 +2284,20 @@ object Infer {
               case notAnnotated =>
                 newMeta // the kind of a let value is a Type
                   .flatMap { rhsTpe =>
+                    val recursiveRegion =
+                      notAnnotated match {
+                        case Expr.Lambda(_, result, _) =>
+                          region(notAnnotated) - region(result)
+                        case _ =>
+                          region(notAnnotated)
+                      }
                     extendEnv(name, rhsTpe) {
                       for {
                         // the type variable needs to be unified with varT
                         // note, varT could be a sigma type, it is not a Tau or Rho
                         typedRhs <- inferSigmaMeta(
                           notAnnotated,
-                          Some((name, rhsTpe, region(notAnnotated)))
+                          Some((name, rhsTpe, recursiveRegion))
                         )
                         varT = typedRhs.getType
                         // we need to overwrite the metavariable now with the full type
@@ -2939,6 +2946,14 @@ object Infer {
         e: Expr[A],
         meta: Option[(Identifier, Type.TyMeta, Region)]
     ): Infer[TypedExpr[A]] = {
+      def recursiveBindingRegion(expr: Expr[A]): Region =
+        expr match {
+          case Expr.Lambda(_, result, _) =>
+            region(expr) - region(result)
+          case _ =>
+            region(expr)
+        }
+
       def unifySelf(rho: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
           case None             => getEnv
@@ -2946,7 +2961,7 @@ object Infer {
             (unifyRho(
               rho,
               m,
-              region(e),
+              recursiveBindingRegion(e),
               r,
               Error.Direction.ExpectRight
             ) *> getEnv).map { envTys =>

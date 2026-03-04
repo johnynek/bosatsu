@@ -16,15 +16,110 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
+  final case class ShownTypes(
+      typeDocs: Map[Type, Doc],
+      unknownTypeVars: List[(String, Kind)]
+  ) extends (Type => Doc) {
+    def apply(tpe: Type): Doc = typeDocs(tpe)
+
+    private def unknownTypeVarDoc(name: String, kind: Kind): Doc =
+      if (kind == Kind.Type) Doc.text(name)
+      else Doc.text(name) + Doc.text(": ") + Kind.toDoc(kind)
+
+    val unknownTypesDoc: Doc =
+      unknownTypeVars match {
+        case Nil =>
+          Doc.empty
+        case (name, kind) :: Nil =>
+          Doc.hardLine + Doc.text("where ") + unknownTypeVarDoc(
+            name,
+            kind
+          ) + Doc.text(" is an unknown type.")
+        case many =>
+          val docs = many.map { case (name, kind) =>
+            unknownTypeVarDoc(name, kind)
+          }
+          Doc.hardLine + Doc.text("where unknown types are ") +
+            Doc.intercalate(Doc.text(",") + Doc.space, docs) +
+            Doc.char('.')
+      }
+
+    def withUnknownTypes(doc: Doc): Doc =
+      doc + unknownTypesDoc
+  }
+
+  private def renameTypeMetas(
+      tpe: Type,
+      renameMeta: Map[Type.Meta, Type.Var.Bound]
+  ): Type = {
+    def renameLeaf(leaf: Type.Leaf): Type.Leaf =
+      leaf match {
+        case Type.TyMeta(meta) =>
+          renameMeta.get(meta) match {
+            case Some(bound) => Type.TyVar(bound)
+            case None        => leaf
+          }
+        case _ =>
+          leaf
+      }
+
+    def renameLeafApply(
+        in: Type.Leaf | Type.TyApply
+    ): Type.Leaf | Type.TyApply =
+      in match {
+        case leaf: Type.Leaf     => renameLeaf(leaf)
+        case Type.TyApply(on, a) =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+      }
+
+    def renameRho(rho: Type.Rho): Type.Rho =
+      rho match {
+        case leaf: Type.Leaf        => renameLeaf(leaf)
+        case Type.TyApply(on, a)    =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+        case Type.Exists(vars, in1) =>
+          Type.Exists(vars, renameLeafApply(in1))
+      }
+
+    def renameType(in: Type): Type =
+      in match {
+        case rho: Type.Rho         => renameRho(rho)
+        case Type.ForAll(vars, in) => Type.ForAll(vars, renameRho(in))
+      }
+
+    renameType(tpe)
+  }
+
   def showTypes(
       pack: PackageName,
       tpes: List[Type],
       localTypeNames: Set[TypeName] = Set.empty
-  ): Map[Type, Doc] = {
+  ): ShownTypes = {
     // TODO: we should use the imports in each package to talk about (https://github.com/johnynek/bosatsu/issues/4)
     // types in ways that are local to that package
     Require(pack ne null)
-    TypeRenderer.documents(tpes, TypeRenderer.Context(pack, localTypeNames), 80)
+    val usedBounds: Set[Type.Var.Bound] =
+      Type.tyVarBinders(tpes) ++ Type.freeTyVars(tpes).collect {
+        case b: Type.Var.Bound => b
+      }
+    val metaToBound: List[(Type.Meta, Type.Var.Bound)] =
+      Type.alignBinders(Type.metaTvs(tpes).toList, usedBounds.contains)
+    val metaSubs = metaToBound.toMap
+    val ctx = TypeRenderer.Context(pack, localTypeNames)
+    val rendered =
+      tpes.iterator
+        .map { tpe =>
+          val shown =
+            if (metaSubs.isEmpty) tpe
+            else renameTypeMetas(tpe, metaSubs)
+          tpe -> TypeRenderer.document(shown, ctx, 80)
+        }
+        .toMap
+
+    ShownTypes(
+      rendered,
+      metaToBound.map { case (meta, bound) => (bound.name, meta.kind) }
+    )
   }
 
   def nearest[A](
@@ -551,14 +646,19 @@ object PackageError {
           orient(left, right, direction)
         }
 
-      def mismatchEvidenceRegion(
+      def mismatchEvidenceRegions(
           tpeErr: Infer.Error.Single
-      ): Option[Region] =
+      ): List[Region] =
         tpeErr match {
           case te: Infer.Error.TypeError =>
-            expectedFound(te).map(_._1._2)
+            expectedFound(te)
+              .map { case ((_, expectedRegion), (_, foundRegion)) =>
+                if (expectedRegion === foundRegion) expectedRegion :: Nil
+                else expectedRegion :: foundRegion :: Nil
+              }
+              .getOrElse(Nil)
           case _ =>
-            None
+            Nil
         }
 
       def dedupKey(
@@ -617,7 +717,7 @@ object PackageError {
             .empty[(Infer.Error.Single, List[Region])]
 
         singles.foreach { single =>
-          val evidence = mismatchEvidenceRegion(single).toList
+          val evidence = mismatchEvidenceRegions(single)
           dedupKey(single) match {
             case Some(key) =>
               keyToIdx.get(key) match {
@@ -656,6 +756,27 @@ object PackageError {
           case _ =>
             None
         }
+
+      def evidenceDocOrDefault(
+          evidenceRegions: List[Region],
+          baselineRegions: List[Region],
+          defaultDoc: Doc
+      ): Doc = {
+        val distinctEvidence = evidenceRegions.distinct.sortBy(_.start)
+        val distinctBaseline = baselineRegions.distinct.sortBy(_.start)
+        val extraEvidence = distinctEvidence.filterNot(distinctBaseline.contains)
+
+        if (extraEvidence.nonEmpty) {
+          val docs = (distinctBaseline ::: extraEvidence)
+            .distinct
+            .sortBy(_.start)
+            .map(contextDoc)
+          Doc.text("evidence sites:") + Doc.hardLine +
+            Doc.intercalate(Doc.hardLine + Doc.hardLine, docs)
+        } else {
+          defaultDoc
+        }
+      }
 
       def isUseBeforeDef(name: Identifier, region: Region): Boolean =
         name match {
@@ -722,6 +843,7 @@ object PackageError {
                   }
 
                 (
+                  tmap.withUnknownTypes(
                   Doc.text(
                     s"type mismatch in call to $fnLabel, argument ${appSite.argIndex + 1} of ${appSite.argCount}:"
                   ) + Doc.hardLine +
@@ -730,6 +852,7 @@ object PackageError {
                     Doc.text("function type: ") + tmap(appSite.functionType) +
                     Doc.hardLine + Doc.text("argument site:") + Doc.hardLine +
                     contextDoc(appSite.argumentRegion) + fnContext,
+                  ),
                   Some(appSite.argumentRegion)
                 )
 
@@ -760,6 +883,7 @@ object PackageError {
                   }
 
                 (
+                  tmap.withUnknownTypes(
                   Doc.text("pattern type mismatch:") + Doc.hardLine +
                     Doc.text("pattern: ") + Doc.text(
                       patternDoc
@@ -772,6 +896,7 @@ object PackageError {
                     ) + Doc.hardLine +
                     Doc.text("pattern site:") + Doc.hardLine +
                     contextDoc(patSite.patternRegion) + scrutineeContext,
+                  ),
                   Some(patSite.patternRegion)
                 )
             }
@@ -810,20 +935,16 @@ object PackageError {
 
             val tmap =
               showTypes(pack, List(expectedType, foundType), localTypeNames)
-            val evidenceDocs =
-              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
-            val evidenceDoc =
-              if (evidenceDocs.lengthCompare(1) > 0) {
-                Doc.text("evidence sites:") + Doc.hardLine +
-                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
-              } else {
-                context1
-              }
-            val doc =
+            val evidenceDoc = evidenceDocOrDefault(
+              evidenceRegions,
+              expectedRegion :: foundRegion :: Nil,
+              context1
+            )
+            val doc = tmap.withUnknownTypes(
               Doc.text("type error: expected type ") + tmap(expectedType) +
                 context0 + Doc.text("but found type ") + tmap(foundType) +
                 Doc.hardLine + fnHint + evidenceDoc
-
+            )
             (doc, Some(expectedRegion))
 
           case Infer.Error.VarNotInScope((_, name), scope, region) =>
@@ -925,15 +1046,11 @@ object PackageError {
 
             val tmap =
               showTypes(pack, List(expectedType, foundType), localTypeNames)
-            val evidenceDocs =
-              evidenceRegions.distinct.sortBy(_.start).map(contextDoc)
-            val evidenceDoc =
-              if (evidenceDocs.lengthCompare(1) > 0) {
-                Doc.text("evidence sites:") + Doc.hardLine +
-                  Doc.intercalate(Doc.hardLine + Doc.hardLine, evidenceDocs)
-              } else {
-                context1
-              }
+            val evidenceDoc = evidenceDocOrDefault(
+              evidenceRegions,
+              foundRegion :: expectedRegion :: Nil,
+              context1
+            )
             val kindHints = List(
               kindHintDoc("found type", foundType),
               kindHintDoc("expected type", expectedType)
@@ -941,12 +1058,14 @@ object PackageError {
             val kindHintSection =
               if (kindHints.isEmpty) Doc.empty
               else Doc.hardLine + Doc.intercalate(Doc.hardLine, kindHints)
-            val doc = Doc.text("type ") + tmap(foundType) + context0 +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("type ") + tmap(foundType) + context0 +
               Doc.text("does not subsume expected type ") + tmap(
                 expectedType
               ) + Doc.hardLine +
               evidenceDoc +
               kindHintSection
+            )
 
             (doc, Some(foundRegion))
 
@@ -977,22 +1096,26 @@ object PackageError {
           case Infer.Error.KindCannotTyApply(applied, region) =>
             val tmap = showTypes(pack, applied :: Nil, localTypeNames)
             val context = contextDoc(region)
-            val doc = Doc.text("kind error: for kind of the left of ") +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("kind error: for kind of the left of ") +
               tmap(applied) + Doc.text(
                 " is *. Cannot apply to kind *."
               ) + Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
           case Infer.Error.KindExpectedType(tpe, kind, region) =>
             val tmap = showTypes(pack, tpe :: Nil, localTypeNames)
             val context = contextDoc(region)
-            val doc = Doc.text("expected type ") +
+            val doc = tmap.withUnknownTypes(
+              Doc.text("expected type ") +
               tmap(tpe) + Doc.text(
                 " to have kind *, which is to say be a valid value, but it is kind "
               ) + Kind.toDoc(kind) + Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
@@ -1005,7 +1128,8 @@ object PackageError {
               localTypeNames
             )
             val context = contextDoc(region)
-            val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(
+            val doc = tmap.withUnknownTypes(
+              Doc.text("kind error: ") + Doc.text("the type: ") + tmap(
               applied
             ) +
               Doc.text(" is invalid because the left ") + tmap(leftT) + Doc
@@ -1016,6 +1140,7 @@ object PackageError {
               Doc.text(s" but left cannot accept the kind of the right:") +
               Doc.hardLine +
               context
+            )
 
             (doc, Some(region))
 
@@ -1038,7 +1163,7 @@ object PackageError {
                 Doc.empty
               }
 
-            val doc =
+            val doc = tmap.withUnknownTypes(
               Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
                 Doc.text(" of kind: ") + Kind.toDoc(metaK) + Doc.text(
                   " at: "
@@ -1048,6 +1173,7 @@ object PackageError {
                 Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
                 Doc.hardLine +
                 Doc.text("because the first kind does not subsume the second.")
+            )
 
             (doc, Some(metaR))
 
@@ -1064,7 +1190,7 @@ object PackageError {
                 Doc.empty
               }
 
-            val doc =
+            val doc = tmap.withUnknownTypes(
               Doc.text("Unexpected unknown: the type: ") + tmap(tymeta) +
                 Doc.text(" of kind: ") + Kind.toDoc(meta.kind) + Doc.text(
                   " at: "
@@ -1075,6 +1201,7 @@ object PackageError {
                 Doc.text(
                   "this sometimes happens when a function arg has been omitted, or an illegal recursive type or function."
                 )
+            )
 
             (doc, Some(metaR))
 
@@ -1083,9 +1210,11 @@ object PackageError {
             val context = contextDoc(region)
 
             (
+              tmap.withUnknownTypes(
               Doc.text("the type ") + tmap(tpe) + Doc.text(
                 " is not polymorphic enough"
               ) + Doc.hardLine + context,
+              ),
               Some(region)
             )
 
@@ -1222,7 +1351,7 @@ object PackageError {
           singleToDoc(
             s,
             occurrences = 1,
-            evidenceRegions = mismatchEvidenceRegion(s).toList
+            evidenceRegions = mismatchEvidenceRegions(s)
           )
         case c @ Infer.Error.Combine(_, _) =>
           val twoLines = Doc.hardLine + Doc.hardLine

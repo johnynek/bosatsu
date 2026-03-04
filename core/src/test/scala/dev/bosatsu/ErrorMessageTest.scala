@@ -1893,14 +1893,15 @@ struct Id(a)
 def makeFoo(v: Int): Foo(Id(v))
 
 """)) { case kie: PackageError.TypeErrorIn =>
-      assertEquals(
-        kie.message(Map.empty, Colorize.None),
-        """in file: <unknown source>, package Foo
-kind error: the type: ?0 of kind: (* -> *) -> * at: 
-[183, 188)
-
-cannot be unified with the type Id of kind: +* -> *
-because the first kind does not subsume the second."""
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(
+        message.contains("kind error: the type: a of kind: (* -> *) -> *"),
+        message
+      )
+      assert(message.contains("cannot be unified with the type Id"), message)
+      assert(
+        message.contains("where a: (* -> *) -> * is an unknown type."),
+        message
       )
       ()
     }
@@ -1944,18 +1945,57 @@ def quick_sort0(cmp, left, right):
         bigs = quick_sort0(cmp, tail)
         [*smalls, *bigs]
 """)) { case kie: PackageError.TypeErrorIn =>
-      assertEquals(
-        kie.message(Map.empty, Colorize.None),
-        """in file: <unknown source>, package QS
-type error: expected type Fn2
-[835, 842)
-but found type Fn3[(?17, ?9) -> Comparison]
-hint: the first type is a function with 2 arguments and the second is a function with 3 arguments.
-[403, 414)"""
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("type error: expected type Fn2"), message)
+      assert(message.contains("but found type Fn3[("), message)
+      assert(message.contains("-> Comparison]"), message)
+      assert(
+        message.contains(
+          "hint: the first type is a function with 2 arguments and the second is a function with 3 arguments."
+        ),
+        message
       )
+      assert(message.contains("where unknown types are a, b."), message)
+      assert(!"\\?[0-9]+".r.findFirstIn(message).isDefined, message)
       ()
     }
 
+  }
+
+  test("recursive local function mismatch points at definition and names unknowns") {
+    evalFail(List("""
+package RecOrder
+
+enum Tree:
+  Single(a: a)
+  Branch(size: Int, head: a, left: Tree[a], right: Tree[a])
+
+struct TreeList(trees: List[Tree[a]])
+
+operator - = sub
+
+def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
+  def go(trees, idx):
+    loop (idx, trees):
+      case _ if cmp_Int(idx, 0) matches LT: None
+      case (_, []): None
+      case (idx, [Single(h), *rest]):
+        if eq_Int(idx, 0): Some(h)
+        else: go(idx - 1, rest)
+      case (_, [Branch(s, _, t1, t2), *rest]):
+        match cmp_Int(idx, s):
+          case LT: go(idx - 1, [t1, t2, *rest])
+          case _: go(idx - s, rest)
+  go(trees, idx)
+""")) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("type error: expected type Int but found type"), message)
+      assert(message.contains("type a[b]"), message)
+      assert(message.contains("[227, 250)"), message)
+      assert(message.contains("where unknown type"), message)
+      assert(!"\\?[0-9]+".r.findFirstIn(message).isDefined, message)
+      ()
+    }
   }
 
   test("error early on a bad type in a recursive function") {
