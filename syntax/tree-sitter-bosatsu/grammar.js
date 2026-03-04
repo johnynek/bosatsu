@@ -123,6 +123,7 @@ module.exports = grammar({
       'elif',
       'else',
       'match',
+      'matches',
       'case',
       'recur',
       'loop',
