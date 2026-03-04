@@ -120,7 +120,11 @@ def to_Int(n: Nat) -> Int:
     loop(0, n)
 
 def to_Nat(i: Int) -> Nat:
-  int_loop(i, Zero, (i, nat) -> (i.sub(1), Succ(nat)))
+    def go(i, acc):
+        loop i:
+            case _ if cmp_Int(i, 0) matches LT | EQ: acc
+            case _: go(i.sub(1), Succ(acc))
+    go(i, Zero)
 
 ################
 # Test code below

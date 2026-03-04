@@ -58,25 +58,28 @@ def head(tl: TreeList[a]) -> Option[a]:
     case None: None
 
 operator + = add
-operator - = sub
 
 def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
-  # since int_loop stops at 0, we use 1 based indexing here
-  (_, item) = int_loop(idx + 1, (trees, None), (idx, (trees, _)) ->
-    if eq_Int(idx, 1): (0, ([], head(TreeList(trees))))
-    else:
-      match trees:
-        case []: (0, ([], None))
-        case [Single(h), *rest]:
-          if eq_Int(idx, 1): (0, ([], Some(h)))
-          else: (idx - 1, (rest, None))
-        case [Branch(s, _, t1, t2), *rest]:
-          # we can either skip just one, or skip the entire Tree
-          match cmp_Int(idx, s):
-            case LT | EQ: (idx - 1, ([t1, t2, *rest], None))
-            case _: (idx - s, (rest, None))
-  )
-  item
+    def go(trees, idx):
+        loop (idx, trees):
+            case _ if cmp_Int(idx, 0) matches LT: None
+            case (_, _) if cmp_Int(idx, 0) matches EQ:
+                match trees:
+                    case [Single(h), *_] | [Branch(_, h, _, _), *_]: Some(h)
+                    case []: None
+            case (_, [Single(_), *rest]) if cmp_Int(idx, 1) matches EQ | GT: go(rest, idx.sub(1))
+            case (_, [Branch(s, _, t1, t2), *rest]) if cmp_Int(idx, s) matches LT:
+                # we can either skip just one, or skip the entire Tree
+                go([t1, t2, *rest], idx.sub(1))
+            case (_, [Branch(s, _, _, _), *rest]):
+                if cmp_Int(s, 0) matches GT:
+                    if cmp_Int(idx, s) matches GT | EQ:
+                        # this always happens but the int checker can't see it yet as of this writing
+                        go(rest, idx.sub(s))
+                    else: None
+                else: None
+            case _: None
+    go(trees, idx)
 
 def from_List(list: List[a]) -> TreeList[a]:
   list.reverse().foldl_List(empty, (lst, h) -> cons(h, lst))
