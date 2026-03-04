@@ -48,11 +48,13 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def configureChicoryRuntimeCompilerCacheDir: IO[Unit] =
     gitTopLevel.flatMap {
       case Some(root) =>
-        val cacheDir = resolve(root, ".bosatsuc" :: "chicory-cache" :: Nil)
+        val cacheDir =
+          resolve(root, ".bosatsuc" :: "tmp" :: "chichory-cache" :: Nil)
         setChicoryRuntimeCompilerCacheDir(cacheDir)
       case None =>
         val cwd = Paths.get(".").toAbsolutePath.normalize
-        val cacheDir = resolve(cwd, ".bosatsuc" :: "chicory-cache" :: Nil)
+        val cacheDir =
+          resolve(cwd, ".bosatsuc" :: "tmp" :: "chichory-cache" :: Nil)
         setChicoryRuntimeCompilerCacheDir(cacheDir)
     }
 
