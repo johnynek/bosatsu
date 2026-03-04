@@ -4,7 +4,7 @@ import cats.{Eval, StackSafeMonad}
 import cats.data.{NonEmptyChain, NonEmptyList, Validated, ValidatedNec}
 import cats.implicits._
 import dev.bosatsu.rankn.{Type, TypeEnv}
-import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
+import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtSort, Z3Api}
 
 import Identifier.Bindable
@@ -80,8 +80,9 @@ object TypedExprRecursionCheck {
 
     private val comparisonType: Type =
       Type.TyConst(Type.Const.predef("Comparison"))
+    private val z3Solver = Z3Platform.create()
     private val z3Runner: Z3Api.RunSmt2 = { smt2 =>
-      Z3Solver.default.runSmt2(smt2) match {
+      z3Solver.runSmt2(smt2) match {
         case Z3Result.Success(stdout, stderr, _) =>
           Right(Z3Api.SolverOutput(stdout, stderr))
         case Z3Result.Failure(msg, _, stdout, stderr, _) =>
