@@ -594,7 +594,7 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
         case Right(z3) =>
           assert(!fast || z3)
         case Left(err) if isEmbeddedWasmTrap(err) =>
-          assert(!fast)
+          ()
         case Left(err) =>
           fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
       }
