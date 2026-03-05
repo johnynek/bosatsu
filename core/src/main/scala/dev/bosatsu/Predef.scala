@@ -887,10 +887,36 @@ object PredefImpl {
     SumValue(ProgTagRaise, ProductValue.single(e))
 
   def prog_flat_map(prog: Value, fn: Value): Value =
-    SumValue(ProgTagFlatMap, ProductValue.fromList(prog :: fn :: Nil))
+    prog match {
+      case sum: SumValue if sum.variant == ProgTagFlatMap =>
+        val innerProg = sum.value.get(0)
+        val innerFn = sum.value.get(1)
+        val combined = FnValue { case NonEmptyList(a, _) =>
+          prog_flat_map(callFn1(innerFn, a), fn)
+        }
+        SumValue(
+          ProgTagFlatMap,
+          ProductValue.fromList(innerProg :: combined :: Nil)
+        )
+      case _ =>
+        SumValue(ProgTagFlatMap, ProductValue.fromList(prog :: fn :: Nil))
+    }
 
   def prog_recover(prog: Value, fn: Value): Value =
-    SumValue(ProgTagRecover, ProductValue.fromList(prog :: fn :: Nil))
+    prog match {
+      case sum: SumValue if sum.variant == ProgTagRecover =>
+        val innerProg = sum.value.get(0)
+        val innerFn = sum.value.get(1)
+        val combined = FnValue { case NonEmptyList(a, _) =>
+          prog_recover(callFn1(innerFn, a), fn)
+        }
+        SumValue(
+          ProgTagRecover,
+          ProductValue.fromList(innerProg :: combined :: Nil)
+        )
+      case _ =>
+        SumValue(ProgTagRecover, ProductValue.fromList(prog :: fn :: Nil))
+    }
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))

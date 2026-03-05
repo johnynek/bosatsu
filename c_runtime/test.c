@@ -1,5 +1,6 @@
 #include "bosatsu_runtime.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
+#include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,16 @@ void assert_is_big_int(BValue value, const char* message) {
     printf("%s\nexpected heap-backed integer\n", message);
     exit(1);
   }
+}
+
+static BValue prog_assoc_pure_fn(BValue *slots, BValue arg) {
+  (void)slots;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(arg);
+}
+
+static BValue prog_assoc_raise_fn(BValue *slots, BValue arg) {
+  (void)slots;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(arg);
 }
 
 #if !defined(_WIN32)
@@ -599,6 +610,42 @@ void test_float64() {
   }
 }
 
+void test_prog_assoc() {
+  BValue pure_fn = alloc_closure1(0, NULL, prog_assoc_pure_fn);
+  BValue raise_fn = alloc_closure1(0, NULL, prog_assoc_raise_fn);
+
+  BValue flat_base = ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(1));
+  BValue flat_assoc = ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_Prog_l_flat__map(flat_base, pure_fn),
+      pure_fn);
+  assert(get_variant(flat_assoc) == 2, "flat_map assoc keeps flat_map tag");
+  assert(get_enum_index(flat_assoc, 0) == flat_base, "flat_map assoc keeps left-most program");
+
+  BValue flat_arg = bsts_integer_from_int(9);
+  BValue flat_composed = call_fn1(get_enum_index(flat_assoc, 1), flat_arg);
+  assert(get_variant(flat_composed) == 2, "flat_map assoc composes continuation into flat_map");
+  assert(get_enum_index(flat_composed, 1) == pure_fn, "flat_map assoc keeps outer continuation");
+  BValue flat_left = get_enum_index(flat_composed, 0);
+  assert(get_variant(flat_left) == 0, "flat_map composed left branch is pure");
+  assert(get_enum_index(flat_left, 0) == flat_arg, "flat_map composed pure keeps argument");
+
+  BValue recover_base = ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_string_from_utf8_bytes_static(4, "boom"));
+  BValue recover_assoc = ___bsts_g_Bosatsu_l_Prog_l_recover(
+      ___bsts_g_Bosatsu_l_Prog_l_recover(recover_base, raise_fn),
+      raise_fn);
+  assert(get_variant(recover_assoc) == 3, "recover assoc keeps recover tag");
+  assert(get_enum_index(recover_assoc, 0) == recover_base, "recover assoc keeps left-most program");
+
+  BValue recover_arg = bsts_string_from_utf8_bytes_static(1, "e");
+  BValue recover_composed = call_fn1(get_enum_index(recover_assoc, 1), recover_arg);
+  assert(get_variant(recover_composed) == 3, "recover assoc composes handler into recover");
+  assert(get_enum_index(recover_composed, 1) == raise_fn, "recover assoc keeps outer handler");
+  BValue recover_left = get_enum_index(recover_composed, 0);
+  assert(get_variant(recover_left) == 1, "recover composed left branch is raise");
+  assert(get_enum_index(recover_left, 0) == recover_arg, "recover composed raise keeps error");
+}
+
 int main(int argc, char** argv) {
 
   GC_init();
@@ -606,6 +653,7 @@ int main(int argc, char** argv) {
   test_runtime_strings();
   test_integer();
   test_float64();
+  test_prog_assoc();
   printf("success\n");
   return 0;
 }
