@@ -18,8 +18,19 @@ from typing import Optional, Tuple, Union
 
 def pure(a): return (0, a)
 def raise_error(e): return (1, e)
-def flat_map(p, f): return (2, p, f)
-def recover(p, f): return (3, p, f)
+def flat_map(p, f):
+  if p[0] == 2:
+    base_prog = p[1]
+    prior_fn = p[2]
+    return (2, base_prog, lambda a: flat_map(prior_fn(a), f))
+  return (2, p, f)
+
+def recover(p, f):
+  if p[0] == 3:
+    base_prog = p[1]
+    prior_fn = p[2]
+    return (3, base_prog, lambda a: recover(prior_fn(a), f))
+  return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
 def effect(f): return (5, f)

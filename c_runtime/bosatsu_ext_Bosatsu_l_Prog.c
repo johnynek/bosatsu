@@ -27,13 +27,35 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_apply__fix(BValue a, BValue f)
   return alloc_enum2(4, a, f);
 }
 
+static BValue bsts_prog_flat_map_assoc_closure(BValue *slots, BValue a)
+{
+  return ___bsts_g_Bosatsu_l_Prog_l_flat__map(call_fn1(slots[0], a), slots[1]);
+}
+
 BValue ___bsts_g_Bosatsu_l_Prog_l_flat__map(BValue p, BValue f)
 {
+  if (get_variant(p) == 2)
+  {
+    BValue captures[2] = {get_enum_index(p, 1), f};
+    BValue combined = alloc_closure1(2, captures, bsts_prog_flat_map_assoc_closure);
+    return alloc_enum2(2, get_enum_index(p, 0), combined);
+  }
   return alloc_enum2(2, p, f);
+}
+
+static BValue bsts_prog_recover_assoc_closure(BValue *slots, BValue a)
+{
+  return ___bsts_g_Bosatsu_l_Prog_l_recover(call_fn1(slots[0], a), slots[1]);
 }
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_recover(BValue p, BValue f)
 {
+  if (get_variant(p) == 3)
+  {
+    BValue captures[2] = {get_enum_index(p, 1), f};
+    BValue combined = alloc_closure1(2, captures, bsts_prog_recover_assoc_closure);
+    return alloc_enum2(3, get_enum_index(p, 0), combined);
+  }
   return alloc_enum2(3, p, f);
 }
 
