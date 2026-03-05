@@ -497,14 +497,15 @@ final class SourceConverter(
 
         val expBranches = branches.get.traverse { branch =>
           val pat = branch.pattern
-          val decl = branch.body.get
-          val newPattern = convertPattern(pat, decl.region)
+          val branchDecl = branch.body.get
+          val branchPatternRegion = branch.patternRegion.getOrElse(branchDecl.region)
+          val newPattern = convertPattern(pat, branchPatternRegion)
           val guardExpr = branch.guard.traverse(withBound(_, pat.names))
-          val bodyExpr = withBound(decl, pat.names)
+          val bodyExpr = withBound(branchDecl, pat.names)
           (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
             val guard1 =
               guard.filterNot(isPredefBoolConst(_, Constructor("True")))
-            Expr.Branch(pat, guard1, body)
+            Expr.Branch(pat, guard1, body)(using Some(branchPatternRegion))
           }
         }
         (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))

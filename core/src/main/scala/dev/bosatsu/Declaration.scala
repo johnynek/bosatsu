@@ -602,7 +602,9 @@ object Declaration {
                   else {
                     (branch.guard.traverse(loop), branch.body.traverse(loopDec))
                       .mapN { (guard, body) =>
-                        branch.copy(guard = guard, body = body)
+                        MatchBranch(branch.pattern, guard, body)(using
+                          branch.patternRegion
+                        )
                       }
                   }
                 }
@@ -776,10 +778,11 @@ object Declaration {
             rec,
             arg.replaceRegionsNB(r),
             branches.map(_.map { branch =>
-              branch.copy(
-                guard = branch.guard.map(_.replaceRegionsNB(r)),
-                body = branch.body.map(_.replaceRegions(r))
-              )
+              MatchBranch(
+                branch.pattern,
+                branch.guard.map(_.replaceRegionsNB(r)),
+                branch.body.map(_.replaceRegions(r))
+              )(using Some(r))
             })
           )(using r)
         case Matches(a, p) =>
@@ -946,7 +949,8 @@ object Declaration {
       pattern: Pattern.Parsed,
       guard: Option[NonBinding],
       body: OptIndent[Declaration]
-  ) derives CanEqual
+  )(using val patternRegion: Option[Region] = None)
+      derives CanEqual
   case class Match(
       kind: MatchKind,
       arg: NonBinding,
@@ -1246,8 +1250,11 @@ object Declaration {
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
     val bp = Indy { indent =>
-      val casePat: P[Pattern.Parsed] =
-        (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+      val casePat: P[(Pattern.Parsed, Region)] =
+        ((P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser.region)
+          .map { case (region, pat) =>
+            (pat, region)
+          }
       val guard: P0[Option[NonBinding]] =
         (((Parser.spaces *> Parser.keySpace("if")).backtrack *> arg(indent))).?
 
@@ -1255,8 +1262,8 @@ object Declaration {
     }
     val branch = OptIndent
       .block(bp, withTrailingExpr)
-      .map { case ((pat, guard), body) =>
-        MatchBranch(pat, guard, body)
+      .map { case (((pat, patternRegion), guard), body) =>
+        MatchBranch(pat, guard, body)(using Some(patternRegion))
       }
 
     val branchList: Indy[NonEmptyList[MatchBranch]] = Indy { indent =>
