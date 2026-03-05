@@ -267,7 +267,8 @@ lazy val cli = (project in file("cli"))
       "--no-fallback",
       "--verbose",
       "-J-Xmx12g",
-      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta"
+      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
+      "-H:+RemoveUnusedSymbols"
     ) ++ {
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
