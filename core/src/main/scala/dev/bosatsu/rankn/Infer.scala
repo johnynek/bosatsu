@@ -2598,12 +2598,11 @@ object Infer {
         sigma: Expected.Check[(Type, Region)],
         resT: Type.Rho
     ): Infer[TypedExpr.Branch[A]] = {
-      val patternRegion = branch.patternRegion.getOrElse(region(branch.expr))
       for {
         (pattern, bindings) <- typeCheckPattern(
           branch.pattern,
           sigma,
-          patternRegion
+          branch.patternRegion
         )
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
@@ -2616,9 +2615,8 @@ object Infer {
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)]
     ): Infer[(TypedExpr.Branch[A], Type.Rho)] = {
-      val patternRegion = branch.patternRegion.getOrElse(region(branch.expr))
       for {
-        patBind <- typeCheckPattern(branch.pattern, sigma, patternRegion)
+        patBind <- typeCheckPattern(branch.pattern, sigma, branch.patternRegion)
         (pattern, bindings) = patBind
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))

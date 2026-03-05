@@ -353,7 +353,7 @@ final class SourceConverter(
               (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
                 (newPattern, e, rhs) =>
                   val expBranches = NonEmptyList.of(
-                    Expr.Branch(newPattern, None, e)
+                    Expr.Branch(newPattern, None, e)(using assignRegion)
                   )
                   Expr.Match(rhs, expBranches, decl)
               }
@@ -427,8 +427,10 @@ final class SourceConverter(
             a,
             OptIndent.same(
               NonEmptyList(
-                MatchBranch(p, None, res),
-                MatchBranch(Pattern.WildCard, None, restDecl) :: Nil
+                MatchBranch(p, None, res)(using res.get.region),
+                MatchBranch(Pattern.WildCard, None, restDecl)(using
+                  restDecl.get.region
+                ) :: Nil
               )
             )
           )(using decl.region)
@@ -498,14 +500,14 @@ final class SourceConverter(
         val expBranches = branches.get.traverse { branch =>
           val pat = branch.pattern
           val branchDecl = branch.body.get
-          val branchPatternRegion = branch.patternRegion.getOrElse(branchDecl.region)
+          val branchPatternRegion = branch.patternRegion
           val newPattern = convertPattern(pat, branchPatternRegion)
           val guardExpr = branch.guard.traverse(withBound(_, pat.names))
           val bodyExpr = withBound(branchDecl, pat.names)
           (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
             val guard1 =
               guard.filterNot(isPredefBoolConst(_, Constructor("True")))
-            Expr.Branch(pat, guard1, body)(using Some(branchPatternRegion))
+            Expr.Branch(pat, guard1, body)(using branchPatternRegion)
           }
         }
         (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
@@ -544,11 +546,13 @@ final class SourceConverter(
         (loop(a), checkedPattern).mapN { (a, p) =>
           val branches =
             if (isDefinitelyTotal) {
-              NonEmptyList.one(Expr.Branch(Pattern.WildCard, None, True))
+              NonEmptyList.one(
+                Expr.Branch(Pattern.WildCard, None, True)(using m.region)
+              )
             } else {
               NonEmptyList(
-                Expr.Branch(p, None, True),
-                Expr.Branch(Pattern.WildCard, None, False) :: Nil
+                Expr.Branch(p, None, True)(using m.region),
+                Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
               )
             }
           Expr.Match(a, branches, m)
@@ -918,7 +922,9 @@ final class SourceConverter(
                   val matchExpr = (loop(baseExpr), rebuilt).parMapN {
                     (scrutinee, rebuiltValue) =>
                       val updateBranch =
-                        Expr.Branch(updatedPattern, None, rebuiltValue)
+                        Expr.Branch(updatedPattern, None, rebuiltValue)(using
+                          rc.region
+                        )
                       val branches =
                         if (definedType.constructors.lengthCompare(1) == 0)
                           NonEmptyList.one(updateBranch)
@@ -930,7 +936,7 @@ final class SourceConverter(
                               Pattern.Var(fallback),
                               None,
                               Expr.Local(fallback, rc)
-                            ) :: Nil
+                            )(using rc.region) :: Nil
                           )
                         }
 
@@ -1963,7 +1969,9 @@ final class SourceConverter(
           Match(
             Declaration.MatchKind.Match,
             rhsNB,
-            OptIndent.same(NonEmptyList.one(MatchBranch(pat, None, resOI)))
+            OptIndent.same(
+              NonEmptyList.one(MatchBranch(pat, None, resOI)(using res.region))
+            )
           )(using decl.region)
         }
 

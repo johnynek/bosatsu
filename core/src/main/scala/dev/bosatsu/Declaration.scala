@@ -782,7 +782,7 @@ object Declaration {
                 branch.pattern,
                 branch.guard.map(_.replaceRegionsNB(r)),
                 branch.body.map(_.replaceRegions(r))
-              )(using Some(r))
+              )(using r)
             })
           )(using r)
         case Matches(a, p) =>
@@ -949,7 +949,7 @@ object Declaration {
       pattern: Pattern.Parsed,
       guard: Option[NonBinding],
       body: OptIndent[Declaration]
-  )(using val patternRegion: Option[Region] = None)
+  )(using val patternRegion: Region)
       derives CanEqual
   case class Match(
       kind: MatchKind,
@@ -1263,7 +1263,7 @@ object Declaration {
     val branch = OptIndent
       .block(bp, withTrailingExpr)
       .map { case (((pat, patternRegion), guard), body) =>
-        MatchBranch(pat, guard, body)(using Some(patternRegion))
+        MatchBranch(pat, guard, body)(using patternRegion)
       }
 
     val branchList: Indy[NonEmptyList[MatchBranch]] = Indy { indent =>
