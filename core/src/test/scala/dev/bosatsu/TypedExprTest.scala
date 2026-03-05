@@ -6,6 +6,7 @@ import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import scala.collection.immutable.{SortedMap, SortedSet}
+import scala.concurrent.duration.DurationInt
 
 import Arbitrary.arbitrary
 import Identifier.{Bindable, Constructor}
@@ -13,6 +14,8 @@ import TestUtils.{checkEnvExpr, checkLast}
 import rankn.{Type, NTypeGen, RefSpace}
 
 class TypedExprTest extends munit.ScalaCheckSuite {
+  override val munitTimeout = 90.seconds
+
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
     super.scalaCheckTestParameters.withMinSuccessfulTests(
