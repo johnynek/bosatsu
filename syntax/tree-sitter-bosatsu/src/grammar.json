@@ -524,7 +524,7 @@
     },
     "unknown": {
       "type": "PATTERN",
-      "value": "[^\\s:\\[\\]\\(\\)\\{\\}]+"
+      "value": "[^\\s:\\[\\]\\(\\)\\{\\},]+"
     },
     "punctuation": {
       "type": "CHOICE",
