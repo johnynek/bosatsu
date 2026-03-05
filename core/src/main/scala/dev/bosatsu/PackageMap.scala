@@ -630,13 +630,10 @@ object PackageMap {
                       // heavy and in cats.effect.IO it should be on the blocking
                       // threadpool.
                       summon[CanPromise[F]].compute {
-                        Package
-                          .inferBodyUnopt(nm, ilist, stmt)
-                          .flatMap { case (_, program) =>
-                            PackageCustoms
-                              .assemble(nm, ilist, impMap, exports, program)
-                          }
-                          .map(phases.finishPackage(_, depIfaces, compileOptions))
+                        for {
+                          (_, program) <- Package.inferBodyUnopt(nm, ilist, stmt)
+                          asm <- PackageCustoms.assemble(nm, ilist, impMap, exports, program)
+                        } yield phases.finishPackage(asm, depIfaces, compileOptions)
                       }
                     }
                   }
