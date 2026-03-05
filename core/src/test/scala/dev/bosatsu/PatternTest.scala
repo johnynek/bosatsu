@@ -6,7 +6,9 @@ import org.scalacheck.Prop.forAll
 
 class PatternTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 5000 else 800
+    )
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 

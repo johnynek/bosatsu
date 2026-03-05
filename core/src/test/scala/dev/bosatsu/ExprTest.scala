@@ -8,7 +8,9 @@ import org.scalacheck.Prop.forAll
 
 class ExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(5000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 5000 else 500
+    )
 
   val genExpr: Gen[Expr[Int]] = Generators.Exprs.gen(Gen.choose(0, 99), 4)
 

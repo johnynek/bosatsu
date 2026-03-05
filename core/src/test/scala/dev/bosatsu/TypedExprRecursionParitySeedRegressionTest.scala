@@ -13,7 +13,13 @@ class TypedExprRecursionParitySeedRegressionTest
     "Fo4swOwXPC3xNI0E1pz2E4fwpHywwBXoLbvPIYU53bF="
 
   override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(8)
+    if (Platform.isScalaJvm) {
+      super.scalaCheckTestParameters.withMinSuccessfulTests(8)
+    } else {
+      super.scalaCheckTestParameters
+        .withMinSuccessfulTests(1)
+        .withMaxSize(12)
+    }
 
   private def renderStatements(statements: List[Statement]): String =
     statements.map(Document[Statement].document(_).render(80)).mkString

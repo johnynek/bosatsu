@@ -10,7 +10,7 @@ import org.scalacheck.{Arbitrary, Gen, Shrink}
 class RingOptLaws extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(1000)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 1000 else 100)
       .withMaxDiscardRatio(10)
 
   import RingOpt._

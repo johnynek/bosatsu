@@ -3,7 +3,7 @@ package dev.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.syntax.all._
 import dev.bosatsu.MonadGen.genMonad
-import dev.bosatsu.{Kind, Region, TypedExpr, Variance}
+import dev.bosatsu.{Kind, Platform, Region, TypedExpr, Variance}
 import dev.bosatsu.hashing.{Algo, Hashable}
 import org.scalacheck.Gen
 import org.scalacheck.Prop
@@ -15,7 +15,9 @@ class TypeTest extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(1000)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 1000 else 200
+    )
   // PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =

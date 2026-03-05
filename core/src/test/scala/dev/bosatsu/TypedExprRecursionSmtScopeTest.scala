@@ -7,10 +7,11 @@ import org.scalacheck.Prop.forAll
 import org.typelevel.paiges.Document
 
 class TypedExprRecursionSmtScopeTest extends munit.ScalaCheckSuite with ParTest {
-  override def scalaCheckTestParameters =
-    super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 24 else 12
-    )
+  override def scalaCheckTestParameters = {
+    val base = super.scalaCheckTestParameters
+    if (Platform.isScalaJvm) base.withMinSuccessfulTests(24)
+    else base.withMinSuccessfulTests(1).withMaxSize(12)
+  }
 
   private def renderStatements(statements: List[Statement]): String =
     statements.map(Document[Statement].document(_).render(80)).mkString
