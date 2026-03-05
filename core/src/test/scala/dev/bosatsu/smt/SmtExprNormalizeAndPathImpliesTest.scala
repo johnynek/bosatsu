@@ -309,7 +309,10 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   private def varsInBool(expr: BoolExpr): Set[String] =
     varsInExpr(expr)
 
-  private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Boolean = {
+  private def z3Implies(
+      goal: BoolExpr,
+      facts: List[BoolExpr]
+  ): Either[Z3Api.RunError, Boolean] = {
     val pathCond = normalizeBoolForSolver(And(facts.toVector))
     val goal1 = normalizeBoolForSolver(goal)
     val vars = (varsInBool(goal1) ++ varsInBool(pathCond)).toList.sorted
@@ -324,13 +327,18 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
         )
     )
 
-    Z3Api.run(script, parseModel = false, liveRunner) match {
-      case Right(res) =>
-        res.status == Z3Api.Status.Unsat
-      case Left(err)  =>
-        fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
+    Z3Api.run(script, parseModel = false, liveRunner).map { res =>
+      res.status == Z3Api.Status.Unsat
     }
   }
+
+  private def isEmbeddedWasmTrap(err: Z3Api.RunError): Boolean =
+    err match {
+      case Z3Api.RunError.ExecutionFailure(message, _, _) =>
+        message.contains("Embedded z3.wasm trapped while handling SMT2 input")
+      case _ =>
+        false
+    }
 
   private val smallIntAtomGen: Gen[IntExpr] =
     Gen.frequency(
@@ -582,8 +590,14 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   test("pathImplies either declines to judge or agrees with z3") {
     forAll(z3SoundnessCaseGen) { case (goal, facts) =>
       val fast = pathImplies(goal, facts)
-      val z3 = z3Implies(goal, facts)
-      assert(!fast || z3)
+      z3Implies(goal, facts) match {
+        case Right(z3) =>
+          assert(!fast || z3)
+        case Left(err) if isEmbeddedWasmTrap(err) =>
+          assert(!fast)
+        case Left(err) =>
+          fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
+      }
     }
   }
 }
