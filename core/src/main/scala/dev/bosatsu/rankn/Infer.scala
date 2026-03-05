@@ -2637,6 +2637,94 @@ object Infer {
         sigma: Expected.Check[(Type, Region)],
         reg: Region
     ): Infer[(Pattern, List[(Bindable, Type)])] = {
+      @annotation.tailrec
+      def unwrapPattern(in: Pattern): Pattern =
+        in match {
+          case GenPattern.Annotation(inner, _) => unwrapPattern(inner)
+          case GenPattern.Named(_, inner)      => unwrapPattern(inner)
+          case other                           => other
+        }
+
+      def singletonParametricPattern(in: Pattern): Boolean =
+        unwrapPattern(in) match {
+          case GenPattern.ListPat(Nil)                => true
+          case GenPattern.PositionalStruct(_, Nil)    => true
+          case _                                      => false
+        }
+
+      def maybeWidenNamedBindingType(
+          innerPattern: Pattern,
+          expectedType: Type,
+          innerBindings: List[(Bindable, Type)]
+      ): Infer[Type] = {
+        if (!singletonParametricPattern(innerPattern)) pure(expectedType)
+        else {
+          val innerBindingTypes = innerBindings.map(_._2)
+          val witnessedBounds = Type.freeBoundTyVars(innerBindingTypes).toSet
+          val witnessedMetas = Type.metaTvs(innerBindingTypes).toSet
+          val witnessedSkolems = Type
+            .freeTyVars(innerBindingTypes)
+            .collect { case sk: Type.Var.Skolem => sk }
+            .toSet
+
+          val freeBounds =
+            Type
+              .freeBoundTyVars(expectedType :: Nil)
+              .distinct
+              .filterNot(witnessedBounds)
+          val freeMetas =
+            Type
+              .metaTvs(expectedType :: Nil)
+              .toList
+              .filterNot(witnessedMetas)
+          val freeSkolems =
+            Type
+              .freeTyVars(expectedType :: Nil)
+              .collect { case sk: Type.Var.Skolem => sk }
+              .distinct
+              .filterNot(witnessedSkolems)
+
+          if (freeBounds.isEmpty && freeMetas.isEmpty && freeSkolems.isEmpty)
+            pure(expectedType)
+          else {
+            val usedBounds0 =
+              (Type.tyVarBinders(expectedType :: innerBindingTypes) ++ freeBounds).toSet
+            val alignedMetas = Type.alignBinders(freeMetas, usedBounds0.contains)
+            val usedBounds1 = usedBounds0 ++ alignedMetas.map(_._2)
+            val alignedSkolems =
+              Type.alignBinders(freeSkolems, usedBounds1.contains)
+            val metaToBound: Map[Type.Meta, Type.Var.Bound] =
+              alignedMetas.iterator.toMap
+            val skolemToBound: Map[Type.Var.Skolem, Type.Var.Bound] =
+              alignedSkolems.iterator.toMap
+            val renamedExpected =
+              if (metaToBound.isEmpty && skolemToBound.isEmpty) expectedType
+              else
+                Type.renameMetaAndSkolemsToBounds(
+                  expectedType,
+                  metaToBound,
+                  skolemToBound
+                )
+            val quantifiers =
+              freeBounds.map(_ -> Kind.Type) ++
+                alignedMetas.map { case (tm, b) => (b, tm.kind) } ++
+                alignedSkolems.map { case (sk, b) => (b, sk.kind) }
+
+            NonEmptyList.fromList(quantifiers) match {
+              case None => pure(expectedType)
+              case Some(generalizeNel) =>
+                val generalized = Type.forAll(generalizeNel, renamedExpected)
+                GetEnv.map { env =>
+                  env.getKind(generalized, reg) match {
+                    case Right(Kind.Type) => generalized
+                    case _                => expectedType
+                  }
+                }
+            }
+          }
+        }
+      }
+
       pat match {
         case GenPattern.WildCard     => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
@@ -2665,20 +2753,12 @@ object Infer {
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
           }
         case GenPattern.Named(n, p) =>
-          def inner(pat: Pattern) =
-            sigma match {
-              case Expected.Check((t, _)) =>
-                val res =
-                  (GenPattern.Annotation(GenPattern.Named(n, pat), t), t)
-                Infer.pure(res)
-            }
-          // We always return an annotation here, which is the only
-          // place we need to be careful
+          val Expected.Check((t0, _)) = sigma
           for {
             pair0 <- typeCheckPattern(p, sigma, reg)
             (p0, ts0) = pair0
-            pair1 <- inner(p0)
-            (p1, t1) = pair1
+            t1 <- maybeWidenNamedBindingType(p0, t0, ts0)
+            p1 = GenPattern.Annotation(GenPattern.Named(n, p0), t0)
           } yield (p1, (n, t1) :: ts0)
         case GenPattern.StrPat(items) =>
           val tpe = Type.StrType

@@ -726,6 +726,49 @@ class TypeTest extends munit.ScalaCheckSuite {
     assertEquals(Type.freeBoundTyVars(sub :: Nil), List(a))
   }
 
+  test("renameMetaAndSkolemsToBounds rewrites through quantifiers") {
+    import Type.Var.Bound
+
+    val a = Bound("a")
+    val b = Bound("b")
+    val x = Bound("x")
+    val y = Bound("y")
+    val meta =
+      Type.Meta(
+        Kind.Type,
+        100001L,
+        existential = false,
+        RefSpace.constRef(Option.empty)
+      )
+    val skolem = Type.Var.Skolem("sk", Kind.Type, existential = false, 100002L)
+
+    val tpe =
+      Type.forAll(
+        NonEmptyList.one((a, Kind.Type)),
+        Type.existsRho(
+          NonEmptyList.one((b, Kind.Type)),
+          Type.TyApply(Type.TyVar(skolem), Type.TyMeta(meta))
+        )
+      )
+
+    val renamed =
+      Type.renameMetaAndSkolemsToBounds(
+        tpe,
+        Map(meta -> x),
+        Map(skolem -> y)
+      )
+    val expected =
+      Type.forAll(
+        NonEmptyList.one((a, Kind.Type)),
+        Type.existsRho(
+          NonEmptyList.one((b, Kind.Type)),
+          Type.TyApply(Type.TyVar(y), Type.TyVar(x))
+        )
+      )
+
+    assertEquals(renamed, expected)
+  }
+
   test("types are well ordered") {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
       dev.bosatsu.OrderingLaws.law(_, _, _)
