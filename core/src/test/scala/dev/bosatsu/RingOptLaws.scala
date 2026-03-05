@@ -787,6 +787,55 @@ class RingOptLaws extends munit.ScalaCheckSuite {
       ),
       Weights(9, 4, 1)
     )
+    // issue #1997
+    law(
+      Add(
+        Neg(
+          Mult(
+            Neg(Neg(Neg(One))),
+            Add(
+              Add(
+                Symbol(BigInt("-1")),
+                Neg(Add(One, Symbol(BigInt("-2147483649"))))
+              ),
+              Mult(
+                Neg(One),
+                Add(
+                  Symbol(BigInt("9223372036854775808")),
+                  Symbol(BigInt("9223372036854775808"))
+                )
+              )
+            )
+          )
+        ),
+        Mult(
+          Neg(
+            Mult(
+              Symbol(
+                BigInt(
+                  "227735723830261017356624072586187250173053607080767410257500007075375160416"
+                )
+              ),
+              Zero
+            )
+          ),
+          Add(
+            Add(
+              Neg(Symbol(BigInt("-2958422629478306252"))),
+              Neg(Add(Zero, Integer(BigInt("2147483648"))))
+            ),
+            Mult(
+              Neg(One),
+              Add(
+                Integer(BigInt("2147483648")),
+                Mult(Symbol(BigInt("8849351773351790999")), One)
+              )
+            )
+          )
+        )
+      ),
+      Weights(21, 10, 9)
+    )
     forAll((a: Expr[BigInt], w: Weights) => law(a, w))
   }
   property("multiplication by 1 is always simplified") {
