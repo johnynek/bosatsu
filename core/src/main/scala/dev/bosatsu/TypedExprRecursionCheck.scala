@@ -73,10 +73,8 @@ object TypedExprRecursionCheck {
     type RecurTarget = NonEmptyList[RecurTargetItem]
     type TypedPattern = Pattern[(PackageName, Identifier.Constructor), Type]
 
-    enum SingletonCtor derives CanEqual {
-      case EmptyList
-      case NamedConstructor(cons: Identifier.Constructor)
-    }
+    case class SingletonCtor(pack: PackageName, cons: Identifier.Constructor)
+        derives CanEqual
 
     type TopLevelLowerableAliases = Map[(PackageName, Bindable), TopLevelAlias]
     type TopLevelPredefAliases = Map[(PackageName, Bindable), Identifier.Name]
@@ -97,6 +95,8 @@ object TypedExprRecursionCheck {
           Left(Z3Api.RunError.ExecutionFailure(msg, stdout, stderr))
       }
     }
+    private val emptyListSingletonCtor =
+      SingletonCtor(PackageName.PredefName, Identifier.Constructor("EmptyList"))
 
     case class SmtBranchState(
         intBindings: Map[Bindable, SmtExpr.IntExpr],
@@ -585,28 +585,48 @@ object TypedExprRecursionCheck {
           target.map(_ => Set.empty[Bindable])
       }
 
-    private def singletonCtorFromParsedPart(
-        part: Pattern.Parsed
+    private def isTupleConstructor(
+        pack: PackageName,
+        cons: Identifier.Constructor,
+        arity: Int
+    ): Boolean =
+      (pack == PackageName.PredefName) &&
+        (cons.asString == s"Tuple$arity")
+
+    private def targetPatternPartsFromTyped(
+        targetLength: Int,
+        branchPat: TypedPattern
+    ): Option[List[TypedPattern]] =
+      if (targetLength == 1) Some(branchPat :: Nil)
+      else
+        unwrapNamedAnnotation(branchPat) match {
+          case Pattern.PositionalStruct((pack, cons), parts)
+              if (parts.length == targetLength) &&
+                isTupleConstructor(pack, cons, targetLength) =>
+            Some(parts)
+          case _ =>
+            None
+        }
+
+    private def singletonCtorFromTypedPart(
+        part: TypedPattern
     ): Option[SingletonCtor] =
       unwrapNamedAnnotation(part) match {
         case Pattern.ListPat(Nil) =>
-          Some(SingletonCtor.EmptyList)
-        case Pattern.PositionalStruct(
-              Pattern.StructKind.Named(cons, _),
-              Nil
-            ) =>
-          Some(SingletonCtor.NamedConstructor(cons))
+          Some(emptyListSingletonCtor)
+        case Pattern.PositionalStruct((pack, cons), Nil) =>
+          Some(SingletonCtor(pack, cons))
         case _ =>
           None
       }
 
-    private def singletonCtorByTargetFromParsed(
+    private def singletonCtorByTargetFromTyped(
         target: RecurTarget,
-        branchPat: Pattern.Parsed
+        branchPat: TypedPattern
     ): NonEmptyList[Option[SingletonCtor]] =
-      targetPatternPartsFromParsed(target.length, branchPat) match {
+      targetPatternPartsFromTyped(target.length, branchPat) match {
         case Some(parts) =>
-          NonEmptyList.fromListUnsafe(parts.map(singletonCtorFromParsedPart))
+          NonEmptyList.fromListUnsafe(parts.map(singletonCtorFromTypedPart))
         case None        =>
           target.map(_ => None)
       }
@@ -1896,16 +1916,16 @@ object TypedExprRecursionCheck {
     ): Option[SingletonCtor] = {
       unwrapDeclExpr(arg.tag) match {
         case Declaration.ListDecl(ListLang.Cons(Nil)) =>
-          Some(SingletonCtor.EmptyList)
+          Some(emptyListSingletonCtor)
         case _                                         =>
           stripExprWrappers(arg) match {
             case TypedExpr.Global(
-                  _,
+                  pack,
                   cons: Identifier.Constructor,
                   _,
                   _
                 ) =>
-              Some(SingletonCtor.NamedConstructor(cons))
+              Some(SingletonCtor(pack, cons))
             case _ =>
               None
           }
@@ -2795,7 +2815,7 @@ object TypedExprRecursionCheck {
                             val equalAliases =
                               equalAliasesByTargetFromParsed(irr.target, sourcePat)
                             val singletonCtor =
-                              singletonCtorByTargetFromParsed(irr.target, sourcePat)
+                              singletonCtorByTargetFromTyped(irr.target, compiledPat)
                             val reachable = allowed.iterator.flatMap(_.iterator).toSet
                             val smtState0 =
                               addPatternFactsAndBindings(

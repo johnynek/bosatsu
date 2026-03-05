@@ -2653,54 +2653,6 @@ object Infer {
           expectedType: Type,
           innerBindings: List[(Bindable, Type)]
       ): Infer[Type] = {
-        def renameTypeMetas(
-            tpe: Type,
-            renameMeta: Map[Type.Meta, Type.Var.Bound],
-            renameSkolem: Map[Type.Var.Skolem, Type.Var.Bound]
-        ): Type = {
-          def renameLeaf(leaf: Type.Leaf): Type.Leaf =
-            leaf match {
-              case Type.TyMeta(meta) =>
-                renameMeta.get(meta) match {
-                  case Some(bound) => Type.TyVar(bound)
-                  case None        => leaf
-                }
-              case Type.TyVar(sk: Type.Var.Skolem) =>
-                renameSkolem.get(sk) match {
-                  case Some(bound) => Type.TyVar(bound)
-                  case None        => leaf
-                }
-              case _ =>
-                leaf
-            }
-
-          def renameLeafApply(
-              in: Type.Leaf | Type.TyApply
-          ): Type.Leaf | Type.TyApply =
-            in match {
-              case leaf: Type.Leaf     => renameLeaf(leaf)
-              case Type.TyApply(on, a) =>
-                Type.TyApply(renameLeafApply(on), renameType(a))
-            }
-
-          def renameRho(rho: Type.Rho): Type.Rho =
-            rho match {
-              case leaf: Type.Leaf        => renameLeaf(leaf)
-              case Type.TyApply(on, a)    =>
-                Type.TyApply(renameLeafApply(on), renameType(a))
-              case Type.Exists(vars, in1) =>
-                Type.Exists(vars, renameLeafApply(in1))
-            }
-
-          def renameType(in: Type): Type =
-            in match {
-              case rho: Type.Rho         => renameRho(rho)
-              case Type.ForAll(vars, in) => Type.ForAll(vars, renameRho(in))
-            }
-
-          renameType(tpe)
-        }
-
         if (!singletonParametricPattern(innerPattern)) pure(expectedType)
         else {
           val innerBindingTypes = innerBindings.map(_._2)
@@ -2743,7 +2695,12 @@ object Infer {
               alignedSkolems.iterator.toMap
             val renamedExpected =
               if (metaToBound.isEmpty && skolemToBound.isEmpty) expectedType
-              else renameTypeMetas(expectedType, metaToBound, skolemToBound)
+              else
+                Type.renameMetaAndSkolemsToBounds(
+                  expectedType,
+                  metaToBound,
+                  skolemToBound
+                )
             val quantifiers =
               freeBounds.map(_ -> Kind.Type) ++
                 alignedMetas.map { case (tm, b) => (b, tm.kind) } ++
@@ -2792,17 +2749,12 @@ object Infer {
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
           }
         case GenPattern.Named(n, p) =>
+          val Expected.Check((t0, _)) = sigma
           for {
             pair0 <- typeCheckPattern(p, sigma, reg)
             (p0, ts0) = pair0
-            t1 <- sigma match {
-              case Expected.Check((t, _)) =>
-                maybeWidenNamedBindingType(p0, t, ts0)
-            }
-            p1 = sigma match {
-              case Expected.Check((t, _)) =>
-                GenPattern.Annotation(GenPattern.Named(n, p0), t)
-            }
+            t1 <- maybeWidenNamedBindingType(p0, t0, ts0)
+            p1 = GenPattern.Annotation(GenPattern.Named(n, p0), t0)
           } yield (p1, (n, t1) :: ts0)
         case GenPattern.StrPat(items) =>
           val tpe = Type.StrType

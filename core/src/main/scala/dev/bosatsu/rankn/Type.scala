@@ -846,8 +846,57 @@ object Type {
       case c @ TyConst(_) => c
     }
 
+  def renameMetaAndSkolemsToBounds(
+      tpe: Type,
+      renameMeta: Map[Type.Meta, Type.Var.Bound],
+      renameSkolem: Map[Type.Var.Skolem, Type.Var.Bound]
+  ): Type = {
+    def renameLeaf(leaf: Type.Leaf): Type.Leaf =
+      leaf match {
+        case Type.TyMeta(meta) =>
+          renameMeta.get(meta) match {
+            case Some(bound) => Type.TyVar(bound)
+            case None        => leaf
+          }
+        case Type.TyVar(sk: Type.Var.Skolem) =>
+          renameSkolem.get(sk) match {
+            case Some(bound) => Type.TyVar(bound)
+            case None        => leaf
+          }
+        case _ =>
+          leaf
+      }
+
+    def renameLeafApply(
+        in: Type.Leaf | Type.TyApply
+    ): Type.Leaf | Type.TyApply =
+      in match {
+        case leaf: Type.Leaf     => renameLeaf(leaf)
+        case Type.TyApply(on, a) =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+      }
+
+    def renameRho(rho: Type.Rho): Type.Rho =
+      rho match {
+        case leaf: Type.Leaf        => renameLeaf(leaf)
+        case Type.TyApply(on, a)    =>
+          Type.TyApply(renameLeafApply(on), renameType(a))
+        case Type.Exists(vars, in1) =>
+          Type.Exists(vars, renameLeafApply(in1))
+      }
+
+    def renameType(in: Type): Type =
+      in match {
+        case rho: Type.Rho         => renameRho(rho)
+        case Type.ForAll(vars, in) => Type.ForAll(vars, renameRho(in))
+      }
+
+    if (renameMeta.isEmpty && renameSkolem.isEmpty) tpe
+    else renameType(tpe)
+  }
+
   /** A successful instantiation result from [[instantiate]].
-    *
+   *
     * `frees` are variables from the left side that remain universally
     * quantified. The mapped bound variable is the name that must appear on the
     * right side after alpha-renaming.

@@ -251,6 +251,32 @@ def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
 """)
   }
 
+  test("tuple recur allows mixing [] and EmptyList singleton forms") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [], Mapped(source, _)):
+      step(rem, source, EmptyList)
+    case (_, EmptyList, Empty):
+      0
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
   test("tuple recur allows custom singleton constructor literal in unchanged earlier component") {
     allowed("""#
 enum Nat:
