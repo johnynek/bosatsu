@@ -29,10 +29,8 @@ tests = TestSuite("all", [
   private val stringTestsName = Identifier.Name("string_tests")
   private val testsName = Identifier.Name("tests")
 
-  private def withRepro[A](
-      fn: (PackageMap.Inferred, Package.Inferred) => A
-  ): A = {
-    var out: Option[A] = None
+  private lazy val reproInferred: (PackageMap.Inferred, Package.Inferred) = {
+    var out: Option[(PackageMap.Inferred, Package.Inferred)] = None
     TestUtils.testInferred(
       List(reproSource),
       reproPackage.asString,
@@ -41,13 +39,20 @@ tests = TestSuite("all", [
           reproPackage,
           fail(s"missing inferred package: ${reproPackage.asString}")
         )
-        out = Some(fn(pm, pack))
+        out = Some((pm, pack))
       }
     )
     out match {
       case Some(value) => value
       case None        => fail("failed to compute issue 1654 repro result")
     }
+  }
+
+  private def withRepro[A](
+      fn: (PackageMap.Inferred, Package.Inferred) => A
+  ): A = {
+    val (pm, pack) = reproInferred
+    fn(pm, pack)
   }
 
   test(

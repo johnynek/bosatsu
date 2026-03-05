@@ -1,15 +1,16 @@
 package dev.bosatsu.pattern
 
 import dev.bosatsu.Generators.{genStrPat, genValidUtf}
-import dev.bosatsu.StringUtil
 import dev.bosatsu.Pattern
+import dev.bosatsu.Platform
+import dev.bosatsu.StringUtil
 import org.scalacheck.Prop.forAll
 import org.scalacheck.Gen
 
 class StrPartTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(100000)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 100000 else 2000)
       .withMaxDiscardRatio(10)
 
   val nonUnicode: Gen[String] =

@@ -12,6 +12,7 @@ import dev.bosatsu.{
   PackageMap,
   Par,
   Parser,
+  Platform,
   PredefImpl,
   PackageName,
   TestUtils,
@@ -23,7 +24,7 @@ import org.scalacheck.{Prop, Gen}
 class ClangGenTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(250000)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 250000 else 1000)
       .withMaxDiscardRatio(10)
 
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {

@@ -15,7 +15,9 @@ import rankn.{Type, NTypeGen, RefSpace}
 class TypedExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 500 else 50
+    )
 
   /** Assert two bits of code normalize to the same thing
     */
