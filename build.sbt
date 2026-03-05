@@ -265,7 +265,8 @@ lazy val cli = (project in file("cli"))
     // static linking doesn't work with macos or with linux http4s on the path
     nativeImageOptions ++= List(
       "--no-fallback",
-      "--verbose"
+      "--verbose",
+      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta"
     ) ++ {
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))

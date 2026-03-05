@@ -8,8 +8,7 @@ object Main extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     PathModule.runAndReport(args) match {
       case Right(io)  =>
-        IOPlatformIO.configureChicoryRuntimeCompilerCacheDir *>
-          io.map(fromToolExit)
+        io.map(fromToolExit)
       case Left(help) =>
         IO.blocking {
           System.err.println(help.toString)
