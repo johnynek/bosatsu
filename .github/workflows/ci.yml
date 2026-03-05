@@ -8,13 +8,11 @@ jobs:
         with:
           path: |
             .sbt-local
-            .bosatsuc/chicory-cache
             ~/.ivy2/cache
             ~/.sbt
             ~/.cache/coursier
-          key: "sbt-${{ runner.os }}-chicory-v1-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"
+          key: "sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"
           restore-keys: |
-            sbt-${{ runner.os }}-chicory-v1-
             sbt-${{ runner.os }}-
       - name: "java ${{matrix.java}} setup"
         uses: "actions/setup-java@v5"
@@ -25,10 +23,8 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run JVM tests"
         run: |
-          cache_dir="$GITHUB_WORKSPACE/.bosatsuc/chicory-cache"
-          mkdir -p "$cache_dir"
-          sbt "-Dscalawasiz3.chicory.runtimeCompilerCacheDir=$cache_dir" "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
-          JAVA_TOOL_OPTIONS="-Dscalawasiz3.chicory.runtimeCompilerCacheDir=$cache_dir ${JAVA_TOOL_OPTIONS:-}" ./test_cli.sh
+          sbt "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
+          ./test_cli.sh
     strategy:
       matrix:
         java:
