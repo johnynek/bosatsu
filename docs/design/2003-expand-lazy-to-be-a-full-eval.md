@@ -122,10 +122,28 @@ Rationale:
 Represent each `Lazy` node as one memo cell with an atomic state, conceptually:
 
 - `Thunk(fn)` for `lazy`
-- `Bind(source, fn)` for `flat_map_Lazy`
+- `Bind(source, k)` where `source` is never a `Bind` node and `k` is a normalized Kleisli chain
 - `Done(value)` for memoized success
 
 `const_Lazy` creates `Done(value)` directly.
+
+### Bind normalization (right-association)
+
+To avoid quadratic behavior from left-associated chains, `flat_map_Lazy` must normalize using monad reassociation:
+
+- `a.flat_map(f).flat_map(g) == a.flat_map(x -> f(x).flat_map(g))`
+
+Implementation invariant:
+
+- The left argument of `Bind` is never another `Bind`; it is always a node that will force directly (`Thunk` or `Done`).
+- Kleisli chains are represented explicitly as either a user function (`UserFn`) or a composition node (`AndThen(k1, k2)`) for `k1` followed by `k2`.
+
+Construction rule for `flat_map_Lazy`:
+
+- If the input lazy is already `Bind(source, k1)`, produce `Bind(source, AndThen(k1, UserFn(f)))`.
+- Otherwise produce `Bind(input, UserFn(f))`.
+
+This keeps construction O(1) per `flat_map_Lazy`, keeps trees right-associated, and prevents nested-left `Bind` towers.
 
 ### Stack-safe forcing algorithm
 
@@ -136,13 +154,14 @@ Represent each `Lazy` node as one memo cell with an atomic state, conceptually:
 - If no continuation frame remains, finish with `v`.
 - Else pop next continuation `fn`, compute next lazy via `fn(v)`, continue loop.
 3. If state is `Thunk(fn)`, run `fn(())`; on success CAS state to `Done(value)`.
-4. If state is `Bind(source, fn)`, push frame and continue with `source`.
+4. If state is `Bind(source, k)`, push the normalized Kleisli chain onto frames and continue with `source`.
 5. On final success, opportunistically path-compress visited `Bind` nodes to `Done(result)` with CAS.
 
 Properties:
 
 - O(1) call stack with O(n) heap frames for n bind depth.
 - All traversed nodes can be memoized after one successful run.
+- Right-associated bind normalization keeps forcing linear in bind depth and avoids quadratic reassociation during evaluation.
 - For the C runtime, continuation frames are temporary evaluator scaffolding (not Bosatsu values), so they can use plain `malloc/free` rather than `GC_malloc` to avoid Boehm GC scanning overhead.
 - GC safety rule for the C runtime: keep a strong reference to the root `Lazy` node until forcing completes, and avoid destructive updates that would sever reachability to frame-referenced `BValue`s before unwind/path-compression is finished.
 
@@ -157,17 +176,18 @@ Properties:
 2. Update evaluator externals in `core/src/main/scala/dev/bosatsu/Predef.scala`.
 - Register `const_Lazy` and `flat_map_Lazy` in `Predef.evalExternals`.
 - Replace current `LazyCell` state with multi-node state model (`Thunk`, `Bind`, `Done`).
+- Implement a normalized Kleisli representation for `Bind` (`UserFn` / `AndThen`) and enforce that `Bind.left` is never `Bind`.
 - Add `const_Lazy` and `flat_map_Lazy` constructors.
 - Rework `get_Lazy` to iterative forcing with explicit continuation stack and best-effort path compression.
 - Preserve retry-on-failure semantics.
 
 3. Update Python externals.
 - `test_workspace/Prog.bosatsu_externals`: add mappings for `const_Lazy` and `flat_map_Lazy`.
-- `test_workspace/ProgExt.py`: extend `_BosatsuLazy` representation with tagged states and iterative `get_Lazy` loop.
+- `test_workspace/ProgExt.py`: extend `_BosatsuLazy` representation with tagged states, normalized `Bind` Kleisli chains, and iterative `get_Lazy` loop.
 
 4. Update C runtime externals.
 - `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.h`: declare new extern symbols.
-- `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c`: implement new constructors and iterative forcing engine with heap continuation frames.
+- `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c`: implement new constructors, normalized `Bind` construction (never left-nested), and iterative forcing engine with heap continuation frames.
 - Keep atomic/CAS best-effort memoization behavior and existing symbol compatibility for `lazy`/`get_Lazy`.
 - Implement continuation frame storage with `malloc/free` (not `GC_malloc`), and explicitly preserve root reachability invariants during forcing so non-GC frames never become the sole owner of live `BValue` references.
 
