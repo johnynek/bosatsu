@@ -1,10 +1,22 @@
 package dev.bosatsu.smt
 
+import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
 class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   import SmtExpr.*
+  import SmtCommand.*
+
+  private val z3Solver = Z3Platform.create()
+  private val liveRunner: Z3Api.RunSmt2 = { smt2 =>
+    z3Solver.runSmt2(smt2) match {
+      case Z3Result.Success(stdout, stderr, _) =>
+        Right(Z3Api.SolverOutput(stdout, stderr))
+      case Z3Result.Failure(msg, _, stdout, stderr, _) =>
+        Left(Z3Api.RunError.ExecutionFailure(msg, stdout, stderr))
+    }
+  }
 
   private val varNames: Vector[String] =
     Vector("x", "y", "z", "a", "b", "u", "v")
@@ -250,6 +262,160 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
       case _             => false
     }
 
+  private def varsInExpr(expr: SmtExpr[?]): Set[String] =
+    expr match {
+      case IntConst(_) | BoolConst(_) =>
+        Set.empty
+      case Var(name) =>
+        Set(name)
+      case App(_, args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Ite(cond, ifTrue, ifFalse) =>
+        varsInExpr(cond) ++ varsInExpr(ifTrue) ++ varsInExpr(ifFalse)
+      case Add(args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Sub(args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Mul(args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Div(num, den) =>
+        varsInExpr(num) ++ varsInExpr(den)
+      case Mod(num, den) =>
+        varsInExpr(num) ++ varsInExpr(den)
+      case Lt(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case Lte(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case Gt(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case Gte(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case EqInt(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case EqBool(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case Not(inner) =>
+        varsInExpr(inner)
+      case And(args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Or(args) =>
+        args.iterator.flatMap(varsInExpr).toSet
+      case Xor(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+      case Implies(left, right) =>
+        varsInExpr(left) ++ varsInExpr(right)
+    }
+
+  private def varsInBool(expr: BoolExpr): Set[String] =
+    varsInExpr(expr)
+
+  private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Boolean = {
+    val pathCond = normalizeBoolForSolver(And(facts.toVector))
+    val goal1 = normalizeBoolForSolver(goal)
+    val vars = (varsInBool(goal1) ++ varsInBool(pathCond)).toList.sorted
+    val declarations = vars.map(name => DeclareConst(name, SmtSort.IntS))
+    val script = SmtScript(
+      Vector(SetLogic.QF_LIA) ++
+        declarations ++
+        Vector(
+          Assert(pathCond),
+          Assert(Not(goal1)),
+          CheckSat
+        )
+    )
+
+    Z3Api.run(script, parseModel = false, liveRunner) match {
+      case Right(res) =>
+        res.status == Z3Api.Status.Unsat
+      case Left(err)  =>
+        fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
+    }
+  }
+
+  private val smallIntAtomGen: Gen[IntExpr] =
+    Gen.frequency(
+      2 -> Gen.oneOf(varNames).map(Var[SmtSort.IntSort](_)),
+      1 -> Gen.chooseNum(-8, 8).map(n => IntConst(BigInt(n)))
+    )
+
+  private def smallIntExprGen(depth: Int): Gen[IntExpr] =
+    if (depth <= 0) smallIntAtomGen
+    else {
+      val rec = smallIntExprGen(depth - 1)
+      val add = for {
+        left <- rec
+        right <- rec
+      } yield Add(Vector(left, right))
+      val sub = for {
+        left <- rec
+        right <- rec
+      } yield Sub(Vector(left, right))
+      Gen.frequency(
+        5 -> smallIntAtomGen,
+        2 -> add,
+        2 -> sub
+      )
+    }
+
+  private val cmpGen: Gen[BoolExpr] = {
+    val cmpCtorGen: Gen[(IntExpr, IntExpr) => BoolExpr] = Gen.oneOf(
+      (left: IntExpr, right: IntExpr) => Lt(left, right),
+      (left: IntExpr, right: IntExpr) => Lte(left, right),
+      (left: IntExpr, right: IntExpr) => Gt(left, right),
+      (left: IntExpr, right: IntExpr) => Gte(left, right),
+      (left: IntExpr, right: IntExpr) => EqInt(left, right)
+    )
+    for {
+      left <- smallIntExprGen(2)
+      right <- smallIntExprGen(2)
+      mk <- cmpCtorGen
+    } yield mk(left, right)
+  }
+
+  private val goalGenForZ3Soundness: Gen[BoolExpr] = {
+    val nonNegSub = for {
+      base <- smallIntExprGen(1)
+      by <- smallIntExprGen(1)
+    } yield Gte(Sub(Vector(base, by)), IntConst(BigInt(0)))
+    val strictDec = for {
+      base <- smallIntExprGen(1)
+      by <- smallIntExprGen(1)
+    } yield Lt(Sub(Vector(base, by)), base)
+
+    Gen.frequency(
+      6 -> cmpGen,
+      2 -> nonNegSub,
+      2 -> strictDec
+    )
+  }
+
+  private val factGenForZ3Soundness: Gen[BoolExpr] = {
+    val geOr = for {
+      left <- smallIntExprGen(1)
+      right <- smallIntExprGen(1)
+    } yield Or(Vector(EqInt(left, right), Gt(left, right)))
+    val leOr = for {
+      left <- smallIntExprGen(1)
+      right <- smallIntExprGen(1)
+    } yield Or(Vector(EqInt(left, right), Lt(left, right)))
+
+    Gen.frequency(
+      5 -> cmpGen,
+      2 -> cmpGen.map(Not(_)),
+      2 -> geOr,
+      2 -> leOr,
+      1 -> geOr.map(Not(_)),
+      1 -> leOr.map(Not(_))
+    )
+  }
+
+  private val z3SoundnessCaseGen: Gen[(BoolExpr, List[BoolExpr])] =
+    for {
+      goal <- goalGenForZ3Soundness
+      size <- Gen.choose(0, 5)
+      facts <- Gen.listOfN(size, factGenForZ3Soundness)
+    } yield (goal, facts)
+
   test("normalizeIntForSolver is idempotent") {
     forAll(intExprGen(5)) { expr =>
       val once = normalizeIntForSolver(expr)
@@ -349,6 +515,50 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("pathImplies proves subtraction non-negativity from variable lower-bound facts") {
+    forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (baseName, byName) =>
+      val base = Var[SmtSort.IntSort](baseName)
+      val by = Var[SmtSort.IntSort](byName)
+      val goal = Gte(Sub(Vector(base, by)), IntConst(BigInt(0)))
+
+      val direct = List(Gte(base, by))
+      val negatedStrict = List(Not(Lt(base, by)))
+      val disjunctive = List(Or(Vector(EqInt(base, by), Gt(base, by))))
+
+      assert(pathImplies(goal, direct))
+      assert(pathImplies(goal, negatedStrict))
+      assert(pathImplies(goal, disjunctive))
+    }
+  }
+
+  test("pathImplies proves strict decrease from positive variable decrement facts") {
+    forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (baseName, byName) =>
+      val base = Var[SmtSort.IntSort](baseName)
+      val by = Var[SmtSort.IntSort](byName)
+      val goal = Lt(Sub(Vector(base, by)), base)
+
+      val directPositive = List(Gt(by, IntConst(BigInt(0))))
+      val fallthroughPositive =
+        List(Not(Or(Vector(Lt(by, IntConst(BigInt(0))), EqInt(by, IntConst(BigInt(0)))))))
+
+      assert(pathImplies(goal, directPositive))
+      assert(pathImplies(goal, fallthroughPositive))
+    }
+  }
+
+  test("pathImplies understands disjunctive and negated guard encodings of comparisons") {
+    forAll(Gen.oneOf(varNames), Gen.oneOf(varNames)) { (leftName, rightName) =>
+      val left = Var[SmtSort.IntSort](leftName)
+      val right = Var[SmtSort.IntSort](rightName)
+
+      val geFact = Or(Vector(EqInt(left, right), Gt(left, right)))
+      val ltFact = Not(geFact)
+
+      assert(pathImplies(Gte(left, right), List(geFact)))
+      assert(pathImplies(Lt(left, right), List(ltFact)))
+    }
+  }
+
   test("pathImplies does not over-claim when the lower bound is insufficient") {
     forAll(Gen.oneOf(varNames), Gen.chooseNum(0, 20)) { (name, by) =>
       val base = Var[SmtSort.IntSort](name)
@@ -366,6 +576,14 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
         val before = pathImplies(goal, facts)
         val after = pathImplies(goal, facts :+ extraFact)
         assert(!before || after)
+    }
+  }
+
+  test("pathImplies either declines to judge or agrees with z3") {
+    forAll(z3SoundnessCaseGen) { case (goal, facts) =>
+      val fast = pathImplies(goal, facts)
+      val z3 = z3Implies(goal, facts)
+      assert(!fast || z3)
     }
   }
 }

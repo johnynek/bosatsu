@@ -1713,7 +1713,7 @@ object TypedExprRecursionCheck {
             SmtCommand.DeclareConst(name, sort)
         }
         val script = SmtScript(
-          Vector(SmtCommand.SetLogic("QF_LIA")) ++
+          Vector(SmtCommand.SetLogic.QF_LIA) ++
             declarations ++
             Vector(
               SmtCommand.Assert(pathCondition1),

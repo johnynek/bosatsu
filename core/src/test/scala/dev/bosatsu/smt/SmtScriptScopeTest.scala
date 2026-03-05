@@ -103,7 +103,7 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
   test("recognizes local define-fun arguments as in scope") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DefineFun(
           "inc",
           Vector("x" -> SmtSort.IntS),
@@ -126,7 +126,7 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
   test("reports undeclared variables used before declaration order-wise") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         Assert(Gt(Var[SmtSort.IntSort]("x"), IntConst(BigInt(0)))),
         DeclareConst("x", SmtSort.IntS),
         CheckSat
@@ -142,7 +142,7 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
       val iVars = vars.ints.toList.sorted
       val bVars = vars.bools.toList.sorted
       val script = SmtScript(
-        Vector(SetLogic("QF_LIA")) ++
+        Vector(SetLogic.QF_LIA) ++
           iVars.map(DeclareConst(_, SmtSort.IntS)) ++
           bVars.map(DeclareConst(_, SmtSort.BoolS)) ++
           Vector(Assert(expr), CheckSat)
@@ -172,13 +172,13 @@ class SmtScriptScopeTest extends munit.ScalaCheckSuite {
                 .filterNot(_ == droppedName)
                 .map(DeclareConst(_, SmtSort.BoolS))
             SmtScript(
-              Vector(SetLogic("QF_LIA")) ++
+              Vector(SetLogic.QF_LIA) ++
                 iDecls ++
                 bDecls ++
                 Vector(Assert(expr), CheckSat)
             )
           case None       =>
-            SmtScript(Vector(SetLogic("QF_LIA"), Assert(expr), CheckSat))
+            SmtScript(Vector(SetLogic.QF_LIA, Assert(expr), CheckSat))
         }
 
       val actual = SmtScriptScope.undeclaredVars(script)

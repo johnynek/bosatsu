@@ -29,7 +29,7 @@ class Z3ApiTest extends munit.FunSuite {
     val x = Var[SmtSort.IntSort]("x")
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DefineFun(
           "clamp_nonneg",
           Vector("x" -> SmtSort.IntS),
@@ -59,7 +59,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("unsat output parses to structured result with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         Assert(
           And(
             Vector(
@@ -80,7 +80,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("sat output with get-model parses model with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DeclareConst("x", SmtSort.IntS),
         Assert(Gt(Var[SmtSort.IntSort]("x"), IntConst(0))),
         CheckSat,
@@ -126,7 +126,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("parseModel=false skips model extraction with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DeclareConst("x", SmtSort.IntS),
         Assert(Gte(Var[SmtSort.IntSort]("x"), IntConst(10))),
         CheckSat,
