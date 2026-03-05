@@ -190,7 +190,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       def delay[A](a: => A): IO[A] =
         IO(a)
 
-      def compute[A](a: => A): IO[A]
+      def compute[A](a: => A): IO[A] =
         IO.blocking(a)
 
       def unsafeNewPromise[A]: Promise[A] =
