@@ -28,6 +28,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       def delay[A](a: => A): IO[A] =
         IO(a)
 
+      def compute[A](a: => A): IO[A] =
+        IO.blocking(a)
+
       def unsafeNewPromise[A]: Promise[A] =
         Deferred.unsafe[IO, Either[Throwable, A]]
 

@@ -25,36 +25,12 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   type F[A] = IO[A]
   type Path = JPath
 
-  private val chicoryRuntimeCompilerCacheDirProperty =
-    "scalawasiz3.chicory.runtimeCompilerCacheDir"
-
-  private def setChicoryRuntimeCompilerCacheDir(cacheDir: Path): IO[Unit] =
-    IO.blocking {
-      Files.createDirectories(cacheDir)
-      System.setProperty(
-        chicoryRuntimeCompilerCacheDirProperty,
-        cacheDir.toString
-      )
-      ()
-    }
-
   def pathOrdering = Ordering.ordered[JPath]
 
   override def pathArg: Argument[Path] =
     Argument.readPath
 
   def pathToString(p: Path): String = p.toString
-
-  def configureChicoryRuntimeCompilerCacheDir: IO[Unit] =
-    gitTopLevel.flatMap {
-      case Some(root) =>
-        val cacheDir = resolve(root, ".bosatsuc" :: "chicory-cache" :: Nil)
-        setChicoryRuntimeCompilerCacheDir(cacheDir)
-      case None =>
-        val cwd = Paths.get(".").toAbsolutePath.normalize
-        val cacheDir = resolve(cwd, ".bosatsuc" :: "chicory-cache" :: Nil)
-        setChicoryRuntimeCompilerCacheDir(cacheDir)
-    }
 
   private def systemCmd[A](
       cmd: String,
@@ -189,6 +165,9 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
 
       def delay[A](a: => A): IO[A] =
         IO(a)
+
+      def compute[A](a: => A): IO[A] =
+        IO.blocking(a)
 
       def unsafeNewPromise[A]: Promise[A] =
         Deferred.unsafe[IO, Either[Throwable, A]]

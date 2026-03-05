@@ -325,12 +325,19 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
           CheckSat
         )
     )
+    val smt2 = SmtLibRender.renderScript(script)
 
     Z3Api.run(script, parseModel = false, liveRunner) match {
       case Right(res) =>
         res.status == Z3Api.Status.Unsat
       case Left(err)  =>
-        fail(s"unexpected z3 failure while checking pathImplies soundness: ${err.message}")
+        val showSmt2 = err.message.toLowerCase.contains("trap")
+        val detail =
+          if (showSmt2) s"\nSMT-LIB sent to z3:\n$smt2"
+          else ""
+        fail(
+          s"unexpected z3 failure while checking pathImplies soundness: ${err.message}$detail"
+        )
     }
   }
 

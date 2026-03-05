@@ -122,30 +122,9 @@ java_matrix_bootstrap_steps = [
   setup_sbt_step,
 ]
 
-test_sbt_cache_fetch_step =
-  Step {
-    with: Set(FetchJavaWith {
-      path: Set(cat_lines([
-        ".sbt-local",
-        ".bosatsuc/chicory-cache",
-        "~/.ivy2/cache",
-        "~/.sbt",
-        "~/.cache/coursier",
-        "",
-      ])),
-      key: Set("sbt-\${{ runner.os }}-chicory-v1-\${{ hashFiles('**/*.sbt', 'project/**/*.scala', 'project/build.properties', 'project/plugins.sbt', '.sbtopts') }}"),
-      `restore-keys`: Set(cat_lines([
-        "sbt-\${{ runner.os }}-chicory-v1-",
-        "sbt-\${{ runner.os }}-",
-        "",
-      ])),
-    }),
-    ..sbt_cache_fetch_step,
-  }
-
 test_java_matrix_bootstrap_steps = [
   checkout_v2_step,
-  test_sbt_cache_fetch_step,
+  sbt_cache_fetch_step,
   matrix_java_fetch_step,
   setup_sbt_step,
 ]
@@ -198,10 +177,8 @@ workflow =
           Step {
             name: Set("run JVM tests"),
             run: Set(cat_lines([
-              "cache_dir=\"$GITHUB_WORKSPACE/.bosatsuc/chicory-cache\"",
-              "mkdir -p \"$cache_dir\"",
-              "sbt \"-Dscalawasiz3.chicory.runtimeCompilerCacheDir=$cache_dir\" \"coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox\"",
-              "JAVA_TOOL_OPTIONS=\"-Dscalawasiz3.chicory.runtimeCompilerCacheDir=$cache_dir \${JAVA_TOOL_OPTIONS:-}\" ./test_cli.sh",
+              "sbt \"coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox\"",
+              "./test_cli.sh",
               "",
             ])),
           },
