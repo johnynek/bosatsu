@@ -462,6 +462,41 @@ main = plus(1, 2)
   }
 
   test("test some error messages") {
+    if (!Platform.isScalaJvm) {
+      evalFail(List("""
+package B
+
+from A import a
+
+main = a""")) { case PackageError.UnknownImportPackage(_, _) => () }
+
+      evalFail(List("""
+package B
+
+main = a""")) { case te: PackageError.TypeErrorIn =>
+        val msg = te.message(Map.empty, Colorize.None)
+        assert(!msg.contains("Name("))
+        assert(msg.contains("package B\nUnknown name `a`."))
+        ()
+      }
+
+      evalFail(List("""
+package A
+
+def fn(x):
+  recur x:
+    case y: 0
+
+main = fn
+""")) { case te @ PackageError.RecursionError(_, _) =>
+        assert(
+          te.message(Map.empty, Colorize.None).contains(
+            "recur but no recursive call to fn"
+          )
+        )
+        ()
+      }
+    } else {
     evalFail(
       List(
         """
@@ -974,10 +1009,43 @@ baz = bar
       fallbackMessage.contains("in file: src/MyLib/Fib.bosatsu, package MyLib/Fib"),
       fallbackMessage
     )
-    assert(!fallbackMessage.contains("<unknown source>"), fallbackMessage)
+      assert(!fallbackMessage.contains("<unknown source>"), fallbackMessage)
+    }
   }
 
   test("record patterns") {
+    if (!Platform.isScalaJvm) {
+      runBosatsuTest(
+        List("""
+package A
+
+struct Pair(first, second)
+
+get = Pair(first, ...) -> first
+
+res = get(Pair(1, "two"))
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""),
+        "A",
+        1
+      )
+
+      evalFail(List("""
+package A
+
+struct Pair(first, second)
+
+main = Nope { first: 1, second: "two" }
+""")) { case s @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+        val msg = s.message(Map.empty, Colorize.None)
+        assert(msg.contains("Unknown constructor `Nope`."))
+        ()
+      }
+    } else {
     runBosatsuTest(
       List("""
 package A
@@ -1290,6 +1358,7 @@ main = get(Pair(1, "two"))
       val msg = s.message(Map.empty, Colorize.None)
       assert(msg.contains("Unknown constructor `Nope`."))
       ()
+    }
     }
   }
 
