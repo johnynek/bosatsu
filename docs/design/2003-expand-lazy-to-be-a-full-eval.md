@@ -143,6 +143,8 @@ Properties:
 
 - O(1) call stack with O(n) heap frames for n bind depth.
 - All traversed nodes can be memoized after one successful run.
+- For the C runtime, continuation frames are temporary evaluator scaffolding (not Bosatsu values), so they can use plain `malloc/free` rather than `GC_malloc` to avoid Boehm GC scanning overhead.
+- GC safety rule for the C runtime: keep a strong reference to the root `Lazy` node until forcing completes, and avoid destructive updates that would sever reachability to frame-referenced `BValue`s before unwind/path-compression is finished.
 
 ## Implementation plan
 
@@ -167,6 +169,7 @@ Properties:
 - `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.h`: declare new extern symbols.
 - `c_runtime/bosatsu_ext_Bosatsu_l_Lazy.c`: implement new constructors and iterative forcing engine with heap continuation frames.
 - Keep atomic/CAS best-effort memoization behavior and existing symbol compatibility for `lazy`/`get_Lazy`.
+- Implement continuation frame storage with `malloc/free` (not `GC_malloc`), and explicitly preserve root reachability invariants during forcing so non-GC frames never become the sole owner of live `BValue` references.
 
 5. Add/extend tests.
 - `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`: API correctness, memoization, failure retry, and deep-chain stack-safety tests.
