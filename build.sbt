@@ -266,6 +266,7 @@ lazy val cli = (project in file("cli"))
     nativeImageOptions ++= List(
       "--no-fallback",
       "--verbose",
+      "-J-Xmx12g",
       "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta"
     ) ++ {
       val staticOpt =
