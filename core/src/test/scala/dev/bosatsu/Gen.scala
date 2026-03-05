@@ -825,7 +825,7 @@ object Generators {
 
     val genCase: Gen[Declaration.MatchBranch] =
       Gen.zip(genPattern(3), guardGen, padBody).map { case (pat, guard, body) =>
-        MatchBranch(pat, guard, body)
+        MatchBranch(pat, guard, body)(using emptyRegion)
       }
 
     for {
@@ -2035,7 +2035,7 @@ object Generators {
                       recur
                     )
                     .map { case (pat, guard, expr) =>
-                      Expr.Branch(pat, guard, expr)
+                      Expr.Branch(pat, guard, expr)(using emptyRegion)
                     },
                   3
                 ),

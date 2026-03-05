@@ -30,6 +30,7 @@ object Region extends RegionLowPriority {
   def apply(start: Int, end: Int): Tpe =
     (start.toLong << 32) | (end.toLong & 0xffffffffL)
 
+  val empty: Tpe = Region(0, 0)
 
   implicit val ordering: Ordering[Region] =
     Ordering.Long

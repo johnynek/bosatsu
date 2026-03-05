@@ -598,7 +598,7 @@ main = match 1:
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\n[49, 50)"
+        "in file: <unknown source>, package B\nUnknown constructor `X1`.\nDid you mean constructor `X`?\n[45, 47)"
       )
       ()
     }
@@ -1777,7 +1777,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[48, 49)"
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[40, 46)"
       )
       ()
     }
@@ -1795,7 +1795,7 @@ test = Assertion(True, "")
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[68, 69)"
+        "in file: <unknown source>, package Foo\nrepeated bindings in pattern: a\n[50, 66)"
       )
       ()
     }
@@ -2063,6 +2063,30 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
       assert(message.contains("[227, 250)"), message)
       assert(message.contains("where unknown type"), message)
       assert(!"\\?[0-9]+".r.findFirstIn(message).isDefined, message)
+      ()
+    }
+  }
+
+  test("recur pattern tuple mismatch points at the pattern site") {
+    val testCode = """
+package RecurPattern
+
+def go(rem: Int, current: Int, pending: Int) -> Int:
+  recur (rem, pending, current):
+    case (_, _):
+      rem
+"""
+    val pattern = "(_, _)"
+    val start = testCode.indexOf(pattern)
+    assert(start >= 0, testCode)
+    val end = start + pattern.length
+
+    evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("expected type Tuple3"), message)
+      assert(message.contains("but found type Tuple2"), message)
+      assert(message.contains(s"[$start, $end)"), message)
+      assertEquals(testCode.substring(start, end), pattern)
       ()
     }
   }

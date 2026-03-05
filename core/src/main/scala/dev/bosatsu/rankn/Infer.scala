@@ -2360,9 +2360,11 @@ object Infer {
                 branches.map { branch =>
                   // we have to put the tag to be r.tag
                   // because that's where the regions come from
-                  branch.copy(expr =
+                  Expr.Branch(
+                    branch.pattern,
+                    branch.guard,
                     Annotation(branch.expr, tpe, branch.expr.tag)
-                  )
+                  )(using branch.patternRegion)
                 },
                 mtag
               )
@@ -2595,25 +2597,26 @@ object Infer {
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)],
         resT: Type.Rho
-    ): Infer[TypedExpr.Branch[A]] =
+    ): Infer[TypedExpr.Branch[A]] = {
       for {
         (pattern, bindings) <- typeCheckPattern(
           branch.pattern,
           sigma,
-          region(branch.expr)
+          branch.patternRegion
         )
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
         )
         tres <- extendEnvList(bindings)(checkRho(branch.expr, resT))
       } yield TypedExpr.Branch(pattern, tguard, tres)
+    }
 
     def inferBranch[A: HasRegion](
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)]
-    ): Infer[(TypedExpr.Branch[A], Type.Rho)] =
+    ): Infer[(TypedExpr.Branch[A], Type.Rho)] = {
       for {
-        patBind <- typeCheckPattern(branch.pattern, sigma, region(branch.expr))
+        patBind <- typeCheckPattern(branch.pattern, sigma, branch.patternRegion)
         (pattern, bindings) = patBind
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
@@ -2621,6 +2624,7 @@ object Infer {
         // inferRho returns a TypedExpr.Rho (which is only an alias)
         res <- extendEnvList(bindings)(inferRho(branch.expr))
       } yield (TypedExpr.Branch(pattern, tguard, res._1), res._2)
+    }
 
     /** patterns can be a sigma type, not neccesarily a rho/tau return a list of
       * bound names and their (sigma) types

@@ -177,7 +177,7 @@ class RankNInferTest extends munit.FunSuite {
       arg,
       branches.map { case (p, e) =>
         val p1 = p.mapName(n => (testPackage, Constructor(n)))
-        Expr.Branch(p1, None, e)
+        Expr.Branch(p1, None, e)(using Region.empty)
       },
       ()
     )
@@ -408,8 +408,10 @@ class RankNInferTest extends munit.FunSuite {
     val guarded = Expr.Match(
       lit(true),
       NonEmptyList.of(
-        Expr.Branch(Pattern.Var(vname), Some(v("v")), lit(0)),
-        Expr.Branch(Pattern.WildCard, None, lit(1))
+        Expr.Branch(Pattern.Var(vname), Some(v("v")), lit(0))(using
+          Region.empty
+        ),
+        Expr.Branch(Pattern.WildCard, None, lit(1))(using Region.empty)
       ),
       ()
     )
@@ -419,8 +421,10 @@ class RankNInferTest extends munit.FunSuite {
     val leaked = Expr.Match(
       lit(true),
       NonEmptyList.of(
-        Expr.Branch(Pattern.Var(vname), Some(lit(true)), lit(0)),
-        Expr.Branch(Pattern.WildCard, None, v("v"))
+        Expr.Branch(Pattern.Var(vname), Some(lit(true)), lit(0))(using
+          Region.empty
+        ),
+        Expr.Branch(Pattern.WildCard, None, v("v"))(using Region.empty)
       ),
       ()
     )
@@ -438,8 +442,10 @@ class RankNInferTest extends munit.FunSuite {
     val badGuard = Expr.Match(
       lit(true),
       NonEmptyList.of(
-        Expr.Branch(Pattern.WildCard, Some(lit(0)), lit(0)),
-        Expr.Branch(Pattern.WildCard, None, lit(1))
+        Expr.Branch(Pattern.WildCard, Some(lit(0)), lit(0))(using
+          Region.empty
+        ),
+        Expr.Branch(Pattern.WildCard, None, lit(1))(using Region.empty)
       ),
       ()
     )

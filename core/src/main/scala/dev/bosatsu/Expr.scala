@@ -138,7 +138,11 @@ sealed abstract class Expr[T] derives CanEqual {
         Match(
           arg.eraseTags,
           branches.map { b =>
-            Branch(b.pattern, b.guard.map(_.eraseTags), b.expr.eraseTags)
+            Branch(
+              b.pattern,
+              b.guard.map(_.eraseTags),
+              b.expr.eraseTags
+            )(using Region.empty)
           },
           ()
         )
@@ -195,7 +199,7 @@ object Expr {
       pattern: Pattern[(PackageName, Constructor), Type],
       guard: Option[Expr[T]],
       expr: Expr[T]
-  )
+  )(using val patternRegion: Region)
   case class Match[T](
       arg: Expr[T],
       branches: NonEmptyList[Branch[T]],
@@ -305,8 +309,8 @@ object Expr {
     Match(
       cond,
       NonEmptyList.of(
-        Branch(TruePat, None, ifTrue),
-        Branch(FalsePat, None, ifFalse)
+        Branch(TruePat, None, ifTrue)(using Region.empty),
+        Branch(FalsePat, None, ifFalse)(using Region.empty)
       ),
       tag
     )
@@ -358,7 +362,9 @@ object Expr {
             b.pattern.traverseType(fn(_, bound)),
             b.guard.traverse(traverseType[T, F](_, bound)(fn)),
             traverseType[T, F](b.expr, bound)(fn)
-          ).mapN(Branch(_, _, _))
+          ).mapN { (pat, guard, expr) =>
+            Branch(pat, guard, expr)(using b.patternRegion)
+          }
         val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Match(_, _, tag))
     }
@@ -461,7 +467,7 @@ object Expr {
       case (((name, _), Some(matchPat)), body) =>
         Match(
           Local(name, outer),
-          NonEmptyList.one(Branch(matchPat, None, body)),
+          NonEmptyList.one(Branch(matchPat, None, body)(using Region.empty)),
           outer
         )
     }
