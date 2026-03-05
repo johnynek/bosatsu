@@ -10,11 +10,13 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
 
   private val z3Solver = Z3Platform.create()
   private val liveRunner: Z3Api.RunSmt2 = { smt2 =>
-    z3Solver.runSmt2(smt2) match {
-      case Z3Result.Success(stdout, stderr, _) =>
-        Right(Z3Api.SolverOutput(stdout, stderr))
-      case Z3Result.Failure(msg, _, stdout, stderr, _) =>
-        Left(Z3Api.RunError.ExecutionFailure(msg, stdout, stderr))
+    Z3Api.withGlobalSolverLock {
+      z3Solver.runSmt2(smt2) match {
+        case Z3Result.Success(stdout, stderr, _) =>
+          Right(Z3Api.SolverOutput(stdout, stderr))
+        case Z3Result.Failure(msg, _, stdout, stderr, _) =>
+          Left(Z3Api.RunError.ExecutionFailure(msg, stdout, stderr))
+      }
     }
   }
 
@@ -582,8 +584,9 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
   test("pathImplies either declines to judge or agrees with z3") {
     forAll(z3SoundnessCaseGen) { case (goal, facts) =>
       val fast = pathImplies(goal, facts)
-      val z3 = z3Implies(goal, facts)
-      assert(!fast || z3)
+      if (fast) {
+        assert(z3Implies(goal, facts))
+      }
     }
   }
 }
