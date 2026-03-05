@@ -39,13 +39,6 @@ object Z3Api {
       stderr: String
   )
 
-  // Embedded z3.wasm execution is not thread-safe across concurrent callers.
-  // Serialize access to keep solver invocations reliable under parallel test runs.
-  private val solverRunLock = new AnyRef
-
-  private[bosatsu] def withGlobalSolverLock[A](fn: => A): A =
-    solverRunLock.synchronized(fn)
-
   type RunSmt2 = String => Either[RunError.ExecutionFailure, SolverOutput]
 
   def run(script: SmtScript, runSmt2: RunSmt2): Either[RunError, StructuredResult] =
