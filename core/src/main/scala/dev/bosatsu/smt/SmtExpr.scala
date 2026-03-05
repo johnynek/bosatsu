@@ -45,26 +45,44 @@ object SmtExpr {
 
   // Bool built-ins
   final case class Not(expr: BoolExpr) extends SmtExpr[SmtSort.BoolSort]
-  final case class And(args: Vector[BoolExpr]) extends SmtExpr[SmtSort.BoolSort]
-  final case class Or(args: Vector[BoolExpr]) extends SmtExpr[SmtSort.BoolSort]
+  final case class And private (args: Vector[BoolExpr])
+      extends SmtExpr[SmtSort.BoolSort]
+  object And {
+    def apply(args: Vector[BoolExpr]): BoolExpr =
+      args.size match {
+        case 0 => BoolConst.True
+        case 1 => args.head
+        case _ => new And(args)
+      }
+
+    def apply(first: BoolExpr, second: BoolExpr, rest: BoolExpr*): And =
+      new And((first :: second :: rest.toList).toVector)
+
+    def unapply(and: And): Some[Vector[BoolExpr]] =
+      Some(and.args)
+  }
+
+  final case class Or private (args: Vector[BoolExpr])
+      extends SmtExpr[SmtSort.BoolSort]
+  object Or {
+    def apply(args: Vector[BoolExpr]): BoolExpr =
+      args.size match {
+        case 0 => BoolConst.False
+        case 1 => args.head
+        case _ => new Or(args)
+      }
+
+    def apply(first: BoolExpr, second: BoolExpr, rest: BoolExpr*): Or =
+      new Or((first :: second :: rest.toList).toVector)
+
+    def unapply(or: Or): Some[Vector[BoolExpr]] =
+      Some(or.args)
+  }
+
   final case class Xor(left: BoolExpr, right: BoolExpr)
       extends SmtExpr[SmtSort.BoolSort]
   final case class Implies(left: BoolExpr, right: BoolExpr)
       extends SmtExpr[SmtSort.BoolSort]
-
-  private def mkAnd(args: Vector[BoolExpr]): BoolExpr =
-    args.size match {
-      case 0 => BoolConst.True
-      case 1 => args.head
-      case _ => And(args)
-    }
-
-  private def mkOr(args: Vector[BoolExpr]): BoolExpr =
-    args.size match {
-      case 0 => BoolConst.False
-      case 1 => args.head
-      case _ => Or(args)
-    }
 
   private def simplifyBoolExpr(expr: BoolExpr): BoolExpr =
     expr match {
@@ -80,11 +98,11 @@ object SmtExpr {
       case And(args) =>
         val simp = args.map(simplifyBoolExpr)
         if (simp.contains(BoolConst.False)) BoolConst.False
-        else mkAnd(simp.filterNot(_ == BoolConst.True))
+        else And(simp.filterNot(_ == BoolConst.True))
       case Or(args)  =>
         val simp = args.map(simplifyBoolExpr)
         if (simp.contains(BoolConst.True)) BoolConst.True
-        else mkOr(simp.filterNot(_ == BoolConst.False))
+        else Or(simp.filterNot(_ == BoolConst.False))
       case Ite(cond, ifTrue, ifFalse) =>
         val c = simplifyBoolExpr(cond)
         val t = simplifyBoolExpr(ifTrue)

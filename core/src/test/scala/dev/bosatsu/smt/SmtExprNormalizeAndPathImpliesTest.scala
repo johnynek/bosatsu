@@ -310,20 +310,16 @@ class SmtExprNormalizeAndPathImpliesTest extends munit.ScalaCheckSuite {
     varsInExpr(expr)
 
   private def z3Implies(goal: BoolExpr, facts: List[BoolExpr]): Boolean = {
-    val vars = (varsInBool(goal) ++ facts.iterator.flatMap(varsInBool)).toList.sorted
+    val pathCond = normalizeBoolForSolver(And(facts.toVector))
+    val goal1 = normalizeBoolForSolver(goal)
+    val vars = (varsInBool(goal1) ++ varsInBool(pathCond)).toList.sorted
     val declarations = vars.map(name => DeclareConst(name, SmtSort.IntS))
-    val pathCond =
-      facts match {
-        case Nil      => BoolConst.True
-        case h :: Nil => h
-        case _        => And(facts.toVector)
-      }
     val script = SmtScript(
-      Vector(SetLogic("QF_LIA")) ++
+      Vector(SetLogic.QF_LIA) ++
         declarations ++
         Vector(
           Assert(pathCond),
-          Assert(Not(goal)),
+          Assert(Not(goal1)),
           CheckSat
         )
     )
