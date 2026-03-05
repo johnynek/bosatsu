@@ -39,6 +39,9 @@ object Par {
     def delay[A](a: => A): F[A] =
       start(a)
 
+    def compute[A](a: => A): F[A] =
+      start(a)
+
     def unsafeNewPromise[A]: Promise[A] =
       promise[A]
 

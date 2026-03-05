@@ -520,7 +520,6 @@ object Package {
               tn
             }.toSet
 
-          val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
 
           val inferenceEither
               : Either[
@@ -553,6 +552,8 @@ object Package {
               )
             }
             .flatMap { typedLets =>
+              val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+
               val recursionCheck: ValidatedNel[PackageError, Unit] =
                 TypedExprRecursionCheck
                 .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)

@@ -215,6 +215,9 @@ object MemoryMain {
         def delay[A](a: => A): F[A] =
           moduleIOMonad.fromTry(scala.util.Try(a))
 
+        def compute[A](a: => A): F[A] =
+          moduleIOMonad.fromTry(scala.util.Try(a))
+
         def unsafeNewPromise[A]: Promise[A] =
           new PromiseBox[A]
 
