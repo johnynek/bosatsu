@@ -126,12 +126,6 @@ static inline uint16_t count_indentation(TSLexer *lexer) {
   return indent;
 }
 
-static inline void skip_comment(TSLexer *lexer) {
-  while (!lexer->eof(lexer) && lexer->lookahead != '\n' && lexer->lookahead != '\r') {
-    lexer->advance(lexer, true);
-  }
-}
-
 bool tree_sitter_bosatsu_external_scanner_scan(
     void *payload,
     TSLexer *lexer,
@@ -162,11 +156,7 @@ bool tree_sitter_bosatsu_external_scanner_scan(
   if (scanner->at_line_start && (valid_symbols[INDENT] || valid_symbols[DEDENT])) {
     uint16_t indent = count_indentation(lexer);
 
-    if (lexer->lookahead == '#') {
-      skip_comment(lexer);
-    }
-
-    if (!(lexer->lookahead == '\n' || lexer->lookahead == '\r' || lexer->eof(lexer))) {
+    if (!(lexer->lookahead == '\n' || lexer->lookahead == '\r' || lexer->lookahead == '#' || lexer->eof(lexer))) {
       uint16_t current = current_indent(scanner);
       if (indent > current && valid_symbols[INDENT]) {
         if (scanner->indent_count < MAX_INDENTS) {
@@ -215,6 +205,8 @@ bool tree_sitter_bosatsu_external_scanner_scan(
     }
   }
 
-  scanner->at_line_start = false;
+  if (lexer->lookahead != '#') {
+    scanner->at_line_start = false;
+  }
   return false;
 }
