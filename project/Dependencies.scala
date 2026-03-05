@@ -28,6 +28,6 @@ object Dependencies {
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.19.0")
-  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.8")
+  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.9")
   lazy val slf4jNop = Def.setting("org.slf4j" % "slf4j-nop" % "2.0.17")
 }
