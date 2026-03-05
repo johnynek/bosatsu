@@ -203,6 +203,110 @@ def bad(n, m):
 """)
   }
 
+  test("tuple recur allows singleton empty list literal in unchanged earlier component") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [], Mapped(source, _)):
+      step(rem, source, [])
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows singleton alias substitution ([] as e then e)") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [] as e, Mapped(source, _)):
+      step(rem, source, e)
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows custom singleton constructor literal in unchanged earlier component") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum MyList[a]:
+  EList
+  NList(head: a, tail: MyList[a])
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, EList, Mapped(source, _)):
+      step(rem, source, EList)
+    case (_, NList(next, rest), Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows custom singleton alias substitution (EList as e then e)") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum MyList[a]:
+  EList
+  NList(head: a, tail: MyList[a])
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, EList as e, Mapped(source, _)):
+      step(rem, source, e)
+    case (_, NList(next, rest), Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
   test("recur supports Int targets with provable decrease and non-negative next values") {
     allowed("""#
 def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
