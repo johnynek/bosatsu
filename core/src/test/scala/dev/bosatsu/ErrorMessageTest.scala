@@ -1682,6 +1682,36 @@ main = under_twenty(3)
   }
 
   test(
+    "match branch mismatch reports expected and inferred branch result types"
+  ) {
+    val src = """
+package A
+
+enum LazyList[a]:
+  Mapped[b](source: LazyList[b], fn: b -> a)
+
+def flat_map(ll: LazyList[a], fn: a -> LazyList[b]) -> LazyList[b]:
+  match ll:
+    case Mapped(source, fn1):
+      Mapped(source, x -> fn(fn1(x)))
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("match branch result type mismatch"), msg)
+      assert(msg.contains("expected branch type: LazyList["), msg)
+      assert(msg.contains("found branch type: a[b]"), msg)
+      assert(
+        msg.contains(
+          "hint: this may be one extra layer, for example LazyList[LazyList["
+        ),
+        msg
+      )
+      ()
+    }
+  }
+
+  test(
     "repeated related mismatches show all evidence sites in combined errors"
   ) {
     val region0 = Region(10, 11)

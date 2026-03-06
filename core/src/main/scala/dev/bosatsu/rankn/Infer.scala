@@ -249,6 +249,14 @@ object Infer {
           scrutineeRegion: Region,
           patternRegion: Region
       ) extends MismatchSite
+
+      case class MatchBranchResult(
+          expectedResultType: Type,
+          inferredResultType: Option[Type],
+          scrutineeRegion: Region,
+          patternRegion: Region,
+          branchRegion: Region
+      ) extends MismatchSite
     }
 
     /** These are errors in the ability to type the code Generally these cannot
@@ -2607,7 +2615,26 @@ object Infer {
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
         )
-        tres <- extendEnvList(bindings)(checkRho(branch.expr, resT))
+        inferredResType <- extendEnvList(bindings)(
+          inferRho(branch.expr).peek.map {
+            case Right((_, inferred)) => Some(inferred: Type)
+            case Left(_)              => None
+          }
+        )
+        tres <- extendEnvList(bindings)(
+          checkRho(branch.expr, resT)
+            .mapError { err =>
+              contextualTypeError(
+                Error.MismatchSite.MatchBranchResult(
+                  expectedResultType = resT,
+                  inferredResultType = inferredResType,
+                  scrutineeRegion = sigma.value._2,
+                  patternRegion = branch.patternRegion,
+                  branchRegion = region(branch.expr)
+                )
+              )(err)
+            }
+        )
       } yield TypedExpr.Branch(pattern, tguard, tres)
     }
 
