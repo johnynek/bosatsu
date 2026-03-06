@@ -264,6 +264,22 @@ def bad(opt: Option[a]) -> Option[a]:
 """)
   }
 
+  test("recur allows union branches when recursive args are smaller for every branch") {
+    allowed("""#
+enum T:
+  Z
+  A(t: T)
+  B(t: T)
+
+def ok(v: T) -> T:
+  recur v:
+    case A(x) | B(x):
+      ok(x)
+    case Z:
+      Z
+""")
+  }
+
   test("tuple recur targets allow lexicographic decrease") {
     allowed("""#
 enum Nat: Zero, Succ(prev: Nat)
