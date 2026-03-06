@@ -89,6 +89,31 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     )
   }
 
+  test("unused local def points to only that def body") {
+    val source =
+      """package A
+        |
+        |main = (
+        |  limit = 10
+        |
+        |  def fuel_for_take(rem: Int) -> Int:
+        |    rem.add(1)
+        |
+        |  def step(rem: Int) -> Int:
+        |    rem
+        |
+        |  step(limit)
+        |)
+        |""".stripMargin
+
+    val message = unusedLetMessage(source)
+    assert(message.contains("unused value 'fuel_for_take'"), message)
+    assert(message.contains("def fuel_for_take(rem: Int) -> Int:"), message)
+    assert(message.contains("rem.add(1)"), message)
+    assert(!message.contains("def step(rem: Int) -> Int:"), message)
+    assert(!message.contains("step(limit)"), message)
+  }
+
   test("matches identifier binding is reported as a source-converter error") {
     evalFail(List("""
 package MatchesBinding
