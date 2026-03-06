@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c4068d1*
+0.0.0+1-09ef525a*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-9c4068d1*
+0.0.0+1-09ef525a*
 </div>
 </div>
 <div class="nav-toc">
@@ -149,6 +149,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <p><code>recur</code> matches a parameter name, or a tuple of parameter names, of the  nearest enclosing <code>def</code>.</p></li>
   <li>
   <p>With a single target (<code>recur x</code>), recursive calls are allowed only when the  call argument for <code>x</code> is structurally smaller.</p></li>
+  <li>
+  <p>For ADT targets, Bosatsu also accepts constructor-rank decreases in a  branch that proves the current constructor.  A recursive call can pass an earlier constructor in source order  (for example <code>Some(_) -&gt; None</code>, <code>Even(prev) -&gt; Odd(prev)</code>), including  zero-argument constructors.  This still requires direct recursive payload fields (<code>Fi == T</code>) to use  already-proven smaller local names from the branch.  Wrapped recursive payloads (<code>Fi</code> contains <code>T</code> but <code>Fi != T</code>, such as  <code>List[T]</code>) are intentionally rejected in this version.</p></li>
   <li>
   <p>With a tuple target (<code>recur (x0, x1, ..., xk)</code>), recursive calls must be  lexicographically smaller in that target order.</p></li>
   <li>
@@ -430,7 +432,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-9c4068d1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-09ef525a-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
