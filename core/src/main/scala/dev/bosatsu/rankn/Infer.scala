@@ -2903,7 +2903,19 @@ object Infer {
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
+            foundPatternType <- constructorPatternType(nm, reg)
             params <- instDataCon(nm, sigma.value._1, reg, sigma.value._2)
+              .mapError { err =>
+                contextualTypeError(
+                  Error.MismatchSite.MatchPattern(
+                    pat,
+                    sigma.value._1,
+                    foundPatternType,
+                    sigma.value._2,
+                    reg
+                  )
+                )(err)
+              }
             // we need to do a pattern linting phase and probably error
             // if the pattern arity does not match the arity of the constructor
             // but we don't want to error type-checking since we want to show
@@ -2957,6 +2969,17 @@ object Infer {
         reg: Region
     ): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
+
+    def constructorPatternType(
+        consName: (PackageName, Constructor),
+        reg: Region
+    ): Infer[Type] =
+      GetDataCons(consName, reg).map { case (args, _, _, tpeName) =>
+        Type.applyAll(
+          Type.TyConst(tpeName),
+          args.map { case (tparam, _) => Type.TyVar(tparam) }
+        )
+      }
 
     /** To do this, Infer will need to know the names of the type constructors
       * in scope.
