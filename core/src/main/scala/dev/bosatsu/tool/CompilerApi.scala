@@ -54,7 +54,7 @@ object CompilerApi {
       category: ErrorCategory,
       title: String,
       summaryCount: Int,
-      body: String
+      body: Doc
   )
 
   private def pluralizedLabel(
@@ -79,7 +79,7 @@ object CompilerApi {
 
   private def classifyError(
       err: PackageError,
-      message: String
+      body: Doc
   ): RenderedDiagnostic =
     err match {
       case e: PackageError.UnusedLetError =>
@@ -87,55 +87,55 @@ object CompilerApi {
         val title =
           if (count == 1) s"unused value '${e.errs.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, message)
+        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
           if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, message)
+        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.TypeErrorIn =>
         val count = typeErrorCount(e)
         RenderedDiagnostic(
           ErrorCategory.TypeError,
           formatDiagnosticTitle(ErrorCategory.TypeError, count),
           count,
-          message
+          body
         )
       case _: PackageError.KindInferenceError =>
         RenderedDiagnostic(
           ErrorCategory.TypeError,
           "type error",
           1,
-          message
+          body
         )
       case _: PackageError.ShadowedBindingTypeError =>
         RenderedDiagnostic(
           ErrorCategory.TypeError,
           "type error",
           1,
-          message
+          body
         )
       case _: PackageError.PrivateTypeEscape[?] =>
         RenderedDiagnostic(
           ErrorCategory.TypeError,
           "type error",
           1,
-          message
+          body
         )
       case _: PackageError.RecursionError =>
         RenderedDiagnostic(
           ErrorCategory.RecursionError,
           "recursion error",
           1,
-          message
+          body
         )
       case _: PackageError.TotalityCheckError =>
         RenderedDiagnostic(
           ErrorCategory.TotalityError,
           "totality error",
           1,
-          message
+          body
         )
       case e: PackageError.SourceConverterErrorsIn =>
         val count = e.errs.length
@@ -143,7 +143,7 @@ object CompilerApi {
           ErrorCategory.SourceConversionError,
           formatDiagnosticTitle(ErrorCategory.SourceConversionError, count),
           count,
-          message
+          body
         )
       case e: PackageError.UnusedImport =>
         val count = e.badImports.length
@@ -151,7 +151,7 @@ object CompilerApi {
           ErrorCategory.ImportError,
           formatDiagnosticTitle(ErrorCategory.ImportError, count),
           count,
-          message
+          body
         )
       case e: PackageError.DuplicatedImport =>
         val count = e.duplicates.length
@@ -159,42 +159,42 @@ object CompilerApi {
           ErrorCategory.ImportError,
           formatDiagnosticTitle(ErrorCategory.ImportError, count),
           count,
-          message
+          body
         )
       case _: PackageError.UnknownImportPackage[?, ?, ?] =>
         RenderedDiagnostic(
           ErrorCategory.ImportError,
           "import error",
           1,
-          message
+          body
         )
       case _: PackageError.UnknownImportName[?, ?] =>
         RenderedDiagnostic(
           ErrorCategory.ImportError,
           "import error",
           1,
-          message
+          body
         )
       case _: PackageError.UnknownImportFromInterface[?, ?] =>
         RenderedDiagnostic(
           ErrorCategory.ImportError,
           "import error",
           1,
-          message
+          body
         )
       case _: PackageError.UnknownExport[?] =>
         RenderedDiagnostic(
           ErrorCategory.PackageError,
           "package error",
           1,
-          message
+          body
         )
       case _: PackageError.CircularDependency[?, ?, ?] =>
         RenderedDiagnostic(
           ErrorCategory.PackageError,
           "package error",
           1,
-          message
+          body
         )
       case e: PackageError.VarianceInferenceFailure =>
         val count = e.failed.length
@@ -202,7 +202,7 @@ object CompilerApi {
           ErrorCategory.PackageError,
           formatDiagnosticTitle(ErrorCategory.PackageError, count),
           count,
-          message
+          body
         )
       case e: PackageError.DuplicatedPackageError =>
         val count = e.dups.length
@@ -210,23 +210,16 @@ object CompilerApi {
           ErrorCategory.PackageError,
           formatDiagnosticTitle(ErrorCategory.PackageError, count),
           count,
-          message
+          body
         )
     }
-
-  private def indentBlock(str: String, indent: String): String =
-    str.linesIterator
-      .map {
-        case "" => ""
-        case line => s"$indent$line"
-      }
-      .mkString("\n")
 
   private def renderDiagnostic(
       idx: Int,
       diagnostic: RenderedDiagnostic
   ): Doc =
-    toDoc(s"$idx. ${diagnostic.title}\n${indentBlock(diagnostic.body, "   ")}")
+    Doc.text(s"$idx. ${diagnostic.title}") +
+      (Doc.hardLine + diagnostic.body).nested(2)
 
   private def renderDiagnosticSummary(
       diagnostics: List[RenderedDiagnostic]
@@ -237,10 +230,11 @@ object CompilerApi {
       .sortBy { case (category, _) => category.order }
     val totalErrors = grouped.iterator.map(_._2).sum
     val parts = grouped.map { case (category, count) =>
-      pluralizedLabel(count, category.singularLabel, category.pluralLabel)
+      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
     }
     val errorWord = if (totalErrors == 1) "error" else "errors"
-    Doc.text(s"$totalErrors $errorWord: ${parts.mkString(", ")}")
+    Doc.text(s"$totalErrors $errorWord: ") +
+      Doc.intercalate(Doc.text(", "), parts)
   }
 
   private def renderMultiErrorMessage(
@@ -257,13 +251,6 @@ object CompilerApi {
     val summaryDoc = renderDiagnosticSummary(diagnostics)
     entriesDoc + Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + summaryDoc
   }
-
-  private def toDoc(str: String): Doc =
-    str.linesIterator.toList match {
-      case Nil => Doc.empty
-      case lines =>
-        Doc.intercalate(Doc.hardLine, lines.map(Doc.text(_)))
-    }
 
   private def fromParse[F[_], Path, A](
       platformIO: PlatformIO[F, Path],
@@ -417,17 +404,18 @@ object CompilerApi {
   ): CliException & Exception = {
     val diagnostics =
       errors.toList.distinct
-        .map(err => classifyError(err, err.message(sourceMap, color)))
+        .map { err =>
+          val message = err.message(sourceMap, color)
+          classifyError(err, Doc.text(message))
+        }
 
-    val (messageString, errDoc): (String, Doc) =
+    val errDoc: Doc =
       diagnostics match {
-        case one :: Nil =>
-          val message = one.body
-          (message, toDoc(message))
+        case one :: Nil => one.body
         case many       =>
-          val multiDoc = renderMultiErrorMessage(many)
-          (multiDoc.render(80), multiDoc)
+          renderMultiErrorMessage(many)
       }
+    val messageString = errDoc.render(80)
 
     CliException(messageString, errDoc)
   }
