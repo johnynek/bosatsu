@@ -1706,6 +1706,31 @@ main = under_twenty(3)
     }
   }
 
+  test("destructuring binding mismatch reports scrutinee and pattern types") {
+    val src = """
+package A
+
+struct Lazy[a](value: a)
+struct LazyList[a](bound: Int, list: a)
+
+def bad(tail: Lazy[LazyList[Int]], size: Int) -> LazyList[Int]:
+  if size matches 0:
+    LazyList(0, 0)
+  else:
+    LazyList(tail_size, tailv) = tail
+    LazyList(tail_size, tailv)
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(msg.contains("pattern type mismatch"), msg)
+      assert(msg.contains("expected scrutinee type: Lazy[LazyList[Int]]"), msg)
+      assert(msg.contains("found pattern type: LazyList["), msg)
+      assert(!msg.contains("match branch result type mismatch"), msg)
+      ()
+    }
+  }
+
   test(
     "match branch mismatch reports expected and inferred branch result types"
   ) {
@@ -2138,8 +2163,9 @@ def go(rem: Int, current: Int, pending: Int) -> Int:
 
     evalFail(List(testCode)) { case kie: PackageError.TypeErrorIn =>
       val message = kie.message(Map.empty, Colorize.None)
-      assert(message.contains("expected type Tuple3"), message)
-      assert(message.contains("but found type Tuple2"), message)
+      assert(message.contains("pattern type mismatch"), message)
+      assert(message.contains("expected scrutinee type: (Int, Int, Int)"), message)
+      assert(message.contains("found pattern type: ("), message)
       assert(message.contains(s"[$start, $end)"), message)
       assertEquals(testCode.substring(start, end), pattern)
       ()
