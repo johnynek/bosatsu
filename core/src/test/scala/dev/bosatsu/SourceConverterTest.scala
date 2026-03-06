@@ -366,6 +366,24 @@ main = match True:
     )
   }
 
+  test("if/elif desugars to one match with guarded false branches") {
+    assertMainDesugarsAs(
+      """main = if c1:
+  t1
+elif c2:
+  t2
+elif c3:
+  t3
+else:
+  e""",
+      """main = match c1:
+  case True: t1
+  case False if c2: t2
+  case False if c3: t3
+  case False: e"""
+    )
+  }
+
   test("zero-arg defs desugar to explicit unit-pattern defs") {
     assertMainDesugarsAs(
       """def later():

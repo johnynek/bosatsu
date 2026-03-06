@@ -436,23 +436,44 @@ final class SourceConverter(
           )(using decl.region)
         )
       case IfElse(ifCases, elseCase) =>
-        def loop0(
-            ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])],
-            elseC: Expr[Declaration]
-        ): Expr[Declaration] =
-          ifs match {
-            case NonEmptyList((cond, ifTrue), Nil) =>
-              Expr.ifExpr(cond, ifTrue, elseC, decl)
-            case NonEmptyList(ifTrue, h :: tail) =>
-              val elseC1 = loop0(NonEmptyList(h, tail), elseC)
-              loop0(NonEmptyList.one(ifTrue), elseC1)
+        val truePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("True")),
+            Nil
+          )
+        val falsePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("False")),
+            Nil
+          )
+        val if1 = ifCases.traverse { case (condDecl, ifTrueDecl) =>
+          (loop(condDecl), loop(ifTrueDecl.get)).mapN { (cond, ifTrue) =>
+            (condDecl.region, cond, ifTrue)
           }
-        val if1 = ifCases.traverse { case (d0, d1) =>
-          loop(d0).product(loop(d1.get))
         }
         val else1 = loop(elseCase.get)
 
-        (if1, else1).parMapN(loop0(_, _))
+        (if1, else1).parMapN { (ifs, elseC) =>
+          val (condRegion, cond, ifTrue) = ifs.head
+          val trueBranch =
+            Expr.Branch(truePat, None, ifTrue)(using condRegion)
+          val falseGuardedBranches = ifs.tail.map {
+            case (nextCondRegion, nextCond, nextIfTrue) =>
+              Expr.Branch(falsePat, Some(nextCond), nextIfTrue)(using
+                nextCondRegion
+              )
+          }
+          val falseElseBranch =
+            Expr.Branch(falsePat, None, elseC)(using elseCase.get.region)
+          Expr.Match(
+            cond,
+            NonEmptyList(
+              trueBranch,
+              falseGuardedBranches.toList :+ falseElseBranch
+            ),
+            decl
+          )
+        }
       case tern @ Ternary(t, c, f) =>
         loop(
           IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(
