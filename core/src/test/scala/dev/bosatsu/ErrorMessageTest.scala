@@ -1731,6 +1731,33 @@ def bad(tail: Lazy[LazyList[Int]], size: Int) -> LazyList[Int]:
     }
   }
 
+  test("union destructuring mismatch is not duplicated") {
+    val src = """
+package A
+
+struct Lazy[a](value: a)
+enum LazyList[a]:
+  LazyList1(bound: Int, list: a), LazyList2(bound: Int, list: a)
+
+def bad(tail: Lazy[LazyList[Int]], size: Int) -> LazyList[Int]:
+  if size matches 0:
+    LazyList1(0, 0)
+  else:
+    LazyList1(tail_size, tailv) | LazyList2(tail_size, tailv) = tail
+    LazyList1(tail_size, tailv)
+"""
+
+    evalFail(List(src)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(Map.empty, Colorize.None)
+      val mismatchCount =
+        "pattern type mismatch".r.findAllMatchIn(msg).length
+      assertEquals(mismatchCount, 1, msg)
+      assert(msg.contains("expected scrutinee type: Lazy[LazyList[Int]]"), msg)
+      assert(msg.contains("found pattern type: LazyList["), msg)
+      ()
+    }
+  }
+
   test(
     "match branch mismatch reports expected and inferred branch result types"
   ) {
