@@ -225,12 +225,12 @@ object CompilerApi {
   private def renderDiagnostic(
       idx: Int,
       diagnostic: RenderedDiagnostic
-  ): String =
-    s"$idx. ${diagnostic.title}\n${indentBlock(diagnostic.body, "   ")}"
+  ): Doc =
+    toDoc(s"$idx. ${diagnostic.title}\n${indentBlock(diagnostic.body, "   ")}")
 
   private def renderDiagnosticSummary(
       diagnostics: List[RenderedDiagnostic]
-  ): String = {
+  ): Doc = {
     val grouped = diagnostics
       .groupMapReduce(_.category)(_.summaryCount)(_ + _)
       .toList
@@ -240,18 +240,22 @@ object CompilerApi {
       pluralizedLabel(count, category.singularLabel, category.pluralLabel)
     }
     val errorWord = if (totalErrors == 1) "error" else "errors"
-    s"$totalErrors $errorWord: ${parts.mkString(", ")}"
+    Doc.text(s"$totalErrors $errorWord: ${parts.mkString(", ")}")
   }
 
   private def renderMultiErrorMessage(
       diagnostics: List[RenderedDiagnostic]
-  ): String = {
+  ): Doc = {
     val divider = "-" * 72
+    val dividerDoc = Doc.text(divider)
+    val entrySeparator =
+      Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + Doc.hardLine
     val entries = diagnostics.zipWithIndex.map { case (diag, idx) =>
       renderDiagnostic(idx + 1, diag)
     }
-    val summary = renderDiagnosticSummary(diagnostics)
-    entries.mkString(s"\n\n$divider\n\n") + s"\n\n$divider\n$summary"
+    val entriesDoc = Doc.intercalate(entrySeparator, entries)
+    val summaryDoc = renderDiagnosticSummary(diagnostics)
+    entriesDoc + Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + summaryDoc
   }
 
   private def toDoc(str: String): Doc =
@@ -415,12 +419,15 @@ object CompilerApi {
       errors.toList.distinct
         .map(err => classifyError(err, err.message(sourceMap, color)))
 
-    val messageString: String =
+    val (messageString, errDoc): (String, Doc) =
       diagnostics match {
-        case one :: Nil => one.body
-        case many       => renderMultiErrorMessage(many)
+        case one :: Nil =>
+          val message = one.body
+          (message, toDoc(message))
+        case many       =>
+          val multiDoc = renderMultiErrorMessage(many)
+          (multiDoc.render(80), multiDoc)
       }
-    val errDoc = toDoc(messageString)
 
     CliException(messageString, errDoc)
   }
