@@ -666,13 +666,52 @@ object PackageError {
       ): Option[(String, Int, String, String)] =
         tpeErr match {
           case c @ Infer.Error.ContextualTypeError(site, _, _) =>
+            val (siteKey, siteHash) =
+              site match {
+                case Infer.Error.MismatchSite.AppArg(
+                      _,
+                      _,
+                      _,
+                      _,
+                      _,
+                      functionRegion,
+                      argumentRegion,
+                      callRegion
+                    ) =>
+                  (
+                    "context:app-arg",
+                    (functionRegion, argumentRegion, callRegion).hashCode
+                  )
+                case Infer.Error.MismatchSite.MatchPattern(
+                      _,
+                      _,
+                      _,
+                      scrutineeRegion,
+                      patternRegion
+                    ) =>
+                  (
+                    "context:match-pattern",
+                    (scrutineeRegion, patternRegion).hashCode
+                  )
+                case Infer.Error.MismatchSite.MatchBranchResult(
+                      _,
+                      _,
+                      scrutineeRegion,
+                      patternRegion,
+                      branchRegion
+                    ) =>
+                  (
+                    "context:match-branch-result",
+                    (scrutineeRegion, patternRegion, branchRegion).hashCode
+                  )
+              }
             val (expectedKey, foundKey) =
               expectedFound(c)
                 .map { case ((exp, _), (found, _)) =>
                   (renderedTypeKey(exp), renderedTypeKey(found))
                 }
                 .getOrElse(("", ""))
-            Some((s"context:$site", site.hashCode, expectedKey, foundKey))
+            Some((siteKey, siteHash, expectedKey, foundKey))
           case e @ Infer.Error.NotUnifiable(_, _, r0, r1, _) =>
             val (expectedKey, foundKey) =
               expectedFound(e)
