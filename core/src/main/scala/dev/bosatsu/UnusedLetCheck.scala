@@ -45,19 +45,26 @@ object UnusedLetCheck {
         args.toList.foldRight(loop(expr)) { (arg, res) =>
           checkArg(arg._1, HasRegion.region(e), res)
         }
-      case Let(arg, expr, in, rec, _) =>
+      case Let(arg, expr, in, rec, tag) =>
         val exprCheck = loop(expr)
         val exprRes =
           // if it is recursive, it is definitely used, because
           // that is automatically applied in source conversions
           if (rec.isRecursive) exprCheck.map(_ - arg) else exprCheck
         // the region of the let isn't directly tracked, but
-        // it would start with the whole region starts and end at expr
+        // it starts with the whole let start and ends at rhs.
+        // Nested defs encode the rhs body region in the declaration tag.
         val inCheck = checkArg(
           arg, {
             val wholeRegion = HasRegion.region(e)
-            val endRegion = HasRegion.region(expr)
-            val bindRegion = wholeRegion.withEnd(endRegion.end)
+            val bindEnd =
+              tag match {
+                case Declaration.DefFn(defStmt) =>
+                  defStmt.result._1.get.region.end
+                case _ =>
+                  HasRegion.region(expr).end
+              }
+            val bindRegion = wholeRegion.withEnd(bindEnd)
             bindRegion
           },
           loop(in)
