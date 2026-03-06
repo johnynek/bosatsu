@@ -167,6 +167,119 @@ def fn(x):
 """)
   }
 
+  test("recur allows constructor-rank decrease from Some(_) to None") {
+    allowed("""#
+enum Option[a]:
+  None
+  Some(value: a)
+
+def drop(opt: Option[a]) -> Option[a]:
+  recur opt:
+    case Some(_):
+      drop(None)
+    case None:
+      None
+""")
+  }
+
+  test("recur allows constructor-rank decrease from non-empty to empty custom ADT") {
+    allowed("""#
+enum Seq[a]:
+  Empty
+  NonEmpty(head: a, tail: Seq[a])
+
+def reset(xs: Seq[a]) -> Seq[a]:
+  recur xs:
+    case NonEmpty(_, _):
+      reset(Empty)
+    case Empty:
+      Empty
+""")
+  }
+
+  test("recur allows constructor-rank decrease followed by structural recursion") {
+    allowed("""#
+enum BinNat:
+  Zero
+  Odd(prev: BinNat)
+  Even(prev: BinNat)
+
+def step(n: BinNat) -> BinNat:
+  recur n:
+    case Even(prev):
+      step(Odd(prev))
+    case Odd(prev):
+      step(prev)
+    case Zero:
+      Zero
+""")
+  }
+
+  test("recur rejects constructor-rank step with wrapped recursive payload") {
+    disallowed("""#
+enum T:
+  A(xs: List[T])
+  B(t: T)
+  Z
+
+def bad(v: T) -> T:
+  recur v:
+    case B(x):
+      bad(A([B(x)]))
+    case A(_):
+      Z
+    case Z:
+      Z
+""")
+  }
+
+  test("recur rejects constructor-rank step when direct recursive payload is not a smaller local") {
+    disallowed("""#
+enum T:
+  A(t: T)
+  B(t: T)
+  Z
+
+def bad(v: T) -> T:
+  recur v:
+    case B(x):
+      bad(A(B(x)))
+    case A(x):
+      bad(x)
+    case Z:
+      Z
+""")
+  }
+
+  test("recur does not use constructor-rank rule when current constructor is ambiguous") {
+    disallowed("""#
+enum Option[a]:
+  None
+  Some(value: a)
+
+def bad(opt: Option[a]) -> Option[a]:
+  recur opt:
+    case Some(_) | None:
+      bad(None)
+""")
+  }
+
+  test("recur allows union branches when recursive args are smaller for every branch") {
+    allowed("""#
+enum T:
+  Z
+  A(t: T)
+  B(t: T)
+
+def ok(v: T) -> T:
+  recur v:
+    case A(x) | B(x):
+      ok(x)
+    case Z:
+      Z
+""")
+  }
+
   test("tuple recur targets allow lexicographic decrease") {
     allowed("""#
 enum Nat: Zero, Succ(prev: Nat)

@@ -125,6 +125,36 @@ final case class DefinedType[+A](
   def kindOf(implicit ev: A <:< Kind.Arg): Kind =
     Kind(toAnnotatedKinds.map(_._2)*)
 
+  def extractTypeArgs(targetType: Type): Option[List[Type]] = {
+    val (root, args) = Type.unapplyAll(targetType)
+    root match {
+      case Type.TyConst(rootConst)
+          if rootConst == toTypeConst &&
+            (typeParams.lengthCompare(args.length) == 0) =>
+        Some(args)
+      case _ =>
+        None
+    }
+  }
+
+  def instantiateConstructorFieldTypes(
+      ctor: ConstructorFn[?],
+      targetArgs: List[Type]
+  ): Option[List[Type]] =
+    if (typeParams.lengthCompare(targetArgs.length) != 0) None
+    else {
+      val substitutions: Map[Type.Var, Type] =
+        typeParams.iterator
+          .zip(targetArgs.iterator)
+          .map { case (tv, targ) => (tv: Type.Var) -> targ }
+          .toMap
+      Some(
+        ctor.args.map { field =>
+          Type.substituteVar(field.tpe, substitutions)
+        }
+      )
+    }
+
   def depPackages: List[PackageName] =
     (packageName :: constructors.flatMap(_.depPackages)).distinct
 }

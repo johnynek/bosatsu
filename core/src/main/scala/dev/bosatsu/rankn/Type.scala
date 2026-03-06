@@ -678,6 +678,20 @@ object Type {
     loop(ts, Nil)
   }
 
+  def containsType(in: Type, target: Type): Boolean =
+    if (in.sameAs(target)) true
+    else
+      in match {
+        case TyApply(on, arg) =>
+          containsType(on, target) || containsType(arg, target)
+        case ForAll(_, in1)   =>
+          containsType(in1, target)
+        case Exists(_, in1)   =>
+          containsType(in1, target)
+        case _                =>
+          false
+      }
+
   object RootConst {
     def unapply(t: Type): Option[Type.TyConst] =
       rootConst(t)
