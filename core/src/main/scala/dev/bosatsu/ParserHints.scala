@@ -17,6 +17,7 @@ object ParserHints {
       assignmentInConditionRule ::
       matchesHeaderKeywordRule ::
       missingColonAfterHeaderRule ::
+      missingTrailingExpressionAfterDefRule ::
       Nil
 
   def hints(
@@ -250,6 +251,28 @@ object ParserHints {
     }
   }
 
+  private def missingTrailingExpressionAfterDefRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (pos < 0 || pos > source.length) {
+      None
+    } else {
+      for {
+        expectedIndent <- expectedIndentationAt(error.expected, pos)
+        (row, col, line) <- lineInfo(locations, pos)
+        if col <= expectedIndent.length
+        actualIndent = leadingIndent(line)
+        if actualIndent.length < expectedIndent.length
+        _ <- nearestUnclosedDefLineBefore(locations, row, expectedIndent)
+      } yield Doc.text(
+        "hint: this def ended without a final expression at its indentation level. Add a trailing expression before dedenting."
+      )
+    }
+  }
+
   private def expectsColonAt(
       expected: NonEmptyList[P.Expectation],
       position: Int
@@ -270,6 +293,72 @@ object ParserHints {
       case _ =>
         false
     }
+
+  private def expectedIndentationAt(
+      expected: NonEmptyList[P.Expectation],
+      position: Int
+  ): Option[String] =
+    expected.toList
+      .flatMap(expectationIndentationAt(_, position))
+      .filter(isIndentString)
+      .sortBy(_.length)
+      .lastOption
+
+  private def expectationIndentationAt(
+      e: P.Expectation,
+      position: Int
+  ): Option[String] =
+    e match {
+      case P.Expectation.OneOfStr(offset, strs: List[String])
+          if math.abs(offset - position) <= 1 =>
+        strs.filter(isIndentString).sortBy(_.length).lastOption
+      case P.Expectation.WithContext(_, inner) =>
+        expectationIndentationAt(inner, position)
+      case _ =>
+        None
+    }
+
+  private def isIndentString(s: String): Boolean =
+    s.nonEmpty && s.forall(c => c == ' ' || c == '\t')
+
+  private def leadingIndent(line: String): String = {
+    var i = 0
+    while (i < line.length && (line.charAt(i) == ' ' || line.charAt(i) == '\t')) {
+      i = i + 1
+    }
+    line.substring(0, i)
+  }
+
+  private def isSignificantLine(line: String): Boolean = {
+    val trimmed = line.trim
+    trimmed.nonEmpty && !trimmed.startsWith("#")
+  }
+
+  private def nearestUnclosedDefLineBefore(
+      locations: LocationMap,
+      row: Int,
+      indent: String
+  ): Option[Int] = {
+    @annotation.tailrec
+    def loop(r: Int): Option[Int] =
+      if (r < 0) None
+      else {
+        locations.getLine(r) match {
+          case Some(line) if isSignificantLine(line) =>
+            val leading = leadingIndent(line)
+            if (leading.startsWith(indent) && leading.length > indent.length) {
+              loop(r - 1)
+            } else if (leading == indent) {
+              if (line.drop(indent.length).startsWith("def ")) Some(r)
+              else None
+            } else None
+          case _ =>
+            loop(r - 1)
+        }
+      }
+
+    loop(row - 1)
+  }
 
   private def lineInfo(
       locations: LocationMap,
