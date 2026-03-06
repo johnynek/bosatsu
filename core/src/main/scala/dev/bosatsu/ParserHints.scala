@@ -17,6 +17,7 @@ object ParserHints {
       assignmentInConditionRule ::
       matchesHeaderKeywordRule ::
       missingColonAfterHeaderRule ::
+      unexpectedIndentationRule ::
       missingTrailingExpressionAfterDefRule ::
       Nil
 
@@ -273,6 +274,50 @@ object ParserHints {
     }
   }
 
+  private def unexpectedIndentationRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val pos = error.position
+    if (
+      pos < 0 || pos >= source.length || !isIndentChar(source.charAt(pos))
+    ) {
+      None
+    } else {
+      for {
+        (_, col, line) <- lineInfo(locations, pos)
+        if isSignificantLine(line)
+        actualIndent = leadingIndent(line)
+        if col <= actualIndent.length
+        expected <- expectedIndentColumnsAt(error.expected, pos, col, actualIndent)
+        if actualIndent.length > expected
+      } yield {
+        val actual = actualIndent.length
+        Doc.text(
+          s"hint: unexpected indentation. This line is indented $actual spaces, but this block expects $expected."
+        )
+      }
+    }
+  }
+
+  private def expectedIndentColumnsAt(
+      expected: NonEmptyList[P.Expectation],
+      position: Int,
+      column: Int,
+      actualIndent: String
+  ): Option[Int] =
+    expectedIndentationAt(expected, position)
+      .map(_.length)
+      .filter(actualIndent.take(_).forall(isIndentChar))
+      .orElse {
+        // Sometimes block indentation has already been consumed and the parser
+        // is expecting either a comment (`#`) or an expression token.
+        Option.when(
+          expectsCharNear(expected, position, '#') && (column < actualIndent.length)
+        )(column)
+      }
+
   private def expectsColonAt(
       expected: NonEmptyList[P.Expectation],
       position: Int
@@ -290,6 +335,31 @@ object ParserHints {
         (offset == position) && (lower == ':') && (upper == ':')
       case P.Expectation.WithContext(_, inner) =>
         expectationMentionsColonAt(inner, position)
+      case _ =>
+        false
+    }
+
+  private def expectsCharNear(
+      expected: NonEmptyList[P.Expectation],
+      position: Int,
+      char: Char
+  ): Boolean =
+    expected.exists(expectationMentionsCharNear(_, position, char))
+
+  private def expectationMentionsCharNear(
+      e: P.Expectation,
+      position: Int,
+      char: Char
+  ): Boolean =
+    e match {
+      case P.Expectation.InRange(offset, lower, upper) =>
+        (math.abs(offset - position) <= 1) &&
+          (lower == char) && (upper == char)
+      case P.Expectation.OneOfStr(offset, strs: List[String]) =>
+        (math.abs(offset - position) <= 1) &&
+          strs.exists(s => (s.length == 1) && (s.charAt(0) == char))
+      case P.Expectation.WithContext(_, inner) =>
+        expectationMentionsCharNear(inner, position, char)
       case _ =>
         false
     }
@@ -320,6 +390,9 @@ object ParserHints {
 
   private def isIndentString(s: String): Boolean =
     s.nonEmpty && s.forall(c => c == ' ' || c == '\t')
+
+  private def isIndentChar(c: Char): Boolean =
+    c == ' ' || c == '\t'
 
   private def leadingIndent(line: String): String = {
     var i = 0
