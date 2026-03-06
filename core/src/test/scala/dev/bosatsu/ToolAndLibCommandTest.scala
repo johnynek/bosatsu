@@ -4058,6 +4058,53 @@ main = depBox
     }
   }
 
+  test("tool check enumerates and summarizes mixed diagnostics") {
+    val src =
+      """package QA/Bleed
+        |
+        |def parse_count(input: Int) -> Int:
+        |  left = input.add(1)
+        |  right = input.add(2)
+        |  "oops"
+        |
+        |main = parse_count(0)
+        |""".stripMargin
+    val files = List(
+      Chain("src", "QA", "Bleed.bosatsu") -> src
+    )
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "check",
+        "--color",
+        "none",
+        "--package_root",
+        "src",
+        "--input",
+        "src/QA/Bleed.bosatsu"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected mixed-diagnostic failure, got: $out")
+      case Left(err: CliException) =>
+        val rendered = err.errDoc.render(120)
+        assert(rendered.contains("1. 2 unused values"), rendered)
+        assert(rendered.contains("2. type error"), rendered)
+        assert(rendered.contains("unused value 'left'"), rendered)
+        assert(rendered.contains("unused value 'right'"), rendered)
+        assert(rendered.contains("2 unused values"), rendered)
+        assert(rendered.contains("1 type error"), rendered)
+        assert(rendered.contains("errors: 2 unused values, 1 type error"), rendered)
+        assert(
+          rendered.linesIterator.exists(_.startsWith("----------------")),
+          rendered
+        )
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool check accepts todo but tool show rejects it") {
     val src =
       """package Todo/Foo

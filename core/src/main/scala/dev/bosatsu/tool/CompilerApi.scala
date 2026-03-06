@@ -12,6 +12,7 @@ import dev.bosatsu.{
   PlatformIO
 }
 import dev.bosatsu.LocationMap.Colorize
+import dev.bosatsu.rankn.Infer
 import org.typelevel.paiges.Doc
 
 import dev.bosatsu.IorMethods.IorExtension
@@ -19,6 +20,238 @@ import dev.bosatsu.IorMethods.IorExtension
 import cats.syntax.all._
 
 object CompilerApi {
+  private enum ErrorCategory(
+      val singularLabel: String,
+      val pluralLabel: String,
+      val order: Int
+  ) {
+    case UnusedValue extends ErrorCategory("unused value", "unused values", 0)
+    case TypeError extends ErrorCategory("type error", "type errors", 1)
+    case RecursionError extends ErrorCategory(
+          "recursion error",
+          "recursion errors",
+          2
+        )
+    case TotalityError extends ErrorCategory(
+          "totality error",
+          "totality errors",
+          3
+        )
+    case SourceConversionError extends ErrorCategory(
+          "source conversion error",
+          "source conversion errors",
+          4
+        )
+    case ImportError extends ErrorCategory("import error", "import errors", 5)
+    case PackageError extends ErrorCategory(
+          "package error",
+          "package errors",
+          6
+        )
+  }
+
+  private final case class RenderedDiagnostic(
+      category: ErrorCategory,
+      title: String,
+      summaryCount: Int,
+      body: Doc
+  )
+
+  private def pluralizedLabel(
+      count: Int,
+      singular: String,
+      plural: String
+  ): String =
+    if (count == 1) s"1 $singular" else s"$count $plural"
+
+  private def formatDiagnosticTitle(
+      category: ErrorCategory,
+      count: Int
+  ): String =
+    if (count == 1) category.singularLabel
+    else s"$count ${category.pluralLabel}"
+
+  private def typeErrorCount(err: PackageError.TypeErrorIn): Int =
+    err.tpeErr match {
+      case _: Infer.Error.Single => 1
+      case c: Infer.Error.Combine => c.flatten.length.toInt
+    }
+
+  private def classifyError(
+      err: PackageError,
+      body: Doc
+  ): RenderedDiagnostic =
+    err match {
+      case e: PackageError.UnusedLetError =>
+        val count = e.errs.length
+        val title =
+          if (count == 1) s"unused value '${e.errs.head._1.sourceCodeRepr}'"
+          else s"$count unused values"
+        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, body)
+      case e: PackageError.UnusedLets =>
+        val count = e.unusedLets.length
+        val title =
+          if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
+          else s"$count unused values"
+        RenderedDiagnostic(ErrorCategory.UnusedValue, title, count, body)
+      case e: PackageError.TypeErrorIn =>
+        val count = typeErrorCount(e)
+        RenderedDiagnostic(
+          ErrorCategory.TypeError,
+          formatDiagnosticTitle(ErrorCategory.TypeError, count),
+          count,
+          body
+        )
+      case _: PackageError.KindInferenceError =>
+        RenderedDiagnostic(
+          ErrorCategory.TypeError,
+          "type error",
+          1,
+          body
+        )
+      case _: PackageError.ShadowedBindingTypeError =>
+        RenderedDiagnostic(
+          ErrorCategory.TypeError,
+          "type error",
+          1,
+          body
+        )
+      case _: PackageError.PrivateTypeEscape[?] =>
+        RenderedDiagnostic(
+          ErrorCategory.TypeError,
+          "type error",
+          1,
+          body
+        )
+      case _: PackageError.RecursionError =>
+        RenderedDiagnostic(
+          ErrorCategory.RecursionError,
+          "recursion error",
+          1,
+          body
+        )
+      case _: PackageError.TotalityCheckError =>
+        RenderedDiagnostic(
+          ErrorCategory.TotalityError,
+          "totality error",
+          1,
+          body
+        )
+      case e: PackageError.SourceConverterErrorsIn =>
+        val count = e.errs.length
+        RenderedDiagnostic(
+          ErrorCategory.SourceConversionError,
+          formatDiagnosticTitle(ErrorCategory.SourceConversionError, count),
+          count,
+          body
+        )
+      case e: PackageError.UnusedImport =>
+        val count = e.badImports.length
+        RenderedDiagnostic(
+          ErrorCategory.ImportError,
+          formatDiagnosticTitle(ErrorCategory.ImportError, count),
+          count,
+          body
+        )
+      case e: PackageError.DuplicatedImport =>
+        val count = e.duplicates.length
+        RenderedDiagnostic(
+          ErrorCategory.ImportError,
+          formatDiagnosticTitle(ErrorCategory.ImportError, count),
+          count,
+          body
+        )
+      case _: PackageError.UnknownImportPackage[?, ?, ?] =>
+        RenderedDiagnostic(
+          ErrorCategory.ImportError,
+          "import error",
+          1,
+          body
+        )
+      case _: PackageError.UnknownImportName[?, ?] =>
+        RenderedDiagnostic(
+          ErrorCategory.ImportError,
+          "import error",
+          1,
+          body
+        )
+      case _: PackageError.UnknownImportFromInterface[?, ?] =>
+        RenderedDiagnostic(
+          ErrorCategory.ImportError,
+          "import error",
+          1,
+          body
+        )
+      case _: PackageError.UnknownExport[?] =>
+        RenderedDiagnostic(
+          ErrorCategory.PackageError,
+          "package error",
+          1,
+          body
+        )
+      case _: PackageError.CircularDependency[?, ?, ?] =>
+        RenderedDiagnostic(
+          ErrorCategory.PackageError,
+          "package error",
+          1,
+          body
+        )
+      case e: PackageError.VarianceInferenceFailure =>
+        val count = e.failed.length
+        RenderedDiagnostic(
+          ErrorCategory.PackageError,
+          formatDiagnosticTitle(ErrorCategory.PackageError, count),
+          count,
+          body
+        )
+      case e: PackageError.DuplicatedPackageError =>
+        val count = e.dups.length
+        RenderedDiagnostic(
+          ErrorCategory.PackageError,
+          formatDiagnosticTitle(ErrorCategory.PackageError, count),
+          count,
+          body
+        )
+    }
+
+  private def renderDiagnostic(
+      idx: Int,
+      diagnostic: RenderedDiagnostic
+  ): Doc =
+    Doc.text(s"$idx. ${diagnostic.title}") +
+      (Doc.hardLine + diagnostic.body).nested(2)
+
+  private def renderDiagnosticSummary(
+      diagnostics: List[RenderedDiagnostic]
+  ): Doc = {
+    val grouped = diagnostics
+      .groupMapReduce(_.category)(_.summaryCount)(_ + _)
+      .toList
+      .sortBy { case (category, _) => category.order }
+    val totalErrors = grouped.iterator.map(_._2).sum
+    val parts = grouped.map { case (category, count) =>
+      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+    }
+    val errorWord = if (totalErrors == 1) "error" else "errors"
+    Doc.text(s"$totalErrors $errorWord: ") +
+      Doc.intercalate(Doc.text(", "), parts)
+  }
+
+  private def renderMultiErrorMessage(
+      diagnostics: List[RenderedDiagnostic]
+  ): Doc = {
+    val divider = "-" * 72
+    val dividerDoc = Doc.text(divider)
+    val entrySeparator =
+      Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + Doc.hardLine
+    val entries = diagnostics.zipWithIndex.map { case (diag, idx) =>
+      renderDiagnostic(idx + 1, diag)
+    }
+    val entriesDoc = Doc.intercalate(entrySeparator, entries)
+    val summaryDoc = renderDiagnosticSummary(diagnostics)
+    entriesDoc + Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + summaryDoc
+  }
+
   private def fromParse[F[_], Path, A](
       platformIO: PlatformIO[F, Path],
       v: ValidatedNel[PathParseError[Path], A],
@@ -169,12 +402,20 @@ object CompilerApi {
       errors: NonEmptyList[PackageError],
       color: Colorize
   ): CliException & Exception = {
-    val messages: List[String] =
+    val diagnostics =
       errors.toList.distinct
-        .map(_.message(sourceMap, color))
+        .map { err =>
+          val message = err.message(sourceMap, color)
+          classifyError(err, Doc.text(message))
+        }
 
-    val messageString: String = messages.mkString("\n")
-    val errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+    val errDoc: Doc =
+      diagnostics match {
+        case one :: Nil => one.body
+        case many       =>
+          renderMultiErrorMessage(many)
+      }
+    val messageString = errDoc.render(80)
 
     CliException(messageString, errDoc)
   }
