@@ -757,6 +757,29 @@ object PackageError {
             None
         }
 
+      def extraTypeLayerHint(expectedType: Type, foundType: Type): Doc =
+        foundType match {
+          case Type.TyApply(_, arg) if arg.sameAs(expectedType) =>
+            Doc.hardLine + Doc.text(
+              "hint: found type is the expected type wrapped one extra time."
+            )
+          case _ =>
+            Doc.empty
+        }
+
+      def guessedExtraLayerType(
+          expectedType: Type,
+          foundType: Type
+      ): Option[Type] =
+        (expectedType, foundType) match {
+          case (expected @ Type.TyApply(expectedOn, _), Type.TyApply(foundOn, _))
+              if Type.rootConst(expectedOn).nonEmpty &&
+                Type.rootConst(foundOn).isEmpty =>
+            Some(Type.TyApply(expectedOn, expected))
+          case _ =>
+            None
+        }
+
       def evidenceDocOrDefault(
           evidenceRegions: List[Region],
           baselineRegions: List[Region],
@@ -854,6 +877,76 @@ object PackageError {
                     contextDoc(appSite.argumentRegion) + fnContext,
                   ),
                   Some(appSite.argumentRegion)
+                )
+
+              case branchSite: Infer.Error.MismatchSite.MatchBranchResult =>
+                val expected = branchSite.expectedResultType
+                val inferredFound =
+                  branchSite.inferredResultType
+                    .filterNot(_.sameAs(expected))
+                    .map(_ -> branchSite.branchRegion)
+                val foundFromCause =
+                  expectedFound(c).map(_._2).orElse {
+                    baseMismatch(cause).flatMap {
+                      case ((left, leftRegion), (right, rightRegion), _) =>
+                        if (!left.sameAs(expected)) Some((left, leftRegion))
+                        else if (!right.sameAs(expected))
+                          Some((right, rightRegion))
+                        else None
+                    }
+                  }
+                val found =
+                  inferredFound
+                    .orElse(foundFromCause)
+                    .getOrElse((expected, branchSite.branchRegion))
+                val guessedExtra =
+                  guessedExtraLayerType(expected, found._1)
+
+                val tmap = showTypes(
+                  pack,
+                  List(expected, found._1) ::: guessedExtra.toList,
+                  localTypeNames
+                )
+                val patternContext =
+                  if (branchSite.patternRegion =!= branchSite.branchRegion) {
+                    Doc.hardLine + Doc.text("pattern site:") + Doc.hardLine +
+                      contextDoc(branchSite.patternRegion)
+                  } else {
+                    Doc.empty
+                  }
+                val scrutineeContext =
+                  if (
+                    (branchSite.scrutineeRegion =!= branchSite.branchRegion) &&
+                      (branchSite.scrutineeRegion =!= branchSite.patternRegion)
+                  ) {
+                    Doc.hardLine + Doc.text("scrutinee site:") +
+                      Doc.hardLine +
+                      contextDoc(branchSite.scrutineeRegion)
+                  } else {
+                    Doc.empty
+                  }
+
+                (
+                  tmap.withUnknownTypes(
+                    Doc.text("match branch result type mismatch:") +
+                      Doc.hardLine +
+                      Doc.text("expected branch type: ") + tmap(expected) +
+                      Doc.hardLine +
+                      Doc.text("found branch type: ") + tmap(found._1) +
+                      extraTypeLayerHint(expected, found._1) +
+                      guessedExtra.fold(Doc.empty) { extra =>
+                        Doc.hardLine + Doc.text(
+                          "hint: this may be one extra layer, for example "
+                        ) + tmap(extra) + Doc.text(" instead of ") +
+                          tmap(expected) + Doc.char('.')
+                      } +
+                      Doc.hardLine +
+                      Doc.text("branch site:") + Doc.hardLine +
+                      contextDoc(branchSite.branchRegion) +
+                      patternContext +
+                      scrutineeContext
+                  ),
+                  Some(branchSite.branchRegion)
                 )
 
               case patSite: Infer.Error.MismatchSite.MatchPattern =>
