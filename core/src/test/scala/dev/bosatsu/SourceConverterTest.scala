@@ -97,6 +97,13 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       case other                     => other
     }
 
+  private def localName(expr: Expr[Declaration]): String =
+    stripWrapperExpr(expr) match {
+      case Expr.Local(Identifier.Name(name), _) => name
+      case other =>
+        fail(s"expected local name expression, got: $other")
+    }
+
   private def mainBranches(
       code: String
   ): NonEmptyList[Expr.Branch[Declaration]] =
@@ -364,6 +371,45 @@ main = match True:
       """main = later()()""",
       """main = later(())(())"""
     )
+  }
+
+  test("if/elif desugars to one match with guarded false branches") {
+    val code =
+      """main = if c1:
+  t1
+elif c2:
+  t2
+elif c3:
+  t3
+else:
+  e"""
+    val truePat = Pattern.PositionalStruct(
+      (PackageName.PredefName, Identifier.Constructor("True")),
+      Nil
+    )
+    val falsePat = Pattern.PositionalStruct(
+      (PackageName.PredefName, Identifier.Constructor("False")),
+      Nil
+    )
+
+    val branchList = mainBranches(code).toList
+    assertEquals(branchList.length, 4)
+
+    assertEquals(branchList(0).pattern, truePat)
+    assertEquals(branchList(0).guard, None)
+    assertEquals(localName(branchList(0).expr), "t1")
+
+    assertEquals(branchList(1).pattern, falsePat)
+    assertEquals(branchList(1).guard.map(localName), Some("c2"))
+    assertEquals(localName(branchList(1).expr), "t2")
+
+    assertEquals(branchList(2).pattern, falsePat)
+    assertEquals(branchList(2).guard.map(localName), Some("c3"))
+    assertEquals(localName(branchList(2).expr), "t3")
+
+    assertEquals(branchList(3).pattern, falsePat)
+    assertEquals(branchList(3).guard, None)
+    assertEquals(localName(branchList(3).expr), "e")
   }
 
   test("zero-arg defs desugar to explicit unit-pattern defs") {
