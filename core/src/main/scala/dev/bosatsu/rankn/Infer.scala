@@ -154,7 +154,7 @@ object Infer {
     private val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
         b => { region =>
-          Error.UnknownKindOfVar(Type.TyVar(b), region, s"unbound var: $b")
+          Error.UnknownKindOfVar(Type.TyVar(b), region, "unbound variable")
         },
         ap => { region =>
           Error.KindCannotTyApply(ap, region)
@@ -390,7 +390,7 @@ object Infer {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
-        s"unknown var in $tpeStr: $mess at ${region.show}"
+        s"unknown type variable $tpeStr: $mess at ${region.show}"
       }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
@@ -1821,57 +1821,61 @@ object Infer {
       infOpt.flatMap {
         case Some((fnTe, inT, instantiation)) =>
           val regTe = region(tag)
-          val validKinds: Infer[Unit] =
-            validateSubs(instantiation.subs.toList, region(fn), regTe)
-          val instNoKind = instantiation.subs.iterator
-            .map { case (k, (_, t)) => (k, t) }
-            .toMap[Type.Var, Type]
+          val hasOuterQuantifiers =
+            Type.forallList(tpe).nonEmpty || Type.existList(tpe).nonEmpty
+          if (hasOuterQuantifiers) pure(None)
+          else {
+            val validKinds: Infer[Unit] =
+              validateSubs(instantiation.subs.toList, region(fn), regTe)
+            val instNoKind = instantiation.subs.iterator
+              .map { case (k, (_, t)) => (k, t) }
+              .toMap[Type.Var, Type]
 
-          val subIn = inT.map(Type.substituteVar(_, instNoKind))
-          val fnName = functionNameHint(fn)
+            val subIn = inT.map(Type.substituteVar(_, instNoKind))
+            val fnName = functionNameHint(fn)
 
-          validKinds.parProductR {
-            val remainingFree =
-              NonEmptyList.fromList(
-                instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
-              )
+            validKinds.parProductR {
+              val remainingFree =
+                NonEmptyList.fromList(
+                  instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
+                )
 
-            remainingFree match {
-              case None =>
-                // we can fully instantiate
-                args
-                  .zip(subIn)
-                  .zipWithIndex
-                  .parTraverse { case ((argExpr, argTpe), idx) =>
-                    checkSigma(argExpr, argTpe)
-                      .mapError { err =>
-                        contextualTypeError(
-                          Error.MismatchSite.AppArg(
-                            fnName,
-                            fnTe.getType,
-                            argTpe,
-                            idx,
-                            args.length,
-                            region(fn),
-                            region(argExpr),
-                            regTe
-                          )
-                        )(err)
-                      }
-                  }
-                  .map { argsTE =>
-                    Some(dom.App(fnTe, argsTE, tpe, tag))
-                  }
+              remainingFree match {
+                case None =>
+                  // we can fully instantiate
+                  args
+                    .zip(subIn)
+                    .zipWithIndex
+                    .parTraverse { case ((argExpr, argTpe), idx) =>
+                      checkSigma(argExpr, argTpe)
+                        .mapError { err =>
+                          contextualTypeError(
+                            Error.MismatchSite.AppArg(
+                              fnName,
+                              fnTe.getType,
+                              argTpe,
+                              idx,
+                              args.length,
+                              region(fn),
+                              region(argExpr),
+                              regTe
+                            )
+                          )(err)
+                        }
+                    }
+                    .map { argsTE =>
+                      Some(dom.App(fnTe, argsTE, tpe, tag))
+                    }
 
-              // $COVERAGE-OFF$
-              // case Some(remainingFree) =>
-              case Some(_) =>
-                // Currently we are only returning infOpt as Some when
-                // there are no remaining free variables due to unit
-                // tests not passing
-                sys.error("unreachable")
-              // $COVERAGE-ON$
-              /*
+                // $COVERAGE-OFF$
+                // case Some(remainingFree) =>
+                case Some(_) =>
+                  // Currently we are only returning infOpt as Some when
+                  // there are no remaining free variables due to unit
+                  // tests not passing
+                  sys.error("unreachable")
+                // $COVERAGE-ON$
+                /*
                 // some items are still free
                 // TODO we could use the args to try to fix these
                 val freeSub = frees.iterator
@@ -1887,6 +1891,7 @@ object Infer {
                 val inner = Expr.App(fn1, args, tag)
                 checkSigma(inner, tpe)
                */
+              }
             }
           }
         case None => pure(None)
