@@ -291,4 +291,30 @@ class ParserHintsTest extends munit.FunSuite {
       shown
     )
   }
+
+  test("unexpected indentation in def body gets dedicated hint") {
+    val source =
+      """package Foo
+        |
+        |def map(ll: LazyList[a], fn: a -> b) -> LazyList[b]:
+        |    LazyList(sz, vll) = ll
+        |    vll1 = match vll:
+        |        case Empty: Empty
+        |        case Mapped(mll, fn1): Mapped(mll, x -> fn(fn1(x)))
+        |        case notEmptyMapped: Mapped(notEmptyMapped, fn)
+        |     LazyList(sz, vll1)
+        |""".stripMargin
+
+    val pf = parseFailure(source)
+    val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+    val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+    assert(
+      hints.exists(_.contains("unexpected indentation")),
+      hints.mkString("\n") + "\n" + shown
+    )
+    assert(
+      shown.contains("unexpected indentation"),
+      shown
+    )
+  }
 }
