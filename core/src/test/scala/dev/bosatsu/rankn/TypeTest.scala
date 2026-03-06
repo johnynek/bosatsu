@@ -255,6 +255,26 @@ class TypeTest extends munit.ScalaCheckSuite {
     go(s, SortedSet.empty)
   }
 
+  test("containsType finds exact and nested type occurrences") {
+    val target = Type.TyApply(Type.OptionType, Type.IntType)
+    val nested = Type.TyApply(Type.ListType, target)
+    val quantified = Type.ForAll(
+      NonEmptyList.one((Type.Var.Bound("q"), Kind.Type)),
+      nested.asInstanceOf[Type.Rho]
+    )
+
+    assert(Type.containsType(target, target))
+    assert(Type.containsType(nested, target))
+    assert(Type.containsType(quantified, target))
+  }
+
+  test("containsType returns false when the target is not present") {
+    val target = Type.TyApply(Type.OptionType, Type.IntType)
+    val absent = Type.TyApply(Type.ListType, Type.StrType)
+
+    assert(!Type.containsType(absent, target))
+  }
+
   test("free vars are not duplicated") {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       val frees = Type.freeTyVars(ts)

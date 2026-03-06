@@ -2029,57 +2029,6 @@ object TypedExprRecursionCheck {
         }
       }
 
-    private def targetArgsForDefinedType(
-        targetType: Type,
-        dt: DefinedType[Kind.Arg]
-    ): Option[List[Type]] = {
-      val (root, args) = Type.unapplyAll(targetType)
-      root match {
-        case Type.TyConst(rootConst)
-            if rootConst == dt.toTypeConst &&
-              (dt.typeParams.lengthCompare(args.length) == 0) =>
-          Some(args)
-        case _ =>
-          None
-      }
-    }
-
-    private def instantiatedFieldTypes(
-        dt: DefinedType[Kind.Arg],
-        ctor: ConstructorFn[Kind.Arg],
-        targetArgs: List[Type]
-    ): Option[List[Type]] =
-      if (dt.typeParams.lengthCompare(targetArgs.length) != 0) None
-      else {
-        val substitutions: Map[Type.Var, Type] =
-          dt.typeParams.iterator
-            .zip(targetArgs.iterator)
-            .map { case (tv, targ) => (tv: Type.Var) -> targ }
-            .toMap
-        Some(
-          ctor.args.map { field =>
-            Type.substituteVar(field.tpe, substitutions)
-          }
-        )
-      }
-
-    private def containsTargetType(fieldType: Type, targetType: Type): Boolean =
-      if (fieldType.sameAs(targetType)) true
-      else
-        fieldType match {
-          case Type.TyApply(on, arg) =>
-            containsTargetType(on, targetType) || containsTargetType(
-              arg,
-              targetType
-            )
-          case Type.ForAll(_, in)    =>
-            containsTargetType(in, targetType)
-          case Type.Exists(_, in)    =>
-            containsTargetType(in, targetType)
-          case _                     =>
-            false
-        }
-
     private def fieldPayloadAllowed(
         fieldType: Type,
         fieldArgExpr: TypedExpr[Declaration],
@@ -2088,7 +2037,7 @@ object TypedExprRecursionCheck {
     ): Boolean =
       // v1 safety rule: exact recursive payloads must use known-smaller names,
       // and wrapped recursive payloads are rejected conservatively.
-      if (!containsTargetType(fieldType, targetType)) true
+      if (!Type.containsType(fieldType, targetType)) true
       else if (fieldType.sameAs(targetType))
         localNameOf(fieldArgExpr).exists(allowedSmallerNames)
       else false
@@ -2107,23 +2056,24 @@ object TypedExprRecursionCheck {
           argCtorApp <- constructorAppFromArgExpr(arg)
           currentMeta <- constructorMeta(typeEnv, currentCtor)
           nextMeta <- constructorMeta(typeEnv, argCtorApp.ctor)
-          _ <- Option.when(currentMeta.owner.toTypeConst == nextMeta.owner.toTypeConst)(())
-          targetArgs <- targetArgsForDefinedType(targetType, currentMeta.owner)
-          _ <- Option.when(nextMeta.index < currentMeta.index)(())
-          fieldTypes <- instantiatedFieldTypes(nextMeta.owner, nextMeta.ctor, targetArgs)
-          _ <- Option.when(fieldTypes.lengthCompare(argCtorApp.args.length) == 0)(())
-          _ <- Option.when(
-            fieldTypes.iterator
-              .zip(argCtorApp.args.iterator)
-              .forall { case (fieldType, fieldArg) =>
-                fieldPayloadAllowed(
-                  fieldType,
-                  fieldArg,
-                  allowedSmallerNames,
-                  targetType
-                )
-              }
-          )(())
+          if currentMeta.owner.toTypeConst == nextMeta.owner.toTypeConst
+          targetArgs <- currentMeta.owner.extractTypeArgs(targetType)
+          if nextMeta.index < currentMeta.index
+          fieldTypes <- nextMeta.owner.instantiateConstructorFieldTypes(
+            nextMeta.ctor,
+            targetArgs
+          )
+          if fieldTypes.lengthCompare(argCtorApp.args.length) == 0
+          if fieldTypes.iterator
+            .zip(argCtorApp.args.iterator)
+            .forall { case (fieldType, fieldArg) =>
+              fieldPayloadAllowed(
+                fieldType,
+                fieldArg,
+                allowedSmallerNames,
+                targetType
+              )
+            }
         } yield Smaller
 
       maybeSmaller.getOrElse(Other)
