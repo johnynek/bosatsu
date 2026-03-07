@@ -103,7 +103,7 @@ object TestUtils {
       statement: String
   )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, stmts).strictToValidated match {
+    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -196,7 +196,7 @@ object TestUtils {
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, stmts).strictToValidated match {
+    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
