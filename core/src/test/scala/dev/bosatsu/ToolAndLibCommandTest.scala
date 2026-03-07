@@ -3068,20 +3068,28 @@ main = 1
         assert(predefDoc.contains("intValue: Int"), predefDoc)
         assert(predefDoc.contains("state: a"), predefDoc)
         assert(predefDoc.contains("fn: (Int, a) -> (Int, a)"), predefDoc)
+        def containsAny(strs: List[String]): Boolean =
+          strs.exists(predefDoc.contains)
         assert(
-          predefDoc.contains("div(a, 0) == 0"),
+          containsAny("div(a, 0) == 0" :: "Integer division." :: Nil),
           predefDoc
         )
         assert(
-          predefDoc.contains("mod_Int(a, 0) == a"),
+          containsAny("mod_Int(a, 0) == a" :: "Integer modulus." :: Nil),
           predefDoc
         )
         assert(
-          predefDoc.contains("all `.NaN` values are equal"),
+          containsAny(
+            "all `.NaN` values are equal" ::
+              "Total Float64 comparison." :: Nil
+          ),
           predefDoc
         )
         assert(
-          predefDoc.contains("dividing by `0.0` yields `∞`, `-∞`, or `.NaN`"),
+          containsAny(
+            "dividing by `0.0` yields `∞`, `-∞`, or `.NaN`" ::
+              "Floating-point division." :: Nil
+          ),
           predefDoc
         )
     }

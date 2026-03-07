@@ -1133,6 +1133,99 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites leading nameless top guards to a bool selector match"
+  ) {
+    val x = varTE("x", intTpe)
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(x, int(0)), boolTpe, ())
+    val topPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, intTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedLeading = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(topPat, Some(guardExpr), int(10)),
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(1)), None, int(11)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(12))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedLeading) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, guardExpr)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, int(10))
+        branches1.tail.head match {
+          case TypedExpr.Branch(
+                `falsePat`,
+                None,
+                TypedExpr.Match(innerArg, innerBranches, _)
+              ) =>
+            assertEquals(innerArg, x)
+            assertEquals(innerBranches.length, 2)
+            assertEquals(
+              innerBranches.head.pattern,
+              Pattern.Literal(Lit.fromInt(1))
+            )
+            assertEquals(innerBranches.last.pattern, Pattern.WildCard)
+          case other =>
+            fail(s"expected False branch to contain tail match, got: $other")
+        }
+      case other =>
+        fail(s"expected rewritten bool selector match, got: $other")
+    }
+  }
+
+  test(
+    "normalization flattens bool selector matches with a nameless top fallback pattern"
+  ) {
+    val x = varTE("x", intTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val topBoolPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, boolTpe)
+
+    val inner = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    val outer = TypedExpr.Match(
+      inner,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, None, int(1)),
+        TypedExpr.Branch(topBoolPat, None, int(2))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(outer) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, Pattern.Literal(Lit.fromInt(0)))
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, int(1))
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, int(2))
+      case other =>
+        fail(s"expected flattened bool-selector match, got: $other")
+    }
+  }
+
+  test(
     "normalization rewrites let substitutions in guard and branch body consistently"
   ) {
     val xName = Identifier.Name("x")

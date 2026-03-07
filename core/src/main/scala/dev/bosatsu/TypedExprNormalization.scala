@@ -399,23 +399,31 @@ object TypedExprNormalization {
   private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
 
-  private def flattenBoolMatchArg[A](
+  private def flattenBoolMatchArg[A, V](
       arg: TypedExpr[A],
       branches: NonEmptyList[Branch[A]],
-      tag: A
-  ): Option[TypedExpr[A]] = {
+      tag: A,
+      typeEnv: TypeEnv[V]
+  )(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
+    val totalityCheck =
+      TotalityCheck(ev.substituteCo[[x] =>> TypeEnv[x]](typeEnv))
+
     def asBoolSelector(
         bs: NonEmptyList[Branch[A]]
     ): Option[(TypedExpr[A], TypedExpr[A])] =
       bs match {
         case NonEmptyList(
               Branch(TruePattern, None, ifTrue),
-              Branch((FalsePattern | Pattern.WildCard), None, ifFalse) :: Nil
+              Branch(falseOrTop, None, ifFalse) :: Nil
+            ) if (falseOrTop == FalsePattern) || totalityCheck.isWildLike(
+              falseOrTop
             ) =>
           Some((ifTrue, ifFalse))
         case NonEmptyList(
               Branch(FalsePattern, None, ifFalse),
-              Branch((TruePattern | Pattern.WildCard), None, ifTrue) :: Nil
+              Branch(trueOrTop, None, ifTrue) :: Nil
+            ) if (trueOrTop == TruePattern) || totalityCheck.isWildLike(
+              trueOrTop
             ) =>
           Some((ifTrue, ifFalse))
         case _ =>
@@ -1388,10 +1396,10 @@ object TypedExprNormalization {
         else Some(recur1)
 
       case Match(arg, branches, tag)
-          if flattenBoolMatchArg(arg, branches, tag).nonEmpty =>
+          if flattenBoolMatchArg(arg, branches, tag, typeEnv).nonEmpty =>
         normalize1(
           namerec,
-          flattenBoolMatchArg(arg, branches, tag).get,
+          flattenBoolMatchArg(arg, branches, tag, typeEnv).get,
           scope,
           typeEnv
         )
@@ -1498,7 +1506,8 @@ object TypedExprNormalization {
             bs: NonEmptyList[Branch[A]]
         ): Option[TypedExpr[A]] =
           bs.toList match {
-            case Branch(Pattern.WildCard, Some(g), e1) :: tail =>
+            case Branch(p, Some(g), e1) :: tail
+                if totalityCheck.isWildLike(p) =>
               NonEmptyList.fromList(tail).map { tailNel =>
                 val fallback = Match(arg1, tailNel, tag)
                 Match(
@@ -1549,7 +1558,7 @@ object TypedExprNormalization {
           case None =>
             if (changed1 == 0) {
               val m1 = Match(a1, branches, tag)
-              Impl.maybeEvalMatch(m1, scope) match {
+              Impl.maybeEvalMatch(m1, scope, totalityCheck) match {
                 case None =>
                   // if only the arg changes, there
                   // is no need to rerun the normalization
@@ -1834,7 +1843,8 @@ object TypedExprNormalization {
 
     def evaluate[A: Eq](
         te: TypedExpr[A],
-        scope: Scope[A]
+        scope: Scope[A],
+        totalityCheck: TotalityCheck
     ): Option[EvalResult[A]] =
       te match {
         case Literal(lit, _, _) => Some(EvalResult.Constant(lit))
@@ -1843,17 +1853,19 @@ object TypedExprNormalization {
             case (RecursionKind.NonRecursive, t, s) =>
               // local values may have free values defined in
               // their scope. we could handle these with let bindings
-              if (scopeMatches(t.freeVarsDup.toSet, s, scope)) evaluate(t, s)
+              if (scopeMatches(t.freeVarsDup.toSet, s, scope))
+                evaluate(t, s, totalityCheck)
               else None
             case _ => None
           }
         case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
           evaluate(
             in,
-            scope.updated(arg, (RecursionKind.NonRecursive, expr, scope))
+            scope.updated(arg, (RecursionKind.NonRecursive, expr, scope)),
+            totalityCheck
           )
         case FnArgs(fn, args) =>
-          evaluate(fn, scope).map {
+          evaluate(fn, scope, totalityCheck).map {
             case EvalResult.Cons(p, c, ahead) =>
               EvalResult.Cons(p, c, ahead ::: args.toList)
             // $COVERAGE-OFF$
@@ -1871,16 +1883,17 @@ object TypedExprNormalization {
             case (RecursionKind.NonRecursive, t, s) =>
               // Global values never have free values,
               // so it is safe to substitute into our current scope
-              evaluate(t, s)
+              evaluate(t, s, totalityCheck)
             case _ => None
           }
         case Generic(_, in) =>
           // if we can evaluate, we are okay
-          evaluate(in, scope)
+          evaluate(in, scope, totalityCheck)
         case Annotation(te, _, _) =>
-          evaluate(te, scope)
+          evaluate(te, scope, totalityCheck)
         case m @ Match(_, _, _) =>
-          maybeEvalMatch(m, scope).flatMap(evaluate(_, scope))
+          maybeEvalMatch(m, scope, totalityCheck)
+            .flatMap(evaluate(_, scope, totalityCheck))
         case _ =>
           None
       }
@@ -1890,19 +1903,20 @@ object TypedExprNormalization {
 
     def maybeEvalMatch[A: Eq](
         m: Match[? <: A],
-        scope: Scope[A]
+        scope: Scope[A],
+        totalityCheck: TotalityCheck
     ): Option[TypedExpr[A]] = {
       def evalBool(te: TypedExpr[A]): Option[Boolean] = {
         val te1: TypedExpr[A] =
           te match {
             case m1 @ Match(_, _, _) =>
-              maybeEvalMatch(m1, scope).getOrElse(te)
+              maybeEvalMatch(m1, scope, totalityCheck).getOrElse(te)
             case _ =>
               te
           }
 
         boolConst(te1).orElse {
-          evaluate(te1, scope).flatMap {
+          evaluate(te1, scope, totalityCheck).flatMap {
             case EvalResult.Cons(
                   PackageName.PredefName,
                   Constructor("True"),
@@ -1921,18 +1935,9 @@ object TypedExprNormalization {
         }
       }
 
-      evaluate(m.arg, scope).flatMap {
+      evaluate(m.arg, scope, totalityCheck).flatMap {
         case EvalResult.Cons(p, c, args) =>
           val alen = args.length
-
-          def isTotal(p: Pat): Boolean =
-            p match {
-              case Pattern.WildCard | Pattern.Var(_) => true
-              case Pattern.Named(_, p)               => isTotal(p)
-              case Pattern.Annotation(p, _)          => isTotal(p)
-              case Pattern.Union(h, t) => isTotal(h) || t.exists(isTotal)
-              case _                   => false
-            }
 
           // The Option signals we can't complete
           def filterPat(pat: Pat): Option[Option[Pat]] =
@@ -2071,7 +2076,7 @@ object TypedExprNormalization {
                     )
                   // $COVERAGE-ON$
                   case (pat @ MaybeNamedStruct(_, pats), r) :: rest
-                      if rest.isEmpty || pats.forall(isTotal) =>
+                      if rest.isEmpty || pats.forall(totalityCheck.isTop) =>
                     // If there are no more items, or all inner patterns are total, we are done
                     // exactly one matches, this can be a sequential match
                     bindConsPattern(pat, r)

@@ -392,6 +392,12 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   def difference(a: Pattern[Cons, Type], b: Pattern[Cons, Type]): Patterns =
     patternSetOps.difference(a, b)
 
+  def isTop(p: Pattern[Cons, Type]): Boolean =
+    patternSetOps.isTop(p)
+
+  def isWildLike(p: Pattern[Cons, Type]): Boolean =
+    p.names.isEmpty && isTop(p)
+
   private def structToList(
       n: Cons,
       args: List[Pattern[Cons, Type]]
