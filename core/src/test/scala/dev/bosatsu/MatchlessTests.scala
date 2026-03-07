@@ -268,6 +268,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
           loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
         case Matchless.TrueConst =>
@@ -341,6 +343,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(l) + loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
           loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
         case Matchless.TrueConst =>
@@ -410,6 +414,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.And(l, r) =>
           loopBool(l, inConditionalBranch) || loopBool(r, inConditionalBranch)
         case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.SetMut(_, e) =>
           loopExpr(e, inConditionalBranch)
@@ -501,6 +507,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.And(l, r) =>
           loopBool(l) + loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
@@ -1097,6 +1105,8 @@ x = 1
             checkBool(l)
             checkBool(r)
           case Matchless.CheckVariant(e, _, _, _) =>
+            requireSubset(e)
+          case Matchless.CheckVariantSet(e, _, _, _) =>
             requireSubset(e)
           case Matchless.SetMut(_, e) =>
             requireSubset(e)
@@ -1820,6 +1830,8 @@ x = 1
         case Matchless.And(l, r) =>
           hasNestedProjectionBool(l) || hasNestedProjectionBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
+          hasNestedProjectionCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           hasNestedProjectionCheap(e)
         case Matchless.SetMut(_, e) =>
           hasNestedProjectionExpr(e)

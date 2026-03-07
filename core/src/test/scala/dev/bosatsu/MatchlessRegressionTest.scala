@@ -86,6 +86,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
         countBoolWhileExprs(left) + countBoolWhileExprs(right)
       case Matchless.CheckVariant(expr, _, _, _) =>
         countWhileExprs(expr)
+      case Matchless.CheckVariantSet(expr, _, _, _) =>
+        countWhileExprs(expr)
       case Matchless.SetMut(_, expr) =>
         countWhileExprs(expr)
       case Matchless.LetBool(_, value, in) =>
@@ -109,6 +111,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
         case Matchless.And(left, right) =>
           loopBool(left, activeRecNames) + loopBool(right, activeRecNames)
         case Matchless.CheckVariant(expr, _, _, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.CheckVariantSet(expr, _, _, _) =>
           loopExpr(expr, activeRecNames)
         case Matchless.SetMut(_, expr) =>
           loopExpr(expr, activeRecNames)

@@ -456,6 +456,24 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect))
               }(newLocalName)
             }
+          case CheckVariantSet(expr, expect, _, famArities) =>
+            innerToValue(expr).flatMap { vl =>
+              val fn =
+                if (famArities.forall(_ == 0)) "get_variant_value"
+                else "get_variant"
+              vl.onExpr { expr =>
+                expect match {
+                  case head :: tail =>
+                    val variant = Code.Ident(fn)(expr)
+                    pv(tail.foldLeft(variant =:= Code.IntLiteral(head)) {
+                      case (acc, idx) =>
+                        acc.bin(Code.BinOp.Or, variant =:= Code.IntLiteral(idx))
+                    })
+                  case Nil          =>
+                    pv(Code.FalseLit)
+                }
+              }(newLocalName)
+            }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)

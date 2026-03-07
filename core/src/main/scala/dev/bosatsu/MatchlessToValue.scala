@@ -303,6 +303,8 @@ object MatchlessToValue {
 
           case CheckVariant(enumV, idx, _, _) =>
             loop(enumV).map(_.asSum.variant == idx)
+          case CheckVariantSet(enumV, idxs, _, _) =>
+            loop(enumV).map(v => idxs.contains(v.asSum.variant))
 
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)

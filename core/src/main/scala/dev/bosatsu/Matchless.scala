@@ -233,6 +233,8 @@ object Matchless {
             loopBool(left) || loopBool(right)
           case CheckVariant(expr, _, _, _) =>
             loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
+            loopExpr(expr)
           case SetMut(_, value) =>
             loopExpr(value)
           case LetBool(_, value, in) =>
@@ -286,6 +288,8 @@ object Matchless {
           case And(left, right) =>
             loopBool(left) || loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             loopExpr(expr)
           case SetMut(_, value) =>
             loopExpr(value)
@@ -411,6 +415,8 @@ object Matchless {
             case And(left, right) =>
               loopBool(left, isShadowed) || loopBool(right, isShadowed)
             case CheckVariant(expr, _, _, _) =>
+              loopExpr(expr, isShadowed)
+            case CheckVariantSet(expr, _, _, _) =>
               loopExpr(expr, isShadowed)
             case SetMut(_, value) =>
               loopExpr(value, isShadowed)
@@ -599,6 +605,8 @@ object Matchless {
           And(loopBool(left), loopBool(right))
         case CheckVariant(arg, expect, size, famArities) =>
           CheckVariant(loopCheap(arg), expect, size, famArities)
+        case CheckVariantSet(arg, expect, size, famArities) =>
+          CheckVariantSet(loopCheap(arg), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, loopExpr(value))
         case LetBool(arg, value, in) =>
@@ -782,6 +790,8 @@ object Matchless {
           loopBool(right, loopBool(left, acc))
         case CheckVariant(expr, _, _, _) =>
           loopCheap(expr, acc)
+        case CheckVariantSet(expr, _, _, _) =>
+          loopCheap(expr, acc)
         case SetMut(_, value) =>
           loopExpr(value, acc)
         case TrueConst =>
@@ -954,6 +964,8 @@ object Matchless {
           case And(left, right) =>
             loopBool(right, loopBool(left, curr))
           case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr, curr)
+          case CheckVariantSet(expr, _, _, _) =>
             loopExpr(expr, curr)
           case SetMut(target, value) =>
             loopExpr(value, curr.max(target.ident))
@@ -1281,6 +1293,11 @@ object Matchless {
             case (expr1, st1) =>
               (CheckVariant(expr1, expect, size, famArities), st1)
           }
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) =>
+              (CheckVariantSet(expr1, expect, size, famArities), st1)
+          }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
           (SetMut(target, expr1), st1)
@@ -1383,6 +1400,8 @@ object Matchless {
             1 + loopBool(left) + loopBool(right)
           case CheckVariant(expr, _, _, _) =>
             1 + loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
+            1 + loopExpr(expr)
           case SetMut(_, value) =>
             1 + loopExpr(value)
           case LetBool(_, value, in) =>
@@ -1475,6 +1494,8 @@ object Matchless {
           And(recurBool(left), recurBool(right))
         case CheckVariant(expr, expect, size, famArities) =>
           CheckVariant(recurExprCheap(expr), expect, size, famArities)
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          CheckVariantSet(recurExprCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, recurExpr(value))
         case LetBool(arg, value, in) =>
@@ -1569,10 +1590,11 @@ object Matchless {
         case _: EqualsNat[?]    => 1
         case _: And[?]          => 2
         case _: CheckVariant[?] => 3
-        case _: SetMut[?]       => 4
-        case TrueConst          => 5
-        case _: LetBool[?]      => 6
-        case _: LetMutBool[?]   => 7
+        case _: CheckVariantSet[?] => 4
+        case _: SetMut[?]          => 5
+        case TrueConst             => 6
+        case _: LetBool[?]         => 7
+        case _: LetMutBool[?]      => 8
       }
 
     private given Order[LocalAnon] = Order.by(_.ident)
@@ -1612,6 +1634,22 @@ object Matchless {
             if (c1 != 0) c1
             else {
               val c2 = java.lang.Integer.compare(expectL, expectR)
+              if (c2 != 0) c2
+              else {
+                val c3 = java.lang.Integer.compare(sizeL, sizeR)
+                if (c3 != 0) c3
+                else Order[List[Int]].compare(famAritiesL, famAritiesR)
+              }
+            }
+
+          case (
+                CheckVariantSet(exprL, expectL, sizeL, famAritiesL),
+                CheckVariantSet(exprR, expectR, sizeR, famAritiesR)
+              ) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[List[Int]].compare(expectL, expectR)
               if (c2 != 0) c2
               else {
                 val c3 = java.lang.Integer.compare(sizeL, sizeR)
@@ -1667,6 +1705,8 @@ object Matchless {
               referencesBindable(right, target, isShadowed)
           case CheckVariant(expr, _, _, _) =>
             Expr.referencesBindable(expr, target, isShadowed)
+          case CheckVariantSet(expr, _, _, _) =>
+            Expr.referencesBindable(expr, target, isShadowed)
           case SetMut(_, value) =>
             Expr.referencesBindable(value, target, isShadowed)
           case LetBool(arg, value, in) =>
@@ -1695,6 +1735,13 @@ object Matchless {
   case class CheckVariant[A](
       expr: CheapExpr[A],
       expect: Int,
+      size: Int,
+      famArities: List[Int]
+  ) extends BoolExpr[A]
+  // checks if variant is in the provided sorted distinct set
+  case class CheckVariantSet[A](
+      expr: CheapExpr[A],
+      expect: List[Int],
       size: Int,
       famArities: List[Int]
   ) extends BoolExpr[A]
@@ -1739,7 +1786,8 @@ object Matchless {
   def hasSideEffect(bx: BoolExpr[Any]): Boolean =
     bx match {
       case SetMut(_, _) => true
-      case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
+      case TrueConst | CheckVariant(_, _, _, _) | CheckVariantSet(_, _, _, _) |
+          EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
       case And(b1, b2)      => hasSideEffect(b1) || hasSideEffect(b2)
@@ -2469,6 +2517,8 @@ object Matchless {
         case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
+        case CheckVariantSet(expr, expect, sz, fam) =>
+          CheckVariantSet(substituteLocalsCheap(m, expr), expect, sz, fam)
         case LetBool(b, a, in) =>
           val m1 = b match {
             case Right(b) => m - b
@@ -3898,14 +3948,110 @@ object Matchless {
         arity
       )
 
+    type VariantSelector = (CheapExpr[B], Int, List[Int])
+
+    def boolLiteralValue(expr: Expr[B]): Option[Boolean] =
+      expr match {
+        case MakeEnum(variant, 0, famArities) if famArities == boolFamArities =>
+          variant match {
+            case 0 => Some(false)
+            case 1 => Some(true)
+            case _ => None
+          }
+        case _ =>
+          None
+      }
+
+    def collectTrueVariants(
+        expr: Expr[B],
+        possible: Set[Int],
+        selector: VariantSelector
+    ): Option[Set[Int]] = {
+      val (selectorArg, selectorSize, selectorFamArities) = selector
+      boolLiteralValue(expr) match {
+        case Some(true)  => Some(possible)
+        case Some(false) => Some(Set.empty[Int])
+        case None        =>
+          expr match {
+            case If(
+                  CheckVariant(arg: CheapExpr[B], expect, size, famArities),
+                  ifTrue,
+                  ifFalse
+                )
+                if Order[Expr[B]].eqv(arg, selectorArg) &&
+                  (size == selectorSize) &&
+                  (famArities == selectorFamArities) &&
+                  selectorFamArities.forall(_ == 0) =>
+              val onTrue: Set[Int] =
+                if (possible(expect)) Set(expect) else Set.empty[Int]
+              val onFalse = possible - expect
+              (
+                collectTrueVariants(ifTrue, onTrue, selector),
+                collectTrueVariants(ifFalse, onFalse, selector)
+              ).mapN(_ union _)
+            case _ =>
+              None
+          }
+      }
+    }
+
+    def buildVariantSelectorBool(
+        selector: VariantSelector,
+        trueVariants: Set[Int]
+    ): Option[BoolExpr[B]] = {
+      val (selectorArg, selectorSize, selectorFamArities) = selector
+      val allVariants = selectorFamArities.indices.toSet
+      if (trueVariants.isEmpty) None
+      else if (trueVariants.size == allVariants.size) Some(TrueConst)
+      else if (trueVariants.size == 1)
+        Some(
+          CheckVariant(
+            selectorArg,
+            trueVariants.iterator.next(),
+            selectorSize,
+            selectorFamArities
+          )
+        )
+      else
+        Some(
+          CheckVariantSet(
+            selectorArg,
+            trueVariants.toList.sorted,
+            selectorSize,
+            selectorFamArities
+          )
+        )
+    }
+
+    def selectorGuardToBoolExpr(expr: Expr[B]): Option[BoolExpr[B]] =
+      expr match {
+        case Let(arg, value, in) =>
+          selectorGuardToBoolExpr(in).map(LetBool(arg, value, _))
+        case selectorExpr @ If(
+              CheckVariant(arg, _, size, famArities),
+              _,
+              _
+            ) if famArities.forall(_ == 0) =>
+          val selector: VariantSelector = (arg, size, famArities)
+          collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+            .flatMap(buildVariantSelectorBool(selector, _))
+        case _ =>
+          None
+      }
+
     def guardToBoolExpr(guardExpr: Expr[B]): F[BoolExpr[B]] =
-      guardExpr match {
-        case cheap: CheapExpr[B] =>
-          Monad[F].pure(isTrueExpr(cheap))
-        case notCheap =>
-          makeAnon.map { tmp =>
-            val guardLocal = LocalAnon(tmp)
-            LetBool(Left(guardLocal), notCheap, isTrueExpr(guardLocal))
+      selectorGuardToBoolExpr(guardExpr) match {
+        case Some(fastPath) =>
+          Monad[F].pure(fastPath)
+        case None           =>
+          guardExpr match {
+            case cheap: CheapExpr[B] =>
+              Monad[F].pure(isTrueExpr(cheap))
+            case notCheap =>
+              makeAnon.map { tmp =>
+                val guardLocal = LocalAnon(tmp)
+                LetBool(Left(guardLocal), notCheap, isTrueExpr(guardLocal))
+              }
           }
       }
 
@@ -4293,6 +4439,8 @@ object Matchless {
           case And(left, right) =>
             1 + loopBool(left) + loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            1 + loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             1 + loopExpr(expr)
           case SetMut(_, expr) =>
             1 + loopExpr(expr)

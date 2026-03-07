@@ -2521,6 +2521,26 @@ object PythonGen {
                    t.get(0) =:= idx).simplify
               }
             }
+          case CheckVariantSet(enumV, idxs, _, famArities) =>
+            val useInts = famArities.forall(_ == 0)
+            loop(enumV, slotName, inlineSlots).flatMap { tup =>
+              Env.onLast(tup) { t =>
+                val variantExpr =
+                  if (useInts) t
+                  else t.get(0)
+
+                idxs match {
+                  case head :: tail =>
+                    tail
+                      .foldLeft(variantExpr =:= head) { (acc, idx) =>
+                        acc.eval(Code.Const.Or, variantExpr =:= idx)
+                      }
+                      .simplify
+                  case Nil          =>
+                    Code.Const.False
+                }
+              }
+            }
           case SetMut(LocalAnonMut(mut), expr) =>
             (Env.nameForAnon(mut), loop(expr, slotName, inlineSlots)).flatMapN {
               (ident, result) =>
