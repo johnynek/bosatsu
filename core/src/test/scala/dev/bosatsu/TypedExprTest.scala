@@ -1111,9 +1111,11 @@ foo = _ -> 1
     )
     normalized match {
       case TypedExpr.Match(_, branches, _) =>
-        assert(branches.head.guard.nonEmpty)
-        assert(branches.head.guard.forall(_.notFree(xName)))
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
         assertEquals(branches.head.expr, int(1))
+      case lit @ TypedExpr.Literal(_, _, _) =>
+        assertEquals(lit, int(1))
       case other =>
         fail(s"expected normalized match expression, got: $other")
     }
@@ -1179,7 +1181,7 @@ foo = _ -> 1
   }
 
   test(
-    "normalization leaves lambda guarded matches unchanged when lifting is blocked"
+    "normalization rewrites lambda guarded matches when lifting is blocked"
   ) {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())
@@ -1200,7 +1202,13 @@ foo = _ -> 1
     val lamExpr =
       TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
 
-    assertEquals(TypedExprNormalization.normalize(lamExpr), None)
+    TypedExprNormalization.normalize(lamExpr) match {
+      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
+      case other =>
+        fail(s"expected normalized lambda with unguarded match branches, got: $other")
+    }
   }
 
   test("normalization can evaluate guarded constructor matches to constants") {
