@@ -298,6 +298,21 @@ object MarkdownDoc {
   private def markdownCodeLink(label: String, href: String): Doc =
     Doc.text(show"[`${label.replace("`", "\\`")}`]($href)")
 
+  private def escapeMarkdownLiteral(str: String): String = {
+    val out = new StringBuilder(str.length)
+    var idx = 0
+    while (idx < str.length) {
+      str.charAt(idx) match {
+        case '[' =>
+          out.append("\\[")
+        case ch =>
+          out.append(ch)
+      }
+      idx += 1
+    }
+    out.result()
+  }
+
   private def anchorSlug(raw: String): String = {
     val lowered = raw.toLowerCase(Locale.ROOT)
     val mapped = lowered.map { ch =>
@@ -390,7 +405,7 @@ object MarkdownDoc {
 
       def flushText(): Unit =
         if (text.length > 0) {
-          pieces += Doc.text(text.result())
+          pieces += Doc.text(escapeMarkdownLiteral(text.result()))
           text.clear()
         }
 

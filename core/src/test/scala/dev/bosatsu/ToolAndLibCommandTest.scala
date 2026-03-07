@@ -2914,6 +2914,50 @@ external def apply_default[a](default: Unit -> a) -> a
     }
   }
 
+  test("tool doc escapes linked type argument brackets in type signatures") {
+    val src =
+      """export flatten
+flatten = (deps: List[Dict[String, Int]]) -> deps
+"""
+    val files = List(Chain("src", "LinkSig", "Main.bosatsu") -> src)
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/LinkSig/Main.bosatsu",
+          "--outdir",
+          "docs"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "LinkSig", "Main.md"))
+        assert(
+          markdown.contains(
+            "[`List`](../Bosatsu/Predef.md#type-list)\\[[`Dict`](../Bosatsu/Predef.md#type-dict)\\[[`String`](../Bosatsu/Predef.md#type-string), [`Int`](../Bosatsu/Predef.md#type-int)]]"
+          ),
+          markdown
+        )
+        assert(
+          !markdown.contains(
+            "[`List`](../Bosatsu/Predef.md#type-list)[[`Dict`](../Bosatsu/Predef.md#type-dict)"
+          ),
+          markdown
+        )
+    }
+  }
+
   test("tool doc --include_predef includes Bosatsu/Predef markdown") {
     val src =
       """export main,
