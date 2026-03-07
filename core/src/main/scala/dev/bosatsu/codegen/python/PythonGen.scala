@@ -2530,12 +2530,23 @@ object PythonGen {
                 membership: InSetCompiler.BoolExpr
             ): Code.Expression =
               membership match {
+                case InSetCompiler.BoolExpr.TrueConst =>
+                  Code.Const.True
+                case InSetCompiler.BoolExpr.FalseConst =>
+                  Code.Const.False
                 case InSetCompiler.BoolExpr.Compare(op, rhs) =>
                   val lit = Code.fromInt(rhs)
-                  if (op eq InSetCompiler.CmpOp.Eq) variantExpr =:= lit
-                  else if (op eq InSetCompiler.CmpOp.Ne) variantExpr =!= lit
-                  else if (op eq InSetCompiler.CmpOp.Lt) variantExpr :< lit
-                  else !(variantExpr :< lit)
+                  op match {
+                    case InSetCompiler.CmpOp.Eq =>
+                      variantExpr =:= lit
+                    case InSetCompiler.CmpOp.Ne =>
+                      variantExpr =!= lit
+                    case InSetCompiler.CmpOp.Lt =>
+                      variantExpr :< lit
+                    case InSetCompiler.CmpOp.Ge =>
+                      // Python codegen has no dedicated >= node; use not(<).
+                      !(variantExpr :< lit)
+                  }
                 case InSetCompiler.BoolExpr.And(left, right) =>
                   renderMembership(variantExpr, left)
                     .eval(Code.Const.And, renderMembership(variantExpr, right))
@@ -2544,10 +2555,6 @@ object PythonGen {
                     .eval(Code.Const.Or, renderMembership(variantExpr, right))
                 case InSetCompiler.BoolExpr.Not(value) =>
                   !renderMembership(variantExpr, value)
-                case membership0 if membership0 eq InSetCompiler.BoolExpr.TrueConst =>
-                  Code.Const.True
-                case _ =>
-                  Code.Const.False
               }
 
             loop(enumV, slotName, inlineSlots).flatMap { tup =>

@@ -468,13 +468,23 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   membership: InSetCompiler.BoolExpr
               ): Code.Expression =
                 membership match {
+                  case InSetCompiler.BoolExpr.TrueConst =>
+                    Code.TrueLit
+                  case InSetCompiler.BoolExpr.FalseConst =>
+                    Code.FalseLit
                   case InSetCompiler.BoolExpr.Compare(op, rhs) =>
                     val lit = Code.IntLiteral(rhs)
-                    if (op eq InSetCompiler.CmpOp.Eq) variant =:= lit
-                    else if (op eq InSetCompiler.CmpOp.Ne)
-                      variant.bin(Code.BinOp.NotEq, lit)
-                    else if (op eq InSetCompiler.CmpOp.Lt) variant :< lit
-                    else variant.bin(Code.BinOp.GtEq, lit)
+                    op match {
+                      case InSetCompiler.CmpOp.Eq =>
+                        variant =:= lit
+                      case InSetCompiler.CmpOp.Ne =>
+                        variant.bin(Code.BinOp.NotEq, lit)
+                      case InSetCompiler.CmpOp.Lt =>
+                        variant :< lit
+                      case InSetCompiler.CmpOp.Ge =>
+                        // Ge means variant >= rhs.
+                        variant.bin(Code.BinOp.GtEq, lit)
+                    }
                   case InSetCompiler.BoolExpr.And(left, right) =>
                     renderMembership(variant, left)
                       .bin(
@@ -489,10 +499,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       )
                   case InSetCompiler.BoolExpr.Not(value) =>
                     !renderMembership(variant, value)
-                  case membership0 if membership0 eq InSetCompiler.BoolExpr.TrueConst =>
-                    Code.TrueLit
-                  case _ =>
-                    Code.FalseLit
                 }
 
               vl.onExpr { expr =>

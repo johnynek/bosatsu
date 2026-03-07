@@ -1732,6 +1732,9 @@ object Matchless {
   case class And[A](e1: BoolExpr[A], e2: BoolExpr[A]) extends BoolExpr[A]
   // checks if variant matches, and if so, writes to
   // a given mut
+  // Note: this remains distinct from CheckVariantSet(NonEmptyList.one(...)).
+  // Several lowering/optimization paths produce singleton checks directly and
+  // keeping this node avoids broader cross-pass churn in this PR.
   case class CheckVariant[A](
       expr: CheapExpr[A],
       expect: Int,
