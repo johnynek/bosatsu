@@ -1,35 +1,5 @@
 ---
 issue: 2059
-priority: 3
-touch_paths:
-  - docs/design/2059-add-a-switchvariant-expression-to-matchless.md
-  - core/src/main/scala/dev/bosatsu/Matchless.scala
-  - core/src/main/scala/dev/bosatsu/MatchlessToValue.scala
-  - core/src/main/scala/dev/bosatsu/codegen/clang/Code.scala
-  - core/src/main/scala/dev/bosatsu/codegen/clang/ClangGen.scala
-  - core/src/main/scala/dev/bosatsu/codegen/python/PythonGen.scala
-  - core/src/test/scala/dev/bosatsu/MatchlessTests.scala
-  - core/src/test/scala/dev/bosatsu/MatchlessRegressionTest.scala
-  - core/src/test/scala/dev/bosatsu/Issue1633Test.scala
-  - core/src/test/scala/dev/bosatsu/MatchlessApplyArgsTest.scala
-  - core/src/test/scala/dev/bosatsu/codegen/clang/CodeTest.scala
-  - core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala
-  - core/src/test/scala/dev/bosatsu/codegen/python/PythonGenTest.scala
-depends_on: []
-estimated_size: M
-generated_at: 2026-03-07T19:12:52Z
----
-
-# Issue #2059 Design: Add a SwitchVariant expression to Matchless
-
-_Issue: #2059 (https://github.com/johnynek/bosatsu/issues/2059)_
-
-## Summary
-
-Adds a new Matchless `SwitchVariant` node, a conservative lowering pass, backend-specific lowering plans, and rollout/testing criteria for issue #2059.
-
----
-issue: 2059
 priority: 2
 touch_paths:
   - docs/design/2059-add-a-switchvariant-expression-to-matchless.md
@@ -59,9 +29,9 @@ Base branch: `main`
 
 ## Summary
 
-Add a new Matchless IR node, `SwitchVariant`, to represent enum-variant dispatch explicitly when a match lowers to a large orthogonal variant-only branch ladder. Keep Matchless lowering conservative with a branch-count threshold, preserve behavior via a default branch, and let backends lower this node appropriately.
+Add a new Matchless IR node, `SwitchVariant`, to represent enum-variant dispatch explicitly when a match lowers to a large orthogonal variant-only branch ladder.
 
-This gives C codegen a direct path to emit `switch (...)` while keeping Python semantics correct with an `if`/`elif` fallback.
+Key decision in this revision: lower `SwitchVariant` directly from the matrix matcher, not from a post-pass over lowered `If` chains. This keeps constructor orthogonality and union-case structure available at the point where we decide to emit switch-form IR.
 
 ## Problem statement
 
@@ -76,10 +46,10 @@ The issue asks three design questions:
 ## Goals
 
 1. Introduce a first-class Matchless expression for variant dispatch.
-2. Keep semantics equivalent to current nested-`If` lowering.
+2. Preserve behavior of existing match lowering.
 3. Improve C backend opportunities for jump-table or switch-style code generation.
 4. Keep Python backend behavior correct and deterministic.
-5. Minimize churn for tiny matches where switch IR is unlikely to help.
+5. Avoid error-prone reverse-engineering from generic lowered `If` trees.
 
 ## Non-goals
 
@@ -92,16 +62,17 @@ The issue asks three design questions:
 
 Use a hybrid policy:
 
-1. Matchless introduces `SwitchVariant` only when profitable enough, with `SwitchVariantMinCases = 4`.
-2. Backends decide final emitted form from `SwitchVariant`.
-3. C emits native `switch`.
-4. Python lowers to cached-tag `if`/`elif` chain in this issue.
+1. Matchless emits `SwitchVariant` only when the selected matrix column is enum-dispatch and the branch fanout is large enough.
+2. The threshold is `SwitchVariantMinCases = 4`.
+3. Backends decide final emitted form from `SwitchVariant`.
+4. C emits native `switch`.
+5. Python lowers to cached-tag `if`/`elif` chain in this issue.
 
 Rationale:
 
-1. Keeping the threshold in Matchless avoids broad IR churn and test churn for tiny matches.
-2. Backends still retain control of final code shape.
-3. The threshold can be tuned later with benchmarks.
+1. The threshold keeps IR/test churn small for tiny matches.
+2. Direct matrix-time lowering preserves orthogonality context and union structure.
+3. Backend-specific choices remain separate from match semantics.
 
 ## Proposed architecture
 
@@ -125,28 +96,32 @@ Semantics:
 3. Evaluate the matching case expression if present.
 4. Otherwise evaluate `default`.
 
-### 2) Add a `switchVariantize` pass in Matchless
+### 2) Emit `SwitchVariant` directly in matrix compilation
 
-Add a post-lowering pass in `Matchless.scala`, run after existing optimization passes:
+Integrate switch emission into `matchExprMatrixCheap` in `Matchless.scala`.
 
-1. Current pipeline: `fromLet -> hoistInvariantLoopLets -> reuseConstructors`.
-2. New pipeline: `fromLet -> hoistInvariantLoopLets -> reuseConstructors -> switchVariantize`.
+Eligibility at the selected column:
 
-`switchVariantize` algorithm:
+1. Head signatures are enum signatures only.
+2. All enum signatures share the same enum family metadata (`famArities`).
+3. Case count at the column is at least `SwitchVariantMinCases`.
 
-1. Traverse expressions recursively.
-2. On `If` ladders, flatten with existing `If.flatten` shape.
-3. Detect leading conditions of exact form `CheckVariant(sameOcc, variant, _, sameFamArities)`.
-4. Require distinct variants and at least `SwitchVariantMinCases` such checks.
-5. Preserve fallback semantics:
-6. If ladder includes a `TrueConst` branch, use that branch as `default`.
-7. Otherwise use final `else` expression as `default`.
-8. Rewrite ladder to `SwitchVariant` and recurse into case/default expressions.
-9. Leave non-matching ladders unchanged.
+Lowering shape:
 
-This preserves behavior while targeting the specific pattern produced by matrix/ordered match compilation.
+1. Reuse existing specialization pipeline (`specializeRows`, `minimizeSpecializedRows`, recursive `compileRows`).
+2. Build one case expression per variant from its specialized submatrix.
+3. Build default from wildcard/default rows exactly as today.
+4. Construct `SwitchVariant(occ, famArities, cases, default)` instead of nested `If(CheckVariant(...), ...)`.
 
-### 3) Update Matchless internal traversals and utilities
+### Why direct matrix-time lowering instead of an `If` post-pass
+
+1. Orthogonality is explicit at matrix time; it is implicit after generic `If` lowering.
+2. Union patterns are already represented in the matrix expansion/specialization data.
+3. Cases like `B | C` do not require reconstructing intent from arbitrary boolean conditions.
+4. We avoid brittle pattern recognition over potentially transformed `If` trees.
+5. Correctness arguments stay local to one lowering algorithm instead of split across lowering plus recovery pass.
+
+### 3) Matchless internal updates
 
 Because Scala is compiled with strict pattern-match checks and `-Werror`, all exhaustive Matchless traversals must handle `SwitchVariant`.
 
@@ -176,10 +151,10 @@ Add explicit switch statement support:
 
 1. Extend `core/src/main/scala/dev/bosatsu/codegen/clang/Code.scala` with `Code.Switch` statement and renderer.
 2. In `ClangGen.innerToValue`, add `SwitchVariant` case.
-3. Compute variant tag once:
+3. Compute variant tag once.
 4. Use `get_variant_value` when `famArities.forall(_ == 0)`.
 5. Otherwise use `get_variant`.
-6. Materialize a single result variable.
+6. Materialize one result variable.
 7. Emit `switch(tag)` with one `case` per variant that assigns result and `break`.
 8. Emit `default` that assigns result from default expression.
 
@@ -199,26 +174,27 @@ Note: a balanced binary decision tree is intentionally deferred. We keep the fir
 ## Detailed implementation plan
 
 1. Add `SwitchVariant` node and invariants in `Matchless.scala`.
-2. Implement `switchVariantize` pass and wire it at the end of `fromLet` pipeline.
-3. Update all exhaustive Matchless traversals in `Matchless.scala` for the new node.
-4. Add `SwitchVariant` evaluation in `MatchlessToValue.scala`.
-5. Add `Code.Switch` AST + rendering in `codegen/clang/Code.scala`.
-6. Add Clang lowering for `SwitchVariant` in `codegen/clang/ClangGen.scala`.
-7. Add Python lowering for `SwitchVariant` in `codegen/python/PythonGen.scala`.
-8. Update compile-sensitive traversal helpers in tests that pattern-match on `Matchless.Expr`.
-9. Add targeted tests for switch formation and backend output.
+2. Add matrix-time `SwitchVariant` emission path in `matchExprMatrixCheap` with `SwitchVariantMinCases` gating.
+3. Keep existing non-eligible paths on current `If` lowering.
+4. Update exhaustive Matchless traversals in `Matchless.scala` for the new node.
+5. Add `SwitchVariant` evaluation in `MatchlessToValue.scala`.
+6. Add `Code.Switch` AST + rendering in `codegen/clang/Code.scala`.
+7. Add Clang lowering for `SwitchVariant` in `codegen/clang/ClangGen.scala`.
+8. Add Python lowering for `SwitchVariant` in `codegen/python/PythonGen.scala`.
+9. Update compile-sensitive traversal helpers in tests that pattern-match on `Matchless.Expr`.
+10. Add targeted tests for matrix switch formation and backend output.
 
 ## Testing plan
 
 ### Matchless and evaluator tests
 
-1. Add Matchless tests that build/compile a 4+ branch variant match and assert `SwitchVariant` appears.
-2. Add negative tests where ladders should not rewrite:
-3. Fewer than threshold branches.
-4. Mixed non-`CheckVariant` conditions.
-5. Different scrutinee between conditions.
-6. Duplicate variant tests.
-7. Add evaluator parity test comparing rewritten vs non-rewritten expression result for representative enum values.
+1. Add Matchless tests that compile a 4+ branch orthogonal enum match and assert `SwitchVariant` appears.
+2. Add test that union case shapes (for example `B | C`) lower correctly when combined with other enum variants.
+3. Add negative tests where switch lowering should not trigger.
+4. Fewer than threshold branches.
+5. Mixed signature columns (not enum-only).
+6. Non-orthogonal fallback path still uses existing ordered lowering.
+7. Add evaluator parity test for representative enum values and wildcard/default behavior.
 
 ### C codegen tests
 
@@ -239,9 +215,9 @@ Note: a balanced binary decision tree is intentionally deferred. We keep the fir
 ## Acceptance criteria
 
 1. `Matchless.Expr` includes `SwitchVariant` with explicit default branch.
-2. `Matchless.fromLet` pipeline includes a `switchVariantize` pass after existing passes.
-3. `switchVariantize` rewrites eligible variant `If` ladders only when case count is at least 4.
-4. Rewriting preserves default/fallback behavior of the original ladder.
+2. `matchExprMatrixCheap` can emit `SwitchVariant` directly for eligible enum columns.
+3. Switch lowering triggers only when enum-case fanout is at least 4.
+4. Union-case semantics and wildcard/default behavior are preserved.
 5. `MatchlessToValue` evaluates `SwitchVariant` correctly.
 6. Clang codegen emits C `switch` for `SwitchVariant`.
 7. Python codegen handles `SwitchVariant` correctly using cached-tag conditional lowering.
@@ -250,8 +226,8 @@ Note: a balanced binary decision tree is intentionally deferred. We keep the fir
 
 ## Risks and mitigations
 
-1. Risk: semantic drift when rewriting `If` ladders.
-Mitigation: strict recognizer (`CheckVariant` only, same scrutinee/family, distinct variants) plus evaluator parity tests.
+1. Risk: semantic drift in matrix specialization when adding switch emission.
+Mitigation: use existing specialization/default machinery and add union + fallback regression tests.
 
 2. Risk: C switch fall-through bugs.
 Mitigation: always emit explicit `break` per case and add renderer/codegen assertions.
@@ -260,7 +236,7 @@ Mitigation: always emit explicit `break` per case and add renderer/codegen asser
 Mitigation: audit and update all exhaustive Matchless expression traversals in main and tests.
 
 4. Risk: Python performance or code-size concerns with long `if`/`elif` chain.
-Mitigation: keep simple first; add benchmark-driven follow-up for balanced tree lowering if needed.
+Mitigation: keep simple first and add benchmark-driven follow-up for balanced tree lowering if needed.
 
 5. Risk: threshold mis-tuning.
 Mitigation: keep threshold as a local constant (`SwitchVariantMinCases`) and tune with profiling data.
@@ -270,5 +246,5 @@ Mitigation: keep threshold as a local constant (`SwitchVariantMinCases`) and tun
 1. Land as one PR including IR, evaluator, and both backends, with tests.
 2. Keep threshold conservative (`4`) for first rollout.
 3. Validate generated C on a high-branch enum sample before merge.
-4. If regressions appear, temporarily disable rewriting by raising threshold, while retaining node/backends.
+4. If regressions appear, temporarily disable switch emission by raising threshold while retaining node/backends.
 5. Follow-up optimization work can revisit Python balanced-tree lowering and threshold tuning.
