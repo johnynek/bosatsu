@@ -3129,7 +3129,10 @@ object Matchless {
           // this is a total pattern
           Monad[F].pure(wildMatch)
         case Pattern.Literal(lit) =>
-          Monad[F].pure(NonEmptyList((Nil, EqualsLit(arg, lit), Nil), Nil))
+          val cond =
+            if (mustMatch) TrueConst
+            else EqualsLit(arg, lit)
+          Monad[F].pure(NonEmptyList((Nil, cond, Nil), Nil))
         case Pattern.Var(v) =>
           Monad[F].pure(
             NonEmptyList(
@@ -4077,7 +4080,10 @@ object Matchless {
                     val guardExpr = lets(b0, guard)
                     guardToBoolExpr(guardExpr).flatMap { guardCond =>
                       if (tail.nonEmpty) {
-                        compileRows(tail, occs, mustMatch = false).map {
+                        // A guarded wildcard row does not constrain the scrutinee shape;
+                        // if this matrix must match, then when the guard is false the tail
+                        // must still be total.
+                        compileRows(tail, occs, mustMatch).map {
                           fallback =>
                             If(guardCond, rhsExpr, fallback)
                         }
@@ -4205,14 +4211,13 @@ object Matchless {
                       val caseMustMatch =
                         mustMatch &&
                           rest.isEmpty &&
-                          defaultRows.isEmpty &&
-                          rows.forall(_.guard.isEmpty)
+                          defaultRows.isEmpty
                       buildCase(sig, caseMustMatch).flatMap {
                         case (cond, preLets, newRows, newOccs) =>
                           if (newRows.isEmpty) compileCases(rest, mustMatch)
                           else {
                             val subMustMatch =
-                              mustMatch && newRows.forall(_.guard.isEmpty)
+                              mustMatch
                             compileRows(newRows, newOccs, subMustMatch).flatMap {
                               thenExpr =>
                                 cond match {
