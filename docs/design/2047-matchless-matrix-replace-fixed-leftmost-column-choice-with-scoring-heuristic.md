@@ -1,25 +1,3 @@
----
-issue: 2047
-priority: 3
-touch_paths:
-  - docs/design/2047-matchless-matrix-replace-fixed-leftmost-column-choice-with-scoring-heuristic.md
-  - core/src/main/scala/dev/bosatsu/Matchless.scala
-  - core/src/test/scala/dev/bosatsu/MatchlessTests.scala
-  - core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala
-depends_on: []
-estimated_size: M
-generated_at: 2026-03-07T22:20:18Z
----
-
-# Issue #2047 Design Doc
-
-_Issue: #2047 (https://github.com/johnynek/bosatsu/issues/2047)_
-
-## Summary
-
-Design doc content for replacing fixed leftmost matrix-column selection with a shared deterministic scoring heuristic in Matchless compilation and fallback multiplicity estimation.
-
----
 issue: 2047
 priority: 2
 touch_paths:
@@ -160,6 +138,15 @@ Use regex/count/order assertions, not full rendered-file equality.
 2. Existing C codegen tests pass.
 3. No expected parser/typechecker behavior changes.
 
+### D) Repository-wide generated C diff audit (`test_workspace`)
+
+Add an explicit audit pass across all `test_workspace` cases:
+
+1. Generate C output for all `test_workspace` programs at `base_sha` and `head_sha`.
+2. Diff generated C outputs case-by-case.
+3. Verify changes are neutral-to-positive in aggregate, with focus on reduced redundant checks/projections and no suspicious control-flow regressions.
+4. Capture a short summary of observed diff patterns in the PR description.
+
 ## Acceptance criteria
 
 1. Column selection in matrix compilation is no longer fixed-leftmost.
@@ -167,7 +154,8 @@ Use regex/count/order assertions, not full rendered-file equality.
 3. Heuristic remains deterministic and cheap (no exponential lookahead).
 4. Existing match tests pass.
 5. At least one representative multi-column case shows reduced checks or projections in generated C versus the prior leftmost shape.
-6. Match semantics are unchanged; only decision-tree/code shape changes.
+6. Repository-wide generated C diffs for `test_workspace` are reviewed before/after and look positive in general.
+7. Match semantics are unchanged; only decision-tree/code shape changes.
 
 ## Risks and mitigations
 
@@ -190,8 +178,9 @@ Use regex/count/order assertions, not full rendered-file equality.
 
 1. Land as a single PR against `main`.
 2. Include before/after evidence for one representative multi-column C case in the PR description.
-3. No feature flag or migration needed.
-4. If regressions appear, rollback is straightforward by temporarily restoring leftmost selection at chooser call sites.
+3. Include a summary of the full `test_workspace` generated-C before/after diff review in the PR description.
+4. No feature flag or migration needed.
+5. If regressions appear, rollback is straightforward by temporarily restoring leftmost selection at chooser call sites.
 
 ## Decision
 
