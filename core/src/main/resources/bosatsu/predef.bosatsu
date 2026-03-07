@@ -225,7 +225,7 @@ external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
 # Integer multiplication.
 external def mul(a: Int, b: Int) -> Int
-# Integer division.
+# Integer division rounded toward negative infinity; total with `div(a, 0) == 0`.
 external def div(a: Int, b: Int) -> Int
 # Integer equality.
 external def eq_Int(a: Int, b: Int) -> Bool
@@ -233,7 +233,7 @@ external def eq_Int(a: Int, b: Int) -> Bool
 external def gcd_Int(a: Int, b: Int) -> Int
 # Total integer comparison.
 external def cmp_Int(a: Int, b: Int) -> Comparison
-# Integer modulus.
+# Integer modulus paired with `div`; total with `mod_Int(a, 0) == a`.
 external def mod_Int(a: Int, mod: Int) -> Int
 # Bitwise left shift.
 external def shift_left_Int(arg: Int, shift: Int) -> Int
@@ -253,9 +253,9 @@ external def addf(a: Float64, b: Float64) -> Float64
 external def subf(a: Float64, b: Float64) -> Float64
 # Floating-point multiplication.
 external def timesf(a: Float64, b: Float64) -> Float64
-# Floating-point division.
+# IEEE754 floating-point division; unlike `div`, dividing by `0.0` yields `∞`, `-∞`, or `.NaN`.
 external def divf(a: Float64, b: Float64) -> Float64
-# Total Float64 comparison.
+# Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 
 # Loop until the returned Int is <= 0 or >= intValue.

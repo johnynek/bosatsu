@@ -3068,6 +3068,22 @@ main = 1
         assert(predefDoc.contains("intValue: Int"), predefDoc)
         assert(predefDoc.contains("state: a"), predefDoc)
         assert(predefDoc.contains("fn: (Int, a) -> (Int, a)"), predefDoc)
+        assert(
+          predefDoc.contains("div(a, 0) == 0"),
+          predefDoc
+        )
+        assert(
+          predefDoc.contains("mod_Int(a, 0) == a"),
+          predefDoc
+        )
+        assert(
+          predefDoc.contains("all `.NaN` values are equal"),
+          predefDoc
+        )
+        assert(
+          predefDoc.contains("dividing by `0.0` yields `∞`, `-∞`, or `.NaN`"),
+          predefDoc
+        )
     }
   }
 
