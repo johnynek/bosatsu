@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -135,28 +135,17 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-char-array-to-int-array"></a>
 <h3><a href="#char-array-to-int-array" name="char-array-to-int-array" class="anchor"><span class="anchor-link"></span></a><code>char_Array_to_Int_Array</code></h3>
-<p>type signature: def char_Array_to_Int_Array(chars: <a href="#type-array"><code>Array</code></a><a href="./%60Char%60%5D%28..%2FPredef.html%23type-char%29%5D%29--%3E-%5B%60Array%60%5D%28%23type-array%29%5B%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-char_Array_to_Int_Array%28chars%3A-Array%5BChar%5D%29--%3E-Array%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-char-array-to-string%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60char_Array_to_String%60%0A%0Atype-signature%3A-def-char_Array_to_String%28chars%3A-%5B%60Array%60%5D%28%23type-array%29%5B%5B%60Char%60%5D%28..%2FPredef.html%23type-char%29%5D%29--%3E-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%0A%0A%60%60%60bosatsu%0Adef-char_Array_to_String%28chars%3A-Array%5BChar%5D%29--%3E-String%0A%60%60%60%0A%0A%3Ca-id%3D%22value-concat-all-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60concat_all_Array%60%0A%0Atype-signature%3A-def-concat_all_Array%5Ba%0A%5D%28arrays%3A-%5B%60List%60%5D%28..%2FPredef.html%23type-list%29%5B%5B%60Array%60%5D%28%23type-array%29%5Ba.html">`Char`](../Predef.html#type-char)]) -> [`Array`](#type-array)[[`Int`](../Predef.html#type-int)]
-
-```bosatsu
-def char_Array_to_Int_Array(chars: Array[Char]) -> Array[Int]
-```
-
+<p>type signature: def char_Array_to_Int_Array(chars: <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-char"><code>Char</code></a>]) -&gt; <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_Int_Array(chars: Array[Char]) -&gt; Array[Int]
+</code></pre>
 <a id="value-char-array-to-string"></a>
-
-### `char_Array_to_String`
-
-type signature: def char_Array_to_String(chars: [`Array`](#type-array)[[`Char`](../Predef.html#type-char)]) -> [`String`](../Predef.html#type-string)
-
-```bosatsu
-def char_Array_to_String(chars: Array[Char]) -> String
-```
-
+<h3><a href="#char-array-to-string" name="char-array-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_Array_to_String</code></h3>
+<p>type signature: def char_Array_to_String(chars: <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-char"><code>Char</code></a>]) -&gt; <a href="../Predef.html#type-string"><code>String</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def char_Array_to_String(chars: Array[Char]) -&gt; String
+</code></pre>
 <a id="value-concat-all-array"></a>
-
-### `concat_all_Array`
-
-type signature: def concat_all_Array[a
-](arrays: [`List`](../Predef.html#type-list)[[`Array`](#type-array)[a</a>) -&gt; <a href="#type-array"><code>Array</code></a>[a]</p>
+<h3><a href="#concat-all-array" name="concat-all-array" class="anchor"><span class="anchor-link"></span></a><code>concat_all_Array</code></h3>
+<p>type signature: def concat_all_Array[a ](arrays: <a href="../Predef.html#type-list"><code>List</code></a>[<a href="#type-array"><code>Array</code></a>[a]]) -&gt; <a href="#type-array"><code>Array</code></a>[a]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def concat_all_Array[a](arrays: List[Array[a]]) -&gt; Array[a]
 </code></pre>
 <a id="value-empty-array"></a>
@@ -176,17 +165,17 @@ type signature: def concat_all_Array[a
 </code></pre>
 <a id="value-flatten-array"></a>
 <h3><a href="#flatten-array" name="flatten-array" class="anchor"><span class="anchor-link"></span></a><code>flatten_Array</code></h3>
-<p>type signature: def flatten_Array[a ](arrays: <a href="#type-array"><code>Array</code></a><a href="./%60Array%60%5D%28%23type-array%29%5Ba.html">`Array`](#type-array)[a</a>) -&gt; <a href="#type-array"><code>Array</code></a>[a]</p>
+<p>type signature: def flatten_Array[a ](arrays: <a href="#type-array"><code>Array</code></a>[<a href="#type-array"><code>Array</code></a>[a]]) -&gt; <a href="#type-array"><code>Array</code></a>[a]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def flatten_Array[a](arrays: Array[Array[a]]) -&gt; Array[a]
 </code></pre>
 <a id="value-foldl-array"></a>
 <h3><a href="#foldl-array" name="foldl-array" class="anchor"><span class="anchor-link"></span></a><code>foldl_Array</code></h3>
-<p>type signature: def foldl_Array[a, b](ary: <a href="#type-array"><code>Array</code></a>[a], init: b, fn: (b, a) -&gt; b) -&gt; b</p>
+<p>type signature: def foldl_Array[a,  b](ary: <a href="#type-array"><code>Array</code></a>[a], init: b, fn: (b, a) -&gt; b) -&gt; b</p>
 <pre class="prettyprint"><code class="language-bosatsu">def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
 <a id="value-foldr-array"></a>
 <h3><a href="#foldr-array" name="foldr-array" class="anchor"><span class="anchor-link"></span></a><code>foldr_Array</code></h3>
-<p>type signature: def foldr_Array[a, b](ary: <a href="#type-array"><code>Array</code></a>[a], init: b, fn: (a, b) -&gt; b) -&gt; b</p>
+<p>type signature: def foldr_Array[a,  b](ary: <a href="#type-array"><code>Array</code></a>[a], init: b, fn: (a, b) -&gt; b) -&gt; b</p>
 <pre class="prettyprint"><code class="language-bosatsu">def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -&gt; b) -&gt; b
 </code></pre>
 <a id="value-from-list-array"></a>
@@ -216,64 +205,37 @@ type signature: def concat_all_Array[a
 </code></pre>
 <a id="value-int-array-to-char-array"></a>
 <h3><a href="#int-array-to-char-array" name="int-array-to-char-array" class="anchor"><span class="anchor-link"></span></a><code>int_Array_to_Char_Array</code></h3>
-<p>type signature: def int_Array_to_Char_Array(code_points: <a href="#type-array"><code>Array</code></a><a href="./%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%29--%3E-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Array%60%5D%28%23type-array%29%5B%5B%60Char%60%5D%28..%2FPredef.html%23type-char%29.html">`Int`](../Predef.html#type-int)]) -> [`Option`](../Predef.html#type-option)[[`Array`](#type-array)[[`Char`](../Predef.html#type-char)</a></p>
+<p>type signature: def int_Array_to_Char_Array(code_points: <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>]) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-char"><code>Char</code></a>]]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_Char_Array(code_points: Array[Int]) -&gt; Option[Array[Char]]
 </code></pre>
 <a id="value-int-array-to-string"></a>
 <h3><a href="#int-array-to-string" name="int-array-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_Array_to_String</code></h3>
-<p>type signature: def int_Array_to_String(code_points: <a href="#type-array"><code>Array</code></a><a href="./%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%29--%3E-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%5D%0A%0A%60%60%60bosatsu%0Adef-int_Array_to_String%28code_points%3A-Array%5BInt%5D%29--%3E-Option%5BString%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-map-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60map_Array%60%0A%0Atype-signature%3A-def-map_Array%5Ba%2C%0A----b%5D%28ary%3A-%5B%60Array%60%5D%28%23type-array%29%5Ba%5D%2C-fn%3A-a--%3E-b%29--%3E-%5B%60Array%60%5D%28%23type-array%29%5Bb%5D%0A%0A%60%60%60bosatsu%0Adef-map_Array%5Ba%2C-b%5D%28ary%3A-Array%5Ba%5D%2C-fn%3A-a--%3E-b%29--%3E-Array%5Bb%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-range-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60range_Array%60%0A%0Atype-signature%3A-def-range_Array%28n%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%29--%3E-%5B%60Array%60%5D%28%23type-array%29%5B%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-range_Array%28n%3A-Int%29--%3E-Array%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-range-from-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60range_from_Array%60%0A%0Atype-signature%3A-def-range_from_Array%28start%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%2C-n%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%29--%3E-%5B%60Array%60%5D%28%23type-array%29%5B%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-range_from_Array%28start%3A-Int%2C-n%3A-Int%29--%3E-Array%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-reverse-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60reverse_Array%60%0A%0Atype-signature%3A-def-reverse_Array%5Ba%5D%28ary%3A-%5B%60Array%60%5D%28%23type-array%29%5Ba%5D%29--%3E-%5B%60Array%60%5D%28%23type-array%29%5Ba%5D%0A%0A%60%60%60bosatsu%0Adef-reverse_Array%5Ba%5D%28ary%3A-Array%5Ba%5D%29--%3E-Array%5Ba%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-set-array%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60set_Array%60%0A%0Atype-signature%3A-def-set_Array%5Ba%0A%5D%28ary%3A-%5B%60Array%60%5D%28%23type-array%29%5Ba%5D%2C-idx%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%2C-value%3A-a%29--%3E-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Array%60%5D%28%23type-array%29%5Ba.html">`Int`](../Predef.html#type-int)]) -> [`Option`](../Predef.html#type-option)[[`String`](../Predef.html#type-string)]
-
-```bosatsu
-def int_Array_to_String(code_points: Array[Int]) -> Option[String]
-```
-
+<p>type signature: def int_Array_to_String(code_points: <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>]) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="../Predef.html#type-string"><code>String</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def int_Array_to_String(code_points: Array[Int]) -&gt; Option[String]
+</code></pre>
 <a id="value-map-array"></a>
-
-### `map_Array`
-
-type signature: def map_Array[a,
-    b](ary: [`Array`](#type-array)[a], fn: a -> b) -> [`Array`](#type-array)[b]
-
-```bosatsu
-def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
-```
-
+<h3><a href="#map-array" name="map-array" class="anchor"><span class="anchor-link"></span></a><code>map_Array</code></h3>
+<p>type signature: def map_Array[a,  b](ary: <a href="#type-array"><code>Array</code></a>[a], fn: a -&gt; b) -&gt; <a href="#type-array"><code>Array</code></a>[b]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def map_Array[a, b](ary: Array[a], fn: a -&gt; b) -&gt; Array[b]
+</code></pre>
 <a id="value-range-array"></a>
-
-### `range_Array`
-
-type signature: def range_Array(n: [`Int`](../Predef.html#type-int)) -> [`Array`](#type-array)[[`Int`](../Predef.html#type-int)]
-
-```bosatsu
-def range_Array(n: Int) -> Array[Int]
-```
-
+<h3><a href="#range-array" name="range-array" class="anchor"><span class="anchor-link"></span></a><code>range_Array</code></h3>
+<p>type signature: def range_Array(n: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def range_Array(n: Int) -&gt; Array[Int]
+</code></pre>
 <a id="value-range-from-array"></a>
-
-### `range_from_Array`
-
-type signature: def range_from_Array(start: [`Int`](../Predef.html#type-int), n: [`Int`](../Predef.html#type-int)) -> [`Array`](#type-array)[[`Int`](../Predef.html#type-int)]
-
-```bosatsu
-def range_from_Array(start: Int, n: Int) -> Array[Int]
-```
-
+<h3><a href="#range-from-array" name="range-from-array" class="anchor"><span class="anchor-link"></span></a><code>range_from_Array</code></h3>
+<p>type signature: def range_from_Array(start: <a href="../Predef.html#type-int"><code>Int</code></a>, n: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="#type-array"><code>Array</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def range_from_Array(start: Int, n: Int) -&gt; Array[Int]
+</code></pre>
 <a id="value-reverse-array"></a>
-
-### `reverse_Array`
-
-type signature: def reverse_Array[a](ary: [`Array`](#type-array)[a]) -> [`Array`](#type-array)[a]
-
-```bosatsu
-def reverse_Array[a](ary: Array[a]) -> Array[a]
-```
-
+<h3><a href="#reverse-array" name="reverse-array" class="anchor"><span class="anchor-link"></span></a><code>reverse_Array</code></h3>
+<p>type signature: def reverse_Array[a](ary: <a href="#type-array"><code>Array</code></a>[a]) -&gt; <a href="#type-array"><code>Array</code></a>[a]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def reverse_Array[a](ary: Array[a]) -&gt; Array[a]
+</code></pre>
 <a id="value-set-array"></a>
-
-### `set_Array`
-
-type signature: def set_Array[a
-](ary: [`Array`](#type-array)[a], idx: [`Int`](../Predef.html#type-int), value: a) -> [`Option`](../Predef.html#type-option)[[`Array`](#type-array)[a</a></p>
+<h3><a href="#set-array" name="set-array" class="anchor"><span class="anchor-link"></span></a><code>set_Array</code></h3>
+<p>type signature: def set_Array[a ](ary: <a href="#type-array"><code>Array</code></a>[a], idx: <a href="../Predef.html#type-int"><code>Int</code></a>, value: a) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-array"><code>Array</code></a>[a]]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def set_Array[a](ary: Array[a], idx: Int, value: a) -&gt; Option[Array[a]]
 </code></pre>
 <a id="value-set-or-self-array"></a>
@@ -393,7 +355,7 @@ type signature: def set_Array[a
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f2ac38e2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

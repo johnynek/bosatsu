@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -129,59 +129,33 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-char-list-to-int-list"></a>
 <h3><a href="#char-list-to-int-list" name="char-list-to-int-list" class="anchor"><span class="anchor-link"></span></a><code>char_List_to_Int_List</code></h3>
-<p>type signature: def char_List_to_Int_List(chars: <a href="Predef.html#type-list"><code>List</code></a><a href="./%60Char%60%5D%28Predef.html%23type-char%29%5D%29--%3E-%5B%60List%60%5D%28Predef.html%23type-list%29%5B%5B%60Int%60%5D%28Predef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-char_List_to_Int_List%28chars%3A-List%5BChar%5D%29--%3E-List%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-char-to-int%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60char_to_Int%60%0A%0Atype-signature%3A-def-char_to_Int%28c%3A-%5B%60Char%60%5D%28Predef.html%23type-char%29%29--%3E-%5B%60Int%60%5D%28Predef.html%23type-int%29%0A%0A%60%60%60bosatsu%0Adef-char_to_Int%28c%3A-Char%29--%3E-Int%0A%60%60%60%0A%0A%3Ca-id%3D%22value-cmp-char%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60cmp_Char%60%0A%0Atype-signature%3A-def-cmp_Char%28a%3A-%5B%60Char%60%5D%28Predef.html%23type-char%29%2C-b%3A-%5B%60Char%60%5D%28Predef.html%23type-char%29%29--%3E-%5B%60Comparison%60%5D%28Predef.html%23type-comparison%29%0A%0A%60%60%60bosatsu%0Adef-cmp_Char%28a%3A-Char%2C-b%3A-Char%29--%3E-Comparison%0A%60%60%60%0A%0A%3Ca-id%3D%22value-eq-ignore-ascii-case%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60eq_ignore_ascii_case%60%0A%0Atype-signature%3A-def-eq_ignore_ascii_case%28left%3A-%5B%60Char%60%5D%28Predef.html%23type-char%29%2C-right%3A-%5B%60Char%60%5D%28Predef.html%23type-char%29%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%0A%0A%60%60%60bosatsu%0Adef-eq_ignore_ascii_case%28left%3A-Char%2C-right%3A-Char%29--%3E-Bool%0A%60%60%60%0A%0A%3Ca-id%3D%22value-from-digit%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60from_digit%60%0A%0ASupported-radix-range-is-2..36-inclusive.%0A%0Atype-signature%3A-def-from_digit%28digit%3A-%5B%60Int%60%5D%28Predef.html%23type-int%29%2C-radix%3A-%5B%60Int%60%5D%28Predef.html%23type-int%29%29--%3E-%5B%60Option%60%5D%28Predef.html%23type-option%29%5B%5B%60Char%60%5D%28Predef.html%23type-char%29%5D%0A%0A%60%60%60bosatsu%0Adef-from_digit%28digit%3A-Int%2C-radix%3A-Int%29--%3E-Option%5BChar%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-int-list-to-char-list%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60int_List_to_Char_List%60%0A%0Atype-signature%3A-def-int_List_to_Char_List%28code_points%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5B%5B%60Int%60%5D%28Predef.html%23type-int%29%5D%29--%3E-%5B%60Option%60%5D%28Predef.html%23type-option%29%5B%5B%60List%60%5D%28Predef.html%23type-list%29%5B%5B%60Char%60%5D%28Predef.html%23type-char%29.html">`Char`](Predef.html#type-char)]) -> [`List`](Predef.html#type-list)[[`Int`](Predef.html#type-int)]
-
-```bosatsu
-def char_List_to_Int_List(chars: List[Char]) -> List[Int]
-```
-
+<p>type signature: def char_List_to_Int_List(chars: <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-char"><code>Char</code></a>]) -&gt; <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-int"><code>Int</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def char_List_to_Int_List(chars: List[Char]) -&gt; List[Int]
+</code></pre>
 <a id="value-char-to-int"></a>
-
-### `char_to_Int`
-
-type signature: def char_to_Int(c: [`Char`](Predef.html#type-char)) -> [`Int`](Predef.html#type-int)
-
-```bosatsu
-def char_to_Int(c: Char) -> Int
-```
-
+<h3><a href="#char-to-int" name="char-to-int" class="anchor"><span class="anchor-link"></span></a><code>char_to_Int</code></h3>
+<p>type signature: def char_to_Int(c: <a href="Predef.html#type-char"><code>Char</code></a>) -&gt; <a href="Predef.html#type-int"><code>Int</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(c: Char) -&gt; Int
+</code></pre>
 <a id="value-cmp-char"></a>
-
-### `cmp_Char`
-
-type signature: def cmp_Char(a: [`Char`](Predef.html#type-char), b: [`Char`](Predef.html#type-char)) -> [`Comparison`](Predef.html#type-comparison)
-
-```bosatsu
-def cmp_Char(a: Char, b: Char) -> Comparison
-```
-
+<h3><a href="#cmp-char" name="cmp-char" class="anchor"><span class="anchor-link"></span></a><code>cmp_Char</code></h3>
+<p>type signature: def cmp_Char(a: <a href="Predef.html#type-char"><code>Char</code></a>, b: <a href="Predef.html#type-char"><code>Char</code></a>) -&gt; <a href="Predef.html#type-comparison"><code>Comparison</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def cmp_Char(a: Char, b: Char) -&gt; Comparison
+</code></pre>
 <a id="value-eq-ignore-ascii-case"></a>
-
-### `eq_ignore_ascii_case`
-
-type signature: def eq_ignore_ascii_case(left: [`Char`](Predef.html#type-char), right: [`Char`](Predef.html#type-char)) -> [`Bool`](Predef.html#type-bool)
-
-```bosatsu
-def eq_ignore_ascii_case(left: Char, right: Char) -> Bool
-```
-
+<h3><a href="#eq-ignore-ascii-case" name="eq-ignore-ascii-case" class="anchor"><span class="anchor-link"></span></a><code>eq_ignore_ascii_case</code></h3>
+<p>type signature: def eq_ignore_ascii_case(left: <a href="Predef.html#type-char"><code>Char</code></a>, right: <a href="Predef.html#type-char"><code>Char</code></a>) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_ignore_ascii_case(left: Char, right: Char) -&gt; Bool
+</code></pre>
 <a id="value-from-digit"></a>
-
-### `from_digit`
-
-Supported radix range is 2..36 inclusive.
-
-type signature: def from_digit(digit: [`Int`](Predef.html#type-int), radix: [`Int`](Predef.html#type-int)) -> [`Option`](Predef.html#type-option)[[`Char`](Predef.html#type-char)]
-
-```bosatsu
-def from_digit(digit: Int, radix: Int) -> Option[Char]
-```
-
+<h3><a href="#from-digit" name="from-digit" class="anchor"><span class="anchor-link"></span></a><code>from_digit</code></h3>
+<p>Supported radix range is 2..36 inclusive.</p>
+<p>type signature: def from_digit(digit: <a href="Predef.html#type-int"><code>Int</code></a>, radix: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[<a href="Predef.html#type-char"><code>Char</code></a>]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def from_digit(digit: Int, radix: Int) -&gt; Option[Char]
+</code></pre>
 <a id="value-int-list-to-char-list"></a>
-
-### `int_List_to_Char_List`
-
-type signature: def int_List_to_Char_List(code_points: [`List`](Predef.html#type-list)[[`Int`](Predef.html#type-int)]) -> [`Option`](Predef.html#type-option)[[`List`](Predef.html#type-list)[[`Char`](Predef.html#type-char)</a></p>
+<h3><a href="#int-list-to-char-list" name="int-list-to-char-list" class="anchor"><span class="anchor-link"></span></a><code>int_List_to_Char_List</code></h3>
+<p>type signature: def int_List_to_Char_List(code_points: <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-int"><code>Int</code></a>]) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[<a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-char"><code>Char</code></a>]]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_List_to_Char_List(code_points: List[Int]) -&gt; Option[List[Char]]
 </code></pre>
 <a id="value-int-list-to-string"></a>
@@ -389,7 +363,7 @@ type signature: def int_List_to_Char_List(code_points: [`List`](Predef.html#type
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f2ac38e2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

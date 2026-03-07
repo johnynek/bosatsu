@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3fbfb4c1*
+0.0.0+1-f2ac38e2*
 </div>
 </div>
 <div class="nav-toc">
@@ -130,73 +130,37 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-any"></a>
 <h3><a href="#any" name="any" class="anchor"><span class="anchor-link"></span></a><code>any</code></h3>
-<p>type signature: def any(as: <a href="Predef.html#type-list"><code>List</code></a><a href="./%60Bool%60%5D%28Predef.html%23type-bool%29%5D%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%0A%0A%60%60%60bosatsu%0Adef-any%28as%3A-List%5BBool%5D%29--%3E-Bool%0A%60%60%60%0A%0A%3Ca-id%3D%22value-eq-list%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60eq_List%60%0A%0Atype-signature%3A-def-eq_List%5Ba%0A%5D%28fn%3A-%28a%2C-a%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%29--%3E-%28%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%2C-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%0A%0A%60%60%60bosatsu%0Adef-eq_List%5Ba%5D%28fn%3A-%28a%2C-a%29--%3E-Bool%29--%3E-%28List%5Ba%5D%2C-List%5Ba%5D%29--%3E-Bool%0A%60%60%60%0A%0A%3Ca-id%3D%22value-exists%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60exists%60%0A%0Atype-signature%3A-def-exists%5Ba%0A%5D%28xs%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%2C-fn%3A-a--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%0A%0A%60%60%60bosatsu%0Adef-exists%5Ba%5D%28xs%3A-List%5Ba%5D%2C-fn%3A-a--%3E-Bool%29--%3E-Bool%0A%60%60%60%0A%0A%3Ca-id%3D%22value-for-all%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60for_all%60%0A%0Atype-signature%3A-def-for_all%5Ba%0A%5D%28xs%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%2C-fn%3A-a--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%29--%3E-%5B%60Bool%60%5D%28Predef.html%23type-bool%29%0A%0A%60%60%60bosatsu%0Adef-for_all%5Ba%5D%28xs%3A-List%5Ba%5D%2C-fn%3A-a--%3E-Bool%29--%3E-Bool%0A%60%60%60%0A%0A%3Ca-id%3D%22value-get-list%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60get_List%60%0A%0Atype-signature%3A-def-get_List%5Ba%0A%5D%28xs%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%2C-idx%3A-%5B%60Int%60%5D%28Predef.html%23type-int%29%29--%3E-%5B%60Option%60%5D%28Predef.html%23type-option%29%5Ba%5D%0A%0A%60%60%60bosatsu%0Adef-get_List%5Ba%5D%28xs%3A-List%5Ba%5D%2C-idx%3A-Int%29--%3E-Option%5Ba%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-head%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60head%60%0A%0Atype-signature%3A-def-head%5Ba%0A%5D%28xs%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%29--%3E-%5B%60Option%60%5D%28Predef.html%23type-option%29%5Ba%5D%0A%0A%60%60%60bosatsu%0Adef-head%5Ba%5D%28xs%3A-List%5Ba%5D%29--%3E-Option%5Ba%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-set-list%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60set_List%60%0A%0Atype-signature%3A-def-set_List%5Ba%0A%5D%28xs%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba%5D%2C-idx%3A-%5B%60Int%60%5D%28Predef.html%23type-int%29%2C-value%3A-a%29--%3E-%5B%60Option%60%5D%28Predef.html%23type-option%29%5B%5B%60List%60%5D%28Predef.html%23type-list%29%5Ba.html">`Bool`](Predef.html#type-bool)]) -> [`Bool`](Predef.html#type-bool)
-
-```bosatsu
-def any(as: List[Bool]) -> Bool
-```
-
+<p>type signature: def any(as: <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-bool"><code>Bool</code></a>]) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def any(as: List[Bool]) -&gt; Bool
+</code></pre>
 <a id="value-eq-list"></a>
-
-### `eq_List`
-
-type signature: def eq_List[a
-](fn: (a, a) -> [`Bool`](Predef.html#type-bool)) -> ([`List`](Predef.html#type-list)[a], [`List`](Predef.html#type-list)[a]) -> [`Bool`](Predef.html#type-bool)
-
-```bosatsu
-def eq_List[a](fn: (a, a) -> Bool) -> (List[a], List[a]) -> Bool
-```
-
+<h3><a href="#eq-list" name="eq-list" class="anchor"><span class="anchor-link"></span></a><code>eq_List</code></h3>
+<p>type signature: def eq_List[a ](fn: (a, a) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; (<a href="Predef.html#type-list"><code>List</code></a>[a], <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def eq_List[a](fn: (a, a) -&gt; Bool) -&gt; (List[a], List[a]) -&gt; Bool
+</code></pre>
 <a id="value-exists"></a>
-
-### `exists`
-
-type signature: def exists[a
-](xs: [`List`](Predef.html#type-list)[a], fn: a -> [`Bool`](Predef.html#type-bool)) -> [`Bool`](Predef.html#type-bool)
-
-```bosatsu
-def exists[a](xs: List[a], fn: a -> Bool) -> Bool
-```
-
+<h3><a href="#exists" name="exists" class="anchor"><span class="anchor-link"></span></a><code>exists</code></h3>
+<p>type signature: def exists[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], fn: a -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def exists[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
+</code></pre>
 <a id="value-for-all"></a>
-
-### `for_all`
-
-type signature: def for_all[a
-](xs: [`List`](Predef.html#type-list)[a], fn: a -> [`Bool`](Predef.html#type-bool)) -> [`Bool`](Predef.html#type-bool)
-
-```bosatsu
-def for_all[a](xs: List[a], fn: a -> Bool) -> Bool
-```
-
+<h3><a href="#for-all" name="for-all" class="anchor"><span class="anchor-link"></span></a><code>for_all</code></h3>
+<p>type signature: def for_all[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], fn: a -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def for_all[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
+</code></pre>
 <a id="value-get-list"></a>
-
-### `get_List`
-
-type signature: def get_List[a
-](xs: [`List`](Predef.html#type-list)[a], idx: [`Int`](Predef.html#type-int)) -> [`Option`](Predef.html#type-option)[a]
-
-```bosatsu
-def get_List[a](xs: List[a], idx: Int) -> Option[a]
-```
-
+<h3><a href="#get-list" name="get-list" class="anchor"><span class="anchor-link"></span></a><code>get_List</code></h3>
+<p>type signature: def get_List[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], idx: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[a]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_List[a](xs: List[a], idx: Int) -&gt; Option[a]
+</code></pre>
 <a id="value-head"></a>
-
-### `head`
-
-type signature: def head[a
-](xs: [`List`](Predef.html#type-list)[a]) -> [`Option`](Predef.html#type-option)[a]
-
-```bosatsu
-def head[a](xs: List[a]) -> Option[a]
-```
-
+<h3><a href="#head" name="head" class="anchor"><span class="anchor-link"></span></a><code>head</code></h3>
+<p>type signature: def head[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[a]</p>
+<pre class="prettyprint"><code class="language-bosatsu">def head[a](xs: List[a]) -&gt; Option[a]
+</code></pre>
 <a id="value-set-list"></a>
-
-### `set_List`
-
-type signature: def set_List[a
-](xs: [`List`](Predef.html#type-list)[a], idx: [`Int`](Predef.html#type-int), value: a) -> [`Option`](Predef.html#type-option)[[`List`](Predef.html#type-list)[a</a></p>
+<h3><a href="#set-list" name="set-list" class="anchor"><span class="anchor-link"></span></a><code>set_List</code></h3>
+<p>type signature: def set_List[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], idx: <a href="Predef.html#type-int"><code>Int</code></a>, value: a) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[<a href="Predef.html#type-list"><code>List</code></a>[a]]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def set_List[a](xs: List[a], idx: Int, value: a) -&gt; Option[List[a]]
 </code></pre>
 <a id="value-size"></a>
@@ -301,7 +265,7 @@ type signature: def set_List[a
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f2ac38e2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
