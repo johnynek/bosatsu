@@ -4546,6 +4546,53 @@ object Matchless {
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
+      def boolSelectorBranches(
+          bs: NonEmptyList[MatchBranch]
+      ): Option[(Expr[B], Expr[B])] = {
+        val truePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("True")),
+            Nil
+          )
+        val falsePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("False")),
+            Nil
+          )
+
+        def normalizedNoNames(
+            p: Pattern[(PackageName, Constructor), Type]
+        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+          val p1 = normalizePattern(p)
+          if (p1.names.isEmpty) Some(p1)
+          else None
+        }
+
+        def isTrue(p: Pattern[(PackageName, Constructor), Type]): Boolean =
+          p == truePat
+
+        def isFalseOrWild(
+            p: Pattern[(PackageName, Constructor), Type]
+        ): Boolean =
+          (p == falsePat) || (p == Pattern.WildCard)
+
+        bs.toList match {
+          case MatchBranch(p1, None, ifTrue) :: MatchBranch(p2, None, ifFalse) :: Nil =>
+            (normalizedNoNames(p1), normalizedNoNames(p2)) match {
+              case (Some(np1), Some(np2)) if isTrue(np1) && isFalseOrWild(np2) =>
+                Some((ifTrue, ifFalse))
+              case (Some(np1), Some(np2)) if (np1 == falsePat) && (
+                    (np2 == truePat) || (np2 == Pattern.WildCard)
+                  ) =>
+                Some((ifFalse, ifTrue))
+              case _ =>
+                None
+            }
+          case _ =>
+            None
+        }
+      }
+
       def maybeMatrix(
           arg: CheapExpr[B],
           branches: NonEmptyList[MatchBranch],
@@ -4561,24 +4608,29 @@ object Matchless {
           branches: NonEmptyList[MatchBranch],
           rootInlined: Option[InlinedStructRoot]
       ): F[Expr[B]] = {
-        val (orthoPrefix, nonOrthoSuffix) =
-          branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
-        val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
-
-        maybeNonOrthoSuffix match {
+        boolSelectorBranches(branches) match {
+          case Some((ifTrue, ifFalse)) =>
+            Monad[F].pure(If(isTrueExpr(arg), ifTrue, ifFalse))
           case None =>
-            maybeMatrix(arg, branches, rootInlined)
-          case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
-            matchExprOrderedCheap(arg, suffixNel, rootInlined).flatMap {
-              fallbackExpr =>
-                val combinedNel = NonEmptyList.ofInitLast(
-                  orthoPrefix,
-                  MatchBranch(Pattern.WildCard, None, fallbackExpr)
-                )
-                compileWithCheapArg(arg, combinedNel, rootInlined)
+            val (orthoPrefix, nonOrthoSuffix) =
+              branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
+            val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
+
+            maybeNonOrthoSuffix match {
+              case None =>
+                maybeMatrix(arg, branches, rootInlined)
+              case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
+                matchExprOrderedCheap(arg, suffixNel, rootInlined).flatMap {
+                  fallbackExpr =>
+                    val combinedNel = NonEmptyList.ofInitLast(
+                      orthoPrefix,
+                      MatchBranch(Pattern.WildCard, None, fallbackExpr)
+                    )
+                    compileWithCheapArg(arg, combinedNel, rootInlined)
+                }
+              case _ =>
+                matchExprOrderedCheap(arg, branches, rootInlined)
             }
-          case _ =>
-            matchExprOrderedCheap(arg, branches, rootInlined)
         }
       }
 

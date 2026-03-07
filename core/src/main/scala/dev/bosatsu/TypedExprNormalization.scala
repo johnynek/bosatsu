@@ -1493,6 +1493,27 @@ object TypedExprNormalization {
         val totalityCheck =
           TotalityCheck(ev.substituteCo[[x] =>> TypeEnv[x]](typeEnv))
 
+        def rewriteLeadingWildcardGuard(
+            arg1: TypedExpr[A],
+            bs: NonEmptyList[Branch[A]]
+        ): Option[TypedExpr[A]] =
+          bs.toList match {
+            case Branch(Pattern.WildCard, Some(g), e1) :: tail =>
+              NonEmptyList.fromList(tail).map { tailNel =>
+                val fallback = Match(arg1, tailNel, tag)
+                Match(
+                  g,
+                  NonEmptyList.of(
+                    Branch(TruePattern, None, e1),
+                    Branch(FalsePattern, None, fallback)
+                  ),
+                  g.tag
+                )
+              }
+            case _ =>
+              None
+          }
+
         def rewriteTrailingGuardPair(
             bs: NonEmptyList[Branch[A]]
         ): Option[NonEmptyList[Branch[A]]] =
@@ -1522,26 +1543,31 @@ object TypedExprNormalization {
           }
 
         val a1 = normalize1(None, arg, scope, typeEnv).get
-        if (changed1 == 0) {
-          val m1 = Match(a1, branches, tag)
-          Impl.maybeEvalMatch(m1, scope) match {
-            case None =>
-              // if only the arg changes, there
-              // is no need to rerun the normalization
-              // because normalization of branches
-              // does not depend on the arg
-              if (a1 eq arg) None
-              else Some(m1)
-            case Some(m2) =>
-              // TODO: we may not have a proof that m2 is smaller
-              // than m1. requiring m2.size < m1.size fails some tests
-              // we can possibly simplify this now:
-              normalize1(namerec, m2, scope, typeEnv)
-          }
-        } else {
-          // there has been some change, so
-          // see if that unlocked any new changes
-          normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
+        rewriteLeadingWildcardGuard(a1, branches1a) match {
+          case Some(rewritten) =>
+            normalize1(namerec, rewritten, scope, typeEnv)
+          case None =>
+            if (changed1 == 0) {
+              val m1 = Match(a1, branches, tag)
+              Impl.maybeEvalMatch(m1, scope) match {
+                case None =>
+                  // if only the arg changes, there
+                  // is no need to rerun the normalization
+                  // because normalization of branches
+                  // does not depend on the arg
+                  if (a1 eq arg) None
+                  else Some(m1)
+                case Some(m2) =>
+                  // TODO: we may not have a proof that m2 is smaller
+                  // than m1. requiring m2.size < m1.size fails some tests
+                  // we can possibly simplify this now:
+                  normalize1(namerec, m2, scope, typeEnv)
+              }
+            } else {
+              // there has been some change, so
+              // see if that unlocked any new changes
+              normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
+            }
         }
     }
   }
