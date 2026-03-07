@@ -3992,6 +3992,22 @@ object Matchless {
                 collectTrueVariants(ifTrue, onTrue, selector),
                 collectTrueVariants(ifFalse, onFalse, selector)
               ).mapN(_ union _)
+            case If(
+                  CheckVariantSet(arg: CheapExpr[B], expect, size, famArities),
+                  ifTrue,
+                  ifFalse
+                )
+                if Order[Expr[B]].eqv(arg, selectorArg) &&
+                  (size == selectorSize) &&
+                  (famArities == selectorFamArities) &&
+                  selectorFamArities.forall(_ == 0) =>
+              val expectSet = expect.toList.toSet
+              val onTrue = possible intersect expectSet
+              val onFalse = possible diff expectSet
+              (
+                collectTrueVariants(ifTrue, onTrue, selector),
+                collectTrueVariants(ifFalse, onFalse, selector)
+              ).mapN(_ union _)
             case _ =>
               None
           }
@@ -4030,14 +4046,21 @@ object Matchless {
       expr match {
         case Let(arg, value, in) =>
           selectorGuardToBoolExpr(in).map(LetBool(arg, value, _))
-        case selectorExpr @ If(
-              CheckVariant(arg, _, size, famArities),
-              _,
-              _
-            ) if famArities.forall(_ == 0) =>
-          val selector: VariantSelector = (arg, size, famArities)
-          collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
-            .flatMap(buildVariantSelectorBool(selector, _))
+        case selectorExpr @ If(cond, _, _) =>
+          cond match {
+            case CheckVariant(arg, _, size, famArities)
+                if famArities.forall(_ == 0) =>
+              val selector: VariantSelector = (arg, size, famArities)
+              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+                .flatMap(buildVariantSelectorBool(selector, _))
+            case CheckVariantSet(arg, _, size, famArities)
+                if famArities.forall(_ == 0) =>
+              val selector: VariantSelector = (arg, size, famArities)
+              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+                .flatMap(buildVariantSelectorBool(selector, _))
+            case _ =>
+              None
+          }
         case _ =>
           None
       }
@@ -4761,7 +4784,7 @@ object Matchless {
       ): F[Expr[B]] = {
         boolSelectorBranches(branches) match {
           case Some((ifTrue, ifFalse)) =>
-            Monad[F].pure(If(isTrueExpr(arg), ifTrue, ifFalse))
+            guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
           case None =>
             val (orthoPrefix, nonOrthoSuffix) =
               branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
@@ -4785,13 +4808,21 @@ object Matchless {
         }
       }
 
+      val maybeBoolBranches = boolSelectorBranches(branches)
+
       def compileWithoutInlining: F[Expr[B]] =
-        maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
-          compileWithCheapArg(arg, branches, None)
+        maybeBoolBranches match {
+          case Some((ifTrue, ifFalse)) =>
+            guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
+          case None                    =>
+            maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+              compileWithCheapArg(arg, branches, None)
+            }
         }
 
       // phase-1 policy: if multiple branches bind the whole root, keep eager root allocation
-      if (wholeRootBindBranches > 1) compileWithoutInlining
+      if (wholeRootBindBranches > 1 || maybeBoolBranches.nonEmpty)
+        compileWithoutInlining
       else {
         prepareInlinedStructRoot(arg).flatMap {
           case Some((argLets, inlinedRoot)) =>
