@@ -529,23 +529,11 @@ object Package {
               tn
             }.toSet
 
-          val nameCheck =
+          val (nameCheckErrorOpt, nameCheckResult) =
             NameCheck.checkLets(p, lets, withFQN)
-          val nameCheckResult =
-            nameCheck match {
-              case Ior.Right(res)   => res
-              case Ior.Both(_, res) => res
-              case Ior.Left(_)      =>
-                NameCheck.Result(
-                  lets,
-                  Set.empty,
-                  Set.empty,
-                  Map.empty[Identifier.Bindable, Set[Identifier.Bindable]]
-                )
-            }
 
           val nameCheckErrors: Ior[NonEmptyList[PackageError], Unit] =
-            nameCheck.left match {
+            nameCheckErrorOpt match {
               case None           =>
                 Ior.right(())
               case Some(nameErrs) =>

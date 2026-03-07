@@ -1,6 +1,6 @@
 package dev.bosatsu.rankn
 
-import cats.data.{Chain, Ior, NonEmptyChain}
+import cats.data.{Chain, NonEmptyChain}
 import cats.syntax.all._
 import dev.bosatsu.{Expr, HasRegion, Identifier, PackageName, RecursionKind}
 import dev.bosatsu.Identifier.Bindable
@@ -100,7 +100,7 @@ object NameCheck {
       pack: PackageName,
       lets: List[Let[A]],
       initialScope: Map[Infer.Name, Type]
-  ): Ior[NonEmptyChain[Infer.Error.NameError], Result[A]] = {
+  ): (Option[NonEmptyChain[Infer.Error.NameError]], Result[A]) = {
     case class CheckedLet(let: Let[A], errors: Chain[Infer.Error.NameError])
 
     val checkedLets = {
@@ -190,9 +190,6 @@ object NameCheck {
     val allErrors =
       checkedLets.foldMap(_.errors)
 
-    NonEmptyChain.fromChain(allErrors) match {
-      case Some(errs) => Ior.both(errs, result)
-      case None       => Ior.right(result)
-    }
+    (NonEmptyChain.fromChain(allErrors), result)
   }
 }

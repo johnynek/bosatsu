@@ -1,6 +1,6 @@
 package dev.bosatsu.rankn
 
-import cats.data.{Ior, NonEmptyList}
+import cats.data.NonEmptyList
 import dev.bosatsu._
 
 class NameCheckTest extends munit.FunSuite {
@@ -61,14 +61,10 @@ class NameCheckTest extends munit.FunSuite {
       let("after", Expr.Literal(Lit(1L), ()))
     )
 
-    NameCheck.checkLets(pack, lets, Map.empty) match {
-      case Ior.Both(errs, result) =>
-        assertEquals(result.nameErrorLets, Set(bn("bad")))
-        assertEquals(errs.toNonEmptyList.length, 1)
-        assertEquals(result.typecheckLets.map(_._1), List(bn("ok"), bn("after")))
-      case notExpected =>
-        fail(s"expected one missing-name error, found: $notExpected")
-    }
+    val (errors, result) = NameCheck.checkLets(pack, lets, Map.empty)
+    assertEquals(result.nameErrorLets, Set(bn("bad")))
+    assertEquals(errors.map(_.toNonEmptyList.length), Some(1))
+    assertEquals(result.typecheckLets.map(_._1), List(bn("ok"), bn("after")))
   }
 
   test("recursive local let sees its own binder in the bound expression") {
@@ -95,13 +91,9 @@ class NameCheckTest extends munit.FunSuite {
       let("bad", nonRecursiveLocal)
     )
 
-    NameCheck.checkLets(pack, lets, Map.empty) match {
-      case Ior.Both(errs, result) =>
-        assertEquals(result.nameErrorLets, Set(bn("bad")))
-        assertEquals(errs.toNonEmptyList.length, 1)
-      case notExpected =>
-        fail(s"expected one missing-name error, found: $notExpected")
-    }
+    val (errors, result) = NameCheck.checkLets(pack, lets, Map.empty)
+    assertEquals(result.nameErrorLets, Set(bn("bad")))
+    assertEquals(errors.map(_.toNonEmptyList.length), Some(1))
   }
 
   test("dependency blocking is transitive and surviving lets keep source order") {
@@ -114,21 +106,18 @@ class NameCheckTest extends munit.FunSuite {
       let("keep3", global("keep2"))
     )
 
-    NameCheck.checkLets(pack, lets, Map.empty) match {
-      case Ior.Both(_, result) =>
-        assertEquals(result.nameErrorLets, Set(bn("root")))
-        assertEquals(
-          result.blockedLets,
-          Set(bn("root"), bn("dep1"), bn("dep2"))
-        )
-        assertEquals(
-          result.typecheckLets.map(_._1),
-          List(bn("keep1"), bn("keep2"), bn("keep3"))
-        )
-        assertEquals(result.samePackageDeps.getOrElse(bn("dep1"), Set.empty), Set(bn("root")))
-        assertEquals(result.samePackageDeps.getOrElse(bn("dep2"), Set.empty), Set(bn("dep1")))
-      case notExpected =>
-        fail(s"expected dependency-blocked result, found: $notExpected")
-    }
+    val (errors, result) = NameCheck.checkLets(pack, lets, Map.empty)
+    assertEquals(errors.map(_.toNonEmptyList.length), Some(1))
+    assertEquals(result.nameErrorLets, Set(bn("root")))
+    assertEquals(
+      result.blockedLets,
+      Set(bn("root"), bn("dep1"), bn("dep2"))
+    )
+    assertEquals(
+      result.typecheckLets.map(_._1),
+      List(bn("keep1"), bn("keep2"), bn("keep3"))
+    )
+    assertEquals(result.samePackageDeps.getOrElse(bn("dep1"), Set.empty), Set(bn("root")))
+    assertEquals(result.samePackageDeps.getOrElse(bn("dep2"), Set.empty), Set(bn("dep1")))
   }
 }
