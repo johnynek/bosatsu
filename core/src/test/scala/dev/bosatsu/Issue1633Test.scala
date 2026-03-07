@@ -155,6 +155,8 @@ main = parse_value(" null")
           loopBool(left) || loopBool(right)
         case Matchless.CheckVariant(expr, _, _, _) =>
           loopExpr(expr)
+        case Matchless.CheckVariantSet(expr, _, _, _) =>
+          loopExpr(expr)
         case Matchless.SetMut(_, expr) =>
           loopExpr(expr)
         case Matchless.TrueConst =>

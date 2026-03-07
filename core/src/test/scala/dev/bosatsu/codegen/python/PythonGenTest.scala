@@ -1,8 +1,17 @@
 package dev.bosatsu.codegen.python
 
+import cats.data.NonEmptyList
 import dev.bosatsu.Generators.bindIdentGen
-import dev.bosatsu.{Par, TestUtils}
-import dev.bosatsu.codegen.CompilationSource
+import dev.bosatsu.{
+  Identifier,
+  Lit,
+  Matchless,
+  PackageName,
+  Par,
+  TestUtils
+}
+import dev.bosatsu.codegen.CompilationNamespace
+import dev.bosatsu.graph.Toposort
 import org.scalacheck.Prop.forAll
 
 class PythonGenTest extends munit.ScalaCheckSuite {
@@ -106,6 +115,104 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           normalizeGeneratedTemps(expected)
         )
       }
+    }
+  }
+
+  test("CheckVariantSet guards compile to direct Python membership comparisons") {
+    val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
+    val arg = Identifier.Name("v")
+    val body = Matchless.If(
+      Matchless.CheckVariantSet(
+        Matchless.Local(arg),
+        NonEmptyList.of(0, 1),
+        0,
+        famArities
+      ),
+      Matchless.Literal(Lit(1)),
+      Matchless.If(
+        Matchless.CheckVariantSet(
+          Matchless.Local(arg),
+          NonEmptyList.of(3, 4),
+          0,
+          famArities
+        ),
+        Matchless.Literal(Lit(2)),
+        Matchless.If(
+          Matchless.CheckVariantSet(
+            Matchless.Local(arg),
+            NonEmptyList.of(1, 3),
+            0,
+            famArities
+          ),
+          Matchless.Literal(Lit(3)),
+          Matchless.If(
+            Matchless.CheckVariantSet(
+              Matchless.Local(arg),
+              NonEmptyList.of(0, 2, 4),
+              0,
+              famArities
+            ),
+            Matchless.Literal(Lit(4)),
+            Matchless.If(
+              Matchless.CheckVariantSet(
+                Matchless.Local(arg),
+                NonEmptyList.of(0, 1, 2, 3, 4),
+                0,
+                famArities
+              ),
+              Matchless.Literal(Lit(5)),
+              Matchless.Literal(Lit(0))
+            )
+          )
+        )
+      )
+    )
+    val mainExpr: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(arg), body)
+    val pn = PackageName.parts("Test", "GuardCoverage")
+    val ns: CompilationNamespace[Unit] = new CompilationNamespace[Unit] {
+      implicit val keyOrder: Ordering[Unit] = new Ordering[Unit] {
+        def compare(x: Unit, y: Unit): Int = 0
+      }
+      val keyShow: cats.Show[Unit] = cats.Show.show(_ => "root")
+      def identOf(k: Unit, p: PackageName): NonEmptyList[String] = p.parts
+      def depFor(src: Unit, p: PackageName): Unit = ()
+      def rootKey: Unit = ()
+      val topoSort: Toposort.Result[(Unit, PackageName)] =
+        Toposort.Success(Vector(NonEmptyList.one(((), pn))))
+      val compiled = scala.collection.immutable.SortedMap(
+        () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
+      )
+      val testEntries = Map.empty
+      def mainValues(
+          mainTypeFn: dev.bosatsu.rankn.Type => Boolean
+      ): Map[PackageName, (Identifier.Bindable, dev.bosatsu.rankn.Type)] =
+        Map.empty
+      val externals = scala.collection.immutable.SortedMap(
+        () -> Map.empty[PackageName, List[
+          (Identifier.Bindable, dev.bosatsu.rankn.Type)
+        ]]
+      )
+      def treeShake(
+          roots: Set[(PackageName, Identifier)]
+      ): CompilationNamespace[Unit] = this
+      def rootPackages =
+        scala.collection.immutable.SortedSet(pn)
+    }
+    Par.withEC {
+      val rendered = PythonGen.renderAll(ns, Map.empty, Map.empty)
+      val doc = rendered(())(pn)._2
+      val code = doc.render(120)
+
+      assert(code.contains("< 2"), code)
+      assert(code.contains("not"), code)
+      assert(code.contains("< 3"), code)
+      assert(code.contains("== 1"), code)
+      assert(code.contains("== 3"), code)
+      assert(code.contains("!= 1"), code)
+      assert(code.contains("!= 3"), code)
+      assert(code.contains(" or "), code)
+      assert(code.contains(" and "), code)
     }
   }
 

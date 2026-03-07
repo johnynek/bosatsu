@@ -3,7 +3,7 @@ package dev.bosatsu.codegen.python
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
+import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Matchless, Par, Parser}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -2519,6 +2519,51 @@ object PythonGen {
                    t =:= idx
                  } else
                    t.get(0) =:= idx).simplify
+              }
+            }
+          case CheckVariantSet(enumV, idxs, _, famArities) =>
+            val useInts = famArities.forall(_ == 0)
+            val inSet = InSetCompiler.compile(famArities.length, idxs)
+
+            def renderMembership(
+                variantExpr: Code.Expression,
+                membership: InSetCompiler.BoolExpr
+            ): Code.Expression =
+              membership match {
+                case InSetCompiler.BoolExpr.TrueConst =>
+                  Code.Const.True
+                case InSetCompiler.BoolExpr.FalseConst =>
+                  Code.Const.False
+                case InSetCompiler.BoolExpr.Compare(op, rhs) =>
+                  val lit = Code.fromInt(rhs)
+                  op match {
+                    case InSetCompiler.CmpOp.Eq =>
+                      variantExpr =:= lit
+                    case InSetCompiler.CmpOp.Ne =>
+                      variantExpr =!= lit
+                    case InSetCompiler.CmpOp.Lt =>
+                      variantExpr :< lit
+                    case InSetCompiler.CmpOp.Ge =>
+                      // Python codegen has no dedicated >= node; use not(<).
+                      !(variantExpr :< lit)
+                  }
+                case InSetCompiler.BoolExpr.And(left, right) =>
+                  renderMembership(variantExpr, left)
+                    .eval(Code.Const.And, renderMembership(variantExpr, right))
+                case InSetCompiler.BoolExpr.Or(left, right) =>
+                  renderMembership(variantExpr, left)
+                    .eval(Code.Const.Or, renderMembership(variantExpr, right))
+                case InSetCompiler.BoolExpr.Not(value) =>
+                  !renderMembership(variantExpr, value)
+              }
+
+            loop(enumV, slotName, inlineSlots).flatMap { tup =>
+              Env.onLast(tup) { t =>
+                val variantExpr =
+                  if (useInts) t
+                  else t.get(0)
+
+                renderMembership(variantExpr, inSet).simplify
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>

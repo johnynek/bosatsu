@@ -268,6 +268,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
           loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
         case Matchless.TrueConst =>
@@ -341,6 +343,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(l) + loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
           loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
         case Matchless.TrueConst =>
@@ -410,6 +414,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.And(l, r) =>
           loopBool(l, inConditionalBranch) || loopBool(r, inConditionalBranch)
         case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.SetMut(_, e) =>
           loopExpr(e, inConditionalBranch)
@@ -501,6 +507,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.And(l, r) =>
           loopBool(l) + loopBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
+          loopCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           loopCheap(e)
         case Matchless.SetMut(_, e) =>
           loopExpr(e)
@@ -838,6 +846,338 @@ x = 1
     }
   }
 
+  test(
+    "Matchless lowers bool selector scrutinee matches without intermediate bool enums"
+  ) {
+    val src = """
+package Matchless/BoolSelectorScrutinee
+
+def select(i):
+  match (
+    match cmp_Int(i, 0):
+      case LT | EQ: True
+      case GT: False
+  ):
+    case True: 1
+    case False: 0
+
+main = select
+"""
+
+    val boolFamArities = 0 :: 0 :: Nil
+    val comparisonFamArities = 0 :: 0 :: 0 :: Nil
+
+    def countBoolEnumConstructors(expr: Matchless.Expr[Unit]): Int = {
+      def loopCheap(c: Matchless.CheapExpr[Unit]): Int =
+        c match {
+          case Matchless.GetEnumElement(arg, _, _, _) =>
+            loopCheap(arg)
+          case Matchless.GetStructElement(arg, _, _) =>
+            loopCheap(arg)
+          case Matchless.Local(_) | Matchless.Global(_, _, _) |
+              Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+              Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            0
+        }
+
+      def loopBool(b: Matchless.BoolExpr[Unit]): Int =
+        b match {
+          case Matchless.EqualsLit(e, _) =>
+            loopCheap(e)
+          case Matchless.EqualsNat(e, _) =>
+            loopCheap(e)
+          case Matchless.And(l, r) =>
+            loopBool(l) + loopBool(r)
+          case Matchless.CheckVariant(e, _, _, _) =>
+            loopCheap(e)
+          case Matchless.CheckVariantSet(e, _, _, _) =>
+            loopCheap(e)
+          case Matchless.SetMut(_, e) =>
+            loopExpr(e)
+          case Matchless.TrueConst =>
+            0
+          case Matchless.LetBool(_, value, in) =>
+            loopExpr(value) + loopBool(in)
+          case Matchless.LetMutBool(_, in) =>
+            loopBool(in)
+        }
+
+      def loopExpr(e: Matchless.Expr[Unit]): Int =
+        e match {
+          case Matchless.Lambda(captures, _, _, body) =>
+            captures.toList.map(loopExpr).sum + loopExpr(body)
+          case Matchless.WhileExpr(cond, effectExpr, _) =>
+            loopBool(cond) + loopExpr(effectExpr)
+          case Matchless.App(fn, args) =>
+            loopExpr(fn) + args.toList.map(loopExpr).sum
+          case Matchless.Let(_, value, in) =>
+            loopExpr(value) + loopExpr(in)
+          case Matchless.LetMut(_, in) =>
+            loopExpr(in)
+          case Matchless.If(cond, thenExpr, elseExpr) =>
+            loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case Matchless.Always(cond, thenExpr) =>
+            loopBool(cond) + loopExpr(thenExpr)
+          case Matchless.PrevNat(of) =>
+            loopExpr(of)
+          case Matchless.MakeEnum(_, arity, famArities)
+              if (arity == 0) && (famArities == boolFamArities) =>
+            1
+          case c: Matchless.CheapExpr[Unit] =>
+            loopCheap(c)
+          case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+              Matchless.ZeroNat | Matchless.SuccNat =>
+            0
+        }
+
+      loopExpr(expr)
+    }
+
+    Par.withEC {
+      TestUtils.testInferred(
+        List(src),
+        "Matchless/BoolSelectorScrutinee", { (pm, packName) =>
+          val compiled = MatchlessFromTypedExpr.compile((), pm)
+          val byName = compiled(packName).toMap
+          val selectExpr = byName(Identifier.Name("select"))
+          val bools = exprBoolSubexpressions(selectExpr)
+
+          assert(
+            bools.exists {
+              case Matchless.CheckVariantSet(_, expect, _, famArities) =>
+                expect.toList == (0 :: 1 :: Nil) &&
+                (famArities == comparisonFamArities)
+              case Matchless.CheckVariant(_, expect, _, famArities) =>
+                ((expect == 0) || (expect == 1)) &&
+                (famArities == comparisonFamArities)
+              case _ =>
+                false
+            },
+            s"expected direct comparison-selector checks, got: $bools"
+          )
+          assertEquals(countBoolEnumConstructors(selectExpr), 0)
+        }
+      )
+    }
+  }
+
+  test(
+    "Matchless lowers boolified comparison guards directly to CheckVariant and CheckVariantSet"
+  ) {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val comparisonType = rankn.Type.TyConst(rankn.Type.Const.predef("Comparison"))
+    val argName = Identifier.Name("i")
+    val cmpName = Identifier.Name("c")
+    val argExpr = TypedExpr.Local(argName, intType, ())
+    val cmpLocal = TypedExpr.Local(cmpName, comparisonType, ())
+    val cmpIntType = rankn.Type.Fun(NonEmptyList.of(intType, intType), comparisonType)
+    val cmpIntExpr = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("cmp_Int"),
+      cmpIntType,
+      ()
+    )
+    val ltPat: Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("LT")), Nil)
+    val eqPat: Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("EQ")), Nil)
+    val gtPat: Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("GT")), Nil)
+    val ltEqPat = Pattern.union(ltPat, eqPat :: Nil)
+
+    def boolLit(value: Boolean): TypedExpr[Unit] =
+      TypedExpr.Global(
+        PackageName.PredefName,
+        Constructor(if (value) "True" else "False"),
+        boolType,
+        ()
+      )
+
+    val boolFamArities = 0 :: 0 :: Nil
+    val comparisonFamArities = 0 :: 0 :: 0 :: Nil
+    val cmpFn: Fn = {
+      val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+      {
+        case (PackageName.PredefName, Constructor("False")) =>
+          Some(DataRepr.Enum(0, 0, boolFamArities))
+        case (PackageName.PredefName, Constructor("True"))  =>
+          Some(DataRepr.Enum(1, 0, boolFamArities))
+        case (PackageName.PredefName, Constructor("LT"))    =>
+          Some(DataRepr.Enum(0, 0, comparisonFamArities))
+        case (PackageName.PredefName, Constructor("EQ"))    =>
+          Some(DataRepr.Enum(1, 0, comparisonFamArities))
+        case (PackageName.PredefName, Constructor("GT"))    =>
+          Some(DataRepr.Enum(2, 0, comparisonFamArities))
+        case (pn, cons)                                     =>
+          base(pn, cons)
+      }
+    }
+
+    def lowerGuardFn(
+        outName: String,
+        ltEqValue: Boolean,
+        gtValue: Boolean,
+        onGuardTrue: Int,
+        onGuardFalse: Int
+    ): Matchless.Expr[Unit] = {
+      val guardExpr = TypedExpr.Match(
+        cmpLocal,
+        NonEmptyList.of(
+          TypedExpr.Branch(ltEqPat, None, boolLit(ltEqValue)),
+          TypedExpr.Branch(gtPat, None, boolLit(gtValue))
+        ),
+        ()
+      )
+
+      val body = TypedExpr.Let(
+        cmpName,
+        TypedExpr.App(
+          cmpIntExpr,
+          NonEmptyList.of(argExpr, intLit(0)),
+          comparisonType,
+          ()
+        ),
+        TypedExpr.Match(
+          argExpr,
+          NonEmptyList.of(
+            TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), intLit(onGuardTrue)),
+            TypedExpr.Branch(Pattern.WildCard, None, intLit(onGuardFalse))
+          ),
+          ()
+        ),
+        RecursionKind.NonRecursive,
+        ()
+      )
+
+      val typed =
+        TypedExpr.AnnotatedLambda(NonEmptyList.one((argName, intType)), body, ())
+      Matchless.fromLet(
+        (),
+        Identifier.Name(outName),
+        RecursionKind.NonRecursive,
+        typed
+      )(cmpFn)
+    }
+
+    def hasLetBool(bools: List[Matchless.BoolExpr[Unit]]): Boolean =
+      bools.exists {
+        case Matchless.LetBool(_, _, _) => true
+        case _                          => false
+      }
+
+    val toNatBools =
+      exprBoolSubexpressions(lowerGuardFn("to_nat_style", false, true, 1, 0))
+    assertEquals(hasLetBool(toNatBools), false)
+    assert(
+      toNatBools.exists {
+        case Matchless.CheckVariant(_, expect, _, famArities) =>
+          expect == 2 && famArities == comparisonFamArities
+        case _ =>
+          false
+      },
+      s"expected GT guard to lower to CheckVariant, got: $toNatBools"
+    )
+
+    val bitCountBools =
+      exprBoolSubexpressions(lowerGuardFn("bit_count_style", true, false, 0, 1))
+    assertEquals(hasLetBool(bitCountBools), false)
+    assert(
+      bitCountBools.exists {
+        case Matchless.CheckVariantSet(_, expect, _, famArities) =>
+          expect.toList == (0 :: 1 :: Nil) && famArities == comparisonFamArities
+        case _ =>
+          false
+      },
+      s"expected LT|EQ guard to lower to CheckVariantSet, got: $bitCountBools"
+    )
+  }
+
+  test(
+    "source guards with boolified selector matches lower directly without LetBool"
+  ) {
+    val src = """
+package Matchless/GuardCoverage
+
+enum Five:
+  A
+  B
+  C
+  D
+  E
+
+def cmp_guard(i):
+  match i:
+    case _ if (
+      match cmp_Int(i, 0):
+        case LT | EQ: True
+        case GT: False
+    ): 1
+    case _: 0
+
+def enum_guard(v):
+  match v:
+    case _ if (
+      match v:
+        case A | C | E: True
+        case B | D: False
+    ): 1
+    case _: 0
+
+main = (cmp_guard, enum_guard)
+"""
+    Par.withEC {
+      TestUtils.testInferred(
+        List(src),
+        "Matchless/GuardCoverage", { (pm, packName) =>
+          val compiled = MatchlessFromTypedExpr.compile((), pm)
+          val byName = compiled(packName).toMap
+
+          def hasLetBool(expr: Matchless.Expr[Unit]): Boolean =
+            exprBoolSubexpressions(expr).exists {
+              case Matchless.LetBool(_, _, _) => true
+              case _                          => false
+            }
+
+          def hasSetOrVariantChain(
+              bools: List[Matchless.BoolExpr[Unit]],
+              variants: List[Int],
+              famArities: List[Int]
+          ): Boolean =
+            bools.exists {
+              case Matchless.CheckVariantSet(_, expect, _, fam) =>
+                expect.toList == variants && fam == famArities
+              case _ =>
+                false
+            } || variants.forall { v =>
+              bools.exists {
+                case Matchless.CheckVariant(_, expect, _, fam) =>
+                  expect == v && fam == famArities
+                case _ =>
+                  false
+              }
+            }
+
+          val allExprs = byName.values.toList
+          val allBools = allExprs.flatMap(exprBoolSubexpressions)
+          assertEquals(allExprs.exists(hasLetBool), false)
+          assert(
+            hasSetOrVariantChain(allBools, 0 :: 1 :: Nil, 0 :: 0 :: 0 :: Nil),
+            s"expected LT|EQ selector checks in lowered guards, got: $allBools"
+          )
+          assert(
+            hasSetOrVariantChain(
+              allBools,
+              0 :: 2 :: 4 :: Nil,
+              0 :: 0 :: 0 :: 0 :: 0 :: Nil
+            ),
+            s"expected A|C|E selector checks in lowered guards, got: $allBools"
+          )
+        }
+      )
+    }
+  }
+
   test("Matchless.applyArgs pushes through If and Always") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
@@ -1097,6 +1437,8 @@ x = 1
             checkBool(l)
             checkBool(r)
           case Matchless.CheckVariant(e, _, _, _) =>
+            requireSubset(e)
+          case Matchless.CheckVariantSet(e, _, _, _) =>
             requireSubset(e)
           case Matchless.SetMut(_, e) =>
             requireSubset(e)
@@ -1820,6 +2162,8 @@ x = 1
         case Matchless.And(l, r) =>
           hasNestedProjectionBool(l) || hasNestedProjectionBool(r)
         case Matchless.CheckVariant(e, _, _, _) =>
+          hasNestedProjectionCheap(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
           hasNestedProjectionCheap(e)
         case Matchless.SetMut(_, e) =>
           hasNestedProjectionExpr(e)
