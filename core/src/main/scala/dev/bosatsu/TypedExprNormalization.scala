@@ -449,7 +449,7 @@ object TypedExprNormalization {
           None
       }
 
-    (arg, asBoolSelector(branches)) match {
+    (stripTypeWrappers(arg), asBoolSelector(branches)) match {
       case (Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
         innerBranches.traverse { inner =>
           boolConst(inner.expr).map { cond =>
@@ -477,6 +477,29 @@ object TypedExprNormalization {
     stripTypeWrappers(te) match {
       case Local(n, _, _) => n == expected
       case _              => false
+    }
+
+  private def isCmpIntCall[A](te: TypedExpr[A]): Boolean =
+    stripTypeWrappers(te) match {
+      case App(fn, args, _, _) if args.length == 2 =>
+        stripTypeWrappers(fn) match {
+          case Global(PackageName.PredefName, Identifier.Name("cmp_Int"), _, _) =>
+            true
+          case _ =>
+            false
+        }
+      case _ =>
+        false
+    }
+
+  private def isCmpIntBoolSelector[A](te: TypedExpr[A]): Boolean =
+    stripTypeWrappers(te) match {
+      case Match(innerArg, innerBranches, _) if isCmpIntCall(innerArg) =>
+        innerBranches.forall { case Branch(_, guard, branchExpr) =>
+          guard.isEmpty && boolConst(branchExpr).nonEmpty
+        }
+      case _ =>
+        false
     }
 
   private def combineInvariantFlags(
@@ -1545,8 +1568,13 @@ object TypedExprNormalization {
           bs.toList match {
             case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
                 if totalityCheck.difference(p2, p1).isEmpty &&
-                  p1.names.isEmpty && p2.names.isEmpty &&
-                  containsRecur(e1) =>
+                  p1.names.isEmpty && p2.names.isEmpty && {
+                    containsRecur(e1) || {
+                      init.isEmpty &&
+                      containsRecur(e2) &&
+                      isCmpIntBoolSelector(g)
+                    }
+                  } =>
               val ifExpr = Match(
                 g,
                 NonEmptyList(
