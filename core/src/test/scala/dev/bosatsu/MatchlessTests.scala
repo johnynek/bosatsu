@@ -783,6 +783,61 @@ x = 1
     }
   }
 
+  test("Matchless lowers bool selector matches directly to If") {
+    val cond = Identifier.Name("cond")
+    val boolType = rankn.Type.BoolType
+    val truePat: Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
+    val falsePat: Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("False")),
+        Nil
+      )
+    val typed = TypedExpr.AnnotatedLambda(
+      NonEmptyList.one((cond, boolType)),
+      TypedExpr.Match(
+        TypedExpr.Local(cond, boolType, ()),
+        NonEmptyList.of(
+          TypedExpr.Branch(truePat, None, intLit(1)),
+          TypedExpr.Branch(falsePat, None, intLit(0))
+        ),
+        ()
+      ),
+      ()
+    )
+
+    val boolFn: Fn = {
+      val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+      {
+        case (PackageName.PredefName, Constructor("False")) =>
+          Some(DataRepr.Enum(0, 0, 0 :: 0 :: Nil))
+        case (PackageName.PredefName, Constructor("True")) =>
+          Some(DataRepr.Enum(1, 0, 0 :: 0 :: Nil))
+        case (pn, cons) =>
+          base(pn, cons)
+      }
+    }
+
+    val lowered =
+      Matchless.fromLet(
+        (),
+        Identifier.Name("select"),
+        RecursionKind.NonRecursive,
+        typed
+      )(boolFn)
+
+    lowered match {
+      case Matchless.Lambda(_, None, _, Matchless.If(_, thenExpr, elseExpr)) =>
+        assertEquals(thenExpr, Matchless.Literal(Lit(1)))
+        assertEquals(elseExpr, Matchless.Literal(Lit(0)))
+      case other =>
+        fail(s"expected direct If lowering for bool selector, found: $other")
+    }
+  }
+
   test("Matchless.applyArgs pushes through If and Always") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
