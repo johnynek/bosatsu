@@ -978,6 +978,91 @@ x = 1
     )
   }
 
+  test(
+    "source guards with boolified selector matches lower directly without LetBool"
+  ) {
+    val src = """
+package Matchless/GuardCoverage
+
+enum Five:
+  A
+  B
+  C
+  D
+  E
+
+def cmp_guard(i):
+  match i:
+    case _ if (
+      match cmp_Int(i, 0):
+        case LT | EQ: True
+        case GT: False
+    ): 1
+    case _: 0
+
+def enum_guard(v):
+  match v:
+    case _ if (
+      match v:
+        case A | C | E: True
+        case B | D: False
+    ): 1
+    case _: 0
+
+main = (cmp_guard, enum_guard)
+"""
+    Par.withEC {
+      TestUtils.testInferred(
+        List(src),
+        "Matchless/GuardCoverage", { (pm, packName) =>
+          val compiled = MatchlessFromTypedExpr.compile((), pm)
+          val byName = compiled(packName).toMap
+
+          def hasLetBool(expr: Matchless.Expr[Unit]): Boolean =
+            exprBoolSubexpressions(expr).exists {
+              case Matchless.LetBool(_, _, _) => true
+              case _                          => false
+            }
+
+          def hasSetOrVariantChain(
+              bools: List[Matchless.BoolExpr[Unit]],
+              variants: List[Int],
+              famArities: List[Int]
+          ): Boolean =
+            bools.exists {
+              case Matchless.CheckVariantSet(_, expect, _, fam) =>
+                expect.toList == variants && fam == famArities
+              case _ =>
+                false
+            } || variants.forall { v =>
+              bools.exists {
+                case Matchless.CheckVariant(_, expect, _, fam) =>
+                  expect == v && fam == famArities
+                case _ =>
+                  false
+              }
+            }
+
+          val allExprs = byName.values.toList
+          val allBools = allExprs.flatMap(exprBoolSubexpressions)
+          assertEquals(allExprs.exists(hasLetBool), false)
+          assert(
+            hasSetOrVariantChain(allBools, 0 :: 1 :: Nil, 0 :: 0 :: 0 :: Nil),
+            s"expected LT|EQ selector checks in lowered guards, got: $allBools"
+          )
+          assert(
+            hasSetOrVariantChain(
+              allBools,
+              0 :: 2 :: 4 :: Nil,
+              0 :: 0 :: 0 :: 0 :: 0 :: Nil
+            ),
+            s"expected A|C|E selector checks in lowered guards, got: $allBools"
+          )
+        }
+      )
+    }
+  }
+
   test("Matchless.applyArgs pushes through If and Always") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")

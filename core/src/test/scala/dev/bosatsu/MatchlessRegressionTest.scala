@@ -1,6 +1,7 @@
 package dev.bosatsu
 
 import cats.Eval
+import cats.data.NonEmptyList
 
 class MatchlessRegressionTest extends munit.FunSuite {
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
@@ -289,5 +290,43 @@ def branch_blowup(args: L) -> Nat:
         .map(_.value)
 
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(4)))
+  }
+
+  test("MatchlessToValue evaluates CheckVariantSet guards") {
+    val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
+    val arg = Identifier.Name("v")
+    val enumGuard: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(arg),
+        Matchless.If(
+          Matchless.CheckVariantSet(
+            Matchless.Local(arg),
+            NonEmptyList.of(0, 2, 4),
+            0,
+            famArities
+          ),
+          Matchless.Literal(Lit(1)),
+          Matchless.Literal(Lit(0))
+        )
+      )
+
+    val evalExprs = Vector(
+      Matchless.App(
+        enumGuard,
+        NonEmptyList.one(Matchless.MakeEnum(0, 0, famArities))
+      ),
+      Matchless.App(
+        enumGuard,
+        NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))
+      )
+    )
+
+    val evaluated =
+      MatchlessToValue
+        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .map(_.value)
+    assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
   }
 }
