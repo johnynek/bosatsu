@@ -95,6 +95,23 @@ lazy val docs = (project in file("docs"))
           |---
           |
           |""".stripMargin
+      def rewriteMarkdownLinksToHtml(content: String): String = {
+        val linkPattern = raw"\]\(([^)]+)\)".r
+        linkPattern.replaceAllIn(content, m => {
+          val target = m.group(1)
+          val hashIdx = target.indexOf('#')
+          val (path, suffix) =
+            if (hashIdx >= 0) {
+              (target.substring(0, hashIdx), target.substring(hashIdx))
+            } else (target, "")
+
+          if (path.endsWith(".md") && !path.contains("://")) {
+            s"](${path.stripSuffix(".md")}.html$suffix)"
+          } else {
+            m.matched
+          }
+        })
+      }
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
@@ -178,7 +195,11 @@ lazy val docs = (project in file("docs"))
            |""".stripMargin
 
       markdownFiles.foreach { file =>
-        IO.write(file, disableParadoxSourceMarkdownLink + IO.read(file))
+        val markdown = IO.read(file)
+        IO.write(
+          file,
+          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(markdown)
+        )
       }
       IO.write(
         paradoxGeneratedRoot / "index.md",

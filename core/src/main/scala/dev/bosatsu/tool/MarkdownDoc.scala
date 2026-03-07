@@ -21,6 +21,7 @@ import dev.bosatsu.{
 import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type}
 import org.typelevel.paiges.Doc
 import java.util.Locale
+import scala.collection.mutable.ListBuffer
 
 object MarkdownDoc {
   private val fnTypeRegex = raw"^Fn\d+$$".r
@@ -294,8 +295,8 @@ object MarkdownDoc {
   private def inlineCode(str: String): Doc =
     Doc.char('`') + Doc.text(str.replace("`", "\\`")) + Doc.char('`')
 
-  private def markdownCodeLink(label: String, id: String): Doc =
-    Doc.text(show"[`${label.replace("`", "\\`")}`](#$id)")
+  private def markdownCodeLink(label: String, href: String): Doc =
+    Doc.text(show"[`${label.replace("`", "\\`")}`]($href)")
 
   private def anchorSlug(raw: String): String = {
     val lowered = raw.toLowerCase(Locale.ROOT)
@@ -306,11 +307,46 @@ object MarkdownDoc {
     if (collapsed.isEmpty) "item" else collapsed
   }
 
+  private def typeAnchorId(typeName: TypeName): String =
+    show"type-${anchorSlug(typeName.asString)}"
+
   private def typeAnchorId(dt: DefinedType[Kind.Arg]): String =
-    show"type-${anchorSlug(dt.name.asString)}"
+    typeAnchorId(dt.name)
 
   private def valueAnchorId(name: Identifier.Bindable): String =
     show"value-${anchorSlug(name.sourceCodeRepr)}"
+
+  private def packageDocParts(packageName: PackageName): List[String] = {
+    val parts = packageName.parts.toList
+    parts.init ::: ((parts.last + ".md") :: Nil)
+  }
+
+  private def relativePath(fromDir: List[String], toPath: List[String]): String = {
+    val commonPrefix = fromDir
+      .zip(toPath)
+      .takeWhile { case (from, to) => from == to }
+      .length
+
+    val up = List.fill(fromDir.length - commonPrefix)("..")
+    val down = toPath.drop(commonPrefix)
+    (up ::: down).mkString("/")
+  }
+
+  private def packageDocHref(
+      fromPackage: PackageName,
+      toPackage: PackageName
+  ): String =
+    relativePath(fromPackage.parts.toList.init, packageDocParts(toPackage))
+
+  private def typeHref(
+      currentPackage: PackageName,
+      typePackage: PackageName,
+      typeName: TypeName
+  ): String = {
+    val anchor = typeAnchorId(typeName)
+    if (typePackage == currentPackage) show"#$anchor"
+    else show"${packageDocHref(currentPackage, typePackage)}#$anchor"
+  }
 
   private def fenced(language: String, content: Doc): Doc =
     Doc.text(show"```$language") + Doc.hardLine + content + Doc.hardLine + Doc
@@ -322,6 +358,92 @@ object MarkdownDoc {
 
   private def renderType(tpe: Type, ctx: RenderCtx): String =
     TypeRenderer.render(tpe, ctx, markdownRenderWidth)
+
+  private def typeLinkTargets(
+      tpe: Type,
+      currentPackage: PackageName,
+      ctx: RenderCtx
+  ): List[(String, String)] =
+    Type
+      .allConsts(tpe :: Nil)
+      .map(_.tpe.toDefined)
+      .map { case Type.Const.Defined(typePackage, typeName) =>
+        val label =
+          TypeRenderer.typeNamePrefix(typePackage, typeName, ctx) + typeName.asString
+        val href = typeHref(currentPackage, typePackage, typeName)
+        (label, href)
+      }
+      .distinct
+      .sortBy { case (label, _) => -label.length }
+
+  private def isTypeLabelChar(ch: Char): Boolean =
+    ch.isLetterOrDigit || (ch == '_') || (ch == '/') || (ch == ':')
+
+  private def linkifyRenderedType(
+      rendered: String,
+      targets: List[(String, String)]
+  ): Doc =
+    if (targets.isEmpty) Doc.text(rendered)
+    else {
+      val pieces = ListBuffer.empty[Doc]
+      val text = new StringBuilder
+
+      def flushText(): Unit =
+        if (text.length > 0) {
+          pieces += Doc.text(text.result())
+          text.clear()
+        }
+
+      @annotation.tailrec
+      def findTarget(
+          idx: Int,
+          rest: List[(String, String)]
+      ): Option[(String, String)] =
+        rest match {
+          case Nil =>
+            None
+          case (label, href) :: tail =>
+            val end = idx + label.length
+            val matches =
+              (end <= rendered.length) &&
+                rendered.regionMatches(idx, label, 0, label.length)
+            val startOk =
+              (idx == 0) || !isTypeLabelChar(rendered.charAt(idx - 1))
+            val endOk =
+              (end >= rendered.length) || !isTypeLabelChar(rendered.charAt(end))
+            if (matches && startOk && endOk) Some((label, href))
+            else findTarget(idx, tail)
+        }
+
+      var idx = 0
+      while (idx < rendered.length) {
+        findTarget(idx, targets) match {
+          case Some((label, href)) =>
+            flushText()
+            pieces += markdownCodeLink(label, href)
+            idx += label.length
+          case None =>
+            text.append(rendered.charAt(idx))
+            idx += 1
+        }
+      }
+
+      flushText()
+      pieces.toList match {
+        case Nil     => Doc.text(rendered)
+        case d :: ds => ds.foldLeft(d)(_ + _)
+      }
+    }
+
+  private def linkedTypeDoc(
+      tpe: Type,
+      currentPackage: PackageName,
+      ctx: RenderCtx
+  ): Doc =
+    linkifyRenderedType(
+      renderType(tpe, ctx),
+      typeLinkTargets(tpe, currentPackage, ctx)
+    )
 
   private def typeNamePrefix(
       dt: DefinedType[Kind.Arg],
@@ -418,6 +540,46 @@ object MarkdownDoc {
       }
   }
 
+  private def defSignatureLinked(
+      name: Identifier.Bindable,
+      tpe: Type,
+      sourceParams: List[Option[Identifier.Bindable]],
+      currentPackage: PackageName,
+      ctx: RenderCtx
+  ): Option[Doc] = {
+    val (foralls, exists, rho) = Type.splitQuantifiers(tpe)
+    if (exists.nonEmpty) None
+    else
+      rho match {
+        case Type.Fun(args, out) =>
+          val fparams = groupedTypeParamList(quantifiedTypeParamDocs(foralls))
+          val params =
+            args.toList.zipWithIndex
+              .map { case (argT, idx) =>
+                val paramName =
+                  sourceParams
+                    .lift(idx)
+                    .flatten
+                    .map(_.sourceCodeRepr)
+                    .getOrElse(show"arg${idx + 1}")
+                Doc.text(show"$paramName: ") + linkedTypeDoc(
+                  argT,
+                  currentPackage,
+                  ctx
+                )
+              }
+          Some(
+            Doc.text(show"def ${name.sourceCodeRepr}") +
+              fparams +
+              groupedParamList(params) +
+              Doc.text(" -> ") +
+              linkedTypeDoc(out, currentPackage, ctx)
+          )
+        case _ =>
+          None
+      }
+  }
+
   private def valueSignature(
       name: Identifier.Bindable,
       tpe: Type,
@@ -429,9 +591,23 @@ object MarkdownDoc {
         Doc.text(show"${name.sourceCodeRepr}: ${renderType(tpe, ctx)}")
       )
 
+  private def valueSignatureLinked(
+      name: Identifier.Bindable,
+      tpe: Type,
+      sourceParams: List[Option[Identifier.Bindable]],
+      currentPackage: PackageName,
+      ctx: RenderCtx
+  ): Doc =
+    defSignatureLinked(name, tpe, sourceParams, currentPackage, ctx)
+      .getOrElse(
+        Doc.text(show"${name.sourceCodeRepr}: ") +
+          linkedTypeDoc(tpe, currentPackage, ctx)
+      )
+
   private def renderValueSection(
       values: List[(Identifier.Bindable, Type)],
       docs: SourceDocs,
+      currentPackage: PackageName,
       ctx: RenderCtx
   ): Option[Doc] =
     if (values.isEmpty) None
@@ -441,12 +617,27 @@ object MarkdownDoc {
         val anchor = Doc.text(show"<a id=\"${valueAnchorId(name)}\"></a>")
         val title = Doc.text("### ") + inlineCode(name.sourceCodeRepr)
         val comment = maybeComment(valueInfo.comment)
+        val linkedSignature =
+          Doc.text("type signature: ") +
+            valueSignatureLinked(
+              name,
+              tpe,
+              valueInfo.params,
+              currentPackage,
+              ctx
+            )
         val signature =
           fenced("bosatsu", valueSignature(name, tpe, valueInfo.params, ctx))
 
         Doc.intercalate(
           Doc.hardLine + Doc.hardLine,
-          List(Some(anchor), Some(title), comment, Some(signature)).flatten
+          List(
+            Some(anchor),
+            Some(title),
+            comment,
+            Some(linkedSignature),
+            Some(signature)
+          ).flatten
         )
       }
 
@@ -612,13 +803,16 @@ object MarkdownDoc {
     )).distinct.sorted
       .filterNot(pn => (pn == pack.name) || (pn == PackageName.PredefName))
 
-  private def dependenciesDoc(deps: List[PackageName]): Option[Doc] =
+  private def dependenciesDoc(
+      currentPackage: PackageName,
+      deps: List[PackageName]
+  ): Option[Doc] =
     if (deps.isEmpty) None
     else {
       val list =
         Doc.intercalate(
           Doc.text(", "),
-          deps.map(pn => inlineCode(pn.asString))
+          deps.map(pn => markdownCodeLink(pn.asString, packageDocHref(currentPackage, pn)))
         )
       Some(Doc.text("public dependencies: ") + list)
     }
@@ -667,7 +861,7 @@ object MarkdownDoc {
             .intercalate(
               Doc.comma + Doc.lineOrSpace,
               typeLinks.map { case (label, id) =>
-                markdownCodeLink(label, id)
+                markdownCodeLink(label, show"#$id")
               }
             )).grouped
         ),
@@ -678,7 +872,7 @@ object MarkdownDoc {
             .intercalate(
               Doc.comma + Doc.lineOrSpace,
               valueLinks.map { case (label, id) =>
-                markdownCodeLink(label, id)
+                markdownCodeLink(label, show"#$id")
               }
             )).grouped
         )
@@ -696,7 +890,7 @@ object MarkdownDoc {
     val sections = List(
       indexSection,
       renderTypeSection(types, docs, ctx),
-      renderValueSection(values, docs, ctx)
+      renderValueSection(values, docs, pack.name, ctx)
     ).flatten
 
     val body =
@@ -709,7 +903,7 @@ object MarkdownDoc {
       Doc.hardLine + Doc.hardLine,
       header ::
         sourceCodeLinksDoc(sourceLinks).toList :::
-        dependenciesDoc(deps).toList ::: body :: Nil
+        dependenciesDoc(pack.name, deps).toList ::: body :: Nil
     )
   }
 

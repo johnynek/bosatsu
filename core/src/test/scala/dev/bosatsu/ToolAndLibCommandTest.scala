@@ -2649,7 +2649,10 @@ dep_main = depBox
 
         val markdown = readStringFile(state, Chain("docs", "App", "Main.md"))
         assert(markdown.contains("# `App/Main`"), markdown)
-        assert(markdown.contains("public dependencies: `Dep/Util`"), markdown)
+        assert(
+          markdown.contains("public dependencies: [`Dep/Util`](../Dep/Util.md)"),
+          markdown
+        )
         assert(markdown.contains("## Values"), markdown)
         assert(markdown.contains("## Types"), markdown)
         assert(
@@ -2659,6 +2662,13 @@ dep_main = depBox
         assert(markdown.contains("Box docs."), markdown)
         assert(markdown.contains("Run docs."), markdown)
         assert(markdown.contains("def run("), markdown)
+        assert(markdown.contains("[`Box`](#type-box)"), markdown)
+        assert(
+          markdown.contains(
+            "[`Dep/Util::DepBox`](../Dep/Util.md#type-depbox)"
+          ),
+          markdown
+        )
         assert(markdown.contains("`Box(v: Int)`"), markdown)
         assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
         assert(markdown.contains("```bosatsu"), markdown)
@@ -2734,6 +2744,7 @@ mk = (x) -> Thing(x)
           markdown
         )
         assert(markdown.contains("def mk("), markdown)
+        assert(markdown.contains("[`Thing`](#type-thing)"), markdown)
         assert(markdown.contains("`Thing(v: Int)`"), markdown)
         assert(!markdown.contains("Bosatsu/Predef::Int"), markdown)
         assert(markdown.contains("## Values"), markdown)
