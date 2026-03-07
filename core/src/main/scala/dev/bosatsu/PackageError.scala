@@ -362,7 +362,7 @@ object PackageError {
   case class UnknownExport[A](
       ex: ExportedName[A],
       in: PackageName,
-      lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]
+      candidatesWithRegions: List[(Identifier.Bindable, Region)]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
@@ -372,7 +372,7 @@ object PackageError {
       val header =
         s"in $sourceName unknown export ${ex.name.sourceCodeRepr}"
       val candidateMap: Map[Identifier, Region] =
-        lets.map { case (n, _, expr) => (n, HasRegion.region(expr)) }.toMap
+        candidatesWithRegions.iterator.map { case (n, r) => (n: Identifier, r) }.toMap
       val candidates =
         nearest(ex.name, candidateMap, 3)
           .map { case (n, r) =>

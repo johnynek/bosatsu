@@ -3,7 +3,8 @@ package dev.bosatsu
 import Value._
 
 import cats.Show
-import cats.data.Validated
+import cats.data.{NonEmptyList, Validated}
+import cats.syntax.all._
 import dev.bosatsu.LocationMap.Colorize
 import scala.concurrent.duration.DurationInt
 
@@ -37,6 +38,36 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
         e.message(sourceMap, Colorize.None)
     }
     msgOpt.getOrElse(fail(s"expected unused let error, found: $errs"))
+  }
+
+  private def compileErrors(
+      packages: List[String]
+  ): (
+      NonEmptyList[PackageError],
+      Map[PackageName, (LocationMap, String)]
+  ) = {
+    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
+      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
+        ((i.toString, lm), parsed)
+      }
+    }
+
+    val parsedPaths = parsed match {
+      case Validated.Valid(vs)     => vs
+      case Validated.Invalid(errs) => fail(s"parse fail: $errs")
+    }
+
+    val withPre =
+      PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+
+    val errs =
+      PackageMap
+        .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+        .left
+        .getOrElse(fail("expected compilation errors"))
+
+    (errs, PackageMap.buildSourceMap(withPre))
   }
 
   test("unused top-level let points to the whole binding") {
@@ -2542,6 +2573,106 @@ main = xxfoo
     }
   }
 
+  test("multiple distinct unknown names are reported in one run") {
+    val (errs, sourceMap) =
+      compileErrors(
+        List(
+          """
+package P
+
+first = missing_a
+second = missing_b
+
+main = 1
+"""
+        )
+      )
+
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    assert(rendered.contains("Unknown name `missing_a`."), rendered)
+    assert(rendered.contains("Unknown name `missing_b`."), rendered)
+  }
+
+  test("unknown export bindable is reported even when name checking fails") {
+    val testCode =
+      List("""
+package ExportCheck
+export missing_export
+
+broken = missing_name
+main = 1
+""")
+
+    evalFail(testCode) { case ue: PackageError.UnknownExport[?] =>
+      val message = ue.message(Map.empty, Colorize.None)
+      assert(message.contains("unknown export missing_export"), message)
+      ()
+    }
+
+    evalFail(testCode) { case te: PackageError.TypeErrorIn =>
+      val message = te.message(Map.empty, Colorize.None)
+      assert(message.contains("Unknown name `missing_name`."), message)
+      ()
+    }
+  }
+
+  test("unused imported bindable is reported even when name checking fails") {
+    val (errs, sourceMap) =
+      compileErrors(
+        List(
+          """
+package Dep
+export foo
+
+foo = 1
+""",
+          """
+package UsesDep
+
+from Dep import foo
+
+broken = missing_name
+main = 1
+"""
+        )
+      )
+
+    val messages =
+      errs.toList.map(_.message(sourceMap, Colorize.None))
+    val all = messages.mkString("\n")
+    assert(messages.exists(_.contains("unused import")), all)
+    assert(messages.exists(_.contains("from Dep import foo")), all)
+    assert(messages.exists(_.contains("Unknown name `missing_name`.")), all)
+  }
+
+  test("independent type errors are reported with name errors from blocked lets") {
+    val (errs, sourceMap) =
+      compileErrors(
+        List(
+          """
+package MixedErrors
+
+bad = missing_name
+
+x = 1
+y = x("bad")
+
+main = 1
+"""
+        )
+      )
+
+    val messages =
+      errs.toList.collect {
+        case te: PackageError.TypeErrorIn =>
+          te.message(sourceMap, Colorize.None)
+      }
+
+    val all = messages.mkString("\n")
+    assert(messages.exists(_.contains("Unknown name `missing_name`.")), all)
+    assert(messages.exists(_.contains("type error: expected type")), all)
+  }
+
   test("unknown operator suggestions exclude unrelated local operators") {
     val testCode = List("""
 package Repro/Issue2
@@ -2722,7 +2853,7 @@ x = 1.0 + 2.0
         |x = [mk(1), mk(2)]: List[P]
         |""".stripMargin
 
-    evalFail(List(libSrc, mainSrc)) { case pe: PackageError =>
+    evalFail(List(libSrc, mainSrc)) { case pe: PackageError.TypeErrorIn =>
       val message = pe.message(Map.empty, Colorize.None)
       assert(
         message.contains("Use of unimported type") ||
