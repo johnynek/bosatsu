@@ -3354,7 +3354,7 @@ x = Foo
   ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val (fullTypeEnv, unoptProgram) =
-      Package.inferBodyUnopt(TestUtils.testPackage, Nil, stmts) match {
+      Package.inferBodyUnopt(TestUtils.testPackage, Nil, Nil, stmts) match {
         case cats.data.Ior.Right(res) =>
           res
         case cats.data.Ior.Both(errs, _) =>

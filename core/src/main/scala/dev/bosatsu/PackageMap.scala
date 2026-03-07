@@ -631,7 +631,12 @@ object PackageMap {
                       // threadpool.
                       summon[CanPromise[F]].compute {
                         for {
-                          (_, program) <- Package.inferBodyUnopt(nm, ilist, stmt)
+                          (_, program) <- Package.inferBodyUnopt(
+                            nm,
+                            ilist,
+                            exports,
+                            stmt
+                          )
                           asm <- PackageCustoms.assemble(nm, ilist, impMap, exports, program)
                         } yield phases.finishPackage(asm, depIfaces, compileOptions)
                       }

@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Functor, Order, Parallel, Applicative}
+import cats.{Functor, Order, Applicative}
 import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
 import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -406,16 +406,25 @@ object Package {
   ): Ior[NonEmptyList[PackageError], Program[TypeEnv[Kind.Arg], TypedExpr[
     Declaration
   ], List[Statement]]] =
-    inferBodyUnopt(p, imps, stmts).map { case (fullTypeEnv, prog) =>
+    inferBodyUnopt(p, imps, Nil, stmts).map { case (fullTypeEnv, prog) =>
       val lowered = TypedExprLoopRecurLowering.lowerProgram(prog)
       TypedExprNormalization.normalizeProgram(p, fullTypeEnv, lowered)
     }
 
-  /** Infer the types but do not optimize/normalize the lets
+  private def combineInferSingles(
+      errs: NonEmptyList[Infer.Error.Single]
+  ): Infer.Error =
+    errs.tail.foldLeft(errs.head: Infer.Error) { (acc, next) =>
+      Infer.Error.Combine(acc, next)
+    }
+
+  /** Infer the types but do not optimize/normalize the lets. `exports` can be
+    * provided to run pre-inference bindable checks from the expression DAG.
     */
   def inferBodyUnopt(
       p: PackageName,
       imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
+      exports: List[ExportedName[Unit]],
       stmts: List[Statement]
   ): Ior[
     NonEmptyList[
@@ -520,6 +529,41 @@ object Package {
               tn
             }.toSet
 
+          val (nameCheckErrorOpt, nameCheckResult) =
+            NameCheck.checkLets(p, lets, withFQN)
+
+          val nameCheckErrors: Ior[NonEmptyList[PackageError], Unit] =
+            nameCheckErrorOpt match {
+              case None           =>
+                Ior.right(())
+              case Some(nameErrs) =>
+                val mergedError =
+                  combineInferSingles(
+                    nameErrs.toNonEmptyList.map(err => err: Infer.Error.Single)
+                  )
+                // Intentionally return Left (not Both): unresolved top-level names
+                // mean we cannot safely expose a partial typed package API to
+                // downstream packages. We still run inference on surviving lets
+                // to accumulate additional diagnostics in this package.
+                Ior.left(
+                  NonEmptyList.one[PackageError](
+                    PackageError.TypeErrorIn(
+                      mergedError,
+                      p,
+                      lets,
+                      theseExternals,
+                      letNameRegions,
+                      localTypeNames
+                    )
+                  )
+                )
+            }
+
+          val exprDagBindableChecks: Ior[NonEmptyList[PackageError], Unit] =
+            PackageCustoms
+              .checkExprDagBindables(p, imps, exports, lets, extDefs)
+              .leftMap(_.toNonEmptyList)
+              .toIor
 
           val inferenceEither
               : Either[
@@ -533,7 +577,9 @@ object Package {
                     ]
                 )
               ] = Infer
-            .typeCheckLets(p, lets, theseExternals)
+            // Blocked lets (with direct/transitive name errors) are excluded,
+            // so missing-name diagnostics come from NameCheck exactly once.
+            .typeCheckLets(p, nameCheckResult.typecheckLets, theseExternals)
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
@@ -608,11 +654,27 @@ object Package {
            * warning: if we refactor this from validated, we need parMap on Ior to get this
            * error accumulation
            */
-          val inference =
-            Validated.fromEither(inferenceEither)
+          val inference: Ior[
+            NonEmptyList[PackageError],
+            (
+                TypeEnv[Kind.Arg],
+                Program[
+                  TypeEnv[Kind.Arg],
+                  TypedExpr[Declaration],
+                  List[Statement]
+                ]
+            )
+          ] =
+            Validated.fromEither(inferenceEither).toIor
 
-          Parallel[[A] =>> Ior[NonEmptyList[PackageError], A]]
-            .parProductR(checkUnusedLets.toIor)(inference.toIor)
+          // Name errors force a Left result, but we still collect any
+          // independent inference and import/export diagnostics in the same run.
+          (
+            exprDagBindableChecks,
+            nameCheckErrors,
+            checkUnusedLets.toIor,
+            inference
+          ).parMapN { (_, _, _, res) => res }
         }
     }
   }
