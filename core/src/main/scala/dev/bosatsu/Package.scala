@@ -541,6 +541,10 @@ object Package {
                   combineInferSingles(
                     nameErrs.toNonEmptyList.map(err => err: Infer.Error.Single)
                   )
+                // Intentionally return Left (not Both): unresolved top-level names
+                // mean we cannot safely expose a partial typed package API to
+                // downstream packages. We still run inference on surviving lets
+                // to accumulate additional diagnostics in this package.
                 Ior.left(
                   NonEmptyList.one[PackageError](
                     PackageError.TypeErrorIn(
