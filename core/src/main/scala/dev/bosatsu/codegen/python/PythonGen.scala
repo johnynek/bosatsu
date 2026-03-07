@@ -2529,16 +2529,11 @@ object PythonGen {
                   if (useInts) t
                   else t.get(0)
 
-                idxs match {
-                  case head :: tail =>
-                    tail
-                      .foldLeft(variantExpr =:= head) { (acc, idx) =>
-                        acc.eval(Code.Const.Or, variantExpr =:= idx)
-                      }
-                      .simplify
-                  case Nil          =>
-                    Code.Const.False
-                }
+                idxs.tail
+                  .foldLeft(variantExpr =:= idxs.head) { (acc, idx) =>
+                    acc.eval(Code.Const.Or, variantExpr =:= idx)
+                  }
+                  .simplify
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>

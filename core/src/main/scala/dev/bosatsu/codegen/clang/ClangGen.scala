@@ -462,15 +462,25 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 if (famArities.forall(_ == 0)) "get_variant_value"
                 else "get_variant"
               vl.onExpr { expr =>
-                expect match {
-                  case head :: tail =>
-                    val variant = Code.Ident(fn)(expr)
-                    pv(tail.foldLeft(variant =:= Code.IntLiteral(head)) {
-                      case (acc, idx) =>
-                        acc.bin(Code.BinOp.Or, variant =:= Code.IntLiteral(idx))
-                    })
-                  case Nil          =>
-                    pv(Code.FalseLit)
+                val variant = Code.Ident(fn)(expr)
+                expect.tail match {
+                  case Nil =>
+                    pv(variant =:= Code.IntLiteral(expect.head))
+                  case _   =>
+                    newLocalName("variant").map { variantName =>
+                      val cond =
+                        expect.tail.foldLeft(
+                          variantName =:= Code.IntLiteral(expect.head)
+                        ) { case (acc, idx) =>
+                          acc.bin(Code.BinOp.Or, variantName =:= Code.IntLiteral(idx))
+                        }
+                      Code.DeclareVar(
+                        Nil,
+                        Code.TypeIdent.Int,
+                        variantName,
+                        Some(variant)
+                      ) +: cond
+                    }
                 }
               }(newLocalName)
             }

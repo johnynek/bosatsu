@@ -1649,7 +1649,7 @@ object Matchless {
             val c1 = Order[Expr[A]].compare(exprL, exprR)
             if (c1 != 0) c1
             else {
-              val c2 = Order[List[Int]].compare(expectL, expectR)
+              val c2 = Order[NonEmptyList[Int]].compare(expectL, expectR)
               if (c2 != 0) c2
               else {
                 val c3 = java.lang.Integer.compare(sizeL, sizeR)
@@ -1741,7 +1741,7 @@ object Matchless {
   // checks if variant is in the provided sorted distinct set
   case class CheckVariantSet[A](
       expr: CheapExpr[A],
-      expect: List[Int],
+      expect: NonEmptyList[Int],
       size: Int,
       famArities: List[Int]
   ) extends BoolExpr[A]
@@ -4016,7 +4016,7 @@ object Matchless {
         Some(
           CheckVariantSet(
             selectorArg,
-            trueVariants.toList.sorted,
+            NonEmptyList.fromListUnsafe(trueVariants.toList.sorted),
             selectorSize,
             selectorFamArities
           )
