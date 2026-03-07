@@ -410,7 +410,7 @@ object MarkdownDoc {
             val startOk =
               (idx == 0) || !isTypeLabelChar(rendered.charAt(idx - 1))
             val endOk =
-              (end == rendered.length) || !isTypeLabelChar(rendered.charAt(end))
+              (end >= rendered.length) || !isTypeLabelChar(rendered.charAt(end))
             if (matches && startOk && endOk) Some((label, href))
             else findTarget(idx, tail)
         }
