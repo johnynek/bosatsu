@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -171,30 +171,40 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-default-options-with-scala"></a>
 <h3><a href="#default-options-with-scala" name="default-options-with-scala" class="anchor"><span class="anchor-link"></span></a><code>default_options_with_scala</code></h3>
+<p>type signature: default_options_with_scala: <a href="#type-options"><code>Options</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">default_options_with_scala: Options
 </code></pre>
 <a id="value-maven-central"></a>
 <h3><a href="#maven-central" name="maven-central" class="anchor"><span class="anchor-link"></span></a><code>maven_central</code></h3>
+<p>type signature: maven_central: <a href="#type-resolver"><code>Resolver</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">maven_central: Resolver
 </code></pre>
 <a id="value-merge-dep-list"></a>
 <h3><a href="#merge-dep-list" name="merge-dep-list" class="anchor"><span class="anchor-link"></span></a><code>merge_dep_List</code></h3>
+<p>type signature: def merge_dep_List(  deps: <a href="Bosatsu/Predef.html#type-list"><code>List</code></a><a href="./%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a>] ) -&gt; <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def merge_dep_List(deps: List[Dict[String, Dict[String, Artifact]]]) -&gt; Dict[String, Dict[String, Artifact]]
 </code></pre>
 <a id="value-merge-deps"></a>
 <h3><a href="#merge-deps" name="merge-deps" class="anchor"><span class="anchor-link"></span></a><code>merge_deps</code></h3>
+<p>type signature: def merge_deps(  left: <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a>,  right: <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a> ) -&gt; <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def merge_deps(left: Dict[String, Dict[String, Artifact]], right: Dict[String, Dict[String, Artifact]]) -&gt; Dict[String, Dict[String, Artifact]]
 </code></pre>
 <a id="value-scala-dep"></a>
 <h3><a href="#scala-dep" name="scala-dep" class="anchor"><span class="anchor-link"></span></a><code>scala_dep</code></h3>
+<p>type signature: def scala_dep(  orgname: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a>,  artifact: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a>,  version: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a> ) -&gt; <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def scala_dep(orgname: String, artifact: String, version: String) -&gt; Dict[String, Dict[String, Artifact]]
 </code></pre>
 <a id="value-scala-dep-modules"></a>
 <h3><a href="#scala-dep-modules" name="scala-dep-modules" class="anchor"><span class="anchor-link"></span></a><code>scala_dep_modules</code></h3>
+<p>type signature: def scala_dep_modules(  orgname: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a>,  artifact: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a>,  modules: <a href="Bosatsu/Predef.html#type-list"><code>List</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%5D%2C%0A----version%3A-%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C%0A----exports%3A-%5B%60List%60%5D%28Bosatsu%2FPredef.html%23type-list%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%5D%0A%29--%3E-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Artifact%60%5D%28%23type-artifact%29.html">`String`](Bosatsu/Predef.html#type-string)],
+    version: [`String`](Bosatsu/Predef.html#type-string),
+    exports: [`List`](Bosatsu/Predef.html#type-list)[[`String`](Bosatsu/Predef.html#type-string)]
+) -> [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Artifact`](#type-artifact)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def scala_dep_modules(orgname: String, artifact: String, modules: List[String], version: String, exports: List[String]) -&gt; Dict[String, Dict[String, Artifact]]
 </code></pre>
 <a id="value-standard-scala-replacements"></a>
 <h3><a href="#standard-scala-replacements" name="standard-scala-replacements" class="anchor"><span class="anchor-link"></span></a><code>standard_scala_replacements</code></h3>
+<p>type signature: standard_scala_replacements: <a href="Bosatsu/Predef.html#type-dict"><code>Dict</code></a><a href="./%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Dict%60%5D%28Bosatsu%2FPredef.html%23type-dict%29%5B%5B%60String%60%5D%28Bosatsu%2FPredef.html%23type-string%29%2C-%5B%60Replacement%60%5D%28%23type-replacement%29.html">`String`](Bosatsu/Predef.html#type-string), [`Dict`](Bosatsu/Predef.html#type-dict)[[`String`](Bosatsu/Predef.html#type-string), [`Replacement`](#type-replacement)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">standard_scala_replacements: Dict[String, Dict[String, Replacement]]
 </code></pre>
 <div class="nav-next">
@@ -274,7 +284,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-cd5611ee-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

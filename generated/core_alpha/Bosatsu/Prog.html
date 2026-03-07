@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -151,38 +151,47 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-await"></a>
 <h3><a href="#await" name="await" class="anchor"><span class="anchor-link"></span></a><code>await</code></h3>
+<p>type signature: def await[a,  b,  c ](p: <a href="#type-prog"><code>Prog</code></a>[a, b], fn: b -&gt; <a href="#type-prog"><code>Prog</code></a>[a, c]) -&gt; <a href="#type-prog"><code>Prog</code></a>[a, c]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def await[a, b, c](p: Prog[a, b], fn: b -&gt; Prog[a, c]) -&gt; Prog[a, c]
 </code></pre>
 <a id="value-ignore-err"></a>
 <h3><a href="#ignore-err" name="ignore-err" class="anchor"><span class="anchor-link"></span></a><code>ignore_err</code></h3>
+<p>type signature: def ignore_err[a,  b](prog: <a href="#type-prog"><code>Prog</code></a>[a, b], default: b) -&gt; forall a: *. <a href="#type-prog"><code>Prog</code></a>[a, b]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def ignore_err[a, b](prog: Prog[a, b], default: b) -&gt; forall a: *. Prog[a, b]
 </code></pre>
 <a id="value-map"></a>
 <h3><a href="#map" name="map" class="anchor"><span class="anchor-link"></span></a><code>map</code></h3>
+<p>type signature: def map[a,  b,  c](prog: <a href="#type-prog"><code>Prog</code></a>[a, b], fn: b -&gt; c) -&gt; <a href="#type-prog"><code>Prog</code></a>[a, c]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def map[a, b, c](prog: Prog[a, b], fn: b -&gt; c) -&gt; Prog[a, c]
 </code></pre>
 <a id="value-map-err"></a>
 <h3><a href="#map-err" name="map-err" class="anchor"><span class="anchor-link"></span></a><code>map_err</code></h3>
+<p>type signature: def map_err[a,  b,  c](prog: <a href="#type-prog"><code>Prog</code></a>[a, b], fn: a -&gt; c) -&gt; <a href="#type-prog"><code>Prog</code></a>[c, b]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_err[a, b, c](prog: Prog[a, b], fn: a -&gt; c) -&gt; Prog[c, b]
 </code></pre>
 <a id="value-pure"></a>
 <h3><a href="#pure" name="pure" class="anchor"><span class="anchor-link"></span></a><code>pure</code></h3>
+<p>type signature: def pure[err, res](a: res) -&gt; <a href="#type-prog"><code>Prog</code></a>[err, res]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def pure[err, res](a: res) -&gt; Prog[err, res]
 </code></pre>
 <a id="value-raise-error"></a>
 <h3><a href="#raise-error" name="raise-error" class="anchor"><span class="anchor-link"></span></a><code>raise_error</code></h3>
+<p>type signature: def raise_error[err, res](e: err) -&gt; <a href="#type-prog"><code>Prog</code></a>[err, res]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def raise_error[err, res](e: err) -&gt; Prog[err, res]
 </code></pre>
 <a id="value-recover"></a>
 <h3><a href="#recover" name="recover" class="anchor"><span class="anchor-link"></span></a><code>recover</code></h3>
+<p>type signature: def recover[err,  res,  err1 ](prog: <a href="#type-prog"><code>Prog</code></a>[err, res], fn: err -&gt; <a href="#type-prog"><code>Prog</code></a>[err1, res]) -&gt; <a href="#type-prog"><code>Prog</code></a>[err1, res]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def recover[err, res, err1](prog: Prog[err, res], fn: err -&gt; Prog[err1, res]) -&gt; Prog[err1, res]
 </code></pre>
 <a id="value-recursive"></a>
 <h3><a href="#recursive" name="recursive" class="anchor"><span class="anchor-link"></span></a><code>recursive</code></h3>
+<p>type signature: def recursive[a,  b,  c ](fn: (a -&gt; <a href="#type-prog"><code>Prog</code></a>[b, c]) -&gt; a -&gt; <a href="#type-prog"><code>Prog</code></a>[b, c]) -&gt; a -&gt; <a href="#type-prog"><code>Prog</code></a>[b, c]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def recursive[a, b, c](fn: (a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]
 </code></pre>
 <a id="value-unit"></a>
 <h3><a href="#unit" name="unit" class="anchor"><span class="anchor-link"></span></a><code>unit</code></h3>
+<p>type signature: unit: forall a: *. <a href="#type-prog"><code>Prog</code></a>[a, ()]</p>
 <pre class="prettyprint"><code class="language-bosatsu">unit: forall a: *. Prog[a, ()]
 </code></pre>
 <div class="nav-next">
@@ -262,7 +271,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-cd5611ee-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

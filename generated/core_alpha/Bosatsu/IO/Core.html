@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -122,7 +122,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-io-core" name="bosatsu-io-core" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/IO/Core</code></h1>
 <p>source code: - <a href="https://github.com/johnynek/bosatsu/blob/main/test_workspace/Bosatsu/IO/Core.bosatsu"><code>test_workspace/Bosatsu/IO/Core.bosatsu</code></a></p>
-<p>public dependencies: <code>Bosatsu/IO/Bytes</code>, <code>Bosatsu/IO/Error</code>, <code>Bosatsu/Prog</code></p>
+<p>public dependencies: <a href="Bytes.html"><code>Bosatsu/IO/Bytes</code></a>, <a href="Error.html"><code>Bosatsu/IO/Error</code></a>, <a href="../Prog.html"><code>Bosatsu/Prog</code></a></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
   <li>Types: <a href="#type-duration"><code>Duration</code></a>, <a href="#type-filekind"><code>FileKind</code></a>, <a href="#type-filestat"><code>FileStat</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="#type-instant"><code>Instant</code></a>, <a href="#type-openmode"><code>OpenMode</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="#type-process"><code>Process</code></a>, <a href="#type-spawnresult"><code>SpawnResult</code></a>, <a href="#type-stdio"><code>Stdio</code></a>, <a href="#type-stdioconfig"><code>StdioConfig</code></a>, <a href="#type-tempfile"><code>TempFile</code></a></li>
@@ -219,130 +219,278 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-close"></a>
 <h3><a href="#close" name="close" class="anchor"><span class="anchor-link"></span></a><code>close</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def close(h: Handle) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+<p>type signature: def close(h: <a href="#type-handle"><code>Handle</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a><a href="./%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-close%28h%3A-Handle%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-copy-bytes%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60copy_bytes%60%0A%0Atype-signature%3A-def-copy_bytes%28%0A----src%3A-%5B%60Handle%60%5D%28%23type-handle%29%2C%0A----dst%3A-%5B%60Handle%60%5D%28%23type-handle%29%2C%0A----chunk_size%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%2C%0A----max_total%3A-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%0A%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-copy_bytes%28src%3A-Handle%2C-dst%3A-Handle%2C-chunk_size%3A-Int%2C-max_total%3A-Option%5BInt%5D%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Int%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-create-temp-dir%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60create_temp_dir%60%0A%0Atype-signature%3A-def-create_temp_dir%28%0A----dir%3A-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Path%60%5D%28%23type-path%29%5D%2C%0A----prefix%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%0A%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Path%60%5D%28%23type-path%29%5D%0A%0A%60%60%60bosatsu%0Adef-create_temp_dir%28dir%3A-Option%5BPath%5D%2C-prefix%3A-String%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Path%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-create-temp-file%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60create_temp_file%60%0A%0Atype-signature%3A-def-create_temp_file%28%0A----dir%3A-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Path%60%5D%28%23type-path%29%5D%2C%0A----prefix%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%2C%0A----suffix%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%0A%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60TempFile%60%5D%28%23type-tempfile%29%5D%0A%0A%60%60%60bosatsu%0Adef-create_temp_file%28dir%3A-Option%5BPath%5D%2C-prefix%3A-String%2C-suffix%3A-String%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-TempFile%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-duration-to-nanos%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60duration_to_nanos%60%0A%0Atype-signature%3A-def-duration_to_nanos%28d%3A-%5B%60Duration%60%5D%28%23type-duration%29%29--%3E-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%0A%0A%60%60%60bosatsu%0Adef-duration_to_nanos%28d%3A-Duration%29--%3E-Int%0A%60%60%60%0A%0A%3Ca-id%3D%22value-flush%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60flush%60%0A%0Atype-signature%3A-def-flush%28h%3A-%5B%60Handle%60%5D%28%23type-handle%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-flush%28h%3A-Handle%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-get-env%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60get_env%60%0A%0Atype-signature%3A-def-get_env%28name%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60String%60%5D%28..%2FPredef.html%23type-string%29.html">`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def close(h: Handle) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-copy-bytes"></a>
-<h3><a href="#copy-bytes" name="copy-bytes" class="anchor"><span class="anchor-link"></span></a><code>copy_bytes</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
-</code></pre>
+
+### `copy_bytes`
+
+type signature: def copy_bytes(
+    src: [`Handle`](#type-handle),
+    dst: [`Handle`](#type-handle),
+    chunk_size: [`Int`](../Predef.html#type-int),
+    max_total: [`Option`](../Predef.html#type-option)[[`Int`](../Predef.html#type-int)]
+) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Int`](../Predef.html#type-int)]
+
+```bosatsu
+def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
+```
+
 <a id="value-create-temp-dir"></a>
-<h3><a href="#create-temp-dir" name="create-temp-dir" class="anchor"><span class="anchor-link"></span></a><code>create_temp_dir</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def create_temp_dir(dir: Option[Path], prefix: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Path]
-</code></pre>
+
+### `create_temp_dir`
+
+type signature: def create_temp_dir(
+    dir: [`Option`](../Predef.html#type-option)[[`Path`](#type-path)],
+    prefix: [`String`](../Predef.html#type-string)
+) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Path`](#type-path)]
+
+```bosatsu
+def create_temp_dir(dir: Option[Path], prefix: String) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Path]
+```
+
 <a id="value-create-temp-file"></a>
-<h3><a href="#create-temp-file" name="create-temp-file" class="anchor"><span class="anchor-link"></span></a><code>create_temp_file</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def create_temp_file(dir: Option[Path], prefix: String, suffix: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, TempFile]
-</code></pre>
+
+### `create_temp_file`
+
+type signature: def create_temp_file(
+    dir: [`Option`](../Predef.html#type-option)[[`Path`](#type-path)],
+    prefix: [`String`](../Predef.html#type-string),
+    suffix: [`String`](../Predef.html#type-string)
+) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`TempFile`](#type-tempfile)]
+
+```bosatsu
+def create_temp_file(dir: Option[Path], prefix: String, suffix: String) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, TempFile]
+```
+
 <a id="value-duration-to-nanos"></a>
-<h3><a href="#duration-to-nanos" name="duration-to-nanos" class="anchor"><span class="anchor-link"></span></a><code>duration_to_nanos</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def duration_to_nanos(d: Duration) -&gt; Int
-</code></pre>
+
+### `duration_to_nanos`
+
+type signature: def duration_to_nanos(d: [`Duration`](#type-duration)) -> [`Int`](../Predef.html#type-int)
+
+```bosatsu
+def duration_to_nanos(d: Duration) -> Int
+```
+
 <a id="value-flush"></a>
-<h3><a href="#flush" name="flush" class="anchor"><span class="anchor-link"></span></a><code>flush</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flush(h: Handle) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+
+### `flush`
+
+type signature: def flush(h: [`Handle`](#type-handle)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def flush(h: Handle) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-get-env"></a>
-<h3><a href="#get-env" name="get-env" class="anchor"><span class="anchor-link"></span></a><code>get_env</code></h3>
+
+### `get_env`
+
+type signature: def get_env(name: [`String`](../Predef.html#type-string)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Option`](../Predef.html#type-option)[[`String`](../Predef.html#type-string)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def get_env(name: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
 </code></pre>
 <a id="value-list-dir"></a>
 <h3><a href="#list-dir" name="list-dir" class="anchor"><span class="anchor-link"></span></a><code>list_dir</code></h3>
+<p>type signature: def list_dir(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a><a href="./%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60List%60%5D%28..%2FPredef.html%23type-list%29%5B%5B%60Path%60%5D%28%23type-path%29.html">`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`List`](../Predef.html#type-list)[[`Path`](#type-path)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def list_dir(path: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, List[Path]]
 </code></pre>
 <a id="value-mkdir"></a>
 <h3><a href="#mkdir" name="mkdir" class="anchor"><span class="anchor-link"></span></a><code>mkdir</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def mkdir(path: Path, recursive: Bool) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+<p>type signature: def mkdir(path: <a href="#type-path"><code>Path</code></a>, recursive: <a href="../Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a><a href="./%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-mkdir%28path%3A-Path%2C-recursive%3A-Bool%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-now-mono%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60now_mono%60%0A%0Atype-signature%3A-now_mono%3A-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Duration%60%5D%28%23type-duration%29%5D%0A%0A%60%60%60bosatsu%0Anow_mono%3A-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Duration%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-now-wall%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60now_wall%60%0A%0Atype-signature%3A-now_wall%3A-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Instant%60%5D%28%23type-instant%29%5D%0A%0A%60%60%60bosatsu%0Anow_wall%3A-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Instant%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-open-file%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60open_file%60%0A%0Atype-signature%3A-def-open_file%28path%3A-%5B%60Path%60%5D%28%23type-path%29%2C-mode%3A-%5B%60OpenMode%60%5D%28%23type-openmode%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Handle%60%5D%28%23type-handle%29%5D%0A%0A%60%60%60bosatsu%0Adef-open_file%28path%3A-Path%2C-mode%3A-OpenMode%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Handle%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-path-file-name%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60path_file_name%60%0A%0Atype-signature%3A-def-path_file_name%28path%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%5D%0A%0A%60%60%60bosatsu%0Adef-path_file_name%28path%3A-Path%29--%3E-Option%5BString%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-path-join%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60path_join%60%0A%0Atype-signature%3A-def-path_join%28base%3A-%5B%60Path%60%5D%28%23type-path%29%2C-child%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60Path%60%5D%28%23type-path%29%0A%0A%60%60%60bosatsu%0Adef-path_join%28base%3A-Path%2C-child%3A-Path%29--%3E-Path%0A%60%60%60%0A%0A%3Ca-id%3D%22value-path-parent%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60path_parent%60%0A%0Atype-signature%3A-def-path_parent%28path%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Path%60%5D%28%23type-path%29%5D%0A%0A%60%60%60bosatsu%0Adef-path_parent%28path%3A-Path%29--%3E-Option%5BPath%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-path-sep%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60path_sep%60%0A%0Atype-signature%3A-path_sep%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%0A%0A%60%60%60bosatsu%0Apath_sep%3A-String%0A%60%60%60%0A%0A%3Ca-id%3D%22value-path-to-string%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60path_to_String%60%0A%0Atype-signature%3A-def-path_to_String%28path%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%0A%0A%60%60%60bosatsu%0Adef-path_to_String%28path%3A-Path%29--%3E-String%0A%60%60%60%0A%0A%3Ca-id%3D%22value-read-all-bytes%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60read_all_bytes%60%0A%0Atype-signature%3A-def-read_all_bytes%28h%3A-%5B%60Handle%60%5D%28%23type-handle%29%2C-chunk_size%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Bosatsu%2FIO%2FBytes%3A%3ABytes%60%5D%28Bytes.html%23type-bytes%29%5D%0A%0A%60%60%60bosatsu%0Adef-read_all_bytes%28h%3A-Handle%2C-chunk_size%3A-Int%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-Bosatsu%2FIO%2FBytes%3A%3ABytes%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-read-bytes%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60read_bytes%60%0A%0Atype-signature%3A-def-read_bytes%28h%3A-%5B%60Handle%60%5D%28%23type-handle%29%2C-max_bytes%3A-%5B%60Int%60%5D%28..%2FPredef.html%23type-int%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60Bosatsu%2FIO%2FBytes%3A%3ABytes%60%5D%28Bytes.html%23type-bytes%29.html">`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def mkdir(path: Path, recursive: Bool) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-now-mono"></a>
-<h3><a href="#now-mono" name="now-mono" class="anchor"><span class="anchor-link"></span></a><code>now_mono</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">now_mono: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Duration]
-</code></pre>
+
+### `now_mono`
+
+type signature: now_mono: [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Duration`](#type-duration)]
+
+```bosatsu
+now_mono: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Duration]
+```
+
 <a id="value-now-wall"></a>
-<h3><a href="#now-wall" name="now-wall" class="anchor"><span class="anchor-link"></span></a><code>now_wall</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">now_wall: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Instant]
-</code></pre>
+
+### `now_wall`
+
+type signature: now_wall: [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Instant`](#type-instant)]
+
+```bosatsu
+now_wall: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Instant]
+```
+
 <a id="value-open-file"></a>
-<h3><a href="#open-file" name="open-file" class="anchor"><span class="anchor-link"></span></a><code>open_file</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def open_file(path: Path, mode: OpenMode) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Handle]
-</code></pre>
+
+### `open_file`
+
+type signature: def open_file(path: [`Path`](#type-path), mode: [`OpenMode`](#type-openmode)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Handle`](#type-handle)]
+
+```bosatsu
+def open_file(path: Path, mode: OpenMode) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Handle]
+```
+
 <a id="value-path-file-name"></a>
-<h3><a href="#path-file-name" name="path-file-name" class="anchor"><span class="anchor-link"></span></a><code>path_file_name</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def path_file_name(path: Path) -&gt; Option[String]
-</code></pre>
+
+### `path_file_name`
+
+type signature: def path_file_name(path: [`Path`](#type-path)) -> [`Option`](../Predef.html#type-option)[[`String`](../Predef.html#type-string)]
+
+```bosatsu
+def path_file_name(path: Path) -> Option[String]
+```
+
 <a id="value-path-join"></a>
-<h3><a href="#path-join" name="path-join" class="anchor"><span class="anchor-link"></span></a><code>path_join</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def path_join(base: Path, child: Path) -&gt; Path
-</code></pre>
+
+### `path_join`
+
+type signature: def path_join(base: [`Path`](#type-path), child: [`Path`](#type-path)) -> [`Path`](#type-path)
+
+```bosatsu
+def path_join(base: Path, child: Path) -> Path
+```
+
 <a id="value-path-parent"></a>
-<h3><a href="#path-parent" name="path-parent" class="anchor"><span class="anchor-link"></span></a><code>path_parent</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def path_parent(path: Path) -&gt; Option[Path]
-</code></pre>
+
+### `path_parent`
+
+type signature: def path_parent(path: [`Path`](#type-path)) -> [`Option`](../Predef.html#type-option)[[`Path`](#type-path)]
+
+```bosatsu
+def path_parent(path: Path) -> Option[Path]
+```
+
 <a id="value-path-sep"></a>
-<h3><a href="#path-sep" name="path-sep" class="anchor"><span class="anchor-link"></span></a><code>path_sep</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">path_sep: String
-</code></pre>
+
+### `path_sep`
+
+type signature: path_sep: [`String`](../Predef.html#type-string)
+
+```bosatsu
+path_sep: String
+```
+
 <a id="value-path-to-string"></a>
-<h3><a href="#path-to-string" name="path-to-string" class="anchor"><span class="anchor-link"></span></a><code>path_to_String</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def path_to_String(path: Path) -&gt; String
-</code></pre>
+
+### `path_to_String`
+
+type signature: def path_to_String(path: [`Path`](#type-path)) -> [`String`](../Predef.html#type-string)
+
+```bosatsu
+def path_to_String(path: Path) -> String
+```
+
 <a id="value-read-all-bytes"></a>
-<h3><a href="#read-all-bytes" name="read-all-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_all_bytes</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def read_all_bytes(h: Handle, chunk_size: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Bosatsu/IO/Bytes::Bytes]
-</code></pre>
+
+### `read_all_bytes`
+
+type signature: def read_all_bytes(h: [`Handle`](#type-handle), chunk_size: [`Int`](../Predef.html#type-int)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/IO/Bytes::Bytes`](Bytes.html#type-bytes)]
+
+```bosatsu
+def read_all_bytes(h: Handle, chunk_size: Int) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Bosatsu/IO/Bytes::Bytes]
+```
+
 <a id="value-read-bytes"></a>
-<h3><a href="#read-bytes" name="read-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_bytes</code></h3>
+
+### `read_bytes`
+
+type signature: def read_bytes(h: [`Handle`](#type-handle), max_bytes: [`Int`](../Predef.html#type-int)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Option`](../Predef.html#type-option)[[`Bosatsu/IO/Bytes::Bytes`](Bytes.html#type-bytes)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_bytes(h: Handle, max_bytes: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Bosatsu/IO/Bytes::Bytes]]
 </code></pre>
 <a id="value-read-utf8"></a>
 <h3><a href="#read-utf8" name="read-utf8" class="anchor"><span class="anchor-link"></span></a><code>read_utf8</code></h3>
+<p>type signature: def read_utf8(h: <a href="#type-handle"><code>Handle</code></a>, max_chars: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a><a href="./%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60String%60%5D%28..%2FPredef.html%23type-string%29.html">`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Option`](../Predef.html#type-option)[[`String`](../Predef.html#type-string)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_utf8(h: Handle, max_chars: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
 </code></pre>
 <a id="value-remove"></a>
 <h3><a href="#remove" name="remove" class="anchor"><span class="anchor-link"></span></a><code>remove</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def remove(path: Path, recursive: Bool) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+<p>type signature: def remove(path: <a href="#type-path"><code>Path</code></a>, recursive: <a href="../Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a><a href="./%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-remove%28path%3A-Path%2C-recursive%3A-Bool%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-rename%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60rename%60%0A%0Atype-signature%3A-def-rename%28from%3A-%5B%60Path%60%5D%28%23type-path%29%2C-to%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-rename%28from%3A-Path%2C-to%3A-Path%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-sleep%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60sleep%60%0A%0Atype-signature%3A-def-sleep%28d%3A-%5B%60Duration%60%5D%28%23type-duration%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%28%29%5D%0A%0A%60%60%60bosatsu%0Adef-sleep%28d%3A-Duration%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-%28%29%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-spawn%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60spawn%60%0A%0Atype-signature%3A-def-spawn%28%0A----cmd%3A-%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%2C%0A----args%3A-%5B%60List%60%5D%28..%2FPredef.html%23type-list%29%5B%5B%60String%60%5D%28..%2FPredef.html%23type-string%29%5D%2C%0A----stdio%3A-%5B%60StdioConfig%60%5D%28%23type-stdioconfig%29%0A%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60SpawnResult%60%5D%28%23type-spawnresult%29%5D%0A%0A%60%60%60bosatsu%0Adef-spawn%28cmd%3A-String%2C-args%3A-List%5BString%5D%2C-stdio%3A-StdioConfig%29--%3E-Bosatsu%2FProg%3A%3AProg%5BBosatsu%2FIO%2FError%3A%3AIOError%2C-SpawnResult%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-stat%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60stat%60%0A%0Atype-signature%3A-def-stat%28path%3A-%5B%60Path%60%5D%28%23type-path%29%29--%3E-%5B%60Bosatsu%2FProg%3A%3AProg%60%5D%28..%2FProg.html%23type-prog%29%5B%5B%60Bosatsu%2FIO%2FError%3A%3AIOError%60%5D%28Error.html%23type-ioerror%29%2C-%5B%60Option%60%5D%28..%2FPredef.html%23type-option%29%5B%5B%60FileStat%60%5D%28%23type-filestat%29.html">`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def remove(path: Path, recursive: Bool) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-rename"></a>
-<h3><a href="#rename" name="rename" class="anchor"><span class="anchor-link"></span></a><code>rename</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def rename(from: Path, to: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+
+### `rename`
+
+type signature: def rename(from: [`Path`](#type-path), to: [`Path`](#type-path)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def rename(from: Path, to: Path) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-sleep"></a>
-<h3><a href="#sleep" name="sleep" class="anchor"><span class="anchor-link"></span></a><code>sleep</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def sleep(d: Duration) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
-</code></pre>
+
+### `sleep`
+
+type signature: def sleep(d: [`Duration`](#type-duration)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), ()]
+
+```bosatsu
+def sleep(d: Duration) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-spawn"></a>
-<h3><a href="#spawn" name="spawn" class="anchor"><span class="anchor-link"></span></a><code>spawn</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, SpawnResult]
-</code></pre>
+
+### `spawn`
+
+type signature: def spawn(
+    cmd: [`String`](../Predef.html#type-string),
+    args: [`List`](../Predef.html#type-list)[[`String`](../Predef.html#type-string)],
+    stdio: [`StdioConfig`](#type-stdioconfig)
+) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`SpawnResult`](#type-spawnresult)]
+
+```bosatsu
+def spawn(cmd: String, args: List[String], stdio: StdioConfig) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, SpawnResult]
+```
+
 <a id="value-stat"></a>
-<h3><a href="#stat" name="stat" class="anchor"><span class="anchor-link"></span></a><code>stat</code></h3>
+
+### `stat`
+
+type signature: def stat(path: [`Path`](#type-path)) -> [`Bosatsu/Prog::Prog`](../Prog.html#type-prog)[[`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Option`](../Predef.html#type-option)[[`FileStat`](#type-filestat)</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def stat(path: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[FileStat]]
 </code></pre>
 <a id="value-stderr"></a>
 <h3><a href="#stderr" name="stderr" class="anchor"><span class="anchor-link"></span></a><code>stderr</code></h3>
+<p>type signature: stderr: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stderr: Handle
 </code></pre>
 <a id="value-stdin"></a>
 <h3><a href="#stdin" name="stdin" class="anchor"><span class="anchor-link"></span></a><code>stdin</code></h3>
+<p>type signature: stdin: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stdin: Handle
 </code></pre>
 <a id="value-stdout"></a>
 <h3><a href="#stdout" name="stdout" class="anchor"><span class="anchor-link"></span></a><code>stdout</code></h3>
+<p>type signature: stdout: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stdout: Handle
 </code></pre>
 <a id="value-string-to-path"></a>
 <h3><a href="#string-to-path" name="string-to-path" class="anchor"><span class="anchor-link"></span></a><code>string_to_Path</code></h3>
+<p>type signature: def string_to_Path(s: <a href="../Predef.html#type-string"><code>String</code></a>) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-path"><code>Path</code></a>]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def string_to_Path(s: String) -&gt; Option[Path]
 </code></pre>
 <a id="value-wait"></a>
 <h3><a href="#wait" name="wait" class="anchor"><span class="anchor-link"></span></a><code>wait</code></h3>
+<p>type signature: def wait(p: <a href="#type-process"><code>Process</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def wait(p: Process) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
 </code></pre>
 <a id="value-write-bytes"></a>
 <h3><a href="#write-bytes" name="write-bytes" class="anchor"><span class="anchor-link"></span></a><code>write_bytes</code></h3>
+<p>type signature: def write_bytes(h: <a href="#type-handle"><code>Handle</code></a>, bytes: <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def write_bytes(h: Handle, bytes: Bosatsu/IO/Bytes::Bytes) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-write-utf8"></a>
 <h3><a href="#write-utf8" name="write-utf8" class="anchor"><span class="anchor-link"></span></a><code>write_utf8</code></h3>
+<p>type signature: def write_utf8(h: <a href="#type-handle"><code>Handle</code></a>, s: <a href="../Predef.html#type-string"><code>String</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def write_utf8(h: Handle, s: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <div class="nav-next">
@@ -422,7 +570,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-cd5611ee-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

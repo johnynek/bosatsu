@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-cd5611ee*
+0.0.0+1-3fbfb4c1*
 </div>
 </div>
 <div class="nav-toc">
@@ -122,7 +122,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-rand" name="bosatsu-rand" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Rand</code></h1>
 <p>source code: - <a href="https://github.com/johnynek/bosatsu/blob/main/test_workspace/Rand.bosatsu"><code>test_workspace/Rand.bosatsu</code></a></p>
-<p>public dependencies: <code>Bosatsu/Num/Nat</code></p>
+<p>public dependencies: <a href="Num/Nat.html"><code>Bosatsu/Num/Nat</code></a></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
   <li>Types: <a href="#type-rand"><code>Rand</code></a></li>
@@ -136,52 +136,110 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-bool-rand"></a>
 <h3><a href="#bool-rand" name="bool-rand" class="anchor"><span class="anchor-link"></span></a><code>bool_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">bool_Rand: Rand[Bool]
-</code></pre>
+<p>type signature: bool_Rand: <a href="#type-rand"><code>Rand</code></a><a href="./%60Bool%60%5D%28Predef.html%23type-bool%29%5D%0A%0A%60%60%60bosatsu%0Abool_Rand%3A-Rand%5BBool%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-const-rand%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60const_Rand%60%0A%0Atype-signature%3A-def-const_Rand%5Ba%5D%28a%3A-a%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%0A%0A%60%60%60bosatsu%0Adef-const_Rand%5Ba%5D%28a%3A-a%29--%3E-Rand%5Ba%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-flat-map-rand%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60flat_map_Rand%60%0A%0Atype-signature%3A-def-flat_map_Rand%5Ba%2C%0A----b%5D%28r%3A-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%2C-fn%3A-a--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5Bb%5D%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5Bb%5D%0A%0A%60%60%60bosatsu%0Adef-flat_map_Rand%5Ba%2C-b%5D%28r%3A-Rand%5Ba%5D%2C-fn%3A-a--%3E-Rand%5Bb%5D%29--%3E-Rand%5Bb%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-from-pair%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60from_pair%60%0A%0Atype-signature%3A-def-from_pair%5Ba%0A%5D%28left%3A-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%2C-right%3A-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%0A%0A%60%60%60bosatsu%0Adef-from_pair%5Ba%5D%28left%3A-Rand%5Ba%5D%2C-right%3A-Rand%5Ba%5D%29--%3E-Rand%5Ba%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-geometric-int%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60geometric_Int%60%0A%0Ageometric-distribution-with-mean-1%0A%0Atype-signature%3A-geometric_Int%3A-%5B%60Rand%60%5D%28%23type-rand%29%5B%5B%60Int%60%5D%28Predef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Ageometric_Int%3A-Rand%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-int-range%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60int_range%60%0A%0Aif-you-pass-high-%3C%3D-0%2C-you-get-const_Rand%280%29%0A%0Atype-signature%3A-def-int_range%28high%3A-%5B%60Int%60%5D%28Predef.html%23type-int%29%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5B%5B%60Int%60%5D%28Predef.html%23type-int%29%5D%0A%0A%60%60%60bosatsu%0Adef-int_range%28high%3A-Int%29--%3E-Rand%5BInt%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-map-rand%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60map_Rand%60%0A%0Atype-signature%3A-def-map_Rand%5Ba%2C%0A----b%5D%28r%3A-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%2C-fn%3A-a--%3E-b%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5Bb%5D%0A%0A%60%60%60bosatsu%0Adef-map_Rand%5Ba%2C-b%5D%28r%3A-Rand%5Ba%5D%2C-fn%3A-a--%3E-b%29--%3E-Rand%5Bb%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-nat-range%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60nat_range%60%0A%0Atype-signature%3A-def-nat_range%28high%3A-%5B%60Bosatsu%2FNum%2FNat%3A%3ANat%60%5D%28Num%2FNat.html%23type-nat%29%29--%3E-%5B%60Rand%60%5D%28%23type-rand%29%5B%5B%60Bosatsu%2FNum%2FNat%3A%3ANat%60%5D%28Num%2FNat.html%23type-nat%29%5D%0A%0A%60%60%60bosatsu%0Adef-nat_range%28high%3A-Bosatsu%2FNum%2FNat%3A%3ANat%29--%3E-Rand%5BBosatsu%2FNum%2FNat%3A%3ANat%5D%0A%60%60%60%0A%0A%3Ca-id%3D%22value-one-of%22%3E%3C%2Fa%3E%0A%0A%23%23%23-%60one_of%60%0A%0Atype-signature%3A-def-one_of%5Ba%0A%5D%28head%3A-%5B%60Rand%60%5D%28%23type-rand%29%5Ba%5D%2C-tail%3A-%5B%60List%60%5D%28Predef.html%23type-list%29%5B%5B%60Rand%60%5D%28%23type-rand%29%5Ba.html">`Bool`](Predef.html#type-bool)]
+
+```bosatsu
+bool_Rand: Rand[Bool]
+```
+
 <a id="value-const-rand"></a>
-<h3><a href="#const-rand" name="const-rand" class="anchor"><span class="anchor-link"></span></a><code>const_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def const_Rand[a](a: a) -&gt; Rand[a]
-</code></pre>
+
+### `const_Rand`
+
+type signature: def const_Rand[a](a: a) -> [`Rand`](#type-rand)[a]
+
+```bosatsu
+def const_Rand[a](a: a) -> Rand[a]
+```
+
 <a id="value-flat-map-rand"></a>
-<h3><a href="#flat-map-rand" name="flat-map-rand" class="anchor"><span class="anchor-link"></span></a><code>flat_map_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def flat_map_Rand[a, b](r: Rand[a], fn: a -&gt; Rand[b]) -&gt; Rand[b]
-</code></pre>
+
+### `flat_map_Rand`
+
+type signature: def flat_map_Rand[a,
+    b](r: [`Rand`](#type-rand)[a], fn: a -> [`Rand`](#type-rand)[b]) -> [`Rand`](#type-rand)[b]
+
+```bosatsu
+def flat_map_Rand[a, b](r: Rand[a], fn: a -> Rand[b]) -> Rand[b]
+```
+
 <a id="value-from-pair"></a>
-<h3><a href="#from-pair" name="from-pair" class="anchor"><span class="anchor-link"></span></a><code>from_pair</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def from_pair[a](left: Rand[a], right: Rand[a]) -&gt; Rand[a]
-</code></pre>
+
+### `from_pair`
+
+type signature: def from_pair[a
+](left: [`Rand`](#type-rand)[a], right: [`Rand`](#type-rand)[a]) -> [`Rand`](#type-rand)[a]
+
+```bosatsu
+def from_pair[a](left: Rand[a], right: Rand[a]) -> Rand[a]
+```
+
 <a id="value-geometric-int"></a>
-<h3><a href="#geometric-int" name="geometric-int" class="anchor"><span class="anchor-link"></span></a><code>geometric_Int</code></h3>
-<p>geometric distribution with mean 1</p>
-<pre class="prettyprint"><code class="language-bosatsu">geometric_Int: Rand[Int]
-</code></pre>
+
+### `geometric_Int`
+
+geometric distribution with mean 1
+
+type signature: geometric_Int: [`Rand`](#type-rand)[[`Int`](Predef.html#type-int)]
+
+```bosatsu
+geometric_Int: Rand[Int]
+```
+
 <a id="value-int-range"></a>
-<h3><a href="#int-range" name="int-range" class="anchor"><span class="anchor-link"></span></a><code>int_range</code></h3>
-<p>if you pass high &lt;= 0, you get const_Rand(0)</p>
-<pre class="prettyprint"><code class="language-bosatsu">def int_range(high: Int) -&gt; Rand[Int]
-</code></pre>
+
+### `int_range`
+
+if you pass high <= 0, you get const_Rand(0)
+
+type signature: def int_range(high: [`Int`](Predef.html#type-int)) -> [`Rand`](#type-rand)[[`Int`](Predef.html#type-int)]
+
+```bosatsu
+def int_range(high: Int) -> Rand[Int]
+```
+
 <a id="value-map-rand"></a>
-<h3><a href="#map-rand" name="map-rand" class="anchor"><span class="anchor-link"></span></a><code>map_Rand</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def map_Rand[a, b](r: Rand[a], fn: a -&gt; b) -&gt; Rand[b]
-</code></pre>
+
+### `map_Rand`
+
+type signature: def map_Rand[a,
+    b](r: [`Rand`](#type-rand)[a], fn: a -> b) -> [`Rand`](#type-rand)[b]
+
+```bosatsu
+def map_Rand[a, b](r: Rand[a], fn: a -> b) -> Rand[b]
+```
+
 <a id="value-nat-range"></a>
-<h3><a href="#nat-range" name="nat-range" class="anchor"><span class="anchor-link"></span></a><code>nat_range</code></h3>
-<pre class="prettyprint"><code class="language-bosatsu">def nat_range(high: Bosatsu/Num/Nat::Nat) -&gt; Rand[Bosatsu/Num/Nat::Nat]
-</code></pre>
+
+### `nat_range`
+
+type signature: def nat_range(high: [`Bosatsu/Num/Nat::Nat`](Num/Nat.html#type-nat)) -> [`Rand`](#type-rand)[[`Bosatsu/Num/Nat::Nat`](Num/Nat.html#type-nat)]
+
+```bosatsu
+def nat_range(high: Bosatsu/Num/Nat::Nat) -> Rand[Bosatsu/Num/Nat::Nat]
+```
+
 <a id="value-one-of"></a>
-<h3><a href="#one-of" name="one-of" class="anchor"><span class="anchor-link"></span></a><code>one_of</code></h3>
+
+### `one_of`
+
+type signature: def one_of[a
+](head: [`Rand`](#type-rand)[a], tail: [`List`](Predef.html#type-list)[[`Rand`](#type-rand)[a</a>) -&gt; <a href="#type-rand"><code>Rand</code></a>[a]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def one_of[a](head: Rand[a], tail: List[Rand[a]]) -&gt; Rand[a]
 </code></pre>
 <a id="value-prod-rand"></a>
 <h3><a href="#prod-rand" name="prod-rand" class="anchor"><span class="anchor-link"></span></a><code>prod_Rand</code></h3>
+<p>type signature: def prod_Rand[a,  b](ra: <a href="#type-rand"><code>Rand</code></a>[a], rb: <a href="#type-rand"><code>Rand</code></a>[b]) -&gt; <a href="#type-rand"><code>Rand</code></a>[(a, b)]</p>
 <pre class="prettyprint"><code class="language-bosatsu">def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -&gt; Rand[(a, b)]
 </code></pre>
 <a id="value-run-rand"></a>
 <h3><a href="#run-rand" name="run-rand" class="anchor"><span class="anchor-link"></span></a><code>run_Rand</code></h3>
+<p>type signature: def run_Rand[a ](rand: <a href="#type-rand"><code>Rand</code></a>[a], seed: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; a</p>
 <pre class="prettyprint"><code class="language-bosatsu">def run_Rand[a](rand: Rand[a], seed: Int) -&gt; a
 </code></pre>
 <a id="value-sequence-rand"></a>
 <h3><a href="#sequence-rand" name="sequence-rand" class="anchor"><span class="anchor-link"></span></a><code>sequence_Rand</code></h3>
+<p>type signature: def sequence_Rand[a ](rands: <a href="Predef.html#type-list"><code>List</code></a><a href="./%60Rand%60%5D%28%23type-rand%29%5Ba.html">`Rand`](#type-rand)[a</a>) -&gt; <a href="#type-rand"><code>Rand</code></a><a href="./%60List%60%5D%28Predef.html%23type-list%29%5Ba.html">`List`](Predef.html#type-list)[a</a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sequence_Rand[a](rands: List[Rand[a]]) -&gt; Rand[List[a]]
 </code></pre>
 <div class="nav-next">
@@ -261,7 +319,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-cd5611ee-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3fbfb4c1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
