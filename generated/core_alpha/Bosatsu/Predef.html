@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-f2ac38e2*
+0.0.0+1-70e838ec*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-f2ac38e2*
+0.0.0+1-70e838ec*
 </div>
 </div>
 <div class="nav-toc">
@@ -1559,7 +1559,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <a id="value-cmp-float64"></a>
 <h3><a href="#cmp-float64" name="cmp-float64" class="anchor"><span class="anchor-link"></span></a><code>cmp_Float64</code></h3>
-<p>Total Float64 comparison.</p>
+<p>Total Float64 comparison where all <code>.NaN</code> values are equal and ordered before non-<code>.NaN</code> values.</p>
 <p>type signature: def cmp_Float64(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-comparison"><code>Comparison</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cmp_Float64(a: Float64, b: Float64) -&gt; Comparison
 </code></pre>
@@ -1589,13 +1589,13 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <a id="value-div"></a>
 <h3><a href="#div" name="div" class="anchor"><span class="anchor-link"></span></a><code>div</code></h3>
-<p>Integer division.</p>
+<p>Integer division rounded toward negative infinity; total with <code>div(a, 0) == 0</code>.</p>
 <p>type signature: def div(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def div(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-divf"></a>
 <h3><a href="#divf" name="divf" class="anchor"><span class="anchor-link"></span></a><code>divf</code></h3>
-<p>Floating-point division.</p>
+<p>IEEE754 floating-point division; unlike <code>div</code>, dividing by <code>0.0</code> yields <code>∞</code>, <code>-∞</code>, or <code>.NaN</code>.</p>
 <p>type signature: def divf(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def divf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
@@ -1679,7 +1679,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <a id="value-mod-int"></a>
 <h3><a href="#mod-int" name="mod-int" class="anchor"><span class="anchor-link"></span></a><code>mod_Int</code></h3>
-<p>Integer modulus.</p>
+<p>Integer modulus paired with <code>div</code>; total with <code>mod_Int(a, 0) == a</code>.</p>
 <p>type signature: def mod_Int(a: <a href="#type-int"><code>Int</code></a>, mod: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def mod_Int(a: Int, mod: Int) -&gt; Int
 </code></pre>
@@ -1904,7 +1904,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-f2ac38e2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-70e838ec-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
