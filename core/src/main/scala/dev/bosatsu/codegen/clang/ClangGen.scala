@@ -6,7 +6,7 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, Lit, Matchless, Package, Predef, PackageName}
+import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -461,27 +461,53 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               val fn =
                 if (famArities.forall(_ == 0)) "get_variant_value"
                 else "get_variant"
+              val inSet = InSetCompiler.compile(famArities.length, expect)
+
+              def renderMembership(
+                  variant: Code.Expression,
+                  membership: InSetCompiler.BoolExpr
+              ): Code.Expression =
+                membership match {
+                  case InSetCompiler.BoolExpr.Compare(op, rhs) =>
+                    val lit = Code.IntLiteral(rhs)
+                    if (op eq InSetCompiler.CmpOp.Eq) variant =:= lit
+                    else if (op eq InSetCompiler.CmpOp.Ne)
+                      variant.bin(Code.BinOp.NotEq, lit)
+                    else if (op eq InSetCompiler.CmpOp.Lt) variant :< lit
+                    else variant.bin(Code.BinOp.GtEq, lit)
+                  case InSetCompiler.BoolExpr.And(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.And,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Or(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.Or,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Not(value) =>
+                    !renderMembership(variant, value)
+                  case membership0 if membership0 eq InSetCompiler.BoolExpr.TrueConst =>
+                    Code.TrueLit
+                  case _ =>
+                    Code.FalseLit
+                }
+
               vl.onExpr { expr =>
                 val variant = Code.Ident(fn)(expr)
-                expect.tail match {
-                  case Nil =>
-                    pv(variant =:= Code.IntLiteral(expect.head))
-                  case _   =>
-                    newLocalName("variant").map { variantName =>
-                      val cond =
-                        expect.tail.foldLeft(
-                          variantName =:= Code.IntLiteral(expect.head)
-                        ) { case (acc, idx) =>
-                          acc.bin(Code.BinOp.Or, variantName =:= Code.IntLiteral(idx))
-                        }
-                      Code.DeclareVar(
-                        Nil,
-                        Code.TypeIdent.Int,
-                        variantName,
-                        Some(variant)
-                      ) +: cond
-                    }
-                }
+                if (InSetCompiler.comparisonCount(inSet) <= 1)
+                  pv(renderMembership(variant, inSet))
+                else
+                  newLocalName("variant").map { variantName =>
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(variant)
+                    ) +: renderMembership(variantName, inSet)
+                  }
               }(newLocalName)
             }
           case SetMut(LocalAnonMut(idx), expr) =>

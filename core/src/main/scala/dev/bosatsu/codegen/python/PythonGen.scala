@@ -3,7 +3,7 @@ package dev.bosatsu.codegen.python
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
+import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Matchless, Par, Parser}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -2523,17 +2523,40 @@ object PythonGen {
             }
           case CheckVariantSet(enumV, idxs, _, famArities) =>
             val useInts = famArities.forall(_ == 0)
+            val inSet = InSetCompiler.compile(famArities.length, idxs)
+
+            def renderMembership(
+                variantExpr: Code.Expression,
+                membership: InSetCompiler.BoolExpr
+            ): Code.Expression =
+              membership match {
+                case InSetCompiler.BoolExpr.Compare(op, rhs) =>
+                  val lit = Code.fromInt(rhs)
+                  if (op eq InSetCompiler.CmpOp.Eq) variantExpr =:= lit
+                  else if (op eq InSetCompiler.CmpOp.Ne) variantExpr =!= lit
+                  else if (op eq InSetCompiler.CmpOp.Lt) variantExpr :< lit
+                  else !(variantExpr :< lit)
+                case InSetCompiler.BoolExpr.And(left, right) =>
+                  renderMembership(variantExpr, left)
+                    .eval(Code.Const.And, renderMembership(variantExpr, right))
+                case InSetCompiler.BoolExpr.Or(left, right) =>
+                  renderMembership(variantExpr, left)
+                    .eval(Code.Const.Or, renderMembership(variantExpr, right))
+                case InSetCompiler.BoolExpr.Not(value) =>
+                  !renderMembership(variantExpr, value)
+                case membership0 if membership0 eq InSetCompiler.BoolExpr.TrueConst =>
+                  Code.Const.True
+                case _ =>
+                  Code.Const.False
+              }
+
             loop(enumV, slotName, inlineSlots).flatMap { tup =>
               Env.onLast(tup) { t =>
                 val variantExpr =
                   if (useInts) t
                   else t.get(0)
 
-                idxs.tail
-                  .foldLeft(variantExpr =:= idxs.head) { (acc, idx) =>
-                    acc.eval(Code.Const.Or, variantExpr =:= idx)
-                  }
-                  .simplify
+                renderMembership(variantExpr, inSet).simplify
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
