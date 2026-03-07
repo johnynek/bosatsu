@@ -1111,9 +1111,11 @@ foo = _ -> 1
     )
     normalized match {
       case TypedExpr.Match(_, branches, _) =>
-        assert(branches.head.guard.nonEmpty)
-        assert(branches.head.guard.forall(_.notFree(xName)))
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
         assertEquals(branches.head.expr, int(1))
+      case lit @ TypedExpr.Literal(_, _, _) =>
+        assertEquals(lit, int(1))
       case other =>
         fail(s"expected normalized match expression, got: $other")
     }
@@ -1179,7 +1181,7 @@ foo = _ -> 1
   }
 
   test(
-    "normalization leaves lambda guarded matches unchanged when lifting is blocked"
+    "normalization rewrites lambda guarded matches when lifting is blocked"
   ) {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())
@@ -1200,7 +1202,13 @@ foo = _ -> 1
     val lamExpr =
       TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
 
-    assertEquals(TypedExprNormalization.normalize(lamExpr), None)
+    TypedExprNormalization.normalize(lamExpr) match {
+      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
+      case other =>
+        fail(s"expected normalized lambda with unguarded match branches, got: $other")
+    }
   }
 
   test("normalization can evaluate guarded constructor matches to constants") {
@@ -3441,6 +3449,68 @@ def loop(n, cnt):
       loop(n.div(2), cnt.add(1))
     case _:
       cnt
+"""),
+          "Test",
+          { (pm, mainPack) =>
+            val pack = pm.toMap(mainPack)
+            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
+              case Some((_, _, te)) => te
+              case None             =>
+                fail(s"missing let loop in ${pack.lets.map(_._1)}")
+            }
+            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
+              loopExpr
+            )
+            val normalized =
+              TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
+            out = Some(normalized)
+          }
+        )
+        out.getOrElse(fail("failed to infer normalized expression for loop"))
+      }
+
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Loop(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Recur(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      countMatch(normalizedExpr),
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) {
+        case TypedExpr.Match(_, branches, _)
+            if branches.length == 2 && branches.forall(_.guard.isEmpty) =>
+          true
+      },
+      1,
+      normalizedExpr.reprString
+    )
+  }
+
+  test(
+    "normalization rewrites wildcard guarded termination branches into a single match"
+  ) {
+    val normalizedExpr =
+      Par.withEC {
+        var out: Option[TypedExpr[Unit]] = None
+        TestUtils.testInferred(
+          List("""
+package Test
+
+def loop(n, cnt):
+  recur n:
+    case _ if cmp_Int(n, 0) matches LT | EQ:
+      cnt
+    case _:
+      loop(n.sub(1), cnt.add(1))
 """),
           "Test",
           { (pm, mainPack) =>
