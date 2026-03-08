@@ -25,6 +25,9 @@ case class DecodedLibrary[A](
     interfaces: List[Package.Interface],
     implementations: PackageMap.Typed[Any]
 ) {
+  def docBaseUrl: Option[String] =
+    DecodedLibrary.normalizeDocBaseUrl(protoLib.docBaseUrl)
+
   lazy val interfaceMap: PackageMap.Interface =
     PackageMap.fromIterable[Nothing, Nothing, Referant[Kind.Arg], Unit](
       interfaces
@@ -66,6 +69,18 @@ case class DecodedLibrary[A](
 }
 
 object DecodedLibrary {
+  def normalizeDocBaseUrl(raw: Option[String]): Option[String] =
+    raw.flatMap(normalizeDocBaseUrl(_))
+
+  def normalizeDocBaseUrl(raw: String): Option[String] = {
+    val trimmed = raw.trim
+    if (trimmed.isEmpty) None
+    else {
+      val normalized = trimmed.reverse.dropWhile(_ == '/').reverse
+      if (normalized.isEmpty) None else Some(normalized)
+    }
+  }
+
   enum DepClosureError {
     case MissingVersion(dep: DecodedLibrary[Algo.Blake3])
     case MissingTransitiveDep(name: Name, version: Version)

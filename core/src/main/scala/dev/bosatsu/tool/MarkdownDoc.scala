@@ -23,6 +23,11 @@ import org.typelevel.paiges.Doc
 import java.util.Locale
 
 object MarkdownDoc {
+  enum PackageVisibility derives CanEqual {
+    case Exported
+    case Private
+  }
+
   private val fnTypeRegex = raw"^Fn\d+$$".r
   private val fnInputTypeParamRegex = raw"^i\d+$$".r
 
@@ -333,18 +338,26 @@ object MarkdownDoc {
 
   private def packageDocHref(
       fromPackage: PackageName,
-      toPackage: PackageName
+      toPackage: PackageName,
+      packageBaseUrls: Map[PackageName, String]
   ): String =
-    relativePath(fromPackage.parts.toList.init, packageDocParts(toPackage))
+    packageBaseUrls.get(toPackage) match {
+      case Some(baseUrl) =>
+        val docPath = packageDocParts(toPackage).mkString("/")
+        show"$baseUrl/$docPath"
+      case None          =>
+        relativePath(fromPackage.parts.toList.init, packageDocParts(toPackage))
+    }
 
   private def typeHref(
       currentPackage: PackageName,
       typePackage: PackageName,
-      typeName: TypeName
+      typeName: TypeName,
+      packageBaseUrls: Map[PackageName, String]
   ): String = {
     val anchor = typeAnchorId(typeName)
     if (typePackage == currentPackage) show"#$anchor"
-    else show"${packageDocHref(currentPackage, typePackage)}#$anchor"
+    else show"${packageDocHref(currentPackage, typePackage, packageBaseUrls)}#$anchor"
   }
 
   private def fenced(language: String, content: Doc): Doc =
@@ -361,6 +374,7 @@ object MarkdownDoc {
   private def typeReferences(
       tpe: Type,
       currentPackage: PackageName,
+      packageBaseUrls: Map[PackageName, String],
       ctx: RenderCtx
   ): List[(String, String)] =
     sortByName(
@@ -372,7 +386,8 @@ object MarkdownDoc {
               if !fnTypeRegex.matches(typeName.asString) =>
             val label =
               TypeRenderer.typeNamePrefix(typePackage, typeName, ctx) + typeName.asString
-            val href = typeHref(currentPackage, typePackage, typeName)
+            val href =
+              typeHref(currentPackage, typePackage, typeName, packageBaseUrls)
             (label, href)
         }
         .distinct
@@ -487,9 +502,10 @@ object MarkdownDoc {
   private def typeReferencesDoc(
       tpe: Type,
       currentPackage: PackageName,
+      packageBaseUrls: Map[PackageName, String],
       ctx: RenderCtx
   ): Option[Doc] = {
-    val refs = typeReferences(tpe, currentPackage, ctx)
+    val refs = typeReferences(tpe, currentPackage, packageBaseUrls, ctx)
     if (refs.isEmpty) None
     else
       Some(
@@ -506,6 +522,7 @@ object MarkdownDoc {
       values: List[(Identifier.Bindable, Type)],
       docs: SourceDocs,
       currentPackage: PackageName,
+      packageBaseUrls: Map[PackageName, String],
       ctx: RenderCtx
   ): Option[Doc] =
     if (values.isEmpty) None
@@ -515,7 +532,8 @@ object MarkdownDoc {
         val anchor = Doc.text(show"<a id=\"${valueAnchorId(name)}\"></a>")
         val title = Doc.text("### ") + inlineCode(name.sourceCodeRepr)
         val comment = maybeComment(valueInfo.comment)
-        val references = typeReferencesDoc(tpe, currentPackage, ctx)
+        val references =
+          typeReferencesDoc(tpe, currentPackage, packageBaseUrls, ctx)
         val signature =
           fenced("bosatsu", valueSignature(name, tpe, valueInfo.params, ctx))
 
@@ -695,16 +713,31 @@ object MarkdownDoc {
 
   private def dependenciesDoc(
       currentPackage: PackageName,
-      deps: List[PackageName]
+      deps: List[PackageName],
+      packageBaseUrls: Map[PackageName, String]
   ): Option[Doc] =
     if (deps.isEmpty) None
     else {
       val list =
         Doc.intercalate(
           Doc.text(", "),
-          deps.map(pn => markdownCodeLink(pn.asString, packageDocHref(currentPackage, pn)))
+          deps.map(pn =>
+            markdownCodeLink(
+              pn.asString,
+              packageDocHref(currentPackage, pn, packageBaseUrls)
+            )
+          )
         )
       Some(Doc.text("public dependencies: ") + list)
+    }
+
+  private def packageVisibilityDoc(
+      packageName: PackageName,
+      packageVisibility: Map[PackageName, PackageVisibility]
+  ): Option[Doc] =
+    packageVisibility.get(packageName) match {
+      case Some(PackageVisibility.Private) => Some(Doc.text("private package"))
+      case _                               => None
     }
 
   private def sourceCodeLinksDoc(
@@ -728,7 +761,9 @@ object MarkdownDoc {
   private def packageDoc(
       pack: Package.Typed[Any],
       docs: SourceDocs,
-      sourceLinks: List[(String, String)]
+      sourceLinks: List[(String, String)],
+      packageBaseUrls: Map[PackageName, String],
+      packageVisibility: Map[PackageName, PackageVisibility]
   ): Doc = {
     val ctx = TypeRenderer.Context(pack.name, localTypeNames(pack))
     val values = valueDocs(pack)
@@ -780,7 +815,7 @@ object MarkdownDoc {
     val sections = List(
       indexSection,
       renderTypeSection(types, docs, ctx),
-      renderValueSection(values, docs, pack.name, ctx)
+      renderValueSection(values, docs, pack.name, packageBaseUrls, ctx)
     ).flatten
 
     val body =
@@ -792,8 +827,9 @@ object MarkdownDoc {
     Doc.intercalate(
       Doc.hardLine + Doc.hardLine,
       header ::
+        packageVisibilityDoc(pack.name, packageVisibility).toList :::
         sourceCodeLinksDoc(sourceLinks).toList :::
-        dependenciesDoc(pack.name, deps).toList ::: body :: Nil
+        dependenciesDoc(pack.name, deps, packageBaseUrls).toList ::: body :: Nil
     )
   }
 
@@ -852,7 +888,9 @@ object MarkdownDoc {
       sourcePaths: List[(Path, PackageName)],
       outdir: Path,
       color: dev.bosatsu.LocationMap.Colorize,
-      sourceLinksByPackage: Map[PackageName, List[(String, String)]] = Map.empty
+      sourceLinksByPackage: Map[PackageName, List[(String, String)]] = Map.empty,
+      packageBaseUrls: Map[PackageName, String] = Map.empty,
+      packageVisibility: Map[PackageName, PackageVisibility] = Map.empty
   ): F[List[(Path, Doc)]] = {
     import platformIO.moduleIOMonad
 
@@ -862,7 +900,16 @@ object MarkdownDoc {
           .map { pack =>
             val path = outputPath(platformIO, outdir, pack.name)
             val docs = packageDocs.getOrElse(pack.name, SourceDocs.empty)
-            (path, packageDoc(pack, docs, sourceLinksByPackage.getOrElse(pack.name, Nil)))
+            (
+              path,
+              packageDoc(
+                pack,
+                docs,
+                sourceLinksByPackage.getOrElse(pack.name, Nil),
+                packageBaseUrls,
+                packageVisibility
+              )
+            )
           }
       }
   }

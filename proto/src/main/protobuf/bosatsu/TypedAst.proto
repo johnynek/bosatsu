@@ -423,4 +423,7 @@ message Library {
 
   // Default main package, may be empty for libraries
   string default_main = 12;
+
+  // Base URL for generated package docs for this library (optional)
+  optional string doc_base_url = 13;
 }

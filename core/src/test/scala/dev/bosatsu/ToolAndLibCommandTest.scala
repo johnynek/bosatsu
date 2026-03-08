@@ -2676,6 +2676,184 @@ dep_main = depBox
     }
   }
 
+  test("tool doc routes dependency links to external doc_base_url") {
+    val depSrc =
+      """export DepBox(), depBox
+|
+|struct DepBox(v: Int)
+|
+|depBox = DepBox(7)
+|""".stripMargin
+    val appSrc =
+      """from Dep/Util import depBox
+|
+|export dep_main
+|
+|dep_main = depBox
+|""".stripMargin
+
+    val files = List(
+      Chain("dep", "Dep", "Util.bosatsu") -> depSrc,
+      Chain("src", "App", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Util.bosatsu",
+          "--output",
+          "out/Dep.Util.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Util.bosatsu_package",
+          "--doc_base_url",
+          "https://docs.example.com/deps",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/App/Main.bosatsu",
+          "--pub_dep",
+          "out/dep.bosatsu_lib",
+          "--outdir",
+          "docs"
+        ),
+        state2
+      )
+    } yield s3
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "App", "Main.md"))
+        assert(
+          markdown.contains(
+            "public dependencies: [`Dep/Util`](https://docs.example.com/deps/Dep/Util.md)"
+          ),
+          markdown
+        )
+        assert(
+          markdown.contains(
+            "[`Dep/Util::DepBox`](https://docs.example.com/deps/Dep/Util.md#type-depbox)"
+          ),
+          markdown
+        )
+    }
+  }
+
+  test("tool doc falls back to relative links when dependency has no doc_base_url") {
+    val depSrc =
+      """export DepBox(), depBox
+|
+|struct DepBox(v: Int)
+|
+|depBox = DepBox(7)
+|""".stripMargin
+    val appSrc =
+      """from Dep/Util import depBox
+|
+|export dep_main
+|
+|dep_main = depBox
+|""".stripMargin
+
+    val files = List(
+      Chain("dep", "Dep", "Util.bosatsu") -> depSrc,
+      Chain("src", "App", "Main.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Util.bosatsu",
+          "--output",
+          "out/Dep.Util.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Util.bosatsu_package",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      s3 <- runWithState(
+        List(
+          "tool",
+          "doc",
+          "--package_root",
+          "src",
+          "--input",
+          "src/App/Main.bosatsu",
+          "--pub_dep",
+          "out/dep.bosatsu_lib",
+          "--outdir",
+          "docs"
+        ),
+        state2
+      )
+    } yield s3
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown = readStringFile(state, Chain("docs", "App", "Main.md"))
+        assert(
+          markdown.contains("public dependencies: [`Dep/Util`](../Dep/Util.md)"),
+          markdown
+        )
+        assert(
+          markdown.contains("[`Dep/Util::DepBox`](../Dep/Util.md#type-depbox)"),
+          markdown
+        )
+    }
+  }
+
   test("lib doc writes markdown in package directory layout") {
     val src =
       """export Thing(), mk
@@ -3134,6 +3312,114 @@ main = 1
         val predefDoc =
           readStringFile(state, Chain("docs", "Bosatsu", "Predef.md"))
         assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
+    }
+  }
+
+  test("lib doc labels private packages and can exclude them") {
+    val publicPack = PackageName.parts("MyLib", "Public")
+    val privatePack = PackageName.parts("MyLib", "Private")
+    val conf = LibConfig(
+      name = Name("mylib"),
+      repoUri = "https://example.com",
+      nextVersion = Version(0, 0, 1),
+      previous = None,
+      exportedPackages = LibConfig.PackageFilter.Name(publicPack) :: Nil,
+      allPackages =
+        LibConfig.PackageFilter.Name(publicPack) ::
+          LibConfig.PackageFilter.Name(privatePack) ::
+          Nil,
+      publicDeps = Nil,
+      privateDeps = Nil,
+      defaultMain = None
+    )
+
+    val publicSrc =
+      """package MyLib/Public
+|
+|from MyLib/Private import helper
+|
+|export run
+|
+|run = helper
+|""".stripMargin
+    val privateSrc =
+      """package MyLib/Private
+|
+|export helper
+|
+|helper = 42
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Public.bosatsu") -> publicSrc,
+      Chain("repo", "src", "MyLib", "Private.bosatsu") -> privateSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs_all"
+        ),
+        s0
+      )
+      (stateAll, outAll) = s1
+      s2 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs_pub",
+          "--exclude_private_packages"
+        ),
+        s0
+      )
+      (statePub, outPub) = s2
+    } yield (stateAll, outAll, statePub, outPub)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((stateAll, outAll, statePub, outPub)) =>
+        outAll match {
+          case Output.TranspileOut(outputs) =>
+            val outPaths = outputs.map(_._1.toList.mkString("/")).toSet
+            assert(outPaths("docs_all/MyLib/Public.md"), outputs.toString)
+            assert(outPaths("docs_all/MyLib/Private.md"), outputs.toString)
+          case other =>
+            fail(s"unexpected output: $other")
+        }
+
+        val publicMarkdown =
+          readStringFile(stateAll, Chain("docs_all", "MyLib", "Public.md"))
+        val privateMarkdown =
+          readStringFile(stateAll, Chain("docs_all", "MyLib", "Private.md"))
+        assert(!publicMarkdown.contains("private package"), publicMarkdown)
+        assert(privateMarkdown.contains("private package"), privateMarkdown)
+
+        outPub match {
+          case Output.TranspileOut(outputs) =>
+            val outPaths = outputs.map(_._1.toList.mkString("/")).toSet
+            assert(outPaths("docs_pub/MyLib/Public.md"), outputs.toString)
+            assert(!outPaths("docs_pub/MyLib/Private.md"), outputs.toString)
+          case other =>
+            fail(s"unexpected output: $other")
+        }
+        assertNoFile(statePub, Chain("docs_pub", "MyLib", "Private.md"))
     }
   }
 
