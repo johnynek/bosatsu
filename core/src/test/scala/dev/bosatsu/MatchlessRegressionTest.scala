@@ -335,25 +335,34 @@ def branch_blowup(args: L) -> Nat:
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
   }
 
-  test("MatchlessToValue evaluates SwitchVariant cases and default") {
+  test("SwitchVariant.toIfElse preserves MatchlessToValue semantics") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
+    val switchBody: Matchless.SwitchVariant[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(arg),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.Literal(Lit(10)),
+          2 -> Matchless.Literal(Lit(20)),
+          3 -> Matchless.Literal(Lit(30)),
+          4 -> Matchless.Literal(Lit(40))
+        ),
+        Some(Matchless.Literal(Lit(99)))
+      )
     val switchExpr: Matchless.Expr[Unit] =
       Matchless.Lambda(
         Nil,
         None,
         NonEmptyList.one(arg),
-        Matchless.SwitchVariant(
-          Matchless.Local(arg),
-          famArities,
-          NonEmptyList.of(
-            0 -> Matchless.Literal(Lit(10)),
-            2 -> Matchless.Literal(Lit(20)),
-            3 -> Matchless.Literal(Lit(30)),
-            4 -> Matchless.Literal(Lit(40))
-          ),
-          Some(Matchless.Literal(Lit(99)))
-        )
+        switchBody
+      )
+    val ifElseExpr: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(arg),
+        switchBody.toIfElse
       )
 
     val evalExprs = Vector(
@@ -362,8 +371,24 @@ def branch_blowup(args: L) -> Nat:
         NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))
       ),
       Matchless.App(
+        ifElseExpr,
+        NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))
+      ),
+      Matchless.App(
         switchExpr,
         NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))
+      ),
+      Matchless.App(
+        ifElseExpr,
+        NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))
+      ),
+      Matchless.App(
+        switchExpr,
+        NonEmptyList.one(Matchless.MakeEnum(4, 0, famArities))
+      ),
+      Matchless.App(
+        ifElseExpr,
+        NonEmptyList.one(Matchless.MakeEnum(4, 0, famArities))
       )
     )
 
@@ -371,6 +396,16 @@ def branch_blowup(args: L) -> Nat:
       MatchlessToValue
         .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
-    assertEquals(evaluated, Vector(Value.VInt(20), Value.VInt(99)))
+    assertEquals(
+      evaluated,
+      Vector(
+        Value.VInt(20),
+        Value.VInt(20),
+        Value.VInt(99),
+        Value.VInt(99),
+        Value.VInt(40),
+        Value.VInt(40)
+      )
+    )
   }
 }
