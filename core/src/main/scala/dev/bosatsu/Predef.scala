@@ -2916,7 +2916,7 @@ object PredefImpl {
     ExternalValue(notInt(intRaw(a)))
 
   def popcount_Int(a: Value): Value =
-    VInt(i(a).bitCount())
+    VInt(intRaw(a).popCount)
 
   private def toIntExactIfRepresentable(v: BigInteger): Option[Int] = {
     val minInt = BigInteger.valueOf(Int.MinValue.toLong)
