@@ -268,11 +268,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val doc = rendered(())(pn)._2
       val code = doc.render(120)
 
-      val tagAssigns =
-        "(?m)^\\s*([_A-Za-z][_A-Za-z0-9]*)\\s*=\\s*.*\\[0\\].*$".r
-          .findAllMatchIn(code)
-          .map(_.group(1))
-          .toList
+      val tagAssign = "^\\s*([_A-Za-z][_A-Za-z0-9]*)\\s*=\\s*.*\\[0\\].*$".r
+      val tagAssigns = code.linesIterator.collect {
+        case tagAssign(name) => name
+      }.toList
       assertEquals(tagAssigns.length, 1, code)
 
       val tag = tagAssigns.head
