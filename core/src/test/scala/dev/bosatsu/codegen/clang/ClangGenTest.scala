@@ -457,6 +457,55 @@ main = pick
     }
   }
 
+  test("SwitchVariant lowers to C switch for wide enum matches") {
+    TestUtils.checkPackageMap("""
+enum Many:
+  A
+  B
+  C
+  D
+  E
+  F
+  G
+  H
+  I
+
+def pick(v):
+  match v:
+    case A: 0
+    case B: 1
+    case C: 2
+    case D: 3
+    case E: 4
+    case F: 5
+    case G: 6
+    case H: 7
+    case _: 8
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("switch ("), rendered)
+          assert(rendered.contains("case 0:"), rendered)
+          assert(rendered.contains("case 7:"), rendered)
+          assert(rendered.contains("default:"), rendered)
+          assert(rendered.contains("break;"), rendered)
+      }
+    }
+  }
+
   test(
     "global helper inlining with lambda argument avoids boxed lambda call at call site"
   ) {

@@ -788,6 +788,52 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
+          case SwitchVariant(on, famArities, cases, default) =>
+            innerToValue(on).flatMap { onVL =>
+              onVL.onExpr { onExpr =>
+                for {
+                  variantName <- newLocalName("variant")
+                  resultName <- newLocalName("switch_res")
+                  caseBlocks <- cases.traverse { case (variant, branch) =>
+                    innerToValue(branch).map { branchVL =>
+                      (
+                        Code.IntLiteral(variant),
+                        Code.block(resultName := branchVL, Code.Break)
+                      )
+                    }
+                  }
+                  defaultVL <- innerToValue(default)
+                } yield {
+                  val variantGetter =
+                    if (famArities.forall(_ == 0)) "get_variant_value"
+                    else "get_variant"
+
+                  val switchStmt =
+                    Code.Switch(
+                      variantName,
+                      caseBlocks,
+                      Code.block(resultName := defaultVL, Code.Break)
+                    )
+
+                  Code.WithValue(
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(Code.Ident(variantGetter)(onExpr))
+                    ) +
+                      Code.DeclareVar(
+                        Nil,
+                        Code.TypeIdent.BValue,
+                        resultName,
+                        None
+                      ) +
+                      switchStmt,
+                    resultName
+                  )
+                }
+              }(newLocalName)
+            }
           case Always.SetChain(setmuts, result) =>
             (
               setmuts.traverse { case (LocalAnonMut(mut), v) =>

@@ -2906,6 +2906,43 @@ object PythonGen {
             (ifsV, loop(last, slotName, inlineSlots)).mapN { (ifs, elseV) =>
               Env.ifElse(ifs, elseV)
             }.flatten
+          case SwitchVariant(on, famArities, cases, default) =>
+            (
+              loop(on, slotName, inlineSlots),
+              cases.traverse { case (variant, branch) =>
+                loop(branch, slotName, inlineSlots).map((variant, _))
+              },
+              loop(default, slotName, inlineSlots)
+            ).flatMapN { (onValue, caseValues, defaultValue) =>
+              Env.onLastM(onValue) { onExpr =>
+                for {
+                  variantName <- Env.newAssignableVar
+                  resultName <- Env.newAssignableVar
+                } yield {
+                  val variantExpr =
+                    if (famArities.forall(_ == 0)) onExpr
+                    else onExpr.get(0)
+
+                  val conds = caseValues.map { case (variant, branchValue) =>
+                    (
+                      (variantName =:= Code.fromInt(variant)).simplify,
+                      resultName := branchValue
+                    )
+                  }
+                  val defaultAssign = resultName := defaultValue
+                  val dispatchStmt = Code.ifStatement(conds, Some(defaultAssign))
+
+                  // Keep this assignment as a real statement so branch conditions
+                  // reuse one cached tag instead of re-reading the scrutinee.
+                  Code
+                    .block(
+                      variantName := Code.Parens(variantExpr),
+                      dispatchStmt
+                    )
+                    .withValue(resultName)
+                }
+              }
+            }
 
           case Always.SetChain(setmuts, result) =>
             (

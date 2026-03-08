@@ -475,6 +475,12 @@ object Code {
       elseCond: Option[Block]
   ) extends Statement
   case class DoWhile(block: Block, whileCond: Expression) extends Statement
+  case class Switch(
+      on: Expression,
+      cases: NonEmptyList[(IntLiteral, Block)],
+      default: Block
+  ) extends Statement
+  case object Break extends Statement
   case class Effect(expr: Expression) extends Statement
   case class While(cond: Expression, body: Block) extends Statement
   case class Include(quote: Boolean, filename: String) extends Statement
@@ -547,9 +553,14 @@ object Code {
   private val ifDoc = Doc.text("if ")
   private val elseIfDoc = Doc.text("else if ")
   private val elseDoc = Doc.text("else ")
+  private val switchDoc = Doc.text("switch")
+  private val caseDoc = Doc.text("case ")
+  private val defaultDoc = Doc.text("default")
   private val commaLine = Doc.char(',') + Doc.line
   private val doDoc = Doc.text("do ")
   private val whileDoc = Doc.text("while")
+  private val breakSemi = Doc.text("break;")
+  private val colon = Doc.char(':')
   private val arrow = Doc.text("->")
   private val questionDoc = Doc.text(" ?") + Doc.line
   private val colonDoc = Doc.text(" :") + Doc.line
@@ -775,6 +786,17 @@ object Code {
         first + middle + end
       case DoWhile(block, cond) =>
         doDoc + toDoc(block) + Doc.space + whileDoc + par(toDoc(cond)) + semiDoc
+      case Switch(on, cases, defaultCase) =>
+        val caseDocs = cases.toList.map { case (value, body) =>
+          caseDoc + toDoc(value) + colon + Doc.space + toDoc(body)
+        }
+        val defaultCaseDoc =
+          defaultDoc + colon + Doc.space + toDoc(defaultCase)
+        switchDoc + Doc.space + par(toDoc(on)) + Doc.space + curlyBlock(
+          caseDocs :+ defaultCaseDoc
+        )(identity)
+      case _: Break.type =>
+        breakSemi
       case Effect(expr) =>
         toDoc(expr) + semiDoc
       case While(expr, block) =>

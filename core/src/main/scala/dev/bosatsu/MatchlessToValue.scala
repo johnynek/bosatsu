@@ -473,6 +473,20 @@ object MatchlessToValue {
                   else elseF(scope)
                 }
             }
+          case SwitchVariant(on, _, cases, default) =>
+            val onF = loop(on)
+            val caseFns =
+              cases.toList
+                .map { case (variant, branch) =>
+                  (variant, loop(branch))
+                }
+                .toMap
+            lazy val defaultF = loop(default)
+
+            Dynamic { (scope: Scope) =>
+              val variant = onF(scope).asSum.variant
+              caseFns.getOrElse(variant, defaultF)(scope)
+            }
           case Always.SetChain(muts, expr) =>
             val values = muts.map { case (m, e) => (m, loop(e)) }
             val exprF = loop(expr)
