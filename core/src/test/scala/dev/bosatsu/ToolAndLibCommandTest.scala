@@ -2914,12 +2914,12 @@ external def apply_default[a](default: Unit -> a) -> a
     }
   }
 
-  test("tool doc escapes linked type argument brackets in type signatures") {
+  test("tool doc renders deduplicated sorted value references") {
     val src =
-      """export flatten
-flatten = (deps: List[Dict[String, Int]]) -> deps
+      """export concat_all_Array
+external def concat_all_Array(arrays: List[Dict[String, Int]]) -> List[Dict[String, Int]]
 """
-    val files = List(Chain("src", "LinkSig", "Main.bosatsu") -> src)
+    val files = List(Chain("src", "Refs", "Main.bosatsu") -> src)
 
     val result = for {
       s0 <- MemoryMain.State.from[ErrorOr](files)
@@ -2930,7 +2930,7 @@ flatten = (deps: List[Dict[String, Int]]) -> deps
           "--package_root",
           "src",
           "--input",
-          "src/LinkSig/Main.bosatsu",
+          "src/Refs/Main.bosatsu",
           "--outdir",
           "docs"
         ),
@@ -2942,19 +2942,14 @@ flatten = (deps: List[Dict[String, Int]]) -> deps
       case Left(err) =>
         fail(err.getMessage)
       case Right((state, _)) =>
-        val markdown = readStringFile(state, Chain("docs", "LinkSig", "Main.md"))
+        val markdown = readStringFile(state, Chain("docs", "Refs", "Main.md"))
         assert(
           markdown.contains(
-            "[`List`](../Bosatsu/Predef.md#type-list)\\[[`Dict`](../Bosatsu/Predef.md#type-dict)\\[[`String`](../Bosatsu/Predef.md#type-string), [`Int`](../Bosatsu/Predef.md#type-int)]]"
+            "references: [`Dict`](../Bosatsu/Predef.md#type-dict), [`Int`](../Bosatsu/Predef.md#type-int), [`List`](../Bosatsu/Predef.md#type-list), [`String`](../Bosatsu/Predef.md#type-string)"
           ),
           markdown
         )
-        assert(
-          !markdown.contains(
-            "[`List`](../Bosatsu/Predef.md#type-list)[[`Dict`](../Bosatsu/Predef.md#type-dict)"
-          ),
-          markdown
-        )
+        assert(!markdown.contains("type signature:"), markdown)
     }
   }
 
