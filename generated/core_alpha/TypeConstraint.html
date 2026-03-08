@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -143,87 +143,87 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-cast"></a>
 <h3><a href="#cast" name="cast" class="anchor"><span class="anchor-link"></span></a><code>cast</code></h3>
-<p>type signature: def cast[a, b](s: <a href="#type-eq"><code>Eq</code></a>[a, b], a: a) -&gt; b</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cast[a, b](s: Eq[a, b], a: a) -&gt; b
 </code></pre>
 <a id="value-compose-eq"></a>
 <h3><a href="#compose-eq" name="compose-eq" class="anchor"><span class="anchor-link"></span></a><code>compose_eq</code></h3>
-<p>type signature: def compose_eq[a,  b,  c](first: <a href="#type-eq"><code>Eq</code></a>[a, b], second: <a href="#type-eq"><code>Eq</code></a>[b, c]) -&gt; <a href="#type-eq"><code>Eq</code></a>[a, c]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def compose_eq[a, b, c](first: Eq[a, b], second: Eq[b, c]) -&gt; Eq[a, c]
 </code></pre>
 <a id="value-compose-sub"></a>
 <h3><a href="#compose-sub" name="compose-sub" class="anchor"><span class="anchor-link"></span></a><code>compose_sub</code></h3>
-<p>type signature: def compose_sub[a,  b,  c ](first: <a href="#type-sub"><code>Sub</code></a>[a, b], second: <a href="#type-sub"><code>Sub</code></a>[b, c]) -&gt; <a href="#type-sub"><code>Sub</code></a>[a, c]</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def compose_sub[a, b, c](first: Sub[a, b], second: Sub[b, c]) -&gt; Sub[a, c]
 </code></pre>
 <a id="value-compose-sup"></a>
 <h3><a href="#compose-sup" name="compose-sup" class="anchor"><span class="anchor-link"></span></a><code>compose_sup</code></h3>
-<p>type signature: def compose_sup[a,  b,  c ](first: <a href="#type-sup"><code>Sup</code></a>[a, b], second: <a href="#type-sup"><code>Sup</code></a>[b, c]) -&gt; <a href="#type-sup"><code>Sup</code></a>[a, c]</p>
+<p>references: <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def compose_sup[a, b, c](first: Sup[a, b], second: Sup[b, c]) -&gt; Sup[a, c]
 </code></pre>
 <a id="value-downcast"></a>
 <h3><a href="#downcast" name="downcast" class="anchor"><span class="anchor-link"></span></a><code>downcast</code></h3>
-<p>type signature: def downcast[a, b](s: <a href="#type-sup"><code>Sup</code></a>[a, b], a: b) -&gt; a</p>
+<p>references: <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def downcast[a, b](s: Sup[a, b], a: b) -&gt; a
 </code></pre>
 <a id="value-eq-to-sub"></a>
 <h3><a href="#eq-to-sub" name="eq-to-sub" class="anchor"><span class="anchor-link"></span></a><code>eq_to_sub</code></h3>
-<p>type signature: def eq_to_sub[a, b](eq: <a href="#type-eq"><code>Eq</code></a>[a, b]) -&gt; <a href="#type-sub"><code>Sub</code></a>[a, b]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a>, <a href="#type-sub"><code>Sub</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_to_sub[a, b](eq: Eq[a, b]) -&gt; Sub[a, b]
 </code></pre>
 <a id="value-eq-to-sup"></a>
 <h3><a href="#eq-to-sup" name="eq-to-sup" class="anchor"><span class="anchor-link"></span></a><code>eq_to_sup</code></h3>
-<p>type signature: def eq_to_sup[a, b](eq: <a href="#type-eq"><code>Eq</code></a>[a, b]) -&gt; <a href="#type-sup"><code>Sup</code></a>[a, b]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a>, <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_to_sup[a, b](eq: Eq[a, b]) -&gt; Sup[a, b]
 </code></pre>
 <a id="value-flip-eq"></a>
 <h3><a href="#flip-eq" name="flip-eq" class="anchor"><span class="anchor-link"></span></a><code>flip_eq</code></h3>
-<p>type signature: def flip_eq[a, b](eq: <a href="#type-eq"><code>Eq</code></a>[a, b]) -&gt; <a href="#type-eq"><code>Eq</code></a>[b, a]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def flip_eq[a, b](eq: Eq[a, b]) -&gt; Eq[b, a]
 </code></pre>
 <a id="value-narrow"></a>
 <h3><a href="#narrow" name="narrow" class="anchor"><span class="anchor-link"></span></a><code>narrow</code></h3>
-<p>type signature: def narrow[a, b, c: -* -&gt; *](s: <a href="#type-sup"><code>Sup</code></a>[a, b], fa: c[a]) -&gt; c[b]</p>
+<p>references: <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def narrow[a, b, c: -* -&gt; *](s: Sup[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
 <a id="value-refl"></a>
 <h3><a href="#refl" name="refl" class="anchor"><span class="anchor-link"></span></a><code>refl</code></h3>
-<p>type signature: refl: forall a: *. <a href="#type-eq"><code>Eq</code></a>[a, a]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">refl: forall a: *. Eq[a, a]
 </code></pre>
 <a id="value-refl-sub"></a>
 <h3><a href="#refl-sub" name="refl-sub" class="anchor"><span class="anchor-link"></span></a><code>refl_sub</code></h3>
-<p>type signature: refl_sub: forall a: *. <a href="#type-sub"><code>Sub</code></a>[a, a]</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">refl_sub: forall a: *. Sub[a, a]
 </code></pre>
 <a id="value-refl-sup"></a>
 <h3><a href="#refl-sup" name="refl-sup" class="anchor"><span class="anchor-link"></span></a><code>refl_sup</code></h3>
-<p>type signature: refl_sup: forall a: *. <a href="#type-sup"><code>Sup</code></a>[a, a]</p>
+<p>references: <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">refl_sup: forall a: *. Sup[a, a]
 </code></pre>
 <a id="value-sub-to-sup"></a>
 <h3><a href="#sub-to-sup" name="sub-to-sup" class="anchor"><span class="anchor-link"></span></a><code>sub_to_sup</code></h3>
-<p>type signature: def sub_to_sup[a, b](sub: <a href="#type-sub"><code>Sub</code></a>[a, b]) -&gt; <a href="#type-sup"><code>Sup</code></a>[b, a]</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a>, <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sub_to_sup[a, b](sub: Sub[a, b]) -&gt; Sup[b, a]
 </code></pre>
 <a id="value-substitute"></a>
 <h3><a href="#substitute" name="substitute" class="anchor"><span class="anchor-link"></span></a><code>substitute</code></h3>
-<p>type signature: def substitute[a, b, c: * -&gt; *](eq: <a href="#type-eq"><code>Eq</code></a>[a, b], fa: c[a]) -&gt; c[b]</p>
+<p>references: <a href="#type-eq"><code>Eq</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def substitute[a, b, c: * -&gt; *](eq: Eq[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
 <a id="value-sup-to-sub"></a>
 <h3><a href="#sup-to-sub" name="sup-to-sub" class="anchor"><span class="anchor-link"></span></a><code>sup_to_sub</code></h3>
-<p>type signature: def sup_to_sub[a, b](sup: <a href="#type-sup"><code>Sup</code></a>[a, b]) -&gt; <a href="#type-sub"><code>Sub</code></a>[b, a]</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a>, <a href="#type-sup"><code>Sup</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sup_to_sub[a, b](sup: Sup[a, b]) -&gt; Sub[b, a]
 </code></pre>
 <a id="value-upcast"></a>
 <h3><a href="#upcast" name="upcast" class="anchor"><span class="anchor-link"></span></a><code>upcast</code></h3>
-<p>type signature: def upcast[a, b](s: <a href="#type-sub"><code>Sub</code></a>[a, b], a: a) -&gt; b</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def upcast[a, b](s: Sub[a, b], a: a) -&gt; b
 </code></pre>
 <a id="value-widen"></a>
 <h3><a href="#widen" name="widen" class="anchor"><span class="anchor-link"></span></a><code>widen</code></h3>
-<p>type signature: def widen[a, b, c: +* -&gt; *](s: <a href="#type-sub"><code>Sub</code></a>[a, b], fa: c[a]) -&gt; c[b]</p>
+<p>references: <a href="#type-sub"><code>Sub</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def widen[a, b, c: +* -&gt; *](s: Sub[a, b], fa: c[a]) -&gt; c[b]
 </code></pre>
 </div>
@@ -300,7 +300,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

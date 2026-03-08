@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -1506,325 +1506,323 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <a id="value-add"></a>
 <h3><a href="#add" name="add" class="anchor"><span class="anchor-link"></span></a><code>add</code></h3>
 <p>Integer addition.</p>
-<p>type signature: def add(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def add(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-add-key"></a>
 <h3><a href="#add-key" name="add-key" class="anchor"><span class="anchor-link"></span></a><code>add_key</code></h3>
 <p>Insert or replace a key/value pair.</p>
-<p>type signature: def add_key[a,  b](dict: <a href="#type-dict"><code>Dict</code></a>[a, b], key: a, value: b) -&gt; <a href="#type-dict"><code>Dict</code></a>[a, b]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def add_key[a, b](dict: Dict[a, b], key: a, value: b) -&gt; Dict[a, b]
 </code></pre>
 <a id="value-addf"></a>
 <h3><a href="#addf" name="addf" class="anchor"><span class="anchor-link"></span></a><code>addf</code></h3>
 <p>Floating-point addition.</p>
-<p>type signature: def addf(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-float64"><code>Float64</code></a></p>
+<p>references: <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def addf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
 <a id="value-and-int"></a>
 <h3><a href="#and-int" name="and-int" class="anchor"><span class="anchor-link"></span></a><code>and_Int</code></h3>
 <p>Bitwise AND.</p>
-<p>type signature: def and_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def and_Int(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-build-list"></a>
 <h3><a href="#build-list" name="build-list" class="anchor"><span class="anchor-link"></span></a><code>build_List</code></h3>
 <p>Build a list from a right-fold style builder.</p>
-<p>type signature: def build_List[a ](fn: forall b: *. ((a, b) -&gt; b, b) -&gt; b) -&gt; <a href="#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def build_List[a](fn: forall b: *. ((a, b) -&gt; b, b) -&gt; b) -&gt; List[a]
 </code></pre>
 <a id="value-char-list-to-string"></a>
 <h3><a href="#char-list-to-string" name="char-list-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_List_to_String</code></h3>
 <p>Concatenate a list of characters into a string.</p>
-<p>type signature: def char_List_to_String(chars: <a href="#type-list"><code>List</code></a>[<a href="#type-char"><code>Char</code></a>]) -&gt; <a href="#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-char"><code>Char</code></a>, <a href="#type-list"><code>List</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def char_List_to_String(chars: List[Char]) -&gt; String
 </code></pre>
 <a id="value-char-to-int"></a>
 <h3><a href="#char-to-int" name="char-to-int" class="anchor"><span class="anchor-link"></span></a><code>char_to_Int</code></h3>
 <p>Unicode code point value for a character.</p>
-<p>type signature: def char_to_Int(c: <a href="#type-char"><code>Char</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-char"><code>Char</code></a>, <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def char_to_Int(c: Char) -&gt; Int
 </code></pre>
 <a id="value-char-to-string"></a>
 <h3><a href="#char-to-string" name="char-to-string" class="anchor"><span class="anchor-link"></span></a><code>char_to_String</code></h3>
 <p>Convert a character to a one-character string.</p>
-<p>type signature: def char_to_String(c: <a href="#type-char"><code>Char</code></a>) -&gt; <a href="#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-char"><code>Char</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def char_to_String(c: Char) -&gt; String
 </code></pre>
 <a id="value-clear-dict"></a>
 <h3><a href="#clear-dict" name="clear-dict" class="anchor"><span class="anchor-link"></span></a><code>clear_Dict</code></h3>
 <p>Remove all entries while preserving key ordering.</p>
-<p>type signature: def clear_Dict[a,  b](dict: <a href="#type-dict"><code>Dict</code></a>[a, b]) -&gt; <a href="#type-dict"><code>Dict</code></a>[a, b]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def clear_Dict[a, b](dict: Dict[a, b]) -&gt; Dict[a, b]
 </code></pre>
 <a id="value-cmp-float64"></a>
 <h3><a href="#cmp-float64" name="cmp-float64" class="anchor"><span class="anchor-link"></span></a><code>cmp_Float64</code></h3>
 <p>Total Float64 comparison where all <code>.NaN</code> values are equal and ordered before non-<code>.NaN</code> values.</p>
-<p>type signature: def cmp_Float64(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-comparison"><code>Comparison</code></a></p>
+<p>references: <a href="#type-comparison"><code>Comparison</code></a>, <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cmp_Float64(a: Float64, b: Float64) -&gt; Comparison
 </code></pre>
 <a id="value-cmp-int"></a>
 <h3><a href="#cmp-int" name="cmp-int" class="anchor"><span class="anchor-link"></span></a><code>cmp_Int</code></h3>
 <p>Total integer comparison.</p>
-<p>type signature: def cmp_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-comparison"><code>Comparison</code></a></p>
+<p>references: <a href="#type-comparison"><code>Comparison</code></a>, <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cmp_Int(a: Int, b: Int) -&gt; Comparison
 </code></pre>
 <a id="value-cmp-string"></a>
 <h3><a href="#cmp-string" name="cmp-string" class="anchor"><span class="anchor-link"></span></a><code>cmp_String</code></h3>
 <p>Total string comparison.</p>
-<p>type signature: def cmp_String(str0: <a href="#type-string"><code>String</code></a>, str1: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-comparison"><code>Comparison</code></a></p>
+<p>references: <a href="#type-comparison"><code>Comparison</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cmp_String(str0: String, str1: String) -&gt; Comparison
 </code></pre>
 <a id="value-concat"></a>
 <h3><a href="#concat" name="concat" class="anchor"><span class="anchor-link"></span></a><code>concat</code></h3>
 <p>Append <code>front</code> and <code>back</code>.</p>
-<p>type signature: def concat[a ](front: <a href="#type-list"><code>List</code></a>[a], back: <a href="#type-list"><code>List</code></a>[a]) -&gt; <a href="#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def concat[a](front: List[a], back: List[a]) -&gt; List[a]
 </code></pre>
 <a id="value-concat-string"></a>
 <h3><a href="#concat-string" name="concat-string" class="anchor"><span class="anchor-link"></span></a><code>concat_String</code></h3>
 <p>Concatenate a list of strings.</p>
-<p>type signature: def concat_String(items: <a href="#type-list"><code>List</code></a>[<a href="#type-string"><code>String</code></a>]) -&gt; <a href="#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-list"><code>List</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def concat_String(items: List[String]) -&gt; String
 </code></pre>
 <a id="value-div"></a>
 <h3><a href="#div" name="div" class="anchor"><span class="anchor-link"></span></a><code>div</code></h3>
 <p>Integer division rounded toward negative infinity; total with <code>div(a, 0) == 0</code>.</p>
-<p>type signature: def div(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def div(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-divf"></a>
 <h3><a href="#divf" name="divf" class="anchor"><span class="anchor-link"></span></a><code>divf</code></h3>
 <p>IEEE754 floating-point division; unlike <code>div</code>, dividing by <code>0.0</code> yields <code>∞</code>, <code>-∞</code>, or <code>.NaN</code>.</p>
-<p>type signature: def divf(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-float64"><code>Float64</code></a></p>
+<p>references: <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def divf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
 <a id="value-empty-dict"></a>
 <h3><a href="#empty-dict" name="empty-dict" class="anchor"><span class="anchor-link"></span></a><code>empty_Dict</code></h3>
 <p>Create an empty dictionary using <code>comp</code> for key ordering.</p>
-<p>type signature: def empty_Dict[a ](comp: <a href="#type-order"><code>Order</code></a>[a]) -&gt; forall b: *. <a href="#type-dict"><code>Dict</code></a>[a, b]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a>, <a href="#type-order"><code>Order</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def empty_Dict[a](comp: Order[a]) -&gt; forall b: *. Dict[a, b]
 </code></pre>
 <a id="value-eq-int"></a>
 <h3><a href="#eq-int" name="eq-int" class="anchor"><span class="anchor-link"></span></a><code>eq_Int</code></h3>
 <p>Integer equality.</p>
-<p>type signature: def eq_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="#type-bool"><code>Bool</code></a>, <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_Int(a: Int, b: Int) -&gt; Bool
 </code></pre>
 <a id="value-flat-map-list"></a>
 <h3><a href="#flat-map-list" name="flat-map-list" class="anchor"><span class="anchor-link"></span></a><code>flat_map_List</code></h3>
 <p>Map each item to a list and flatten the result.</p>
-<p>type signature: def flat_map_List[a,  b](lst: <a href="#type-list"><code>List</code></a>[a], fn: a -&gt; <a href="#type-list"><code>List</code></a>[b]) -&gt; <a href="#type-list"><code>List</code></a>[b]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def flat_map_List[a, b](lst: List[a], fn: a -&gt; List[b]) -&gt; List[b]
 </code></pre>
 <a id="value-foldl-list"></a>
 <h3><a href="#foldl-list" name="foldl-list" class="anchor"><span class="anchor-link"></span></a><code>foldl_List</code></h3>
 <p>Left fold over a list. Supports the deforestation rewrite: foldr_List(build_List(g), f, x) =&gt; g(f, x) See &ldquo;A Shortcut to Deforestation&rdquo; by Gill et. al.</p>
-<p>type signature: def foldl_List[a, b](lst: <a href="#type-list"><code>List</code></a>[a], item: b, fn: (b, a) -&gt; b) -&gt; b</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def foldl_List[a, b](lst: List[a], item: b, fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
 <a id="value-foldr-list"></a>
 <h3><a href="#foldr-list" name="foldr-list" class="anchor"><span class="anchor-link"></span></a><code>foldr_List</code></h3>
 <p>Fold a list from right to left.</p>
-<p>type signature: def foldr_List[a, b](list: <a href="#type-list"><code>List</code></a>[a], fn: (a, b) -&gt; b, acc: b) -&gt; b</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def foldr_List[a, b](list: List[a], fn: (a, b) -&gt; b, acc: b) -&gt; b
 </code></pre>
 <a id="value-gcd-int"></a>
 <h3><a href="#gcd-int" name="gcd-int" class="anchor"><span class="anchor-link"></span></a><code>gcd_Int</code></h3>
 <p>Greatest common divisor for two integers.</p>
-<p>type signature: def gcd_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def gcd_Int(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-get-key"></a>
 <h3><a href="#get-key" name="get-key" class="anchor"><span class="anchor-link"></span></a><code>get_key</code></h3>
 <p>Look up the value associated with <code>key</code>.</p>
-<p>type signature: def get_key[a,  b](dict: <a href="#type-dict"><code>Dict</code></a>[a, b], key: a) -&gt; <a href="#type-option"><code>Option</code></a>[b]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a>, <a href="#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def get_key[a, b](dict: Dict[a, b], key: a) -&gt; Option[b]
 </code></pre>
 <a id="value-int-loop"></a>
 <h3><a href="#int-loop" name="int-loop" class="anchor"><span class="anchor-link"></span></a><code>int_loop</code></h3>
 <p>Loop until the returned Int is &lt;= 0 or &gt;= intValue.</p>
-<p>type signature: def int_loop[a ](intValue: <a href="#type-int"><code>Int</code></a>, state: a, fn: (<a href="#type-int"><code>Int</code></a>, a) -&gt; (<a href="#type-int"><code>Int</code></a>, a)) -&gt; a</p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_loop[a](intValue: Int, state: a, fn: (Int, a) -&gt; (Int, a)) -&gt; a
 </code></pre>
 <a id="value-int-to-char"></a>
 <h3><a href="#int-to-char" name="int-to-char" class="anchor"><span class="anchor-link"></span></a><code>int_to_Char</code></h3>
 <p>Convert a Unicode code point to a character.</p>
-<p>type signature: def int_to_Char(code_point: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-option"><code>Option</code></a>[<a href="#type-char"><code>Char</code></a>]</p>
+<p>references: <a href="#type-char"><code>Char</code></a>, <a href="#type-int"><code>Int</code></a>, <a href="#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_to_Char(code_point: Int) -&gt; Option[Char]
 </code></pre>
 <a id="value-int-to-string"></a>
 <h3><a href="#int-to-string" name="int-to-string" class="anchor"><span class="anchor-link"></span></a><code>int_to_String</code></h3>
 <p>Convert an integer to its base-10 string form.</p>
-<p>type signature: def int_to_String(i: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_to_String(i: Int) -&gt; String
 </code></pre>
 <a id="value-items"></a>
 <h3><a href="#items" name="items" class="anchor"><span class="anchor-link"></span></a><code>items</code></h3>
 <p>Return dictionary items in key order.</p>
-<p>type signature: def items[a, b](dict: <a href="#type-dict"><code>Dict</code></a>[a, b]) -&gt; <a href="#type-list"><code>List</code></a>[(a, b)]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a>, <a href="#type-list"><code>List</code></a>, <a href="#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def items[a, b](dict: Dict[a, b]) -&gt; List[(a, b)]
 </code></pre>
 <a id="value-length-string"></a>
 <h3><a href="#length-string" name="length-string" class="anchor"><span class="anchor-link"></span></a><code>length_String</code></h3>
 <p>Count Unicode code points in a string.</p>
-<p>type signature: def length_String(s: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def length_String(s: String) -&gt; Int
 </code></pre>
 <a id="value-map-list"></a>
 <h3><a href="#map-list" name="map-list" class="anchor"><span class="anchor-link"></span></a><code>map_List</code></h3>
 <p>Map each item in <code>lst</code> with <code>fn</code>.</p>
-<p>type signature: def map_List[a,  b](lst: <a href="#type-list"><code>List</code></a>[a], fn: a -&gt; b) -&gt; <a href="#type-list"><code>List</code></a>[b]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_List[a, b](lst: List[a], fn: a -&gt; b) -&gt; List[b]
 </code></pre>
 <a id="value-mod-int"></a>
 <h3><a href="#mod-int" name="mod-int" class="anchor"><span class="anchor-link"></span></a><code>mod_Int</code></h3>
 <p>Integer modulus paired with <code>div</code>; total with <code>mod_Int(a, 0) == a</code>.</p>
-<p>type signature: def mod_Int(a: <a href="#type-int"><code>Int</code></a>, mod: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def mod_Int(a: Int, mod: Int) -&gt; Int
 </code></pre>
 <a id="value-mul"></a>
 <h3><a href="#mul" name="mul" class="anchor"><span class="anchor-link"></span></a><code>mul</code></h3>
 <p>Integer multiplication.</p>
-<p>type signature: def mul(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def mul(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-not-int"></a>
 <h3><a href="#not-int" name="not-int" class="anchor"><span class="anchor-link"></span></a><code>not_Int</code></h3>
 <p>Bitwise NOT.</p>
-<p>type signature: def not_Int(a: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def not_Int(a: Int) -&gt; Int
 </code></pre>
 <a id="value-or-int"></a>
 <h3><a href="#or-int" name="or-int" class="anchor"><span class="anchor-link"></span></a><code>or_Int</code></h3>
 <p>Bitwise OR.</p>
-<p>type signature: def or_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def or_Int(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-partition-string"></a>
 <h3><a href="#partition-string" name="partition-string" class="anchor"><span class="anchor-link"></span></a><code>partition_String</code></h3>
 <p>if this returns Some((a, b)) then arg == concat_String([a, sep, b]) a and b are always proper substrings, so partition_String(a, &quot;&quot;) == None this matches from the left, so partition_String(a, sep) == None</p>
-<p>type signature: def partition_String(arg: <a href="#type-string"><code>String</code></a>, sep: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-option"><code>Option</code></a>[(<a href="#type-string"><code>String</code></a>, <a href="#type-string"><code>String</code></a>)]</p>
+<p>references: <a href="#type-option"><code>Option</code></a>, <a href="#type-string"><code>String</code></a>, <a href="#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def partition_String(arg: String, sep: String) -&gt; Option[(String, String)]
 </code></pre>
 <a id="value-range"></a>
 <h3><a href="#range" name="range" class="anchor"><span class="anchor-link"></span></a><code>range</code></h3>
 <p>Build <code>[0, 1, ..., exclusiveUpper - 1]</code>.</p>
-<p>type signature: def range(exclusiveUpper: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-list"><code>List</code></a>[<a href="#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def range(exclusiveUpper: Int) -&gt; List[Int]
 </code></pre>
 <a id="value-range-fold"></a>
 <h3><a href="#range-fold" name="range-fold" class="anchor"><span class="anchor-link"></span></a><code>range_fold</code></h3>
 <p>Fold over <code>[inclusiveLower, ..., exclusiveUpper - 1]</code>.</p>
-<p>type signature: def range_fold[a](  inclusiveLower: <a href="#type-int"><code>Int</code></a>,  exclusiveUpper: <a href="#type-int"><code>Int</code></a>,  init: a,  fn: (a, <a href="#type-int"><code>Int</code></a>) -&gt; a ) -&gt; a</p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def range_fold[a](inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -&gt; a) -&gt; a
 </code></pre>
 <a id="value-remove-key"></a>
 <h3><a href="#remove-key" name="remove-key" class="anchor"><span class="anchor-link"></span></a><code>remove_key</code></h3>
 <p>Remove a key from the dictionary (no-op if missing).</p>
-<p>type signature: def remove_key[a,  b](dict: <a href="#type-dict"><code>Dict</code></a>[a, b], key: a) -&gt; <a href="#type-dict"><code>Dict</code></a>[a, b]</p>
+<p>references: <a href="#type-dict"><code>Dict</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def remove_key[a, b](dict: Dict[a, b], key: a) -&gt; Dict[a, b]
 </code></pre>
 <a id="value-replicate-list"></a>
 <h3><a href="#replicate-list" name="replicate-list" class="anchor"><span class="anchor-link"></span></a><code>replicate_List</code></h3>
 <p>Repeat <code>item</code> <code>cnt</code> times.</p>
-<p>type signature: def replicate_List[a](item: a, cnt: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def replicate_List[a](item: a, cnt: Int) -&gt; List[a]
 </code></pre>
 <a id="value-reverse"></a>
 <h3><a href="#reverse" name="reverse" class="anchor"><span class="anchor-link"></span></a><code>reverse</code></h3>
 <p>Reverse a list.</p>
-<p>type signature: def reverse[a](as: <a href="#type-list"><code>List</code></a>[a]) -&gt; <a href="#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def reverse[a](as: List[a]) -&gt; List[a]
 </code></pre>
 <a id="value-reverse-concat"></a>
 <h3><a href="#reverse-concat" name="reverse-concat" class="anchor"><span class="anchor-link"></span></a><code>reverse_concat</code></h3>
 <p>Reverse <code>front</code> and prepend it to <code>back</code>.</p>
-<p>type signature: def reverse_concat[a ](front: <a href="#type-list"><code>List</code></a>[a], back: <a href="#type-list"><code>List</code></a>[a]) -&gt; <a href="#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def reverse_concat[a](front: List[a], back: List[a]) -&gt; List[a]
 </code></pre>
 <a id="value-rpartition-string"></a>
 <h3><a href="#rpartition-string" name="rpartition-string" class="anchor"><span class="anchor-link"></span></a><code>rpartition_String</code></h3>
 <p>if this returns Some((a, b)) then arg == concat_String([a, sep, b]) a and b are always proper substrings, so rpartition_String(a, &quot;&quot;) == None this matches from the right, so partition_String(b, sep) == None</p>
-<p>type signature: def rpartition_String(arg: <a href="#type-string"><code>String</code></a>, sep: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-option"><code>Option</code></a>[(<a href="#type-string"><code>String</code></a>, <a href="#type-string"><code>String</code></a>)]</p>
+<p>references: <a href="#type-option"><code>Option</code></a>, <a href="#type-string"><code>String</code></a>, <a href="#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def rpartition_String(arg: String, sep: String) -&gt; Option[(String, String)]
 </code></pre>
 <a id="value-shift-left-int"></a>
 <h3><a href="#shift-left-int" name="shift-left-int" class="anchor"><span class="anchor-link"></span></a><code>shift_left_Int</code></h3>
 <p>Bitwise left shift.</p>
-<p>type signature: def shift_left_Int(arg: <a href="#type-int"><code>Int</code></a>, shift: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def shift_left_Int(arg: Int, shift: Int) -&gt; Int
 </code></pre>
 <a id="value-shift-right-int"></a>
 <h3><a href="#shift-right-int" name="shift-right-int" class="anchor"><span class="anchor-link"></span></a><code>shift_right_Int</code></h3>
 <p>Bitwise right shift.</p>
-<p>type signature: def shift_right_Int(arg: <a href="#type-int"><code>Int</code></a>, shift: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def shift_right_Int(arg: Int, shift: Int) -&gt; Int
 </code></pre>
 <a id="value-string-order"></a>
 <h3><a href="#string-order" name="string-order" class="anchor"><span class="anchor-link"></span></a><code>string_Order</code></h3>
 <p>Ordering instance for strings.</p>
-<p>type signature: string_Order: <a href="#type-order"><code>Order</code></a>[<a href="#type-string"><code>String</code></a>]</p>
+<p>references: <a href="#type-order"><code>Order</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">string_Order: Order[String]
 </code></pre>
 <a id="value-string-to-int"></a>
 <h3><a href="#string-to-int" name="string-to-int" class="anchor"><span class="anchor-link"></span></a><code>string_to_Int</code></h3>
 <p>Parse a base-10 integer from a string.</p>
-<p>type signature: def string_to_Int(s: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-option"><code>Option</code></a>[<a href="#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="#type-int"><code>Int</code></a>, <a href="#type-option"><code>Option</code></a>, <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def string_to_Int(s: String) -&gt; Option[Int]
 </code></pre>
 <a id="value-sub"></a>
 <h3><a href="#sub" name="sub" class="anchor"><span class="anchor-link"></span></a><code>sub</code></h3>
 <p>Integer subtraction.</p>
-<p>type signature: def sub(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sub(a: Int, b: Int) -&gt; Int
 </code></pre>
 <a id="value-subf"></a>
 <h3><a href="#subf" name="subf" class="anchor"><span class="anchor-link"></span></a><code>subf</code></h3>
 <p>Floating-point subtraction.</p>
-<p>type signature: def subf(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-float64"><code>Float64</code></a></p>
+<p>references: <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def subf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
 <a id="value-tail-or-empty-string"></a>
 <h3><a href="#tail-or-empty-string" name="tail-or-empty-string" class="anchor"><span class="anchor-link"></span></a><code>tail_or_empty_String</code></h3>
 <p>if arg is empty this returns &quot;&quot;, otherwise it drops exactly one codepoint (equivalent to the tail from uncons_String, but without constructing Option/Tuple)</p>
-<p>type signature: def tail_or_empty_String(arg: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def tail_or_empty_String(arg: String) -&gt; String
 </code></pre>
 <a id="value-timesf"></a>
 <h3><a href="#timesf" name="timesf" class="anchor"><span class="anchor-link"></span></a><code>timesf</code></h3>
 <p>Floating-point multiplication.</p>
-<p>type signature: def timesf(a: <a href="#type-float64"><code>Float64</code></a>, b: <a href="#type-float64"><code>Float64</code></a>) -&gt; <a href="#type-float64"><code>Float64</code></a></p>
+<p>references: <a href="#type-float64"><code>Float64</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def timesf(a: Float64, b: Float64) -&gt; Float64
 </code></pre>
 <a id="value-trace"></a>
 <h3><a href="#trace" name="trace" class="anchor"><span class="anchor-link"></span></a><code>trace</code></h3>
 <p>Emit a debug trace prefixed with <code>prefix</code>, then return <code>item</code>.</p>
-<p>type signature: def trace[a](prefix: <a href="#type-string"><code>String</code></a>, item: a) -&gt; a</p>
+<p>references: <a href="#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def trace[a](prefix: String, item: a) -&gt; a
 </code></pre>
 <a id="value-uncons-string"></a>
 <h3><a href="#uncons-string" name="uncons-string" class="anchor"><span class="anchor-link"></span></a><code>uncons_String</code></h3>
 <p>if this returns Some((h, t)) then arg == concat_String([char_to_String(h), t]) h is exactly one codepoint and t is the remaining suffix</p>
-<p>type signature: def uncons_String(arg: <a href="#type-string"><code>String</code></a>) -&gt; <a href="#type-option"><code>Option</code></a>[(<a href="#type-char"><code>Char</code></a>, <a href="#type-string"><code>String</code></a>)]</p>
+<p>references: <a href="#type-char"><code>Char</code></a>, <a href="#type-option"><code>Option</code></a>, <a href="#type-string"><code>String</code></a>, <a href="#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def uncons_String(arg: String) -&gt; Option[(Char, String)]
 </code></pre>
 <a id="value-uncurry2"></a>
 <h3><a href="#uncurry2" name="uncurry2" class="anchor"><span class="anchor-link"></span></a><code>uncurry2</code></h3>
 <p>Some utilities for dealing with functions</p>
-<p>type signature: def uncurry2[a, b, c](f: a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c</p>
 <pre class="prettyprint"><code class="language-bosatsu">def uncurry2[a, b, c](f: a -&gt; b -&gt; c) -&gt; (a, b) -&gt; c
 </code></pre>
 <a id="value-uncurry3"></a>
 <h3><a href="#uncurry3" name="uncurry3" class="anchor"><span class="anchor-link"></span></a><code>uncurry3</code></h3>
 <p>Convert a curried 3-argument function into one that takes a tuple of 3 arguments.</p>
-<p>type signature: def uncurry3[a, b, c, d](f: a -&gt; b -&gt; c -&gt; d) -&gt; (a, b, c) -&gt; d</p>
 <pre class="prettyprint"><code class="language-bosatsu">def uncurry3[a, b, c, d](f: a -&gt; b -&gt; c -&gt; d) -&gt; (a, b, c) -&gt; d
 </code></pre>
 <a id="value-xor-int"></a>
 <h3><a href="#xor-int" name="xor-int" class="anchor"><span class="anchor-link"></span></a><code>xor_Int</code></h3>
 <p>Bitwise XOR.</p>
-<p>type signature: def xor_Int(a: <a href="#type-int"><code>Int</code></a>, b: <a href="#type-int"><code>Int</code></a>) -&gt; <a href="#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def xor_Int(a: Int, b: Int) -&gt; Int
 </code></pre>
 <div class="nav-next">
@@ -1904,7 +1902,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

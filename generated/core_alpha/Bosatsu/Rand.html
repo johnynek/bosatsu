@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -136,64 +136,64 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-bool-rand"></a>
 <h3><a href="#bool-rand" name="bool-rand" class="anchor"><span class="anchor-link"></span></a><code>bool_Rand</code></h3>
-<p>type signature: bool_Rand: <a href="#type-rand"><code>Rand</code></a>[<a href="Predef.html#type-bool"><code>Bool</code></a>]</p>
+<p>references: <a href="Predef.html#type-bool"><code>Bool</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">bool_Rand: Rand[Bool]
 </code></pre>
 <a id="value-const-rand"></a>
 <h3><a href="#const-rand" name="const-rand" class="anchor"><span class="anchor-link"></span></a><code>const_Rand</code></h3>
-<p>type signature: def const_Rand[a](a: a) -&gt; <a href="#type-rand"><code>Rand</code></a>[a]</p>
+<p>references: <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def const_Rand[a](a: a) -&gt; Rand[a]
 </code></pre>
 <a id="value-flat-map-rand"></a>
 <h3><a href="#flat-map-rand" name="flat-map-rand" class="anchor"><span class="anchor-link"></span></a><code>flat_map_Rand</code></h3>
-<p>type signature: def flat_map_Rand[a,  b](r: <a href="#type-rand"><code>Rand</code></a>[a], fn: a -&gt; <a href="#type-rand"><code>Rand</code></a>[b]) -&gt; <a href="#type-rand"><code>Rand</code></a>[b]</p>
+<p>references: <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def flat_map_Rand[a, b](r: Rand[a], fn: a -&gt; Rand[b]) -&gt; Rand[b]
 </code></pre>
 <a id="value-from-pair"></a>
 <h3><a href="#from-pair" name="from-pair" class="anchor"><span class="anchor-link"></span></a><code>from_pair</code></h3>
-<p>type signature: def from_pair[a ](left: <a href="#type-rand"><code>Rand</code></a>[a], right: <a href="#type-rand"><code>Rand</code></a>[a]) -&gt; <a href="#type-rand"><code>Rand</code></a>[a]</p>
+<p>references: <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def from_pair[a](left: Rand[a], right: Rand[a]) -&gt; Rand[a]
 </code></pre>
 <a id="value-geometric-int"></a>
 <h3><a href="#geometric-int" name="geometric-int" class="anchor"><span class="anchor-link"></span></a><code>geometric_Int</code></h3>
 <p>geometric distribution with mean 1</p>
-<p>type signature: geometric_Int: <a href="#type-rand"><code>Rand</code></a>[<a href="Predef.html#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">geometric_Int: Rand[Int]
 </code></pre>
 <a id="value-int-range"></a>
 <h3><a href="#int-range" name="int-range" class="anchor"><span class="anchor-link"></span></a><code>int_range</code></h3>
 <p>if you pass high &lt;= 0, you get const_Rand(0)</p>
-<p>type signature: def int_range(high: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="#type-rand"><code>Rand</code></a>[<a href="Predef.html#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def int_range(high: Int) -&gt; Rand[Int]
 </code></pre>
 <a id="value-map-rand"></a>
 <h3><a href="#map-rand" name="map-rand" class="anchor"><span class="anchor-link"></span></a><code>map_Rand</code></h3>
-<p>type signature: def map_Rand[a,  b](r: <a href="#type-rand"><code>Rand</code></a>[a], fn: a -&gt; b) -&gt; <a href="#type-rand"><code>Rand</code></a>[b]</p>
+<p>references: <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_Rand[a, b](r: Rand[a], fn: a -&gt; b) -&gt; Rand[b]
 </code></pre>
 <a id="value-nat-range"></a>
 <h3><a href="#nat-range" name="nat-range" class="anchor"><span class="anchor-link"></span></a><code>nat_range</code></h3>
-<p>type signature: def nat_range(high: <a href="Num/Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a>) -&gt; <a href="#type-rand"><code>Rand</code></a>[<a href="Num/Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a>]</p>
+<p>references: <a href="Num/Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def nat_range(high: Bosatsu/Num/Nat::Nat) -&gt; Rand[Bosatsu/Num/Nat::Nat]
 </code></pre>
 <a id="value-one-of"></a>
 <h3><a href="#one-of" name="one-of" class="anchor"><span class="anchor-link"></span></a><code>one_of</code></h3>
-<p>type signature: def one_of[a ](head: <a href="#type-rand"><code>Rand</code></a>[a], tail: <a href="Predef.html#type-list"><code>List</code></a>[<a href="#type-rand"><code>Rand</code></a>[a]]) -&gt; <a href="#type-rand"><code>Rand</code></a>[a]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def one_of[a](head: Rand[a], tail: List[Rand[a]]) -&gt; Rand[a]
 </code></pre>
 <a id="value-prod-rand"></a>
 <h3><a href="#prod-rand" name="prod-rand" class="anchor"><span class="anchor-link"></span></a><code>prod_Rand</code></h3>
-<p>type signature: def prod_Rand[a,  b](ra: <a href="#type-rand"><code>Rand</code></a>[a], rb: <a href="#type-rand"><code>Rand</code></a>[b]) -&gt; <a href="#type-rand"><code>Rand</code></a>[(a, b)]</p>
+<p>references: <a href="#type-rand"><code>Rand</code></a>, <a href="Predef.html#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -&gt; Rand[(a, b)]
 </code></pre>
 <a id="value-run-rand"></a>
 <h3><a href="#run-rand" name="run-rand" class="anchor"><span class="anchor-link"></span></a><code>run_Rand</code></h3>
-<p>type signature: def run_Rand[a ](rand: <a href="#type-rand"><code>Rand</code></a>[a], seed: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; a</p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def run_Rand[a](rand: Rand[a], seed: Int) -&gt; a
 </code></pre>
 <a id="value-sequence-rand"></a>
 <h3><a href="#sequence-rand" name="sequence-rand" class="anchor"><span class="anchor-link"></span></a><code>sequence_Rand</code></h3>
-<p>type signature: def sequence_Rand[a ](rands: <a href="Predef.html#type-list"><code>List</code></a>[<a href="#type-rand"><code>Rand</code></a>[a]]) -&gt; <a href="#type-rand"><code>Rand</code></a>[<a href="Predef.html#type-list"><code>List</code></a>[a]]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="#type-rand"><code>Rand</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sequence_Rand[a](rands: List[Rand[a]]) -&gt; Rand[List[a]]
 </code></pre>
 <div class="nav-next">
@@ -273,7 +273,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

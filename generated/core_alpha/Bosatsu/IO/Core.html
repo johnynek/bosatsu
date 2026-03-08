@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -219,162 +219,162 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-close"></a>
 <h3><a href="#close" name="close" class="anchor"><span class="anchor-link"></span></a><code>close</code></h3>
-<p>type signature: def close(h: <a href="#type-handle"><code>Handle</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def close(h: Handle) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-copy-bytes"></a>
 <h3><a href="#copy-bytes" name="copy-bytes" class="anchor"><span class="anchor-link"></span></a><code>copy_bytes</code></h3>
-<p>type signature: def copy_bytes(  src: <a href="#type-handle"><code>Handle</code></a>,  dst: <a href="#type-handle"><code>Handle</code></a>,  chunk_size: <a href="../Predef.html#type-int"><code>Int</code></a>,  max_total: <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="../Predef.html#type-int"><code>Int</code></a>] ) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def copy_bytes(src: Handle, dst: Handle, chunk_size: Int, max_total: Option[Int]) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
 </code></pre>
 <a id="value-create-temp-dir"></a>
 <h3><a href="#create-temp-dir" name="create-temp-dir" class="anchor"><span class="anchor-link"></span></a><code>create_temp_dir</code></h3>
-<p>type signature: def create_temp_dir(  dir: <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-path"><code>Path</code></a>],  prefix: <a href="../Predef.html#type-string"><code>String</code></a> ) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-path"><code>Path</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def create_temp_dir(dir: Option[Path], prefix: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Path]
 </code></pre>
 <a id="value-create-temp-file"></a>
 <h3><a href="#create-temp-file" name="create-temp-file" class="anchor"><span class="anchor-link"></span></a><code>create_temp_file</code></h3>
-<p>type signature: def create_temp_file(  dir: <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-path"><code>Path</code></a>],  prefix: <a href="../Predef.html#type-string"><code>String</code></a>,  suffix: <a href="../Predef.html#type-string"><code>String</code></a> ) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-tempfile"><code>TempFile</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-string"><code>String</code></a>, <a href="#type-tempfile"><code>TempFile</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def create_temp_file(dir: Option[Path], prefix: String, suffix: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, TempFile]
 </code></pre>
 <a id="value-duration-to-nanos"></a>
 <h3><a href="#duration-to-nanos" name="duration-to-nanos" class="anchor"><span class="anchor-link"></span></a><code>duration_to_nanos</code></h3>
-<p>type signature: def duration_to_nanos(d: <a href="#type-duration"><code>Duration</code></a>) -&gt; <a href="../Predef.html#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-duration"><code>Duration</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def duration_to_nanos(d: Duration) -&gt; Int
 </code></pre>
 <a id="value-flush"></a>
 <h3><a href="#flush" name="flush" class="anchor"><span class="anchor-link"></span></a><code>flush</code></h3>
-<p>type signature: def flush(h: <a href="#type-handle"><code>Handle</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def flush(h: Handle) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-get-env"></a>
 <h3><a href="#get-env" name="get-env" class="anchor"><span class="anchor-link"></span></a><code>get_env</code></h3>
-<p>type signature: def get_env(name: <a href="../Predef.html#type-string"><code>String</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="../Predef.html#type-string"><code>String</code></a>]]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def get_env(name: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
 </code></pre>
 <a id="value-list-dir"></a>
 <h3><a href="#list-dir" name="list-dir" class="anchor"><span class="anchor-link"></span></a><code>list_dir</code></h3>
-<p>type signature: def list_dir(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-list"><code>List</code></a>[<a href="#type-path"><code>Path</code></a>]]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-list"><code>List</code></a>, <a href="#type-path"><code>Path</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def list_dir(path: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, List[Path]]
 </code></pre>
 <a id="value-mkdir"></a>
 <h3><a href="#mkdir" name="mkdir" class="anchor"><span class="anchor-link"></span></a><code>mkdir</code></h3>
-<p>type signature: def mkdir(path: <a href="#type-path"><code>Path</code></a>, recursive: <a href="../Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="../Predef.html#type-bool"><code>Bool</code></a>, <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def mkdir(path: Path, recursive: Bool) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-now-mono"></a>
 <h3><a href="#now-mono" name="now-mono" class="anchor"><span class="anchor-link"></span></a><code>now_mono</code></h3>
-<p>type signature: now_mono: <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-duration"><code>Duration</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-duration"><code>Duration</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">now_mono: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Duration]
 </code></pre>
 <a id="value-now-wall"></a>
 <h3><a href="#now-wall" name="now-wall" class="anchor"><span class="anchor-link"></span></a><code>now_wall</code></h3>
-<p>type signature: now_wall: <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-instant"><code>Instant</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-instant"><code>Instant</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">now_wall: Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Instant]
 </code></pre>
 <a id="value-open-file"></a>
 <h3><a href="#open-file" name="open-file" class="anchor"><span class="anchor-link"></span></a><code>open_file</code></h3>
-<p>type signature: def open_file(path: <a href="#type-path"><code>Path</code></a>, mode: <a href="#type-openmode"><code>OpenMode</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-handle"><code>Handle</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="#type-openmode"><code>OpenMode</code></a>, <a href="#type-path"><code>Path</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def open_file(path: Path, mode: OpenMode) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Handle]
 </code></pre>
 <a id="value-path-file-name"></a>
 <h3><a href="#path-file-name" name="path-file-name" class="anchor"><span class="anchor-link"></span></a><code>path_file_name</code></h3>
-<p>type signature: def path_file_name(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="../Predef.html#type-string"><code>String</code></a>]</p>
+<p>references: <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def path_file_name(path: Path) -&gt; Option[String]
 </code></pre>
 <a id="value-path-join"></a>
 <h3><a href="#path-join" name="path-join" class="anchor"><span class="anchor-link"></span></a><code>path_join</code></h3>
-<p>type signature: def path_join(base: <a href="#type-path"><code>Path</code></a>, child: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="#type-path"><code>Path</code></a></p>
+<p>references: <a href="#type-path"><code>Path</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def path_join(base: Path, child: Path) -&gt; Path
 </code></pre>
 <a id="value-path-parent"></a>
 <h3><a href="#path-parent" name="path-parent" class="anchor"><span class="anchor-link"></span></a><code>path_parent</code></h3>
-<p>type signature: def path_parent(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-path"><code>Path</code></a>]</p>
+<p>references: <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def path_parent(path: Path) -&gt; Option[Path]
 </code></pre>
 <a id="value-path-sep"></a>
 <h3><a href="#path-sep" name="path-sep" class="anchor"><span class="anchor-link"></span></a><code>path_sep</code></h3>
-<p>type signature: path_sep: <a href="../Predef.html#type-string"><code>String</code></a></p>
+<p>references: <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">path_sep: String
 </code></pre>
 <a id="value-path-to-string"></a>
 <h3><a href="#path-to-string" name="path-to-string" class="anchor"><span class="anchor-link"></span></a><code>path_to_String</code></h3>
-<p>type signature: def path_to_String(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Predef.html#type-string"><code>String</code></a></p>
+<p>references: <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def path_to_String(path: Path) -&gt; String
 </code></pre>
 <a id="value-read-all-bytes"></a>
 <h3><a href="#read-all-bytes" name="read-all-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_all_bytes</code></h3>
-<p>type signature: def read_all_bytes(h: <a href="#type-handle"><code>Handle</code></a>, chunk_size: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>]</p>
+<p>references: <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>, <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_all_bytes(h: Handle, chunk_size: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Bosatsu/IO/Bytes::Bytes]
 </code></pre>
 <a id="value-read-bytes"></a>
 <h3><a href="#read-bytes" name="read-bytes" class="anchor"><span class="anchor-link"></span></a><code>read_bytes</code></h3>
-<p>type signature: def read_bytes(h: <a href="#type-handle"><code>Handle</code></a>, max_bytes: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>]]</p>
+<p>references: <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>, <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_bytes(h: Handle, max_bytes: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[Bosatsu/IO/Bytes::Bytes]]
 </code></pre>
 <a id="value-read-utf8"></a>
 <h3><a href="#read-utf8" name="read-utf8" class="anchor"><span class="anchor-link"></span></a><code>read_utf8</code></h3>
-<p>type signature: def read_utf8(h: <a href="#type-handle"><code>Handle</code></a>, max_chars: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="../Predef.html#type-string"><code>String</code></a>]]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def read_utf8(h: Handle, max_chars: Int) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[String]]
 </code></pre>
 <a id="value-remove"></a>
 <h3><a href="#remove" name="remove" class="anchor"><span class="anchor-link"></span></a><code>remove</code></h3>
-<p>type signature: def remove(path: <a href="#type-path"><code>Path</code></a>, recursive: <a href="../Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="../Predef.html#type-bool"><code>Bool</code></a>, <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def remove(path: Path, recursive: Bool) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-rename"></a>
 <h3><a href="#rename" name="rename" class="anchor"><span class="anchor-link"></span></a><code>rename</code></h3>
-<p>type signature: def rename(from: <a href="#type-path"><code>Path</code></a>, to: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def rename(from: Path, to: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-sleep"></a>
 <h3><a href="#sleep" name="sleep" class="anchor"><span class="anchor-link"></span></a><code>sleep</code></h3>
-<p>type signature: def sleep(d: <a href="#type-duration"><code>Duration</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-duration"><code>Duration</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sleep(d: Duration) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-spawn"></a>
 <h3><a href="#spawn" name="spawn" class="anchor"><span class="anchor-link"></span></a><code>spawn</code></h3>
-<p>type signature: def spawn(  cmd: <a href="../Predef.html#type-string"><code>String</code></a>,  args: <a href="../Predef.html#type-list"><code>List</code></a>[<a href="../Predef.html#type-string"><code>String</code></a>],  stdio: <a href="#type-stdioconfig"><code>StdioConfig</code></a> ) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="#type-spawnresult"><code>SpawnResult</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-list"><code>List</code></a>, <a href="#type-spawnresult"><code>SpawnResult</code></a>, <a href="#type-stdioconfig"><code>StdioConfig</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def spawn(cmd: String, args: List[String], stdio: StdioConfig) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, SpawnResult]
 </code></pre>
 <a id="value-stat"></a>
 <h3><a href="#stat" name="stat" class="anchor"><span class="anchor-link"></span></a><code>stat</code></h3>
-<p>type signature: def stat(path: <a href="#type-path"><code>Path</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-filestat"><code>FileStat</code></a>]]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-filestat"><code>FileStat</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def stat(path: Path) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Option[FileStat]]
 </code></pre>
 <a id="value-stderr"></a>
 <h3><a href="#stderr" name="stderr" class="anchor"><span class="anchor-link"></span></a><code>stderr</code></h3>
-<p>type signature: stderr: <a href="#type-handle"><code>Handle</code></a></p>
+<p>references: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stderr: Handle
 </code></pre>
 <a id="value-stdin"></a>
 <h3><a href="#stdin" name="stdin" class="anchor"><span class="anchor-link"></span></a><code>stdin</code></h3>
-<p>type signature: stdin: <a href="#type-handle"><code>Handle</code></a></p>
+<p>references: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stdin: Handle
 </code></pre>
 <a id="value-stdout"></a>
 <h3><a href="#stdout" name="stdout" class="anchor"><span class="anchor-link"></span></a><code>stdout</code></h3>
-<p>type signature: stdout: <a href="#type-handle"><code>Handle</code></a></p>
+<p>references: <a href="#type-handle"><code>Handle</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">stdout: Handle
 </code></pre>
 <a id="value-string-to-path"></a>
 <h3><a href="#string-to-path" name="string-to-path" class="anchor"><span class="anchor-link"></span></a><code>string_to_Path</code></h3>
-<p>type signature: def string_to_Path(s: <a href="../Predef.html#type-string"><code>String</code></a>) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-path"><code>Path</code></a>]</p>
+<p>references: <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-path"><code>Path</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def string_to_Path(s: String) -&gt; Option[Path]
 </code></pre>
 <a id="value-wait"></a>
 <h3><a href="#wait" name="wait" class="anchor"><span class="anchor-link"></span></a><code>wait</code></h3>
-<p>type signature: def wait(p: <a href="#type-process"><code>Process</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="#type-process"><code>Process</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def wait(p: Process) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, Int]
 </code></pre>
 <a id="value-write-bytes"></a>
 <h3><a href="#write-bytes" name="write-bytes" class="anchor"><span class="anchor-link"></span></a><code>write_bytes</code></h3>
-<p>type signature: def write_bytes(h: <a href="#type-handle"><code>Handle</code></a>, bytes: <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Bytes.html#type-bytes"><code>Bosatsu/IO/Bytes::Bytes</code></a>, <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def write_bytes(h: Handle, bytes: Bosatsu/IO/Bytes::Bytes) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <a id="value-write-utf8"></a>
 <h3><a href="#write-utf8" name="write-utf8" class="anchor"><span class="anchor-link"></span></a><code>write_utf8</code></h3>
-<p>type signature: def write_utf8(h: <a href="#type-handle"><code>Handle</code></a>, s: <a href="../Predef.html#type-string"><code>String</code></a>) -&gt; <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>[<a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, ()]</p>
+<p>references: <a href="Error.html#type-ioerror"><code>Bosatsu/IO/Error::IOError</code></a>, <a href="../Prog.html#type-prog"><code>Bosatsu/Prog::Prog</code></a>, <a href="#type-handle"><code>Handle</code></a>, <a href="../Predef.html#type-string"><code>String</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def write_utf8(h: Handle, s: String) -&gt; Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 </code></pre>
 <div class="nav-next">
@@ -454,7 +454,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

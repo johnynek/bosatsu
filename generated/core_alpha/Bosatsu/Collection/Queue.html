@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -135,53 +135,53 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-empty-queue"></a>
 <h3><a href="#empty-queue" name="empty-queue" class="anchor"><span class="anchor-link"></span></a><code>empty_Queue</code></h3>
-<p>type signature: empty_Queue: forall a: *. <a href="#type-queue"><code>Queue</code></a>[a]</p>
+<p>references: <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">empty_Queue: forall a: *. Queue[a]
 </code></pre>
 <a id="value-eq-queue"></a>
 <h3><a href="#eq-queue" name="eq-queue" class="anchor"><span class="anchor-link"></span></a><code>eq_Queue</code></h3>
-<p>type signature: def eq_Queue[a ](eq_fn: (a, a) -&gt; <a href="../Predef.html#type-bool"><code>Bool</code></a>) -&gt; (<a href="#type-queue"><code>Queue</code></a>[a], <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="../Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="../Predef.html#type-bool"><code>Bool</code></a>, <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_Queue[a](eq_fn: (a, a) -&gt; Bool) -&gt; (Queue[a], Queue[a]) -&gt; Bool
 </code></pre>
 <a id="value-fold-queue"></a>
 <h3><a href="#fold-queue" name="fold-queue" class="anchor"><span class="anchor-link"></span></a><code>fold_Queue</code></h3>
-<p>type signature: def fold_Queue[a,  b](arg1: <a href="#type-queue"><code>Queue</code></a>[a], init: b, fold_fn: (b, a) -&gt; b) -&gt; b</p>
+<p>references: <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def fold_Queue[a, b](arg1: Queue[a], init: b, fold_fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
 <a id="value-from-list"></a>
 <h3><a href="#from-list" name="from-list" class="anchor"><span class="anchor-link"></span></a><code>from_List</code></h3>
-<p>type signature: def from_List[a ](list: <a href="../Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="#type-queue"><code>Queue</code></a>[a]</p>
+<p>references: <a href="../Predef.html#type-list"><code>List</code></a>, <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def from_List[a](list: List[a]) -&gt; Queue[a]
 </code></pre>
 <a id="value-pop"></a>
 <h3><a href="#pop" name="pop" class="anchor"><span class="anchor-link"></span></a><code>pop</code></h3>
 <p>drop an item off and return the rest, or empty</p>
-<p>type signature: def pop[a](queue: <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="#type-queue"><code>Queue</code></a>[a]</p>
+<p>references: <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def pop[a](queue: Queue[a]) -&gt; Queue[a]
 </code></pre>
 <a id="value-pop-value"></a>
 <h3><a href="#pop-value" name="pop-value" class="anchor"><span class="anchor-link"></span></a><code>pop_value</code></h3>
-<p>type signature: def pop_value[a ](queue: <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[a]</p>
+<p>references: <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def pop_value[a](queue: Queue[a]) -&gt; Option[a]
 </code></pre>
 <a id="value-push"></a>
 <h3><a href="#push" name="push" class="anchor"><span class="anchor-link"></span></a><code>push</code></h3>
-<p>type signature: def push[a](arg1: <a href="#type-queue"><code>Queue</code></a>[a], item: a) -&gt; <a href="#type-queue"><code>Queue</code></a>[a]</p>
+<p>references: <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def push[a](arg1: Queue[a], item: a) -&gt; Queue[a]
 </code></pre>
 <a id="value-reverse-queue"></a>
 <h3><a href="#reverse-queue" name="reverse-queue" class="anchor"><span class="anchor-link"></span></a><code>reverse_Queue</code></h3>
-<p>type signature: def reverse_Queue[a](arg1: <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="#type-queue"><code>Queue</code></a>[a]</p>
+<p>references: <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def reverse_Queue[a](arg1: Queue[a]) -&gt; Queue[a]
 </code></pre>
 <a id="value-to-list"></a>
 <h3><a href="#to-list" name="to-list" class="anchor"><span class="anchor-link"></span></a><code>to_List</code></h3>
-<p>type signature: def to_List[a ](arg1: <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="../Predef.html#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="../Predef.html#type-list"><code>List</code></a>, <a href="#type-queue"><code>Queue</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def to_List[a](arg1: Queue[a]) -&gt; List[a]
 </code></pre>
 <a id="value-unpush"></a>
 <h3><a href="#unpush" name="unpush" class="anchor"><span class="anchor-link"></span></a><code>unpush</code></h3>
-<p>type signature: def unpush[a ](queue: <a href="#type-queue"><code>Queue</code></a>[a]) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[(a, <a href="#type-queue"><code>Queue</code></a>[a])]</p>
+<p>references: <a href="../Predef.html#type-option"><code>Option</code></a>, <a href="#type-queue"><code>Queue</code></a>, <a href="../Predef.html#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def unpush[a](queue: Queue[a]) -&gt; Option[(a, Queue[a])]
 </code></pre>
 <div class="nav-next">
@@ -261,7 +261,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

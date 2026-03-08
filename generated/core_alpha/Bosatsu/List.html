@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -130,62 +130,62 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-any"></a>
 <h3><a href="#any" name="any" class="anchor"><span class="anchor-link"></span></a><code>any</code></h3>
-<p>type signature: def any(as: <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-bool"><code>Bool</code></a>]) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="Predef.html#type-bool"><code>Bool</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def any(as: List[Bool]) -&gt; Bool
 </code></pre>
 <a id="value-eq-list"></a>
 <h3><a href="#eq-list" name="eq-list" class="anchor"><span class="anchor-link"></span></a><code>eq_List</code></h3>
-<p>type signature: def eq_List[a ](fn: (a, a) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; (<a href="Predef.html#type-list"><code>List</code></a>[a], <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="Predef.html#type-bool"><code>Bool</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_List[a](fn: (a, a) -&gt; Bool) -&gt; (List[a], List[a]) -&gt; Bool
 </code></pre>
 <a id="value-exists"></a>
 <h3><a href="#exists" name="exists" class="anchor"><span class="anchor-link"></span></a><code>exists</code></h3>
-<p>type signature: def exists[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], fn: a -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="Predef.html#type-bool"><code>Bool</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def exists[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
 </code></pre>
 <a id="value-for-all"></a>
 <h3><a href="#for-all" name="for-all" class="anchor"><span class="anchor-link"></span></a><code>for_all</code></h3>
-<p>type signature: def for_all[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], fn: a -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a>) -&gt; <a href="Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="Predef.html#type-bool"><code>Bool</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def for_all[a](xs: List[a], fn: a -&gt; Bool) -&gt; Bool
 </code></pre>
 <a id="value-get-list"></a>
 <h3><a href="#get-list" name="get-list" class="anchor"><span class="anchor-link"></span></a><code>get_List</code></h3>
-<p>type signature: def get_List[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], idx: <a href="Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[a]</p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def get_List[a](xs: List[a], idx: Int) -&gt; Option[a]
 </code></pre>
 <a id="value-head"></a>
 <h3><a href="#head" name="head" class="anchor"><span class="anchor-link"></span></a><code>head</code></h3>
-<p>type signature: def head[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[a]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def head[a](xs: List[a]) -&gt; Option[a]
 </code></pre>
 <a id="value-set-list"></a>
 <h3><a href="#set-list" name="set-list" class="anchor"><span class="anchor-link"></span></a><code>set_List</code></h3>
-<p>type signature: def set_List[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a], idx: <a href="Predef.html#type-int"><code>Int</code></a>, value: a) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[<a href="Predef.html#type-list"><code>List</code></a>[a]]</p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def set_List[a](xs: List[a], idx: Int, value: a) -&gt; Option[List[a]]
 </code></pre>
 <a id="value-size"></a>
 <h3><a href="#size" name="size" class="anchor"><span class="anchor-link"></span></a><code>size</code></h3>
-<p>type signature: def size[a ](list: <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Num/Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a></p>
+<p>references: <a href="Num/Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def size[a](list: List[a]) -&gt; Bosatsu/Num/Nat::Nat
 </code></pre>
 <a id="value-sort"></a>
 <h3><a href="#sort" name="sort" class="anchor"><span class="anchor-link"></span></a><code>sort</code></h3>
-<p>type signature: def sort[a ](ord: <a href="Predef.html#type-order"><code>Order</code></a>[a], list: <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-list"><code>List</code></a>[a]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-order"><code>Order</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sort[a](ord: Order[a], list: List[a]) -&gt; List[a]
 </code></pre>
 <a id="value-sum"></a>
 <h3><a href="#sum" name="sum" class="anchor"><span class="anchor-link"></span></a><code>sum</code></h3>
-<p>type signature: def sum(as: <a href="Predef.html#type-list"><code>List</code></a>[<a href="Predef.html#type-int"><code>Int</code></a>]) -&gt; <a href="Predef.html#type-int"><code>Int</code></a></p>
+<p>references: <a href="Predef.html#type-int"><code>Int</code></a>, <a href="Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sum(as: List[Int]) -&gt; Int
 </code></pre>
 <a id="value-uncons"></a>
 <h3><a href="#uncons" name="uncons" class="anchor"><span class="anchor-link"></span></a><code>uncons</code></h3>
-<p>type signature: def uncons[a ](xs: <a href="Predef.html#type-list"><code>List</code></a>[a]) -&gt; <a href="Predef.html#type-option"><code>Option</code></a>[(a, <a href="Predef.html#type-list"><code>List</code></a>[a])]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-option"><code>Option</code></a>, <a href="Predef.html#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def uncons[a](xs: List[a]) -&gt; Option[(a, List[a])]
 </code></pre>
 <a id="value-zip"></a>
 <h3><a href="#zip" name="zip" class="anchor"><span class="anchor-link"></span></a><code>zip</code></h3>
-<p>type signature: def zip[a,  b ](left: <a href="Predef.html#type-list"><code>List</code></a>[a], right: <a href="Predef.html#type-list"><code>List</code></a>[b]) -&gt; <a href="Predef.html#type-list"><code>List</code></a>[(a, b)]</p>
+<p>references: <a href="Predef.html#type-list"><code>List</code></a>, <a href="Predef.html#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def zip[a, b](left: List[a], right: List[b]) -&gt; List[(a, b)]
 </code></pre>
 <div class="nav-next">
@@ -265,7 +265,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -143,90 +143,90 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-add-binnat"></a>
 <h3><a href="#add-binnat" name="add-binnat" class="anchor"><span class="anchor-link"></span></a><code>add_BinNat</code></h3>
-<p>type signature: def add_BinNat(left: <a href="#type-binnat"><code>BinNat</code></a>, right: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def add_BinNat(left: BinNat, right: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-cmp-binnat"></a>
 <h3><a href="#cmp-binnat" name="cmp-binnat" class="anchor"><span class="anchor-link"></span></a><code>cmp_BinNat</code></h3>
-<p>type signature: def cmp_BinNat(a: <a href="#type-binnat"><code>BinNat</code></a>, b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="../Predef.html#type-comparison"><code>Comparison</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-comparison"><code>Comparison</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def cmp_BinNat(a: BinNat, b: BinNat) -&gt; Comparison
 </code></pre>
 <a id="value-div2"></a>
 <h3><a href="#div2" name="div2" class="anchor"><span class="anchor-link"></span></a><code>div2</code></h3>
-<p>type signature: def div2(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def div2(b: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-divmod"></a>
 <h3><a href="#divmod" name="divmod" class="anchor"><span class="anchor-link"></span></a><code>divmod</code></h3>
-<p>type signature: def divmod(numerator: <a href="#type-binnat"><code>BinNat</code></a>, divisor: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; (<a href="#type-binnat"><code>BinNat</code></a>, <a href="#type-binnat"><code>BinNat</code></a>)</p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-tuple2"><code>Tuple2</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def divmod(numerator: BinNat, divisor: BinNat) -&gt; (BinNat, BinNat)
 </code></pre>
 <a id="value-eq-binnat"></a>
 <h3><a href="#eq-binnat" name="eq-binnat" class="anchor"><span class="anchor-link"></span></a><code>eq_BinNat</code></h3>
 <p>this is more efficient potentially than cmp_BinNat because at the first difference we can stop. In the worst case of equality, the cost is the same.</p>
-<p>type signature: def eq_BinNat(a: <a href="#type-binnat"><code>BinNat</code></a>, b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="../Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-bool"><code>Bool</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def eq_BinNat(a: BinNat, b: BinNat) -&gt; Bool
 </code></pre>
 <a id="value-exp"></a>
 <h3><a href="#exp" name="exp" class="anchor"><span class="anchor-link"></span></a><code>exp</code></h3>
-<p>type signature: def exp(base: <a href="#type-binnat"><code>BinNat</code></a>, power: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def exp(base: BinNat, power: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-is-even"></a>
 <h3><a href="#is-even" name="is-even" class="anchor"><span class="anchor-link"></span></a><code>is_even</code></h3>
-<p>type signature: def is_even(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="../Predef.html#type-bool"><code>Bool</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-bool"><code>Bool</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def is_even(b: BinNat) -&gt; Bool
 </code></pre>
 <a id="value-mul2"></a>
 <h3><a href="#mul2" name="mul2" class="anchor"><span class="anchor-link"></span></a><code>mul2</code></h3>
 <p>multiply by 2</p>
-<p>type signature: def mul2(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def mul2(b: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-next"></a>
 <h3><a href="#next" name="next" class="anchor"><span class="anchor-link"></span></a><code>next</code></h3>
 <p>Return the next number</p>
-<p>type signature: def next(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def next(b: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-prev"></a>
 <h3><a href="#prev" name="prev" class="anchor"><span class="anchor-link"></span></a><code>prev</code></h3>
 <p>Return the previous number if the number is &gt; 0, else return 0</p>
-<p>type signature: def prev(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def prev(b: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-sub-binnat"></a>
 <h3><a href="#sub-binnat" name="sub-binnat" class="anchor"><span class="anchor-link"></span></a><code>sub_BinNat</code></h3>
-<p>type signature: def sub_BinNat(left: <a href="#type-binnat"><code>BinNat</code></a>, right: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sub_BinNat(left: BinNat, right: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-sub-option"></a>
 <h3><a href="#sub-option" name="sub-option" class="anchor"><span class="anchor-link"></span></a><code>sub_Option</code></h3>
-<p>type signature: def sub_Option(left: <a href="#type-binnat"><code>BinNat</code></a>, right: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="../Predef.html#type-option"><code>Option</code></a>[<a href="#type-binnat"><code>BinNat</code></a>]</p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def sub_Option(left: BinNat, right: BinNat) -&gt; Option[BinNat]
 </code></pre>
 <a id="value-times-binnat"></a>
 <h3><a href="#times-binnat" name="times-binnat" class="anchor"><span class="anchor-link"></span></a><code>times_BinNat</code></h3>
 <p>multiply two BinNat together</p>
-<p>type signature: def times_BinNat(left: <a href="#type-binnat"><code>BinNat</code></a>, right: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def times_BinNat(left: BinNat, right: BinNat) -&gt; BinNat
 </code></pre>
 <a id="value-to-binnat"></a>
 <h3><a href="#to-binnat" name="to-binnat" class="anchor"><span class="anchor-link"></span></a><code>to_BinNat</code></h3>
 <p>Convert a built in integer to a BinNat. &lt;= 0 is converted to 0</p>
-<p>type signature: def to_BinNat(n: <a href="../Predef.html#type-int"><code>Int</code></a>) -&gt; <a href="#type-binnat"><code>BinNat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def to_BinNat(n: Int) -&gt; BinNat
 </code></pre>
 <a id="value-to-int"></a>
 <h3><a href="#to-int" name="to-int" class="anchor"><span class="anchor-link"></span></a><code>to_Int</code></h3>
 <p>Convert a BinNat into the equivalent Int this is O(log(b)) operation</p>
-<p>type signature: def to_Int(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="../Predef.html#type-int"><code>Int</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def to_Int(b: BinNat) -&gt; Int
 </code></pre>
 <a id="value-to-nat"></a>
 <h3><a href="#to-nat" name="to-nat" class="anchor"><span class="anchor-link"></span></a><code>to_Nat</code></h3>
 <p>This is an O(b) operation</p>
-<p>type signature: def to_Nat(b: <a href="#type-binnat"><code>BinNat</code></a>) -&gt; <a href="Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a></p>
+<p>references: <a href="#type-binnat"><code>BinNat</code></a>, <a href="Nat.html#type-nat"><code>Bosatsu/Num/Nat::Nat</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def to_Nat(b: BinNat) -&gt; Bosatsu/Num/Nat::Nat
 </code></pre>
 <div class="nav-next">
@@ -306,7 +306,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -159,42 +159,42 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-build"></a>
 <h3><a href="#build" name="build" class="anchor"><span class="anchor-link"></span></a><code>build</code></h3>
-<p>type signature: def build(args: <a href="#type-libargs"><code>LibArgs</code></a>) -&gt; <a href="#type-build"><code>Build</code></a>[<a href="#type-library"><code>Library</code></a>]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="#type-libargs"><code>LibArgs</code></a>, <a href="#type-library"><code>Library</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def build(args: LibArgs) -&gt; Build[Library]
 </code></pre>
 <a id="value-build-all"></a>
 <h3><a href="#build-all" name="build-all" class="anchor"><span class="anchor-link"></span></a><code>build_all</code></h3>
-<p>type signature: def build_all[a ](items: <a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[<a href="#type-build"><code>Build</code></a>[a]]) -&gt; <a href="#type-build"><code>Build</code></a>[<a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[a]]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="Bosatsu/Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def build_all[a](items: List[Build[a]]) -&gt; Build[List[a]]
 </code></pre>
 <a id="value-empty"></a>
 <h3><a href="#empty" name="empty" class="anchor"><span class="anchor-link"></span></a><code>empty</code></h3>
-<p>type signature: empty: forall a: *. <a href="#type-build"><code>Build</code></a>[<a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[a]]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="Bosatsu/Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">empty: forall a: *. Build[List[a]]
 </code></pre>
 <a id="value-file"></a>
 <h3><a href="#file" name="file" class="anchor"><span class="anchor-link"></span></a><code>file</code></h3>
-<p>type signature: def file(s: <a href="Bosatsu/Predef.html#type-string"><code>String</code></a>) -&gt; <a href="#type-build"><code>Build</code></a>[<a href="#type-file"><code>File</code></a>]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="#type-file"><code>File</code></a>, <a href="Bosatsu/Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def file(s: String) -&gt; Build[File]
 </code></pre>
 <a id="value-files"></a>
 <h3><a href="#files" name="files" class="anchor"><span class="anchor-link"></span></a><code>files</code></h3>
-<p>type signature: def files(fs: <a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[<a href="Bosatsu/Predef.html#type-string"><code>String</code></a>]) -&gt; <a href="#type-build"><code>Build</code></a>[<a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[<a href="#type-file"><code>File</code></a>]]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="#type-file"><code>File</code></a>, <a href="Bosatsu/Predef.html#type-list"><code>List</code></a>, <a href="Bosatsu/Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def files(fs: List[String]) -&gt; Build[List[File]]
 </code></pre>
 <a id="value-library"></a>
 <h3><a href="#library" name="library" class="anchor"><span class="anchor-link"></span></a><code>library</code></h3>
-<p>type signature: def library(  sources: <a href="#type-build"><code>Build</code></a>[<a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[<a href="#type-file"><code>File</code></a>]],  deps: <a href="#type-build"><code>Build</code></a>[<a href="Bosatsu/Predef.html#type-list"><code>List</code></a>[<a href="#type-library"><code>Library</code></a>]] ) -&gt; <a href="#type-build"><code>Build</code></a>[<a href="#type-library"><code>Library</code></a>]</p>
+<p>references: <a href="#type-build"><code>Build</code></a>, <a href="#type-file"><code>File</code></a>, <a href="#type-library"><code>Library</code></a>, <a href="Bosatsu/Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def library(sources: Build[List[File]], deps: Build[List[Library]]) -&gt; Build[Library]
 </code></pre>
 <a id="value-map2-build"></a>
 <h3><a href="#map2-build" name="map2-build" class="anchor"><span class="anchor-link"></span></a><code>map2_Build</code></h3>
-<p>type signature: def map2_Build[a,  b,  c ](ba: <a href="#type-build"><code>Build</code></a>[a], bb: <a href="#type-build"><code>Build</code></a>[b], fn: (a, b) -&gt; c) -&gt; <a href="#type-build"><code>Build</code></a>[c]</p>
+<p>references: <a href="#type-build"><code>Build</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map2_Build[a, b, c](ba: Build[a], bb: Build[b], fn: (a, b) -&gt; c) -&gt; Build[c]
 </code></pre>
 <a id="value-map-build"></a>
 <h3><a href="#map-build" name="map-build" class="anchor"><span class="anchor-link"></span></a><code>map_Build</code></h3>
-<p>type signature: def map_Build[a,  b](b: <a href="#type-build"><code>Build</code></a>[a], fn: a -&gt; b) -&gt; <a href="#type-build"><code>Build</code></a>[b]</p>
+<p>references: <a href="#type-build"><code>Build</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_Build[a, b](b: Build[a], fn: a -&gt; b) -&gt; Build[b]
 </code></pre>
 <div class="nav-next">
@@ -274,7 +274,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-e0c5cde1*
+0.0.0+1-84c16668*
 </div>
 </div>
 <div class="nav-toc">
@@ -136,17 +136,17 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-forall-prop"></a>
 <h3><a href="#forall-prop" name="forall-prop" class="anchor"><span class="anchor-link"></span></a><code>forall_Prop</code></h3>
-<p>type signature: def forall_Prop[a](  rand: <a href="../Rand.html#type-rand"><code>Bosatsu/Rand::Rand</code></a>[a],  name: <a href="../Predef.html#type-string"><code>String</code></a>,  fn: a -&gt; <a href="../Predef.html#type-test"><code>Test</code></a> ) -&gt; <a href="#type-prop"><code>Prop</code></a></p>
+<p>references: <a href="../Rand.html#type-rand"><code>Bosatsu/Rand::Rand</code></a>, <a href="#type-prop"><code>Prop</code></a>, <a href="../Predef.html#type-string"><code>String</code></a>, <a href="../Predef.html#type-test"><code>Test</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def forall_Prop[a](rand: Bosatsu/Rand::Rand[a], name: String, fn: a -&gt; Test) -&gt; Prop
 </code></pre>
 <a id="value-run-prop"></a>
 <h3><a href="#run-prop" name="run-prop" class="anchor"><span class="anchor-link"></span></a><code>run_Prop</code></h3>
-<p>type signature: def run_Prop(  prop: <a href="#type-prop"><code>Prop</code></a>,  trials: <a href="../Predef.html#type-int"><code>Int</code></a>,  seed: <a href="../Predef.html#type-int"><code>Int</code></a> ) -&gt; <a href="../Predef.html#type-test"><code>Test</code></a></p>
+<p>references: <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="#type-prop"><code>Prop</code></a>, <a href="../Predef.html#type-test"><code>Test</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def run_Prop(prop: Prop, trials: Int, seed: Int) -&gt; Test
 </code></pre>
 <a id="value-suite-prop"></a>
 <h3><a href="#suite-prop" name="suite-prop" class="anchor"><span class="anchor-link"></span></a><code>suite_Prop</code></h3>
-<p>type signature: def suite_Prop(  name: <a href="../Predef.html#type-string"><code>String</code></a>,  props: <a href="../Predef.html#type-list"><code>List</code></a>[<a href="#type-prop"><code>Prop</code></a>] ) -&gt; <a href="#type-prop"><code>Prop</code></a></p>
+<p>references: <a href="../Predef.html#type-list"><code>List</code></a>, <a href="#type-prop"><code>Prop</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def suite_Prop(name: String, props: List[Prop]) -&gt; Prop
 </code></pre>
 <div class="nav-next">
@@ -226,7 +226,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-e0c5cde1-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-84c16668-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
