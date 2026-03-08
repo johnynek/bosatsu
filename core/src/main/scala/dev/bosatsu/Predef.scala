@@ -209,6 +209,11 @@ object Predef {
       .add(predefPackageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
       .add(
         predefPackageName,
+        "popcount_Int",
+        FfiCall.Fn1(PredefImpl.popcount_Int(_))
+      )
+      .add(
+        predefPackageName,
         "int_to_String",
         FfiCall.Fn1(PredefImpl.int_to_String(_))
       )
@@ -2909,6 +2914,9 @@ object PredefImpl {
 
   def not_Int(a: Value): Value =
     ExternalValue(notInt(intRaw(a)))
+
+  def popcount_Int(a: Value): Value =
+    VInt(i(a).bitCount())
 
   private def toIntExactIfRepresentable(v: BigInteger): Option[Int] = {
     val minInt = BigInteger.valueOf(Int.MinValue.toLong)

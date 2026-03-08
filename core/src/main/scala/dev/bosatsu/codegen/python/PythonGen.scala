@@ -1286,6 +1286,56 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("popcount_Int"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).mapN { (tmpv, tmpcount) =>
+                  Env.onLast(input.head) { a =>
+                    val normalized = Code
+                      .Ternary(
+                        Code.Const.Zero.evalMinus(a).evalMinus(Code.Const.One),
+                        a :< Code.Const.Zero,
+                        a
+                      )
+                      .simplify
+                    val useBuiltin =
+                      tmpcount := tmpv.dot(Code.Ident("bit_count"))()
+                    val fallback = Code.block(
+                      tmpcount := Code.Const.Zero,
+                      Code.While(
+                        tmpv,
+                        Code.block(
+                          tmpv := tmpv.eval(
+                            Code.Const.BitwiseAnd,
+                            tmpv.evalMinus(Code.Const.One)
+                          ),
+                          tmpcount := tmpcount + 1
+                        )
+                      )
+                    )
+                    Code
+                      .block(
+                        tmpv := normalized,
+                        Code.ifElseS(
+                          Code.Ident("hasattr")(
+                            tmpv,
+                            Code.PyString("bit_count")
+                          ),
+                          useBuiltin,
+                          fallback
+                        )
+                      )
+                      .withValue(tmpcount)
+                  }
+                }.flatten
+              },
+              1
+            )
+          ),
+          (
             Identifier.Name("gcd_Int"),
             (
               { input =>

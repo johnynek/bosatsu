@@ -320,6 +320,34 @@ static inline size_t bsts_small_twos_word_len(int64_t value) {
   return (bsts_abs_i64(value) >> 32) == 0U ? 1U : 2U;
 }
 
+#if defined(__clang__) || defined(__GNUC__)
+static inline uint32_t bsts_popcount_u32(uint32_t value) {
+  return (uint32_t)__builtin_popcount(value);
+}
+
+static inline uint32_t bsts_popcount_u64(uint64_t value) {
+  return (uint32_t)__builtin_popcountll(value);
+}
+#else
+static inline uint32_t bsts_popcount_u32(uint32_t value) {
+  uint32_t count = 0U;
+  while (value != 0U) {
+    value &= (value - 1U);
+    count += 1U;
+  }
+  return count;
+}
+
+static inline uint32_t bsts_popcount_u64(uint64_t value) {
+  uint32_t count = 0U;
+  while (value != 0U) {
+    value &= (value - 1U);
+    count += 1U;
+  }
+  return count;
+}
+#endif
+
 #define GET_SMALL_INT(v) bsts_small_int_decode((v))
 
 void bsts_load_op_from_small(int64_t value, uint32_t* words, BSTS_Int_Operand* op) {
@@ -2348,6 +2376,46 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
         return l;
     }
     return bsts_integer_shift_twos(l, shift_amount);
+}
+
+// Number of bits differing from the sign bit in two's complement representation.
+BValue bsts_integer_popcount(BValue v) {
+    uint64_t total = 0U;
+    if (IS_SMALL(v)) {
+      int64_t small = GET_SMALL_INT(v);
+      if (small >= 0) {
+        total = bsts_popcount_u64((uint64_t)small);
+      } else {
+        total = bsts_popcount_u64((uint64_t)(~small));
+      }
+      return bsts_integer_from_uint64(total);
+    }
+
+    BSTS_Integer* integer = GET_BIG_INT(v);
+    if (!integer->sign) {
+      for (size_t i = 0; i < integer->len; i++) {
+        total += (uint64_t)bsts_popcount_u32(integer->words[i]);
+      }
+    } else {
+      // For negative values x, popcount(x) = popcount(~x) = popcount((-x) - 1).
+      _Bool borrow = 1;
+      for (size_t i = 0; i < integer->len; i++) {
+        uint32_t word = integer->words[i];
+        uint32_t adjusted;
+        if (borrow) {
+          if (word == 0U) {
+            adjusted = UINT32_C(0xffffffff);
+          } else {
+            adjusted = word - 1U;
+            borrow = 0;
+          }
+        } else {
+          adjusted = word;
+        }
+        total += (uint64_t)bsts_popcount_u32(adjusted);
+      }
+    }
+    return bsts_integer_from_uint64(total);
 }
 
 typedef struct {
