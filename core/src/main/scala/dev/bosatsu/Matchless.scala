@@ -3591,6 +3591,14 @@ object Matchless {
       case ZeroSig extends HeadSig
       case SuccSig extends HeadSig
       case LitSig(lit: Lit)
+
+      def projectionArity: Int =
+        this match {
+          case EnumSig(_, _, arity, _) => arity
+          case StructSig(_, arity)     => arity
+          case SuccSig                 => 1
+          case LitSig(_) | ZeroSig     => 0
+        }
     }
     import HeadSig.*
 
@@ -3819,14 +3827,6 @@ object Matchless {
       bldr.toList
     }
 
-    def sigArity(sig: HeadSig): Int =
-      sig match {
-        case EnumSig(_, _, arity, _) => arity
-        case StructSig(_, arity)     => arity
-        case SuccSig                 => 1
-        case LitSig(_) | ZeroSig     => 0
-      }
-
     case class ColumnScore(
         colIdx: Int,
         distinctSigs: Int,
@@ -3855,10 +3855,12 @@ object Matchless {
       else {
         def scoreCol(colIdx: Int): ColumnScore = {
           val sigs = distinctInOrder(rows.mapFilter(r => headSig(r.pats(colIdx))))
+          // normalizeRow + peelPattern remove Var/Named/Annotation, so at this
+          // stage non-refutable patterns are exactly WildCard.
           val refutableRows = rows.count(r => r.pats(colIdx) != Pattern.WildCard)
           // We split once per distinct signature, so sum those arities as a
           // cheap proxy for added projection pressure in this column.
-          val arityPenalty = sigs.iterator.map(sigArity).sum
+          val arityPenalty = sigs.iterator.map(_.projectionArity).sum
           ColumnScore(
             colIdx = colIdx,
             distinctSigs = sigs.length,
@@ -3868,15 +3870,26 @@ object Matchless {
           )
         }
 
-        def better(next: ColumnScore, best: ColumnScore): Boolean =
-          if (next.distinctSigs != best.distinctSigs)
-            next.distinctSigs > best.distinctSigs
-          else if (next.refutableRows != best.refutableRows)
-            next.refutableRows > best.refutableRows
-          else if (next.arityPenalty != best.arityPenalty)
-            next.arityPenalty < best.arityPenalty
-          else
-            next.colIdx < best.colIdx
+        def better(next: ColumnScore, best: ColumnScore): Boolean = {
+          import java.lang.Integer.compare
+
+          val cmpDistinct = compare(next.distinctSigs, best.distinctSigs)
+          (cmpDistinct > 0) || {
+            (cmpDistinct == 0) && {
+              val cmpRefutable = compare(next.refutableRows, best.refutableRows)
+              (cmpRefutable > 0) || {
+                (cmpRefutable == 0) && {
+                  val cmpPenalty =
+                    compare(best.arityPenalty, next.arityPenalty)
+                  (cmpPenalty > 0) || {
+                    (cmpPenalty == 0) &&
+                    (compare(best.colIdx, next.colIdx) > 0)
+                  }
+                }
+              }
+            }
+          }
+        }
 
         val best =
           (1 until colCount).iterator
