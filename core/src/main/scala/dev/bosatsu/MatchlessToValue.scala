@@ -473,19 +473,21 @@ object MatchlessToValue {
                   else elseF(scope)
                 }
             }
-          case SwitchVariant(on, _, cases, default) =>
+          case SwitchVariant(on, famArities, cases, default) =>
             val onF = loop(on)
+            // Keep variant dispatch O(1) while preserving explicit default fallback.
             val caseFns =
-              cases.toList
-                .map { case (variant, branch) =>
-                  (variant, loop(branch))
-                }
-                .toMap
+              Array.fill[Option[Scoped[Value]]](famArities.length)(None)
+            cases.iterator.foreach { case (variant, branch) =>
+              caseFns(variant) = Some(loop(branch))
+            }
             lazy val defaultF = loop(default)
 
             Dynamic { (scope: Scope) =>
               val variant = onF(scope).asSum.variant
-              caseFns.getOrElse(variant, defaultF)(scope)
+              if ((variant >= 0) && (variant < caseFns.length))
+                caseFns(variant).getOrElse(defaultF)(scope)
+              else defaultF(scope)
             }
           case Always.SetChain(muts, expr) =>
             val values = muts.map { case (m, e) => (m, loop(e)) }
