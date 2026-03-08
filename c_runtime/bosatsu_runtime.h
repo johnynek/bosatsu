@@ -162,6 +162,8 @@ BValue bsts_integer_xor(BValue left, BValue right);
 BValue bsts_integer_and(BValue l, BValue r);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_shift_left(BValue l, BValue r);
+// &Integer -> Integer
+BValue bsts_integer_popcount(BValue v);
 // (&Integer, &Integer) -> int
 int bsts_integer_cmp(BValue l, BValue r);
 // return the negative of this

@@ -172,6 +172,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a) {
   return bsts_integer_negate(bsts_integer_add(a, bsts_integer_from_int(1)));
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_popcount__Int(BValue a) {
+  return bsts_integer_popcount(a);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_or__Int(BValue a, BValue b) {
   return bsts_integer_or(a, b);
 }
