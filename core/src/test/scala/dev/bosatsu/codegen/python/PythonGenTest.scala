@@ -216,7 +216,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("SwitchVariant compiles to cached-tag if/elif chain in Python") {
+  test("SwitchVariant compiles through toIfElse in Python") {
     val famArities = 0 :: 0 :: 1 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
     val body: Matchless.Expr[Unit] =
@@ -268,18 +268,11 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val doc = rendered(())(pn)._2
       val code = doc.render(120)
 
-      val tagAssign = "^\\s*([_A-Za-z][_A-Za-z0-9]*)\\s*=\\s*.*\\[0\\].*$".r
-      val tagAssigns = code.linesIterator.collect {
-        case tagAssign(name) => name
-      }.toList
-      assertEquals(tagAssigns.length, 1, code)
-
-      val tag = tagAssigns.head
-      assert(code.contains(s"if $tag == 0"), code)
-      assert(code.contains(s"elif $tag == 1"), code)
-      assert(code.contains(s"elif $tag == 3"), code)
-      assert(code.contains(s"elif $tag == 4"), code)
-      assert(code.contains("elif"), code)
+      assert(code.contains("[0] < 2"), code)
+      assert(code.contains("[0] < 1"), code)
+      assert(code.contains("[0] == 2"), code)
+      assert(code.contains("[0] == 3"), code)
+      assert(!code.contains("elif"), code)
     }
   }
 

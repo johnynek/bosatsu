@@ -1975,6 +1975,49 @@ object Matchless {
       caseVariants.forall(v => (0 <= v) && (v < familySize)),
       s"SwitchVariant variants must be in [0, $familySize), found: $caseVariants"
     )
+
+    def toIfElse: Expr[A] = {
+      val caseMap = cases.toList.toMap
+      // A missing case without default is unreachable in well-typed lowered matches.
+      // Keep this total by reusing one branch if such a gap remains.
+      val fallbackExpr = default.getOrElse(cases.head._2)
+      val variantBranches = Vector.tabulate(familySize) { variant =>
+        caseMap.getOrElse(variant, fallbackExpr)
+      }
+
+      def sameExpr(from: Int, until: Int): Option[Expr[A]] = {
+        val first = variantBranches(from)
+        var idx = from + 1
+        var isSame = true
+        while (isSame && (idx < until)) {
+          isSame = first.equals(variantBranches(idx))
+          idx = idx + 1
+        }
+        if (isSame) Some(first) else None
+      }
+
+      def build(from: Int, until: Int): Expr[A] =
+        sameExpr(from, until) match {
+          case Some(single) =>
+            single
+          case None         =>
+            val split = from + ((until - from) / 2)
+            val left = build(from, split)
+            val right = build(split, until)
+            if (left.equals(right)) left
+            else {
+              val leftVariants =
+                NonEmptyList.fromListUnsafe((from until split).toList)
+              If(
+                CheckVariantSet(on, leftVariants, 0, famArities),
+                left,
+                right
+              )
+            }
+        }
+
+      build(0, familySize)
+    }
   }
   case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A]) extends Expr[A]
   object Always {
