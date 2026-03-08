@@ -58,6 +58,11 @@ object DocCommand {
               publicDependencies,
               privateDependencies
             )
+            packageBaseUrls <- moduleIOMonad.fromEither(
+              CommandSupport.dependencyPackageDocBaseUrls(
+                dependencies._1.map(_._2) ::: dependencies._2.map(_._2)
+              )
+            )
             ifacePaths <- ifaces.read
             parsedIfaces <- platformIO.readInterfaces(ifacePaths)
             includePaths <- includes.read
@@ -89,7 +94,8 @@ object DocCommand {
               compiledPacks,
               sourcePaths.toList,
               outdir,
-              color
+              color,
+              packageBaseUrls = packageBaseUrls
             )
           } yield (Output.TranspileOut(docs): Output[Path])
         }

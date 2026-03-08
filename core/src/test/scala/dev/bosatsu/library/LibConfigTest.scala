@@ -5,6 +5,7 @@ import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{
   CompileOptions,
+  Json,
   Kind,
   LocationMap,
   Package,
@@ -57,6 +58,19 @@ class LibConfigTest extends munit.FunSuite {
           identity
         )
     }
+
+  private def decodeConfig(jsonStr: String): LibConfig = {
+    val json = Json.parserFile.parseAll(jsonStr) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse config json: $err")
+    }
+
+    Json.Reader[LibConfig].read(Json.Path.Root, json) match {
+      case Right(value)         => value
+      case Left((msg, got, jp)) =>
+        fail(show"failed to decode config json: $msg, got=$got at $jp")
+    }
+  }
 
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
@@ -168,5 +182,61 @@ class LibConfigTest extends munit.FunSuite {
   test("lib init defaults all_packages to .*") {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     assertEquals(conf.allPackages.map(_.asString), List(".*"))
+  }
+
+  test("lib config defaults doc_base_url to none") {
+    val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
+    val encoded = Json.Writer.write(conf).render
+    assert(!encoded.contains("doc_base_url"), encoded)
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.docBaseUrl, None)
+  }
+
+  test("lib config doc_base_url json round-trips") {
+    val conf = LibConfig
+      .init(Name("root"), "repo", Version(0, 0, 1))
+      .copy(docBaseUrl = Some("https://docs.example.com/root/"))
+
+    val encoded = Json.Writer.write(conf).render
+    assert(encoded.contains("doc_base_url"), encoded)
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.docBaseUrl, conf.docBaseUrl)
+  }
+
+  test("assemble writes doc_base_url into library metadata") {
+    val pm = typeCheckOne(
+      """package My/Hello
+        |
+        |export x,
+        |
+        |x = 1
+        |""".stripMargin
+    )
+    val pack = pm.toMap(PackageName.parts("My", "Hello"))
+
+    val conf = LibConfig(
+      name = Name("root"),
+      repoUri = "repo",
+      nextVersion = Version(0, 0, 1),
+      previous = None,
+      exportedPackages = List(LibConfig.PackageFilter.Name(pack.name)),
+      allPackages = List(LibConfig.PackageFilter.Name(pack.name)),
+      publicDeps = Nil,
+      privateDeps = Nil,
+      defaultMain = None,
+      docBaseUrl = Some("https://docs.example.com/root")
+    )
+
+    val assembled = conf.unvalidatedAssemble(
+      previous = None,
+      vcsIdent = "deadbeef",
+      packs = List(pack),
+      unusedTrans = Nil
+    ) match {
+      case Right(value) => value
+      case Left(err)    => fail(show"failed to assemble library: ${err.toString}")
+    }
+
+    assertEquals(assembled.docBaseUrl, conf.docBaseUrl)
   }
 }

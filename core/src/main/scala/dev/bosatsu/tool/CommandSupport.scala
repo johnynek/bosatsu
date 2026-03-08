@@ -13,6 +13,57 @@ import java.util.regex.Pattern
 object CommandSupport {
   type DepDecode[Path] = (Path, DecodedLibrary[Algo.Blake3])
 
+  def dependencyPackageDocBaseUrls(
+      dependencies: Iterable[DecodedLibrary[Algo.Blake3]]
+  ): Either[CliException.Basic, Map[PackageName, String]] = {
+    val packageBaseEntries =
+      dependencies.iterator.toList
+        .sortBy(dep => (dep.name.name, dep.version.render))
+        .flatMap { dep =>
+          // A library-level base URL applies to each package it exports.
+          dep.docBaseUrl.toList.flatMap { baseUrl =>
+            dep.interfaces.iterator.map { iface =>
+              (iface.name, baseUrl, dep.name.name, dep.version.render)
+            }
+          }
+        }
+
+    val groupedByPackage =
+      packageBaseEntries.groupBy(_._1).toList.sortBy(_._1.asString)
+
+    val conflicts =
+      groupedByPackage.flatMap { case (pn, entries) =>
+        val byBaseUrl = entries.groupBy(_._2).toList.sortBy(_._1)
+        if (byBaseUrl.size <= 1) Nil
+        else {
+          // Same package should resolve to one docs site; mixed bases are ambiguous.
+          val details = byBaseUrl.map { case (baseUrl, baseEntries) =>
+            val providers = baseEntries
+              .map { case (_, _, depName, depVersion) =>
+                show"$depName $depVersion"
+              }
+              .distinct
+              .sorted
+              .mkString(", ")
+            show"$baseUrl from $providers"
+          }
+          show"${pn.asString}: ${details.mkString("; ")}" :: Nil
+        }
+      }
+
+    if (conflicts.isEmpty) {
+      Right(groupedByPackage.iterator.map { case (pn, entries) =>
+        pn -> entries.head._2
+      }.toMap)
+    } else {
+      Left(
+        CliException.Basic(
+          show"conflicting doc_base_url values for dependency packages: ${conflicts.mkString(" | ")}"
+        )
+      )
+    }
+  }
+
   def noInputs[F[_], Path, A](
       platformIO: PlatformIO[F, Path],
       commandName: String

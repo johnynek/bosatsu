@@ -12,6 +12,7 @@ import cats.data.{
 }
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
+  CommandSupport,
   CliException,
   CompilerApi,
   MarkdownDoc,
@@ -642,11 +643,17 @@ object Command {
           colorize: Colorize,
           outdir: P,
           includePredef: Boolean,
+          excludePrivatePackages: Boolean,
           sourceRepoUrlOpt: Option[String],
           compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
           cs <- checkState
+          packageBaseUrls <- moduleIOMonad.fromEither(
+            CommandSupport.dependencyPackageDocBaseUrls(
+              cs.pubDecodes ::: cs.privDecodes
+            )
+          )
           inputSources <- PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
@@ -699,10 +706,29 @@ object Command {
             case None =>
               Map.empty[PackageName, List[(String, String)]]
           }
+          packageVisibility = compiled.toMap.valuesIterator
+            .filterNot(_.name == PackageName.PredefName)
+            .map { pack =>
+              val visibility =
+                if (conf.exportedPackages.exists(_.accepts(pack.name))) {
+                  MarkdownDoc.PackageVisibility.Exported
+                } else {
+                  MarkdownDoc.PackageVisibility.Private
+                }
+              pack.name -> visibility
+            }
+            .toMap
           compiledPacks = {
             val packs0 = compiled.toMap.values.toList
-            if (includePredef) packs0
-            else packs0.filterNot(_.name == PackageName.PredefName)
+            packs0.filter { pack =>
+              if (pack.name == PackageName.PredefName) includePredef
+              else {
+                // We always typecheck all packages above; this only controls emitted docs.
+                val isExported = conf.exportedPackages.exists(_.accepts(pack.name))
+                if (excludePrivatePackages) isExported
+                else true
+              }
+            }
           }
           docs <- MarkdownDoc.generate(
             platformIO,
@@ -710,7 +736,9 @@ object Command {
             sourcePaths.toList,
             outdir,
             colorize,
-            sourceLinksByPackage
+            sourceLinksByPackage,
+            packageBaseUrls,
+            packageVisibility
           )
         } yield docs
 
@@ -1835,6 +1863,12 @@ object Command {
             )
             .orFalse,
           Opts
+            .flag(
+              "exclude_private_packages",
+              help = "exclude docs for non-exported packages in this library"
+            )
+            .orFalse,
+          Opts
             .option[String](
               "source_repo_url",
               help =
@@ -1848,6 +1882,7 @@ object Command {
               fcc,
               outdir,
               includePredef,
+              excludePrivatePackages,
               sourceRepoUrlOpt,
               cacheDirFn,
               colorize
@@ -1858,6 +1893,7 @@ object Command {
               colorize,
               outdir,
               includePredef,
+              excludePrivatePackages,
               sourceRepoUrlOpt,
               cacheDirFn(cc.gitRoot)
             )
