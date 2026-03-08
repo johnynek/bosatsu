@@ -301,6 +301,54 @@ main = set_in_range_ok
     }
   }
 
+  test(
+    "matrix column scoring checks discriminating literal before wide struct projection in C"
+  ) {
+    TestUtils.checkPackageMap("""
+struct Triple(a, b, c)
+struct Pair(left, right)
+
+def pick(p):
+  match p:
+    case Pair(Triple(a, _, _), 0): a
+    case Pair(Triple(_, b, _), 1): b
+    case Pair(Triple(_, _, c), _): c
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          val pickStart = rendered.indexOf("_l_pick(BValue")
+          assert(pickStart >= 0, rendered)
+          val mainStart = rendered.indexOf("int main(", pickStart)
+          val pickFn =
+            if (mainStart > pickStart) rendered.slice(pickStart, mainStart)
+            else rendered.drop(pickStart)
+
+          val firstIf = pickFn.indexOf("if (")
+          assert(firstIf >= 0, pickFn)
+          val firstWideProj =
+            "get_struct_index\\([^\\n]*, 2\\)".r
+              .findFirstMatchIn(pickFn)
+              .map(_.start)
+              .getOrElse(-1)
+          assert(firstWideProj >= 0, pickFn)
+          assert(firstWideProj > firstIf, pickFn)
+      }
+    }
+  }
+
   test("CheckVariantSet guards compile to direct variant membership comparisons") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")

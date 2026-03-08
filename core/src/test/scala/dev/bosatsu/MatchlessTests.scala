@@ -317,6 +317,26 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     indices.toSet
   }
 
+  private def leadingLetValuesBeforeDecision(
+      expr: Matchless.Expr[Unit]
+  ): List[Matchless.Expr[Unit]] = {
+    @annotation.tailrec
+    def loop(
+        current: Matchless.Expr[Unit],
+        accRev: List[Matchless.Expr[Unit]]
+    ): List[Matchless.Expr[Unit]] =
+      current match {
+        case Matchless.Let(_, value, in) =>
+          loop(in, value :: accRev)
+        case Matchless.LetMut(_, in) =>
+          loop(in, accRev)
+        case _ =>
+          accRev.reverse
+      }
+
+    loop(expr, Nil)
+  }
+
   private def countStructConstructorApps(
       expr: Matchless.Expr[Unit],
       arity: Int
@@ -2312,6 +2332,95 @@ def matches_five(xs):
 
       assertEquals(projected, usedIdx.toSet)
     }
+  }
+
+  test(
+    "matrix match scores columns to avoid eager wide-struct projections"
+  ) {
+    val arg = Identifier.Name("arg")
+    val out = Identifier.Name("score_columns")
+    val leftField = Identifier.Name("left_field")
+    val midField = Identifier.Name("mid_field")
+    val rightField = Identifier.Name("right_field")
+    val intType = rankn.Type.IntType
+
+    val pairAndStructFn: Fn = {
+      val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+      {
+        case (`issue1732Package`, `issue1732Pair`)    =>
+          Some(DataRepr.Struct(2))
+        case (`issue1688Package`, `issue1688Struct`)  =>
+          Some(DataRepr.Struct(3))
+        case (pn, cons) =>
+          base(pn, cons)
+      }
+    }
+
+    def structPat(
+        p0: Pattern[(PackageName, Constructor), rankn.Type],
+        p1: Pattern[(PackageName, Constructor), rankn.Type],
+        p2: Pattern[(PackageName, Constructor), rankn.Type]
+    ): Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct(
+        (issue1688Package, issue1688Struct),
+        p0 :: p1 :: p2 :: Nil
+      )
+
+    def pairPat(
+        left: Pattern[(PackageName, Constructor), rankn.Type],
+        right: Pattern[(PackageName, Constructor), rankn.Type]
+    ): Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        left :: right :: Nil
+      )
+
+    val expr = TypedExpr.Match(
+      TypedExpr.Local(arg, issue1732PairType, ()),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          pairPat(
+            structPat(Pattern.Var(leftField), Pattern.WildCard, Pattern.WildCard),
+            Pattern.Literal(Lit.fromInt(0))
+          ),
+          None,
+          TypedExpr.Local(leftField, intType, ())
+        ),
+        TypedExpr.Branch(
+          pairPat(
+            structPat(Pattern.WildCard, Pattern.Var(midField), Pattern.WildCard),
+            Pattern.Literal(Lit.fromInt(1))
+          ),
+          None,
+          TypedExpr.Local(midField, intType, ())
+        ),
+        TypedExpr.Branch(
+          pairPat(
+            structPat(Pattern.WildCard, Pattern.WildCard, Pattern.Var(rightField)),
+            Pattern.WildCard
+          ),
+          None,
+          TypedExpr.Local(rightField, intType, ())
+        )
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(pairAndStructFn)
+
+    val wideProjectionFields =
+      collectProjectionIndices(lowered) {
+        case Matchless.GetStructElement(_, idx, 3) => idx
+      }
+    assertEquals(wideProjectionFields, Set(0, 1, 2))
+
+    val hasEagerWideProjection =
+      leadingLetValuesBeforeDecision(lowered).exists {
+        case Matchless.GetStructElement(_, _, 3) => true
+        case _                                   => false
+      }
+    assertEquals(hasEagerWideProjection, false)
   }
 
   test("matrix match elides tuple allocation at match site") {

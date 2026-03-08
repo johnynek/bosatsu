@@ -3591,6 +3591,14 @@ object Matchless {
       case ZeroSig extends HeadSig
       case SuccSig extends HeadSig
       case LitSig(lit: Lit)
+
+      def projectionArity: Int =
+        this match {
+          case EnumSig(_, _, arity, _) => arity
+          case StructSig(_, arity)     => arity
+          case SuccSig                 => 1
+          case LitSig(_) | ZeroSig     => 0
+        }
     }
     import HeadSig.*
 
@@ -3817,6 +3825,81 @@ object Matchless {
         }
       }
       bldr.toList
+    }
+
+    case class ColumnScore(
+        colIdx: Int,
+        distinctSigs: Int,
+        refutableRows: Int,
+        arityPenalty: Int,
+        sigs: List[HeadSig]
+    )
+
+    // Rank columns with a cheap local heuristic:
+    // 1) more distinct refutable heads first,
+    // 2) then columns refuting more rows,
+    // 3) then lower arity expansion cost,
+    // 4) then leftmost for deterministic ties.
+    def chooseColumnByScore(rows: List[MatchRow]): (Int, List[HeadSig]) = {
+      val colCount = rows.headOption match {
+        case Some(row) => row.pats.length
+        case None      => 0
+      }
+
+      // $COVERAGE-OFF$
+      if (colCount == 0)
+        throw new IllegalStateException(
+          "chooseColumnByScore called with no remaining columns"
+        )
+      // $COVERAGE-ON$
+      else {
+        def scoreCol(colIdx: Int): ColumnScore = {
+          val sigs = distinctInOrder(rows.mapFilter(r => headSig(r.pats(colIdx))))
+          // normalizeRow + peelPattern remove Var/Named/Annotation, so at this
+          // stage non-refutable patterns are exactly WildCard.
+          val refutableRows = rows.count(r => r.pats(colIdx) != Pattern.WildCard)
+          // We split once per distinct signature, so sum those arities as a
+          // cheap proxy for added projection pressure in this column.
+          val arityPenalty = sigs.iterator.map(_.projectionArity).sum
+          ColumnScore(
+            colIdx = colIdx,
+            distinctSigs = sigs.length,
+            refutableRows = refutableRows,
+            arityPenalty = arityPenalty,
+            sigs = sigs
+          )
+        }
+
+        def better(next: ColumnScore, best: ColumnScore): Boolean = {
+          import java.lang.Integer.compare
+
+          val cmpDistinct = compare(next.distinctSigs, best.distinctSigs)
+          (cmpDistinct > 0) || {
+            (cmpDistinct == 0) && {
+              val cmpRefutable = compare(next.refutableRows, best.refutableRows)
+              (cmpRefutable > 0) || {
+                (cmpRefutable == 0) && {
+                  val cmpPenalty =
+                    compare(best.arityPenalty, next.arityPenalty)
+                  (cmpPenalty > 0) || {
+                    (cmpPenalty == 0) &&
+                    (compare(best.colIdx, next.colIdx) > 0)
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        val best =
+          (1 until colCount).iterator
+            .map(scoreCol)
+            .foldLeft(scoreCol(0)) { (currentBest, candidate) =>
+              if (better(candidate, currentBest)) candidate else currentBest
+            }
+
+        (best.colIdx, best.sigs)
+      }
     }
 
     // Specialize the matrix for a given head signature (constructor/literal),
@@ -4168,7 +4251,7 @@ object Matchless {
     // tends to reduce redundant work for larger matches. This approach is the
     // standard state-of-the-art in ML-family compilers, but it is not
     // globally optimal: finding the minimal decision tree is hard, and the
-    // quality depends on the column-selection heuristic (we use leftmost).
+    // quality depends on the column-selection heuristic.
     // See: https://compiler.club/compiling-pattern-matching/
     def matchExprMatrixCheap(
         arg: CheapExpr[B],
@@ -4270,15 +4353,9 @@ object Matchless {
                 // this should be impossible in well-typed code
                 Monad[F].pure(UnitExpr)
               case _ =>
-                // Column selection: preserve left-to-right behavior by defaulting
-                // to the leftmost column. (Heuristics can be added later.)
-                val colIdx = 0
+                val (colIdx, sigs) = chooseColumnByScore(rows)
 
                 val occ = occs(colIdx)
-
-                val sigs = distinctInOrder(
-                  rows.mapFilter(r => headSig(r.pats(colIdx)))
-                )
 
                 val defaultRows =
                   rows
@@ -4631,12 +4708,8 @@ object Matchless {
           case Nil =>
             0
           case _ =>
-            val colIdx = 0
+            val (colIdx, sigs) = chooseColumnByScore(rows.map(_.row))
             val occ = occs(colIdx)
-            val sigs =
-              distinctInOrder(
-                rows.mapFilter(tr => headSig(tr.row.pats(colIdx)))
-              )
             val defaultRows =
               rows.mapFilter { tr =>
                 if (tr.row.pats(colIdx) == Pattern.WildCard)
