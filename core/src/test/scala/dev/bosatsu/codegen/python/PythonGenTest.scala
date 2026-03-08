@@ -216,4 +216,71 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("SwitchVariant compiles to cached-tag if/elif chain in Python") {
+    val famArities = 0 :: 0 :: 1 :: 0 :: 0 :: Nil
+    val arg = Identifier.Name("v")
+    val body: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(arg),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.Literal(Lit(1)),
+          1 -> Matchless.Literal(Lit(2)),
+          3 -> Matchless.Literal(Lit(3)),
+          4 -> Matchless.Literal(Lit(4))
+        ),
+        Some(Matchless.Literal(Lit(0)))
+      )
+    val mainExpr: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(arg), body)
+    val pn = PackageName.parts("Test", "SwitchCoverage")
+    val ns: CompilationNamespace[Unit] = new CompilationNamespace[Unit] {
+      implicit val keyOrder: Ordering[Unit] = new Ordering[Unit] {
+        def compare(x: Unit, y: Unit): Int = 0
+      }
+      val keyShow: cats.Show[Unit] = cats.Show.show(_ => "root")
+      def identOf(k: Unit, p: PackageName): NonEmptyList[String] = p.parts
+      def depFor(src: Unit, p: PackageName): Unit = ()
+      def rootKey: Unit = ()
+      val topoSort: Toposort.Result[(Unit, PackageName)] =
+        Toposort.Success(Vector(NonEmptyList.one(((), pn))))
+      val compiled = scala.collection.immutable.SortedMap(
+        () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
+      )
+      val testEntries = Map.empty
+      def mainValues(
+          mainTypeFn: dev.bosatsu.rankn.Type => Boolean
+      ): Map[PackageName, (Identifier.Bindable, dev.bosatsu.rankn.Type)] =
+        Map.empty
+      val externals = scala.collection.immutable.SortedMap(
+        () -> Map.empty[PackageName, List[
+          (Identifier.Bindable, dev.bosatsu.rankn.Type)
+        ]]
+      )
+      def treeShake(
+          roots: Set[(PackageName, Identifier)]
+      ): CompilationNamespace[Unit] = this
+      def rootPackages =
+        scala.collection.immutable.SortedSet(pn)
+    }
+    Par.withEC {
+      val rendered = PythonGen.renderAll(ns, Map.empty, Map.empty)
+      val doc = rendered(())(pn)._2
+      val code = doc.render(120)
+
+      val tagAssign = "^\\s*([_A-Za-z][_A-Za-z0-9]*)\\s*=\\s*.*\\[0\\].*$".r
+      val tagAssigns = code.linesIterator.collect {
+        case tagAssign(name) => name
+      }.toList
+      assertEquals(tagAssigns.length, 1, code)
+
+      val tag = tagAssigns.head
+      assert(code.contains(s"if $tag == 0"), code)
+      assert(code.contains(s"elif $tag == 1"), code)
+      assert(code.contains(s"elif $tag == 3"), code)
+      assert(code.contains(s"elif $tag == 4"), code)
+      assert(code.contains("elif"), code)
+    }
+  }
+
 }

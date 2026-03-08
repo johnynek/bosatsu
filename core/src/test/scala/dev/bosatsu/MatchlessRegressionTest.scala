@@ -160,6 +160,11 @@ class MatchlessRegressionTest extends munit.FunSuite {
           loopBool(cond, activeRecNames) +
             loopExpr(thenExpr, activeRecNames) +
             loopExpr(elseExpr, activeRecNames)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on, activeRecNames) + cases.iterator.map {
+            case (_, branch) =>
+              loopExpr(branch, activeRecNames)
+          }.sum + default.fold(0)(loopExpr(_, activeRecNames))
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond, activeRecNames) + loopExpr(thenExpr, activeRecNames)
         case Matchless.PrevNat(of) =>
@@ -328,5 +333,44 @@ def branch_blowup(args: L) -> Nat:
         .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
+  }
+
+  test("MatchlessToValue evaluates SwitchVariant cases and default") {
+    val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
+    val arg = Identifier.Name("v")
+    val switchExpr: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(arg),
+        Matchless.SwitchVariant(
+          Matchless.Local(arg),
+          famArities,
+          NonEmptyList.of(
+            0 -> Matchless.Literal(Lit(10)),
+            2 -> Matchless.Literal(Lit(20)),
+            3 -> Matchless.Literal(Lit(30)),
+            4 -> Matchless.Literal(Lit(40))
+          ),
+          Some(Matchless.Literal(Lit(99)))
+        )
+      )
+
+    val evalExprs = Vector(
+      Matchless.App(
+        switchExpr,
+        NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))
+      ),
+      Matchless.App(
+        switchExpr,
+        NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))
+      )
+    )
+
+    val evaluated =
+      MatchlessToValue
+        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .map(_.value)
+    assertEquals(evaluated, Vector(Value.VInt(20), Value.VInt(99)))
   }
 }

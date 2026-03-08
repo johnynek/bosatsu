@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Order
+import cats.{Eval, Order}
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
@@ -112,6 +112,10 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         boolSubexpressions(cond) ++ exprBoolSubexpressions(
           thenExpr
         ) ++ exprBoolSubexpressions(elseExpr)
+      case Matchless.SwitchVariant(on, _, cases, default) =>
+        exprBoolSubexpressions(on) ++ cases.toList.flatMap { case (_, branch) =>
+          exprBoolSubexpressions(branch)
+        } ++ default.toList.flatMap(exprBoolSubexpressions)
       case Matchless.Always(cond, thenExpr) =>
         boolSubexpressions(cond) ++ exprBoolSubexpressions(thenExpr)
       case Matchless.PrevNat(of) =>
@@ -119,6 +123,61 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       case _ =>
         Nil
     }
+
+  private def exprSwitchSubexpressions(
+      expr: Matchless.Expr[Unit]
+  ): List[Matchless.SwitchVariant[Unit]] = {
+    def loopExpr(e: Matchless.Expr[Unit]): List[Matchless.SwitchVariant[Unit]] =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.toList.flatMap(loopExpr) ++ loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) ++ loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) ++ args.toList.flatMap(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) ++ loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) ++ loopExpr(thenExpr) ++ loopExpr(elseExpr)
+        case switch @ Matchless.SwitchVariant(on, _, cases, default) =>
+          switch :: (loopExpr(on) ++ cases.toList.flatMap { case (_, branch) =>
+            loopExpr(branch)
+          } ++ default.toList.flatMap(loopExpr))
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) ++ loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          Nil
+      }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): List[Matchless.SwitchVariant[Unit]] =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopExpr(e)
+        case Matchless.EqualsNat(e, _) =>
+          loopExpr(e)
+        case Matchless.And(l, r) =>
+          loopBool(l) ++ loopBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopExpr(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopExpr(e)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e)
+        case Matchless.TrueConst =>
+          Nil
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) ++ loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+      }
+
+    loopExpr(expr)
+  }
 
   lazy val genMatchlessBoolExpr: Gen[Matchless.BoolExpr[Unit]] =
     genMatchlessExpr.flatMap { expr =>
@@ -301,6 +360,12 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopBool(cond)
           loopExpr(thenExpr)
           loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopCheap(on)
+          cases.toList.foreach { case (_, branch) =>
+            loopExpr(branch)
+          }
+          default.foreach(loopExpr)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond)
           loopExpr(thenExpr)
@@ -392,6 +457,10 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(in)
         case Matchless.If(cond, thenExpr, elseExpr) =>
           loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopCheap(on) + cases.iterator.map { case (_, branch) =>
+            loopExpr(branch)
+          }.sum + default.fold(0)(loopExpr)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) + loopExpr(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -484,6 +553,11 @@ class MatchlessTest extends munit.ScalaCheckSuite {
             thenExpr,
             inConditionalBranch = true
           ) || loopExpr(elseExpr, inConditionalBranch = true)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopCheap(on, inConditionalBranch) || cases.exists {
+            case (_, branch) =>
+              loopExpr(branch, inConditionalBranch = true)
+          } || default.exists(loopExpr(_, inConditionalBranch = true))
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond, inConditionalBranch) || loopExpr(
             thenExpr,
@@ -557,6 +631,10 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(in)
         case Matchless.If(cond, thenExpr, elseExpr) =>
           loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopCheap(on) + cases.iterator.map { case (_, branch) =>
+            loopExpr(branch)
+          }.sum + default.fold(0)(loopExpr)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) + loopExpr(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -634,6 +712,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loop(in)
         case Matchless.If(_, thenExpr, elseExpr) =>
           loop(thenExpr).orElse(loop(elseExpr))
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loop(on).orElse {
+            cases.iterator.map { case (_, branch) =>
+              loop(branch)
+            }.collectFirst {
+              case Some(found) => found
+            }
+          }.orElse(default.flatMap(loop))
         case Matchless.Always(_, thenExpr) =>
           loop(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -936,6 +1022,10 @@ main = select
             loopExpr(in)
           case Matchless.If(cond, thenExpr, elseExpr) =>
             loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case Matchless.SwitchVariant(on, _, cases, default) =>
+            loopCheap(on) + cases.iterator.map { case (_, branch) =>
+              loopExpr(branch)
+            }.sum + default.fold(0)(loopExpr)
           case Matchless.Always(cond, thenExpr) =>
             loopBool(cond) + loopExpr(thenExpr)
           case Matchless.PrevNat(of) =>
@@ -1180,6 +1270,7 @@ main = (cmp_guard, enum_guard)
 
           val allExprs = byName.values.toList
           val allBools = allExprs.flatMap(exprBoolSubexpressions)
+          val allSwitches = allExprs.flatMap(exprSwitchSubexpressions)
           assertEquals(allExprs.exists(hasLetBool), false)
           assert(
             hasSetOrVariantChain(allBools, 0 :: 1 :: Nil, 0 :: 0 :: 0 :: Nil),
@@ -1190,8 +1281,11 @@ main = (cmp_guard, enum_guard)
               allBools,
               0 :: 2 :: 4 :: Nil,
               0 :: 0 :: 0 :: 0 :: 0 :: Nil
-            ),
-            s"expected A|C|E selector checks in lowered guards, got: $allBools"
+            ) || allSwitches.exists { sw =>
+              (sw.famArities == (0 :: 0 :: 0 :: 0 :: 0 :: Nil)) &&
+              (sw.cases.map(_._1).toList.toSet == Set(0, 1, 2, 3, 4))
+            },
+            s"expected A|C|E selector checks in lowered guards, got bools=$allBools switches=$allSwitches"
           )
         }
       )
@@ -1221,6 +1315,112 @@ main = (cmp_guard, enum_guard)
     )
 
     assertEquals(res, expected)
+  }
+
+  test("Matchless.applyArgs and ordering support SwitchVariant") {
+    val on = Identifier.Name("on")
+    val argName = Identifier.Name("x")
+    val famArities = 0 :: 0 :: 0 :: 0 :: Nil
+    val switchFn: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.Local(Identifier.Name("f0")),
+          1 -> Matchless.Local(Identifier.Name("f1"))
+        ),
+        Some(Matchless.Local(Identifier.Name("fdef")))
+      )
+
+    val pushed =
+      Matchless.applyArgs(switchFn, NonEmptyList.one(Matchless.Local(argName)))
+    pushed match {
+      case Matchless.SwitchVariant(_, _, cases, default) =>
+        cases.toList.foreach { case (_, branch) =>
+          branch match {
+            case Matchless.App(_, args) =>
+              assertEquals(args.length, 1)
+            case other =>
+              fail(s"expected pushed SwitchVariant branch App, found: $other")
+          }
+        }
+        default match {
+          case Some(Matchless.App(_, args)) =>
+            assertEquals(args.length, 1)
+          case other =>
+            fail(s"expected pushed SwitchVariant default App, found: $other")
+        }
+      case other =>
+        fail(s"expected SwitchVariant after applyArgs push-through, found: $other")
+    }
+
+    val capture = Identifier.Name("cap")
+    val lambdaWithSwitch: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Matchless.Local(capture) :: Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(argName),
+        body = Matchless.SwitchVariant(
+          Matchless.ClosureSlot(0),
+          0 :: 0 :: Nil,
+          NonEmptyList.of(
+            0 -> Matchless.ClosureSlot(0),
+            1 -> Matchless.Local(argName)
+          ),
+          Some(Matchless.ClosureSlot(0))
+        )
+      )
+    val betaReduced =
+      Matchless.applyArgs(
+        lambdaWithSwitch,
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(7)))
+      )
+    assertEquals(exprSwitchSubexpressions(betaReduced).nonEmpty, true)
+
+    val switchA: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.Literal(Lit.fromInt(0)),
+          1 -> Matchless.Literal(Lit.fromInt(1))
+        ),
+        Some(Matchless.Literal(Lit.fromInt(2)))
+      )
+    val switchB: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.Literal(Lit.fromInt(0)),
+          1 -> Matchless.Literal(Lit.fromInt(1))
+        ),
+        Some(Matchless.Literal(Lit.fromInt(3)))
+      )
+
+    assertNotEquals(Matchless.Expr.exprOrder[Unit].compare(switchA, switchB), 0)
+    assertNotEquals(
+      Matchless.Expr.exprOrder[Unit].compare(
+        Matchless.SuccNat,
+        Matchless.PrevNat(Matchless.ZeroNat)
+      ),
+      0
+    )
+    assertNotEquals(
+      Matchless.Expr.exprOrder[Unit].compare(
+        Matchless.GetEnumElement(Matchless.Local(on), 0, 0, 1),
+        Matchless.GetStructElement(Matchless.Local(on), 0, 1)
+      ),
+      0
+    )
+    assertNotEquals(
+      Matchless.Expr.exprOrder[Unit].compare(Matchless.ZeroNat, Matchless.SuccNat),
+      0
+    )
+    assertNotEquals(
+      Matchless.Expr.exprOrder[Unit].compare(switchA, Matchless.Local(on)),
+      0
+    )
   }
 
   test(
@@ -1506,6 +1706,12 @@ main = (cmp_guard, enum_guard)
           checkBool(cond)
           requireSubset(thenExpr)
           requireSubset(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          requireSubset(on)
+          cases.toList.foreach { case (_, branch) =>
+            requireSubset(branch)
+          }
+          default.foreach(requireSubset)
         case Matchless.Always(cond, thenExpr) =>
           checkBool(cond)
           requireSubset(thenExpr)
@@ -1777,6 +1983,136 @@ main = (cmp_guard, enum_guard)
     )
     assertEquals(Matchless.Expr.usesBinding(directExpr, Left(target)), true)
     assertEquals(Matchless.Expr.usesBinding(shadowedExpr, Left(target)), false)
+  }
+
+  test("Matchless.SwitchVariant traverses expression helper utilities") {
+    val on = Identifier.Name("on")
+    val target = Identifier.Name("target")
+    val lamArg = Identifier.Name("x")
+    val famArities = 0 :: 0 :: 0 :: 0 :: Nil
+
+    val switchExpr: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.WhileExpr(
+            Matchless.TrueConst,
+            Matchless.UnitExpr,
+            Matchless.LocalAnonMut(500L)
+          ),
+          1 -> Matchless.GetStructElement(Matchless.LocalAnonMut(700L), 0, 1),
+          2 -> Matchless.App(
+            Matchless.Local(target),
+            NonEmptyList.one(Matchless.Local(target))
+          ),
+          3 -> Matchless.LocalAnon(42L)
+        ),
+        Some(Matchless.Local(target))
+      )
+
+    assertEquals(Matchless.Expr.containsWhileExpr(switchExpr), true)
+    assertEquals(Matchless.Expr.readsMutable(switchExpr), true)
+    assertEquals(Matchless.Expr.referencesBindable(switchExpr, target), true)
+    assertEquals(Matchless.Expr.referencesLocalAnon(switchExpr, 42L), true)
+    assertEquals(Matchless.hasSideEffect(switchExpr), true)
+    assertEquals(Matchless.hoistInvariantLoopLets(switchExpr), switchExpr)
+    assertEquals(Matchless.allNames(switchExpr).contains(target), true)
+
+    val defaultOnlySwitch: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(
+          0 -> Matchless.UnitExpr,
+          1 -> Matchless.UnitExpr
+        ),
+        Some(Matchless.WhileExpr(
+          Matchless.TrueConst,
+          Matchless.GetStructElement(Matchless.LocalAnonMut(701L), 0, 1),
+          Matchless.LocalAnonMut(702L)
+        ))
+      )
+    assertEquals(Matchless.Expr.containsWhileExpr(defaultOnlySwitch), true)
+    assertEquals(Matchless.Expr.readsMutable(defaultOnlySwitch), true)
+    assertEquals(
+      Matchless.Expr.referencesBindable(
+        Matchless.SwitchVariant(
+          Matchless.Local(on),
+          famArities,
+          NonEmptyList.of(
+            0 -> Matchless.UnitExpr,
+            1 -> Matchless.UnitExpr
+          ),
+          Some(Matchless.Local(target))
+        ),
+        target
+      ),
+      true
+    )
+    assertEquals(
+      Matchless.Expr.referencesLocalAnon(
+        Matchless.SwitchVariant(
+          Matchless.Local(on),
+          famArities,
+          NonEmptyList.of(
+            0 -> Matchless.UnitExpr,
+            1 -> Matchless.UnitExpr
+          ),
+          Some(Matchless.LocalAnon(42L))
+        ),
+        42L
+      ),
+      true
+    )
+    assertEquals(
+      Matchless.hasSideEffect(
+        Matchless.SwitchVariant(
+          Matchless.Local(on),
+          famArities,
+          NonEmptyList.of(
+            0 -> Matchless.UnitExpr,
+            1 -> Matchless.UnitExpr
+          ),
+          Some(Matchless.WhileExpr(
+            Matchless.TrueConst,
+            Matchless.UnitExpr,
+            Matchless.LocalAnonMut(703L)
+          ))
+        )
+      ),
+      true
+    )
+
+    val lamA: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(lamArg), Matchless.Local(lamArg))
+    val lamB: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.one(lamArg),
+        Matchless.Literal(Lit.fromInt(1))
+      )
+    val switchFns: Matchless.Expr[Unit] =
+      Matchless.SwitchVariant(
+        Matchless.Local(on),
+        famArities,
+        NonEmptyList.of(0 -> lamA, 1 -> lamB),
+        Some(lamA)
+      )
+
+    Matchless.recoverTopLevelLambda(switchFns) match {
+      case Matchless.Lambda(_, None, args, body) =>
+        assertEquals(args.length, 1)
+        body match {
+          case Matchless.SwitchVariant(_, _, _, _) =>
+            ()
+          case other =>
+            fail(s"expected recovered SwitchVariant body, found: $other")
+        }
+      case other =>
+        fail(s"expected recovered top-level lambda from SwitchVariant, found: $other")
+    }
   }
 
   test(
@@ -2213,6 +2549,10 @@ main = (cmp_guard, enum_guard)
           hasNestedProjectionBool(cond) || hasNestedProjectionExpr(
             t
           ) || hasNestedProjectionExpr(f)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          hasNestedProjectionCheap(on) || cases.exists { case (_, branch) =>
+            hasNestedProjectionExpr(branch)
+          } || default.exists(hasNestedProjectionExpr)
         case Matchless.Always(cond, thenExpr) =>
           hasNestedProjectionBool(cond) || hasNestedProjectionExpr(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -2331,6 +2671,269 @@ def matches_five(xs):
         }
 
       assertEquals(projected, usedIdx.toSet)
+    }
+  }
+
+  test("matrix match emits SwitchVariant for orthogonal enum fanout >= 4") {
+    TestUtils.checkMatchless("""
+enum Many:
+  A
+  B
+  C
+  D
+  E
+
+def pick(v):
+  match v:
+    case A: 0
+    case B: 1
+    case C: 2
+    case D: 3
+    case _: 4
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("pick"))
+      val switches = exprSwitchSubexpressions(expr)
+      assert(switches.nonEmpty, s"expected SwitchVariant, got: $expr")
+      assert(
+        switches.exists(_.cases.length >= 4),
+        s"expected SwitchVariant with >= 4 cases, got: $switches"
+      )
+    }
+  }
+
+  test("matrix switch lowering preserves union-variant behavior") {
+    TestUtils.checkMatchless("""
+enum Many:
+  A
+  B
+  C
+  D
+  E
+  F
+
+def pick(v):
+  match v:
+    case A: 0
+    case B | C: 1
+    case D: 2
+    case E: 3
+    case _: 4
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val pickExpr = byName(Identifier.Name("pick"))
+      val switches = exprSwitchSubexpressions(pickExpr)
+      assert(switches.nonEmpty, s"expected SwitchVariant, got: $pickExpr")
+
+      val withUnionCases = switches.find { sw =>
+        val variants = sw.cases.map(_._1).toList.toSet
+        variants(1) && variants(2)
+      }.getOrElse {
+        fail(s"expected switch cases for B|C variants in: $switches")
+      }
+
+      val famArities = withUnionCases.famArities
+      val evalExprs = Vector(
+        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(1, 0, famArities))),
+        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(2, 0, famArities))),
+        Matchless.App(pickExpr, NonEmptyList.one(Matchless.MakeEnum(5, 0, famArities)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+      assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(1), Value.VInt(4)))
+    }
+  }
+
+  test("matrix match keeps If/Else lowering below switch threshold") {
+    TestUtils.checkMatchless("""
+enum Few:
+  A
+  B
+  C
+  D
+
+def pick(v):
+  match v:
+    case A: 0
+    case B: 1
+    case C: 2
+    case _: 3
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("pick"))
+      assertEquals(exprSwitchSubexpressions(expr).isEmpty, true, expr.toString)
+    }
+  }
+
+  test("SwitchVariant constructor rejects fewer than two cases") {
+    intercept[IllegalArgumentException] {
+      Matchless.SwitchVariant(
+        Matchless.Local(Identifier.Name("x")),
+        0 :: 0 :: Nil,
+        NonEmptyList.one(0 -> Matchless.Literal(Lit.fromInt(1))),
+        Some(Matchless.Literal(Lit.fromInt(0)))
+      )
+    }
+  }
+
+  test("selector guard fast path falls back on non-boolean integer literals") {
+    val pkg = PackageName.parts("Issue2059", "GuardIntFallback")
+    val enumTypeName = TypeName(Constructor("Five"))
+    val enumType = rankn.Type.TyConst(rankn.Type.Const.Defined(pkg, enumTypeName))
+    val arg = Identifier.Name("v")
+    val out = Identifier.Name("guard_int_fallback")
+    val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
+
+    val cA = Constructor("A")
+    val cB = Constructor("B")
+    val cC = Constructor("C")
+    val cD = Constructor("D")
+    val cE = Constructor("E")
+
+    def ctorPat(c: Constructor): Pattern[(PackageName, Constructor), rankn.Type] =
+      Pattern.PositionalStruct((pkg, c), Nil)
+
+    val selectorAsInts = TypedExpr.Match(
+      TypedExpr.Local(arg, enumType, ()),
+      NonEmptyList.of(
+        TypedExpr.Branch(ctorPat(cA), None, intLit(2)),
+        TypedExpr.Branch(ctorPat(cB), None, intLit(0)),
+        TypedExpr.Branch(ctorPat(cC), None, intLit(1)),
+        TypedExpr.Branch(ctorPat(cD), None, intLit(0)),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(0))
+      ),
+      ()
+    )
+
+    val typed =
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((arg, enumType)),
+        TypedExpr.Match(
+          TypedExpr.Local(arg, enumType, ()),
+          NonEmptyList.of(
+            TypedExpr.Branch(Pattern.WildCard, Some(selectorAsInts), intLit(1)),
+            TypedExpr.Branch(Pattern.WildCard, None, intLit(0))
+          ),
+          ()
+        ),
+        ()
+      )
+
+    val intGuardFn: Fn = {
+      val base = fnFromTypeEnv(rankn.TypeEnv.empty)
+      {
+        case (`pkg`, `cA`) =>
+          Some(DataRepr.Enum(0, 0, famArities))
+        case (`pkg`, `cB`) =>
+          Some(DataRepr.Enum(1, 0, famArities))
+        case (`pkg`, `cC`) =>
+          Some(DataRepr.Enum(2, 0, famArities))
+        case (`pkg`, `cD`) =>
+          Some(DataRepr.Enum(3, 0, famArities))
+        case (`pkg`, `cE`) =>
+          Some(DataRepr.Enum(4, 0, famArities))
+        case (pn, cons)    =>
+          base(pn, cons)
+      }
+    }
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, typed)(intGuardFn)
+    assertEquals(
+      exprBoolSubexpressions(lowered).exists {
+        case Matchless.LetBool(_, _, _) => true
+        case _                          => false
+      },
+      true
+    )
+  }
+
+  test("tail-recursive switch lowering rewrites recursive SwitchVariant branches") {
+    TestUtils.checkMatchless("""
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum Many:
+  A
+  B
+  C
+  D
+  E
+
+def loop(v, n):
+  recur n:
+    case Z: Z
+    case S(prev):
+      match v:
+        case A: loop(B, prev)
+        case B: loop(C, prev)
+        case C: loop(D, prev)
+        case D: loop(E, prev)
+        case _: loop(A, prev)
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val loopExpr = byName(Identifier.Name("loop"))
+      assertEquals(Matchless.Expr.containsWhileExpr(loopExpr), true)
+      assertEquals(exprSwitchSubexpressions(loopExpr).nonEmpty, true)
+    }
+  }
+
+  test("matrix row weighting visits SwitchVariant expressions in nested rhs") {
+    TestUtils.checkMatchless("""
+enum Many:
+  A
+  B
+  C
+  D
+  E
+
+def outer(v, w):
+  match v:
+    case A: 1
+    case _:
+      match w:
+        case A: 0
+        case B: 1
+        case C: 2
+        case D: 3
+        case _: 4
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("outer"))
+      assertEquals(exprSwitchSubexpressions(expr).nonEmpty, true)
+    }
+  }
+
+  test("matrix switch lowering handles payload projections in switch cases") {
+    TestUtils.checkMatchless("""
+enum Many:
+  A(x)
+  B
+  C
+  D
+  E
+
+def pick(v):
+  match v:
+    case A(x): x
+    case B: 1
+    case C: 2
+    case D: 3
+    case _: 4
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("pick"))
+      val switches = exprSwitchSubexpressions(expr)
+      assert(switches.nonEmpty, s"expected SwitchVariant in payload case match, got: $expr")
+      assert(
+        collectProjectionIndices(expr) {
+          case Matchless.GetEnumElement(_, 0, idx, 1) => idx
+        }.contains(0),
+        s"expected payload projection GetEnumElement for variant A in: $expr"
+      )
     }
   }
 

@@ -110,6 +110,46 @@ class CodeTest extends munit.FunSuite {
         "}"
     )
 
+    checkCode(Break, "break;")
+    checkCode(
+      Switch(
+        Ident("tag"),
+        NonEmptyList.of(
+          IntLiteral(0) -> block(Ident("x") := IntLiteral(1), Break),
+          IntLiteral(2) -> block(Ident("x") := IntLiteral(3), Break)
+        ),
+        Some(block(Ident("x") := IntLiteral(4), Break))
+      ),
+      "switch (tag) {\n" +
+        "    case 0: {\n" +
+        "        x = 1;\n" +
+        "        break;\n" +
+        "    }\n" +
+        "    case 2: {\n" +
+        "        x = 3;\n" +
+        "        break;\n" +
+        "    }\n" +
+        "    default: {\n" +
+        "        x = 4;\n" +
+        "        break;\n" +
+        "    }\n" +
+        "}"
+    )
+    checkCode(
+      Switch(
+        Ident("tag"),
+        NonEmptyList.of(
+          IntLiteral(0) -> block(Break)
+        ),
+        None
+      ),
+      "switch (tag) {\n" +
+        "    case 0: {\n" +
+        "        break;\n" +
+        "    }\n" +
+        "}"
+    )
+
     checkCode(Ident("foo")(Ident("bar")), "foo(bar)")
     checkCode(Ident("foo")(Ident("bar"), Ident("baz")), "foo(bar, baz)")
     checkCode(Ident("foo")(), "foo()")
