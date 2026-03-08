@@ -506,6 +506,49 @@ main = pick
     }
   }
 
+  test("SwitchVariant uses get_variant when enum family has payload arities") {
+    TestUtils.checkPackageMap("""
+enum Many:
+  A(x)
+  B
+  C
+  D
+  E
+
+def pick(v):
+  match v:
+    case A(_): 0
+    case B: 1
+    case C: 2
+    case D: 3
+    case _: 4
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("switch ("), rendered)
+          assert(
+            "int __bsts_l_variant\\d+ = get_variant\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty,
+            rendered
+          )
+      }
+    }
+  }
+
   test(
     "global helper inlining with lambda argument avoids boxed lambda call at call site"
   ) {
