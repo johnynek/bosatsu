@@ -140,7 +140,7 @@ object Matchless {
                 val c3 =
                   Order[NonEmptyList[(Int, Expr[A])]].compare(casesL, casesR)
                 if (c3 != 0) c3
-                else compareExpr(defaultL, defaultR)
+                else Order[Option[Expr[A]]].compare(defaultL, defaultR)
               }
             }
 
@@ -230,7 +230,7 @@ object Matchless {
           case SwitchVariant(on, _, cases, default) =>
             loopExpr(on) || cases.exists { case (_, branch) =>
               loopExpr(branch)
-            } || loopExpr(default)
+            } || default.exists(loopExpr)
           case Always(cond, thenExpr) =>
             loopBool(cond) || loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -290,7 +290,7 @@ object Matchless {
           case SwitchVariant(on, _, cases, default) =>
             loopExpr(on) || cases.exists { case (_, branch) =>
               loopExpr(branch)
-            } || loopExpr(default)
+            } || default.exists(loopExpr)
           case Always(cond, thenExpr) =>
             loopBool(cond) || loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -377,7 +377,7 @@ object Matchless {
               cases.exists { case (_, branch) =>
                 referencesBindable(branch, target, isShadowed)
               } ||
-              referencesBindable(default, target, isShadowed)
+              default.exists(referencesBindable(_, target, isShadowed))
           case Always(cond, thenExpr) =>
             BoolExpr.referencesBindable(cond, target, isShadowed) ||
               referencesBindable(thenExpr, target, isShadowed)
@@ -425,7 +425,7 @@ object Matchless {
             case SwitchVariant(on, _, cases, default) =>
               loopExpr(on, isShadowed) || cases.exists {
                 case (_, branch) => loopExpr(branch, isShadowed)
-              } || loopExpr(default, isShadowed)
+              } || default.exists(loopExpr(_, isShadowed))
             case Always(cond, thenExpr) =>
               loopBool(cond, isShadowed) || loopExpr(thenExpr, isShadowed)
             case PrevNat(of) =>
@@ -611,7 +611,7 @@ object Matchless {
             cases.map { case (variant, branch) =>
               (variant, loopExpr(branch))
             },
-            loopExpr(default)
+            default.map(loopExpr)
           )
         case Always(cond, thenExpr) =>
           Always(loopBool(cond), loopExpr(thenExpr))
@@ -753,7 +753,7 @@ object Matchless {
             cases.map { case (variant, branch) =>
               (variant, loop(branch, aliases))
             },
-            loop(default, aliases)
+            default.map(loop(_, aliases))
           )
         case Always(cond, thenExpr) =>
           Always(cond, loop(thenExpr, aliases))
@@ -815,7 +815,9 @@ object Matchless {
         case If(cond, thenExpr, elseExpr) =>
           loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, acc)))
         case SwitchVariant(on, _, cases, default) =>
-          cases.foldLeft(loopExpr(default, loopCheap(on, acc))) {
+          val acc0 = loopCheap(on, acc)
+          val acc1 = default.fold(acc0)(loopExpr(_, acc0))
+          cases.foldLeft(acc1) {
             case (accN, (_, branch)) =>
               loopExpr(branch, accN)
           }
@@ -915,7 +917,8 @@ object Matchless {
             loop(els, bindableArities, anonArities)
           )
         case SwitchVariant(_, _, cases, default) =>
-          cases.foldLeft(loop(default, bindableArities, anonArities)) {
+          val defaultArity = default.flatMap(loop(_, bindableArities, anonArities))
+          cases.foldLeft(defaultArity) {
             case (acc, (_, branch)) =>
               sameArity(acc, loop(branch, bindableArities, anonArities))
           }
@@ -1003,7 +1006,9 @@ object Matchless {
           case If(cond, thenExpr, elseExpr) =>
             loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, curr)))
           case SwitchVariant(on, _, cases, default) =>
-            cases.foldLeft(loopExpr(default, loopExpr(on, curr))) {
+            val curr1 = loopExpr(on, curr)
+            val curr2 = default.fold(curr1)(loopExpr(_, curr1))
+            cases.foldLeft(curr2) {
               case (acc, (_, branch)) =>
                 loopExpr(branch, acc)
             }
@@ -1416,7 +1421,14 @@ object Matchless {
                   val (branch1, st1) = recurExpr(branch, currSt)
                   ((variant, branch1) :: acc, st1)
               }
-            val (default1, stDefault) = recurExpr(default, stCases)
+            val (default1, stDefault) =
+              default match {
+                case Some(defaultExpr) =>
+                  val (defaultExpr1, st1) = recurExpr(defaultExpr, stCases)
+                  (Some(defaultExpr1), st1)
+                case None              =>
+                  (None, stCases)
+              }
             (
               SwitchVariant(
                 on1,
@@ -1473,7 +1485,7 @@ object Matchless {
               .map { case (_, branch) =>
                 loopExpr(branch)
               }
-              .sum + loopExpr(default)
+              .sum + default.fold(0)(loopExpr)
           case Always(cond, thenExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -1631,7 +1643,7 @@ object Matchless {
             cases.map { case (variant, branch) =>
               (variant, recurExpr(branch))
             },
-            recurExpr(default)
+            default.map(recurExpr)
           )
         case Always(cond, thenExpr) =>
           rewriteCanonicalRecursionLoop(recurBool(cond), recurExpr(thenExpr))
@@ -1912,7 +1924,7 @@ object Matchless {
       case SwitchVariant(on, _, cases, default) =>
         hasSideEffect(on) ||
           cases.exists { case (_, branch) => hasSideEffect(branch) } ||
-          hasSideEffect(default)
+          default.exists(hasSideEffect)
       case Let(_, x, b) =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMut(_, in) => hasSideEffect(in)
@@ -1949,7 +1961,7 @@ object Matchless {
       cases: NonEmptyList[(Int, Expr[A])],
       // Variants not listed in `cases` (for example via wildcard/default rows)
       // evaluate this branch.
-      default: Expr[A]
+      default: Option[Expr[A]]
   ) extends Expr[A] {
     private val caseVariants = cases.toList.map(_._1)
     private val familySize = famArities.length
@@ -2680,7 +2692,7 @@ object Matchless {
             cases.map { case (variant, branch) =>
               (variant, substituteLocals(m, branch))
             },
-            substituteLocals(m, default)
+            default.map(substituteLocals(m, _))
           )
         case Always(c, e) =>
           Always(substituteLocalsBool(m, c), substituteLocals(m, e))
@@ -2800,7 +2812,9 @@ object Matchless {
               case (variant, branch) =>
                 (variant, loop(branch).getOrElse(returnValue(branch)))
             }
-            val rewrittenDefault = loop(default).getOrElse(returnValue(default))
+            val rewrittenDefault = default.map { defaultExpr =>
+              loop(defaultExpr).getOrElse(returnValue(defaultExpr))
+            }
             Some(SwitchVariant(on, famArities, rewrittenCases, rewrittenDefault))
           case Always(c, e) =>
             loop(e).map(Always(c, _))
@@ -4259,7 +4273,7 @@ object Matchless {
               val defaultPossible = possible diff explicitVariants
               val defaultTrue =
                 if (defaultPossible.isEmpty) Some(Set.empty[Int])
-                else collectTrueVariants(default, defaultPossible, selector)
+                else default.flatMap(collectTrueVariants(_, defaultPossible, selector))
               (explicitTrue, defaultTrue).mapN(_ union _)
             case _ =>
               None
@@ -4720,10 +4734,13 @@ object Matchless {
                         }
                     }
 
-                  val defaultExprF: F[Expr[B]] =
+                  val hasAllVariants = enumSigs.length == famArities.length
+                  val defaultExprF: F[Option[Expr[B]]] =
                     if (defaultRows.nonEmpty)
-                      compileRows(defaultRows, defaultOccs, mustMatch)
-                    else Monad[F].pure(UnitExpr)
+                      compileRows(defaultRows, defaultOccs, mustMatch).map(Some(_))
+                    else if (!mustMatch && !hasAllVariants)
+                      Monad[F].pure(Some(UnitExpr))
+                    else Monad[F].pure(None)
 
                   (enumSigs.traverse(compileCase), defaultExprF).mapN {
                     (compiledCases, defaultExpr) =>
@@ -4773,7 +4790,7 @@ object Matchless {
               .map { case (_, branch) =>
                 loopExpr(branch)
               }
-              .sum + loopExpr(default)
+              .sum + default.fold(0)(loopExpr)
           case Always(cond, thenExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr)
           case PrevNat(of) =>

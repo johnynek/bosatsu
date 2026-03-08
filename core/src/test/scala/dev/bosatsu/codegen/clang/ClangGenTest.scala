@@ -480,7 +480,7 @@ def pick(v):
     case F: 5
     case G: 6
     case H: 7
-    case _: 8
+    case I: 8
 
 main = pick
 """) { pm =>
@@ -500,7 +500,7 @@ main = pick
           assert(rendered.contains("switch ("), rendered)
           assert(rendered.contains("case 0:"), rendered)
           assert(rendered.contains("case 7:"), rendered)
-          assert(rendered.contains("default:"), rendered)
+          assertEquals(rendered.contains("default:"), false, rendered)
           assert(rendered.contains("break;"), rendered)
       }
     }
@@ -521,7 +521,7 @@ def pick(v):
     case B: 1
     case C: 2
     case D: 3
-    case _: 4
+    case E: 4
 
 main = pick
 """) { pm =>

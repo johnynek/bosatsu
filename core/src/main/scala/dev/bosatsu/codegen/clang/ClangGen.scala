@@ -802,7 +802,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       )
                     }
                   }
-                  defaultVL <- innerToValue(default)
+                  defaultVL <- default.traverse(innerToValue)
                 } yield {
                   val variantGetter =
                     if (famArities.forall(_ == 0)) "get_variant_value"
@@ -812,7 +812,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     Code.Switch(
                       variantName,
                       caseBlocks,
-                      Code.block(resultName := defaultVL, Code.Break)
+                      defaultVL.map(v => Code.block(resultName := v, Code.Break))
                     )
 
                   Code.WithValue(

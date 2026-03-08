@@ -229,7 +229,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           3 -> Matchless.Literal(Lit(3)),
           4 -> Matchless.Literal(Lit(4))
         ),
-        Matchless.Literal(Lit(0))
+        Some(Matchless.Literal(Lit(0)))
       )
     val mainExpr: Matchless.Expr[Unit] =
       Matchless.Lambda(Nil, None, NonEmptyList.one(arg), body)

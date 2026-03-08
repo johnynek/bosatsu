@@ -478,7 +478,7 @@ object Code {
   case class Switch(
       on: Expression,
       cases: NonEmptyList[(IntLiteral, Block)],
-      default: Block
+      default: Option[Block]
   ) extends Statement
   case object Break extends Statement
   case class Effect(expr: Expression) extends Statement
@@ -790,10 +790,11 @@ object Code {
         val caseDocs = cases.toList.map { case (value, body) =>
           caseDoc + toDoc(value) + colon + Doc.space + toDoc(body)
         }
-        val defaultCaseDoc =
-          defaultDoc + colon + Doc.space + toDoc(defaultCase)
+        val defaultCaseDoc = defaultCase.map { block =>
+          defaultDoc + colon + Doc.space + toDoc(block)
+        }
         switchDoc + Doc.space + par(toDoc(on)) + Doc.space + curlyBlock(
-          caseDocs :+ defaultCaseDoc
+          defaultCaseDoc.fold(caseDocs)(caseDocs :+ _)
         )(identity)
       case _: Break.type =>
         breakSemi

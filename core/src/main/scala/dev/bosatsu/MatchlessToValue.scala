@@ -481,13 +481,27 @@ object MatchlessToValue {
             cases.iterator.foreach { case (variant, branch) =>
               caseFns(variant) = Some(loop(branch))
             }
-            lazy val defaultF = loop(default)
+            lazy val defaultF = default.map(loop)
 
             Dynamic { (scope: Scope) =>
               val variant = onF(scope).asSum.variant
-              if ((variant >= 0) && (variant < caseFns.length))
-                caseFns(variant).getOrElse(defaultF)(scope)
-              else defaultF(scope)
+              if ((variant >= 0) && (variant < caseFns.length)) {
+                caseFns(variant) match {
+                  case Some(fn) => fn(scope)
+                  case None     =>
+                    defaultF match {
+                      case Some(df) => df(scope)
+                      case None     =>
+                        throw new IllegalStateException(
+                          s"SwitchVariant missing case for variant=$variant in family size=${caseFns.length}"
+                        )
+                    }
+                }
+              } else {
+                throw new IllegalStateException(
+                  s"SwitchVariant variant out of bounds: variant=$variant, family size=${caseFns.length}"
+                )
+              }
             }
           case Always.SetChain(muts, expr) =>
             val values = muts.map { case (m, e) => (m, loop(e)) }

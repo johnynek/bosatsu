@@ -164,7 +164,7 @@ class MatchlessRegressionTest extends munit.FunSuite {
           loopExpr(on, activeRecNames) + cases.iterator.map {
             case (_, branch) =>
               loopExpr(branch, activeRecNames)
-          }.sum + loopExpr(default, activeRecNames)
+          }.sum + default.fold(0)(loopExpr(_, activeRecNames))
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond, activeRecNames) + loopExpr(thenExpr, activeRecNames)
         case Matchless.PrevNat(of) =>
@@ -352,7 +352,7 @@ def branch_blowup(args: L) -> Nat:
             3 -> Matchless.Literal(Lit(30)),
             4 -> Matchless.Literal(Lit(40))
           ),
-          Matchless.Literal(Lit(99))
+          Some(Matchless.Literal(Lit(99)))
         )
       )
 

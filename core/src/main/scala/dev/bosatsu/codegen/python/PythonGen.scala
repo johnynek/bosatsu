@@ -2912,7 +2912,7 @@ object PythonGen {
               cases.traverse { case (variant, branch) =>
                 loop(branch, slotName, inlineSlots).map((variant, _))
               },
-              loop(default, slotName, inlineSlots)
+              default.traverse(loop(_, slotName, inlineSlots))
             ).flatMapN { (onValue, caseValues, defaultValue) =>
               Env.onLastM(onValue) { onExpr =>
                 for {
@@ -2929,8 +2929,8 @@ object PythonGen {
                       resultName := branchValue
                     )
                   }
-                  val defaultAssign = resultName := defaultValue
-                  val dispatchStmt = Code.ifStatement(conds, Some(defaultAssign))
+                  val defaultAssign = defaultValue.map(resultName := _)
+                  val dispatchStmt = Code.ifStatement(conds, defaultAssign)
 
                   // Keep this assignment as a real statement so branch conditions
                   // reuse one cached tag instead of re-reading the scrutinee.
