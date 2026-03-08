@@ -1947,17 +1947,19 @@ object Matchless {
       on: CheapExpr[A],
       famArities: List[Int],
       cases: NonEmptyList[(Int, Expr[A])],
+      // Variants not listed in `cases` (for example via wildcard/default rows)
+      // evaluate this branch.
       default: Expr[A]
   ) extends Expr[A] {
     private val caseVariants = cases.toList.map(_._1)
     private val familySize = famArities.length
 
-    require(cases.length >= 2, "SwitchVariant requires at least two cases")
-    require(
+    Require(cases.length >= 2, "SwitchVariant requires at least two cases")
+    Require(
       caseVariants.distinct.length == caseVariants.length,
       s"SwitchVariant variants must be distinct, found: $caseVariants"
     )
-    require(
+    Require(
       caseVariants.forall(v => (0 <= v) && (v < familySize)),
       s"SwitchVariant variants must be in [0, $familySize), found: $caseVariants"
     )
@@ -4186,10 +4188,6 @@ object Matchless {
             case 1 => Some(true)
             case _ => None
           }
-        case Literal(Lit.Integer(value)) =>
-          if (value == java.math.BigInteger.ONE) Some(true)
-          else if (value == java.math.BigInteger.ZERO) Some(false)
-          else None
         case _ =>
           None
       }
@@ -4727,12 +4725,12 @@ object Matchless {
                       compileRows(defaultRows, defaultOccs, mustMatch)
                     else Monad[F].pure(UnitExpr)
 
-                  (enumSigs.toList.traverse(compileCase), defaultExprF).mapN {
+                  (enumSigs.traverse(compileCase), defaultExprF).mapN {
                     (compiledCases, defaultExpr) =>
                       SwitchVariant(
                         occ,
                         famArities,
-                        NonEmptyList.fromListUnsafe(compiledCases),
+                        compiledCases,
                         defaultExpr
                       )
                   }
