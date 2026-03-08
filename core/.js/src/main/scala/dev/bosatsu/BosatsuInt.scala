@@ -146,6 +146,16 @@ object BosatsuInt {
         case bi: BigInteger       => fromBigInteger(bi.not())
       }
 
+    inline def popCount: Int =
+      t match {
+        case i: java.lang.Integer =>
+          val iv = i.intValue()
+          if (iv >= 0) java.lang.Integer.bitCount(iv)
+          else java.lang.Integer.bitCount(~iv)
+        case bi: BigInteger =>
+          bi.bitCount()
+      }
+
     inline def increment: Tpe =
       t match {
         case i: java.lang.Integer =>

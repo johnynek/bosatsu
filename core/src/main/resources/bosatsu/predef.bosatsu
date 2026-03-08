@@ -82,6 +82,7 @@ export (
   or_Int,
   xor_Int,
   not_Int,
+  popcount_Int,
   partition_String,
   rpartition_String,
   range,
@@ -247,6 +248,8 @@ external def or_Int(a: Int, b: Int) -> Int
 external def xor_Int(a: Int, b: Int) -> Int
 # Bitwise NOT.
 external def not_Int(a: Int) -> Int
+# Number of bits that differ from the sign bit.
+external def popcount_Int(a: Int) -> Int
 # Floating-point addition.
 external def addf(a: Float64, b: Float64) -> Float64
 # Floating-point subtraction.

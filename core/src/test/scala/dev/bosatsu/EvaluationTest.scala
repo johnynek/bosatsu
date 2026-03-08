@@ -373,6 +373,26 @@ main = 6.gcd_Int(3)
       "Foo",
       VInt(3)
     )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(7)
+"""),
+      "Foo",
+      VInt(3)
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(-1)
+"""),
+      "Foo",
+      VInt(0)
+    )
   }
 
   test("test Float64 functions") {

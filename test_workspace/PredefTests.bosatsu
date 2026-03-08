@@ -78,6 +78,11 @@ test_int = TestSuite("Int tests", [
       Assertion(and_Int(-1, 23) matches 23, "-1 & 23 == 23"),
       Assertion(or_Int(-1, 23) matches -1, "-1 | 23 == -1"),
       Assertion(not_Int(-2) matches 1, "~(-2) == 1"),
+      Assertion(popcount_Int(0) matches 0, "popcount_Int(0) == 0"),
+      Assertion(popcount_Int(7) matches 3, "popcount_Int(7) == 3"),
+      Assertion(popcount_Int(-1) matches 0, "popcount_Int(-1) == 0"),
+      Assertion(popcount_Int(-2) matches 1, "popcount_Int(-2) == 1"),
+      Assertion(popcount_Int(1.shift_left_Int(2000)) matches 1, "popcount_Int(1 << 2000) == 1"),
       
       Assertion(gcd_Int(4, 3) matches 1, "gcd(4, 3) == 1"),
       Assertion(gcd_Int(-4, -3) matches -1, "gcd(-4, -3) == -1"),
