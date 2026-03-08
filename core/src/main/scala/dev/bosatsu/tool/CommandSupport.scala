@@ -17,16 +17,14 @@ object CommandSupport {
       dependencies: Iterable[DecodedLibrary[Algo.Blake3]]
   ): Either[CliException.Basic, Map[PackageName, String]] = {
     val packageBaseEntries =
-      dependencies.iterator.toList
-        .sortBy(dep => (dep.name.name, dep.version.render))
-        .flatMap { dep =>
-          // A library-level base URL applies to each package it exports.
-          dep.docBaseUrl.toList.flatMap { baseUrl =>
-            dep.interfaces.iterator.map { iface =>
-              (iface.name, baseUrl, dep.name.name, dep.version.render)
-            }
-          }
-        }
+      for {
+        dep <- dependencies.iterator.toList.sortBy(dep =>
+          (dep.name.name, dep.version.render)
+        )
+        // A library-level base URL applies to each package it exports.
+        baseUrl <- dep.docBaseUrl.toList
+        iface <- dep.interfaces.iterator
+      } yield (iface.name, baseUrl, dep.name.name, dep.version.render)
 
     val groupedByPackage =
       packageBaseEntries.groupBy(_._1).toList.sortBy(_._1.asString)
