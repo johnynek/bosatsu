@@ -68,6 +68,15 @@ class ExprTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("freeBoundTyVars matches traverseType oracle") {
+    forAll(genExpr) { e =>
+      assertEquals(
+        Expr.freeBoundTyVars(e),
+        Expr.freeBoundTyVarsViaTraverseType(e)
+      )
+    }
+  }
+
   test("let flattening makes sense") {
     forAll(genExpr) {
       case let @ Expr.Let(n, b, i, r, tag) =>
