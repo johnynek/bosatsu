@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <math.h>
+#include <time.h>
 #include "gc.h"
 
 #include <assert.h>
@@ -2735,6 +2736,7 @@ typedef struct BSTS_Test_Result {
   char* package_name;
   int passes;
   int fails;
+  uint64_t elapsed_nanos;
 } BSTS_Test_Result;
 
 enum Test:
@@ -2747,6 +2749,33 @@ typedef struct BSTS_PassFail {
   int passes;
   int fails;
 } BSTS_PassFail;
+
+static uint64_t bsts_monotonic_nanos() {
+#if defined(CLOCK_MONOTONIC)
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+    return UINT64_C(0);
+  }
+  if (ts.tv_sec < 0 || ts.tv_nsec < 0) {
+    return UINT64_C(0);
+  }
+  return ((uint64_t)ts.tv_sec * UINT64_C(1000000000)) + (uint64_t)ts.tv_nsec;
+#else
+  return UINT64_C(0);
+#endif
+}
+
+static uint64_t bsts_elapsed_nanos_since(uint64_t start_nanos) {
+  uint64_t end_nanos = bsts_monotonic_nanos();
+  if (start_nanos == UINT64_C(0) || end_nanos == UINT64_C(0) || end_nanos < start_nanos) {
+    return UINT64_C(0);
+  }
+  return end_nanos - start_nanos;
+}
+
+static double bsts_nanos_to_seconds(uint64_t elapsed_nanos) {
+  return (double)elapsed_nanos / 1000000000.0;
+}
 
 void print_indent(int indent) {
   for(int z = 0; z < indent; z++) {
@@ -2881,25 +2910,31 @@ static void bsts_print_test_failures(BValue v, int indent) {
 static BSTS_Test_Result bsts_test_run_value(
     char* package_name,
     BValue res,
-    _Bool quiet
+    _Bool quiet,
+    uint64_t elapsed_nanos
 ) {
+  printf("%s: %.3fs\n", package_name, bsts_nanos_to_seconds(elapsed_nanos));
+
   BSTS_PassFail this_test;
   if (quiet) {
     this_test = bsts_count_test(res);
     if (this_test.fails > 0) {
-      printf("%s:\n", package_name);
       bsts_print_test_failures(res, 4);
     }
   }
   else {
-    printf("%s:\n", package_name);
     this_test = bsts_check_test(res, 4);
     if (get_variant(res) == 0) {
       bsts_print_test_summary(4, this_test.passes, this_test.fails);
     }
   }
 
-  BSTS_Test_Result test_res = { package_name, this_test.passes, this_test.fails };
+  BSTS_Test_Result test_res = {
+    package_name,
+    this_test.passes,
+    this_test.fails,
+    elapsed_nanos
+  };
   return test_res;
 }
 
@@ -2908,7 +2943,10 @@ BSTS_Test_Result bsts_test_run(
     BConstruct test_value,
     _Bool quiet
 ) {
-  return bsts_test_run_value(package_name, test_value(), quiet);
+  uint64_t start_nanos = bsts_monotonic_nanos();
+  BValue res = test_value();
+  uint64_t elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
+  return bsts_test_run_value(package_name, res, quiet, elapsed_nanos);
 }
 
 BSTS_Test_Result bsts_test_run_prog(
@@ -2916,29 +2954,47 @@ BSTS_Test_Result bsts_test_run_prog(
     BConstruct test_value,
     _Bool quiet
 ) {
+  uint64_t start_nanos = bsts_monotonic_nanos();
   BSTS_Prog_Test_Result prog_result = bsts_Bosatsu_Prog_run_test(test_value());
+  uint64_t elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
   if (prog_result.is_error) {
     BSTS_PassFail failed = { 0, 1 };
-    printf("%s:\n", package_name);
+    printf("%s: %.3fs\n", package_name, bsts_nanos_to_seconds(elapsed_nanos));
     print_indent(4);
     printf("\033[31mfailure: ProgTest raised an uncaught error\033[0m\n");
     if (!quiet) {
       bsts_print_test_summary(4, failed.passes, failed.fails);
     }
 
-    BSTS_Test_Result test_res = { package_name, failed.passes, failed.fails };
+    BSTS_Test_Result test_res = {
+      package_name,
+      failed.passes,
+      failed.fails,
+      elapsed_nanos
+    };
     return test_res;
   }
 
-  return bsts_test_run_value(package_name, prog_result.value, quiet);
+  return bsts_test_run_value(
+      package_name,
+      prog_result.value,
+      quiet,
+      elapsed_nanos
+  );
 }
 
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
   int total_fails = 0;
   int total_passes = 0;
+  uint64_t total_elapsed_nanos = UINT64_C(0);
   for (int i = 0; i < count; i++) {
     total_fails += results[i].fails;
     total_passes += results[i].passes;
+    if (UINT64_MAX - total_elapsed_nanos < results[i].elapsed_nanos) {
+      total_elapsed_nanos = UINT64_MAX;
+    } else {
+      total_elapsed_nanos += results[i].elapsed_nanos;
+    }
   }
 
   if (total_fails > 0) {
@@ -2953,12 +3009,17 @@ int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
 
   const char* fail_color = total_fails > 0 ? "\033[31m" : "";
   const char* fail_reset = total_fails > 0 ? "\033[0m" : "";
+  int total_tests = total_passes + total_fails;
+  const char* test_word = (total_tests == 1) ? "test" : "tests";
   printf(
-      "\npassed: \033[32m%i\033[0m, failed: %s%i%s\n",
+      "\n%i %s, \033[32m%i passed\033[0m %s%i failed%s in %.3fs\n",
+      total_tests,
+      test_word,
       total_passes,
       fail_color,
       total_fails,
-      fail_reset
+      fail_reset,
+      bsts_nanos_to_seconds(total_elapsed_nanos)
   );
   return (total_fails > 0);
 }

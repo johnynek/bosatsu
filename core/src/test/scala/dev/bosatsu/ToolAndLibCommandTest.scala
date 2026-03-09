@@ -6951,6 +6951,39 @@ main = 0
     }
   }
 
+  test("tool test output includes package and total timings") {
+    val src =
+      """tests = TestSuite("timed", [
+|  Assertion(True, "pass one")
+|])
+|""".stripMargin
+    val cmd = List(
+      "tool",
+      "test",
+      "--test_package",
+      "Package0",
+      "--package_root",
+      "",
+      "--input",
+      "Package0"
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](List(Chain("Package0") -> src))
+      out <- runWithStateAndExit(cmd, s0)
+    } yield out
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _, exitCode)) =>
+        val out = state.stdOut.render(120)
+        assertEquals(exitCode, ExitCode.Success)
+        assert(out.matches("(?s).*Package0: \\d+\\.\\d{3}s.*"), out)
+        assert(out.matches("(?s).*\\d+ test[s]?, .* in \\d+\\.\\d{3}s.*"), out)
+    }
+  }
+
   test("tool test --quiet only prints failures and summary") {
     val src =
       """tests = TestSuite("quiet", [
@@ -6984,6 +7017,8 @@ main = 0
         assert(out.contains("boom"), out)
         assert(out.contains("passed"), out)
         assert(out.contains("failed"), out)
+        assert(out.matches("(?s).*Package0: \\d+\\.\\d{3}s.*"), out)
+        assert(out.matches("(?s).*\\d+ test[s]?, .* in \\d+\\.\\d{3}s.*"), out)
         assert(!out.contains("pass one"), out)
     }
   }

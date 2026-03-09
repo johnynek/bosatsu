@@ -213,6 +213,7 @@ typedef struct BSTS_Test_Result {
   char* package_name;
   int passes;
   int fails;
+  uint64_t elapsed_nanos;
 } BSTS_Test_Result;
 
 // This is the constructor to get a Test value for the given package name
