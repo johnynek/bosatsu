@@ -2444,6 +2444,12 @@ object TypedExprRecursionCheck {
           }
         }
 
+      def defer[A](st: => St[A]): St[A] =
+        new St[A] {
+          def run(state: State): Eval[ErrorOr[(State, A)]] =
+            Eval.defer(st.run(state))
+        }
+
       implicit val monadForSt: StackSafeMonad[St] =
         new StackSafeMonad[St] {
           def pure[A](a: A): St[A] = St.pure(a)
@@ -2508,6 +2514,7 @@ object TypedExprRecursionCheck {
     private def toSt[A](v: Res[A]): St[A] =
       St.liftEither(v.toEither)
     private def pureSt[A](a: A): St[A] = St.pure(a)
+    private def deferSt[A](st: => St[A]): St[A] = St.defer(st)
     private val unitSt: St[Unit] = pureSt(())
 
     private def checkForIllegalBindsSt(
@@ -2668,7 +2675,8 @@ object TypedExprRecursionCheck {
         wrappers: WrapperScope,
         lambdaTag: Declaration
     ): St[Unit] =
-      body match {
+      deferSt {
+        body match {
         case TypedExpr.Match(arg, branches, tag)
             if (tag == lambdaTag) &&
               (branches.length == 1) &&
@@ -2688,6 +2696,7 @@ object TypedExprRecursionCheck {
         case _ =>
           checkExpr(currentPackage, body, wrappers)
       }
+      }
 
     private def checkApply(
         currentPackage: PackageName,
@@ -2696,7 +2705,8 @@ object TypedExprRecursionCheck {
         region: Region,
         wrappers: WrapperScope
     ): St[Unit] =
-      getSt.flatMap {
+      deferSt {
+        getSt.flatMap {
         case TopLevel(_) =>
           // without any recursion, normal typechecking will detect bad states:
           checkExpr(currentPackage, fn, wrappers) *> args.parTraverse_(
@@ -2787,13 +2797,15 @@ object TypedExprRecursionCheck {
               )
           }
       }
+      }
 
     private def checkExpr(
         currentPackage: PackageName,
         expr: TypedExpr[Declaration],
         wrappers: WrapperScope
     ): St[Unit] =
-      expr match {
+      deferSt {
+        expr match {
         case TypedExpr.Generic(q, in) =>
           checkExpr(currentPackage, in, wrappers.pushQuant(q))
         case TypedExpr.Annotation(term, _, _) =>
@@ -3091,6 +3103,7 @@ object TypedExprRecursionCheck {
                   }
               }
           }
+        }
       }
 
     private def checkExprV(
