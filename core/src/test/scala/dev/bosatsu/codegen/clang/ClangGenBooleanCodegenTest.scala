@@ -123,25 +123,25 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
   private val binaryExpectations: Map[Int, Expectation] = Map(
     0 -> Expectation.Const(0),
     1 -> Expectation.Expr(
-      "(!(get_variant_value(__bsts_b_a0) == 1)) && (!(get_variant_value(__bsts_b_b0) == 1))"
+      "(get_variant_value(__bsts_b_a0) != 1) && (get_variant_value(__bsts_b_b0) != 1)"
     ),
     2 -> Expectation.Expr(
-      "(!(get_variant_value(__bsts_b_a0) == 1)) && (get_variant_value(__bsts_b_b0) == 1)"
+      "(get_variant_value(__bsts_b_a0) != 1) && (get_variant_value(__bsts_b_b0) == 1)"
     ),
     3 -> Expectation.Expr(
-      "!(get_variant_value(__bsts_b_a0) == 1)"
+      "get_variant_value(__bsts_b_a0) != 1"
     ),
     4 -> Expectation.Expr(
-      "(get_variant_value(__bsts_b_a0) == 1) && (!(get_variant_value(__bsts_b_b0) == 1))"
+      "(get_variant_value(__bsts_b_a0) == 1) && (get_variant_value(__bsts_b_b0) != 1)"
     ),
     5 -> Expectation.Expr(
-      "!(get_variant_value(__bsts_b_b0) == 1)"
+      "get_variant_value(__bsts_b_b0) != 1"
     ),
     6 -> Expectation.Expr(
       "(get_variant_value(__bsts_b_a0) == 1) != (get_variant_value(__bsts_b_b0) == 1)"
     ),
     7 -> Expectation.Expr(
-      "(!(get_variant_value(__bsts_b_a0) == 1)) || (!(get_variant_value(__bsts_b_b0) == 1))"
+      "(get_variant_value(__bsts_b_a0) != 1) || (get_variant_value(__bsts_b_b0) != 1)"
     ),
     8 -> Expectation.Expr(
       "(get_variant_value(__bsts_b_a0) == 1) && (get_variant_value(__bsts_b_b0) == 1)"
@@ -153,13 +153,13 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
       "get_variant_value(__bsts_b_b0) == 1"
     ),
     11 -> Expectation.Expr(
-      "(!(get_variant_value(__bsts_b_a0) == 1)) || (get_variant_value(__bsts_b_b0) == 1)"
+      "(get_variant_value(__bsts_b_a0) != 1) || (get_variant_value(__bsts_b_b0) == 1)"
     ),
     12 -> Expectation.Expr(
       "get_variant_value(__bsts_b_a0) == 1"
     ),
     13 -> Expectation.Expr(
-      "(get_variant_value(__bsts_b_a0) == 1) || (!(get_variant_value(__bsts_b_b0) == 1))"
+      "(get_variant_value(__bsts_b_a0) == 1) || (get_variant_value(__bsts_b_b0) != 1)"
     ),
     14 -> Expectation.Expr(
       "(get_variant_value(__bsts_b_a0) == 1) || (get_variant_value(__bsts_b_b0) == 1)"
@@ -169,7 +169,7 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
 
   private val unaryExpectations: Map[Int, Expectation] = Map(
     0 -> Expectation.Const(0),
-    1 -> Expectation.Expr("!(get_variant_value(__bsts_b_a0) == 1)"),
+    1 -> Expectation.Expr("get_variant_value(__bsts_b_a0) != 1"),
     2 -> Expectation.Expr("get_variant_value(__bsts_b_a0) == 1"),
     3 -> Expectation.Const(1)
   )

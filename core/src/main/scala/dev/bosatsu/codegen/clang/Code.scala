@@ -245,6 +245,24 @@ object Code {
             if (i == 0) IntLiteral.One else IntLiteral.Zero
           case PrefixExpr(PrefixUnary.Not, inner) =>
             inner
+          case BinExpr(left, op, right) =>
+            if (op eq BinOp.Eq) left.bin(BinOp.NotEq, right)
+            else if (op eq BinOp.NotEq) left =:= right
+            else if (op eq BinOp.Lt) left.bin(BinOp.GtEq, right)
+            else if (op eq BinOp.LtEq) left.bin(BinOp.Gt, right)
+            else if (op eq BinOp.Gt) left.bin(BinOp.LtEq, right)
+            else if (op eq BinOp.GtEq) left.bin(BinOp.Lt, right)
+            else if (op eq BinOp.And)
+              evalOr(
+                simplifyBoolExpr(!left),
+                simplifyBoolExpr(!right)
+              )
+            else if (op eq BinOp.Or)
+              evalAnd(
+                simplifyBoolExpr(!left),
+                simplifyBoolExpr(!right)
+              )
+            else PrefixExpr(PrefixUnary.Not, BinExpr(left, op, right))
           case t =>
             PrefixExpr(PrefixUnary.Not, t)
         }
@@ -296,22 +314,50 @@ object Code {
                 case (_, Some(true)) =>
                   Some(evalOr(simplifyBoolExpr(!cond1), then1))
                 case _ =>
-                  (then1, else1) match {
-                    case (PrefixExpr(PrefixUnary.Not, x), y)
-                        if x.equals(y) =>
-                      Some(cond1.bin(BinOp.NotEq, y))
-                    case (x, PrefixExpr(PrefixUnary.Not, y))
-                        if x.equals(y) =>
-                      Some(cond1 =:= x)
-                    case _ =>
-                      None
+                  val notElseIsThen = simplifyBoolExpr(!else1).equals(then1)
+                  val notThenIsElse = simplifyBoolExpr(!then1).equals(else1)
+
+                  if (notElseIsThen && notThenIsElse) {
+                    val candNotEq = cond1.bin(BinOp.NotEq, else1)
+                    val candEq = cond1 =:= then1
+                    Some(
+                      if (negationCost(candNotEq) <= negationCost(candEq))
+                        candNotEq
+                      else candEq
+                    )
                   }
+                  else if (notElseIsThen)
+                    Some(cond1.bin(BinOp.NotEq, else1))
+                  else if (notThenIsElse)
+                    Some(cond1 =:= then1)
+                  else None
               }
             else None
 
           boolRule.getOrElse(Ternary(cond1, then1, else1))
       }
   }
+
+  private def negationCost(expr: Expression): Int =
+    expr match {
+      case PrefixExpr(PrefixUnary.Not, target) =>
+        1 + negationCost(target)
+      case BinExpr(left, op, right) =>
+        val thisCost = if (op eq BinOp.NotEq) 1 else 0
+        thisCost + negationCost(left) + negationCost(right)
+      case Ternary(cond, thenExpr, elseExpr) =>
+        negationCost(cond) + negationCost(thenExpr) + negationCost(elseExpr)
+      case Apply(fn, args) =>
+        negationCost(fn) + args.iterator.map(negationCost).sum
+      case Select(target, _) =>
+        negationCost(target)
+      case Bracket(target, item) =>
+        negationCost(target) + negationCost(item)
+      case Cast(_, in) =>
+        negationCost(in)
+      case _ =>
+        0
+    }
   /////////////////////////
   // Here are all the ValueLike
   /////////////////////////
