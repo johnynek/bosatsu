@@ -325,6 +325,27 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
     missing *> unreachable
   }
 
+  private def validateMatchExpr(
+      matchExpr: TypedExpr.Match[Declaration]
+  ): ValidatedNel[ExprError[Declaration], Unit] = {
+    val branches: NonEmptyList[TypedExpr.Branch[Declaration]] =
+      matchExpr.branches
+
+    val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
+      validateParsedMatchTag(matchExpr.tag)
+        .parProductR(branches.parTraverse_(b => validatePattern(b.pattern)))
+        .leftMap { nel =>
+          nel.map(err =>
+            InvalidPattern(matchExpr, err): ExprError[Declaration]
+          )
+        }
+        .toValidated
+
+    patternsValidated
+      .andThen(_ => matchCoverage(matchExpr))
+      .leftMap(ListUtil.distinctByHashSet)
+  }
+
   /** Check that a typed expression, and all inner expressions, are total, or
     * return a NonEmptyList of matches that are not total
     */
@@ -333,52 +354,70 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
   ): ValidatedNel[ExprError[Declaration], Unit] = {
     import TypedExpr._
 
+    sealed trait CheckWork
+    case class Visit(expr: TypedExpr[Declaration]) extends CheckWork
+    case class CheckMatch(matchExpr: Match[Declaration]) extends CheckWork
+
+    @annotation.tailrec
     def loop(
-        expr: TypedExpr[Declaration]
-    ): ValidatedNel[ExprError[Declaration], Unit] =
-      expr match {
-        case Annotation(e, _, _)      => loop(e)
-        case Generic(_, e)            => loop(e)
-        case AnnotatedLambda(_, e, _) => loop(e)
-        case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
-          Validated.valid(())
-        case App(fn, args, _, _) =>
-          loop(fn) *> args.traverse_(loop)
-        case Let(_, e1, e2, _, _) =>
-          loop(e1) *> loop(e2)
-        case Loop(args, body, _) =>
-          args.traverse_ { case (_, init) => loop(init) } *> loop(body)
-        case Recur(args, _, _) =>
-          args.traverse_(loop)
-        case matchExpr @ Match(arg, branches, _) =>
-          val argA: TypedExpr[Declaration] = arg
-          val branchesA: NonEmptyList[TypedExpr.Branch[Declaration]] = branches
-
-          val argAndBranchExprs = argA :: branchesA.flatMap { branch =>
-            branch.guard match {
-              case Some(g) => NonEmptyList(g, branch.expr :: Nil)
-              case None => NonEmptyList(branch.expr, Nil)
+        work: List[CheckWork],
+        errsRev: List[ExprError[Declaration]]
+    ): List[ExprError[Declaration]] =
+      work match {
+        case Nil => errsRev.reverse
+        case CheckMatch(matchExpr) :: tail =>
+          val errs1 =
+            validateMatchExpr(matchExpr) match {
+              case Validated.Valid(())   => errsRev
+              case Validated.Invalid(nel) =>
+                nel.toList.foldLeft(errsRev)((acc, err) => err :: acc)
             }
+          loop(tail, errs1)
+        case Visit(current) :: tail =>
+          current match {
+            case Annotation(e, _, _)      =>
+              loop(Visit(e) :: tail, errsRev)
+            case Generic(_, e)            =>
+              loop(Visit(e) :: tail, errsRev)
+            case AnnotatedLambda(_, e, _) =>
+              loop(Visit(e) :: tail, errsRev)
+            case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) =>
+              loop(tail, errsRev)
+            case App(fn, args, _, _) =>
+              val withArgs =
+                args.toList.foldRight(tail)((arg, rem) => Visit(arg) :: rem)
+              loop(Visit(fn) :: withArgs, errsRev)
+            case Let(_, e1, e2, _, _) =>
+              loop(Visit(e1) :: Visit(e2) :: tail, errsRev)
+            case Loop(args, body, _) =>
+              val withBody = Visit(body) :: tail
+              val withArgs =
+                args.toList.foldRight(withBody) { case ((_, init), rem) =>
+                  Visit(init) :: rem
+                }
+              loop(withArgs, errsRev)
+            case Recur(args, _, _) =>
+              val withArgs =
+                args.toList.foldRight(tail)((arg, rem) => Visit(arg) :: rem)
+              loop(withArgs, errsRev)
+            case matchExpr @ Match(arg, branches, _) =>
+              val withCheck = CheckMatch(matchExpr) :: tail
+              val withBranches =
+                branches.toList.foldRight(withCheck) { (branch, rem) =>
+                  val withExpr = Visit(branch.expr) :: rem
+                  branch.guard match {
+                    case Some(g) => Visit(g) :: withExpr
+                    case None    => withExpr
+                  }
+                }
+              loop(Visit(arg) :: withBranches, errsRev)
           }
-          val recursion: ValidatedNel[ExprError[Declaration], Unit] =
-            argAndBranchExprs.traverse_(loop)
-
-          val patternsValidated: ValidatedNel[ExprError[Declaration], Unit] =
-            validateParsedMatchTag(matchExpr.tag)
-              .parProductR(branches.parTraverse_(b => validatePattern(b.pattern)))
-              .leftMap { nel =>
-                nel.map(err =>
-                  InvalidPattern(matchExpr, err): ExprError[Declaration]
-                )
-              }
-              .toValidated
-
-          (recursion *>
-            patternsValidated.andThen { _ => matchCoverage(matchExpr) }
-          ).leftMap(ListUtil.distinctByHashSet)
       }
 
-    loop(expr)
+    NonEmptyList.fromList(loop(Visit(expr) :: Nil, Nil)) match {
+      case Some(nel) => Validated.invalid(nel)
+      case None      => Validated.valid(())
+    }
   }
 
   private val topList = WildCard :: Nil

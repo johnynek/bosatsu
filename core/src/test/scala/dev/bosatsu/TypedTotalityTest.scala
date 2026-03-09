@@ -127,4 +127,34 @@ def is_good(res: forall e. Result[e, r]) -> r:
       "is_good"
     )
   }
+
+  test("deep non-match nesting is stack safe") {
+    checkEnvExpr("""#
+enum Value: V
+enum Result[e, r]: Err(err: e), Ok(ok: r)
+
+def deep_total(x: Result[Value, Value]) -> Value:
+  match x:
+    case Err(_):
+      V
+    case Ok(v):
+      v
+""") { (env, lets) =>
+      val expr0 = findLetExpr(lets, "deep_total")
+      val tpe = expr0.getType
+      val depth = 20000
+
+      var expr = expr0
+      var idx = 0
+      while (idx < depth) {
+        expr = TypedExpr.Annotation(expr, tpe, None)
+        idx += 1
+      }
+
+      TotalityCheck(env).checkExpr(expr) match {
+        case Validated.Valid(())    => ()
+        case Validated.Invalid(errs) => fail(errs.toList.mkString(", "))
+      }
+    }
+  }
 }
