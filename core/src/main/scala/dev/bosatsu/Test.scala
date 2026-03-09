@@ -70,22 +70,13 @@ object Test {
   ): Doc =
     summary(passes, fails, c) + Doc.text(s" in ${durationString(elapsedNanos)}")
 
-  private def packageTimingDoc(
-      timings: List[(PackageName, Long)]
-  ): Option[Doc] = {
-    val rows = timings.map { case (p, elapsedNanos) =>
-      Doc.text(p.asString) + colonSpace + Doc.text(durationString(elapsedNanos))
-    }
-
-    rows match {
-      case Nil => None
-      case _   =>
-        Some(
-          Doc.text("package timings:") +
-            (Doc.line + Doc.intercalate(Doc.hardLine, rows)).nested(2)
-        )
-    }
-  }
+  private def packageHeader(
+      packageName: PackageName,
+      elapsedNanos: Long
+  ): Doc =
+    Doc.text(packageName.asString) + colonSpace + Doc.text(
+      durationString(elapsedNanos)
+    )
 
   private def failureMessage(failures: Int, missingCount: Int): String = {
     val failureStr =
@@ -256,33 +247,32 @@ object Test {
         (prefix + missing.nested(2)) :: Nil
       }
 
-    val timingsDoc =
-      packageTimingDoc(tests.map { case (p, _, elapsedNanos) =>
-        (p, elapsedNanos)
-      })
     val sumDoc = timedSummary(successes, failures, totalElapsedNanos, color)
 
     if (quiet) {
-      val failureDocs = tests.collect {
-        case (p, t, _) if t.failureCount > 0 =>
-          val Report(_, _, d) = Test.report(t.failures.get, color)
-          Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+      val packageDocs = tests.map {
+        case (p, t, elapsedNanos) =>
+          val header = packageHeader(p, elapsedNanos)
+          if (t.failureCount > 0) {
+            val Report(_, _, d) = Test.report(t.failures.get, color)
+            header + (Doc.lineOrSpace + d).nested(2)
+          } else header
       }
 
-      val body = failureDocs ++ missingDoc ++ timingsDoc.toList
+      val body = packageDocs ++ missingDoc
       val fullDoc =
         if (body.isEmpty) sumDoc
         else Doc.intercalate(sectionBreak, body :+ sumDoc)
 
       Report(successes, failures, fullDoc)
     } else {
-      val resultDocs = tests.map { case (p, t, _) =>
+      val resultDocs = tests.map { case (p, t, elapsedNanos) =>
         val Report(_, _, d) = Test.report(t, color)
-        Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+        packageHeader(p, elapsedNanos) + (Doc.lineOrSpace + d).nested(2)
       }
 
       if (success) {
-        val sections = resultDocs ++ timingsDoc.toList :+ sumDoc
+        val sections = resultDocs :+ sumDoc
         val fullDoc =
           if (sections.isEmpty) Doc.empty
           else Doc.intercalate(sectionBreak, sections)
@@ -295,7 +285,7 @@ object Test {
               val withFailures = Doc.intercalate(sectionBreak, resultDocs)
               Doc.intercalate(timingBreak, withFailures :: missingDoc) :: Nil
           }
-        val sections = nonSummarySections ++ timingsDoc.toList ++ List(
+        val sections = nonSummarySections ++ List(
           sumDoc,
           Doc.text(failureMessage(failures, noTests.size))
         )

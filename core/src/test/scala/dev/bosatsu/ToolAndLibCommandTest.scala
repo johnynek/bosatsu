@@ -6979,7 +6979,6 @@ main = 0
       case Right((state, _, exitCode)) =>
         val out = state.stdOut.render(120)
         assertEquals(exitCode, ExitCode.Success)
-        assert(out.contains("package timings:"), out)
         assert(out.matches("(?s).*Package0: \\d+\\.\\d{3}s.*"), out)
         assert(out.matches("(?s).*\\d+ test[s]?, .* in \\d+\\.\\d{3}s.*"), out)
     }
@@ -7018,7 +7017,6 @@ main = 0
         assert(out.contains("boom"), out)
         assert(out.contains("passed"), out)
         assert(out.contains("failed"), out)
-        assert(out.contains("package timings:"), out)
         assert(out.matches("(?s).*Package0: \\d+\\.\\d{3}s.*"), out)
         assert(out.matches("(?s).*\\d+ test[s]?, .* in \\d+\\.\\d{3}s.*"), out)
         assert(!out.contains("pass one"), out)

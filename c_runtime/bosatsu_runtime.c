@@ -2910,18 +2910,19 @@ static void bsts_print_test_failures(BValue v, int indent) {
 static BSTS_Test_Result bsts_test_run_value(
     char* package_name,
     BValue res,
-    _Bool quiet
+    _Bool quiet,
+    uint64_t elapsed_nanos
 ) {
+  printf("%s: %.3fs\n", package_name, bsts_nanos_to_seconds(elapsed_nanos));
+
   BSTS_PassFail this_test;
   if (quiet) {
     this_test = bsts_count_test(res);
     if (this_test.fails > 0) {
-      printf("%s:\n", package_name);
       bsts_print_test_failures(res, 4);
     }
   }
   else {
-    printf("%s:\n", package_name);
     this_test = bsts_check_test(res, 4);
     if (get_variant(res) == 0) {
       bsts_print_test_summary(4, this_test.passes, this_test.fails);
@@ -2932,7 +2933,7 @@ static BSTS_Test_Result bsts_test_run_value(
     package_name,
     this_test.passes,
     this_test.fails,
-    UINT64_C(0)
+    elapsed_nanos
   };
   return test_res;
 }
@@ -2943,9 +2944,9 @@ BSTS_Test_Result bsts_test_run(
     _Bool quiet
 ) {
   uint64_t start_nanos = bsts_monotonic_nanos();
-  BSTS_Test_Result test_res = bsts_test_run_value(package_name, test_value(), quiet);
-  test_res.elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
-  return test_res;
+  BValue res = test_value();
+  uint64_t elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
+  return bsts_test_run_value(package_name, res, quiet, elapsed_nanos);
 }
 
 BSTS_Test_Result bsts_test_run_prog(
@@ -2955,9 +2956,10 @@ BSTS_Test_Result bsts_test_run_prog(
 ) {
   uint64_t start_nanos = bsts_monotonic_nanos();
   BSTS_Prog_Test_Result prog_result = bsts_Bosatsu_Prog_run_test(test_value());
+  uint64_t elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
   if (prog_result.is_error) {
     BSTS_PassFail failed = { 0, 1 };
-    printf("%s:\n", package_name);
+    printf("%s: %.3fs\n", package_name, bsts_nanos_to_seconds(elapsed_nanos));
     print_indent(4);
     printf("\033[31mfailure: ProgTest raised an uncaught error\033[0m\n");
     if (!quiet) {
@@ -2968,14 +2970,17 @@ BSTS_Test_Result bsts_test_run_prog(
       package_name,
       failed.passes,
       failed.fails,
-      bsts_elapsed_nanos_since(start_nanos)
+      elapsed_nanos
     };
     return test_res;
   }
 
-  BSTS_Test_Result test_res = bsts_test_run_value(package_name, prog_result.value, quiet);
-  test_res.elapsed_nanos = bsts_elapsed_nanos_since(start_nanos);
-  return test_res;
+  return bsts_test_run_value(
+      package_name,
+      prog_result.value,
+      quiet,
+      elapsed_nanos
+  );
 }
 
 int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
@@ -2989,13 +2994,6 @@ int bsts_test_result_print_summary(int count, BSTS_Test_Result* results) {
       total_elapsed_nanos = UINT64_MAX;
     } else {
       total_elapsed_nanos += results[i].elapsed_nanos;
-    }
-  }
-
-  if (count > 0) {
-    printf("\npackage timings:\n");
-    for (int i = 0; i < count; i++) {
-      printf("  %s: %.3fs\n", results[i].package_name, bsts_nanos_to_seconds(results[i].elapsed_nanos));
     }
   }
 

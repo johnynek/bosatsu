@@ -5,7 +5,7 @@ import dev.bosatsu.LocationMap.Colorize
 class Issue2092Test extends munit.FunSuite {
   private val color = Colorize.None
 
-  test("issue 2092: outputForTimed includes package and total timings") {
+  test("issue 2092: outputForTimed includes inline package and total timings") {
     val report = Test.outputForTimed(
       List(
         PackageName.parts("Alpha", "Main") -> Some(
@@ -20,7 +20,6 @@ class Issue2092Test extends munit.FunSuite {
     )
 
     val out = report.doc.render(120)
-    assert(out.contains("package timings:"), out)
     assert(out.contains("Alpha/Main: 0.123s"), out)
     assert(out.contains("Beta/Main: 0.004s"), out)
     assert(out.contains("in 0.127s"), out)
@@ -50,7 +49,6 @@ class Issue2092Test extends munit.FunSuite {
     val out = report.doc.render(120)
     assert(out.contains("boom"), out)
     assert(!out.contains("pass detail"), out)
-    assert(out.contains("package timings:"), out)
     assert(out.contains("Quiet/Main: 0.005s"), out)
     assert(out.contains("in 0.005s"), out)
   }
