@@ -554,6 +554,19 @@ object TypedExprNormalization {
           outerRecurInvariantFlags(fn, loopNames, inNestedLoop),
           loopList(args.toList, None)
         )
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        val fromLets = lets.foldLeft(Option.empty[Vector[Boolean]]) {
+          case (acc, (_, rhs, _)) =>
+            combineInvariantFlags(
+              acc,
+              outerRecurInvariantFlags(rhs, loopNames, inNestedLoop)
+            )
+        }
+        combineInvariantFlags(
+          fromLets,
+          outerRecurInvariantFlags(tail, loopNames, inNestedLoop)
+        )
       case Let(_, expr, in, _, _) =>
         combineInvariantFlags(
           outerRecurInvariantFlags(expr, loopNames, inNestedLoop),
@@ -632,11 +645,26 @@ object TypedExprNormalization {
         }
         if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
-      case let @ Let(arg, expr, in, rec, tag) =>
+      case let @ Let(arg, expr, in, RecursionKind.Recursive, tag) =>
         val expr1 = dropOuterRecurArgs(expr, dropPositions, inNestedLoop)
         val in1 = dropOuterRecurArgs(in, dropPositions, inNestedLoop)
         if ((expr1 eq expr) && (in1 eq in)) let
-        else Let(arg, expr1, in1, rec, tag)
+        else Let(arg, expr1, in1, RecursionKind.Recursive, tag)
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var changed = false
+        val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+        val it = lets.iterator
+        while (it.hasNext) {
+          val (n, rhs, letTag) = it.next()
+          val rhs1 = dropOuterRecurArgs(rhs, dropPositions, inNestedLoop)
+          if (!(rhs1 eq rhs)) changed = true
+          rebuilt += ((n, rhs1, letTag))
+        }
+        val tail1 = dropOuterRecurArgs(tail, dropPositions, inNestedLoop)
+        if (!(tail1 eq tail)) changed = true
+        if (!changed) let
+        else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
       case lp @ Loop(args, body, tag) =>
         val args1 = ListUtil.mapConserveNel(args) { case (n, initExpr) =>
           (n, dropOuterRecurArgs(initExpr, dropPositions, inNestedLoop))
@@ -706,11 +734,20 @@ object TypedExprNormalization {
           args.foldLeft(loop(fn, bound, acc)) { (acc0, a) =>
             loop(a, bound, acc0)
           }
-        case Let(arg, expr, in, rec, _) =>
-          val acc1 =
-            if (rec.isRecursive) loop(expr, bound + arg, acc)
-            else loop(expr, bound, acc)
+        case Let(arg, expr, in, RecursionKind.Recursive, _) =>
+          val acc1 = loop(expr, bound + arg, acc)
           loop(in, bound + arg, acc1)
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var bound1 = bound
+          var acc1 = acc
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (n, rhs, _) = it.next()
+            acc1 = loop(rhs, bound1, acc1)
+            bound1 = bound1 + n
+          }
+          loop(tail, bound1, acc1)
         case Loop(args, body, _) =>
           val acc1 = args.toList.foldLeft(acc) { case (acc0, (_, initExpr)) =>
             loop(initExpr, bound, acc0)
@@ -755,14 +792,24 @@ object TypedExprNormalization {
           if (fnVisible && isSameLocalRef(fnName, fn)) false
           else hasEscapingFnRef(fn, fnName, fnVisible)
         fnEscapes || args.exists(hasEscapingFnRef(_, fnName, fnVisible))
-      case Let(arg, expr, in, rec, _) =>
-        if (arg == fnName) {
-          if (rec.isRecursive) false
-          else hasEscapingFnRef(expr, fnName, fnVisible)
-        } else {
+      case Let(arg, expr, in, RecursionKind.Recursive, _) =>
+        if (arg == fnName) false
+        else {
           hasEscapingFnRef(expr, fnName, fnVisible) ||
           hasEscapingFnRef(in, fnName, fnVisible)
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var escaped = false
+        var visible = fnVisible
+        val it = lets.iterator
+        while (it.hasNext && !escaped) {
+          val (arg, rhs, _) = it.next()
+          escaped = hasEscapingFnRef(rhs, fnName, visible)
+          if (arg == fnName) visible = false
+        }
+        if (escaped || !visible) escaped
+        else hasEscapingFnRef(tail, fnName, visible)
       case Loop(args, body, _) =>
         val fnVisibleBody = fnVisible && !args.exists(_._1 == fnName)
         args.exists { case (_, initExpr) =>
@@ -814,20 +861,33 @@ object TypedExprNormalization {
           App(fn1, args2, tpe, tag)
         } else if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
-      case let @ Let(arg, expr, in, rec, tag) =>
-        if (arg == fnName) {
-          if (rec.isRecursive) let
-          else {
-            val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
-            if (expr1 eq expr) let
-            else Let(arg, expr1, in, rec, tag)
-          }
-        } else {
+      case let @ Let(arg, expr, in, RecursionKind.Recursive, tag) =>
+        if (arg == fnName) let
+        else {
           val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, fnVisible)
           val in1 = prependArgsToFnCalls(in, fnName, extraArgs, fnVisible)
           if ((expr1 eq expr) && (in1 eq in)) let
-          else Let(arg, expr1, in1, rec, tag)
+          else Let(arg, expr1, in1, RecursionKind.Recursive, tag)
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        var visible = fnVisible
+        var changed = false
+        val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+        val it = lets.iterator
+        while (it.hasNext) {
+          val (arg, expr, letTag) = it.next()
+          val expr1 = prependArgsToFnCalls(expr, fnName, extraArgs, visible)
+          if (!(expr1 eq expr)) changed = true
+          rebuilt += ((arg, expr1, letTag))
+          if (arg == fnName) visible = false
+        }
+        val tail1 =
+          if (visible) prependArgsToFnCalls(tail, fnName, extraArgs, visible)
+          else tail
+        if (!(tail1 eq tail)) changed = true
+        if (!changed) let
+        else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
       case lp @ Loop(args, body, tag) =>
         val args1 = ListUtil.mapConserveNel(args) { pair =>
           val (n, initExpr) = pair
@@ -1351,6 +1411,11 @@ object TypedExprNormalization {
               hasOuterRecur(fn, inNestedLoop) || appArgs.exists(
                 hasOuterRecur(_, inNestedLoop)
               )
+            case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+              val (lets, tail) = TypedExpr.flattenLets(let)
+              lets.exists { case (_, rhs, _) =>
+                hasOuterRecur(rhs, inNestedLoop)
+              } || hasOuterRecur(tail, inNestedLoop)
             case Let(_, expr, in, _, _) =>
               hasOuterRecur(expr, inNestedLoop) || hasOuterRecur(
                 in,
@@ -1819,6 +1884,10 @@ object TypedExprNormalization {
               containsLoopOrRecur(in)
             case App(fn, args, _, _) =>
               containsLoopOrRecur(fn) || args.exists(containsLoopOrRecur)
+            case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+              val (lets, tail) = TypedExpr.flattenLets(let)
+              lets.exists { case (_, rhs, _) => containsLoopOrRecur(rhs) } ||
+              containsLoopOrRecur(tail)
             case Let(_, expr, in, _, _) =>
               containsLoopOrRecur(expr) || containsLoopOrRecur(in)
             case Loop(_, _, _) | Recur(_, _, _) =>
