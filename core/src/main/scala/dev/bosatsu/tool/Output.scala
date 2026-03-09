@@ -31,13 +31,19 @@ sealed abstract class Output[+Path] {
         val hasMissing = resMap.exists(_._2.isEmpty)
         // it would be nice to run in parallel, but
         // MatchlessToValue is not currently threadsafe
+        val totalStart = System.nanoTime()
         val evalTest = resMap.map {
           case (p, Some(evalTest)) =>
-            (p, Some(evalTest.value))
+            val start = System.nanoTime()
+            val result = evalTest.value
+            val elapsedNanos = System.nanoTime() - start
+            (p, Some((result, elapsedNanos)))
           case (p, None) => (p, None)
         }
+        val totalElapsedNanos = System.nanoTime() - totalStart
 
-        val testReport = Test.outputFor(evalTest, color, quiet)
+        val testReport =
+          Test.outputForTimed(evalTest, color, totalElapsedNanos, quiet)
         val success = !hasMissing && (testReport.fails == 0)
         val code = if (success) ExitCode.Success else ExitCode.Error
         writeStdout(testReport.doc).as(code)
