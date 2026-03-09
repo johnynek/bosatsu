@@ -3019,34 +3019,45 @@ object Matchless {
             tpe,
             tag
           )
-        case TypedExpr.Let(arg, expr, in, rec, tag) =>
+        case let @ TypedExpr.Let(
+              arg,
+              expr,
+              in,
+              RecursionKind.Recursive,
+              tag
+            ) =>
           if (arg == loopName) {
-            if (rec.isRecursive) {
-              TypedExpr.Let(
-                arg,
-                expr,
-                in,
-                rec,
-                tag
-              )
-            } else {
-              TypedExpr.Let(
-                arg,
-                recurToSelfCall(loopName, loopType, expr, inNestedLoop),
-                in,
-                rec,
-                tag
-              )
-            }
+            let
           } else {
             TypedExpr.Let(
               arg,
               recurToSelfCall(loopName, loopType, expr, inNestedLoop),
               recurToSelfCall(loopName, loopType, in, inNestedLoop),
-              rec,
+              RecursionKind.Recursive,
               tag
             )
           }
+        case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var rewriteIn = true
+          var changed = false
+          val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (n, rhs, letTag) = it.next()
+            val rhs1 =
+              if (rewriteIn) recurToSelfCall(loopName, loopType, rhs, inNestedLoop)
+              else rhs
+            if (!(rhs1 eq rhs)) changed = true
+            rebuilt += ((n, rhs1, letTag))
+            if (rewriteIn && (n == loopName)) rewriteIn = false
+          }
+          val tail1 =
+            if (rewriteIn) recurToSelfCall(loopName, loopType, tail, inNestedLoop)
+            else tail
+          if (!(tail1 eq tail)) changed = true
+          if (!changed) let
+          else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
         case TypedExpr.Loop(args, body, tag) =>
           TypedExpr.Loop(
             args.map { case (n, expr) =>
@@ -3137,9 +3148,20 @@ object Matchless {
             .flatMap { case (bodyExpr, initVals) =>
               buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
             }
-        case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r, slots.unname), loop(in, slots))
+        case TypedExpr.Let(a, e, in, RecursionKind.Recursive, _) =>
+          (loopLetVal(a, e, RecursionKind.Recursive, slots.unname), loop(in, slots))
             .mapN(Let(a, _, _))
+        case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          val bindsF = lets.traverse { case (arg, rhs, _) =>
+            loopLetVal(arg, rhs, RecursionKind.NonRecursive, slots.unname)
+              .map(v => (arg, v))
+          }
+          (bindsF, loop(tail, slots)).mapN { (binds, tailExpr) =>
+            binds.reverseIterator.foldLeft(tailExpr) { case (acc, (arg, value)) =>
+              Let(arg, value, acc)
+            }
+          }
         case TypedExpr.Recur(_, _, _) =>
           // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
           sys.error(

@@ -140,6 +140,70 @@ x = match B(100):
 
   }
 
+  test("TypedExpr.flattenLets peels and rebuilds leading non-recursive lets") {
+    val tag = ()
+    val intT = Type.IntType
+    val a = Identifier.Name("a")
+    val b = Identifier.Name("b")
+    val c = Identifier.Name("c")
+
+    val recursiveTail =
+      TypedExpr.Let(
+        c,
+        TypedExpr.Local(c, intT, tag),
+        TypedExpr.Local(c, intT, tag),
+        RecursionKind.Recursive,
+        tag
+      )
+
+    val expr =
+      TypedExpr.Let(
+        a,
+        TypedExpr.Literal(Lit.fromInt(1), intT, tag),
+        TypedExpr.Let(
+          b,
+          TypedExpr.Literal(Lit.fromInt(2), intT, tag),
+          recursiveTail,
+          RecursionKind.NonRecursive,
+          tag
+        ),
+        RecursionKind.NonRecursive,
+        tag
+      )
+
+    val (lets, tail) = TypedExpr.flattenLets(expr)
+    assertEquals(lets.map(_._1), List(a, b))
+    assertEquals(tail, recursiveTail)
+    assertEquals(TypedExpr.letAllNonRecWithTags(lets, tail), expr)
+  }
+
+  Platform.onJvm(
+    test("TypedExpr.flattenLets handles deep non-recursive let chains") {
+      val depth = sys.props.get("repro.letDepth").fold(10000)(_.toInt)
+      val tag = ()
+      val intT = Type.IntType
+      val baseName = Identifier.Name("z")
+      val base = TypedExpr.Local(baseName, intT, tag)
+
+      val chain =
+        (0 until depth).foldRight(base: TypedExpr[Unit]) { (idx, acc) =>
+          val n = Identifier.Name(s"n$idx")
+          TypedExpr.Let(
+            n,
+            TypedExpr.Literal(Lit.fromInt(idx), intT, tag),
+            acc,
+            RecursionKind.NonRecursive,
+            tag
+          )
+        }
+
+      val (lets, tail) = TypedExpr.flattenLets(chain)
+      assertEquals(lets.length, depth)
+      assertEquals(tail, base)
+      assertEquals(TypedExpr.letAllNonRecWithTags(lets, tail), chain)
+    }
+  )
+
   test("freeVars on top level TypedExpr is Nil") {
     // all of the names are local to a TypedExpr, nothing can be free
     // id and x are fully resolved to top level
