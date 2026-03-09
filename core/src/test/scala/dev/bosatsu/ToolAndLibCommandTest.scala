@@ -420,7 +420,7 @@ class ToolAndLibCommandTest extends FunSuite {
   private val minimalProgModuleSrc: String =
     """package Bosatsu/Prog
 |
-|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
+|export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Prog, Main(), ProgTest())
 |
 |external struct Prog[err: +*, res: +*]
 |
@@ -441,6 +441,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |
 |external def apply_fix(a: a,
 |  fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
+|external def observe[a](a: a) -> forall err. Prog[err, Unit]
 |
 |def await(p, fn): p.flat_map(fn)
 |
@@ -1832,6 +1833,54 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval --run supports Bosatsu/Prog observe in Main") {
+    val appSrc =
+      """package Tool/ObserveMain
+|
+|from Bosatsu/Prog import Main, await, observe, pure
+|
+|main = Main(_ -> (
+|  _ <- observe((1, 2, 3)).await()
+|  pure(0)
+|))
+|""".stripMargin
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("src", "Tool", "ObserveMain.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "tool",
+          "eval",
+          "--run",
+          "--main",
+          "Tool/ObserveMain",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Bosatsu/Prog.bosatsu",
+          "--input",
+          "src/Tool/ObserveMain.bosatsu"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
   test("tool eval --run reads stdin for IO/Std read_line and read_all_stdin") {
     val ioCoreSrc =
       """package Bosatsu/IO/Core
@@ -2089,6 +2138,48 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(err.getMessage)
       case Right((_, out, exitCode)) =>
         assertEquals(exitCode, ExitCode.fromInt(3))
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run supports Bosatsu/Prog observe in Main") {
+    val appSrc =
+      """from Bosatsu/Prog import Main, await, observe, pure
+|
+|main = Main(_ -> (
+|  _ <- observe("payload").await()
+|  pure(0)
+|))
+|""".stripMargin
+    val files =
+      baseLibFiles(appSrc) :+ (
+        Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc
+      )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/Foo",
+          "--run"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
         out match {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")

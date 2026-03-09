@@ -36,6 +36,15 @@ def apply_fix(a, f): return (4, a, f)
 def effect(f): return (5, f)
 
 _pure_unit = pure(())
+_observe_sink = ()
+
+def observe(value):
+  def fn():
+    global _observe_sink
+    _observe_sink = value
+    _observe_sink = ()
+    return _pure_unit
+  return effect(fn)
 
 _IOERR_NOT_FOUND = 0
 _IOERR_ACCESS_DENIED = 1
