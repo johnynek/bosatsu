@@ -275,6 +275,41 @@ def eqb(a, b):
   else:
     notb(b)
 
+def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
+  recur (left, right):
+    case ([], []): True
+    case ([lh, *lt], [rh, *rt]) if eqi(lh, rh):
+      eq_int_list(lt, rt)
+    case _: False
+
+def split_last_loop(items: List[Int]) -> Option[(List[Int], Int)]:
+  def loop_split(rem: List[Int], rev_init: List[Int]) -> Option[(List[Int], Int)]:
+    recur rem:
+      case []:
+        None
+      case [last]:
+        Some((rev_init.reverse(), last))
+      case [head, *tail]:
+        loop_split(tail, [head, *rev_init])
+  loop_split(items, [])
+
+def split_last_match(items: List[Int]) -> Option[(List[Int], Int)]:
+  match items:
+    case []: None
+    case [*init, last]: Some((init, last))
+
+def eq_split_last_result(
+  left: Option[(List[Int], Int)],
+  right: Option[(List[Int], Int)]
+) -> Bool:
+  match (left, right):
+    case (None, None):
+      True
+    case (Some((left_init, left_last)), Some((right_init, right_last))):
+      andb(eq_int_list(left_init, right_init), eqi(left_last, right_last))
+    case _:
+      False
+
 u64_mod = 1.shift_left_Int(64)
 two_pow_52 = 1.shift_left_Int(52)
 two_pow_53 = 1.shift_left_Int(53)
@@ -283,6 +318,26 @@ lcg_inc = 1442695040888963407
 
 def next_u64(seed: Int) -> Int:
   seed.mul(lcg_mul).add(lcg_inc).mod_Int(u64_mod)
+
+def split_last_equivalence_law(trials: Int, seed0: Int) -> Bool:
+  state = range_foldr(trials, (seed0, True), (_, state) -> (
+    (seed, ok) = state
+    seed1 = next_u64(seed)
+    length = seed1.mod_Int(12)
+    list_state = range_foldr(length, (seed1, []), (_, list_state) -> (
+      (list_seed, rev_items) = list_state
+      list_seed1 = next_u64(list_seed)
+      item = list_seed1.mod_Int(2001).sub(1000)
+      (list_seed1, [item, *rev_items])
+    ))
+    (seed2, rev_items) = list_state
+    items = rev_items.reverse()
+    expected = split_last_loop(items)
+    got = split_last_match(items)
+    ok1 = andb(ok, eq_split_last_result(expected, got))
+    (seed2, ok1)
+  ))
+  state matches (_, True)
 
 def bits_roundtrip_law(trials: Int, seed0: Int) -> Bool:
   state = range_foldr(trials, (seed0, True), (_, state) -> (
@@ -374,6 +429,25 @@ def classify_float(x: Float64) -> Int:
     case 1.5: 2
     case _: 3
 
+test_list_patterns = TestSuite("List pattern tests", [
+  Assertion(
+    eq_split_last_result(split_last_loop([]), split_last_match([])),
+    "split_last empty list"
+  ),
+  Assertion(
+    eq_split_last_result(split_last_loop([7]), split_last_match([7])),
+    "split_last singleton list"
+  ),
+  Assertion(
+    eq_split_last_result(split_last_loop([1, 2, 3]), split_last_match([1, 2, 3])),
+    "split_last three items"
+  ),
+  Assertion(
+    split_last_equivalence_law(300, 919191),
+    "split_last loop/match equivalence law"
+  ),
+])
+
 test_float = TestSuite("Float tests", [
   Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
@@ -447,5 +521,6 @@ test_float = TestSuite("Float tests", [
 test = TestSuite("Predef tests", [
     test_int,
     test_string,
+    test_list_patterns,
     test_float,
 ])

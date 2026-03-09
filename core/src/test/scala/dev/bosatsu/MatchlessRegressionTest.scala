@@ -2,6 +2,8 @@ package dev.bosatsu
 
 import cats.Eval
 import cats.data.NonEmptyList
+import dev.bosatsu.rankn.DataRepr
+import dev.bosatsu.rankn.Type
 
 class MatchlessRegressionTest extends munit.FunSuite {
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
@@ -25,6 +27,71 @@ class MatchlessRegressionTest extends munit.FunSuite {
       case (acc, idx) =>
         Matchless.LetMutBool(Matchless.LocalAnonMut(idx.toLong), acc)
     }
+
+  private def nestedTypedLet(depth: Int): TypedExpr[Unit] = {
+    val intT = Type.IntType
+    val base = TypedExpr.Literal(Lit.fromInt(0), intT, ())
+
+    (0 until depth).foldRight(base: TypedExpr[Unit]) { (idx, in) =>
+      val n = Identifier.synthetic(s"typed_let_$idx")
+      TypedExpr.Let(
+        n,
+        TypedExpr.Literal(Lit.fromInt(idx), intT, ()),
+        in,
+        RecursionKind.NonRecursive,
+        ()
+      )
+    }
+  }
+
+  private def assertMatchlessFromLetNoStackOverflow(
+      te: TypedExpr[Unit],
+      stackBytes: Long
+  ): Unit = {
+    val variantOf: (PackageName, Identifier.Constructor) => Option[DataRepr] = {
+      case (PackageName.PredefName, Identifier.Constructor("EmptyList")) =>
+        Some(DataRepr.Enum(0, 0, List(0, 1)))
+      case (PackageName.PredefName, Identifier.Constructor("NonEmptyList")) =>
+        Some(DataRepr.Enum(1, 2, List(0, 1)))
+      case _ =>
+        Some(DataRepr.Struct(0))
+    }
+
+    @volatile var failure: Option[Throwable] = None
+
+    val thread = new Thread(
+      null,
+      new Runnable {
+        def run(): Unit =
+          try {
+            Matchless.fromLet(
+              (),
+              Identifier.Name("out"),
+              RecursionKind.NonRecursive,
+              te
+            )(variantOf): Unit
+            ()
+          } catch {
+            case t: Throwable =>
+              failure = Some(t)
+          }
+      },
+      "matchless-fromLet-small-stack",
+      stackBytes
+    )
+
+    thread.start()
+    thread.join()
+
+    failure match {
+      case Some(_: StackOverflowError) =>
+        fail("Matchless.fromLet should not overflow on deeply nested TypedExpr lets")
+      case Some(other) =>
+        fail(s"unexpected failure compiling deep TypedExpr let-chain: $other")
+      case None =>
+        ()
+    }
+  }
 
   private def assertReuseConstructorsNoStackOverflow(
       expr: Matchless.Expr[Unit]
@@ -334,6 +401,14 @@ def branch_blowup(args: L) -> Nat:
         .map(_.value)
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
   }
+
+  Platform.onJvm(
+    test("deep TypedExpr non-rec let chains lower to Matchless without stack overflow") {
+      val depth = sys.props.get("repro.typedLetDepth").fold(10000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      assertMatchlessFromLetNoStackOverflow(nestedTypedLet(depth), stackBytes)
+    }
+  )
 
   test("SwitchVariant.toIfElse preserves MatchlessToValue semantics") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil

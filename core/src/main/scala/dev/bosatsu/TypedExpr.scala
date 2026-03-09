@@ -1041,12 +1041,49 @@ object TypedExpr {
       in: TypedExpr[T],
       tag: T
   ): Let[T] = {
-    val in1 = binds.tail match {
-      case Nil      => in
-      case h1 :: t1 => letAllNonRec(NonEmptyList(h1, t1), in, tag)
+    var res: TypedExpr[T] = in
+    val rev = binds.toList.reverseIterator
+    while (rev.hasNext) {
+      val (n, ne) = rev.next()
+      res = Let(n, ne, res, RecursionKind.NonRecursive, tag)
     }
-    val (n, ne) = binds.head
-    Let(n, ne, in1, RecursionKind.NonRecursive, tag)
+    // NonEmptyList input guarantees at least one Let is created.
+    res.asInstanceOf[Let[T]]
+  }
+
+  // Flatten only the leading non-recursive let-chain.
+  // The returned tail is guaranteed not to be a non-recursive Let.
+  def flattenLets[T](
+      te: TypedExpr[T]
+  ): (List[(Bindable, TypedExpr[T], T)], TypedExpr[T]) = {
+    val lets = List.newBuilder[(Bindable, TypedExpr[T], T)]
+    var cursor = te
+    var keepGoing = true
+
+    while (keepGoing) {
+      cursor match {
+        case Let(arg, rhs, in, RecursionKind.NonRecursive, tag) =>
+          lets += ((arg, rhs, tag))
+          cursor = in
+        case _ =>
+          keepGoing = false
+      }
+    }
+
+    (lets.result(), cursor)
+  }
+
+  def letAllNonRecWithTags[T](
+      binds: List[(Bindable, TypedExpr[T], T)],
+      in: TypedExpr[T]
+  ): TypedExpr[T] = {
+    var res = in
+    val rev = binds.reverseIterator
+    while (rev.hasNext) {
+      val (n, ne, tag) = rev.next()
+      res = Let(n, ne, res, RecursionKind.NonRecursive, tag)
+    }
+    res
   }
 
   /** If we expect expr to be a lambda of the given arity, return the parameter
