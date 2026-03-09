@@ -462,6 +462,11 @@ object Predef {
       )
       .add(
         progPackageName,
+        "observe",
+        FfiCall.Fn1(PredefImpl.prog_observe(_))
+      )
+      .add(
+        progPackageName,
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
@@ -837,6 +842,9 @@ object PredefImpl {
   private val ProgTagRecover = 3
   private val ProgTagApplyFix = 4
   private val ProgTagEffect = 5
+  // Atomic writes provide a backend-side consume barrier for benchmark values.
+  private val observedProgValueSink: AtomicReference[Value] =
+    new AtomicReference(UnitValue)
 
   private val IOErrorTagInvalidArgument = 12
   private val IOErrorTagInvalidUtf8 = 13
@@ -925,6 +933,17 @@ object PredefImpl {
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
+
+  def prog_observe(a: Value): Value =
+    prog_effect(
+      a,
+      observed => {
+        observedProgValueSink.set(observed)
+        // Clear quickly so long benchmark loops do not retain observed values.
+        observedProgValueSink.set(UnitValue)
+        prog_pure(UnitValue)
+      }
+    )
 
   private def decodeUtf8Slice(
       bytes: Array[Byte],

@@ -3248,6 +3248,17 @@ tests = TestSuite("lazy eval", [
     assertEquals(recoverLeft.value.get(0), recoverArg)
   }
 
+  test("prog observe evaluates to unit and composes with flat_map") {
+    val observed = PredefImpl.prog_observe(VInt(123))
+    assertEquals(PredefImpl.runProg(observed).result, Right(UnitValue))
+
+    val continueWith = FnValue { case NonEmptyList(_, _) =>
+      PredefImpl.prog_pure(VInt(99))
+    }
+    val chained = PredefImpl.prog_flat_map(observed, continueWith)
+    assertEquals(PredefImpl.runProg(chained).result, Right(VInt(99)))
+  }
+
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
@@ -3271,7 +3282,7 @@ external struct Bytes
       val progRunPack = """
 package ProgRun
 
-from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
+from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive, observe
 from Bosatsu/IO/Std import println, print, print_err, print_errln, read_stdin_utf8_bytes
 from Bosatsu/IO/Error import IOError
 
@@ -3294,6 +3305,7 @@ main = Main(args -> (
     _ <- print_err("args=").await()
     _ <- print_errln(int_to_String(arg_count)).await()
     s <- sum_to((10000, 0)).await()
+    _ <- observe(s).await()
     _ <- println("sum=${int_to_String(s)}").await()
     pure(0)
   ).recover(_ -> pure(0))

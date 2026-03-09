@@ -1,6 +1,6 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, Prog, Main(), ProgTest())
+export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Prog, Main(), ProgTest())
 
 external struct Prog[err: +*, res: +*]
 
@@ -21,6 +21,7 @@ def ignore_err[err, res](prog: Prog[err, res], default: res) -> forall e. Prog[e
 
 external def apply_fix(a: a,
   fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
+external def observe[a](a: a) -> forall err. Prog[err, Unit]
 
 def await(p, fn): p.flat_map(fn)
 
