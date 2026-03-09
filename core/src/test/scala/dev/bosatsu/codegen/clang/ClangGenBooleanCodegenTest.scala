@@ -42,6 +42,21 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
        |""".stripMargin
   }
 
+  private def binaryTupleDef(bits: Int): String = {
+    val ff = boolLit((bits & 1) != 0)
+    val ft = boolLit((bits & 2) != 0)
+    val tf = boolLit((bits & 4) != 0)
+    val tt = boolLit((bits & 8) != 0)
+
+    s"""def bm$bits(a: Bool, b: Bool) -> Bool:
+       |  match (a, b):
+       |    case (False, False): $ff
+       |    case (False, True): $ft
+       |    case (True, False): $tf
+       |    case (True, True): $tt
+       |""".stripMargin
+  }
+
   private def unaryDef(bits: Int): String = {
     val f = boolLit((bits & 1) != 0)
     val t = boolLit((bits & 2) != 0)
@@ -55,17 +70,23 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
 
   private lazy val source: String = {
     val binary = (0 to 15).map(binaryDef)
+    val binaryTuple = (0 to 15).map(binaryTupleDef)
     val unary = (0 to 3).map(unaryDef)
-    val allNames =
+    val allNestedNames =
       ((0 to 15).map(i => s"b$i") ++ (0 to 3).map(i => s"u$i")).mkString(", ")
+    val allTupleNames = (0 to 15).map(i => s"bm$i").mkString(", ")
 
     (s"""package Test/BooleanTruthTable
         |
         |${binary.mkString("\n\n")}
         |
+        |${binaryTuple.mkString("\n\n")}
+        |
         |${unary.mkString("\n\n")}
         |
-        |main = ($allNames)
+        |all_nested = ($allNestedNames)
+        |all_tuple = ($allTupleNames)
+        |main = (all_nested, all_tuple)
         |""").stripMargin
   }
 
@@ -176,30 +197,43 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
 
   private def assertExpectation(
       fnName: String,
-      expectation: Expectation
+      expectation: Expectation,
+      checkExactExpr: Boolean
   ): Unit = {
     val fn = extractFunction(fnName)
+    val normalizedFn =
+      fn
+        .replace("== 0", "!= 1")
+        .replace("!= 0", "== 1")
     expectation match {
       case Expectation.Const(value) =>
         assert(fn.contains(s"alloc_enum0($value)"), fn)
         assert(!fn.contains("get_variant_value(__bsts_b_a0)"), fn)
         assert(!fn.contains("get_variant_value(__bsts_b_b0)"), fn)
       case Expectation.Expr(expr)   =>
-        assert(fn.contains(s"return alloc_enum0($expr);"), fn)
+        if (checkExactExpr) {
+          val expected = s"return alloc_enum0($expr);"
+          assert(normalizedFn.contains(expected), fn)
+        } else {
+          assert(fn.contains("return alloc_enum0("), fn)
+        }
     }
     assert(!fn.contains("if ("), fn)
     assert(!fn.contains("?"), fn)
+    assert(!fn.contains("alloc_struct"), fn)
+    assert(!fn.contains("get_struct_index"), fn)
   }
 
   test("all 16 binary Boolean truth tables map to optimized C") {
     (0 to 15).foreach { bits =>
-      assertExpectation(s"b$bits", binaryExpectations(bits))
+      assertExpectation(s"b$bits", binaryExpectations(bits), checkExactExpr = true)
+      assertExpectation(s"bm$bits", binaryExpectations(bits), checkExactExpr = false)
     }
   }
 
   test("all 4 unary Boolean truth tables map to optimized C") {
     (0 to 3).foreach { bits =>
-      assertExpectation(s"u$bits", unaryExpectations(bits))
+      assertExpectation(s"u$bits", unaryExpectations(bits), checkExactExpr = true)
     }
   }
 }
