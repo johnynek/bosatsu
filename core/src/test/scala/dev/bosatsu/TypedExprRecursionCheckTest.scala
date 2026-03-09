@@ -1147,8 +1147,8 @@ main = loop(1)
   }
 
   Platform.onJvm(
-    test("moderately large list literals do not overflow recursion checker stack") {
-      val n = 211
+    test("large list literals do not overflow recursion checker stack") {
+      val n = 1024
       val items = List.fill(n)("\"x\"").mkString(", ")
       val source = s"""#
 vals: List[String] = [$items]
@@ -1187,7 +1187,7 @@ main = vals
 
       failure match {
         case Some(_: StackOverflowError) =>
-          fail("recursion checker overflowed on a moderately large list literal")
+          fail("recursion checker overflowed on a large list literal")
         case Some(other) =>
           throw other
         case None =>
