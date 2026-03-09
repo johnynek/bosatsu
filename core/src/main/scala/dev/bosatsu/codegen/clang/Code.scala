@@ -191,6 +191,173 @@ object Code {
             l && r
         }
     }
+
+  def evalOr(l: Expression, r: Expression): Expression =
+    l.evalToInt match {
+      case Some(IntLiteral(lv)) =>
+        if (lv == 0) r
+        else l
+      case None =>
+        r.evalToInt match {
+          case Some(IntLiteral(rv)) =>
+            if (rv == 0) l
+            else r
+          case None =>
+            l.bin(BinOp.Or, r)
+        }
+    }
+
+  private def boolLiteral(expr: Expression): Option[Boolean] =
+    expr.evalToInt.flatMap { case IntLiteral(i) =>
+      if (i == 0) Some(false)
+      else if (i == 1) Some(true)
+      else None
+    }
+
+  private def allocEnum0Arg(expr: Expression): Option[Expression] =
+    expr match {
+      case Apply(Ident("alloc_enum0"), arg :: Nil) => Some(arg)
+      case _                                        => None
+    }
+
+  private def isBoolLike(expr: Expression): Boolean =
+    expr match {
+      case IntLiteral(i) =>
+        (i == 0) || (i == 1)
+      case PrefixExpr(PrefixUnary.Not, target) =>
+        isBoolLike(target)
+      case BinExpr(_, op, _) =>
+        (op eq BinOp.And) || (op eq BinOp.Or) ||
+          (op eq BinOp.Eq) || (op eq BinOp.NotEq) ||
+          (op eq BinOp.Lt) || (op eq BinOp.LtEq) ||
+          (op eq BinOp.Gt) || (op eq BinOp.GtEq)
+      case Ternary(_, t, f) =>
+        isBoolLike(t) && isBoolLike(f)
+      case _ =>
+        false
+    }
+
+  private def simplifyBoolExpr(expr: Expression): Expression =
+    expr match {
+      case PrefixExpr(PrefixUnary.Not, target) =>
+        simplifyBoolExpr(target) match {
+          case IntLiteral(i) =>
+            if (i == 0) IntLiteral.One else IntLiteral.Zero
+          case PrefixExpr(PrefixUnary.Not, inner) =>
+            inner
+          case BinExpr(left, op, right) =>
+            if (op eq BinOp.Eq) left.bin(BinOp.NotEq, right)
+            else if (op eq BinOp.NotEq) left =:= right
+            else if (op eq BinOp.Lt) left.bin(BinOp.GtEq, right)
+            else if (op eq BinOp.LtEq) left.bin(BinOp.Gt, right)
+            else if (op eq BinOp.Gt) left.bin(BinOp.LtEq, right)
+            else if (op eq BinOp.GtEq) left.bin(BinOp.Lt, right)
+            else if (op eq BinOp.And)
+              evalOr(
+                simplifyBoolExpr(!left),
+                simplifyBoolExpr(!right)
+              )
+            else if (op eq BinOp.Or)
+              evalAnd(
+                simplifyBoolExpr(!left),
+                simplifyBoolExpr(!right)
+              )
+            else PrefixExpr(PrefixUnary.Not, BinExpr(left, op, right))
+          case t =>
+            PrefixExpr(PrefixUnary.Not, t)
+        }
+      case BinExpr(l, op, r) =>
+        if (op eq BinOp.And)
+          evalAnd(simplifyBoolExpr(l), simplifyBoolExpr(r))
+        else if (op eq BinOp.Or)
+          evalOr(simplifyBoolExpr(l), simplifyBoolExpr(r))
+        else expr
+      case Ternary(cond, thenExpr, elseExpr) =>
+        simplifyTernary(
+          simplifyBoolExpr(cond),
+          simplifyBoolExpr(thenExpr),
+          simplifyBoolExpr(elseExpr)
+        )
+      case _ =>
+        expr
+    }
+
+  private def simplifyTernary(
+      cond: Expression,
+      thenExpr: Expression,
+      elseExpr: Expression
+  ): Expression = {
+    val cond1 = simplifyBoolExpr(cond)
+    val then1 = simplifyBoolExpr(thenExpr)
+    val else1 = simplifyBoolExpr(elseExpr)
+
+    if (then1.equals(else1)) then1
+    else
+      cond1.evalToInt match {
+        case Some(IntLiteral(i)) =>
+          if (i == 0) else1
+          else then1
+        case None =>
+          val boolRule =
+            if (isBoolLike(then1) && isBoolLike(else1))
+              (boolLiteral(then1), boolLiteral(else1)) match {
+                case (Some(true), Some(false)) =>
+                  Some(cond1)
+                case (Some(false), Some(true)) =>
+                  Some(simplifyBoolExpr(!cond1))
+                case (Some(true), _) =>
+                  Some(evalOr(cond1, else1))
+                case (_, Some(false)) =>
+                  Some(evalAnd(cond1, then1))
+                case (Some(false), _) =>
+                  Some(evalAnd(simplifyBoolExpr(!cond1), else1))
+                case (_, Some(true)) =>
+                  Some(evalOr(simplifyBoolExpr(!cond1), then1))
+                case _ =>
+                  val notElseIsThen = simplifyBoolExpr(!else1).equals(then1)
+                  val notThenIsElse = simplifyBoolExpr(!then1).equals(else1)
+
+                  if (notElseIsThen && notThenIsElse) {
+                    val candNotEq = cond1.bin(BinOp.NotEq, else1)
+                    val candEq = cond1 =:= then1
+                    Some(
+                      if (negationCost(candNotEq) <= negationCost(candEq))
+                        candNotEq
+                      else candEq
+                    )
+                  }
+                  else if (notElseIsThen)
+                    Some(cond1.bin(BinOp.NotEq, else1))
+                  else if (notThenIsElse)
+                    Some(cond1 =:= then1)
+                  else None
+              }
+            else None
+
+          boolRule.getOrElse(Ternary(cond1, then1, else1))
+      }
+  }
+
+  private def negationCost(expr: Expression): Int =
+    expr match {
+      case PrefixExpr(PrefixUnary.Not, target) =>
+        1 + negationCost(target)
+      case BinExpr(left, op, right) =>
+        val thisCost = if (op eq BinOp.NotEq) 1 else 0
+        thisCost + negationCost(left) + negationCost(right)
+      case Ternary(cond, thenExpr, elseExpr) =>
+        negationCost(cond) + negationCost(thenExpr) + negationCost(elseExpr)
+      case Apply(fn, args) =>
+        negationCost(fn) + args.iterator.map(negationCost).sum
+      case Select(target, _) =>
+        negationCost(target)
+      case Bracket(target, item) =>
+        negationCost(target) + negationCost(item)
+      case Cast(_, in) =>
+        negationCost(in)
+      case _ =>
+        0
+    }
   /////////////////////////
   // Here are all the ValueLike
   /////////////////////////
@@ -205,6 +372,21 @@ object Code {
   ) extends ValueLike
 
   object ValueLike {
+    private def inlineTrivialBinding(vl: ValueLike): ValueLike =
+      vl match {
+        case WithValue(
+              DeclareVar(_, _, ident, Some(init)),
+              value: Expression
+            ) if value.equals(ident) =>
+          init
+        case WithValue(stmt, v) =>
+          WithValue(stmt, inlineTrivialBinding(v))
+        case IfElseValue(cond, thenC, elseC) =>
+          IfElseValue(cond, inlineTrivialBinding(thenC), inlineTrivialBinding(elseC))
+        case other =>
+          other
+      }
+
     def applyArgs[F[_]: Monad](
         fn: ValueLike,
         args: NonEmptyList[ValueLike]
@@ -273,15 +455,23 @@ object Code {
     )(newLocalName: String => F[Code.Ident]): F[Code.ValueLike] =
       cond match {
         case expr: Code.Expression =>
+          val thenS = inlineTrivialBinding(thenC)
+          val elseS = inlineTrivialBinding(elseC)
           Monad[F].pure {
             expr.evalToInt match {
               case Some(IntLiteral(i)) =>
-                if (i == 0) elseC
-                else thenC
+                if (i == 0) elseS
+                else thenS
               case None =>
-                (thenC, elseC) match {
+                (thenS, elseS) match {
                   case (thenX: Expression, elseX: Expression) =>
-                    Ternary(expr, thenX, elseX)
+                    (allocEnum0Arg(thenX), allocEnum0Arg(elseX)) match {
+                      case (Some(thenArg), Some(elseArg)) =>
+                        val enumArg = simplifyTernary(expr, thenArg, elseArg)
+                        Ident("alloc_enum0")(enumArg)
+                      case _ =>
+                        simplifyTernary(expr, thenX, elseX)
+                    }
                   case _ => IfElseValue(expr, thenC, elseC)
                 }
             }
