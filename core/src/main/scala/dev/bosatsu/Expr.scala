@@ -5,7 +5,7 @@ package dev.bosatsu
   */
 
 import cats.implicits._
-import cats.data.{Chain, Writer, NonEmptyList}
+import cats.data.NonEmptyList
 import cats.Applicative
 import scala.collection.immutable.SortedSet
 import dev.bosatsu.rankn.Type
@@ -393,17 +393,6 @@ object Expr {
         }
       } else fn(t)
     }
-  }
-
-  // Oracle implementation used for testing optimized implementations.
-  private[bosatsu] def freeBoundTyVarsViaTraverseType[A](
-      expr: Expr[A]
-  ): List[Type.Var.Bound] = {
-    val w = traverseType(expr, Set.empty) { (t, bound) =>
-      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
-      Writer(frees.filterNot(bound), t)
-    }
-    w.written.iterator.toList.distinct
   }
 
   // Returns a distinct list of free bound type variables
