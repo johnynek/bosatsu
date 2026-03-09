@@ -67,6 +67,16 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
+  private def isSuspensionLambdaArgs(
+      args: NonEmptyList[(Bindable, Type)]
+  ): Boolean =
+    args match {
+      case NonEmptyList((_, argTpe), Nil) =>
+        Type.normalize(argTpe).sameAs(Type.UnitType)
+      case _ =>
+        false
+    }
+
   // Share repeated immutable values within a lexical scope by introducing
   // non-recursive lets. This is conservative:
   // - only immutable expression forms (no Let/Loop/Recur/Match)
@@ -132,49 +142,65 @@ object TypedExprNormalization {
     def collect(
         expr: TypedExpr[A],
         blocked: Set[Bindable],
-        blockedTy: Set[TyBound]
+        blockedTy: Set[TyBound],
+        inSuspension: Boolean
     ): Unit = {
-      if (isShareable(expr) && !readsBlocked(expr, blocked, blockedTy))
+      if (
+        !inSuspension && isShareable(expr) && !readsBlocked(
+          expr,
+          blocked,
+          blockedTy
+        )
+      )
         addCandidate(expr)
 
       expr match {
         case Generic(quant, in) =>
           val blockedTy1 = blockedTy ++ quant.vars.iterator.map(_._1)
-          collect(in, blocked, blockedTy1)
+          collect(in, blocked, blockedTy1, inSuspension)
         case Annotation(in, _, _) =>
-          collect(in, blocked, blockedTy)
+          collect(in, blocked, blockedTy, inSuspension)
         case AnnotatedLambda(args, body, _) =>
-          collect(body, blocked ++ args.iterator.map(_._1), blockedTy)
+          // Unit -> a lambdas are suspension boundaries: don't hoist work out.
+          val inSuspension1 = inSuspension || isSuspensionLambdaArgs(args)
+          collect(
+            body,
+            blocked ++ args.iterator.map(_._1),
+            blockedTy,
+            inSuspension1
+          )
         case App(fn, args, _, _) =>
-          collect(fn, blocked, blockedTy)
-          args.iterator.foreach(collect(_, blocked, blockedTy))
+          collect(fn, blocked, blockedTy, inSuspension)
+          args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
         case Let(arg, expr1, in, rec, _) =>
           val blockedExpr =
             if (rec.isRecursive) blocked + arg
             else blocked
-          collect(expr1, blockedExpr, blockedTy)
-          collect(in, blocked + arg, blockedTy)
+          collect(expr1, blockedExpr, blockedTy, inSuspension)
+          collect(in, blocked + arg, blockedTy, inSuspension)
         case Loop(args, body, _) =>
           val blockedLoop = blocked ++ args.iterator.map(_._1)
           args.iterator.foreach { case (_, initExpr) =>
-            collect(initExpr, blockedLoop, blockedTy)
+            collect(initExpr, blockedLoop, blockedTy, inSuspension)
           }
-          collect(body, blockedLoop, blockedTy)
+          collect(body, blockedLoop, blockedTy, inSuspension)
         case Recur(args, _, _) =>
-          args.iterator.foreach(collect(_, blocked, blockedTy))
+          args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
         case Match(arg, branches, _) =>
-          collect(arg, blocked, blockedTy)
+          collect(arg, blocked, blockedTy, inSuspension)
           branches.iterator.foreach { case Branch(pat, guard, branchExpr) =>
             val blockedBranch = blocked ++ pat.names
-            guard.iterator.foreach(collect(_, blockedBranch, blockedTy))
-            collect(branchExpr, blockedBranch, blockedTy)
+            guard.iterator.foreach(
+              collect(_, blockedBranch, blockedTy, inSuspension)
+            )
+            collect(branchExpr, blockedBranch, blockedTy, inSuspension)
           }
         case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
           ()
       }
     }
 
-    collect(te, Set.empty, Set.empty)
+    collect(te, Set.empty, Set.empty, inSuspension = false)
 
     val dupes: List[(Key, TypedExpr[A])] =
       seen.iterator.collect {
@@ -208,10 +234,12 @@ object TypedExprNormalization {
       def replace(
           expr: TypedExpr[A],
           blocked: Set[Bindable],
-          blockedTy: Set[TyBound]
+          blockedTy: Set[TyBound],
+          inSuspension: Boolean
       ): TypedExpr[A] = {
         val byKey =
-          if (!readsBlocked(expr, blocked, blockedTy)) replaceMap.get(expr.void)
+          if (!inSuspension && !readsBlocked(expr, blocked, blockedTy))
+            replaceMap.get(expr.void)
           else None
 
         byKey match {
@@ -221,53 +249,68 @@ object TypedExprNormalization {
             expr match {
               case g @ Generic(q, in) =>
                 val blockedTy1 = blockedTy ++ q.vars.iterator.map(_._1)
-                val in1 = replace(in, blocked, blockedTy1)
+                val in1 = replace(in, blocked, blockedTy1, inSuspension)
                 if (in1 eq in) g else Generic(q, in1)
               case ann @ Annotation(in, tpe, qev) =>
-                val in1 = replace(in, blocked, blockedTy)
+                val in1 = replace(in, blocked, blockedTy, inSuspension)
                 if (in1 eq in) ann else Annotation(in1, tpe, qev)
               case lam @ AnnotatedLambda(args, body, tag) =>
+                val inSuspension1 = inSuspension || isSuspensionLambdaArgs(args)
                 val body1 =
-                  replace(body, blocked ++ args.iterator.map(_._1), blockedTy)
+                  replace(
+                    body,
+                    blocked ++ args.iterator.map(_._1),
+                    blockedTy,
+                    inSuspension1
+                  )
                 if (body1 eq body) lam
                 else AnnotatedLambda(args, body1, tag)
               case app0 @ App(fn, args, tpe, tag) =>
-                val fn1 = replace(fn, blocked, blockedTy)
+                val fn1 = replace(fn, blocked, blockedTy, inSuspension)
                 val args1 =
-                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                  ListUtil.mapConserveNel(args)(
+                    replace(_, blocked, blockedTy, inSuspension)
+                  )
                 if ((fn1 eq fn) && (args1 eq args)) app0
                 else App(fn1, args1, tpe, tag)
               case let0 @ Let(arg, expr1, in, rec, tag) =>
                 val blockedExpr =
                   if (rec.isRecursive) blocked + arg
                   else blocked
-                val expr2 = replace(expr1, blockedExpr, blockedTy)
-                val in1 = replace(in, blocked + arg, blockedTy)
+                val expr2 =
+                  replace(expr1, blockedExpr, blockedTy, inSuspension)
+                val in1 = replace(in, blocked + arg, blockedTy, inSuspension)
                 if ((expr2 eq expr1) && (in1 eq in)) let0
                 else Let(arg, expr2, in1, rec, tag)
               case loop0 @ Loop(args, body, tag) =>
                 val blockedLoop = blocked ++ args.iterator.map(_._1)
                 val args1 = ListUtil.mapConserveNel(args) {
                   case (n, initExpr) =>
-                    val init1 = replace(initExpr, blockedLoop, blockedTy)
+                    val init1 =
+                      replace(initExpr, blockedLoop, blockedTy, inSuspension)
                     if (init1 eq initExpr) (n, initExpr)
                     else (n, init1)
                 }
-                val body1 = replace(body, blockedLoop, blockedTy)
+                val body1 = replace(body, blockedLoop, blockedTy, inSuspension)
                 if ((args1 eq args) && (body1 eq body)) loop0
                 else Loop(args1, body1, tag)
               case recur0 @ Recur(args, tpe, tag) =>
                 val args1 =
-                  ListUtil.mapConserveNel(args)(replace(_, blocked, blockedTy))
+                  ListUtil.mapConserveNel(args)(
+                    replace(_, blocked, blockedTy, inSuspension)
+                  )
                 if (args1 eq args) recur0
                 else Recur(args1, tpe, tag)
               case m @ Match(arg, branches, tag) =>
-                val arg1 = replace(arg, blocked, blockedTy)
+                val arg1 = replace(arg, blocked, blockedTy, inSuspension)
                 val branches1 = ListUtil.mapConserveNel(branches) { branch =>
                   val blockedBranch = blocked ++ branch.pattern.names
                   val guard1 =
-                    branch.guard.map(replace(_, blockedBranch, blockedTy))
-                  val expr1 = replace(branch.expr, blockedBranch, blockedTy)
+                    branch.guard.map(
+                      replace(_, blockedBranch, blockedTy, inSuspension)
+                    )
+                  val expr1 =
+                    replace(branch.expr, blockedBranch, blockedTy, inSuspension)
                   if (guard1.eq(branch.guard) && (expr1 eq branch.expr)) branch
                   else branch.copy(guard = guard1, expr = expr1)
                 }
@@ -280,7 +323,7 @@ object TypedExprNormalization {
         }
       }
 
-      val replaced = replace(te, Set.empty, Set.empty)
+      val replaced = replace(te, Set.empty, Set.empty, inSuspension = false)
       val bindings = bindingsByKey.map { case (_, nm, rep) => (nm, rep) }
 
       NonEmptyList.fromList(bindings) match {
@@ -996,6 +1039,7 @@ object TypedExprNormalization {
         val lambda1 = AnnotatedLambda(lamArgs, e1, tag)
         if (changed) normalize1(namerec, lambda1, scope, typeEnv)
         else {
+          val isSuspensionLambda = isSuspensionLambdaArgs(lamArgs)
 
           def doesntUseArgs(te: TypedExpr[A]): Boolean =
             lamArgs.forall { case (n, _) => te.notFree(n) }
@@ -1019,9 +1063,10 @@ object TypedExprNormalization {
               // note, e1 is already normalized, so fn is normalized
               Some(setType(fn, te.getType))
             case Let(arg1, ex, in, rec, tag1)
-                if !Impl.isSimple(ex, lambdaSimple = true) && doesntUseArgs(
-                  ex
-                ) && doesntShadow(arg1) =>
+                if !isSuspensionLambda &&
+                  !Impl.isSimple(ex, lambdaSimple = true) &&
+                  doesntUseArgs(ex) &&
+                  doesntShadow(arg1) =>
               // x ->
               //   y = z
               //   f(y)
@@ -1040,7 +1085,7 @@ object TypedExprNormalization {
                 typeEnv
               )
             case m @ Match(arg1, branches, tag1)
-                if lamArgs.forall { case (arg, _) =>
+                if !isSuspensionLambda && lamArgs.forall { case (arg, _) =>
                   arg1.notFree(arg)
                 } && ((branches.length > 1) || !Impl.isSimple(
                   arg1,

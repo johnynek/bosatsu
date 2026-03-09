@@ -1291,6 +1291,85 @@ foo = _ -> 1
     }
   }
 
+  test("normalization keeps non-simple lets inside Unit suspension lambdas") {
+    val unitName = Identifier.Name("unit")
+    val yName = Identifier.Name("y")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val boundExpr = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val body = TypedExpr.Let(
+      yName,
+      boundExpr,
+      TypedExpr.App(PredefAdd, NonEmptyList.of(yVar, yVar), intTpe, ()),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
+        assertEquals(args.length, 1)
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+        assert(countLet(lamBody) > 0, normalized.reprString)
+      case other =>
+        fail(s"expected Unit lambda to remain outermost, got: ${other.reprString}")
+    }
+  }
+
+  test("normalization keeps matches inside Unit suspension lambdas") {
+    val unitName = Identifier.Name("unit")
+    val body = TypedExpr.Match(
+      varTE("z", intTpe),
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(1)),
+        branch(Pattern.WildCard, int(2))
+      ),
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.AnnotatedLambda(args, TypedExpr.Match(_, _, _), _) =>
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+      case other =>
+        fail(s"expected Unit lambda with inner match, got: ${other.reprString}")
+    }
+  }
+
+  test(
+    "normalization does not share immutable values outside Unit suspension lambdas"
+  ) {
+    val unitName = Identifier.Name("unit")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("f", fnType), int(1), intTpe)
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(opaque, opaque), intTpe, ())
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.Let(
+            _,
+            bound,
+            TypedExpr.AnnotatedLambda(args, _, _),
+            RecursionKind.NonRecursive,
+            _
+          ) if bound.void === opaque.void &&
+            Type.normalize(args.head._2).sameAs(Type.UnitType) =>
+        fail(s"unexpected shared let hoisted above Unit thunk: ${normalized.reprString}")
+      case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+        assert(countExpr(lamBody, opaque) > 0, normalized.reprString)
+      case other =>
+        fail(s"expected Unit lambda result, got: ${other.reprString}")
+    }
+  }
+
   test(
     "normalization keeps lambda-match shape when branch guards depend on lambda args"
   ) {
