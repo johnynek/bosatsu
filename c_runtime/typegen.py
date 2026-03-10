@@ -72,7 +72,9 @@ BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of({cast_to_1}rc);
-    memcpy(closure_data, data, sizeof(BValue) * size);
+    if (size > 0) {{
+        memcpy(closure_data, data, sizeof(BValue) * size);
+    }}
     return BSTS_VALUE_FROM_PTR(rc);
 }}
 

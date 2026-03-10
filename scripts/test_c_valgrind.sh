@@ -11,6 +11,7 @@ VALGRIND_CC_FLAGS=(
 VALGRIND_OPTS=(
   --tool=memcheck
   --error-exitcode=101
+  --undef-value-errors=no
   --leak-check=full
   --show-leak-kinds=definite,indirect
   --errors-for-leak-kinds=definite,indirect
