@@ -282,6 +282,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           codePoint
         )
 
+      def lessThanOrEqualChar(
+          expr: Code.Expression,
+          codePoint: Int
+      ): Code.Expression =
+        Code
+          .Ident("bsts_char_code_point_from_value")(expr)
+          .bin(Code.BinOp.LtEq, Code.IntLiteral(codePoint))
+
       def pv(e: Code.ValueLike): T[Code.ValueLike] = monadImpl.pure(e)
 
       def andCode(l: Code.ValueLike, r: Code.ValueLike): T[Code.ValueLike] =
@@ -433,6 +441,36 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       )(newLocalName)
                     }
                   }(newLocalName)
+              }
+            }
+          case LtEqLit(expr, lit) =>
+            innerToValue(expr).flatMap { vl =>
+              lit match {
+                case Lit.Integer(_) =>
+                  vl.onExpr { e =>
+                    literal(lit).flatMap { litInt =>
+                      Code.ValueLike
+                        .applyArgs(
+                          Code.Ident("bsts_integer_cmp"),
+                          NonEmptyList(e, litInt :: Nil)
+                        )(newLocalName)
+                        .flatMap {
+                          _.onExpr(cmp =>
+                            pv(cmp.bin(Code.BinOp.LtEq, Code.IntLiteral.Zero))
+                          )(newLocalName)
+                        }
+                    }
+                  }(newLocalName)
+                case c: Lit.Chr =>
+                  vl.onExpr(e => pv(lessThanOrEqualChar(e, c.toCodePoint)))(
+                    newLocalName
+                  )
+                case _ =>
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException(
+                    s"LtEqLit only supports Int and Char literals, found: $lit"
+                  )
+                // $COVERAGE-ON$
               }
             }
           case EqualsNat(expr, nat) =>

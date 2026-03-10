@@ -725,6 +725,68 @@ main = 4294967296
     }
   }
 
+  test("wide integer literal matches use ordered bsts_integer_cmp checks") {
+    TestUtils.checkPackageMap("""
+def classify_int(n):
+  match n:
+    case 1: 10
+    case 2: 20
+    case 3: 30
+    case 4: 40
+    case 5: 50
+    case _: 0
+
+main = classify_int
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("classify_int"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("bsts_integer_cmp"), rendered)
+          assert(rendered.contains("<= 0"), rendered)
+      }
+    }
+  }
+
+  test("wide char literal matches use ordered codepoint comparisons") {
+    TestUtils.checkPackageMap("""
+def classify_char(ch):
+  match ch:
+    case .'a': 1
+    case .'b': 2
+    case .'c': 3
+    case .'d': 4
+    case .'e': 5
+    case _: 0
+
+main = classify_char
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("classify_char"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("bsts_char_code_point_from_value"), rendered)
+          assert(rendered.contains("<="), rendered)
+      }
+    }
+  }
+
   test("float literals with sign bit use unsigned bit literals") {
     TestUtils.checkPackageMap("""
 main = -0.0

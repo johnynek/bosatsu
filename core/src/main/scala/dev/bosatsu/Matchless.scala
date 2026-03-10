@@ -249,6 +249,8 @@ object Matchless {
         b match {
           case EqualsLit(expr, _) =>
             loopExpr(expr)
+          case LtEqLit(expr, _) =>
+            loopExpr(expr)
           case EqualsNat(expr, _) =>
             loopExpr(expr)
           case And(left, right) =>
@@ -308,6 +310,8 @@ object Matchless {
       def loopBool(b: BoolExpr[A]): Boolean =
         b match {
           case EqualsLit(expr, _) =>
+            loopExpr(expr)
+          case LtEqLit(expr, _) =>
             loopExpr(expr)
           case EqualsNat(expr, _) =>
             loopExpr(expr)
@@ -445,6 +449,8 @@ object Matchless {
         else
           b match {
             case EqualsLit(expr, _) =>
+              loopExpr(expr, isShadowed)
+            case LtEqLit(expr, _) =>
               loopExpr(expr, isShadowed)
             case EqualsNat(expr, _) =>
               loopExpr(expr, isShadowed)
@@ -644,6 +650,8 @@ object Matchless {
       ex match {
         case EqualsLit(arg, lit) =>
           EqualsLit(loopCheap(arg), lit)
+        case LtEqLit(arg, lit) =>
+          LtEqLit(loopCheap(arg), lit)
         case EqualsNat(arg, nat) =>
           EqualsNat(loopCheap(arg), nat)
         case And(left, right) =>
@@ -845,6 +853,8 @@ object Matchless {
       ex match {
         case EqualsLit(expr, _) =>
           loopCheap(expr, acc)
+        case LtEqLit(expr, _) =>
+          loopCheap(expr, acc)
         case EqualsNat(expr, _) =>
           loopCheap(expr, acc)
         case And(left, right) =>
@@ -1032,6 +1042,8 @@ object Matchless {
       def loopBool(b: BoolExpr[A], curr: Long): Long =
         b match {
           case EqualsLit(expr, _) =>
+            loopExpr(expr, curr)
+          case LtEqLit(expr, _) =>
             loopExpr(expr, curr)
           case EqualsNat(expr, _) =>
             loopExpr(expr, curr)
@@ -1354,6 +1366,10 @@ object Matchless {
           recurExprCheap(expr, st) match {
             case (expr1, st1) => (EqualsLit(expr1, lit), st1)
           }
+        case LtEqLit(expr, lit) =>
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) => (LtEqLit(expr1, lit), st1)
+          }
         case EqualsNat(expr, nat) =>
           recurExprCheap(expr, st) match {
             case (expr1, st1) => (EqualsNat(expr1, nat), st1)
@@ -1499,6 +1515,8 @@ object Matchless {
         b match {
           case EqualsLit(expr, _) =>
             1 + loopExpr(expr)
+          case LtEqLit(expr, _) =>
+            1 + loopExpr(expr)
           case EqualsNat(expr, _) =>
             1 + loopExpr(expr)
           case And(left, right) =>
@@ -1593,6 +1611,8 @@ object Matchless {
       b match {
         case EqualsLit(expr, lit) =>
           EqualsLit(recurExprCheap(expr), lit)
+        case LtEqLit(expr, lit) =>
+          LtEqLit(recurExprCheap(expr), lit)
         case EqualsNat(expr, nat) =>
           EqualsNat(recurExprCheap(expr), nat)
         case And(left, right) =>
@@ -1701,14 +1721,15 @@ object Matchless {
     private def boolTag[A](boolExpr: BoolExpr[A]): Int =
       boolExpr match {
         case _: EqualsLit[?]    => 0
-        case _: EqualsNat[?]    => 1
-        case _: And[?]          => 2
-        case _: CheckVariant[?] => 3
-        case _: CheckVariantSet[?] => 4
-        case _: SetMut[?]          => 5
-        case TrueConst             => 6
-        case _: LetBool[?]         => 7
-        case _: LetMutBool[?]      => 8
+        case _: LtEqLit[?]      => 1
+        case _: EqualsNat[?]    => 2
+        case _: And[?]          => 3
+        case _: CheckVariant[?] => 4
+        case _: CheckVariantSet[?] => 5
+        case _: SetMut[?]          => 6
+        case TrueConst             => 7
+        case _: LetBool[?]         => 8
+        case _: LetMutBool[?]      => 9
       }
 
     private given Order[LocalAnon] = Order.by(_.ident)
@@ -1726,6 +1747,11 @@ object Matchless {
       def compare(left: BoolExpr[A], right: BoolExpr[A]): Int =
         (left, right) match {
           case (EqualsLit(exprL, litL), EqualsLit(exprR, litR)) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else Order[Lit].compare(litL, litR)
+
+          case (LtEqLit(exprL, litL), LtEqLit(exprR, litR)) =>
             val c1 = Order[Expr[A]].compare(exprL, exprR)
             if (c1 != 0) c1
             else Order[Lit].compare(litL, litR)
@@ -1812,6 +1838,8 @@ object Matchless {
         boolExpr match {
           case EqualsLit(expr, _) =>
             Expr.referencesBindable(expr, target, isShadowed)
+          case LtEqLit(expr, _) =>
+            Expr.referencesBindable(expr, target, isShadowed)
           case EqualsNat(expr, _) =>
             Expr.referencesBindable(expr, target, isShadowed)
           case And(left, right) =>
@@ -1840,6 +1868,7 @@ object Matchless {
   }
   // returns 1 if it does, else 0
   case class EqualsLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
+  case class LtEqLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
   case class EqualsNat[A](expr: CheapExpr[A], nat: DataRepr.Nat)
       extends BoolExpr[A]
   // 1 if both are > 0
@@ -1905,6 +1934,7 @@ object Matchless {
       case SetMut(_, _) => true
       case TrueConst | CheckVariant(_, _, _, _) | CheckVariantSet(_, _, _, _) |
           EqualsLit(_, _) |
+          LtEqLit(_, _) |
           EqualsNat(_, _) =>
         false
       case And(b1, b2)      => hasSideEffect(b1) || hasSideEffect(b2)
@@ -2061,6 +2091,7 @@ object Matchless {
       extends ConsExpr
 
   private val SwitchVariantMinCases: Int = 4
+  private val LiteralTreeMinCases: Int = 4
   private val boolFamArities = 0 :: 0 :: Nil
   private val listFamArities = 0 :: 2 :: Nil
   val FalseExpr: Expr[Nothing] = MakeEnum(0, 0, boolFamArities)
@@ -2698,6 +2729,8 @@ object Matchless {
           And(substituteLocalsBool(m, b1), substituteLocalsBool(m, b2))
         case EqualsLit(x, l) =>
           EqualsLit(substituteLocalsCheap(m, x), l)
+        case LtEqLit(x, l) =>
+          LtEqLit(substituteLocalsCheap(m, x), l)
         case EqualsNat(x, n) =>
           EqualsNat(substituteLocalsCheap(m, x), n)
         case TrueConst                           => TrueConst
@@ -4701,6 +4734,70 @@ object Matchless {
                       }
                   }
 
+                sealed trait OrderedLiteralKind derives CanEqual
+                case object IntLiteralKind extends OrderedLiteralKind
+                case object CharLiteralKind extends OrderedLiteralKind
+
+                def orderedLiteralKind(lit: Lit): Option[OrderedLiteralKind] =
+                  lit match {
+                    case Lit.Integer(_) => Some(IntLiteralKind)
+                    case Lit.Chr(_)     => Some(CharLiteralKind)
+                    case _              => None
+                  }
+
+                def orderedLiteralCompare(
+                    kind: OrderedLiteralKind,
+                    left: Lit,
+                    right: Lit
+                ): Int =
+                  kind match {
+                    case IntLiteralKind =>
+                      (left, right) match {
+                        case (Lit.Integer(l), Lit.Integer(r)) =>
+                          l.compareTo(r)
+                        case _ =>
+                          // $COVERAGE-OFF$
+                          throw new IllegalStateException(
+                            s"unexpected Int literal comparison: left=$left, right=$right"
+                          )
+                        // $COVERAGE-ON$
+                      }
+                    case CharLiteralKind =>
+                      (left, right) match {
+                        case (l: Lit.Chr, r: Lit.Chr) =>
+                          java.lang.Integer.compare(l.toCodePoint, r.toCodePoint)
+                        case _ =>
+                          // $COVERAGE-OFF$
+                          throw new IllegalStateException(
+                            s"unexpected Char literal comparison: left=$left, right=$right"
+                          )
+                        // $COVERAGE-ON$
+                      }
+                  }
+
+                def literalTreeLits(sigs: List[HeadSig]): Option[List[Lit]] =
+                  if (sigs.length < LiteralTreeMinCases) None
+                  else {
+                    sigs
+                      .traverse {
+                        case LitSig(lit) => Some(lit)
+                        case _           => None
+                      }
+                      .flatMap { literals =>
+                        NonEmptyList.fromList(literals).flatMap { nel =>
+                          orderedLiteralKind(nel.head).flatMap { kind =>
+                            if (nel.forall(lit => orderedLiteralKind(lit).contains(kind)))
+                              Some(
+                                nel.toList.sortWith { (left, right) =>
+                                  orderedLiteralCompare(kind, left, right) < 0
+                                }
+                              )
+                            else None
+                          }
+                        }
+                      }
+                  }
+
                 // Compile cases in order, with a default branch for wildcards.
                 def compileCases(
                     sigs: List[HeadSig],
@@ -4751,6 +4848,47 @@ object Matchless {
                           }
                       }
                   }
+
+                def compileLiteralTreeCases(
+                    sortedLits: List[Lit],
+                    mustMatch: Boolean
+                ): F[Expr[B]] = {
+                  def compileLiteralCase(lit: Lit): F[(Lit, Expr[B])] = {
+                    val (newRows, _) =
+                      minimizeSpecializedRows(LitSig(lit), rows, colIdx, 0)
+                    val newOccs = occs.patch(colIdx, Nil, 1)
+                    if (newRows.isEmpty) Monad[F].pure((lit, UnitExpr))
+                    else
+                      compileRows(newRows, newOccs, mustMatch).map((lit, _))
+                  }
+
+                  def fallbackExpr: F[Expr[B]] =
+                    if (defaultRows.nonEmpty)
+                      compileRows(defaultRows, defaultOccs, mustMatch)
+                    else Monad[F].pure(UnitExpr)
+
+                  def buildTree(
+                      lits: Vector[(Lit, Expr[B])],
+                      fallback: Expr[B]
+                  ): Expr[B] =
+                    if (lits.isEmpty) fallback
+                    else if (lits.length == 1) {
+                      val (lit, thenExpr) = lits.head
+                      If(EqualsLit(occ, lit), thenExpr, fallback)
+                    } else {
+                      // Keep the left branch as all literals <= pivot.
+                      val leftSize = (lits.length + 1) / 2
+                      val pivot = lits(leftSize - 1)._1
+                      val leftTree = buildTree(lits.take(leftSize), fallback)
+                      val rightTree = buildTree(lits.drop(leftSize), fallback)
+                      If(LtEqLit(occ, pivot), leftTree, rightTree)
+                    }
+
+                  (sortedLits.traverse(compileLiteralCase), fallbackExpr).mapN {
+                    (compiledLits, fallback) =>
+                      buildTree(compiledLits.toVector, fallback)
+                  }
+                }
 
                 def enumSwitchData(
                     sigs: List[HeadSig]
@@ -4818,11 +4956,16 @@ object Matchless {
                   }
                 }
 
-                enumSwitchData(sigs) match {
-                  case Some((famArities, enumSigs)) =>
-                    compileSwitchCases(famArities, enumSigs, mustMatch)
-                  case None =>
-                    compileCases(sigs, mustMatch)
+                literalTreeLits(sigs) match {
+                  case Some(sortedLits) =>
+                    compileLiteralTreeCases(sortedLits, mustMatch)
+                  case None             =>
+                    enumSwitchData(sigs) match {
+                      case Some((famArities, enumSigs)) =>
+                        compileSwitchCases(famArities, enumSigs, mustMatch)
+                      case None =>
+                        compileCases(sigs, mustMatch)
+                    }
                 }
             }
 
@@ -4868,6 +5011,8 @@ object Matchless {
       def loopBool(b: BoolExpr[B]): Int =
         b match {
           case EqualsLit(expr, _) =>
+            1 + loopExpr(expr)
+          case LtEqLit(expr, _) =>
             1 + loopExpr(expr)
           case EqualsNat(expr, _) =>
             1 + loopExpr(expr)

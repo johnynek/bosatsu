@@ -216,6 +216,54 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  test("wide integer literal matches use ordered comparisons in Python") {
+    TestUtils.checkPackageMap("""
+def classify_int(n):
+  match n:
+    case 1: 10
+    case 2: 20
+    case 3: 30
+    case 4: 40
+    case 5: 50
+    case _: 0
+
+main = classify_int
+""") { pm =>
+      Par.withEC {
+        val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+        val doc = rendered(())(TestUtils.testPackage)._2
+        val code = doc.render(120)
+
+        assert(code.contains(" < "), code)
+        assert(code.contains("not"), code)
+      }
+    }
+  }
+
+  test("wide char literal matches use ordered comparisons in Python") {
+    TestUtils.checkPackageMap("""
+def classify_char(ch):
+  match ch:
+    case .'a': 1
+    case .'b': 2
+    case .'c': 3
+    case .'d': 4
+    case .'e': 5
+    case _: 0
+
+main = classify_char
+""") { pm =>
+      Par.withEC {
+        val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+        val doc = rendered(())(TestUtils.testPackage)._2
+        val code = doc.render(120)
+
+        assert(code.contains(" < "), code)
+        assert(code.contains("not"), code)
+      }
+    }
+  }
+
   test("SwitchVariant compiles through toIfElse in Python") {
     val famArities = 0 :: 0 :: 1 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")

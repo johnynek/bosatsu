@@ -3,7 +3,7 @@ package dev.bosatsu.codegen.python
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Matchless, Par, Parser}
+import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Lit, Matchless, Par, Parser}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -2541,6 +2541,19 @@ object PythonGen {
             val literal = Code.litToExpr(lit)
             loop(expr, slotName, inlineSlots)
               .flatMap(Env.onLast(_)(ex => ex =:= literal))
+          case LtEqLit(expr, lit) =>
+            lit match {
+              case Lit.Integer(_) | Lit.Chr(_) =>
+                val literal = Code.litToExpr(lit)
+                loop(expr, slotName, inlineSlots)
+                  .flatMap(Env.onLast(_)(ex => !(literal :< ex)))
+              case _ =>
+                // $COVERAGE-OFF$
+                throw new IllegalStateException(
+                  s"LtEqLit only supports Int and Char literals, found: $lit"
+                )
+              // $COVERAGE-ON$
+            }
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat, slotName, inlineSlots)
 
