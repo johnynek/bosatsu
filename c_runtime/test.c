@@ -127,6 +127,7 @@ static void call_string_mut_too_large() {
   (void)bsts_string_mut(BSTS_STRING_INLINE16_FLAG);
 }
 
+#if defined(BSTS_RUNTIME_DEBUG_CHECKS)
 static BValue closure_zero_abort_fn(BValue *slots, BValue arg) {
   (void)slots;
   return arg;
@@ -135,6 +136,7 @@ static BValue closure_zero_abort_fn(BValue *slots, BValue arg) {
 static void call_alloc_closure_zero() {
   (void)alloc_closure1(0, NULL, closure_zero_abort_fn);
 }
+#endif
 #endif
 
 void assert_option_float_bits(BValue opt, uint64_t expected, const char* message) {
@@ -618,7 +620,7 @@ void test_float64() {
 }
 
 void test_prog_assoc() {
-#if !defined(_WIN32)
+#if !defined(_WIN32) && defined(BSTS_RUNTIME_DEBUG_CHECKS)
   assert_child_aborts(call_alloc_closure_zero, "zero-capture closures must use alloc_boxed_pure_fn");
 #endif
 
