@@ -2113,29 +2113,23 @@ object TypedExprRecursionCheck {
           None
       }
 
-    private def hasUnitToTargetType(
-        fnExpr: TypedExpr[Declaration],
-        targetType: Type
+    private def hasUnitArgFunction(
+        fnExpr: TypedExpr[Declaration]
     ): Boolean =
-      // Keep this force recognizer tied to the current recur-target component
-      // type; we intentionally do not treat force as a generic wrapper-unroll.
       fnExpr.getType match {
-        case Type.Fun(args, resultType) =>
+        case Type.Fun(args, _) =>
           args.tail.isEmpty &&
-          args.head.sameAs(Type.UnitType) &&
-          resultType.sameAs(targetType)
+          args.head.sameAs(Type.UnitType)
         case _ =>
           false
       }
 
-    private def hasLazyTargetType(
-        expr: TypedExpr[Declaration],
-        targetType: Type
+    private def hasLazyType(
+        expr: TypedExpr[Declaration]
     ): Boolean =
-      // Same boundary as thunk forcing: only Lazy[targetType] qualifies.
       expr.getType match {
-        case Type.TyApply(Type.TyConst(const), itemType) =>
-          (const == lazyTypeConst) && itemType.sameAs(targetType)
+        case Type.TyApply(Type.TyConst(const), _) =>
+          const == lazyTypeConst
         case _ =>
           false
       }
@@ -2153,7 +2147,6 @@ object TypedExprRecursionCheck {
       }
 
     private def classifyThunkForceArg(
-        targetType: Type,
         allowed: Set[Bindable],
         arg: TypedExpr[Declaration]
     ): Option[ArgLexOrder] =
@@ -2162,12 +2155,11 @@ object TypedExprRecursionCheck {
         case (fnExpr, unitArg)
             if isCanonicalUnitLiteral(unitArg) &&
               localNameOf(fnExpr).exists(allowed) &&
-              hasUnitToTargetType(fnExpr, targetType) =>
+              hasUnitArgFunction(fnExpr) =>
           Smaller
       }
 
     private def classifyLazyForceArg(
-        targetType: Type,
         allowed: Set[Bindable],
         arg: TypedExpr[Declaration]
     ): Option[ArgLexOrder] =
@@ -2176,7 +2168,7 @@ object TypedExprRecursionCheck {
         case (fnExpr, lazyArg)
             if isTrustedGlobalFn(fnExpr, lazyPackageName, getLazyName) &&
               localNameOf(lazyArg).exists(allowed) &&
-              hasLazyTargetType(lazyArg, targetType) =>
+              hasLazyType(lazyArg) =>
           Smaller
       }
 
@@ -2189,7 +2181,6 @@ object TypedExprRecursionCheck {
         currentCtor: Option[KnownCtor],
         arg: TypedExpr[Declaration]
     ): LexStep = {
-      val targetType = targetItemType(inrec, target)
       val order =
         localNameOf(arg) match {
           case Some(nm) if allowed(nm)            => Smaller
@@ -2200,8 +2191,8 @@ object TypedExprRecursionCheck {
               case Some(s0) if singletonCtorFromArgExpr(arg).contains(s0) =>
                 Equal
               case _                                                      =>
-                classifyThunkForceArg(targetType, allowed, arg)
-                  .orElse(classifyLazyForceArg(targetType, allowed, arg))
+                classifyThunkForceArg(allowed, arg)
+                  .orElse(classifyLazyForceArg(allowed, arg))
                   .orElse(
                     currentCtor.map(
                       classifyConstructorRankArg(

@@ -683,8 +683,8 @@ def run[a](fuel: Fuel, value: a) -> a:
 """)
   }
 
-  test("recur rejects thunk force when thunk returns a polymorphic recur target") {
-    disallowed("""#
+  test("recur allows thunk force when thunk returns a polymorphic recur target") {
+    allowed("""#
 enum FreeF[a]:
   Done(value: a)
   Mapped[b](thunk: () -> FreeF[b], fn: b -> a)
@@ -720,9 +720,9 @@ def consume(s: Stream) -> Stream:
     )
   }
 
-  test("recur rejects trusted lazy force when lazy returns a polymorphic recur target") {
+  test("recur allows trusted lazy force when lazy returns a polymorphic recur target") {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
-    disallowed(
+    allowed(
       """#
 external struct Lazy[a: +*]
 external def get_Lazy[a](l: Lazy[a]) -> a
