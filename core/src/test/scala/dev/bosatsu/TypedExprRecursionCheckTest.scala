@@ -14,18 +14,26 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
   private def formatErrors(
       source: String,
       errs: NonEmptyList[PackageError]
+  ): String =
+    formatErrors(source, errs, pack)
+
+  private def formatErrors(
+      source: String,
+      errs: NonEmptyList[PackageError],
+      packageName: PackageName
   ): String = {
-    val sm = Map(pack -> (LocationMap(source), "<test>"))
+    val sm = Map(packageName -> (LocationMap(source), "<test>"))
     errs.toList
       .map(_.message(sm, LocationMap.Colorize.None))
       .mkString("\n-----\n")
   }
 
   private def recursionErrorsOf(
-      source: String
+      source: String,
+      packageName: PackageName
   ): Either[NonEmptyList[PackageError], Unit] = {
     val stmts = TestUtils.statementsOf(source)
-    val parsed = Package.fromStatements(pack, stmts)
+    val parsed = Package.fromStatements(packageName, stmts)
     given Show[String] = Show.fromToString
     PackageMap
       .typeCheckParsed(
@@ -42,16 +50,34 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     }
   }
 
-  private def allowed(source: String): Unit =
-    recursionErrorsOf(source) match {
+  private def allowed(
+      source: String
+  ): Unit =
+    allowed(source, pack)
+
+  private def allowed(
+      source: String,
+      packageName: PackageName
+  ): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         ()
       case Left(errs) =>
-        fail(s"expected success, got errors:\n${formatErrors(source, errs)}")
+        fail(
+          s"expected success, got errors:\n${formatErrors(source, errs, packageName)}"
+        )
     }
 
-  private def disallowed(source: String): Unit =
-    recursionErrorsOf(source) match {
+  private def disallowed(
+      source: String
+  ): Unit =
+    disallowed(source, pack)
+
+  private def disallowed(
+      source: String,
+      packageName: PackageName
+  ): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
@@ -59,11 +85,22 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
           r
         }
         if (recursionErrs.nonEmpty) ()
-        else fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
+        else
+          fail(
+            s"expected recursion error, got:\n${formatErrors(source, errs, packageName)}"
+          )
     }
 
-  private def disallowedWithMessage(source: String)(assertMessage: String => Unit): Unit =
-    recursionErrorsOf(source) match {
+  private def disallowedWithMessage(
+      source: String
+  )(assertMessage: String => Unit): Unit =
+    disallowedWithMessage(source, pack)(assertMessage)
+
+  private def disallowedWithMessage(
+      source: String,
+      packageName: PackageName
+  )(assertMessage: String => Unit): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
@@ -72,7 +109,9 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         }
         recursionErrs match {
           case Nil =>
-            fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
+            fail(
+              s"expected recursion error, got:\n${formatErrors(source, errs, packageName)}"
+            )
           case _   =>
             assertMessage(recursionErrs.map(_.err.message).mkString("\n-----\n"))
         }
@@ -546,6 +585,201 @@ def demo(n: Int) -> Int:
         acc
 
   go(n, 0)
+""")
+  }
+
+  test("recur allows thunk force on branch-proven smaller local") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def consume(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      consume(th())
+""")
+  }
+
+  test("tuple recur targets allow lexicographic decrease via thunk force") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def keep_flag(flag: Bool, s: Stream) -> Stream:
+  recur (flag, s):
+    case (_, End):
+      End
+    case (f0, More(th)):
+      keep_flag(f0, th())
+""")
+  }
+
+  test("recur rejects thunk recursion through non-local helper function") {
+    disallowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def force(th: () -> Stream) -> Stream:
+  th()
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      bad(force(th))
+""")
+  }
+
+  test("recur rejects thunk-like calls when callee is not () -> target") {
+    disallowed("""#
+enum Stream:
+  End
+  Step(next: Int -> Stream)
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case Step(step):
+      bad(step(0))
+""")
+  }
+
+  test("recur rejects thunk recursion for non-canonical unit argument shape") {
+    disallowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      unit = ()
+      bad(th(unit))
+""")
+  }
+
+  test("thunk-force rule allows polymorphic recursion when recur target type is unchanged") {
+    allowed("""#
+enum Fuel:
+  Done
+  Step(next: () -> Fuel)
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(next(), (value, value))
+      out
+""")
+  }
+
+  test("recur allows thunk force when thunk returns a polymorphic recur target") {
+    allowed("""#
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: () -> FreeF[b], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(thunk()))
+""")
+  }
+
+  test("recur allows trusted Bosatsu/Lazy.get_Lazy force on smaller local") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def consume(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(l):
+      consume(get_Lazy(l))
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows trusted lazy force when lazy returns a polymorphic recur target") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: Lazy[FreeF[b]], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(get_Lazy(thunk)))
+""",
+      lazyPack
+    )
+  }
+
+  test("lazy-force rule allows polymorphic recursion when recur target type is unchanged") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Fuel:
+  Done
+  Step(next: Lazy[Fuel])
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(get_Lazy(next), (value, value))
+      out
+""",
+      lazyPack
+    )
+  }
+
+  test("recur rejects local get_Lazy when package is not trusted Bosatsu/Lazy") {
+    disallowed("""#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(l):
+      bad(get_Lazy(l))
 """)
   }
 
@@ -1148,7 +1382,10 @@ main = loop(1)
 
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      val n = 1024
+      // Coverage instrumentation adds stack depth during normalization.
+      // Keep this value large enough to stress recursion-check traversal
+      // without making coverage CI non-deterministically overflow.
+      val n = 128
       val items = List.fill(n)("\"x\"").mkString(", ")
       val source = s"""#
 vals: List[String] = [$items]

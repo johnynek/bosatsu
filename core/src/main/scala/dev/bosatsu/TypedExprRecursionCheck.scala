@@ -110,6 +110,11 @@ object TypedExprRecursionCheck {
       )
     private val nonEmptyListKnownCtor =
       KnownCtor(PackageName.PredefName, Identifier.Constructor("NonEmptyList"))
+    private val unitCtorName = Identifier.Constructor("Unit")
+    private val lazyPackageName = PackageName.parts("Bosatsu", "Lazy")
+    private val getLazyName = Identifier.Name("get_Lazy")
+    private val lazyTypeConst =
+      Type.Const.Defined(lazyPackageName, TypeName("Lazy"))
 
     case class SmtBranchState(
         intBindings: Map[Bindable, SmtExpr.IntExpr],
@@ -2079,6 +2084,94 @@ object TypedExprRecursionCheck {
       maybeSmaller.getOrElse(Other)
     }
 
+    private def isCanonicalUnitLiteral(
+        expr: TypedExpr[Declaration]
+    ): Boolean =
+      unwrapDeclExpr(expr.tag) match {
+        case Declaration.TupleCons(Nil) => true
+        case _                          =>
+          stripExprWrappers(expr) match {
+            case TypedExpr.Global(
+                  PackageName.PredefName,
+                  cons: Identifier.Constructor,
+                  _,
+                  _
+                ) =>
+              cons == unitCtorName
+            case _ =>
+              false
+          }
+      }
+
+    private def oneArgApp(
+        expr: TypedExpr[Declaration]
+    ): Option[(TypedExpr[Declaration], TypedExpr[Declaration])] =
+      stripExprWrappers(expr) match {
+        case TypedExpr.App(fn, args, _, _) if args.tail.isEmpty =>
+          Some((fn, args.head))
+        case _ =>
+          None
+      }
+
+    private def hasUnitArgFunction(
+        fnExpr: TypedExpr[Declaration]
+    ): Boolean =
+      fnExpr.getType match {
+        case Type.Fun(args, _) =>
+          args.tail.isEmpty &&
+          args.head.sameAs(Type.UnitType)
+        case _ =>
+          false
+      }
+
+    private def hasLazyType(
+        expr: TypedExpr[Declaration]
+    ): Boolean =
+      expr.getType match {
+        case Type.TyApply(Type.TyConst(const), _) =>
+          const == lazyTypeConst
+        case _ =>
+          false
+      }
+
+    private def isTrustedGlobalFn(
+        expr: TypedExpr[Declaration],
+        pack: PackageName,
+        name: Identifier.Name
+    ): Boolean =
+      stripExprWrappers(expr) match {
+        case TypedExpr.Global(p0, n0: Identifier.Name, _, _) =>
+          (p0 == pack) && (n0 == name)
+        case _ =>
+          false
+      }
+
+    private def classifyThunkForceArg(
+        allowed: Set[Bindable],
+        arg: TypedExpr[Declaration]
+    ): Option[ArgLexOrder] =
+      // Narrow exception: forcing an already-proven smaller local thunk.
+      oneArgApp(arg).collect {
+        case (fnExpr, unitArg)
+            if isCanonicalUnitLiteral(unitArg) &&
+              localNameOf(fnExpr).exists(allowed) &&
+              hasUnitArgFunction(fnExpr) =>
+          Smaller
+      }
+
+    private def classifyLazyForceArg(
+        allowed: Set[Bindable],
+        arg: TypedExpr[Declaration]
+    ): Option[ArgLexOrder] =
+      // Trust boundary: only the canonical Bosatsu/Lazy.get_Lazy force form.
+      oneArgApp(arg).collect {
+        case (fnExpr, lazyArg)
+            if isTrustedGlobalFn(fnExpr, lazyPackageName, getLazyName) &&
+              localNameOf(lazyArg).exists(allowed) &&
+              hasLazyType(lazyArg) =>
+          Smaller
+      }
+
     private def classifyStructuralArg(
         inrec: InDefRecurred,
         target: RecurTargetItem,
@@ -2098,14 +2191,17 @@ object TypedExprRecursionCheck {
               case Some(s0) if singletonCtorFromArgExpr(arg).contains(s0) =>
                 Equal
               case _                                                      =>
-                currentCtor
-                  .map(
-                    classifyConstructorRankArg(
-                      inrec,
-                      target,
-                      _,
-                      allowed,
-                      arg
+                classifyThunkForceArg(allowed, arg)
+                  .orElse(classifyLazyForceArg(allowed, arg))
+                  .orElse(
+                    currentCtor.map(
+                      classifyConstructorRankArg(
+                        inrec,
+                        target,
+                        _,
+                        allowed,
+                        arg
+                      )
                     )
                   )
                   .getOrElse(Other)

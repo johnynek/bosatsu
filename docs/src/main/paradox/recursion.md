@@ -64,6 +64,18 @@ At a high level:
    Wrapped recursive payloads (`Fi` contains `T` but `Fi != T`, such as
    `List[T]`) are intentionally rejected in this version.
 
+1. Bosatsu also accepts two narrow force forms when the wrapped local is
+   already proven smaller in the current branch for that recur-target
+   component:
+   1. `th()` (canonical `th(())`) when `th: () -> T`.
+   1. `get_Lazy(l)` when callee resolves to trusted
+      `Bosatsu/Lazy.get_Lazy` and `l: Lazy[T]`.
+   This does not generalize to arbitrary wrappers or arbitrary `Lazy[T] -> T`
+   helper functions.
+   The same force recognizers also apply when `T` changes through polymorphic
+   recursion (for example `FreeF[a] -> FreeF[b]`) as long as the forced value
+   is still a branch-proven smaller local.
+
 1. With a tuple target (`recur (x0, x1, ..., xk)`), recursive calls must be
    lexicographically smaller in that target order.
 
