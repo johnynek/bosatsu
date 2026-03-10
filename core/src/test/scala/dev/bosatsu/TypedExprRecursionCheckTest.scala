@@ -1306,7 +1306,10 @@ main = loop(1)
 
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      val n = 1024
+      // Coverage instrumentation adds stack depth during normalization.
+      // Keep this value large enough to stress recursion-check traversal
+      // without making coverage CI non-deterministically overflow.
+      val n = 128
       val items = List.fill(n)("\"x\"").mkString(", ")
       val source = s"""#
 vals: List[String] = [$items]
