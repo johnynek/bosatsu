@@ -683,6 +683,21 @@ def run[a](fuel: Fuel, value: a) -> a:
 """)
   }
 
+  test("recur rejects thunk force when thunk returns a polymorphic recur target") {
+    disallowed("""#
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: () -> FreeF[b], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(thunk()))
+""")
+  }
+
   test("recur allows trusted Bosatsu/Lazy.get_Lazy force on smaller local") {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
@@ -700,6 +715,28 @@ def consume(s: Stream) -> Stream:
       End
     case More(l):
       consume(get_Lazy(l))
+""",
+      lazyPack
+    )
+  }
+
+  test("recur rejects trusted lazy force when lazy returns a polymorphic recur target") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    disallowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: Lazy[FreeF[b]], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(get_Lazy(thunk)))
 """,
       lazyPack
     )
