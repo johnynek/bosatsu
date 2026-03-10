@@ -72,6 +72,9 @@ At a high level:
       `Bosatsu/Lazy.get_Lazy` and `l: Lazy[T]`.
    This does not generalize to arbitrary wrappers or arbitrary `Lazy[T] -> T`
    helper functions.
+   These force forms are checked against the current recur-target component
+   type `T`; polymorphic recursive retargeting of that component is not
+   accepted through these force recognizers.
 
 1. With a tuple target (`recur (x0, x1, ..., xk)`), recursive calls must be
    lexicographically smaller in that target order.

@@ -2117,6 +2117,8 @@ object TypedExprRecursionCheck {
         fnExpr: TypedExpr[Declaration],
         targetType: Type
     ): Boolean =
+      // Keep this force recognizer tied to the current recur-target component
+      // type; we intentionally do not treat force as a generic wrapper-unroll.
       fnExpr.getType match {
         case Type.Fun(args, resultType) =>
           args.tail.isEmpty &&
@@ -2130,6 +2132,7 @@ object TypedExprRecursionCheck {
         expr: TypedExpr[Declaration],
         targetType: Type
     ): Boolean =
+      // Same boundary as thunk forcing: only Lazy[targetType] qualifies.
       expr.getType match {
         case Type.TyApply(Type.TyConst(const), itemType) =>
           (const == lazyTypeConst) && itemType.sameAs(targetType)

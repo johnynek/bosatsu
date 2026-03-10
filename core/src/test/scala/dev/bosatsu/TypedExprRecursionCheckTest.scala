@@ -667,6 +667,22 @@ def bad(s: Stream) -> Stream:
 """)
   }
 
+  test("thunk-force rule allows polymorphic recursion when recur target type is unchanged") {
+    allowed("""#
+enum Fuel:
+  Done
+  Step(next: () -> Fuel)
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(next(), (value, value))
+      out
+""")
+  }
+
   test("recur allows trusted Bosatsu/Lazy.get_Lazy force on smaller local") {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
@@ -684,6 +700,29 @@ def consume(s: Stream) -> Stream:
       End
     case More(l):
       consume(get_Lazy(l))
+""",
+      lazyPack
+    )
+  }
+
+  test("lazy-force rule allows polymorphic recursion when recur target type is unchanged") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Fuel:
+  Done
+  Step(next: Lazy[Fuel])
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(get_Lazy(next), (value, value))
+      out
 """,
       lazyPack
     )
