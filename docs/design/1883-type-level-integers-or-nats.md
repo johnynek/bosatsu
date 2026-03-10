@@ -362,6 +362,10 @@ This section exercises the design against the shape of `cats.Eval`: the index
 interpreted.
 
 ```bosatsu
+enum NatW[n: Nat]:
+  WZero where n == 0
+  WSucc[m: Nat](prev: NatW[m]) where n == m + 1
+
 enum Eval[n: Nat, a]:
   Now(value: a) where n == 0
   Later(thunk: () -> a) where n == 0
@@ -387,14 +391,14 @@ constructors.
 enum Frame[k: Nat, x, a]:
   Frame(run: x -> Eval[k, a])
 
-def force_total[a](root: Eval[n, a]) -> a:
+def force_total[a](root: Eval[n, a], fuel_n: NatW[n]) -> a:
   def loop_eval(
     todo: Eval[t, x],
     # r is an upper bound on flatMaps represented by pending frames.
     frames: Vec[r, Frame[_, _, a]],
-    fuel: Nat
+    fuel: NatW[f]
   ) -> a
-    requires t + r <= fuel and fuel <= n:
+    requires t + r <= f and f <= n:
     loop (todo, frames, fuel):
       case (Now(v), EVec, _):
         v
@@ -404,9 +408,9 @@ def force_total[a](root: Eval[n, a]) -> a:
         th()
       case (Defer(th), fs, f):
         loop_eval(th(), fs, f)
-      case (FlatMap(start, run), fs, f):
+      case (FlatMap(start, run), fs, WSucc(fprev)):
         # consumes one internal flatMap node
-        loop_eval(start, CVec(Frame(run), fs), f - 1)
+        loop_eval(start, CVec(Frame(run), fs), fprev)
       case (Now(v), CVec(Frame(k), rest), f):
         loop_eval(k(v), rest, f)
       case (Later(th), CVec(Frame(k), rest), f):
@@ -414,12 +418,17 @@ def force_total[a](root: Eval[n, a]) -> a:
       case (Always(th), CVec(Frame(k), rest), f):
         loop_eval(k(th()), rest, f)
 
-  loop_eval(root, EVec, n)
+  loop_eval(root, EVec, fuel_n)
 ```
 
 `Frame[_, _, a]` is sketch notation for an existentially packed continuation
 frame; a concrete implementation would encode this with an `AnyFrame[a]` enum
 that carries existential binders.
+
+`fuel_n: NatW[n]` is how the type-level bound is materialized at runtime.
+Library constructors/smart constructors can build this witness alongside
+`Eval[n, a]` (for example, `Now`/`Later`/`Always` use `WZero`, and `flat_map`
+uses `WSucc` after combining sub-bounds).
 
 Typechecking/totality sketch:
 
@@ -429,9 +438,12 @@ Typechecking/totality sketch:
    `fuel` argument strictly decreases by `1`.
 3. Other steps (`Now`/`Later`/`Always`/`Defer`) preserve the `t + r <= fuel`
    invariant and never increase `fuel`.
-4. Because `fuel` is Nat and decreases whenever a `FlatMap` node is consumed, a
-   standard size-change argument gives totality for `force_total`.
-5. Operationally this is the same trampoline idea used by `cats.Eval`, but here
+4. In the `FlatMap` case, matching on `WSucc(fprev)` gives a runtime predecessor
+   witness to recurse with; the impossible `(FlatMap, WZero)` state is ruled out
+   by the refinement invariant.
+5. Because the fuel witness strictly decreases whenever a `FlatMap` node is
+   consumed, a standard size-change argument gives totality for `force_total`.
+6. Operationally this is the same trampoline idea used by `cats.Eval`, but here
    the flatMap bound is explicit in types, so `Eval[n, a] -> a` is a total
    function in the core language.
 
