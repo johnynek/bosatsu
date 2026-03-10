@@ -64,6 +64,16 @@ def function_impl(size):
 {define}
 
 BValue alloc_closure{size}(size_t size, BValue* data, BClosure{size} fn) {{
+#if defined(BSTS_RUNTIME_DEBUG_CHECKS)
+    if (size == 0) {{
+        fprintf(stderr, "alloc_closure{size}: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn{size} for empty captures\\n");
+        abort();
+    }}
+    if (data == NULL) {{
+        fprintf(stderr, "alloc_closure{size}: data must be non-null when size > 0\\n");
+        abort();
+    }}
+#endif
     Closure{size}Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {{
         perror("GC_malloc failure in alloc_closure{size}");
