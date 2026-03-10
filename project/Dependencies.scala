@@ -7,7 +7,7 @@ object Dependencies {
   lazy val catsCol =
     Def.setting("org.typelevel" %%% "cats-collections-core" % "0.9.10")
   lazy val catsEffect =
-    Def.setting("org.typelevel" %%% "cats-effect" % "3.6.3")
+    Def.setting("org.typelevel" %%% "cats-effect" % "3.7.0")
   lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "1.1.0")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.6.0")
   lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.26.1")
