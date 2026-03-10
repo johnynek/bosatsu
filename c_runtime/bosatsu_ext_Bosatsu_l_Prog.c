@@ -61,9 +61,8 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_recover(BValue p, BValue f)
 
 static volatile BValue bsts_prog_observe_sink = (BValue)0;
 
-static BValue bsts_prog_observe_effect(BValue *slots, BValue arg)
+static BValue bsts_prog_observe_effect(BValue arg)
 {
-  (void)slots;
   bsts_prog_observe_sink = arg;
   bsts_prog_observe_sink = bsts_unit_value();
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
@@ -71,7 +70,7 @@ static BValue bsts_prog_observe_effect(BValue *slots, BValue arg)
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_observe(BValue a)
 {
-  BValue effect_fn = alloc_closure1(0, 0, bsts_prog_observe_effect);
+  BValue effect_fn = alloc_boxed_pure_fn1(bsts_prog_observe_effect);
   return alloc_enum2(5, a, effect_fn);
 }
 

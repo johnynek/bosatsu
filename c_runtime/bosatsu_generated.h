@@ -1785,6 +1785,14 @@ BValue alloc_enum32(ENUM_TAG tag, BValue b0, BValue b1, BValue b2, BValue b3, BV
 DEFINE_BSTS_OBJ(BoxedPureFn1, BPureFn1 fn; size_t slot_len;);
 
 BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure1: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn1 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure1: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure1Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure1");
@@ -1793,9 +1801,7 @@ BValue alloc_closure1(size_t size, BValue* data, BClosure1 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of(rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -1839,6 +1845,14 @@ DEFINE_BSTS_OBJ(Closure2Data, BClosure2 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn2, BPureFn2 fn; size_t slot_len;);
 
 BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure2: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn2 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure2: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure2Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure2");
@@ -1847,9 +1861,7 @@ BValue alloc_closure2(size_t size, BValue* data, BClosure2 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -1893,6 +1905,14 @@ DEFINE_BSTS_OBJ(Closure3Data, BClosure3 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn3, BPureFn3 fn; size_t slot_len;);
 
 BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure3: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn3 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure3: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure3Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure3");
@@ -1901,9 +1921,7 @@ BValue alloc_closure3(size_t size, BValue* data, BClosure3 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -1947,6 +1965,14 @@ DEFINE_BSTS_OBJ(Closure4Data, BClosure4 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn4, BPureFn4 fn; size_t slot_len;);
 
 BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure4: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn4 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure4: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure4Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure4");
@@ -1955,9 +1981,7 @@ BValue alloc_closure4(size_t size, BValue* data, BClosure4 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2001,6 +2025,14 @@ DEFINE_BSTS_OBJ(Closure5Data, BClosure5 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn5, BPureFn5 fn; size_t slot_len;);
 
 BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure5: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn5 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure5: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure5Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure5");
@@ -2009,9 +2041,7 @@ BValue alloc_closure5(size_t size, BValue* data, BClosure5 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2055,6 +2085,14 @@ DEFINE_BSTS_OBJ(Closure6Data, BClosure6 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn6, BPureFn6 fn; size_t slot_len;);
 
 BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure6: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn6 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure6: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure6Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure6");
@@ -2063,9 +2101,7 @@ BValue alloc_closure6(size_t size, BValue* data, BClosure6 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2109,6 +2145,14 @@ DEFINE_BSTS_OBJ(Closure7Data, BClosure7 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn7, BPureFn7 fn; size_t slot_len;);
 
 BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure7: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn7 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure7: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure7Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure7");
@@ -2117,9 +2161,7 @@ BValue alloc_closure7(size_t size, BValue* data, BClosure7 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2163,6 +2205,14 @@ DEFINE_BSTS_OBJ(Closure8Data, BClosure8 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn8, BPureFn8 fn; size_t slot_len;);
 
 BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure8: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn8 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure8: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure8Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure8");
@@ -2171,9 +2221,7 @@ BValue alloc_closure8(size_t size, BValue* data, BClosure8 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2217,6 +2265,14 @@ DEFINE_BSTS_OBJ(Closure9Data, BClosure9 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn9, BPureFn9 fn; size_t slot_len;);
 
 BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure9: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn9 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure9: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure9Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure9");
@@ -2225,9 +2281,7 @@ BValue alloc_closure9(size_t size, BValue* data, BClosure9 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2271,6 +2325,14 @@ DEFINE_BSTS_OBJ(Closure10Data, BClosure10 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn10, BPureFn10 fn; size_t slot_len;);
 
 BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure10: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn10 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure10: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure10Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure10");
@@ -2279,9 +2341,7 @@ BValue alloc_closure10(size_t size, BValue* data, BClosure10 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2325,6 +2385,14 @@ DEFINE_BSTS_OBJ(Closure11Data, BClosure11 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn11, BPureFn11 fn; size_t slot_len;);
 
 BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure11: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn11 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure11: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure11Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure11");
@@ -2333,9 +2401,7 @@ BValue alloc_closure11(size_t size, BValue* data, BClosure11 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2379,6 +2445,14 @@ DEFINE_BSTS_OBJ(Closure12Data, BClosure12 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn12, BPureFn12 fn; size_t slot_len;);
 
 BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure12: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn12 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure12: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure12Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure12");
@@ -2387,9 +2461,7 @@ BValue alloc_closure12(size_t size, BValue* data, BClosure12 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2433,6 +2505,14 @@ DEFINE_BSTS_OBJ(Closure13Data, BClosure13 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn13, BPureFn13 fn; size_t slot_len;);
 
 BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure13: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn13 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure13: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure13Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure13");
@@ -2441,9 +2521,7 @@ BValue alloc_closure13(size_t size, BValue* data, BClosure13 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2487,6 +2565,14 @@ DEFINE_BSTS_OBJ(Closure14Data, BClosure14 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn14, BPureFn14 fn; size_t slot_len;);
 
 BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure14: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn14 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure14: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure14Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure14");
@@ -2495,9 +2581,7 @@ BValue alloc_closure14(size_t size, BValue* data, BClosure14 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2541,6 +2625,14 @@ DEFINE_BSTS_OBJ(Closure15Data, BClosure15 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn15, BPureFn15 fn; size_t slot_len;);
 
 BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure15: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn15 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure15: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure15Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure15");
@@ -2549,9 +2641,7 @@ BValue alloc_closure15(size_t size, BValue* data, BClosure15 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2595,6 +2685,14 @@ DEFINE_BSTS_OBJ(Closure16Data, BClosure16 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn16, BPureFn16 fn; size_t slot_len;);
 
 BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure16: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn16 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure16: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure16Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure16");
@@ -2603,9 +2701,7 @@ BValue alloc_closure16(size_t size, BValue* data, BClosure16 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2649,6 +2745,14 @@ DEFINE_BSTS_OBJ(Closure17Data, BClosure17 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn17, BPureFn17 fn; size_t slot_len;);
 
 BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure17: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn17 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure17: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure17Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure17");
@@ -2657,9 +2761,7 @@ BValue alloc_closure17(size_t size, BValue* data, BClosure17 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2703,6 +2805,14 @@ DEFINE_BSTS_OBJ(Closure18Data, BClosure18 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn18, BPureFn18 fn; size_t slot_len;);
 
 BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure18: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn18 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure18: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure18Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure18");
@@ -2711,9 +2821,7 @@ BValue alloc_closure18(size_t size, BValue* data, BClosure18 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2757,6 +2865,14 @@ DEFINE_BSTS_OBJ(Closure19Data, BClosure19 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn19, BPureFn19 fn; size_t slot_len;);
 
 BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure19: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn19 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure19: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure19Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure19");
@@ -2765,9 +2881,7 @@ BValue alloc_closure19(size_t size, BValue* data, BClosure19 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2811,6 +2925,14 @@ DEFINE_BSTS_OBJ(Closure20Data, BClosure20 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn20, BPureFn20 fn; size_t slot_len;);
 
 BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure20: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn20 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure20: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure20Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure20");
@@ -2819,9 +2941,7 @@ BValue alloc_closure20(size_t size, BValue* data, BClosure20 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2865,6 +2985,14 @@ DEFINE_BSTS_OBJ(Closure21Data, BClosure21 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn21, BPureFn21 fn; size_t slot_len;);
 
 BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure21: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn21 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure21: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure21Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure21");
@@ -2873,9 +3001,7 @@ BValue alloc_closure21(size_t size, BValue* data, BClosure21 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2919,6 +3045,14 @@ DEFINE_BSTS_OBJ(Closure22Data, BClosure22 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn22, BPureFn22 fn; size_t slot_len;);
 
 BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure22: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn22 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure22: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure22Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure22");
@@ -2927,9 +3061,7 @@ BValue alloc_closure22(size_t size, BValue* data, BClosure22 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -2973,6 +3105,14 @@ DEFINE_BSTS_OBJ(Closure23Data, BClosure23 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn23, BPureFn23 fn; size_t slot_len;);
 
 BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure23: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn23 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure23: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure23Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure23");
@@ -2981,9 +3121,7 @@ BValue alloc_closure23(size_t size, BValue* data, BClosure23 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3027,6 +3165,14 @@ DEFINE_BSTS_OBJ(Closure24Data, BClosure24 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn24, BPureFn24 fn; size_t slot_len;);
 
 BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure24: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn24 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure24: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure24Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure24");
@@ -3035,9 +3181,7 @@ BValue alloc_closure24(size_t size, BValue* data, BClosure24 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3081,6 +3225,14 @@ DEFINE_BSTS_OBJ(Closure25Data, BClosure25 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn25, BPureFn25 fn; size_t slot_len;);
 
 BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure25: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn25 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure25: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure25Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure25");
@@ -3089,9 +3241,7 @@ BValue alloc_closure25(size_t size, BValue* data, BClosure25 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3135,6 +3285,14 @@ DEFINE_BSTS_OBJ(Closure26Data, BClosure26 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn26, BPureFn26 fn; size_t slot_len;);
 
 BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure26: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn26 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure26: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure26Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure26");
@@ -3143,9 +3301,7 @@ BValue alloc_closure26(size_t size, BValue* data, BClosure26 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3189,6 +3345,14 @@ DEFINE_BSTS_OBJ(Closure27Data, BClosure27 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn27, BPureFn27 fn; size_t slot_len;);
 
 BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure27: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn27 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure27: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure27Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure27");
@@ -3197,9 +3361,7 @@ BValue alloc_closure27(size_t size, BValue* data, BClosure27 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3243,6 +3405,14 @@ DEFINE_BSTS_OBJ(Closure28Data, BClosure28 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn28, BPureFn28 fn; size_t slot_len;);
 
 BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure28: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn28 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure28: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure28Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure28");
@@ -3251,9 +3421,7 @@ BValue alloc_closure28(size_t size, BValue* data, BClosure28 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3297,6 +3465,14 @@ DEFINE_BSTS_OBJ(Closure29Data, BClosure29 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn29, BPureFn29 fn; size_t slot_len;);
 
 BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure29: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn29 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure29: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure29Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure29");
@@ -3305,9 +3481,7 @@ BValue alloc_closure29(size_t size, BValue* data, BClosure29 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3351,6 +3525,14 @@ DEFINE_BSTS_OBJ(Closure30Data, BClosure30 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn30, BPureFn30 fn; size_t slot_len;);
 
 BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure30: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn30 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure30: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure30Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure30");
@@ -3359,9 +3541,7 @@ BValue alloc_closure30(size_t size, BValue* data, BClosure30 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3405,6 +3585,14 @@ DEFINE_BSTS_OBJ(Closure31Data, BClosure31 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn31, BPureFn31 fn; size_t slot_len;);
 
 BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure31: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn31 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure31: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure31Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure31");
@@ -3413,9 +3601,7 @@ BValue alloc_closure31(size_t size, BValue* data, BClosure31 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
@@ -3459,6 +3645,14 @@ DEFINE_BSTS_OBJ(Closure32Data, BClosure32 fn; size_t slot_len;);
 DEFINE_BSTS_OBJ(BoxedPureFn32, BPureFn32 fn; size_t slot_len;);
 
 BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
+    if (size == 0) {
+        fprintf(stderr, "alloc_closure32: closure size must be > 0 (negative/zero sizes are invalid); use alloc_boxed_pure_fn32 for empty captures\n");
+        abort();
+    }
+    if (data == NULL) {
+        fprintf(stderr, "alloc_closure32: data must be non-null when size > 0\n");
+        abort();
+    }
     Closure32Data* rc = GC_malloc(closure_data_size(size));
     if (rc == NULL) {
         perror("GC_malloc failure in alloc_closure32");
@@ -3467,9 +3661,7 @@ BValue alloc_closure32(size_t size, BValue* data, BClosure32 fn) {
     rc->fn = fn;
     rc->slot_len = size;
     BValue* closure_data = closure_data_of((Closure1Data*)rc);
-    if (size > 0) {
-        memcpy(closure_data, data, sizeof(BValue) * size);
-    }
+    memcpy(closure_data, data, sizeof(BValue) * size);
     return BSTS_VALUE_FROM_PTR(rc);
 }
 
