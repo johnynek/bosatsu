@@ -190,6 +190,7 @@ accepted in index positions and lowered as literal terms in SMT obligations.
 2. `zip(xs: Vec[n, a], ys: Vec[n, b]) -> Vec[n, (a, b)]`
 3. `take(xs: Vec[n, a], k: Int) -> exists r: Nat. Vec[r, a] where r <= n`
 4. `transpose(m: Mat[rows, cols, a]) -> Mat[cols, rows, a]`
+5. Cats-style `Eval` indexed by a flatMap upper bound with total `value`.
 
 ### Concrete implementations and how each typechecks
 
@@ -354,6 +355,86 @@ Typechecking outline:
 5. `reverse_vec` preserves length, so final result has index `n`.
 6. Because recursion is under `loop` and self-calls are tail-position, this variant is stack safe.
 
+#### Cats-style `Eval` sketch with flatMap bound
+
+This section exercises the design against the shape of `cats.Eval`: the index
+`n` is an upper bound on internal `flatMap` nodes that may still need to be
+interpreted.
+
+```bosatsu
+enum Eval[n: Nat, a]:
+  Now(value: a) where n == 0
+  Later(thunk: () -> a) where n == 0
+  Always(thunk: () -> a) where n == 0
+  Defer[m: Nat](thunk: () -> Eval[m, a]) where n == m
+  FlatMap[m: Nat, k: Nat, b](
+    start: Eval[m, b],
+    run: b -> Eval[k, a]
+  ) where n == m + k + 1
+
+def flat_map[m: Nat, k: Nat, a, b](
+  fa: Eval[m, a],
+  fn: a -> Eval[k, b]
+) -> Eval[m + k + 1, b]:
+  FlatMap(fa, fn)
+```
+
+To evaluate in constant stack, we use an explicit machine with a continuation
+stack and a fuel index. The fuel is an upper bound on pending `FlatMap`
+constructors.
+
+```bosatsu
+enum Frame[k: Nat, x, a]:
+  Frame(run: x -> Eval[k, a])
+
+def force_total[a](root: Eval[n, a]) -> a:
+  def loop_eval(
+    todo: Eval[t, x],
+    # r is an upper bound on flatMaps represented by pending frames.
+    frames: Vec[r, Frame[_, _, a]],
+    fuel: Nat
+  ) -> a
+    requires t + r <= fuel and fuel <= n:
+    loop (todo, frames, fuel):
+      case (Now(v), EVec, _):
+        v
+      case (Later(th), EVec, _):
+        th()
+      case (Always(th), EVec, _):
+        th()
+      case (Defer(th), fs, f):
+        loop_eval(th(), fs, f)
+      case (FlatMap(start, run), fs, f):
+        # consumes one internal flatMap node
+        loop_eval(start, CVec(Frame(run), fs), f - 1)
+      case (Now(v), CVec(Frame(k), rest), f):
+        loop_eval(k(v), rest, f)
+      case (Later(th), CVec(Frame(k), rest), f):
+        loop_eval(k(th()), rest, f)
+      case (Always(th), CVec(Frame(k), rest), f):
+        loop_eval(k(th()), rest, f)
+
+  loop_eval(root, EVec, n)
+```
+
+`Frame[_, _, a]` is sketch notation for an existentially packed continuation
+frame; a concrete implementation would encode this with an `AnyFrame[a]` enum
+that carries existential binders.
+
+Typechecking/totality sketch:
+
+1. Constructor indices enforce a static budget: `FlatMap` can only be built when
+   the result index is `m + k + 1`.
+2. In `FlatMap(start, run)`, the machine moves to `start` and pushes `run`; the
+   `fuel` argument strictly decreases by `1`.
+3. Other steps (`Now`/`Later`/`Always`/`Defer`) preserve the `t + r <= fuel`
+   invariant and never increase `fuel`.
+4. Because `fuel` is Nat and decreases whenever a `FlatMap` node is consumed, a
+   standard size-change argument gives totality for `force_total`.
+5. Operationally this is the same trampoline idea used by `cats.Eval`, but here
+   the flatMap bound is explicit in types, so `Eval[n, a] -> a` is a total
+   function in the core language.
+
 ## Core design decisions
 
 1. Nat-first semantics, Int-ready syntax:
@@ -471,6 +552,8 @@ Tractable in phase 1:
 1. Structural recursive programs over indexed ADTs.
 2. Branch-local linear arithmetic obligations.
 3. Common size and bound contracts (`<=`, `==`, `+`, `-`).
+4. Bounded interpreter/trampoline patterns (for example, `Eval[n, a]` with
+   total `force_total`).
 
 Not tractable in phase 1:
 
@@ -544,6 +627,8 @@ Integration tests:
 21. Existing `TypeErrorIn`/`TotalityCheck` diagnostics remain unaffected for unrelated failures.
 22. Integer literals in index positions participate in refinement obligations (for
     example, proving bounds in `get_Vec(v, 3)`-style checks).
+23. The design supports a Cats-style `Eval` encoding indexed by flatMap bound
+    and a total `Eval[n, a] -> a` interpreter sketch.
 
 ## Risks and mitigations
 
