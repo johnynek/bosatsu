@@ -6,7 +6,7 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, Lit, Matchless, Package, Predef, PackageName}
+import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -343,6 +343,28 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   fnName <- liftedFnName(fn)
                   result <- bind(arg, Some((fnName, false, fn.arity)))(in)
                 } yield result
+              case Global(k, pack, fnName) =>
+                // Preserve direct-call metadata through simple aliases:
+                // let f = globalFn in f(x) should stay a direct call.
+                directFn(k, pack, fnName).flatMap {
+                  case Some((ident, arity)) =>
+                    bind(arg, Some((ident, false, arity)))(in)
+                  case None =>
+                    // arg isn't in scope for argV
+                    innerToValue(argV).flatMap { v =>
+                      bind(arg, directFn = None) {
+                        for {
+                          name <- getBinding(arg)
+                          result <- in
+                          stmt <- Code.ValueLike.declareVar(
+                            Code.TypeIdent.BValue,
+                            name,
+                            v
+                          )(newLocalName)
+                        } yield stmt +: result
+                      }
+                    }
+                }
               case _ =>
                 // arg isn't in scope for argV
                 innerToValue(argV).flatMap { v =>
@@ -434,6 +456,66 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 pv(Code.Ident(fn)(expr) =:= Code.IntLiteral(expect))
               }(newLocalName)
             }
+          case CheckVariantSet(expr, expect, _, famArities) =>
+            innerToValue(expr).flatMap { vl =>
+              val fn =
+                if (famArities.forall(_ == 0)) "get_variant_value"
+                else "get_variant"
+              val inSet = InSetCompiler.compile(famArities.length, expect)
+
+              def renderMembership(
+                  variant: Code.Expression,
+                  membership: InSetCompiler.BoolExpr
+              ): Code.Expression =
+                membership match {
+                  case InSetCompiler.BoolExpr.TrueConst =>
+                    Code.TrueLit
+                  case InSetCompiler.BoolExpr.FalseConst =>
+                    Code.FalseLit
+                  case InSetCompiler.BoolExpr.Compare(op, rhs) =>
+                    val lit = Code.IntLiteral(rhs)
+                    op match {
+                      case InSetCompiler.CmpOp.Eq =>
+                        variant =:= lit
+                      case InSetCompiler.CmpOp.Ne =>
+                        variant.bin(Code.BinOp.NotEq, lit)
+                      case InSetCompiler.CmpOp.Lt =>
+                        variant :< lit
+                      case InSetCompiler.CmpOp.Ge =>
+                        // Ge means variant >= rhs.
+                        variant.bin(Code.BinOp.GtEq, lit)
+                    }
+                  case InSetCompiler.BoolExpr.And(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.And,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Or(left, right) =>
+                    renderMembership(variant, left)
+                      .bin(
+                        Code.BinOp.Or,
+                        renderMembership(variant, right)
+                      )
+                  case InSetCompiler.BoolExpr.Not(value) =>
+                    !renderMembership(variant, value)
+                }
+
+              vl.onExpr { expr =>
+                val variant = Code.Ident(fn)(expr)
+                if (InSetCompiler.comparisonCount(inSet) <= 1)
+                  pv(renderMembership(variant, inSet))
+                else
+                  newLocalName("variant").map { variantName =>
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(variant)
+                    ) +: renderMembership(variantName, inSet)
+                  }
+              }(newLocalName)
+            }
           case SetMut(LocalAnonMut(idx), expr) =>
             for {
               name <- getAnon(idx)
@@ -522,29 +604,40 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               pv(Code.Ident("bsts_integer_from_int")(Code.IntLiteral(iv)))
             } catch {
               case _: ArithmeticException =>
-                // emit the uint32 words and sign
-                val isPos = toBigInteger.signum >= 0
-                var current = if (isPos) toBigInteger else toBigInteger.negate()
-                val two32 = BigInteger.ONE.shiftLeft(32)
-                val bldr = List.newBuilder[Code.IntLiteral]
-                while (current.compareTo(BigInteger.ZERO) > 0) {
-                  bldr += Code.IntLiteral(current.mod(two32).longValue())
-                  current = current.shiftRight(32)
-                }
-                val lits = bldr.result()
-                // call:
-                // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
-                newLocalName("int").map { ident =>
-                  Code.DeclareArray(
-                    Code.TypeIdent.UInt32,
-                    ident,
-                    Right(lits)
-                  ) +:
-                    Code.Ident("bsts_integer_from_words_copy")(
-                      if (isPos) Code.TrueLit else Code.FalseLit,
-                      Code.IntLiteral(lits.length),
-                      ident
+                try {
+                  val lv = toBigInteger.longValueExact()
+                  pv(
+                    Code.Ident("bsts_integer_from_int64")(
+                      Code.IntLiteral(BigInt(lv))
                     )
+                  )
+                } catch {
+                  case _: ArithmeticException =>
+                    // emit the uint32 words and sign
+                    val isPos = toBigInteger.signum >= 0
+                    var current =
+                      if (isPos) toBigInteger else toBigInteger.negate()
+                    val two32 = BigInteger.ONE.shiftLeft(32)
+                    val bldr = List.newBuilder[Code.IntLiteral]
+                    while (current.compareTo(BigInteger.ZERO) > 0) {
+                      bldr += Code.IntLiteral(current.mod(two32).longValue())
+                      current = current.shiftRight(32)
+                    }
+                    val lits = bldr.result()
+                    // call:
+                    // bsts_integer_from_words_copy(_Bool is_pos, size_t size, int32_t* words);
+                    newLocalName("int").map { ident =>
+                      Code.DeclareArray(
+                        Code.TypeIdent.UInt32,
+                        ident,
+                        Right(lits)
+                      ) +:
+                        Code.Ident("bsts_integer_from_words_copy")(
+                          if (isPos) Code.TrueLit else Code.FalseLit,
+                          Code.IntLiteral(lits.length),
+                          ident
+                        )
+                    }
                 }
             }
 
@@ -695,6 +788,52 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               .flatMapN { (c, thenC, elseC) =>
                 Code.ValueLike.ifThenElseV(c, thenC, elseC)(newLocalName)
               }
+          case SwitchVariant(on, famArities, cases, default) =>
+            innerToValue(on).flatMap { onVL =>
+              onVL.onExpr { onExpr =>
+                for {
+                  variantName <- newLocalName("variant")
+                  resultName <- newLocalName("switch_res")
+                  caseBlocks <- cases.traverse { case (variant, branch) =>
+                    innerToValue(branch).map { branchVL =>
+                      (
+                        Code.IntLiteral(variant),
+                        Code.block(resultName := branchVL, Code.Break)
+                      )
+                    }
+                  }
+                  defaultVL <- default.traverse(innerToValue)
+                } yield {
+                  val variantGetter =
+                    if (famArities.forall(_ == 0)) "get_variant_value"
+                    else "get_variant"
+
+                  val switchStmt =
+                    Code.Switch(
+                      variantName,
+                      caseBlocks,
+                      defaultVL.map(v => Code.block(resultName := v, Code.Break))
+                    )
+
+                  Code.WithValue(
+                    Code.DeclareVar(
+                      Nil,
+                      Code.TypeIdent.Int,
+                      variantName,
+                      Some(Code.Ident(variantGetter)(onExpr))
+                    ) +
+                      Code.DeclareVar(
+                        Nil,
+                        Code.TypeIdent.BValue,
+                        resultName,
+                        None
+                      ) +
+                      switchStmt,
+                    resultName
+                  )
+                }
+              }(newLocalName)
+            }
           case Always.SetChain(setmuts, result) =>
             (
               setmuts.traverse { case (LocalAnonMut(mut), v) =>

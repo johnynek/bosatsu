@@ -18,13 +18,33 @@ from typing import Optional, Tuple, Union
 
 def pure(a): return (0, a)
 def raise_error(e): return (1, e)
-def flat_map(p, f): return (2, p, f)
-def recover(p, f): return (3, p, f)
+def flat_map(p, f):
+  if p[0] == 2:
+    base_prog = p[1]
+    prior_fn = p[2]
+    return (2, base_prog, lambda a: flat_map(prior_fn(a), f))
+  return (2, p, f)
+
+def recover(p, f):
+  if p[0] == 3:
+    base_prog = p[1]
+    prior_fn = p[2]
+    return (3, base_prog, lambda a: recover(prior_fn(a), f))
+  return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
 def effect(f): return (5, f)
 
 _pure_unit = pure(())
+_observe_sink = ()
+
+def observe(value):
+  def fn():
+    global _observe_sink
+    _observe_sink = value
+    _observe_sink = ()
+    return _pure_unit
+  return effect(fn)
 
 _IOERR_NOT_FOUND = 0
 _IOERR_ACCESS_DENIED = 1

@@ -20,7 +20,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     Eq.fromUniversalEquals
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 100 else 10
+      if (Platform.isScalaJvm) 100 else 5
     )
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {

@@ -25,15 +25,16 @@ object Matchless {
         case _: Let[?]              => 8
         case _: LetMut[?]           => 9
         case _: If[?]               => 10
-        case _: Always[?]           => 11
-        case _: GetEnumElement[?]   => 12
-        case _: GetStructElement[?] => 13
-        case Literal(_)             => 14
-        case _: MakeEnum            => 15
-        case _: MakeStruct          => 16
-        case ZeroNat                => 17
-        case SuccNat                => 18
-        case _: PrevNat[?]          => 19
+        case _: SwitchVariant[?]    => 11
+        case _: Always[?]           => 12
+        case _: GetEnumElement[?]   => 13
+        case _: GetStructElement[?] => 14
+        case Literal(_)             => 15
+        case _: MakeEnum            => 16
+        case _: MakeStruct          => 17
+        case ZeroNat                => 18
+        case SuccNat                => 19
+        case _: PrevNat[?]          => 20
       }
 
     private given Order[LocalAnon] = Order.by(_.ident)
@@ -126,6 +127,23 @@ object Matchless {
               else compareExpr(elseL, elseR)
             }
 
+          case (
+                SwitchVariant(onL, famAritiesL, casesL, defaultL),
+                SwitchVariant(onR, famAritiesR, casesR, defaultR)
+              ) =>
+            val c1 = compareExpr(onL, onR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[List[Int]].compare(famAritiesL, famAritiesR)
+              if (c2 != 0) c2
+              else {
+                val c3 =
+                  Order[NonEmptyList[(Int, Expr[A])]].compare(casesL, casesR)
+                if (c3 != 0) c3
+                else Order[Option[Expr[A]]].compare(defaultL, defaultR)
+              }
+            }
+
           case (Always(condL, thenL), Always(condR, thenR)) =>
             val c1 = Order[BoolExpr[A]].compare(condL, condR)
             if (c1 != 0) c1
@@ -209,6 +227,10 @@ object Matchless {
             loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
             loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+          case SwitchVariant(on, _, cases, default) =>
+            loopExpr(on) || cases.exists { case (_, branch) =>
+              loopExpr(branch)
+            } || default.exists(loopExpr)
           case Always(cond, thenExpr) =>
             loopBool(cond) || loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -232,6 +254,8 @@ object Matchless {
           case And(left, right) =>
             loopBool(left) || loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             loopExpr(expr)
           case SetMut(_, value) =>
             loopExpr(value)
@@ -263,6 +287,10 @@ object Matchless {
             loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
             loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+          case SwitchVariant(on, _, cases, default) =>
+            loopExpr(on) || cases.exists { case (_, branch) =>
+              loopExpr(branch)
+            } || default.exists(loopExpr)
           case Always(cond, thenExpr) =>
             loopBool(cond) || loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -286,6 +314,8 @@ object Matchless {
           case And(left, right) =>
             loopBool(left) || loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             loopExpr(expr)
           case SetMut(_, value) =>
             loopExpr(value)
@@ -342,6 +372,12 @@ object Matchless {
             BoolExpr.referencesBindable(cond, target, isShadowed) ||
               referencesBindable(thenExpr, target, isShadowed) ||
               referencesBindable(elseExpr, target, isShadowed)
+          case SwitchVariant(on, _, cases, default) =>
+            referencesBindable(on, target, isShadowed) ||
+              cases.exists { case (_, branch) =>
+                referencesBindable(branch, target, isShadowed)
+              } ||
+              default.exists(referencesBindable(_, target, isShadowed))
           case Always(cond, thenExpr) =>
             BoolExpr.referencesBindable(cond, target, isShadowed) ||
               referencesBindable(thenExpr, target, isShadowed)
@@ -386,6 +422,10 @@ object Matchless {
                 thenExpr,
                 isShadowed
               ) || loopExpr(elseExpr, isShadowed)
+            case SwitchVariant(on, _, cases, default) =>
+              loopExpr(on, isShadowed) || cases.exists {
+                case (_, branch) => loopExpr(branch, isShadowed)
+              } || default.exists(loopExpr(_, isShadowed))
             case Always(cond, thenExpr) =>
               loopBool(cond, isShadowed) || loopExpr(thenExpr, isShadowed)
             case PrevNat(of) =>
@@ -411,6 +451,8 @@ object Matchless {
             case And(left, right) =>
               loopBool(left, isShadowed) || loopBool(right, isShadowed)
             case CheckVariant(expr, _, _, _) =>
+              loopExpr(expr, isShadowed)
+            case CheckVariantSet(expr, _, _, _) =>
               loopExpr(expr, isShadowed)
             case SetMut(_, value) =>
               loopExpr(value, isShadowed)
@@ -562,6 +604,15 @@ object Matchless {
           LetMut(name, loopExpr(in))
         case If(cond, thenExpr, elseExpr) =>
           If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            loopCheap(on),
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, loopExpr(branch))
+            },
+            default.map(loopExpr)
+          )
         case Always(cond, thenExpr) =>
           Always(loopBool(cond), loopExpr(thenExpr))
         case WhileExpr(cond, effectExpr, result) =>
@@ -599,6 +650,8 @@ object Matchless {
           And(loopBool(left), loopBool(right))
         case CheckVariant(arg, expect, size, famArities) =>
           CheckVariant(loopCheap(arg), expect, size, famArities)
+        case CheckVariantSet(arg, expect, size, famArities) =>
+          CheckVariantSet(loopCheap(arg), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, loopExpr(value))
         case LetBool(arg, value, in) =>
@@ -693,6 +746,15 @@ object Matchless {
           betaReduce(lam)
         case If(cond, thenExpr, elseExpr) =>
           If(cond, loop(thenExpr, aliases), loop(elseExpr, aliases))
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            on,
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, loop(branch, aliases))
+            },
+            default.map(loop(_, aliases))
+          )
         case Always(cond, thenExpr) =>
           Always(cond, loop(thenExpr, aliases))
         case let @ Let(arg, expr, in) =>
@@ -752,6 +814,13 @@ object Matchless {
           loopExpr(span, acc)
         case If(cond, thenExpr, elseExpr) =>
           loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, acc)))
+        case SwitchVariant(on, _, cases, default) =>
+          val acc0 = loopCheap(on, acc)
+          val acc1 = default.fold(acc0)(loopExpr(_, acc0))
+          cases.foldLeft(acc1) {
+            case (accN, (_, branch)) =>
+              loopExpr(branch, accN)
+          }
         case Always(cond, thenExpr) =>
           loopExpr(thenExpr, loopBool(cond, acc))
         case PrevNat(of) =>
@@ -781,6 +850,8 @@ object Matchless {
         case And(left, right) =>
           loopBool(right, loopBool(left, acc))
         case CheckVariant(expr, _, _, _) =>
+          loopCheap(expr, acc)
+        case CheckVariantSet(expr, _, _, _) =>
           loopCheap(expr, acc)
         case SetMut(_, value) =>
           loopExpr(value, acc)
@@ -845,6 +916,12 @@ object Matchless {
             loop(thenExpr, bindableArities, anonArities),
             loop(els, bindableArities, anonArities)
           )
+        case SwitchVariant(_, _, cases, default) =>
+          val defaultArity = default.flatMap(loop(_, bindableArities, anonArities))
+          cases.foldLeft(defaultArity) {
+            case (acc, (_, branch)) =>
+              sameArity(acc, loop(branch, bindableArities, anonArities))
+          }
         case _ =>
           None
       }
@@ -928,6 +1005,13 @@ object Matchless {
             loopExpr(span, curr.max(name.ident))
           case If(cond, thenExpr, elseExpr) =>
             loopExpr(elseExpr, loopExpr(thenExpr, loopBool(cond, curr)))
+          case SwitchVariant(on, _, cases, default) =>
+            val curr1 = loopExpr(on, curr)
+            val curr2 = default.fold(curr1)(loopExpr(_, curr1))
+            cases.foldLeft(curr2) {
+              case (acc, (_, branch)) =>
+                loopExpr(branch, acc)
+            }
           case Always(cond, thenExpr) =>
             loopExpr(thenExpr, loopBool(cond, curr))
           case PrevNat(of) =>
@@ -954,6 +1038,8 @@ object Matchless {
           case And(left, right) =>
             loopBool(right, loopBool(left, curr))
           case CheckVariant(expr, _, _, _) =>
+            loopExpr(expr, curr)
+          case CheckVariantSet(expr, _, _, _) =>
             loopExpr(expr, curr)
           case SetMut(target, value) =>
             loopExpr(value, curr.max(target.ident))
@@ -1281,6 +1367,11 @@ object Matchless {
             case (expr1, st1) =>
               (CheckVariant(expr1, expect, size, famArities), st1)
           }
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          recurExprCheap(expr, st) match {
+            case (expr1, st1) =>
+              (CheckVariantSet(expr1, expect, size, famArities), st1)
+          }
         case SetMut(target, expr) =>
           val (expr1, st1) = recurExpr(expr, st)
           (SetMut(target, expr1), st1)
@@ -1322,6 +1413,31 @@ object Matchless {
             val (then1, stThen) = recurExpr(thenExpr, stCond)
             val (else1, stElse) = recurExpr(elseExpr, stThen)
             ifBranchCse(cond1, then1, else1, stElse)
+          case SwitchVariant(on, famArities, cases, default) =>
+            val (on1, stOn) = recurExprCheap(on, st)
+            val (casesRev, stCases) =
+              cases.toList.foldLeft((List.empty[(Int, Expr[A])], stOn)) {
+                case ((acc, currSt), (variant, branch)) =>
+                  val (branch1, st1) = recurExpr(branch, currSt)
+                  ((variant, branch1) :: acc, st1)
+              }
+            val (default1, stDefault) =
+              default match {
+                case Some(defaultExpr) =>
+                  val (defaultExpr1, st1) = recurExpr(defaultExpr, stCases)
+                  (Some(defaultExpr1), st1)
+                case None              =>
+                  (None, stCases)
+              }
+            (
+              SwitchVariant(
+                on1,
+                famArities,
+                NonEmptyList.fromListUnsafe(casesRev.reverse),
+                default1
+              ),
+              stDefault
+            )
           case Always(cond, thenExpr) =>
             val (cond1, stCond) = recurBool(cond, st)
             val (then1, stThen) = recurExpr(thenExpr, stCond)
@@ -1364,6 +1480,12 @@ object Matchless {
             1 + loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case SwitchVariant(on, _, cases, default) =>
+            1 + loopExpr(on) + cases.iterator
+              .map { case (_, branch) =>
+                loopExpr(branch)
+              }
+              .sum + default.fold(0)(loopExpr)
           case Always(cond, thenExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -1382,6 +1504,8 @@ object Matchless {
           case And(left, right) =>
             1 + loopBool(left) + loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            1 + loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             1 + loopExpr(expr)
           case SetMut(_, value) =>
             1 + loopExpr(value)
@@ -1475,6 +1599,8 @@ object Matchless {
           And(recurBool(left), recurBool(right))
         case CheckVariant(expr, expect, size, famArities) =>
           CheckVariant(recurExprCheap(expr), expect, size, famArities)
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          CheckVariantSet(recurExprCheap(expr), expect, size, famArities)
         case SetMut(target, value) =>
           SetMut(target, recurExpr(value))
         case LetBool(arg, value, in) =>
@@ -1510,6 +1636,15 @@ object Matchless {
           LetMut(name, recurExpr(span))
         case If(cond, thenExpr, elseExpr) =>
           If(recurBool(cond), recurExpr(thenExpr), recurExpr(elseExpr))
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            recurExprCheap(on),
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, recurExpr(branch))
+            },
+            default.map(recurExpr)
+          )
         case Always(cond, thenExpr) =>
           rewriteCanonicalRecursionLoop(recurBool(cond), recurExpr(thenExpr))
         case PrevNat(of) =>
@@ -1569,10 +1704,11 @@ object Matchless {
         case _: EqualsNat[?]    => 1
         case _: And[?]          => 2
         case _: CheckVariant[?] => 3
-        case _: SetMut[?]       => 4
-        case TrueConst          => 5
-        case _: LetBool[?]      => 6
-        case _: LetMutBool[?]   => 7
+        case _: CheckVariantSet[?] => 4
+        case _: SetMut[?]          => 5
+        case TrueConst             => 6
+        case _: LetBool[?]         => 7
+        case _: LetMutBool[?]      => 8
       }
 
     private given Order[LocalAnon] = Order.by(_.ident)
@@ -1612,6 +1748,22 @@ object Matchless {
             if (c1 != 0) c1
             else {
               val c2 = java.lang.Integer.compare(expectL, expectR)
+              if (c2 != 0) c2
+              else {
+                val c3 = java.lang.Integer.compare(sizeL, sizeR)
+                if (c3 != 0) c3
+                else Order[List[Int]].compare(famAritiesL, famAritiesR)
+              }
+            }
+
+          case (
+                CheckVariantSet(exprL, expectL, sizeL, famAritiesL),
+                CheckVariantSet(exprR, expectR, sizeR, famAritiesR)
+              ) =>
+            val c1 = Order[Expr[A]].compare(exprL, exprR)
+            if (c1 != 0) c1
+            else {
+              val c2 = Order[NonEmptyList[Int]].compare(expectL, expectR)
               if (c2 != 0) c2
               else {
                 val c3 = java.lang.Integer.compare(sizeL, sizeR)
@@ -1667,6 +1819,8 @@ object Matchless {
               referencesBindable(right, target, isShadowed)
           case CheckVariant(expr, _, _, _) =>
             Expr.referencesBindable(expr, target, isShadowed)
+          case CheckVariantSet(expr, _, _, _) =>
+            Expr.referencesBindable(expr, target, isShadowed)
           case SetMut(_, value) =>
             Expr.referencesBindable(value, target, isShadowed)
           case LetBool(arg, value, in) =>
@@ -1692,9 +1846,19 @@ object Matchless {
   case class And[A](e1: BoolExpr[A], e2: BoolExpr[A]) extends BoolExpr[A]
   // checks if variant matches, and if so, writes to
   // a given mut
+  // Note: this remains distinct from CheckVariantSet(NonEmptyList.one(...)).
+  // Several lowering/optimization paths produce singleton checks directly and
+  // keeping this node avoids broader cross-pass churn in this PR.
   case class CheckVariant[A](
       expr: CheapExpr[A],
       expect: Int,
+      size: Int,
+      famArities: List[Int]
+  ) extends BoolExpr[A]
+  // checks if variant is in the provided sorted distinct set
+  case class CheckVariantSet[A](
+      expr: CheapExpr[A],
+      expect: NonEmptyList[Int],
       size: Int,
       famArities: List[Int]
   ) extends BoolExpr[A]
@@ -1739,7 +1903,8 @@ object Matchless {
   def hasSideEffect(bx: BoolExpr[Any]): Boolean =
     bx match {
       case SetMut(_, _) => true
-      case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) |
+      case TrueConst | CheckVariant(_, _, _, _) | CheckVariantSet(_, _, _, _) |
+          EqualsLit(_, _) |
           EqualsNat(_, _) =>
         false
       case And(b1, b2)      => hasSideEffect(b1) || hasSideEffect(b2)
@@ -1756,6 +1921,10 @@ object Matchless {
         (f :: as).exists(hasSideEffect(_))
       case If(c, t, f) =>
         hasSideEffect(c) || hasSideEffect(t) || hasSideEffect(f)
+      case SwitchVariant(on, _, cases, default) =>
+        hasSideEffect(on) ||
+          cases.exists { case (_, branch) => hasSideEffect(branch) } ||
+          default.exists(hasSideEffect)
       case Let(_, x, b) =>
         hasSideEffect(b) || hasSideEffect(x)
       case LetMut(_, in) => hasSideEffect(in)
@@ -1784,6 +1953,70 @@ object Matchless {
 
       val (rest, last) = combine(elseExpr)
       (NonEmptyList((cond, thenExpr), rest), last)
+    }
+  }
+  case class SwitchVariant[A](
+      on: CheapExpr[A],
+      famArities: List[Int],
+      cases: NonEmptyList[(Int, Expr[A])],
+      // Variants not listed in `cases` (for example via wildcard/default rows)
+      // evaluate this branch.
+      default: Option[Expr[A]]
+  ) extends Expr[A] {
+    private val caseVariants = cases.toList.map(_._1)
+    private val familySize = famArities.length
+
+    Require(cases.length >= 2, "SwitchVariant requires at least two cases")
+    Require(
+      caseVariants.distinct.length == caseVariants.length,
+      s"SwitchVariant variants must be distinct, found: $caseVariants"
+    )
+    Require(
+      caseVariants.forall(v => (0 <= v) && (v < familySize)),
+      s"SwitchVariant variants must be in [0, $familySize), found: $caseVariants"
+    )
+
+    def toIfElse: Expr[A] = {
+      val caseMap = cases.toList.toMap
+      // A missing case without default is unreachable in well-typed lowered matches.
+      // Keep this total by reusing one branch if such a gap remains.
+      val fallbackExpr = default.getOrElse(cases.head._2)
+      val variantBranches = Vector.tabulate(familySize) { variant =>
+        caseMap.getOrElse(variant, fallbackExpr)
+      }
+
+      def sameExpr(from: Int, until: Int): Option[Expr[A]] = {
+        val first = variantBranches(from)
+        var idx = from + 1
+        var isSame = true
+        while (isSame && (idx < until)) {
+          isSame = first.equals(variantBranches(idx))
+          idx = idx + 1
+        }
+        if (isSame) Some(first) else None
+      }
+
+      def build(from: Int, until: Int): Expr[A] =
+        sameExpr(from, until) match {
+          case Some(single) =>
+            single
+          case None         =>
+            val split = from + ((until - from) / 2)
+            val left = build(from, split)
+            val right = build(split, until)
+            if (left.equals(right)) left
+            else {
+              val leftVariants =
+                NonEmptyList.fromListUnsafe((from until split).toList)
+              If(
+                CheckVariantSet(on, leftVariants, 0, famArities),
+                left,
+                right
+              )
+            }
+        }
+
+      build(0, familySize)
     }
   }
   case class Always[A](cond: BoolExpr[A], thenExpr: Expr[A]) extends Expr[A]
@@ -1827,6 +2060,7 @@ object Matchless {
   case class MakeEnum(variant: Int, arity: Int, famArities: List[Int])
       extends ConsExpr
 
+  private val SwitchVariantMinCases: Int = 4
   private val boolFamArities = 0 :: 0 :: Nil
   private val listFamArities = 0 :: 2 :: Nil
   val FalseExpr: Expr[Nothing] = MakeEnum(0, 0, boolFamArities)
@@ -2469,6 +2703,8 @@ object Matchless {
         case TrueConst                           => TrueConst
         case CheckVariant(expr, expect, sz, fam) =>
           CheckVariant(substituteLocalsCheap(m, expr), expect, sz, fam)
+        case CheckVariantSet(expr, expect, sz, fam) =>
+          CheckVariantSet(substituteLocalsCheap(m, expr), expect, sz, fam)
         case LetBool(b, a, in) =>
           val m1 = b match {
             case Right(b) => m - b
@@ -2491,6 +2727,15 @@ object Matchless {
             substituteLocalsBool(m, c),
             substituteLocals(m, tcase),
             substituteLocals(m, fcase)
+          )
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            substituteLocalsCheap(m, on),
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, substituteLocals(m, branch))
+            },
+            default.map(substituteLocals(m, _))
           )
         case Always(c, e) =>
           Always(substituteLocalsBool(m, c), substituteLocals(m, e))
@@ -2605,6 +2850,15 @@ object Matchless {
                 Some(If(c, t, returnValue(fcase)))
               case (None, None) => None
             }
+          case SwitchVariant(on, famArities, cases, default) =>
+            val rewrittenCases = cases.map {
+              case (variant, branch) =>
+                (variant, loop(branch).getOrElse(returnValue(branch)))
+            }
+            val rewrittenDefault = default.map { defaultExpr =>
+              loop(defaultExpr).getOrElse(returnValue(defaultExpr))
+            }
+            Some(SwitchVariant(on, famArities, rewrittenCases, rewrittenDefault))
           case Always(c, e) =>
             loop(e).map(Always(c, _))
           case LetMut(m, e) =>
@@ -2765,34 +3019,45 @@ object Matchless {
             tpe,
             tag
           )
-        case TypedExpr.Let(arg, expr, in, rec, tag) =>
+        case let @ TypedExpr.Let(
+              arg,
+              expr,
+              in,
+              RecursionKind.Recursive,
+              tag
+            ) =>
           if (arg == loopName) {
-            if (rec.isRecursive) {
-              TypedExpr.Let(
-                arg,
-                expr,
-                in,
-                rec,
-                tag
-              )
-            } else {
-              TypedExpr.Let(
-                arg,
-                recurToSelfCall(loopName, loopType, expr, inNestedLoop),
-                in,
-                rec,
-                tag
-              )
-            }
+            let
           } else {
             TypedExpr.Let(
               arg,
               recurToSelfCall(loopName, loopType, expr, inNestedLoop),
               recurToSelfCall(loopName, loopType, in, inNestedLoop),
-              rec,
+              RecursionKind.Recursive,
               tag
             )
           }
+        case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var rewriteIn = true
+          var changed = false
+          val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (n, rhs, letTag) = it.next()
+            val rhs1 =
+              if (rewriteIn) recurToSelfCall(loopName, loopType, rhs, inNestedLoop)
+              else rhs
+            if (!(rhs1 eq rhs)) changed = true
+            rebuilt += ((n, rhs1, letTag))
+            if (rewriteIn && (n == loopName)) rewriteIn = false
+          }
+          val tail1 =
+            if (rewriteIn) recurToSelfCall(loopName, loopType, tail, inNestedLoop)
+            else tail
+          if (!(tail1 eq tail)) changed = true
+          if (!changed) let
+          else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
         case TypedExpr.Loop(args, body, tag) =>
           TypedExpr.Loop(
             args.map { case (n, expr) =>
@@ -2883,9 +3148,20 @@ object Matchless {
             .flatMap { case (bodyExpr, initVals) =>
               buildLoop(loopName, loopArgs.map(_._1), initVals, bodyExpr)
             }
-        case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r, slots.unname), loop(in, slots))
+        case TypedExpr.Let(a, e, in, RecursionKind.Recursive, _) =>
+          (loopLetVal(a, e, RecursionKind.Recursive, slots.unname), loop(in, slots))
             .mapN(Let(a, _, _))
+        case let @ TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          val bindsF = lets.traverse { case (arg, rhs, _) =>
+            loopLetVal(arg, rhs, RecursionKind.NonRecursive, slots.unname)
+              .map(v => (arg, v))
+          }
+          (bindsF, loop(tail, slots)).mapN { (binds, tailExpr) =>
+            binds.reverseIterator.foldLeft(tailExpr) { case (acc, (arg, value)) =>
+              Let(arg, value, acc)
+            }
+          }
         case TypedExpr.Recur(_, _, _) =>
           // Loops should be lowered from TypedExpr.Loop and not escape raw Recur nodes.
           sys.error(
@@ -3129,7 +3405,10 @@ object Matchless {
           // this is a total pattern
           Monad[F].pure(wildMatch)
         case Pattern.Literal(lit) =>
-          Monad[F].pure(NonEmptyList((Nil, EqualsLit(arg, lit), Nil), Nil))
+          val cond =
+            if (mustMatch) TrueConst
+            else EqualsLit(arg, lit)
+          Monad[F].pure(NonEmptyList((Nil, cond, Nil), Nil))
         case Pattern.Var(v) =>
           Monad[F].pure(
             NonEmptyList(
@@ -3535,6 +3814,14 @@ object Matchless {
       case ZeroSig extends HeadSig
       case SuccSig extends HeadSig
       case LitSig(lit: Lit)
+
+      def projectionArity: Int =
+        this match {
+          case EnumSig(_, _, arity, _) => arity
+          case StructSig(_, arity)     => arity
+          case SuccSig                 => 1
+          case LitSig(_) | ZeroSig     => 0
+        }
     }
     import HeadSig.*
 
@@ -3763,6 +4050,81 @@ object Matchless {
       bldr.toList
     }
 
+    case class ColumnScore(
+        colIdx: Int,
+        distinctSigs: Int,
+        refutableRows: Int,
+        arityPenalty: Int,
+        sigs: List[HeadSig]
+    )
+
+    // Rank columns with a cheap local heuristic:
+    // 1) more distinct refutable heads first,
+    // 2) then columns refuting more rows,
+    // 3) then lower arity expansion cost,
+    // 4) then leftmost for deterministic ties.
+    def chooseColumnByScore(rows: List[MatchRow]): (Int, List[HeadSig]) = {
+      val colCount = rows.headOption match {
+        case Some(row) => row.pats.length
+        case None      => 0
+      }
+
+      // $COVERAGE-OFF$
+      if (colCount == 0)
+        throw new IllegalStateException(
+          "chooseColumnByScore called with no remaining columns"
+        )
+      // $COVERAGE-ON$
+      else {
+        def scoreCol(colIdx: Int): ColumnScore = {
+          val sigs = distinctInOrder(rows.mapFilter(r => headSig(r.pats(colIdx))))
+          // normalizeRow + peelPattern remove Var/Named/Annotation, so at this
+          // stage non-refutable patterns are exactly WildCard.
+          val refutableRows = rows.count(r => r.pats(colIdx) != Pattern.WildCard)
+          // We split once per distinct signature, so sum those arities as a
+          // cheap proxy for added projection pressure in this column.
+          val arityPenalty = sigs.iterator.map(_.projectionArity).sum
+          ColumnScore(
+            colIdx = colIdx,
+            distinctSigs = sigs.length,
+            refutableRows = refutableRows,
+            arityPenalty = arityPenalty,
+            sigs = sigs
+          )
+        }
+
+        def better(next: ColumnScore, best: ColumnScore): Boolean = {
+          import java.lang.Integer.compare
+
+          val cmpDistinct = compare(next.distinctSigs, best.distinctSigs)
+          (cmpDistinct > 0) || {
+            (cmpDistinct == 0) && {
+              val cmpRefutable = compare(next.refutableRows, best.refutableRows)
+              (cmpRefutable > 0) || {
+                (cmpRefutable == 0) && {
+                  val cmpPenalty =
+                    compare(best.arityPenalty, next.arityPenalty)
+                  (cmpPenalty > 0) || {
+                    (cmpPenalty == 0) &&
+                    (compare(best.colIdx, next.colIdx) > 0)
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        val best =
+          (1 until colCount).iterator
+            .map(scoreCol)
+            .foldLeft(scoreCol(0)) { (currentBest, candidate) =>
+              if (better(candidate, currentBest)) candidate else currentBest
+            }
+
+        (best.colIdx, best.sigs)
+      }
+    }
+
     // Specialize the matrix for a given head signature (constructor/literal),
     // producing the submatrix for that case.
     // Invariant: colIdx is in-bounds and each row has the same arity.
@@ -3895,14 +4257,165 @@ object Matchless {
         arity
       )
 
+    type VariantSelector = (CheapExpr[B], Int, List[Int])
+
+    def boolLiteralValue(expr: Expr[B]): Option[Boolean] =
+      expr match {
+        case MakeEnum(variant, 0, famArities) if famArities == boolFamArities =>
+          variant match {
+            case 0 => Some(false)
+            case 1 => Some(true)
+            case _ => None
+          }
+        case _ =>
+          None
+      }
+
+    def collectTrueVariants(
+        expr: Expr[B],
+        possible: Set[Int],
+        selector: VariantSelector
+    ): Option[Set[Int]] = {
+      val (selectorArg, selectorSize, selectorFamArities) = selector
+      boolLiteralValue(expr) match {
+        case Some(true)  => Some(possible)
+        case Some(false) => Some(Set.empty[Int])
+        case None        =>
+          expr match {
+            case If(
+                  CheckVariant(arg: CheapExpr[B], expect, size, famArities),
+                  ifTrue,
+                  ifFalse
+                )
+                if Order[Expr[B]].eqv(arg, selectorArg) &&
+                  (size == selectorSize) &&
+                  (famArities == selectorFamArities) &&
+                  selectorFamArities.forall(_ == 0) =>
+              val onTrue: Set[Int] =
+                if (possible(expect)) Set(expect) else Set.empty[Int]
+              val onFalse = possible - expect
+              (
+                collectTrueVariants(ifTrue, onTrue, selector),
+                collectTrueVariants(ifFalse, onFalse, selector)
+              ).mapN(_ union _)
+            case If(
+                  CheckVariantSet(arg: CheapExpr[B], expect, size, famArities),
+                  ifTrue,
+                  ifFalse
+                )
+                if Order[Expr[B]].eqv(arg, selectorArg) &&
+                  (size == selectorSize) &&
+                  (famArities == selectorFamArities) &&
+                  selectorFamArities.forall(_ == 0) =>
+              val expectSet = expect.toList.toSet
+              val onTrue = possible intersect expectSet
+              val onFalse = possible diff expectSet
+              (
+                collectTrueVariants(ifTrue, onTrue, selector),
+                collectTrueVariants(ifFalse, onFalse, selector)
+              ).mapN(_ union _)
+            case SwitchVariant(
+                  on: CheapExpr[B],
+                  famArities,
+                  cases,
+                  default
+                )
+                if Order[Expr[B]].eqv(on, selectorArg) &&
+                  (famArities == selectorFamArities) &&
+                  selectorFamArities.forall(_ == 0) =>
+              val explicitVariants = cases.map(_._1).toList.toSet
+              val explicitTrue =
+                cases.toList.foldLeft(Option(Set.empty[Int])) {
+                  case (accOpt, (variant, branch))
+                      if possible(variant) =>
+                    (
+                      accOpt,
+                      collectTrueVariants(branch, Set(variant), selector)
+                    ).mapN(_ union _)
+                  case (accOpt, _) =>
+                    accOpt
+                }
+              val defaultPossible = possible diff explicitVariants
+              val defaultTrue =
+                if (defaultPossible.isEmpty) Some(Set.empty[Int])
+                else default.flatMap(collectTrueVariants(_, defaultPossible, selector))
+              (explicitTrue, defaultTrue).mapN(_ union _)
+            case _ =>
+              None
+          }
+      }
+    }
+
+    def buildVariantSelectorBool(
+        selector: VariantSelector,
+        trueVariants: Set[Int]
+    ): Option[BoolExpr[B]] = {
+      val (selectorArg, selectorSize, selectorFamArities) = selector
+      val allVariants = selectorFamArities.indices.toSet
+      if (trueVariants.isEmpty) None
+      else if (trueVariants.size == allVariants.size) Some(TrueConst)
+      else if (trueVariants.size == 1)
+        Some(
+          CheckVariant(
+            selectorArg,
+            trueVariants.iterator.next(),
+            selectorSize,
+            selectorFamArities
+          )
+        )
+      else
+        Some(
+          CheckVariantSet(
+            selectorArg,
+            NonEmptyList.fromListUnsafe(trueVariants.toList.sorted),
+            selectorSize,
+            selectorFamArities
+          )
+        )
+    }
+
+    def selectorGuardToBoolExpr(expr: Expr[B]): Option[BoolExpr[B]] =
+      expr match {
+        case Let(arg, value, in) =>
+          selectorGuardToBoolExpr(in).map(LetBool(arg, value, _))
+        case selectorExpr @ If(cond, _, _) =>
+          cond match {
+            case CheckVariant(arg, _, size, famArities)
+                if famArities.forall(_ == 0) =>
+              val selector: VariantSelector = (arg, size, famArities)
+              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+                .flatMap(buildVariantSelectorBool(selector, _))
+            case CheckVariantSet(arg, _, size, famArities)
+                if famArities.forall(_ == 0) =>
+              val selector: VariantSelector = (arg, size, famArities)
+              collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+                .flatMap(buildVariantSelectorBool(selector, _))
+            case _ =>
+              None
+          }
+        case selectorExpr @ SwitchVariant(on, famArities, _, _)
+            if famArities.forall(_ == 0) =>
+          // all-zero enum families carry no payload, so selector checks use size=0
+          val selector: VariantSelector = (on, 0, famArities)
+          collectTrueVariants(selectorExpr, famArities.indices.toSet, selector)
+            .flatMap(buildVariantSelectorBool(selector, _))
+        case _ =>
+          None
+      }
+
     def guardToBoolExpr(guardExpr: Expr[B]): F[BoolExpr[B]] =
-      guardExpr match {
-        case cheap: CheapExpr[B] =>
-          Monad[F].pure(isTrueExpr(cheap))
-        case notCheap =>
-          makeAnon.map { tmp =>
-            val guardLocal = LocalAnon(tmp)
-            LetBool(Left(guardLocal), notCheap, isTrueExpr(guardLocal))
+      selectorGuardToBoolExpr(guardExpr) match {
+        case Some(fastPath) =>
+          Monad[F].pure(fastPath)
+        case None           =>
+          guardExpr match {
+            case cheap: CheapExpr[B] =>
+              Monad[F].pure(isTrueExpr(cheap))
+            case notCheap =>
+              makeAnon.map { tmp =>
+                val guardLocal = LocalAnon(tmp)
+                LetBool(Left(guardLocal), notCheap, isTrueExpr(guardLocal))
+              }
           }
       }
 
@@ -3993,7 +4506,7 @@ object Matchless {
     // tends to reduce redundant work for larger matches. This approach is the
     // standard state-of-the-art in ML-family compilers, but it is not
     // globally optimal: finding the minimal decision tree is hard, and the
-    // quality depends on the column-selection heuristic (we use leftmost).
+    // quality depends on the column-selection heuristic.
     // See: https://compiler.club/compiling-pattern-matching/
     def matchExprMatrixCheap(
         arg: CheapExpr[B],
@@ -4077,7 +4590,10 @@ object Matchless {
                     val guardExpr = lets(b0, guard)
                     guardToBoolExpr(guardExpr).flatMap { guardCond =>
                       if (tail.nonEmpty) {
-                        compileRows(tail, occs, mustMatch = false).map {
+                        // A guarded wildcard row does not constrain the scrutinee shape;
+                        // if this matrix must match, then when the guard is false the tail
+                        // must still be total.
+                        compileRows(tail, occs, mustMatch).map {
                           fallback =>
                             If(guardCond, rhsExpr, fallback)
                         }
@@ -4092,15 +4608,9 @@ object Matchless {
                 // this should be impossible in well-typed code
                 Monad[F].pure(UnitExpr)
               case _ =>
-                // Column selection: preserve left-to-right behavior by defaulting
-                // to the leftmost column. (Heuristics can be added later.)
-                val colIdx = 0
+                val (colIdx, sigs) = chooseColumnByScore(rows)
 
                 val occ = occs(colIdx)
-
-                val sigs = distinctInOrder(
-                  rows.mapFilter(r => headSig(r.pats(colIdx)))
-                )
 
                 val defaultRows =
                   rows
@@ -4205,14 +4715,13 @@ object Matchless {
                       val caseMustMatch =
                         mustMatch &&
                           rest.isEmpty &&
-                          defaultRows.isEmpty &&
-                          rows.forall(_.guard.isEmpty)
+                          defaultRows.isEmpty
                       buildCase(sig, caseMustMatch).flatMap {
                         case (cond, preLets, newRows, newOccs) =>
                           if (newRows.isEmpty) compileCases(rest, mustMatch)
                           else {
                             val subMustMatch =
-                              mustMatch && newRows.forall(_.guard.isEmpty)
+                              mustMatch
                             compileRows(newRows, newOccs, subMustMatch).flatMap {
                               thenExpr =>
                                 cond match {
@@ -4243,7 +4752,78 @@ object Matchless {
                       }
                   }
 
-                compileCases(sigs, mustMatch)
+                def enumSwitchData(
+                    sigs: List[HeadSig]
+                ): Option[(List[Int], NonEmptyList[HeadSig.EnumSig])] =
+                  NonEmptyList.fromList(sigs).flatMap { nel =>
+                    nel
+                      .traverse {
+                        case enumSig @ EnumSig(_, _, _, _) =>
+                          Some(enumSig)
+                        case _ =>
+                          None
+                      }
+                      .flatMap { enumSigs =>
+                        val famArities = enumSigs.head.famArities
+                        if (
+                          (enumSigs.length >= SwitchVariantMinCases) &&
+                          enumSigs.forall(_.famArities == famArities)
+                        ) Some((famArities, enumSigs))
+                        else None
+                      }
+                  }
+
+                def compileSwitchCases(
+                    famArities: List[Int],
+                    enumSigs: NonEmptyList[HeadSig.EnumSig],
+                    mustMatch: Boolean
+                ): F[Expr[B]] = {
+                  def compileCase(
+                      enumSig: HeadSig.EnumSig
+                  ): F[(Int, Expr[B])] =
+                    enumSig match {
+                      case EnumSig(_, variant, arity, _) =>
+                        val (newRows, keepOffsets) =
+                          minimizeSpecializedRows(enumSig, rows, colIdx, arity)
+                        val fields = keepOffsets.map(i =>
+                          GetEnumElement(occ, variant, i, arity)
+                        )
+                        val newOccs = occs.patch(colIdx, fields, 1)
+
+                        if (newRows.isEmpty) Monad[F].pure((variant, UnitExpr))
+                        else {
+                          val subMustMatch = mustMatch
+                          compileRows(newRows, newOccs, subMustMatch).map {
+                            (variant, _)
+                          }
+                        }
+                    }
+
+                  val hasAllVariants = enumSigs.length == famArities.length
+                  val defaultExprF: F[Option[Expr[B]]] =
+                    if (defaultRows.nonEmpty)
+                      compileRows(defaultRows, defaultOccs, mustMatch).map(Some(_))
+                    else if (!mustMatch && !hasAllVariants)
+                      Monad[F].pure(Some(UnitExpr))
+                    else Monad[F].pure(None)
+
+                  (enumSigs.traverse(compileCase), defaultExprF).mapN {
+                    (compiledCases, defaultExpr) =>
+                      SwitchVariant(
+                        occ,
+                        famArities,
+                        compiledCases,
+                        defaultExpr
+                      )
+                  }
+                }
+
+                enumSwitchData(sigs) match {
+                  case Some((famArities, enumSigs)) =>
+                    compileSwitchCases(famArities, enumSigs, mustMatch)
+                  case None =>
+                    compileCases(sigs, mustMatch)
+                }
             }
 
           compiled.map(letAnons(occLets, _))
@@ -4270,6 +4850,12 @@ object Matchless {
             1 + loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+          case SwitchVariant(on, _, cases, default) =>
+            1 + loopExpr(on) + cases.iterator
+              .map { case (_, branch) =>
+                loopExpr(branch)
+              }
+              .sum + default.fold(0)(loopExpr)
           case Always(cond, thenExpr) =>
             1 + loopBool(cond) + loopExpr(thenExpr)
           case PrevNat(of) =>
@@ -4288,6 +4874,8 @@ object Matchless {
           case And(left, right) =>
             1 + loopBool(left) + loopBool(right)
           case CheckVariant(expr, _, _, _) =>
+            1 + loopExpr(expr)
+          case CheckVariantSet(expr, _, _, _) =>
             1 + loopExpr(expr)
           case SetMut(_, expr) =>
             1 + loopExpr(expr)
@@ -4452,12 +5040,8 @@ object Matchless {
           case Nil =>
             0
           case _ =>
-            val colIdx = 0
+            val (colIdx, sigs) = chooseColumnByScore(rows.map(_.row))
             val occ = occs(colIdx)
-            val sigs =
-              distinctInOrder(
-                rows.mapFilter(tr => headSig(tr.row.pats(colIdx)))
-              )
             val defaultRows =
               rows.mapFilter { tr =>
                 if (tr.row.pats(colIdx) == Pattern.WildCard)
@@ -4541,6 +5125,53 @@ object Matchless {
       // orthogonal cases before falling back.
       val orthoThreshold = 4
 
+      def boolSelectorBranches(
+          bs: NonEmptyList[MatchBranch]
+      ): Option[(Expr[B], Expr[B])] = {
+        val truePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("True")),
+            Nil
+          )
+        val falsePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("False")),
+            Nil
+          )
+
+        def normalizedNoNames(
+            p: Pattern[(PackageName, Constructor), Type]
+        ): Option[Pattern[(PackageName, Constructor), Type]] = {
+          val p1 = normalizePattern(p)
+          if (p1.names.isEmpty) Some(p1)
+          else None
+        }
+
+        def isTrue(p: Pattern[(PackageName, Constructor), Type]): Boolean =
+          p == truePat
+
+        def isFalseOrWild(
+            p: Pattern[(PackageName, Constructor), Type]
+        ): Boolean =
+          (p == falsePat) || (p == Pattern.WildCard)
+
+        bs.toList match {
+          case MatchBranch(p1, None, ifTrue) :: MatchBranch(p2, None, ifFalse) :: Nil =>
+            (normalizedNoNames(p1), normalizedNoNames(p2)) match {
+              case (Some(np1), Some(np2)) if isTrue(np1) && isFalseOrWild(np2) =>
+                Some((ifTrue, ifFalse))
+              case (Some(np1), Some(np2)) if (np1 == falsePat) && (
+                    (np2 == truePat) || (np2 == Pattern.WildCard)
+                  ) =>
+                Some((ifFalse, ifTrue))
+              case _ =>
+                None
+            }
+          case _ =>
+            None
+        }
+      }
+
       def maybeMatrix(
           arg: CheapExpr[B],
           branches: NonEmptyList[MatchBranch],
@@ -4556,34 +5187,47 @@ object Matchless {
           branches: NonEmptyList[MatchBranch],
           rootInlined: Option[InlinedStructRoot]
       ): F[Expr[B]] = {
-        val (orthoPrefix, nonOrthoSuffix) =
-          branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
-        val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
-
-        maybeNonOrthoSuffix match {
+        boolSelectorBranches(branches) match {
+          case Some((ifTrue, ifFalse)) =>
+            guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
           case None =>
-            maybeMatrix(arg, branches, rootInlined)
-          case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
-            matchExprOrderedCheap(arg, suffixNel, rootInlined).flatMap {
-              fallbackExpr =>
-                val combinedNel = NonEmptyList.ofInitLast(
-                  orthoPrefix,
-                  MatchBranch(Pattern.WildCard, None, fallbackExpr)
-                )
-                compileWithCheapArg(arg, combinedNel, rootInlined)
+            val (orthoPrefix, nonOrthoSuffix) =
+              branches.toList.span(branch => !isNonOrthogonal(branch.pattern))
+            val maybeNonOrthoSuffix = NonEmptyList.fromList(nonOrthoSuffix)
+
+            maybeNonOrthoSuffix match {
+              case None =>
+                maybeMatrix(arg, branches, rootInlined)
+              case Some(suffixNel) if orthoPrefix.length >= orthoThreshold =>
+                matchExprOrderedCheap(arg, suffixNel, rootInlined).flatMap {
+                  fallbackExpr =>
+                    val combinedNel = NonEmptyList.ofInitLast(
+                      orthoPrefix,
+                      MatchBranch(Pattern.WildCard, None, fallbackExpr)
+                    )
+                    compileWithCheapArg(arg, combinedNel, rootInlined)
+                }
+              case _ =>
+                matchExprOrderedCheap(arg, branches, rootInlined)
             }
-          case _ =>
-            matchExprOrderedCheap(arg, branches, rootInlined)
         }
       }
 
+      val maybeBoolBranches = boolSelectorBranches(branches)
+
       def compileWithoutInlining: F[Expr[B]] =
-        maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
-          compileWithCheapArg(arg, branches, None)
+        maybeBoolBranches match {
+          case Some((ifTrue, ifFalse)) =>
+            guardToBoolExpr(arg).map(If(_, ifTrue, ifFalse))
+          case None                    =>
+            maybeMemo(arg, tmp) { (arg: CheapExpr[B]) =>
+              compileWithCheapArg(arg, branches, None)
+            }
         }
 
       // phase-1 policy: if multiple branches bind the whole root, keep eager root allocation
-      if (wholeRootBindBranches > 1) compileWithoutInlining
+      if (wholeRootBindBranches > 1 || maybeBoolBranches.nonEmpty)
+        compileWithoutInlining
       else {
         prepareInlinedStructRoot(arg).flatMap {
           case Some((argLets, inlinedRoot)) =>

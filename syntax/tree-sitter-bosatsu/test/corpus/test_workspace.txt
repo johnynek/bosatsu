@@ -24,7 +24,9 @@ test = Assertion(True, "trivial")
       (line_item
         (tuple
           (line_item
-            (unknown))
+            (type_identifier))
+          (line_item
+            (punctuation))
           (line_item
             (string)))))))
 
@@ -70,7 +72,9 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
           (line_item
             (tuple
               (line_item
-                (unknown))
+                (identifier))
+              (line_item
+                (punctuation))
               (line_item
                 (identifier))))
           (line_item
@@ -114,7 +118,9 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
       (line_item
         (tuple
           (line_item
-            (unknown))
+            (identifier))
+          (line_item
+            (punctuation))
           (line_item
             (identifier))))
       (line_item
@@ -146,7 +152,9 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
       (line_item
         (tuple
           (line_item
-            (unknown))
+            (identifier))
+          (line_item
+            (punctuation))
           (line_item
             (identifier))))))
   (simple_statement
@@ -156,7 +164,9 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
       (line_item
         (tuple
           (line_item
-            (unknown))
+            (type_identifier))
+          (line_item
+            (punctuation))
           (line_item
             (type_identifier))))
       (line_item
@@ -173,6 +183,24 @@ def eq_Option(eq: (a, a) -> Bool)(left: Option[a], right: Option[a]) -> Bool:
         (punctuation))
       (line_item
         (type_identifier)))))
+
+==================
+Matches Keyword
+==================
+
+foo matches pattern
+
+---
+
+(source_file
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (keyword))
+      (line_item
+        (identifier)))))
 
 ==================
 Foo Fixture
@@ -197,7 +225,10 @@ ignore = y
       (line_item
         (keyword))
       (line_item
-        (unknown))))
+        (identifier))
+      (line_item
+        (punctuation))))
+  (comment)
   (simple_statement
     (line_items
       (line_item
@@ -214,6 +245,7 @@ ignore = y
         (punctuation))
       (line_item
         (identifier))))
+  (comment)
   (simple_statement
     (line_items
       (line_item
@@ -273,3 +305,100 @@ x = foo()
         (identifier))
       (line_item
         (tuple)))))
+
+==================
+External Def Tuple Type Highlighting
+==================
+
+external def partition_String(arg: String, sep: String) -> Option[(String, String)]
+
+---
+
+(source_file
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))))
+      (line_item
+        (operator))
+      (line_item
+        (type_identifier))
+      (line_item
+        (list
+          (line_item
+            (tuple
+              (line_item
+                (type_identifier))
+              (line_item
+                (punctuation))
+              (line_item
+                (type_identifier)))))))))
+
+==================
+Comment Detection
+==================
+
+x = 1
+# top-level comment
+
+def f(x: Int) -> Int:
+  # indented comment
+  x
+
+---
+
+(source_file
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier))
+      (line_item
+        (punctuation))
+      (line_item
+        (number))))
+  (comment)
+  (simple_statement
+    (line_items
+      (line_item
+        (keyword))
+      (line_item
+        (identifier))
+      (line_item
+        (tuple
+          (line_item
+            (identifier))
+          (line_item
+            (punctuation))
+          (line_item
+            (type_identifier))))
+      (line_item
+        (operator))
+      (line_item
+        (type_identifier))
+      (line_item
+        (punctuation))))
+  (comment)
+  (simple_statement
+    (line_items
+      (line_item
+        (identifier)))))

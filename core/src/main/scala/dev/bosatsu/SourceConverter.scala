@@ -353,7 +353,7 @@ final class SourceConverter(
               (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
                 (newPattern, e, rhs) =>
                   val expBranches = NonEmptyList.of(
-                    Expr.Branch(newPattern, None, e)
+                    Expr.Branch(newPattern, None, e)(using assignRegion)
                   )
                   Expr.Match(rhs, expBranches, decl)
               }
@@ -427,30 +427,53 @@ final class SourceConverter(
             a,
             OptIndent.same(
               NonEmptyList(
-                MatchBranch(p, None, res),
-                MatchBranch(Pattern.WildCard, None, restDecl) :: Nil
+                MatchBranch(p, None, res)(using res.get.region),
+                MatchBranch(Pattern.WildCard, None, restDecl)(using
+                  restDecl.get.region
+                ) :: Nil
               )
             )
           )(using decl.region)
         )
       case IfElse(ifCases, elseCase) =>
-        def loop0(
-            ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])],
-            elseC: Expr[Declaration]
-        ): Expr[Declaration] =
-          ifs match {
-            case NonEmptyList((cond, ifTrue), Nil) =>
-              Expr.ifExpr(cond, ifTrue, elseC, decl)
-            case NonEmptyList(ifTrue, h :: tail) =>
-              val elseC1 = loop0(NonEmptyList(h, tail), elseC)
-              loop0(NonEmptyList.one(ifTrue), elseC1)
+        val truePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("True")),
+            Nil
+          )
+        val falsePat: Pattern[(PackageName, Constructor), Type] =
+          Pattern.PositionalStruct(
+            (PackageName.PredefName, Constructor("False")),
+            Nil
+          )
+        val if1 = ifCases.traverse { case (condDecl, ifTrueDecl) =>
+          (loop(condDecl), loop(ifTrueDecl.get)).mapN { (cond, ifTrue) =>
+            (condDecl.region, cond, ifTrue)
           }
-        val if1 = ifCases.traverse { case (d0, d1) =>
-          loop(d0).product(loop(d1.get))
         }
         val else1 = loop(elseCase.get)
 
-        (if1, else1).parMapN(loop0(_, _))
+        (if1, else1).parMapN { (ifs, elseC) =>
+          val (condRegion, cond, ifTrue) = ifs.head
+          val trueBranch =
+            Expr.Branch(truePat, None, ifTrue)(using condRegion)
+          val falseGuardedBranches = ifs.tail.map {
+            case (nextCondRegion, nextCond, nextIfTrue) =>
+              Expr.Branch(falsePat, Some(nextCond), nextIfTrue)(using
+                nextCondRegion
+              )
+          }
+          val falseElseBranch =
+            Expr.Branch(falsePat, None, elseC)(using elseCase.get.region)
+          Expr.Match(
+            cond,
+            NonEmptyList(
+              trueBranch,
+              falseGuardedBranches.toList :+ falseElseBranch
+            ),
+            decl
+          )
+        }
       case tern @ Ternary(t, c, f) =>
         loop(
           IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(
@@ -497,14 +520,15 @@ final class SourceConverter(
 
         val expBranches = branches.get.traverse { branch =>
           val pat = branch.pattern
-          val decl = branch.body.get
-          val newPattern = convertPattern(pat, decl.region)
+          val branchDecl = branch.body.get
+          val branchPatternRegion = branch.patternRegion
+          val newPattern = convertPattern(pat, branchPatternRegion)
           val guardExpr = branch.guard.traverse(withBound(_, pat.names))
-          val bodyExpr = withBound(decl, pat.names)
+          val bodyExpr = withBound(branchDecl, pat.names)
           (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
             val guard1 =
               guard.filterNot(isPredefBoolConst(_, Constructor("True")))
-            Expr.Branch(pat, guard1, body)
+            Expr.Branch(pat, guard1, body)(using branchPatternRegion)
           }
         }
         (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
@@ -543,11 +567,13 @@ final class SourceConverter(
         (loop(a), checkedPattern).mapN { (a, p) =>
           val branches =
             if (isDefinitelyTotal) {
-              NonEmptyList.one(Expr.Branch(Pattern.WildCard, None, True))
+              NonEmptyList.one(
+                Expr.Branch(Pattern.WildCard, None, True)(using m.region)
+              )
             } else {
               NonEmptyList(
-                Expr.Branch(p, None, True),
-                Expr.Branch(Pattern.WildCard, None, False) :: Nil
+                Expr.Branch(p, None, True)(using m.region),
+                Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
               )
             }
           Expr.Match(a, branches, m)
@@ -917,7 +943,9 @@ final class SourceConverter(
                   val matchExpr = (loop(baseExpr), rebuilt).parMapN {
                     (scrutinee, rebuiltValue) =>
                       val updateBranch =
-                        Expr.Branch(updatedPattern, None, rebuiltValue)
+                        Expr.Branch(updatedPattern, None, rebuiltValue)(using
+                          rc.region
+                        )
                       val branches =
                         if (definedType.constructors.lengthCompare(1) == 0)
                           NonEmptyList.one(updateBranch)
@@ -929,7 +957,7 @@ final class SourceConverter(
                               Pattern.Var(fallback),
                               None,
                               Expr.Local(fallback, rc)
-                            ) :: Nil
+                            )(using rc.region) :: Nil
                           )
                         }
 
@@ -1962,7 +1990,9 @@ final class SourceConverter(
           Match(
             Declaration.MatchKind.Match,
             rhsNB,
-            OptIndent.same(NonEmptyList.one(MatchBranch(pat, None, resOI)))
+            OptIndent.same(
+              NonEmptyList.one(MatchBranch(pat, None, resOI)(using res.region))
+            )
           )(using decl.region)
         }
 

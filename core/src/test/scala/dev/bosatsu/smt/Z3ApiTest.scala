@@ -1,6 +1,6 @@
 package dev.bosatsu.smt
 
-import dev.bosatsu.scalawasiz3.{Z3Result, Z3Solver}
+import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import scala.concurrent.duration.DurationInt
 
 class Z3ApiTest extends munit.FunSuite {
@@ -9,8 +9,9 @@ class Z3ApiTest extends munit.FunSuite {
 
   override val munitTimeout = 2.minutes
 
+  private val z3Solver = Z3Platform.create()
   private val liveRunner: Z3Api.RunSmt2 = { smt2 =>
-    Z3Solver.default.runSmt2(smt2) match {
+    z3Solver.runSmt2(smt2) match {
       case Z3Result.Success(stdout, stderr, _) =>
         Right(Z3Api.SolverOutput(stdout, stderr))
       case Z3Result.Failure(msg, _, stdout, stderr, _) =>
@@ -28,7 +29,7 @@ class Z3ApiTest extends munit.FunSuite {
     val x = Var[SmtSort.IntSort]("x")
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DefineFun(
           "clamp_nonneg",
           Vector("x" -> SmtSort.IntS),
@@ -58,7 +59,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("unsat output parses to structured result with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         Assert(
           And(
             Vector(
@@ -79,7 +80,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("sat output with get-model parses model with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DeclareConst("x", SmtSort.IntS),
         Assert(Gt(Var[SmtSort.IntSort]("x"), IntConst(0))),
         CheckSat,
@@ -125,7 +126,7 @@ class Z3ApiTest extends munit.FunSuite {
   test("parseModel=false skips model extraction with live solver") {
     val script = SmtScript(
       Vector(
-        SetLogic("QF_LIA"),
+        SetLogic.QF_LIA,
         DeclareConst("x", SmtSort.IntS),
         Assert(Gte(Var[SmtSort.IntSort]("x"), IntConst(10))),
         CheckSat,

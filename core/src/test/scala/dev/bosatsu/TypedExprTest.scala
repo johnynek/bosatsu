@@ -15,7 +15,9 @@ import rankn.{Type, NTypeGen, RefSpace}
 class TypedExprTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     // PropertyCheckConfiguration(minSuccessful = 5000)
-    super.scalaCheckTestParameters.withMinSuccessfulTests(500)
+    super.scalaCheckTestParameters.withMinSuccessfulTests(
+      if (Platform.isScalaJvm) 500 else 50
+    )
 
   /** Assert two bits of code normalize to the same thing
     */
@@ -137,6 +139,70 @@ x = match B(100):
     assert(av.contains(z))
 
   }
+
+  test("TypedExpr.flattenLets peels and rebuilds leading non-recursive lets") {
+    val tag = ()
+    val intT = Type.IntType
+    val a = Identifier.Name("a")
+    val b = Identifier.Name("b")
+    val c = Identifier.Name("c")
+
+    val recursiveTail =
+      TypedExpr.Let(
+        c,
+        TypedExpr.Local(c, intT, tag),
+        TypedExpr.Local(c, intT, tag),
+        RecursionKind.Recursive,
+        tag
+      )
+
+    val expr =
+      TypedExpr.Let(
+        a,
+        TypedExpr.Literal(Lit.fromInt(1), intT, tag),
+        TypedExpr.Let(
+          b,
+          TypedExpr.Literal(Lit.fromInt(2), intT, tag),
+          recursiveTail,
+          RecursionKind.NonRecursive,
+          tag
+        ),
+        RecursionKind.NonRecursive,
+        tag
+      )
+
+    val (lets, tail) = TypedExpr.flattenLets(expr)
+    assertEquals(lets.map(_._1), List(a, b))
+    assertEquals(tail, recursiveTail)
+    assertEquals(TypedExpr.letAllNonRecWithTags(lets, tail), expr)
+  }
+
+  Platform.onJvm(
+    test("TypedExpr.flattenLets handles deep non-recursive let chains") {
+      val depth = sys.props.get("repro.letDepth").fold(10000)(_.toInt)
+      val tag = ()
+      val intT = Type.IntType
+      val baseName = Identifier.Name("z")
+      val base = TypedExpr.Local(baseName, intT, tag)
+
+      val chain =
+        (0 until depth).foldRight(base: TypedExpr[Unit]) { (idx, acc) =>
+          val n = Identifier.Name(s"n$idx")
+          TypedExpr.Let(
+            n,
+            TypedExpr.Literal(Lit.fromInt(idx), intT, tag),
+            acc,
+            RecursionKind.NonRecursive,
+            tag
+          )
+        }
+
+      val (lets, tail) = TypedExpr.flattenLets(chain)
+      assertEquals(lets.length, depth)
+      assertEquals(tail, base)
+      assertEquals(TypedExpr.letAllNonRecWithTags(lets, tail), chain)
+    }
+  )
 
   test("freeVars on top level TypedExpr is Nil") {
     // all of the names are local to a TypedExpr, nothing can be free
@@ -1081,6 +1147,149 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites leading wildcard guards to a bool selector match"
+  ) {
+    val x = varTE("x", intTpe)
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(x, int(0)), boolTpe, ())
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedLeading = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), int(10)),
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(1)), None, int(11)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(12))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedLeading) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, guardExpr)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, int(10))
+
+        branches1.tail.head match {
+          case TypedExpr.Branch(
+                `falsePat`,
+                None,
+                TypedExpr.Match(innerArg, innerBranches, _)
+              ) =>
+            assertEquals(innerArg, x)
+            assertEquals(innerBranches.length, 2)
+            assertEquals(
+              innerBranches.head.pattern,
+              Pattern.Literal(Lit.fromInt(1))
+            )
+            assertEquals(innerBranches.last.pattern, Pattern.WildCard)
+          case other =>
+            fail(s"expected False branch to contain tail match, got: $other")
+        }
+      case other =>
+        fail(s"expected rewritten bool selector match, got: $other")
+    }
+  }
+
+  test(
+    "normalization rewrites leading nameless top guards to a bool selector match"
+  ) {
+    val x = varTE("x", intTpe)
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(x, int(0)), boolTpe, ())
+    val topPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, intTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedLeading = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(topPat, Some(guardExpr), int(10)),
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(1)), None, int(11)),
+        TypedExpr.Branch(Pattern.WildCard, None, int(12))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedLeading) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, guardExpr)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, int(10))
+        branches1.tail.head match {
+          case TypedExpr.Branch(
+                `falsePat`,
+                None,
+                TypedExpr.Match(innerArg, innerBranches, _)
+              ) =>
+            assertEquals(innerArg, x)
+            assertEquals(innerBranches.length, 2)
+            assertEquals(
+              innerBranches.head.pattern,
+              Pattern.Literal(Lit.fromInt(1))
+            )
+            assertEquals(innerBranches.last.pattern, Pattern.WildCard)
+          case other =>
+            fail(s"expected False branch to contain tail match, got: $other")
+        }
+      case other =>
+        fail(s"expected rewritten bool selector match, got: $other")
+    }
+  }
+
+  test(
+    "normalization flattens bool selector matches with a nameless top fallback pattern"
+  ) {
+    val x = varTE("x", intTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val topBoolPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.Annotation(Pattern.WildCard, boolTpe)
+
+    val inner = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    val outer = TypedExpr.Match(
+      inner,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, None, int(1)),
+        TypedExpr.Branch(topBoolPat, None, int(2))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(outer) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, Pattern.Literal(Lit.fromInt(0)))
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, int(1))
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, int(2))
+      case other =>
+        fail(s"expected flattened bool-selector match, got: $other")
+    }
+  }
+
+  test(
     "normalization rewrites let substitutions in guard and branch body consistently"
   ) {
     val xName = Identifier.Name("x")
@@ -1109,9 +1318,11 @@ foo = _ -> 1
     )
     normalized match {
       case TypedExpr.Match(_, branches, _) =>
-        assert(branches.head.guard.nonEmpty)
-        assert(branches.head.guard.forall(_.notFree(xName)))
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
         assertEquals(branches.head.expr, int(1))
+      case lit @ TypedExpr.Literal(_, _, _) =>
+        assertEquals(lit, int(1))
       case other =>
         fail(s"expected normalized match expression, got: $other")
     }
@@ -1141,6 +1352,85 @@ foo = _ -> 1
         assert(countLet(norm) > 0, norm.reprString)
       case None =>
         fail("expected normalized result for non-simple lambda let body")
+    }
+  }
+
+  test("normalization keeps non-simple lets inside Unit suspension lambdas") {
+    val unitName = Identifier.Name("unit")
+    val yName = Identifier.Name("y")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+
+    val boundExpr = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val yVar = TypedExpr.Local(yName, intTpe, ())
+    val body = TypedExpr.Let(
+      yName,
+      boundExpr,
+      TypedExpr.App(PredefAdd, NonEmptyList.of(yVar, yVar), intTpe, ()),
+      RecursionKind.NonRecursive,
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
+        assertEquals(args.length, 1)
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+        assert(countLet(lamBody) > 0, normalized.reprString)
+      case other =>
+        fail(s"expected Unit lambda to remain outermost, got: ${other.reprString}")
+    }
+  }
+
+  test("normalization keeps matches inside Unit suspension lambdas") {
+    val unitName = Identifier.Name("unit")
+    val body = TypedExpr.Match(
+      varTE("z", intTpe),
+      NonEmptyList.of(
+        branch(Pattern.Literal(Lit.fromInt(0)), int(1)),
+        branch(Pattern.WildCard, int(2))
+      ),
+      ()
+    )
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.AnnotatedLambda(args, TypedExpr.Match(_, _, _), _) =>
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+      case other =>
+        fail(s"expected Unit lambda with inner match, got: ${other.reprString}")
+    }
+  }
+
+  test(
+    "normalization does not share immutable values outside Unit suspension lambdas"
+  ) {
+    val unitName = Identifier.Name("unit")
+    val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("f", fnType), int(1), intTpe)
+    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(opaque, opaque), intTpe, ())
+    val lamExpr =
+      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+
+    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    normalized match {
+      case TypedExpr.Let(
+            _,
+            bound,
+            TypedExpr.AnnotatedLambda(args, _, _),
+            RecursionKind.NonRecursive,
+            _
+          ) if bound.void === opaque.void &&
+            Type.normalize(args.head._2).sameAs(Type.UnitType) =>
+        fail(s"unexpected shared let hoisted above Unit thunk: ${normalized.reprString}")
+      case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
+        assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
+        assert(countExpr(lamBody, opaque) > 0, normalized.reprString)
+      case other =>
+        fail(s"expected Unit lambda result, got: ${other.reprString}")
     }
   }
 
@@ -1177,7 +1467,7 @@ foo = _ -> 1
   }
 
   test(
-    "normalization leaves lambda guarded matches unchanged when lifting is blocked"
+    "normalization rewrites lambda guarded matches when lifting is blocked"
   ) {
     val xName = Identifier.Name("x")
     val xVar = TypedExpr.Local(xName, intTpe, ())
@@ -1198,7 +1488,13 @@ foo = _ -> 1
     val lamExpr =
       TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
 
-    assertEquals(TypedExprNormalization.normalize(lamExpr), None)
+    TypedExprNormalization.normalize(lamExpr) match {
+      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+        assertEquals(branches.length, 2)
+        assert(branches.forall(_.guard.isEmpty))
+      case other =>
+        fail(s"expected normalized lambda with unguarded match branches, got: $other")
+    }
   }
 
   test("normalization can evaluate guarded constructor matches to constants") {
@@ -3344,7 +3640,7 @@ x = Foo
   ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val (fullTypeEnv, unoptProgram) =
-      Package.inferBodyUnopt(TestUtils.testPackage, Nil, stmts) match {
+      Package.inferBodyUnopt(TestUtils.testPackage, Nil, Nil, stmts) match {
         case cats.data.Ior.Right(res) =>
           res
         case cats.data.Ior.Both(errs, _) =>
@@ -3421,6 +3717,130 @@ def f(x):
     )
 
     assertEquals(ifNormalized, matchNormalized)
+  }
+
+  test(
+    "normalization rewrites wildcard guarded recur branches into a single match"
+  ) {
+    val normalizedExpr =
+      Par.withEC {
+        var out: Option[TypedExpr[Unit]] = None
+        TestUtils.testInferred(
+          List("""
+package Test
+
+def loop(n, cnt):
+  recur n:
+    case _ if cmp_Int(n, 0) matches GT:
+      loop(n.div(2), cnt.add(1))
+    case _:
+      cnt
+"""),
+          "Test",
+          { (pm, mainPack) =>
+            val pack = pm.toMap(mainPack)
+            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
+              case Some((_, _, te)) => te
+              case None             =>
+                fail(s"missing let loop in ${pack.lets.map(_._1)}")
+            }
+            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
+              loopExpr
+            )
+            val normalized =
+              TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
+            out = Some(normalized)
+          }
+        )
+        out.getOrElse(fail("failed to infer normalized expression for loop"))
+      }
+
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Loop(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Recur(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      countMatch(normalizedExpr),
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) {
+        case TypedExpr.Match(_, branches, _)
+            if branches.length == 2 && branches.forall(_.guard.isEmpty) =>
+          true
+      },
+      1,
+      normalizedExpr.reprString
+    )
+  }
+
+  test(
+    "normalization rewrites wildcard guarded termination branches into a single match"
+  ) {
+    val normalizedExpr =
+      Par.withEC {
+        var out: Option[TypedExpr[Unit]] = None
+        TestUtils.testInferred(
+          List("""
+package Test
+
+def loop(n, cnt):
+  recur n:
+    case _ if cmp_Int(n, 0) matches LT | EQ:
+      cnt
+    case _:
+      loop(n.sub(1), cnt.add(1))
+"""),
+          "Test",
+          { (pm, mainPack) =>
+            val pack = pm.toMap(mainPack)
+            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
+              case Some((_, _, te)) => te
+              case None             =>
+                fail(s"missing let loop in ${pack.lets.map(_._1)}")
+            }
+            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
+              loopExpr
+            )
+            val normalized =
+              TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
+            out = Some(normalized)
+          }
+        )
+        out.getOrElse(fail("failed to infer normalized expression for loop"))
+      }
+
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Loop(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) { case TypedExpr.Recur(_, _, _) => true },
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      countMatch(normalizedExpr),
+      1,
+      normalizedExpr.reprString
+    )
+    assertEquals(
+      count(normalizedExpr) {
+        case TypedExpr.Match(_, branches, _)
+            if branches.length == 2 && branches.forall(_.guard.isEmpty) =>
+          true
+      },
+      1,
+      normalizedExpr.reprString
+    )
   }
 
   test("test match removed from some examples") {

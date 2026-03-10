@@ -1,5 +1,6 @@
 package Parser
 
+from Bosatsu/Num/Nat import Nat, Zero as Z, Succ as S, to_Nat
 export Parser, empty, parse, flat_map, expect, one_of, map
 
 struct Parser[a](parse: String -> Option[(String, a)])
@@ -68,11 +69,6 @@ def expect_int(i: Int) -> Parser[Int]:
   expect(int_to_String(i)).map(_ -> i)
 
 digit = one_of([expect_int(i) for i in range(10)])
-
-enum Nat: Z, S(n: Nat)
-
-def to_Nat(i: Int) -> Nat:
-  int_loop(i, Z, (i, nat) -> (i.sub(1), S(nat)))
 
 enum Rec[a, b]: Cont(next_input: a), Done(output: b)
 

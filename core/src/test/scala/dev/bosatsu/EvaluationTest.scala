@@ -373,6 +373,26 @@ main = 6.gcd_Int(3)
       "Foo",
       VInt(3)
     )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(7)
+"""),
+      "Foo",
+      VInt(3)
+    )
+
+    evalTest(
+      List("""
+package Foo
+
+main = popcount_Int(-1)
+"""),
+      "Foo",
+      VInt(0)
+    )
   }
 
   test("test Float64 functions") {
@@ -3184,6 +3204,61 @@ tests = TestSuite("lazy eval", [
     assertEquals(calls, 2)
   }
 
+  test("prog constructors right-associate flat_map and recover") {
+    val pureFn = FnValue { case NonEmptyList(a, _) =>
+      PredefImpl.prog_pure(a)
+    }
+    val raiseFn = FnValue { case NonEmptyList(a, _) =>
+      PredefImpl.prog_raise_error(a)
+    }
+
+    val startFlat = PredefImpl.prog_pure(VInt(1))
+    val assocFlat =
+      PredefImpl
+        .prog_flat_map(PredefImpl.prog_flat_map(startFlat, pureFn), pureFn)
+        .asSum
+    assertEquals(assocFlat.variant, 2)
+    assertEquals(assocFlat.value.get(0), startFlat)
+
+    val flatComposed = assocFlat.value.get(1)
+    val flatArg = VInt(9)
+    val flatApplied = flatComposed.asFn(NonEmptyList(flatArg, Nil)).asSum
+    assertEquals(flatApplied.variant, 2)
+    assertEquals(flatApplied.value.get(1), pureFn)
+    val flatLeft = flatApplied.value.get(0).asSum
+    assertEquals(flatLeft.variant, 0)
+    assertEquals(flatLeft.value.get(0), flatArg)
+
+    val startRecover = PredefImpl.prog_raise_error(Str("boom"))
+    val assocRecover =
+      PredefImpl
+        .prog_recover(PredefImpl.prog_recover(startRecover, raiseFn), raiseFn)
+        .asSum
+    assertEquals(assocRecover.variant, 3)
+    assertEquals(assocRecover.value.get(0), startRecover)
+
+    val recoverComposed = assocRecover.value.get(1)
+    val recoverArg = Str("e")
+    val recoverApplied =
+      recoverComposed.asFn(NonEmptyList(recoverArg, Nil)).asSum
+    assertEquals(recoverApplied.variant, 3)
+    assertEquals(recoverApplied.value.get(1), raiseFn)
+    val recoverLeft = recoverApplied.value.get(0).asSum
+    assertEquals(recoverLeft.variant, 1)
+    assertEquals(recoverLeft.value.get(0), recoverArg)
+  }
+
+  test("prog observe evaluates to unit and composes with flat_map") {
+    val observed = PredefImpl.prog_observe(VInt(123))
+    assertEquals(PredefImpl.runProg(observed).result, Right(UnitValue))
+
+    val continueWith = FnValue { case NonEmptyList(_, _) =>
+      PredefImpl.prog_pure(VInt(99))
+    }
+    val chained = PredefImpl.prog_flat_map(observed, continueWith)
+    assertEquals(PredefImpl.runProg(chained).result, Right(VInt(99)))
+  }
+
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
@@ -3207,7 +3282,7 @@ external struct Bytes
       val progRunPack = """
 package ProgRun
 
-from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive
+from Bosatsu/Prog import Prog, Main, pure, recover, await, recursive, observe
 from Bosatsu/IO/Std import println, print, print_err, print_errln, read_stdin_utf8_bytes
 from Bosatsu/IO/Error import IOError
 
@@ -3230,6 +3305,7 @@ main = Main(args -> (
     _ <- print_err("args=").await()
     _ <- print_errln(int_to_String(arg_count)).await()
     s <- sum_to((10000, 0)).await()
+    _ <- observe(s).await()
     _ <- println("sum=${int_to_String(s)}").await()
     pure(0)
   ).recover(_ -> pure(0))

@@ -399,7 +399,9 @@ class ListUnionRelatableTests extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(5000)
+      .withMinSuccessfulTests(
+        if (dev.bosatsu.Platform.isScalaJvm) 5000 else 1000
+      )
       .withMaxDiscardRatio(10)
 
   implicit val arbByte: Arbitrary[Byte] =

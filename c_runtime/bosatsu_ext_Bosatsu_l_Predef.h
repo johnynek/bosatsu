@@ -34,6 +34,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_mod__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_popcount__Int(BValue a);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_or__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_partition__String(BValue a, BValue b);

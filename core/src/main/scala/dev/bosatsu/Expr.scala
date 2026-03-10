@@ -5,7 +5,7 @@ package dev.bosatsu
   */
 
 import cats.implicits._
-import cats.data.{Chain, Writer, NonEmptyList}
+import cats.data.NonEmptyList
 import cats.Applicative
 import scala.collection.immutable.SortedSet
 import dev.bosatsu.rankn.Type
@@ -138,7 +138,11 @@ sealed abstract class Expr[T] derives CanEqual {
         Match(
           arg.eraseTags,
           branches.map { b =>
-            Branch(b.pattern, b.guard.map(_.eraseTags), b.expr.eraseTags)
+            Branch(
+              b.pattern,
+              b.guard.map(_.eraseTags),
+              b.expr.eraseTags
+            )(using Region.empty)
           },
           ()
         )
@@ -195,7 +199,7 @@ object Expr {
       pattern: Pattern[(PackageName, Constructor), Type],
       guard: Option[Expr[T]],
       expr: Expr[T]
-  )
+  )(using val patternRegion: Region)
   case class Match[T](
       arg: Expr[T],
       branches: NonEmptyList[Branch[T]],
@@ -305,8 +309,8 @@ object Expr {
     Match(
       cond,
       NonEmptyList.of(
-        Branch(TruePat, None, ifTrue),
-        Branch(FalsePat, None, ifFalse)
+        Branch(TruePat, None, ifTrue)(using Region.empty),
+        Branch(FalsePat, None, ifFalse)(using Region.empty)
       ),
       tag
     )
@@ -358,7 +362,9 @@ object Expr {
             b.pattern.traverseType(fn(_, bound)),
             b.guard.traverse(traverseType[T, F](_, bound)(fn)),
             traverseType[T, F](b.expr, bound)(fn)
-          ).mapN(Branch(_, _, _))
+          ).mapN { (pat, guard, expr) =>
+            Branch(pat, guard, expr)(using b.patternRegion)
+          }
         val branchB = branches.traverse(branchFn)
         (argB, branchB).mapN(Match(_, _, tag))
     }
@@ -390,13 +396,104 @@ object Expr {
   }
 
   // Returns a distinct list of free bound type variables
-  // in the order they were encountered in traversal
+  // in the order they were encountered in traversal.
+  //
+  // This is implemented with an explicit work stack to avoid recursive
+  // expression traversal and stack overflows on large source expressions.
   def freeBoundTyVars[A](expr: Expr[A]): List[Type.Var.Bound] = {
-    val w = traverseType(expr, Set.empty) { (t, bound) =>
-      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
-      Writer(frees.filterNot(bound), t)
+    sealed trait Work
+    case class ExprWork(expr: Expr[A], bound: Set[Type.Var.Bound]) extends Work
+    case class PatternWork(
+        pattern: Pattern[?, Type],
+        bound: Set[Type.Var.Bound]
+    ) extends Work
+    case class TypeWork(tpe: Type, bound: Set[Type.Var.Bound]) extends Work
+
+    val seen = scala.collection.mutable.Set.empty[Type.Var.Bound]
+    val out = scala.collection.mutable.ListBuffer.empty[Type.Var.Bound]
+
+    def recordType(tpe: Type, bound: Set[Type.Var.Bound]): Unit =
+      Type.freeBoundTyVars(tpe :: Nil).foreach { t =>
+        if (!bound(t) && !seen(t)) {
+          seen += t
+          out += t
+        }
+      }
+
+    var stack: List[Work] = ExprWork(expr, Set.empty) :: Nil
+
+    while (stack.nonEmpty) {
+      val item = stack.head
+      stack = stack.tail
+
+      item match {
+        case ExprWork(expr, bound) =>
+          expr match {
+            case Annotation(e, tpe, _) =>
+              stack = ExprWork(e, bound) :: TypeWork(tpe, bound) :: stack
+            case _: Name[A] | Literal(_, _) =>
+              ()
+            case App(fn, args, _) =>
+              args.toList.reverseIterator.foreach { arg =>
+                stack = ExprWork(arg, bound) :: stack
+              }
+              stack = ExprWork(fn, bound) :: stack
+            case Generic(bs, in) =>
+              val bound1 = bound ++ bs.toList.iterator.map(_._1)
+              stack = ExprWork(in, bound1) :: stack
+            case Lambda(args, in, _) =>
+              stack = ExprWork(in, bound) :: stack
+              args.toList.reverseIterator.foreach { case (_, optT) =>
+                optT.foreach { tpe =>
+                  stack = TypeWork(tpe, bound) :: stack
+                }
+              }
+            case Let(_, argE, in, _, _) =>
+              stack = ExprWork(argE, bound) :: ExprWork(in, bound) :: stack
+            case Match(arg, branches, _) =>
+              branches.toList.reverseIterator.foreach { branch =>
+                stack = ExprWork(branch.expr, bound) :: stack
+                branch.guard.foreach { guard =>
+                  stack = ExprWork(guard, bound) :: stack
+                }
+                stack = PatternWork(branch.pattern, bound) :: stack
+              }
+              stack = ExprWork(arg, bound) :: stack
+          }
+
+        case PatternWork(pattern, bound) =>
+          pattern match {
+            case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+                Pattern.StrPat(_) =>
+              ()
+            case Pattern.Named(_, pat) =>
+              stack = PatternWork(pat, bound) :: stack
+            case Pattern.ListPat(items) =>
+              items.reverseIterator.foreach {
+                case Pattern.ListPart.Item(pat) =>
+                  stack = PatternWork(pat, bound) :: stack
+                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                  ()
+              }
+            case Pattern.Annotation(pat, tpe) =>
+              stack = PatternWork(pat, bound) :: TypeWork(tpe, bound) :: stack
+            case Pattern.PositionalStruct(_, params) =>
+              params.reverseIterator.foreach { pat =>
+                stack = PatternWork(pat, bound) :: stack
+              }
+            case Pattern.Union(head, tail) =>
+              tail.toList.reverseIterator.foreach { pat =>
+                stack = PatternWork(pat, bound) :: stack
+              }
+              stack = PatternWork(head, bound) :: stack
+          }
+
+        case TypeWork(tpe, bound) =>
+          recordType(tpe, bound)
+      }
     }
-    w.written.iterator.toList.distinct
+
+    out.toList
   }
 
   /** Here we substitute any free bound variables with skolem variables
@@ -461,7 +558,7 @@ object Expr {
       case (((name, _), Some(matchPat)), body) =>
         Match(
           Local(name, outer),
-          NonEmptyList.one(Branch(matchPat, None, body)),
+          NonEmptyList.one(Branch(matchPat, None, body)(using Region.empty)),
           outer
         )
     }

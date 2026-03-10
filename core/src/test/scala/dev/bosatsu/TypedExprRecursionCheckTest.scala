@@ -3,9 +3,12 @@ package dev.bosatsu
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import IorMethods.IorExtension
+import scala.concurrent.duration.DurationInt
 import scala.util.Try
 
 class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
+  override val munitTimeout = 2.minutes
+
   private val pack = PackageName.parts("TypedRecursionCheck")
 
   private def formatErrors(
@@ -164,6 +167,119 @@ def fn(x):
 """)
   }
 
+  test("recur allows constructor-rank decrease from Some(_) to None") {
+    allowed("""#
+enum Option[a]:
+  None
+  Some(value: a)
+
+def drop(opt: Option[a]) -> Option[a]:
+  recur opt:
+    case Some(_):
+      drop(None)
+    case None:
+      None
+""")
+  }
+
+  test("recur allows constructor-rank decrease from non-empty to empty custom ADT") {
+    allowed("""#
+enum Seq[a]:
+  Empty
+  NonEmpty(head: a, tail: Seq[a])
+
+def reset(xs: Seq[a]) -> Seq[a]:
+  recur xs:
+    case NonEmpty(_, _):
+      reset(Empty)
+    case Empty:
+      Empty
+""")
+  }
+
+  test("recur allows constructor-rank decrease followed by structural recursion") {
+    allowed("""#
+enum BinNat:
+  Zero
+  Odd(prev: BinNat)
+  Even(prev: BinNat)
+
+def step(n: BinNat) -> BinNat:
+  recur n:
+    case Even(prev):
+      step(Odd(prev))
+    case Odd(prev):
+      step(prev)
+    case Zero:
+      Zero
+""")
+  }
+
+  test("recur rejects constructor-rank step with wrapped recursive payload") {
+    disallowed("""#
+enum T:
+  A(xs: List[T])
+  B(t: T)
+  Z
+
+def bad(v: T) -> T:
+  recur v:
+    case B(x):
+      bad(A([B(x)]))
+    case A(_):
+      Z
+    case Z:
+      Z
+""")
+  }
+
+  test("recur rejects constructor-rank step when direct recursive payload is not a smaller local") {
+    disallowed("""#
+enum T:
+  A(t: T)
+  B(t: T)
+  Z
+
+def bad(v: T) -> T:
+  recur v:
+    case B(x):
+      bad(A(B(x)))
+    case A(x):
+      bad(x)
+    case Z:
+      Z
+""")
+  }
+
+  test("recur does not use constructor-rank rule when current constructor is ambiguous") {
+    disallowed("""#
+enum Option[a]:
+  None
+  Some(value: a)
+
+def bad(opt: Option[a]) -> Option[a]:
+  recur opt:
+    case Some(_) | None:
+      bad(None)
+""")
+  }
+
+  test("recur allows union branches when recursive args are smaller for every branch") {
+    allowed("""#
+enum T:
+  Z
+  A(t: T)
+  B(t: T)
+
+def ok(v: T) -> T:
+  recur v:
+    case A(x) | B(x):
+      ok(x)
+    case Z:
+      Z
+""")
+  }
+
   test("tuple recur targets allow lexicographic decrease") {
     allowed("""#
 enum Nat: Zero, Succ(prev: Nat)
@@ -197,6 +313,136 @@ def bad(n, m):
     case (Succ(n_prev), _): bad(n_prev, Succ(m))
     case (Zero, Succ(m_prev)): bad(Succ(Zero), m_prev)
     case (Zero, Zero): Zero
+""")
+  }
+
+  test("tuple recur allows singleton empty list literal in unchanged earlier component") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [], Mapped(source, _)):
+      step(rem, source, [])
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows singleton alias substitution ([] as e then e)") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [] as e, Mapped(source, _)):
+      step(rem, source, e)
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows mixing [] and EmptyList singleton forms") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, [], Mapped(source, _)):
+      step(rem, source, EmptyList)
+    case (_, EmptyList, Empty):
+      0
+    case (_, [next, *rest], Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows custom singleton constructor literal in unchanged earlier component") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum MyList[a]:
+  EList
+  NList(head: a, tail: MyList[a])
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, EList, Mapped(source, _)):
+      step(rem, source, EList)
+    case (_, NList(next, rest), Empty):
+      step(rem, next, rest)
+    case _:
+      0
+""")
+  }
+
+  test("tuple recur allows custom singleton alias substitution (EList as e then e)") {
+    allowed("""#
+enum Nat:
+  Z
+  S(prev: Nat)
+
+enum MyList[a]:
+  EList
+  NList(head: a, tail: MyList[a])
+
+enum LL[a]:
+  Empty
+  Cons(head: a, tail: LL[a])
+  Mapped[b](source: LL[b], fn: b -> a)
+
+def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
+  recur (rem, pending, current):
+    case (_, _, Cons(_, tail)):
+      step(rem, tail, pending)
+    case (_, EList as e, Mapped(source, _)):
+      step(rem, source, e)
+    case (_, NList(next, rest), Empty):
+      step(rem, next, rest)
+    case _:
+      0
 """)
   }
 
@@ -287,6 +533,22 @@ def demo(n: Int) -> Int:
 """)
   }
 
+  test("loop Int recursion accepts infix decrement via operator assignment alias") {
+    allowed("""#
+operator - = sub
+
+def demo(n: Int) -> Int:
+  def go(rem: Int, acc: Int) -> Int:
+    loop rem:
+      case _ if cmp_Int(rem, 0) matches GT:
+        go(rem - 1, acc.add(rem))
+      case _:
+        acc
+
+  go(n, 0)
+""")
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -312,6 +574,8 @@ def bad(i: Int) -> Int:
       i
 """) { msg =>
       assert(clue(msg).contains("cannot prove Int recursion obligation for bad: (>= "))
+      assert(clue(msg).contains("(- "))
+      assert(!clue(msg).contains("(* (- 1)"))
       assert(clue(msg).contains("recur target: i"))
       assert(clue(msg).contains("path condition:"))
     }
@@ -498,6 +762,298 @@ def walk(fuel: Int, frame: Frame) -> Int:
 """)
   }
 
+  test("loop uses negated guard fallthrough when prior non-lowerable pattern subsumes current") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [s, *_]) if cmp_Int(idx, s) matches LT: idx
+    case (_, [s, *tail]) if cmp_Int(s, 0) matches GT:
+      walk(idx.sub(s), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts when current branch renames pattern bindings") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Branch(s), *_]) if cmp_Int(idx, s) matches LT: idx
+    case (_, [Branch(t), *tail]) if cmp_Int(t, 0) matches GT:
+      walk(idx.sub(t), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts when current branch shadows recur names") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (i0, [Branch(s), *_]) if cmp_Int(i0, s) matches LT: i0
+    case (i0, [Branch(idx), *tail]) if cmp_Int(idx, 0) matches GT:
+      walk(i0.sub(idx), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop combines renamed subsumed guards with shared loop-variable guards") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Branch(s), *_]) if cmp_Int(s, 0) matches LT | EQ: idx
+    case (_, [Branch(t), *tail]) if cmp_Int(idx, t) matches EQ | GT:
+      walk(idx.sub(t), tail)
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts through union super patterns") {
+    allowed("""#
+enum Either:
+  Left(value: Int)
+  Right(value: Int)
+
+def walk(stack: List[Either]) -> Int:
+  loop stack:
+    case []: 0
+    case [((Left(s) | Right(s))), *_] if cmp_Int(s, 0) matches LT:
+      0
+    case [Right(t), *tail] if cmp_Int(t, 0) matches GT:
+      walk(tail)
+    case _:
+      0
+""")
+  }
+
+  test("loop uses disjunctive union-derived guard facts for Int recursion proofs") {
+    allowed("""#
+enum Duo:
+  Pair(left: Int, right: Int)
+
+def walk(idx: Int, node: Duo) -> Int:
+  loop (idx, node):
+    case _ if cmp_Int(idx, 0) matches LT:
+      idx
+    case (_, (Pair(s, _) | Pair(_, s))) if cmp_Int(idx, s) matches LT:
+      idx
+    case (_, Pair(x, y)) if cmp_Int(x.add(y), 1) matches GT | EQ:
+      walk(idx.sub(1), Pair(x, y))
+    case _:
+      idx
+""")
+  }
+
+  test("loop int obligations keep union-fallthrough symbols declared") {
+    allowed("""#
+enum Either:
+  Left(value: Int)
+  Right(value: Int)
+
+def walk(idx: Int, node: Either) -> Int:
+  loop (idx, node):
+    case _ if cmp_Int(idx, 0) matches LT:
+      idx
+    case (_, (Left(s) | Right(s))) if cmp_Int(idx, s) matches LT:
+      idx
+    case (_, Right(t)) if cmp_Int(t, 0) matches GT:
+      walk(idx.sub(1), Right(t))
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns list prefix wildcard-to-named splice bindings in subsumed branches") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*_, x] if cmp_Int(idx, x) matches LT:
+          idx
+        case [*prefix, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(x), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns list prefix named-to-wildcard splice bindings in subsumed branches") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*prefix, x] if cmp_Int(idx, x) matches LT:
+          match prefix:
+            case _:
+              idx
+        case [*_, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(x), stack)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns list prefix named-to-named splice bindings in subsumed branches") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*before, s] if cmp_Int(idx, s) matches LT:
+          match before:
+            case _:
+              idx
+        case [*tail, t] if cmp_Int(t, 0) matches GT:
+          walk(idx.sub(1), tail)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with wildcard captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "${_}$.{_}" if cmp_Int(idx, 1) matches GT:
+          idx
+        case "${prefix}$.{ch}" if cmp_Int(idx, 0) matches GT:
+          match ch:
+            case _:
+              walk(idx.sub(1), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with named-to-wildcard captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "${prefix}$.{ch}" if cmp_Int(idx, 1) matches GT:
+          match ch:
+            case _:
+              match prefix:
+                case _:
+                  idx
+        case "${_}$.{_}" if cmp_Int(idx, 0) matches GT:
+          walk(idx.sub(1), txt)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop aligns subsumed guard facts for string patterns with literal prefixes and renamed captures") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match txt:
+        case "ab${left}$.{lc}" if cmp_Int(idx, 1) matches GT:
+          match lc:
+            case _:
+              match left:
+                case _:
+                  idx
+        case "ab${right}$.{rc}" if cmp_Int(idx, 0) matches GT:
+          match rc:
+            case _:
+              walk(idx.sub(1), right)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop tolerates non-lowerable aligned subsumed guards") {
+    allowed("""#
+def walk(idx: Int, stack: List[Int]) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match stack:
+        case [*_, x] if (
+          id = y -> y
+          id(cmp_Int(idx, x) matches LT)
+        ):
+          idx
+        case [*prefix, x] if cmp_Int(x, 0) matches GT:
+          walk(idx.sub(1), prefix)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop ignores subsumed guard facts when required Int binders cannot align") {
+    disallowed("""#
+def walk(idx: Int, pair: (Int, Int)) -> Int:
+  recur idx:
+    case _ if cmp_Int(idx, 0) matches GT:
+      match pair:
+        case (x, y) if cmp_Int(idx, x) matches LT:
+          idx
+        case (_, y) if cmp_Int(y, 0) matches GT:
+          walk(idx.sub(y), pair)
+        case _:
+          idx
+    case _:
+      idx
+""")
+  }
+
+  test("loop does not conflate subsumed guard names bound at different pattern positions") {
+    disallowed("""#
+enum Node:
+  Pair(left: Int, right: Int)
+
+def walk(idx: Int, stack: List[Node]) -> Int:
+  loop (idx, stack):
+    case _ if cmp_Int(idx, 0) matches LT: idx
+    case (_, []): idx
+    case (_, [Pair(a, _), *_]) if cmp_Int(idx, a) matches LT: idx
+    case (_, [Pair(_, a), *tail]) if cmp_Int(a, 0) matches GT:
+      walk(idx.sub(a), tail)
+    case _:
+      idx
+""")
+  }
+
   test("recur target must be argument name or tuple of names") {
     disallowed("""#
 def invalid_target(x, y):
@@ -591,8 +1147,8 @@ main = loop(1)
   }
 
   Platform.onJvm(
-    test("moderately large list literals do not overflow recursion checker stack") {
-      val n = 211
+    test("large list literals do not overflow recursion checker stack") {
+      val n = 1024
       val items = List.fill(n)("\"x\"").mkString(", ")
       val source = s"""#
 vals: List[String] = [$items]
@@ -631,7 +1187,7 @@ main = vals
 
       failure match {
         case Some(_: StackOverflowError) =>
-          fail("recursion checker overflowed on a moderately large list literal")
+          fail("recursion checker overflowed on a large list literal")
         case Some(other) =>
           throw other
         case None =>

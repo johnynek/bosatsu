@@ -54,6 +54,16 @@ At a high level:
 1. With a single target (`recur x`), recursive calls are allowed only when the
    call argument for `x` is structurally smaller.
 
+1. For ADT targets, Bosatsu also accepts constructor-rank decreases in a
+   branch that proves the current constructor.
+   A recursive call can pass an earlier constructor in source order
+   (for example `Some(_) -> None`, `Even(prev) -> Odd(prev)`), including
+   zero-argument constructors.
+   This still requires direct recursive payload fields (`Fi == T`) to use
+   already-proven smaller local names from the branch.
+   Wrapped recursive payloads (`Fi` contains `T` but `Fi != T`, such as
+   `List[T]`) are intentionally rejected in this version.
+
 1. With a tuple target (`recur (x0, x1, ..., xk)`), recursive calls must be
    lexicographically smaller in that target order.
 

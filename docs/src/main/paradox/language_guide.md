@@ -1018,6 +1018,14 @@ You can think of Bosatsu as a pure language for constructing executable programs
 with effects at the boundary. The goal is practical usability with strong safety:
 if pieces typecheck, they can be composed with confidence.
 
+For benchmarks, `Bosatsu/Prog` also exposes:
+
+1. `observe[a](a: a) -> forall err. Prog[err, Unit]`
+
+`observe` is an effectful consume barrier. It only runs when sequenced into an
+executed `Prog` (for example inside `Main` or `ProgTest` via `await`/`flat_map`).
+If you call `observe` but never execute that `Prog`, it has no effect.
+
 ## External functions and values
 There is syntax for declaring external values and functions, but regular Bosatsu
 library code cannot define new externals today.

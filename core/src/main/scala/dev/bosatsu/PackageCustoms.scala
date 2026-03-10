@@ -43,6 +43,7 @@ object PackageCustoms {
   ): Ior[NonEmptyList[PackageError], Package.Typed[Declaration]] = {
 
     val Program(types, lets, _, _) = program
+    val letRegions = letBindableRegions(lets)
     ExportedName
       .buildExports(nm, exports, types, lets) match {
       case Validated.Valid(exports) =>
@@ -57,8 +58,132 @@ object PackageCustoms {
         }
       case Validated.Invalid(unknowns) =>
         Ior.left(unknowns.map { n =>
-          PackageError.UnknownExport(n, nm, lets): PackageError
+          PackageError.UnknownExport(n, nm, letRegions): PackageError
         })
+    }
+  }
+
+  private def letBindableRegions[A: HasRegion](
+      lets: List[(Bindable, RecursionKind, A)]
+  ): List[(Bindable, Region)] =
+    lets.map { case (name, _, expr) =>
+      (name, HasRegion.region(expr))
+    }
+
+  private def usedGlobalsExpr[A](
+      expr: Expr[A]
+  ): Set[(PackageName, Identifier)] = {
+    val bldr = Set.newBuilder[(PackageName, Identifier)]
+
+    def addPatternConstructors(
+        pat: Pattern[(PackageName, Identifier.Constructor), Type]
+    ): Unit =
+      pat.traverseStruct[cats.Id, (PackageName, Identifier.Constructor)] {
+        (name, parts) =>
+          bldr += ((name._1, name._2))
+          Pattern.PositionalStruct(name, parts)
+      }: Unit
+
+    def loop(e: Expr[A]): Unit =
+      e match {
+        case Expr.Annotation(inner, _, _) =>
+          loop(inner)
+        case Expr.Local(_, _)             =>
+          ()
+        case Expr.Generic(_, inner)       =>
+          loop(inner)
+        case Expr.Global(pack, name, _)   =>
+          bldr += ((pack, name))
+        case Expr.App(fn, args, _)        =>
+          loop(fn)
+          args.toList.foreach(loop)
+        case Expr.Lambda(_, inner, _)     =>
+          loop(inner)
+        case Expr.Let(_, bound, in, _, _) =>
+          loop(bound)
+          loop(in)
+        case Expr.Literal(_, _)           =>
+          ()
+        case Expr.Match(arg, branches, _) =>
+          loop(arg)
+          branches.toList.foreach { branch =>
+            addPatternConstructors(branch.pattern)
+            branch.guard.foreach(loop)
+            loop(branch.expr)
+          }
+      }
+
+    loop(expr)
+    bldr.result()
+  }
+
+  def checkExprDagBindables[A: HasRegion](
+      nm: PackageName,
+      imports: List[
+        Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+      ],
+      exports: List[ExportedName[Unit]],
+      lets: List[(Bindable, RecursionKind, Expr[A])],
+      externalDefs: List[Bindable]
+  ): ValidatedNec[PackageError, Unit] = {
+    val knownBindings: Set[Bindable] =
+      lets.iterator.map(_._1).toSet ++ externalDefs
+
+    val letRegions = letBindableRegions(lets)
+    val unknownExports: List[PackageError] =
+      exports.collect {
+        case ex @ ExportedName.Binding(name, _) if !knownBindings(name) =>
+          PackageError.UnknownExport(ex, nm, letRegions): PackageError
+      }
+
+    val usedGlobals: Set[(PackageName, Identifier)] =
+      lets.iterator
+        .flatMap { case (_, _, expr) =>
+          usedGlobalsExpr(expr).iterator
+        }
+        .toSet
+
+    val badImports: List[Import[PackageName, Unit]] =
+      imports.iterator
+        .flatMap { imp =>
+          val fromPack = imp.pack.name
+          imp.items.iterator.collect {
+            case item
+                if item.originalName.toBindable.isDefined &&
+                  item.tag.exists {
+                    case Referant.Value(_) => true
+                    case _                 => false
+                  } &&
+                  !usedGlobals((fromPack, item.originalName)) =>
+              (fromPack, item.withTag(()))
+          }
+        }
+        .toList
+        .groupBy(_._1)
+        .iterator
+        .collect {
+          case (pack, items)
+              if (pack != PackageName.PredefName) && items.nonEmpty =>
+            val deduped = ListUtil
+              .distinctByHashSet(
+                NonEmptyList.fromListUnsafe(items.iterator.map(_._2).toList)
+              )
+              .toList
+              .sortBy(_.localName)
+            Import(pack, NonEmptyList.fromListUnsafe(deduped))
+        }
+        .toList
+        .sortBy(_.pack)
+
+    val allErrors: List[PackageError] =
+      NonEmptyList
+        .fromList(badImports)
+        .map(ni => PackageError.UnusedImport(nm, ni): PackageError)
+        .toList ::: unknownExports
+
+    NonEmptyChain.fromChain(Chain.fromSeq(allErrors)) match {
+      case Some(errs) => Validated.invalid(errs)
+      case None       => Validated.valid(())
     }
   }
 

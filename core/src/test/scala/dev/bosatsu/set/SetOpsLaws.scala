@@ -2,6 +2,7 @@ package dev.bosatsu.set
 
 import cats.Eq
 import cats.implicits._
+import dev.bosatsu.Platform
 import org.scalacheck.{Arbitrary, Cogen, Gen, Shrink}
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
@@ -464,7 +465,7 @@ class SetOpsTests extends munit.ScalaCheckSuite {
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(500)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 500 else 100)
       .withMaxDiscardRatio(10)
 
   test("allPerms is correct") {

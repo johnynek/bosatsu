@@ -123,6 +123,7 @@ module.exports = grammar({
       'elif',
       'else',
       'match',
+      'matches',
       'case',
       'recur',
       'loop',
@@ -152,7 +153,9 @@ module.exports = grammar({
 
     operator: _ => /[!$%&*+\-./<=>?@\\^|~]+/,
 
-    unknown: _ => /[^\s:\[\]\(\)\{\}]+/,
+    // keep unknown as a fallback token, but do not consume punctuation delimiters
+    // that we want as separate tokens (especially commas in tuples/arg lists).
+    unknown: _ => /[^\s:\[\]\(\)\{\},]+/,
 
     punctuation: _ => choice(
       ':',

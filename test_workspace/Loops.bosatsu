@@ -1,0 +1,14 @@
+package Bosatsu/Loops
+
+export range_foldr
+
+def range_foldr(top: Int, init: a, fn: (Int, a) -> a) -> a:
+  def loop_range_foldr(i: Int, acc: a) -> a:
+    loop i:
+      case _ if cmp_Int(i, 0) matches GT:
+        next_i = i.sub(1)
+        loop_range_foldr(next_i, fn(next_i, acc))
+      case _:
+        acc
+
+  loop_range_foldr(top, init)

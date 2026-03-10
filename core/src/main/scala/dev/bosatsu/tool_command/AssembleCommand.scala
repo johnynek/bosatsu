@@ -145,6 +145,14 @@ object AssembleCommand {
           help = "default main package for this library"
         )
         .orNone
+    val docBaseUrlOpt =
+      Opts
+        .option[String](
+          "doc_base_url",
+          help =
+            "optional docs base URL used when linking package/type references for this library"
+        )
+        .orNone
     val outputOpt =
       Opts
         .option[Path](
@@ -167,6 +175,7 @@ object AssembleCommand {
       privDepsOpt,
       prevLibOpt,
       defaultMainOpt,
+      docBaseUrlOpt,
       outputOpt
     )
 
@@ -187,6 +196,7 @@ object AssembleCommand {
             privDepPaths,
             prevLibPath,
             defaultMain,
+            docBaseUrl,
             outputPath
         ) =>
           for {
@@ -253,7 +263,8 @@ object AssembleCommand {
               allPackages = allNames.map(PackageFilter.Name(_)),
               publicDeps = pubDeps.map(_.toDep),
               privateDeps = privDeps.map(_.toDep),
-              defaultMain = defaultMain
+              defaultMain = defaultMain,
+              docBaseUrl = docBaseUrl
             )
             publicDepClosureLibs <- moduleIOMonad.fromEither(
               DecodedLibrary

@@ -379,6 +379,10 @@
         },
         {
           "type": "STRING",
+          "value": "matches"
+        },
+        {
+          "type": "STRING",
           "value": "case"
         },
         {
@@ -520,7 +524,7 @@
     },
     "unknown": {
       "type": "PATTERN",
-      "value": "[^\\s:\\[\\]\\(\\)\\{\\}]+"
+      "value": "[^\\s:\\[\\]\\(\\)\\{\\},]+"
     },
     "punctuation": {
       "type": "CHOICE",

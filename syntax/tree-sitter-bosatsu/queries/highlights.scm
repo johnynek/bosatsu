@@ -1,5 +1,7 @@
 (comment) @comment
 
+(package_declaration "package" @keyword)
+
 (keyword) @keyword
 
 (type_identifier) @type

@@ -1723,14 +1723,21 @@ object RingOpt {
     // inside. It helps with the repeatedAdd normalization in corner cases
     // but doesn't seem to frustrate undistribute much for the a*b + a*c
     // cases we want to work (although, probably some nesting of those doesn't)
-    // work well, I would imagine
-    // strip obvious top-level additive no-ops without flattening the full tree,
-    // since flattening can hide useful factorization structure.
-    val e =
-      e0 match {
-        case Add(x, y) => Expr.checkAdd[A](x, y)
-        case other     => other
+    // work well, I would imagine.
+    //
+    // Strip obvious top-level additive no-ops without flattening the full tree,
+    // since flattening can hide useful factorization structure. We do this
+    // repeatedly so normalize(a + 0) and normalize(a) start from the same root
+    // even when a itself is Add(_, 0).
+    @annotation.tailrec
+    def stripTopLevelAddNoOps(expr: Expr[A]): Expr[A] =
+      expr match {
+        case Add(x, y) if x.isZero => stripTopLevelAddNoOps(y)
+        case Add(x, y) if y.isZero => stripTopLevelAddNoOps(x)
+        case other                 => other
       }
+
+    val e = stripTopLevelAddNoOps(e0)
     loop(e, W.cost(e), HashSet.empty[Expr[A]].add(e), 0)
   }
 

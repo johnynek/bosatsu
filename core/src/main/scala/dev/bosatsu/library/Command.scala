@@ -12,6 +12,7 @@ import cats.data.{
 }
 import com.monovore.decline.{Argument, Opts}
 import dev.bosatsu.tool.{
+  CommandSupport,
   CliException,
   CompilerApi,
   MarkdownDoc,
@@ -642,10 +643,17 @@ object Command {
           colorize: Colorize,
           outdir: P,
           includePredef: Boolean,
+          excludePrivatePackages: Boolean,
+          sourceRepoUrlOpt: Option[String],
           compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
           cs <- checkState
+          packageBaseUrls <- moduleIOMonad.fromEither(
+            CommandSupport.dependencyPackageDocBaseUrls(
+              cs.pubDecodes ::: cs.privDecodes
+            )
+          )
           inputSources <- PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
@@ -670,17 +678,67 @@ object Command {
             )
           }
           (compiled, sourcePaths) = checked
+          sourceLinksByPackage = sourceRepoUrlOpt match {
+            case Some(sourceRepoUrl) =>
+              val normalizedRepoUrl =
+                if (sourceRepoUrl.endsWith("/")) sourceRepoUrl
+                else sourceRepoUrl + "/"
+              sourcePaths.toList
+                .foldLeft(Map.empty[PackageName, List[(String, String)]]) {
+                  case (acc, (path, packageName)) =>
+                    platformIO.relativize(gitRoot, path) match {
+                      case Some(relPath) =>
+                        val relPathString =
+                          platformIO.pathToString(relPath).replace('\\', '/')
+                        val sourceLink =
+                          (relPathString, normalizedRepoUrl + relPathString)
+                        acc.updated(
+                          packageName,
+                          sourceLink :: acc.getOrElse(packageName, Nil)
+                        )
+                      case None =>
+                        acc
+                    }
+                }
+                .view
+                .mapValues(_.distinct.sortBy(_._1))
+                .toMap
+            case None =>
+              Map.empty[PackageName, List[(String, String)]]
+          }
+          packageVisibility = compiled.toMap.valuesIterator
+            .filterNot(_.name == PackageName.PredefName)
+            .map { pack =>
+              val visibility =
+                if (conf.exportedPackages.exists(_.accepts(pack.name))) {
+                  MarkdownDoc.PackageVisibility.Exported
+                } else {
+                  MarkdownDoc.PackageVisibility.Private
+                }
+              pack.name -> visibility
+            }
+            .toMap
           compiledPacks = {
             val packs0 = compiled.toMap.values.toList
-            if (includePredef) packs0
-            else packs0.filterNot(_.name == PackageName.PredefName)
+            packs0.filter { pack =>
+              if (pack.name == PackageName.PredefName) includePredef
+              else {
+                // We always typecheck all packages above; this only controls emitted docs.
+                val isExported = conf.exportedPackages.exists(_.accepts(pack.name))
+                if (excludePrivatePackages) isExported
+                else true
+              }
+            }
           }
           docs <- MarkdownDoc.generate(
             platformIO,
             compiledPacks,
             sourcePaths.toList,
             outdir,
-            colorize
+            colorize,
+            sourceLinksByPackage,
+            packageBaseUrls,
+            packageVisibility
           )
         } yield docs
 
@@ -1804,15 +1862,39 @@ object Command {
               help = "include Bosatsu/Predef in generated docs"
             )
             .orFalse,
+          Opts
+            .flag(
+              "exclude_private_packages",
+              help = "exclude docs for non-exported packages in this library"
+            )
+            .orFalse,
+          Opts
+            .option[String](
+              "source_repo_url",
+              help =
+                "optional URL to the repo root used to generate source code links in docs"
+            )
+            .orNone,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, outdir, includePredef, cacheDirFn, colorize) =>
+        ).mapN {
+          (
+              fcc,
+              outdir,
+              includePredef,
+              excludePrivatePackages,
+              sourceRepoUrlOpt,
+              cacheDirFn,
+              colorize
+          ) =>
           for {
             cc <- fcc
             docs <- cc.docPackages(
               colorize,
               outdir,
               includePredef,
+              excludePrivatePackages,
+              sourceRepoUrlOpt,
               cacheDirFn(cc.gitRoot)
             )
           } yield (Output.TranspileOut(docs): Output[P])

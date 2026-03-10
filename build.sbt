@@ -88,6 +88,30 @@ lazy val docs = (project in file("docs"))
       val paradoxGeneratedRoot =
         (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
       val generatedDocsRoot = repoRoot / "core_alpha_docs"
+      val sourceRepoUrl = "https://github.com/johnynek/bosatsu/blob/main"
+      val disableParadoxSourceMarkdownLink =
+        """---
+          |github.base_url=
+          |---
+          |
+          |""".stripMargin
+      def rewriteMarkdownLinksToHtml(content: String): String = {
+        val linkPattern = raw"\]\(([^)]+)\)".r
+        linkPattern.replaceAllIn(content, m => {
+          val target = m.group(1)
+          val hashIdx = target.indexOf('#')
+          val (path, suffix) =
+            if (hashIdx >= 0) {
+              (target.substring(0, hashIdx), target.substring(hashIdx))
+            } else (target, "")
+
+          if (path.endsWith(".md") && !path.contains("://")) {
+            s"](${path.stripSuffix(".md")}.html$suffix)"
+          } else {
+            m.matched
+          }
+        })
+      }
 
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
@@ -107,7 +131,9 @@ lazy val docs = (project in file("docs"))
         "doc",
         "--outdir",
         "core_alpha_docs",
-        "--include_predef"
+        "--include_predef",
+        "--source_repo_url",
+        sourceRepoUrl
       )
       log.info(docCmd.mkString("running: ", " ", ""))
       val docExit = Process(docCmd, repoRoot).!
@@ -157,7 +183,7 @@ lazy val docs = (project in file("docs"))
         s"""# Core Alpha API
            |
            |This section is generated from `test_workspace` using:
-           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef`
+           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
            |
            |@@@ index
            |${tocLinkLines.mkString("\n")}
@@ -168,7 +194,17 @@ lazy val docs = (project in file("docs"))
            |${pageLinkLines.mkString("\n")}
            |""".stripMargin
 
-      IO.write(paradoxGeneratedRoot / "index.md", generatedIndex)
+      markdownFiles.foreach { file =>
+        val markdown = IO.read(file)
+        IO.write(
+          file,
+          disableParadoxSourceMarkdownLink + rewriteMarkdownLinksToHtml(markdown)
+        )
+      }
+      IO.write(
+        paradoxGeneratedRoot / "index.md",
+        disableParadoxSourceMarkdownLink + generatedIndex
+      )
       log.info(
         s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
       )
@@ -250,7 +286,11 @@ lazy val cli = (project in file("cli"))
     // static linking doesn't work with macos or with linux http4s on the path
     nativeImageOptions ++= List(
       "--no-fallback",
-      "--verbose"
+      "--verbose",
+      "-O2",
+      "-J-Xmx12g",
+      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
+      "-H:+RemoveUnusedSymbols"
     ) ++ {
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))

@@ -194,18 +194,135 @@ object Json {
     override val render = "null"
     val toDoc = text(render)
   }
+
+  private sealed trait RenderFrame
+  private final case class ArrayFrame(
+      items: Vector[Json],
+      nextIndex: Int,
+      indent: Int
+  ) extends RenderFrame
+  private final case class ObjectFrame(
+      keys: Vector[String],
+      values: Map[String, Json],
+      nextIndex: Int,
+      indent: Int
+  ) extends RenderFrame
+
+  private def quotedDoc(value: String): Doc =
+    Doc.char('"') + Doc.text(JsonStringUtil.escape('"', value)) + Doc.char('"')
+
+  private def concatBalanced(parts: Vector[Doc]): Doc =
+    if (parts.isEmpty) Doc.empty
+    else {
+      var level = parts
+      while (level.length > 1) {
+        val next = Vector.newBuilder[Doc]
+        var idx = 0
+        while (idx < level.length) {
+          if (idx + 1 < level.length) next += (level(idx) + level(idx + 1))
+          else next += level(idx)
+          idx += 2
+        }
+        level = next.result()
+      }
+      level(0)
+    }
+
+  private def toDocStackSafe(root: Json): Doc = {
+    val out = scala.collection.mutable.ArrayBuffer.empty[Doc]
+    val indentDocs = scala.collection.mutable.HashMap.empty[Int, Doc]
+
+    def indentDoc(indent: Int): Doc =
+      indentDocs.getOrElseUpdate(indent, Doc.text(" " * indent))
+
+    var stack: List[RenderFrame] = Nil
+    var current: Option[(Json, Int)] = Some((root, 0))
+
+    while (current.nonEmpty || stack.nonEmpty) {
+      current match {
+        case Some((json, indent)) =>
+          current = None
+          json match {
+            case JString(str) =>
+              out += quotedDoc(str)
+            case JNumberStr(asString) =>
+              out += text(asString)
+            case JBool.True =>
+              out += text("true")
+            case JBool.False =>
+              out += text("false")
+            case JNull =>
+              out += text("null")
+            case JArray(items) =>
+              if (items.isEmpty) out += emptyArray
+              else {
+                out += Doc.char('[')
+                out += Doc.hardLine
+                out += indentDoc(indent + 2)
+                stack = ArrayFrame(items, nextIndex = 1, indent = indent) :: stack
+                current = Some((items(0), indent + 2))
+              }
+            case obj @ JObject(items) =>
+              if (items.isEmpty) out += emptyDict
+              else {
+                val keys = obj.keys.toVector
+                val values = obj.toMap
+                out += Doc.char('{')
+                out += Doc.hardLine
+                out += indentDoc(indent + 2)
+                out += quotedDoc(keys(0))
+                out += Doc.text(": ")
+                stack =
+                  ObjectFrame(keys, values, nextIndex = 1, indent = indent) :: stack
+                current = Some((values(keys(0)), indent + 2))
+              }
+          }
+
+        case None =>
+          stack match {
+            case ArrayFrame(items, nextIndex, indent) :: tail =>
+              if (nextIndex < items.length) {
+                out += Doc.comma
+                out += Doc.hardLine
+                out += indentDoc(indent + 2)
+                stack = ArrayFrame(items, nextIndex + 1, indent) :: tail
+                current = Some((items(nextIndex), indent + 2))
+              } else {
+                out += Doc.hardLine
+                out += indentDoc(indent)
+                out += Doc.char(']')
+                stack = tail
+              }
+
+            case ObjectFrame(keys, values, nextIndex, indent) :: tail =>
+              if (nextIndex < keys.length) {
+                out += Doc.comma
+                out += Doc.hardLine
+                out += indentDoc(indent + 2)
+                val key = keys(nextIndex)
+                out += quotedDoc(key)
+                out += Doc.text(": ")
+                stack = ObjectFrame(keys, values, nextIndex + 1, indent) :: tail
+                current = Some((values(key), indent + 2))
+              } else {
+                out += Doc.hardLine
+                out += indentDoc(indent)
+                out += Doc.char('}')
+                stack = tail
+              }
+
+            case Nil =>
+              ()
+          }
+      }
+    }
+
+    concatBalanced(out.toVector)
+  }
+
   private val emptyArray = Doc.text("[]")
   final case class JArray(toVector: Vector[Json]) extends Json {
-    def toDoc =
-      if (toVector.isEmpty) emptyArray
-      else {
-        val parts = Doc.intercalate(
-          Doc.comma,
-          toVector.map(j => (Doc.line + j.toDoc).grouped)
-        )
-        "[" +: ((parts :+ " ]").nested(2))
-      }
-
+    def toDoc = toDocStackSafe(this)
     def render = toDoc.render(80)
   }
   private val emptyDict = Doc.text("{}")
@@ -221,17 +338,7 @@ object Json {
         case None        => JNull
       }
 
-    def toDoc =
-      if (items.isEmpty) emptyDict
-      else {
-        val kvs = keys.map { k =>
-          val j = toMap(k)
-          JString(k).toDoc + Doc.char(':') + ((Doc.lineOrSpace + j.toDoc)
-            .nested(2))
-        }
-        val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
-        parts.bracketBy(text("{"), text("}"))
-      }
+    def toDoc = toDocStackSafe(this)
 
     /** Return a JObject with each key at most once, but in the order of this
       */

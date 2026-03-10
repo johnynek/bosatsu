@@ -1,5 +1,6 @@
 #include "bosatsu_runtime.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
+#include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -64,6 +65,30 @@ void assert_u64_equals(uint64_t got, uint64_t expected, const char* message) {
     printf("%s\nexpected: %llu\ngot: %llu\n", message, (unsigned long long)expected, (unsigned long long)got);
     exit(1);
   }
+}
+
+void assert_is_small_int(BValue value, const char* message) {
+  if ((value & (BValue)0x3) != (BValue)0x1) {
+    printf("%s\nexpected small-int immediate\n", message);
+    exit(1);
+  }
+}
+
+void assert_is_big_int(BValue value, const char* message) {
+  if ((value & (BValue)0x3) != (BValue)0x0) {
+    printf("%s\nexpected heap-backed integer\n", message);
+    exit(1);
+  }
+}
+
+static BValue prog_assoc_pure_fn(BValue *slots, BValue arg) {
+  (void)slots;
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(arg);
+}
+
+static BValue prog_assoc_raise_fn(BValue *slots, BValue arg) {
+  (void)slots;
+  return ___bsts_g_Bosatsu_l_Prog_l_raise__error(arg);
 }
 
 #if !defined(_WIN32)
@@ -137,6 +162,19 @@ void test_integer() {
   uint32_t i64_words[2] = { 0x9abcdef0, 0x12345678 };
   BValue i64_pos = bsts_integer_from_words_copy(1, 2, i64_words);
   BValue i64_neg = bsts_integer_from_words_copy(0, 2, i64_words);
+  BValue i61_max = bsts_integer_from_int64((INT64_C(1) << 61) - 1);
+  BValue i61_min = bsts_integer_from_int64(-(INT64_C(1) << 61));
+
+  uint32_t i61_max_mag_words[2] = { 0xffffffff, 0x1fffffff };
+  uint32_t i61_min_mag_words[2] = { 0x00000000, 0x20000000 };
+  uint32_t i61_under_mag_words[2] = { 0x00000001, 0x20000000 };
+  BValue i61_max_from_words = bsts_integer_from_words_copy(1, 2, i61_max_mag_words);
+  BValue i61_min_from_words = bsts_integer_from_words_copy(0, 2, i61_min_mag_words);
+  BValue i61_over = bsts_integer_from_words_copy(1, 2, i61_min_mag_words);
+  BValue i61_under = bsts_integer_from_words_copy(0, 2, i61_under_mag_words);
+  BValue s62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 1234);
+  BValue s62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 1234));
+  BValue pow40 = bsts_integer_from_int64(INT64_C(1) << 40);
 
   uint32_t i128_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   BValue i128_pos = bsts_integer_from_words_copy(1, 4, i128_words);
@@ -151,8 +189,25 @@ void test_integer() {
   assert_int_string(i32_min, "-2147483648", "i32_min to_string");
   assert_int_string(i64_pos, "1311768467463790320", "i64_pos to_string");
   assert_int_string(i64_neg, "-1311768467463790320", "i64_neg to_string");
+  assert_int_string(i61_max, "2305843009213693951", "i61_max to_string");
+  assert_int_string(i61_min, "-2305843009213693952", "i61_min to_string");
+  assert_int_string(i61_over, "2305843009213693952", "i61_over to_string");
+  assert_int_string(i61_under, "-2305843009213693953", "i61_under to_string");
+  assert_int_string(s62_pos, "1099511629010", "s62_pos to_string");
+  assert_int_string(s62_neg, "-1099511629010", "s62_neg to_string");
   assert_int_string(i128_pos, "24197857203266734864793317670504947440", "i128_pos to_string");
   assert_int_string(i128_neg, "-24197857203266734864793317670504947440", "i128_neg to_string");
+
+  assert_is_small_int(i64_pos, "i64_pos should be immediate");
+  assert_is_small_int(i64_neg, "i64_neg should be immediate");
+  assert_is_small_int(i61_max, "i61_max should be immediate");
+  assert_is_small_int(i61_min, "i61_min should be immediate");
+  assert_is_small_int(i61_max_from_words, "i61_max_from_words should canonicalize to immediate");
+  assert_is_small_int(i61_min_from_words, "i61_min_from_words should canonicalize to immediate");
+  assert_is_small_int(s62_pos, "s62_pos should be immediate");
+  assert_is_small_int(s62_neg, "s62_neg should be immediate");
+  assert_is_big_int(i61_over, "i61_over should spill to big-int");
+  assert_is_big_int(i61_under, "i61_under should spill to big-int");
 
   assert(bsts_integer_equals(i32_pos, i32_pos), "i32_pos equals self");
   assert(bsts_integer_equals(i32_pos, i32_pos_big), "i32_pos equals big");
@@ -169,12 +224,24 @@ void test_integer() {
   assert_int_string(bsts_integer_negate(i128_neg), "24197857203266734864793317670504947440", "negate i128_neg");
   assert_int_string(bsts_integer_negate(i32_min), "2147483648", "negate i32_min");
 
+  BValue add_i61_over = bsts_integer_add(i61_max, bsts_integer_from_int(1));
+  BValue sub_i61_under = bsts_integer_add(i61_min, bsts_integer_from_int(-1));
+  BValue neg_i61_min = bsts_integer_negate(i61_min);
+  assert_int_string(add_i61_over, "2305843009213693952", "add i61_max 1");
+  assert_int_string(sub_i61_under, "-2305843009213693953", "sub i61_min 1");
+  assert_int_string(neg_i61_min, "2305843009213693952", "negate i61_min");
+  assert_is_big_int(add_i61_over, "add i61_max 1 should spill to big-int");
+  assert_is_big_int(sub_i61_under, "sub i61_min 1 should spill to big-int");
+  assert_is_big_int(neg_i61_min, "negate i61_min should spill to big-int");
+
   assert(bsts_integer_to_int32(i32_pos) == 305419896, "to_int32 i32_pos");
   assert(bsts_integer_to_int32(i32_neg) == -305419896, "to_int32 i32_neg");
   assert(bsts_integer_to_int32(i32_pos_big) == 305419896, "to_int32 i32_pos_big");
   assert(bsts_integer_to_int32(neg_small_big) == -123, "to_int32 neg_small_big");
   assert(bsts_integer_to_int32(i64_pos) == -1698898192, "to_int32 i64_pos trunc");
   assert(bsts_integer_to_int32(i64_neg) == INT32_MIN, "to_int32 i64_neg sentinel");
+  assert(bsts_integer_to_int32(i61_max) == -1, "to_int32 i61_max trunc");
+  assert(bsts_integer_to_int32(i61_min) == INT32_MIN, "to_int32 i61_min sentinel");
 
   struct IntBinCase { const char* name; BValue a; BValue b; const char* expected; };
   struct IntBinCase add_cases[] = {
@@ -197,10 +264,22 @@ void test_integer() {
     assert_int_string(bsts_integer_times(mul_cases[i].a, mul_cases[i].b), mul_cases[i].expected, mul_cases[i].name);
   }
 
+  BValue mul_small_small = bsts_integer_times(
+      bsts_integer_from_int64(INT64_C(1) << 30),
+      bsts_integer_from_int64(INT64_C(1) << 20));
+  BValue mul_small_over = bsts_integer_times(
+      bsts_integer_from_int64(INT64_C(1) << 31),
+      bsts_integer_from_int64(INT64_C(1) << 31));
+  assert_int_string(mul_small_small, "1125899906842624", "mul small range stays immediate");
+  assert_int_string(mul_small_over, "4611686018427387904", "mul small overflow spills");
+  assert_is_small_int(mul_small_small, "mul small range should stay immediate");
+  assert_is_big_int(mul_small_over, "mul small overflow should spill to big-int");
+
   struct IntBinCase and_cases[] = {
     { "and i32_pos i32_neg", i32_pos, i32_neg, "8" },
     { "and i64_pos i64_neg", i64_pos, i64_neg, "16" },
     { "and i128_pos i64_pos", i128_pos, i64_pos, "1311768467463790320" },
+    { "and s62_pos s62_neg", s62_pos, s62_neg, "2" },
   };
   for (size_t i = 0; i < sizeof(and_cases) / sizeof(and_cases[0]); i++) {
     assert_int_string(bsts_integer_and(and_cases[i].a, and_cases[i].b), and_cases[i].expected, and_cases[i].name);
@@ -210,6 +289,7 @@ void test_integer() {
     { "or i32_pos i32_neg", i32_pos, i32_neg, "-8" },
     { "or i64_pos i64_neg", i64_pos, i64_neg, "-16" },
     { "or i128_pos i64_pos", i128_pos, i64_pos, "24197857203266734864793317670504947440" },
+    { "or s62_pos s62_neg", s62_pos, s62_neg, "-2" },
   };
   for (size_t i = 0; i < sizeof(or_cases) / sizeof(or_cases[0]); i++) {
     assert_int_string(bsts_integer_or(or_cases[i].a, or_cases[i].b), or_cases[i].expected, or_cases[i].name);
@@ -219,6 +299,7 @@ void test_integer() {
     { "xor i32_pos i32_neg", i32_pos, i32_neg, "-16" },
     { "xor i64_pos i64_neg", i64_pos, i64_neg, "-32" },
     { "xor i128_pos i64_pos", i128_pos, i64_pos, "24197857203266734863481549203041157120" },
+    { "xor s62_pos s62_neg", s62_pos, s62_neg, "-4" },
   };
   for (size_t i = 0; i < sizeof(xor_cases) / sizeof(xor_cases[0]); i++) {
     assert_int_string(bsts_integer_xor(xor_cases[i].a, xor_cases[i].b), xor_cases[i].expected, xor_cases[i].name);
@@ -230,6 +311,8 @@ void test_integer() {
     { "shift i32_neg >> 5", i32_neg, -5, "-9544372" },
     { "shift i64_pos << 17", i64_pos, 17, "171936116567413924823040" },
     { "shift i64_neg >> 17", i64_neg, -17, "-10007999171935" },
+    { "shift pow40 << 5", pow40, 5, "35184372088832" },
+    { "shift pow40 << 30", pow40, 30, "1180591620717411303424" },
     { "shift i128_pos << 33", i128_pos, 33, "207858010642617301217980562388315306121997844480" },
     { "shift i128_neg >> 33", i128_neg, -33, "-2817001333840509744453397309" },
   };
@@ -237,6 +320,12 @@ void test_integer() {
     BValue shift = bsts_integer_from_int(shift_cases[i].shift);
     assert_int_string(bsts_integer_shift_left(shift_cases[i].value, shift), shift_cases[i].expected, shift_cases[i].name);
   }
+
+  BValue shift_twos_small = bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(40));
+  BValue shift_twos_big = bsts_integer_shift_left(pow40, bsts_integer_from_int(30));
+  assert_int_string(shift_twos_small, "1099511627776", "shift twos small canonicalization");
+  assert_is_small_int(shift_twos_small, "shift twos small should stay immediate");
+  assert_is_big_int(shift_twos_big, "shift pow40 << 30 should spill to big-int");
 
   struct IntCmpCase { const char* name; BValue a; BValue b; int expected; };
   struct IntCmpCase cmp_cases[] = {
@@ -261,6 +350,8 @@ void test_integer() {
     { "divmod i32_pos 7", i32_pos, bsts_integer_from_int(7), "43631413", "5" },
     { "divmod i32_neg 7", i32_neg, bsts_integer_from_int(7), "-43631414", "2" },
     { "divmod i64_pos -12345", i64_pos, bsts_integer_from_int(-12345), "-106259090114524", "-8460" },
+    { "divmod i61_max 7", i61_max, bsts_integer_from_int(7), "329406144173384850", "1" },
+    { "divmod i61_min 7", i61_min, bsts_integer_from_int(7), "-329406144173384851", "5" },
     { "divmod i128_neg i64_pos", i128_neg, i64_pos, "-18446744073709551617", "0" },
     { "divmod i64_pos 0", i64_pos, bsts_integer_from_int(0), "0", "1311768467463790320" },
   };
@@ -280,6 +371,10 @@ void test_integer() {
     { "stoi i32_min", "-2147483648", "-2147483648" },
     { "stoi i64_pos", "1311768467463790320", "1311768467463790320" },
     { "stoi i64_neg", "-1311768467463790320", "-1311768467463790320" },
+    { "stoi i61_max", "2305843009213693951", "2305843009213693951" },
+    { "stoi i61_min", "-2305843009213693952", "-2305843009213693952" },
+    { "stoi i61_over", "2305843009213693952", "2305843009213693952" },
+    { "stoi i61_under", "-2305843009213693953", "-2305843009213693953" },
     { "stoi i128_pos", "24197857203266734864793317670504947440", "24197857203266734864793317670504947440" },
     { "stoi i128_neg", "-24197857203266734864793317670504947440", "-24197857203266734864793317670504947440" },
   };
@@ -515,6 +610,42 @@ void test_float64() {
   }
 }
 
+void test_prog_assoc() {
+  BValue pure_fn = alloc_closure1(0, NULL, prog_assoc_pure_fn);
+  BValue raise_fn = alloc_closure1(0, NULL, prog_assoc_raise_fn);
+
+  BValue flat_base = ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_integer_from_int(1));
+  BValue flat_assoc = ___bsts_g_Bosatsu_l_Prog_l_flat__map(
+      ___bsts_g_Bosatsu_l_Prog_l_flat__map(flat_base, pure_fn),
+      pure_fn);
+  assert(get_variant(flat_assoc) == 2, "flat_map assoc keeps flat_map tag");
+  assert(get_enum_index(flat_assoc, 0) == flat_base, "flat_map assoc keeps left-most program");
+
+  BValue flat_arg = bsts_integer_from_int(9);
+  BValue flat_composed = call_fn1(get_enum_index(flat_assoc, 1), flat_arg);
+  assert(get_variant(flat_composed) == 2, "flat_map assoc composes continuation into flat_map");
+  assert(get_enum_index(flat_composed, 1) == pure_fn, "flat_map assoc keeps outer continuation");
+  BValue flat_left = get_enum_index(flat_composed, 0);
+  assert(get_variant(flat_left) == 0, "flat_map composed left branch is pure");
+  assert(get_enum_index(flat_left, 0) == flat_arg, "flat_map composed pure keeps argument");
+
+  BValue recover_base = ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+      bsts_string_from_utf8_bytes_static(4, "boom"));
+  BValue recover_assoc = ___bsts_g_Bosatsu_l_Prog_l_recover(
+      ___bsts_g_Bosatsu_l_Prog_l_recover(recover_base, raise_fn),
+      raise_fn);
+  assert(get_variant(recover_assoc) == 3, "recover assoc keeps recover tag");
+  assert(get_enum_index(recover_assoc, 0) == recover_base, "recover assoc keeps left-most program");
+
+  BValue recover_arg = bsts_string_from_utf8_bytes_static(1, "e");
+  BValue recover_composed = call_fn1(get_enum_index(recover_assoc, 1), recover_arg);
+  assert(get_variant(recover_composed) == 3, "recover assoc composes handler into recover");
+  assert(get_enum_index(recover_composed, 1) == raise_fn, "recover assoc keeps outer handler");
+  BValue recover_left = get_enum_index(recover_composed, 0);
+  assert(get_variant(recover_left) == 1, "recover composed left branch is raise");
+  assert(get_enum_index(recover_left, 0) == recover_arg, "recover composed raise keeps error");
+}
+
 int main(int argc, char** argv) {
 
   GC_init();
@@ -522,6 +653,7 @@ int main(int argc, char** argv) {
   test_runtime_strings();
   test_integer();
   test_float64();
+  test_prog_assoc();
   printf("success\n");
   return 0;
 }

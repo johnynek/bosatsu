@@ -129,7 +129,11 @@ def sequence_Rand[a](rands: List[Rand[a]]) -> Rand[List[a]]:
 uint64_Rand = Rand(next)
 
 def bit_count(i: Int) -> Int:
-  int_loop(i, 0, (i, bits) -> (i >> 1, bits + 1))
+    def go(i, acc):
+        loop i:
+            case _ if cmp_Int(i, 0) matches LT | EQ: acc
+            case _: go(i.div(2), acc + 1)
+    go(i, 0)
 
 def to_big_Int(us: List[UInt64], acc: Int) -> Int:
   recur us:

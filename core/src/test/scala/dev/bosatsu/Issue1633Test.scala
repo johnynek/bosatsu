@@ -129,6 +129,10 @@ main = parse_value(" null")
           loopExpr(in)
         case Matchless.If(cond, thenExpr, elseExpr) =>
           loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) || cases.exists { case (_, branch) =>
+            loopExpr(branch)
+          } || default.exists(loopExpr)
         case Matchless.Always(cond, thenExpr) =>
           loopBool(cond) || loopExpr(thenExpr)
         case Matchless.PrevNat(of) =>
@@ -154,6 +158,8 @@ main = parse_value(" null")
         case Matchless.And(left, right) =>
           loopBool(left) || loopBool(right)
         case Matchless.CheckVariant(expr, _, _, _) =>
+          loopExpr(expr)
+        case Matchless.CheckVariantSet(expr, _, _, _) =>
           loopExpr(expr)
         case Matchless.SetMut(_, expr) =>
           loopExpr(expr)

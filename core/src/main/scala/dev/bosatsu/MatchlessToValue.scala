@@ -303,6 +303,9 @@ object MatchlessToValue {
 
           case CheckVariant(enumV, idx, _, _) =>
             loop(enumV).map(_.asSum.variant == idx)
+          case CheckVariantSet(enumV, idxs, _, famArities) =>
+            val inSet = InSetCompiler.compile(famArities.length, idxs)
+            loop(enumV).map(v => InSetCompiler.eval(inSet, v.asSum.variant))
 
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
@@ -469,6 +472,36 @@ object MatchlessToValue {
                   if (condF(scope)) thenF(scope)
                   else elseF(scope)
                 }
+            }
+          case SwitchVariant(on, famArities, cases, default) =>
+            val onF = loop(on)
+            // Keep variant dispatch O(1) while preserving explicit default fallback.
+            val caseFns =
+              Array.fill[Option[Scoped[Value]]](famArities.length)(None)
+            cases.iterator.foreach { case (variant, branch) =>
+              caseFns(variant) = Some(loop(branch))
+            }
+            lazy val defaultF = default.map(loop)
+
+            Dynamic { (scope: Scope) =>
+              val variant = onF(scope).asSum.variant
+              if ((variant >= 0) && (variant < caseFns.length)) {
+                caseFns(variant) match {
+                  case Some(fn) => fn(scope)
+                  case None     =>
+                    defaultF match {
+                      case Some(df) => df(scope)
+                      case None     =>
+                        throw new IllegalStateException(
+                          s"SwitchVariant missing case for variant=$variant in family size=${caseFns.length}"
+                        )
+                    }
+                }
+              } else {
+                throw new IllegalStateException(
+                  s"SwitchVariant variant out of bounds: variant=$variant, family size=${caseFns.length}"
+                )
+              }
             }
           case Always.SetChain(muts, expr) =>
             val values = muts.map { case (m, e) => (m, loop(e)) }

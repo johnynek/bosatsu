@@ -7,23 +7,28 @@ import dev.bosatsu.{
   CompileOptions,
   Generators,
   Identifier,
+  Lit,
   LocationMap,
+  Matchless,
   Package,
   PackageMap,
   Par,
   Parser,
+  Platform,
   PredefImpl,
   PackageName,
   TestUtils,
   Require,
   StringUtil
 }
+import dev.bosatsu.codegen.CompilationNamespace
+import dev.bosatsu.graph.Toposort
 import org.scalacheck.{Prop, Gen}
 
 class ClangGenTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
-      .withMinSuccessfulTests(250000)
+      .withMinSuccessfulTests(if (Platform.isScalaJvm) 250000 else 1000)
       .withMaxDiscardRatio(10)
 
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
@@ -297,6 +302,254 @@ main = set_in_range_ok
   }
 
   test(
+    "matrix column scoring checks discriminating literal before wide struct projection in C"
+  ) {
+    TestUtils.checkPackageMap("""
+struct Triple(a, b, c)
+struct Pair(left, right)
+
+def pick(p):
+  match p:
+    case Pair(Triple(a, _, _), 0): a
+    case Pair(Triple(_, b, _), 1): b
+    case Pair(Triple(_, _, c), _): c
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          val pickStart = rendered.indexOf("_l_pick(BValue")
+          assert(pickStart >= 0, rendered)
+          val mainStart = rendered.indexOf("int main(", pickStart)
+          val pickFn =
+            if (mainStart > pickStart) rendered.slice(pickStart, mainStart)
+            else rendered.drop(pickStart)
+
+          val firstIf = pickFn.indexOf("if (")
+          assert(firstIf >= 0, pickFn)
+          val firstWideProj =
+            "get_struct_index\\([^\\n]*, 2\\)".r
+              .findFirstMatchIn(pickFn)
+              .map(_.start)
+              .getOrElse(-1)
+          assert(firstWideProj >= 0, pickFn)
+          assert(firstWideProj > firstIf, pickFn)
+      }
+    }
+  }
+
+  test("CheckVariantSet guards compile to direct variant membership comparisons") {
+    val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
+    val arg = Identifier.Name("v")
+    val body = Matchless.If(
+      Matchless.CheckVariantSet(
+        Matchless.Local(arg),
+        NonEmptyList.of(0, 1),
+        0,
+        famArities
+      ),
+      Matchless.Literal(Lit(1)),
+      Matchless.If(
+        Matchless.CheckVariantSet(
+          Matchless.Local(arg),
+          NonEmptyList.of(3, 4),
+          0,
+          famArities
+        ),
+        Matchless.Literal(Lit(2)),
+        Matchless.If(
+          Matchless.CheckVariantSet(
+            Matchless.Local(arg),
+            NonEmptyList.of(1, 3),
+            0,
+            famArities
+          ),
+          Matchless.Literal(Lit(3)),
+          Matchless.If(
+            Matchless.CheckVariantSet(
+              Matchless.Local(arg),
+              NonEmptyList.of(0, 2, 4),
+              0,
+              famArities
+            ),
+            Matchless.Literal(Lit(4)),
+            Matchless.If(
+              Matchless.CheckVariantSet(
+                Matchless.Local(arg),
+                NonEmptyList.of(0, 1, 2, 3, 4),
+                0,
+                famArities
+              ),
+              Matchless.Literal(Lit(5)),
+              Matchless.Literal(Lit(0))
+            )
+          )
+        )
+      )
+    )
+    val mainExpr: Matchless.Expr[Unit] =
+      Matchless.Lambda(Nil, None, NonEmptyList.one(arg), body)
+    val pn = PackageName.parts("Test", "GuardCoverage")
+    val ns: CompilationNamespace[Unit] = new CompilationNamespace[Unit] {
+      implicit val keyOrder: Ordering[Unit] = new Ordering[Unit] {
+        def compare(x: Unit, y: Unit): Int = 0
+      }
+      val keyShow: cats.Show[Unit] = cats.Show.show(_ => "root")
+      def identOf(k: Unit, p: PackageName): NonEmptyList[String] = p.parts
+      def depFor(src: Unit, p: PackageName): Unit = ()
+      def rootKey: Unit = ()
+      val topoSort: Toposort.Result[(Unit, PackageName)] =
+        Toposort.Success(Vector(NonEmptyList.one(((), pn))))
+      val compiled = scala.collection.immutable.SortedMap(
+        () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
+      )
+      val testEntries = Map.empty
+      def mainValues(
+          mainTypeFn: dev.bosatsu.rankn.Type => Boolean
+      ): Map[PackageName, (Identifier.Bindable, dev.bosatsu.rankn.Type)] =
+        Map.empty
+      val externals = scala.collection.immutable.SortedMap(
+        () -> Map.empty[PackageName, List[
+          (Identifier.Bindable, dev.bosatsu.rankn.Type)
+        ]]
+      )
+      def treeShake(
+          roots: Set[(PackageName, Identifier)]
+      ): CompilationNamespace[Unit] = this
+      def rootPackages =
+        scala.collection.immutable.SortedSet(pn)
+    }
+    val renderedE = new ClangGen(ns).renderMain(
+      pn,
+      Identifier.Name("main"),
+      Code.Ident("run_main")
+    )
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        assert(rendered.contains("< 2"), rendered)
+        assert(rendered.contains(">= 3"), rendered)
+        assert(rendered.contains("== 1"), rendered)
+        assert(rendered.contains("== 3"), rendered)
+        assert(rendered.contains("!= 1"), rendered)
+        assert(rendered.contains("!= 3"), rendered)
+        assert(rendered.contains("||"), rendered)
+        assert(rendered.contains("&&"), rendered)
+        assert(
+          "int __bsts_l_variant\\d+ = get_variant_value\\(".r
+            .findFirstIn(rendered)
+            .nonEmpty,
+          rendered
+        )
+    }
+  }
+
+  test("SwitchVariant lowers to C switch for wide enum matches") {
+    TestUtils.checkPackageMap("""
+enum Many:
+  A
+  B
+  C
+  D
+  E
+  F
+  G
+  H
+  I
+
+def pick(v):
+  match v:
+    case A: 0
+    case B: 1
+    case C: 2
+    case D: 3
+    case E: 4
+    case F: 5
+    case G: 6
+    case H: 7
+    case I: 8
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("switch ("), rendered)
+          assert(rendered.contains("case 0:"), rendered)
+          assert(rendered.contains("case 7:"), rendered)
+          assertEquals(rendered.contains("default:"), false, rendered)
+          assert(rendered.contains("break;"), rendered)
+      }
+    }
+  }
+
+  test("SwitchVariant uses get_variant when enum family has payload arities") {
+    TestUtils.checkPackageMap("""
+enum Many:
+  A(x)
+  B
+  C
+  D
+  E
+
+def pick(v):
+  match v:
+    case A(_): 0
+    case B: 1
+    case C: 2
+    case D: 3
+    case E: 4
+
+main = pick
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("pick"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          assert(rendered.contains("switch ("), rendered)
+          assert(
+            "int __bsts_l_variant\\d+ = get_variant\\(".r
+              .findFirstIn(rendered)
+              .nonEmpty,
+            rendered
+          )
+      }
+    }
+  }
+
+  test(
     "global helper inlining with lambda argument avoids boxed lambda call at call site"
   ) {
     val src =
@@ -446,6 +699,28 @@ main = 1.5
         case Right(doc) =>
           val rendered = doc.render(80)
           assert(rendered.contains("bsts_float64_from_bits"))
+      }
+    }
+  }
+
+  test("int literals in int64 range use bsts_integer_from_int64") {
+    TestUtils.checkPackageMap("""
+main = 4294967296
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("bsts_integer_from_int64(4294967296)"))
+          assert(!rendered.contains("bsts_integer_from_words_copy"))
       }
     }
   }

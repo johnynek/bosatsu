@@ -209,6 +209,11 @@ object Predef {
       .add(predefPackageName, "not_Int", FfiCall.Fn1(PredefImpl.not_Int(_)))
       .add(
         predefPackageName,
+        "popcount_Int",
+        FfiCall.Fn1(PredefImpl.popcount_Int(_))
+      )
+      .add(
+        predefPackageName,
         "int_to_String",
         FfiCall.Fn1(PredefImpl.int_to_String(_))
       )
@@ -454,6 +459,11 @@ object Predef {
         progPackageName,
         "recover",
         FfiCall.Fn2(PredefImpl.prog_recover(_, _))
+      )
+      .add(
+        progPackageName,
+        "observe",
+        FfiCall.Fn1(PredefImpl.prog_observe(_))
       )
       .add(
         progPackageName,
@@ -832,6 +842,9 @@ object PredefImpl {
   private val ProgTagRecover = 3
   private val ProgTagApplyFix = 4
   private val ProgTagEffect = 5
+  // Atomic writes provide a backend-side consume barrier for benchmark values.
+  private val observedProgValueSink: AtomicReference[Value] =
+    new AtomicReference(UnitValue)
 
   private val IOErrorTagInvalidArgument = 12
   private val IOErrorTagInvalidUtf8 = 13
@@ -887,13 +900,50 @@ object PredefImpl {
     SumValue(ProgTagRaise, ProductValue.single(e))
 
   def prog_flat_map(prog: Value, fn: Value): Value =
-    SumValue(ProgTagFlatMap, ProductValue.fromList(prog :: fn :: Nil))
+    prog match {
+      case sum: SumValue if sum.variant == ProgTagFlatMap =>
+        val innerProg = sum.value.get(0)
+        val innerFn = sum.value.get(1)
+        val combined = FnValue { case NonEmptyList(a, _) =>
+          prog_flat_map(callFn1(innerFn, a), fn)
+        }
+        SumValue(
+          ProgTagFlatMap,
+          ProductValue.fromList(innerProg :: combined :: Nil)
+        )
+      case _ =>
+        SumValue(ProgTagFlatMap, ProductValue.fromList(prog :: fn :: Nil))
+    }
 
   def prog_recover(prog: Value, fn: Value): Value =
-    SumValue(ProgTagRecover, ProductValue.fromList(prog :: fn :: Nil))
+    prog match {
+      case sum: SumValue if sum.variant == ProgTagRecover =>
+        val innerProg = sum.value.get(0)
+        val innerFn = sum.value.get(1)
+        val combined = FnValue { case NonEmptyList(a, _) =>
+          prog_recover(callFn1(innerFn, a), fn)
+        }
+        SumValue(
+          ProgTagRecover,
+          ProductValue.fromList(innerProg :: combined :: Nil)
+        )
+      case _ =>
+        SumValue(ProgTagRecover, ProductValue.fromList(prog :: fn :: Nil))
+    }
 
   def prog_apply_fix(a: Value, fn: Value): Value =
     SumValue(ProgTagApplyFix, ProductValue.fromList(a :: fn :: Nil))
+
+  def prog_observe(a: Value): Value =
+    prog_effect(
+      a,
+      observed => {
+        observedProgValueSink.set(observed)
+        // Clear quickly so long benchmark loops do not retain observed values.
+        observedProgValueSink.set(UnitValue)
+        prog_pure(UnitValue)
+      }
+    )
 
   private def decodeUtf8Slice(
       bytes: Array[Byte],
@@ -2883,6 +2933,9 @@ object PredefImpl {
 
   def not_Int(a: Value): Value =
     ExternalValue(notInt(intRaw(a)))
+
+  def popcount_Int(a: Value): Value =
+    VInt(intRaw(a).popCount)
 
   private def toIntExactIfRepresentable(v: BigInteger): Option[Int] = {
     val minInt = BigInteger.valueOf(Int.MinValue.toLong)

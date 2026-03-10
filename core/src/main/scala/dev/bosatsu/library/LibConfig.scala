@@ -40,7 +40,8 @@ case class LibConfig(
     allPackages: List[LibConfig.PackageFilter],
     publicDeps: List[proto.LibDependency],
     privateDeps: List[proto.LibDependency],
-    defaultMain: Option[PackageName]
+    defaultMain: Option[PackageName],
+    docBaseUrl: Option[String] = None
 ) {
 
   /** validate then unvalidatedAssemble
@@ -617,7 +618,8 @@ case class LibConfig(
         privateDependencies = privateDeps.sortBy(_.name),
         unusedTransitivePublicDependencies = unusedTrans,
         history = Some(thisHistory),
-        defaultMain = defaultMain.fold("")(_.asString)
+        defaultMain = defaultMain.fold("")(_.asString),
+        docBaseUrl = docBaseUrl
       )
     }
   }
@@ -915,6 +917,7 @@ object LibConfig {
       LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
       Nil,
       Nil,
+      None,
       None
     )
 
@@ -1251,6 +1254,10 @@ object LibConfig {
             case None     => Nil
             case Some(dm) => ("default_main" -> write(dm)) :: Nil
           }) :::
+          (docBaseUrl match {
+            case None      => Nil
+            case Some(url) => ("doc_base_url" -> write(url)) :: Nil
+          }) :::
           Nil
       )
     }
@@ -1281,6 +1288,7 @@ object LibConfig {
             "private_deps"
           )
           defaultMain <- from.optional[PackageName]("default_main")
+          docBaseUrl <- from.optional[String]("doc_base_url")
         } yield LibConfig(
           name = name,
           repoUri = repoUri,
@@ -1290,7 +1298,8 @@ object LibConfig {
           allPackages = allPackages,
           publicDeps = publicDeps.toList.flatten,
           privateDeps = privateDeps.toList.flatten,
-          defaultMain = defaultMain
+          defaultMain = defaultMain,
+          docBaseUrl = docBaseUrl
         )
     }
 }

@@ -154,7 +154,7 @@ object Infer {
     private val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
         b => { region =>
-          Error.UnknownKindOfVar(Type.TyVar(b), region, s"unbound var: $b")
+          Error.UnknownKindOfVar(Type.TyVar(b), region, "unbound variable")
         },
         ap => { region =>
           Error.KindCannotTyApply(ap, region)
@@ -248,6 +248,14 @@ object Infer {
           foundPatternType: Type,
           scrutineeRegion: Region,
           patternRegion: Region
+      ) extends MismatchSite
+
+      case class MatchBranchResult(
+          expectedResultType: Type,
+          inferredResultType: Option[Type],
+          scrutineeRegion: Region,
+          patternRegion: Region,
+          branchRegion: Region
       ) extends MismatchSite
     }
 
@@ -382,7 +390,7 @@ object Infer {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val tpeStr = Type.fullyResolvedDocument.document(tpe).render(80)
-        s"unknown var in $tpeStr: $mess at ${region.show}"
+        s"unknown type variable $tpeStr: $mess at ${region.show}"
       }
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
@@ -1783,87 +1791,98 @@ object Infer {
         tag: A,
         tpe: dom.TypeKind
     ): Infer[Option[dom.ExprKind[A]]] = {
-      val infOpt = maybeSimple(fn).flatTraverse { inferFnExpr =>
-        inferFnExpr.map { fnTe =>
-          fnTe.getType match {
-            case Type.Fun.SimpleUniversal(univ, inT, outT)
-                if inT.length == args.length =>
-              // see if we can instantiate the result type
-              // if we can, we use that to fix the known parameters and continue
-              Type
-                .instantiate(univ.iterator.toMap, outT, Map.empty, tpe, Map.empty)
-                .flatMap { instantiation =>
-                  // if instantiate works, we know outT => tpe
-                  if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
-                    // we made some progress and there are no frees
-                    // TODO: we could support frees it seems but
-                    // it triggers failures in tests now
-                    Some((fnTe, inT, instantiation))
-                  } else {
-                    // We learned nothing
-                    None
+      val hasOuterQuantifiers =
+        Type.forallList(tpe).nonEmpty || Type.existList(tpe).nonEmpty
+      if (hasOuterQuantifiers) {
+        // This fast-path instantiates universals from the function result (`outT`)
+        // against `tpe`, then checks arguments with the solved substitutions.
+        // For quantified `tpe`, instantiate can solve to terms mentioning those
+        // quantifiers, but this path does not introduce them into argument-checking
+        // scope. That can leak unbound vars in kinds (issue #2031). The fallback
+        // path (`None`) handles quantifiers by skolemizing before checking args.
+        pure(None)
+      } else {
+        val infOpt = maybeSimple(fn).flatTraverse { inferFnExpr =>
+          inferFnExpr.map { fnTe =>
+            fnTe.getType match {
+              case Type.Fun.SimpleUniversal(univ, inT, outT)
+                  if inT.length == args.length =>
+                // see if we can instantiate the result type
+                // if we can, we use that to fix the known parameters and continue
+                Type
+                  .instantiate(univ.iterator.toMap, outT, Map.empty, tpe, Map.empty)
+                  .flatMap { instantiation =>
+                    // if instantiate works, we know outT => tpe
+                    if (instantiation.subs.nonEmpty && instantiation.frees.isEmpty) {
+                      // we made some progress and there are no frees
+                      // TODO: we could support frees it seems but
+                      // it triggers failures in tests now
+                      Some((fnTe, inT, instantiation))
+                    } else {
+                      // We learned nothing
+                      None
+                    }
                   }
-                }
-            case _ =>
-              None
+              case _ =>
+                None
+            }
           }
         }
-      }
 
-      infOpt.flatMap {
-        case Some((fnTe, inT, instantiation)) =>
-          val regTe = region(tag)
-          val validKinds: Infer[Unit] =
-            validateSubs(instantiation.subs.toList, region(fn), regTe)
-          val instNoKind = instantiation.subs.iterator
-            .map { case (k, (_, t)) => (k, t) }
-            .toMap[Type.Var, Type]
+        infOpt.flatMap {
+          case Some((fnTe, inT, instantiation)) =>
+            val regTe = region(tag)
+            val validKinds: Infer[Unit] =
+              validateSubs(instantiation.subs.toList, region(fn), regTe)
+            val instNoKind = instantiation.subs.iterator
+              .map { case (k, (_, t)) => (k, t) }
+              .toMap[Type.Var, Type]
 
-          val subIn = inT.map(Type.substituteVar(_, instNoKind))
-          val fnName = functionNameHint(fn)
+            val subIn = inT.map(Type.substituteVar(_, instNoKind))
+            val fnName = functionNameHint(fn)
 
-          validKinds.parProductR {
-            val remainingFree =
-              NonEmptyList.fromList(
-                instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
-              )
+            validKinds.parProductR {
+              val remainingFree =
+                NonEmptyList.fromList(
+                  instantiation.frees.iterator.map { case (_, (k, b)) => (b, k) }.toList
+                )
 
-            remainingFree match {
-              case None =>
-                // we can fully instantiate
-                args
-                  .zip(subIn)
-                  .zipWithIndex
-                  .parTraverse { case ((argExpr, argTpe), idx) =>
-                    checkSigma(argExpr, argTpe)
-                      .mapError { err =>
-                        contextualTypeError(
-                          Error.MismatchSite.AppArg(
-                            fnName,
-                            fnTe.getType,
-                            argTpe,
-                            idx,
-                            args.length,
-                            region(fn),
-                            region(argExpr),
-                            regTe
-                          )
-                        )(err)
-                      }
-                  }
-                  .map { argsTE =>
-                    Some(dom.App(fnTe, argsTE, tpe, tag))
-                  }
+              remainingFree match {
+                case None =>
+                  // we can fully instantiate
+                  args
+                    .zip(subIn)
+                    .zipWithIndex
+                    .parTraverse { case ((argExpr, argTpe), idx) =>
+                      checkSigma(argExpr, argTpe)
+                        .mapError { err =>
+                          contextualTypeError(
+                            Error.MismatchSite.AppArg(
+                              fnName,
+                              fnTe.getType,
+                              argTpe,
+                              idx,
+                              args.length,
+                              region(fn),
+                              region(argExpr),
+                              regTe
+                            )
+                          )(err)
+                        }
+                    }
+                    .map { argsTE =>
+                      Some(dom.App(fnTe, argsTE, tpe, tag))
+                    }
 
-              // $COVERAGE-OFF$
-              // case Some(remainingFree) =>
-              case Some(_) =>
-                // Currently we are only returning infOpt as Some when
-                // there are no remaining free variables due to unit
-                // tests not passing
-                sys.error("unreachable")
-              // $COVERAGE-ON$
-              /*
+                // $COVERAGE-OFF$
+                // case Some(remainingFree) =>
+                case Some(_) =>
+                  // Currently we are only returning infOpt as Some when
+                  // there are no remaining free variables due to unit
+                  // tests not passing
+                  sys.error("unreachable")
+                // $COVERAGE-ON$
+                /*
                 // some items are still free
                 // TODO we could use the args to try to fix these
                 val freeSub = frees.iterator
@@ -1879,9 +1898,10 @@ object Infer {
                 val inner = Expr.App(fn1, args, tag)
                 checkSigma(inner, tpe)
                */
+              }
             }
-          }
-        case None => pure(None)
+          case None => pure(None)
+        }
       }
     }
 
@@ -2284,13 +2304,20 @@ object Infer {
               case notAnnotated =>
                 newMeta // the kind of a let value is a Type
                   .flatMap { rhsTpe =>
+                    val recursiveRegion =
+                      notAnnotated match {
+                        case Expr.Lambda(_, result, _) =>
+                          region(notAnnotated) - region(result)
+                        case _ =>
+                          region(notAnnotated)
+                      }
                     extendEnv(name, rhsTpe) {
                       for {
                         // the type variable needs to be unified with varT
                         // note, varT could be a sigma type, it is not a Tau or Rho
                         typedRhs <- inferSigmaMeta(
                           notAnnotated,
-                          Some((name, rhsTpe, region(notAnnotated)))
+                          Some((name, rhsTpe, recursiveRegion))
                         )
                         varT = typedRhs.getType
                         // we need to overwrite the metavariable now with the full type
@@ -2353,9 +2380,11 @@ object Infer {
                 branches.map { branch =>
                   // we have to put the tag to be r.tag
                   // because that's where the regions come from
-                  branch.copy(expr =
+                  Expr.Branch(
+                    branch.pattern,
+                    branch.guard,
                     Annotation(branch.expr, tpe, branch.expr.tag)
-                  )
+                  )(using branch.patternRegion)
                 },
                 mtag
               )
@@ -2588,25 +2617,45 @@ object Infer {
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)],
         resT: Type.Rho
-    ): Infer[TypedExpr.Branch[A]] =
+    ): Infer[TypedExpr.Branch[A]] = {
       for {
         (pattern, bindings) <- typeCheckPattern(
           branch.pattern,
           sigma,
-          region(branch.expr)
+          branch.patternRegion
         )
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
         )
-        tres <- extendEnvList(bindings)(checkRho(branch.expr, resT))
+        inferredResType <- extendEnvList(bindings)(
+          inferRho(branch.expr).peek.map {
+            case Right((_, inferred)) => Some(inferred: Type)
+            case Left(_)              => None
+          }
+        )
+        tres <- extendEnvList(bindings)(
+          checkRho(branch.expr, resT)
+            .mapError { err =>
+              contextualTypeError(
+                Error.MismatchSite.MatchBranchResult(
+                  expectedResultType = resT,
+                  inferredResultType = inferredResType,
+                  scrutineeRegion = sigma.value._2,
+                  patternRegion = branch.patternRegion,
+                  branchRegion = region(branch.expr)
+                )
+              )(err)
+            }
+        )
       } yield TypedExpr.Branch(pattern, tguard, tres)
+    }
 
     def inferBranch[A: HasRegion](
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)]
-    ): Infer[(TypedExpr.Branch[A], Type.Rho)] =
+    ): Infer[(TypedExpr.Branch[A], Type.Rho)] = {
       for {
-        patBind <- typeCheckPattern(branch.pattern, sigma, region(branch.expr))
+        patBind <- typeCheckPattern(branch.pattern, sigma, branch.patternRegion)
         (pattern, bindings) = patBind
         tguard <- branch.guard.traverse(g =>
           extendEnvList(bindings)(checkRho(g, Type.BoolType))
@@ -2614,6 +2663,7 @@ object Infer {
         // inferRho returns a TypedExpr.Rho (which is only an alias)
         res <- extendEnvList(bindings)(inferRho(branch.expr))
       } yield (TypedExpr.Branch(pattern, tguard, res._1), res._2)
+    }
 
     /** patterns can be a sigma type, not neccesarily a rho/tau return a list of
       * bound names and their (sigma) types
@@ -2626,6 +2676,94 @@ object Infer {
         sigma: Expected.Check[(Type, Region)],
         reg: Region
     ): Infer[(Pattern, List[(Bindable, Type)])] = {
+      @annotation.tailrec
+      def unwrapPattern(in: Pattern): Pattern =
+        in match {
+          case GenPattern.Annotation(inner, _) => unwrapPattern(inner)
+          case GenPattern.Named(_, inner)      => unwrapPattern(inner)
+          case other                           => other
+        }
+
+      def singletonParametricPattern(in: Pattern): Boolean =
+        unwrapPattern(in) match {
+          case GenPattern.ListPat(Nil)                => true
+          case GenPattern.PositionalStruct(_, Nil)    => true
+          case _                                      => false
+        }
+
+      def maybeWidenNamedBindingType(
+          innerPattern: Pattern,
+          expectedType: Type,
+          innerBindings: List[(Bindable, Type)]
+      ): Infer[Type] = {
+        if (!singletonParametricPattern(innerPattern)) pure(expectedType)
+        else {
+          val innerBindingTypes = innerBindings.map(_._2)
+          val witnessedBounds = Type.freeBoundTyVars(innerBindingTypes).toSet
+          val witnessedMetas = Type.metaTvs(innerBindingTypes).toSet
+          val witnessedSkolems = Type
+            .freeTyVars(innerBindingTypes)
+            .collect { case sk: Type.Var.Skolem => sk }
+            .toSet
+
+          val freeBounds =
+            Type
+              .freeBoundTyVars(expectedType :: Nil)
+              .distinct
+              .filterNot(witnessedBounds)
+          val freeMetas =
+            Type
+              .metaTvs(expectedType :: Nil)
+              .toList
+              .filterNot(witnessedMetas)
+          val freeSkolems =
+            Type
+              .freeTyVars(expectedType :: Nil)
+              .collect { case sk: Type.Var.Skolem => sk }
+              .distinct
+              .filterNot(witnessedSkolems)
+
+          if (freeBounds.isEmpty && freeMetas.isEmpty && freeSkolems.isEmpty)
+            pure(expectedType)
+          else {
+            val usedBounds0 =
+              (Type.tyVarBinders(expectedType :: innerBindingTypes) ++ freeBounds).toSet
+            val alignedMetas = Type.alignBinders(freeMetas, usedBounds0.contains)
+            val usedBounds1 = usedBounds0 ++ alignedMetas.map(_._2)
+            val alignedSkolems =
+              Type.alignBinders(freeSkolems, usedBounds1.contains)
+            val metaToBound: Map[Type.Meta, Type.Var.Bound] =
+              alignedMetas.iterator.toMap
+            val skolemToBound: Map[Type.Var.Skolem, Type.Var.Bound] =
+              alignedSkolems.iterator.toMap
+            val renamedExpected =
+              if (metaToBound.isEmpty && skolemToBound.isEmpty) expectedType
+              else
+                Type.renameMetaAndSkolemsToBounds(
+                  expectedType,
+                  metaToBound,
+                  skolemToBound
+                )
+            val quantifiers =
+              freeBounds.map(_ -> Kind.Type) ++
+                alignedMetas.map { case (tm, b) => (b, tm.kind) } ++
+                alignedSkolems.map { case (sk, b) => (b, sk.kind) }
+
+            NonEmptyList.fromList(quantifiers) match {
+              case None => pure(expectedType)
+              case Some(generalizeNel) =>
+                val generalized = Type.forAll(generalizeNel, renamedExpected)
+                GetEnv.map { env =>
+                  env.getKind(generalized, reg) match {
+                    case Right(Kind.Type) => generalized
+                    case _                => expectedType
+                  }
+                }
+            }
+          }
+        }
+      }
+
       pat match {
         case GenPattern.WildCard     => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
@@ -2654,20 +2792,12 @@ object Infer {
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
           }
         case GenPattern.Named(n, p) =>
-          def inner(pat: Pattern) =
-            sigma match {
-              case Expected.Check((t, _)) =>
-                val res =
-                  (GenPattern.Annotation(GenPattern.Named(n, pat), t), t)
-                Infer.pure(res)
-            }
-          // We always return an annotation here, which is the only
-          // place we need to be careful
+          val Expected.Check((t0, _)) = sigma
           for {
             pair0 <- typeCheckPattern(p, sigma, reg)
             (p0, ts0) = pair0
-            pair1 <- inner(p0)
-            (p1, t1) = pair1
+            t1 <- maybeWidenNamedBindingType(p0, t0, ts0)
+            p1 = GenPattern.Annotation(GenPattern.Named(n, p0), t0)
           } yield (p1, (n, t1) :: ts0)
         case GenPattern.StrPat(items) =>
           val tpe = Type.StrType
@@ -2785,7 +2915,19 @@ object Infer {
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
+            foundPatternType <- constructorPatternType(nm, reg)
             params <- instDataCon(nm, sigma.value._1, reg, sigma.value._2)
+              .mapError { err =>
+                contextualTypeError(
+                  Error.MismatchSite.MatchPattern(
+                    pat,
+                    sigma.value._1,
+                    foundPatternType,
+                    sigma.value._2,
+                    reg
+                  )
+                )(err)
+              }
             // we need to do a pattern linting phase and probably error
             // if the pattern arity does not match the arity of the constructor
             // but we don't want to error type-checking since we want to show
@@ -2839,6 +2981,17 @@ object Infer {
         reg: Region
     ): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
+
+    def constructorPatternType(
+        consName: (PackageName, Constructor),
+        reg: Region
+    ): Infer[Type] =
+      GetDataCons(consName, reg).map { case (args, _, _, tpeName) =>
+        Type.applyAll(
+          Type.TyConst(tpeName),
+          args.map { case (tparam, _) => Type.TyVar(tparam) }
+        )
+      }
 
     /** To do this, Infer will need to know the names of the type constructors
       * in scope.
@@ -2939,6 +3092,14 @@ object Infer {
         e: Expr[A],
         meta: Option[(Identifier, Type.TyMeta, Region)]
     ): Infer[TypedExpr[A]] = {
+      def recursiveBindingRegion(expr: Expr[A]): Region =
+        expr match {
+          case Expr.Lambda(_, result, _) =>
+            region(expr) - region(result)
+          case _ =>
+            region(expr)
+        }
+
       def unifySelf(rho: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
           case None             => getEnv
@@ -2946,7 +3107,7 @@ object Infer {
             (unifyRho(
               rho,
               m,
-              region(e),
+              recursiveBindingRegion(e),
               r,
               Error.Direction.ExpectRight
             ) *> getEnv).map { envTys =>

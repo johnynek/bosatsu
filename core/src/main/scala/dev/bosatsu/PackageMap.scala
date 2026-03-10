@@ -588,7 +588,7 @@ object PackageMap {
 
                   def inferOnMiss(
                       depIfaces: SortedMap[PackageName, Package.Interface]
-                  ): ErrorOr[Package.Inferred] = {
+                  ): F[ErrorOr[Package.Inferred]] = {
                     val nameToRes: Map[PackageName, Package.Resolved] = imports.iterator
                       .map { i =>
                         val resolved: Package.Resolved = i.pack
@@ -624,15 +624,22 @@ object PackageMap {
                       }
                     }
 
-                    inferImports.flatMap { impMap =>
+                    inferImports.flatTraverse { impMap =>
                       val ilist = impMap.toList(using Package.orderByName)
-                      Package
-                        .inferBodyUnopt(nm, ilist, stmt)
-                        .flatMap { case (_, program) =>
-                          PackageCustoms
-                            .assemble(nm, ilist, impMap, exports, program)
-                        }
-                        .map(phases.finishPackage(_, depIfaces, compileOptions))
+                      // we need to use compute here because this can be a bit
+                      // heavy and in cats.effect.IO it should be on the blocking
+                      // threadpool.
+                      summon[CanPromise[F]].compute {
+                        for {
+                          (_, program) <- Package.inferBodyUnopt(
+                            nm,
+                            ilist,
+                            exports,
+                            stmt
+                          )
+                          asm <- PackageCustoms.assemble(nm, ilist, impMap, exports, program)
+                        } yield phases.finishPackage(asm, depIfaces, compileOptions)
+                      }
                     }
                   }
 
@@ -656,7 +663,7 @@ object PackageMap {
                       case None      =>
                         for {
                           depIfaces <- fromIor[F](depInterfaces)
-                          compiled <- fromIor[F](inferOnMiss(depIfaces))
+                          compiled <- IorT(inferOnMiss(depIfaces))
                           _ <- liftF(cache.put(key, compiled))
                         } yield compiled
                     }
