@@ -787,6 +787,46 @@ main = classify_char
     }
   }
 
+  test("int64 literal arguments are C11-safe constants") {
+    TestUtils.checkPackageMap("""
+a = -9223372036854775808
+b = -9223372036854775807
+c = 4294967296
+main = a
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          val int64Args =
+            "bsts_integer_from_int64\\(([^)]*)\\)".r
+              .findAllMatchIn(rendered)
+              .map(_.group(1).nn.trim)
+              .toList
+
+          assert(int64Args.nonEmpty)
+          assert(!int64Args.contains("-9223372036854775808"))
+          assert(
+            int64Args.forall { arg =>
+              (arg == "INT64_MIN") || {
+                val parsed = BigInt(arg)
+                (parsed > BigInt(Long.MinValue)) &&
+                (parsed <= BigInt(Long.MaxValue))
+              }
+            }
+          )
+        }
+      }
+    }
+
   test("float literals with sign bit use unsigned bit literals") {
     TestUtils.checkPackageMap("""
 main = -0.0

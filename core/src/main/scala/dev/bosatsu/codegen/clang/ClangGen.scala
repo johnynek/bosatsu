@@ -644,9 +644,12 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               case _: ArithmeticException =>
                 try {
                   val lv = toBigInteger.longValueExact()
+                  val int64Const =
+                    if (lv == Long.MinValue) Code.Ident("INT64_MIN")
+                    else Code.IntLiteral(BigInt(lv))
                   pv(
                     Code.Ident("bsts_integer_from_int64")(
-                      Code.IntLiteral(BigInt(lv))
+                      int64Const
                     )
                   )
                 } catch {
