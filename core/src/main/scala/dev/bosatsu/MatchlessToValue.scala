@@ -258,13 +258,6 @@ object MatchlessToValue {
             )
         }
 
-      private def valueToBigInteger(value: Any): Option[BigInteger] =
-        value match {
-          case BInt(i)         => Some(i.toBigInteger)
-          case i: BigInteger   => Some(i)
-          case _               => None
-        }
-
       private def valueToCodePoint(value: Any): Option[Int] =
         value match {
           case s: String if s.nonEmpty => Some(s.codePointAt(0))
@@ -298,22 +291,25 @@ object MatchlessToValue {
               }
             }
 
-          case LtEqLit(expr, lit) =>
+          case LtEqLit(expr, Lit.Integer(i)) =>
+            val rhs = BInt.fromBigInteger(i)
             loop(expr).map { e =>
-              val external = e.asExternal.toAny
-              lit match {
-                case Lit.Integer(i) =>
-                  valueToBigInteger(external).exists(_.compareTo(i) <= 0)
-                case c: Lit.Chr =>
-                  valueToCodePoint(external).exists(_ <= c.toCodePoint)
-                case _ =>
-                  // $COVERAGE-OFF$
-                  throw new IllegalStateException(
-                    s"unexpected LtEqLit literal: $lit"
-                  )
-                // $COVERAGE-ON$
+              e.asExternal.toAny match {
+                case BInt(lhs) => lhs.compare(rhs) <= 0
+                case _         => false
               }
             }
+          case LtEqLit(expr, c: Lit.Chr) =>
+            val rhsCodePoint = c.toCodePoint
+            loop(expr).map { e =>
+              valueToCodePoint(e.asExternal.toAny).exists(_ <= rhsCodePoint)
+            }
+          case LtEqLit(_, lit) =>
+            // $COVERAGE-OFF$
+            throw new IllegalStateException(
+              s"unexpected LtEqLit literal: $lit"
+            )
+          // $COVERAGE-ON$
 
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)

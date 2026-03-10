@@ -2808,6 +2808,30 @@ def small_spaces(rem):
         true,
         expr.toString
       )
+
+      val inputs = List(-1, 0, 1, 2, 5, 9, 10, 42)
+      val evalExprs = inputs.map { i =>
+        Matchless.App(
+          expr,
+          NonEmptyList.one(Matchless.Literal(Lit.fromInt(i)))
+        )
+      }.toVector
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      val expected = Vector(
+        Value.Str(""),
+        Value.Str(""),
+        Value.Str(" "),
+        Value.Str("  "),
+        Value.Str("     "),
+        Value.Str("         "),
+        Value.Str(""),
+        Value.Str("")
+      )
+      assertEquals(evaluated, expected)
     }
   }
 
@@ -2832,6 +2856,36 @@ def classify_char(ch):
         true,
         expr.toString
       )
+
+      val random = new scala.util.Random(12345L)
+      val otherCodePoints =
+        Iterator
+          .continually(33 + random.nextInt(90))
+          .filter(cp => !"abcde".contains(cp.toChar))
+          .take(5)
+          .toList
+
+      val baseInputs = List('a', 'b', 'c', 'd', 'e').map(_.toInt)
+      val allInputs = baseInputs ++ otherCodePoints
+      val evalExprs = allInputs.map { cp =>
+        Matchless.App(
+          expr,
+          NonEmptyList.one(Matchless.Literal(Lit.fromCodePoint(cp)))
+        )
+      }.toVector
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      val expected = Vector(
+        Value.VInt(1),
+        Value.VInt(2),
+        Value.VInt(3),
+        Value.VInt(4),
+        Value.VInt(5)
+      ) ++ Vector.fill(otherCodePoints.length)(Value.VInt(0))
+      assertEquals(evaluated, expected)
     }
   }
 

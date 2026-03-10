@@ -4734,14 +4734,14 @@ object Matchless {
                       }
                   }
 
-                sealed trait OrderedLiteralKind derives CanEqual
-                case object IntLiteralKind extends OrderedLiteralKind
-                case object CharLiteralKind extends OrderedLiteralKind
+                enum OrderedLiteralKind derives CanEqual {
+                  case IntKind, CharKind
+                }
 
                 def orderedLiteralKind(lit: Lit): Option[OrderedLiteralKind] =
                   lit match {
-                    case Lit.Integer(_) => Some(IntLiteralKind)
-                    case Lit.Chr(_)     => Some(CharLiteralKind)
+                    case Lit.Integer(_) => Some(OrderedLiteralKind.IntKind)
+                    case Lit.Chr(_)     => Some(OrderedLiteralKind.CharKind)
                     case _              => None
                   }
 
@@ -4751,7 +4751,7 @@ object Matchless {
                     right: Lit
                 ): Int =
                   kind match {
-                    case IntLiteralKind =>
+                    case OrderedLiteralKind.IntKind =>
                       (left, right) match {
                         case (Lit.Integer(l), Lit.Integer(r)) =>
                           l.compareTo(r)
@@ -4762,7 +4762,7 @@ object Matchless {
                           )
                         // $COVERAGE-ON$
                       }
-                    case CharLiteralKind =>
+                    case OrderedLiteralKind.CharKind =>
                       (left, right) match {
                         case (l: Lit.Chr, r: Lit.Chr) =>
                           java.lang.Integer.compare(l.toCodePoint, r.toCodePoint)
@@ -4775,27 +4775,25 @@ object Matchless {
                       }
                   }
 
-                def literalTreeLits(sigs: List[HeadSig]): Option[List[Lit]] =
+                def literalTreeLits(
+                    sigs: List[HeadSig]
+                ): Option[NonEmptyList[Lit]] =
                   if (sigs.length < LiteralTreeMinCases) None
                   else {
-                    sigs
-                      .traverse {
+                    for {
+                      literals <- sigs.traverse {
                         case LitSig(lit) => Some(lit)
                         case _           => None
                       }
-                      .flatMap { literals =>
-                        NonEmptyList.fromList(literals).flatMap { nel =>
-                          orderedLiteralKind(nel.head).flatMap { kind =>
-                            if (nel.forall(lit => orderedLiteralKind(lit).contains(kind)))
-                              Some(
-                                nel.toList.sortWith { (left, right) =>
-                                  orderedLiteralCompare(kind, left, right) < 0
-                                }
-                              )
-                            else None
-                          }
-                        }
+                      nel <- NonEmptyList.fromList(literals)
+                      kind <- orderedLiteralKind(nel.head)
+                      if nel.forall(lit => orderedLiteralKind(lit).contains(kind))
+                    } yield {
+                      val sorted = nel.toList.sortWith { (left, right) =>
+                        orderedLiteralCompare(kind, left, right) < 0
                       }
+                      NonEmptyList.fromListUnsafe(sorted)
+                    }
                   }
 
                 // Compile cases in order, with a default branch for wildcards.
@@ -4850,19 +4848,27 @@ object Matchless {
                   }
 
                 def compileLiteralTreeCases(
-                    sortedLits: List[Lit],
+                    sortedLits: NonEmptyList[Lit],
                     mustMatch: Boolean
                 ): F[Expr[B]] = {
                   def compileLiteralCase(lit: Lit): F[(Lit, Expr[B])] = {
                     val (newRows, _) =
                       minimizeSpecializedRows(LitSig(lit), rows, colIdx, 0)
                     val newOccs = occs.patch(colIdx, Nil, 1)
-                    if (newRows.isEmpty) Monad[F].pure((lit, UnitExpr))
-                    else
-                      compileRows(newRows, newOccs, mustMatch).map((lit, _))
+                    // Sorting only changes test order; specialization by `lit`
+                    // still selects the exact original rows/rhs for that literal.
+                    if (newRows.isEmpty) {
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected literal specialization rows for $lit in $sigs"
+                      )
+                    // $COVERAGE-ON$
+                    } else compileRows(newRows, newOccs, mustMatch).map((lit, _))
                   }
 
                   def fallbackExpr: F[Expr[B]] =
+                    // Wildcard rows become `defaultRows` and represent `_`.
+                    // We compile those once here as the shared fallback path.
                     if (defaultRows.nonEmpty)
                       compileRows(defaultRows, defaultOccs, mustMatch)
                     else Monad[F].pure(UnitExpr)
@@ -4886,7 +4892,7 @@ object Matchless {
 
                   (sortedLits.traverse(compileLiteralCase), fallbackExpr).mapN {
                     (compiledLits, fallback) =>
-                      buildTree(compiledLits.toVector, fallback)
+                      buildTree(compiledLits.toList.toVector, fallback)
                   }
                 }
 
