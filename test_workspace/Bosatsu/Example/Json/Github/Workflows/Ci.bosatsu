@@ -105,6 +105,8 @@ struct WorkflowJobs(
   buildWithGraal: WorkflowJobsNeedsRunStepsStrategy,
   testWithNode: WorkflowJobsNeedsRunStepsStrategy,
   testC: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  `testC-sanitizers`: WorkflowJobsNeedsRunStrategyStepsTimeout,
+  `testC-valgrind`: WorkflowJobsNeedsRunStrategyStepsTimeout,
   testCMacOS: WorkflowJobsNeedsRunStrategyStepsTimeout,
   libPublishDryRun: WorkflowJobsLibPublishDryRun,
 )
@@ -369,6 +371,42 @@ workflow =
           Step { name: Set("run lib build"), run: Set(run_lib_build_c) },
         ],
         timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        java_strategy_17,
+        [
+          *c_build_bootstrap_steps,
+          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          Step {
+            name: Set("install boehm"),
+            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+          },
+          Step {
+            name: Set("run c sanitizer checks"),
+            run: Set("./scripts/test_c_sanitizers.sh"),
+          },
+        ],
+        60,
+      ),
+      WorkflowJobsNeedsRunStrategyStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        java_strategy_17,
+        [
+          *c_build_bootstrap_steps,
+          Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
+          Step {
+            name: Set("install c toolchain and valgrind"),
+            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config valgrind"),
+          },
+          Step {
+            name: Set("run c valgrind checks"),
+            run: Set("./scripts/test_c_valgrind.sh"),
+          },
+        ],
+        90,
       ),
       WorkflowJobsNeedsRunStrategyStepsTimeout(
         needs_test,

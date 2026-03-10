@@ -339,6 +339,52 @@ jobs:
           ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
+  testC-sanitizers:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java:
+          - '17'
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "build assembly"
+        run: 'sbt "cli/assembly"'
+      - name: "install boehm"
+        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
+      - name: "run c sanitizer checks"
+        run: "./scripts/test_c_sanitizers.sh"
+    timeout-minutes: 60
+  testC-valgrind:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java:
+          - '17'
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - name: "java ${{matrix.java}} setup"
+        uses: "actions/setup-java@v5"
+        with:
+          distribution: "temurin"
+          java-version: "${{matrix.java}}"
+      - name: "install sbt"
+        uses: "sbt/setup-sbt@v1"
+      - name: "build assembly"
+        run: 'sbt "cli/assembly"'
+      - name: "install c toolchain and valgrind"
+        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config valgrind"
+      - name: "run c valgrind checks"
+        run: "./scripts/test_c_valgrind.sh"
+    timeout-minutes: 90
   testCMacOS:
     needs: test
     runs-on: macos-latest
