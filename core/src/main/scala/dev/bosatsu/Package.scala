@@ -186,6 +186,17 @@ object Package {
     ) extends TestDiscoveryError
   }
 
+  private def testEntryForLet[A](
+      bindable: Identifier.Bindable,
+      recursionKind: RecursionKind,
+      expr: TypedExpr[A]
+  ): Option[TestEntry[A]] =
+    if (expr.getType.sameAs(Type.TestType)) {
+      Some(TestEntry.PlainTest(bindable, recursionKind, expr))
+    } else if (expr.getType.sameAs(Type.ProgTestType)) {
+      Some(TestEntry.ProgTest(bindable, recursionKind, expr))
+    } else None
+
   /** Return the selected test entry for a package.
     *
     * Discovery rules:
@@ -199,13 +210,19 @@ object Package {
   ): Either[TestDiscoveryError, Option[TestEntry[A]]] = {
     val indexedLets = tp.lets.zipWithIndex
     val plainTests = indexedLets.collect {
-      case ((name, rec, te), idx) if te.getType.sameAs(Type.TestType) =>
-        (idx, TestEntry.PlainTest(name, rec, te))
+      case ((name, rec, te), idx) =>
+        testEntryForLet(name, rec, te).collect {
+          case plainTest @ TestEntry.PlainTest(_, _, _) => (idx, plainTest)
+        }
     }
+      .flatten
     val progTests = indexedLets.collect {
-      case ((name, rec, te), idx) if te.getType.sameAs(Type.ProgTestType) =>
-        (idx, TestEntry.ProgTest(name, rec, te))
+      case ((name, rec, te), idx) =>
+        testEntryForLet(name, rec, te).collect {
+          case progTest @ TestEntry.ProgTest(_, _, _) => (idx, progTest)
+        }
     }
+      .flatten
 
     progTests.lastOption match {
       case None =>
@@ -237,6 +254,17 @@ object Package {
     testEntry(tp).toOption.flatten.collect {
       case TestEntry.PlainTest(bindable, recursionKind, expr) =>
         (bindable, recursionKind, expr)
+    }
+
+  /** Return the selected top-level test value if this bindable has test type.
+    */
+  def testEntryForBindable[A](
+      tp: Typed[A],
+      bindable: Identifier.Bindable
+  ): Option[TestEntry[A]] =
+    tp.lets.collectFirstSome { case (name, recursionKind, expr) =>
+      if (name == bindable) testEntryForLet(name, recursionKind, expr)
+      else None
     }
 
   def testRootBindables[A](tp: Typed[A]): Set[Identifier.Bindable] =

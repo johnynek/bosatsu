@@ -6983,6 +6983,289 @@ main = 0
     }
   }
 
+  test("lib test rejects --value with --filter") {
+    module.run(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Euler/One::test_one",
+        "--filter",
+        "MyLib/Euler/.*"
+      )
+    ) match {
+      case Left(_)  => ()
+      case Right(_) =>
+        fail("expected parser error when both --value and --filter are supplied")
+    }
+  }
+
+  test("lib test --value accepts exported plain Test values") {
+    val targetSrc =
+      """export test_one
+|
+|test_one = Assertion(True, "ok")
+|""".stripMargin
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Euler", "One.bosatsu") -> targetSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc,
+      Chain("repo", "cc_conf.json") -> ccConfJson
+    )
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Euler/One::test_one",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected failure in memory mode, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("system not supported in memory mode"), msg)
+        assert(!msg.contains("ReproMin8"), msg)
+        assert(!msg.contains("invalid test value"), msg)
+    }
+  }
+
+  test("lib test --value accepts exported ProgTest values") {
+    val targetSrc =
+      """from Bosatsu/Prog import ProgTest, pure
+|
+|export prog_tests
+|
+|prog_tests = ProgTest(_ -> pure(Assertion(True, "ok")))
+|""".stripMargin
+    val unrelatedBrokenSrc =
+      """bad = does_not_exist
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("repo", "src", "MyLib", "Euler", "ProgSel.bosatsu") -> targetSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc,
+      Chain("repo", "cc_conf.json") -> ccConfJson
+    )
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Euler/ProgSel::prog_tests",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected failure in memory mode, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("system not supported in memory mode"), msg)
+        assert(!msg.contains("ReproMin8"), msg)
+        assert(!msg.contains("invalid test value"), msg)
+    }
+  }
+
+  test("lib test --value rejects non-exported test values") {
+    val targetSrc =
+      """export visible
+|
+|visible = Assertion(True, "ok")
+|hidden = Assertion(True, "hidden")
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val files =
+      baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::hidden",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected invalid value selection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid test value `MyLib/Foo::hidden`"), msg)
+        assert(msg.contains("value is not exported"), msg)
+        assert(msg.contains("exported test values: [visible]"), msg)
+    }
+  }
+
+  test("lib test --value rejects exported values that are not test values") {
+    val targetSrc =
+      """export not_test
+|
+|not_test = 1
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val files =
+      baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::not_test",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected invalid value selection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid test value `MyLib/Foo::not_test`"), msg)
+        assert(msg.contains("exported value is not a test value"), msg)
+        assert(msg.contains("Bosatsu/Predef::Test"), msg)
+    }
+  }
+
+  test("lib test --value reports unknown package with a clear error") {
+    val targetSrc =
+      """export test_one
+|
+|test_one = Assertion(True, "ok")
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val files =
+      baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "Nope/Missing::test_one",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected invalid value selection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid test value `Nope/Missing::test_one`"), msg)
+        assert(msg.contains("unknown package"), msg)
+    }
+  }
+
+  test("lib test --value reports packages with no exported test values") {
+    val targetSrc =
+      """export main
+|
+|main = 42
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+    val files =
+      baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::missing",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected invalid value selection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("invalid test value `MyLib/Foo::missing`"), msg)
+        assert(msg.contains("has no exported test values"), msg)
+    }
+  }
+
   test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
@@ -7076,6 +7359,23 @@ main = 0
       case Right(other)              => fail(s"unexpected output: $other")
       case Left(err)                 =>
         fail(Option(err.getMessage).getOrElse(err.toString))
+    }
+  }
+
+  test("lib check rejects --value") {
+    module.run(
+      List(
+        "lib",
+        "check",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Euler/One::test_one"
+      )
+    ) match {
+      case Left(_)  => ()
+      case Right(_) =>
+        fail("expected parser error for unsupported --value on lib check")
     }
   }
 

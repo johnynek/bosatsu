@@ -1,6 +1,7 @@
 package dev.bosatsu.codegen.clang
 
-import cats.data.{NonEmptyList, Validated}
+import cats.data.{NonEmptyList, Validated, ValidatedNel}
+import cats.parse.{Parser => CP}
 import com.monovore.decline.{Argument, Opts}
 import java.util.regex.{Pattern => RegexPat}
 import dev.bosatsu.codegen.{Transpiler, CompilationNamespace}
@@ -67,40 +68,198 @@ case object ClangTranspiler extends Transpiler {
   sealed abstract class Mode[F[_]](val name: String)
   object Mode {
     case class Main[F[_]](pack: F[PackageName]) extends Mode[F]("main")
-    case class Test[F[_]](
-        filter: Option[PackageName => Boolean],
-        filterRegexes: NonEmptyList[String],
-        execute: Boolean,
-        quiet: Boolean
-    ) extends Mode[F]("test") {
-      def values[K](
-          ns: CompilationNamespace[K]
-      ): Either[List[(PackageName, Package.TestDiscoveryError)], List[(
-        PackageName,
-        Package.TestEntry[Any]
-      )]] = {
-        val filtered = (filter match {
-          case None =>
-            ns.testEntries.toList
-          case Some(k) =>
-            ns.testEntries.iterator.filter { case (p, _) => k(p) }.toList
-        }).sortBy(_._1)
+    object Test {
+      type ValueSelector = (PackageName, Identifier.Bindable)
 
-        val errors =
-          filtered.collect { case (pn, Left(err)) => (pn, err) }
-        if (errors.nonEmpty) Left(errors)
-        else Right(filtered.collect { case (pn, Right(entry)) => (pn, entry) })
+      sealed trait SelectionMode {
+        def sourceFilter: Option[PackageName => Boolean]
+        def filterRegexes: NonEmptyList[String]
+      }
+      object SelectionMode {
+        final case class ByFilter(
+            filterRegexes: NonEmptyList[String],
+            filter: Option[PackageName => Boolean]
+        ) extends SelectionMode {
+          def sourceFilter: Option[PackageName => Boolean] = filter
+        }
+
+        final case class ByValue(
+            packageName: PackageName,
+            bindable: Identifier.Bindable
+        ) extends SelectionMode {
+          def sourceFilter: Option[PackageName => Boolean] = Some(_ == packageName)
+          def filterRegexes: NonEmptyList[String] =
+            NonEmptyList.one(show"${packageName.asString}::${bindable.sourceCodeRepr}")
+        }
       }
     }
 
+    case class Test[F[_]](
+        selection: Test.SelectionMode,
+        execute: Boolean,
+        quiet: Boolean
+    ) extends Mode[F]("test") {
+      def sourceFilter: Option[PackageName => Boolean] = selection.sourceFilter
+      def filterRegexes: NonEmptyList[String] = selection.filterRegexes
+
+      def values[K](
+          ns: CompilationNamespace[K]
+      ): Either[Exception & CliException, List[(
+        PackageName,
+        Package.TestEntry[Any]
+      )]] =
+        selection match {
+          case Test.SelectionMode.ByFilter(_, filter) =>
+            val filtered = (filter match {
+              case None =>
+                ns.testEntries.toList
+              case Some(k) =>
+                ns.testEntries.iterator.filter { case (p, _) => k(p) }.toList
+            }).sortBy(_._1)
+
+            val errors =
+              filtered.collect { case (pn, Left(err)) => (pn, err) }
+            NonEmptyList.fromList(errors) match {
+              case Some(errs) =>
+                Left(InvalidTestDiscovery(errs))
+              case None       =>
+                Right(filtered.collect { case (pn, Right(entry)) => (pn, entry) })
+            }
+          case Test.SelectionMode.ByValue(packageName, bindable) =>
+            val knownPacks = ns.rootPackages.toList.sorted
+            if (!ns.rootPackages.contains(packageName)) {
+              Left(
+                InvalidTestValueSelection(
+                  packageName,
+                  bindable,
+                  unknownTestPackMsg(packageName, bindable, knownPacks)
+                )
+              )
+            } else {
+              val exported = ns.exportedValues(packageName).getOrElse(Map.empty)
+              val exportedTestValues = exported.iterator.collect {
+                case (name, tpe) if isTestValueType(tpe) => name
+              }.toList
+              exported.get(bindable) match {
+                case None =>
+                  if (exportedTestValues.isEmpty) {
+                    Left(
+                      InvalidTestValueSelection(
+                        packageName,
+                        bindable,
+                        noExportedTestValuesMsg(packageName, bindable)
+                      )
+                    )
+                  } else {
+                    val exportedTests = exportedTestValues.map(_.sourceCodeRepr).sorted
+                    Left(
+                      InvalidTestValueSelection(
+                        packageName,
+                        bindable,
+                        testValueNotExportedMsg(
+                          packageName,
+                          bindable,
+                          exportedTests
+                        )
+                      )
+                    )
+                  }
+                case Some(tpe) if !isTestValueType(tpe) =>
+                  Left(
+                    InvalidTestValueSelection(
+                      packageName,
+                      bindable,
+                      exportedValueNotTestMsg(packageName, bindable, tpe)
+                    )
+                  )
+                case Some(_) =>
+                  ns.exportedTestEntry(packageName, bindable) match {
+                    case Some(entry) =>
+                      Right((packageName, entry) :: Nil)
+                    case None        =>
+                      Left(
+                        InvalidTestValueSelection(
+                          packageName,
+                          bindable,
+                          exportedValueNotTopLevelTestMsg(packageName, bindable)
+                        )
+                      )
+                  }
+              }
+            }
+        }
+    }
+
+    private implicit val testValueArgument: Argument[Test.ValueSelector] =
+      new Argument[Test.ValueSelector] {
+        def defaultMetavar: String = "valueIdent"
+
+        def read(
+            string: String
+        ): ValidatedNel[String, Test.ValueSelector] =
+          (PackageName.parser ~ (CP.string("::") *> Identifier.parser))
+            .parseAll(string) match {
+            case Right((pack, bindable: Identifier.Bindable)) =>
+              Validated.valid((pack, bindable))
+            case Right((pack, cons: Identifier.Constructor))  =>
+              Validated.invalidNel(
+                show"${pack.asString}::${cons.asString} is a constructor or type name, not a value. A top-level value is required."
+              )
+            case _ =>
+              Validated.invalidNel(
+                s"could not parse $string as package::value. Must be package::value, e.g. Foo/Bar::bippy."
+              )
+          }
+      }
+
+    private def testFilterSelectionOpts: Opts[Test.SelectionMode.ByFilter] =
+      Opts
+        .options[String](
+          "filter",
+          help = "regular expression to filter package names"
+        )
+        .orNone
+        .mapValidated {
+          case None      =>
+            Validated.valid(
+              Test.SelectionMode.ByFilter(
+                NonEmptyList.one(".*"),
+                None
+              )
+            )
+          case Some(res) =>
+            Try(res.map(RegexPat.compile(_))) match {
+              case Success(pats) =>
+                Validated.valid(
+                  Test.SelectionMode.ByFilter(
+                    res,
+                    Some(pn => pats.exists(_.matcher(pn.asString).matches()))
+                  )
+                )
+              case Failure(e)    =>
+                Validated.invalidNel(
+                  s"could not parse pattern: $res\n\n${e.getMessage}"
+                )
+            }
+        }
+
+    private def testSelectionOpts: Opts[Test.SelectionMode] =
+      Opts
+        .option[Test.ValueSelector](
+          "value",
+          help = "single exported test value to run (package::value)"
+        )
+        .map { case (packageName, bindable) =>
+          Test.SelectionMode.ByValue(packageName, bindable)
+        }
+        .orElse(testFilterSelectionOpts)
+
+    def testFilterOpts: Opts[Option[PackageName => Boolean]] =
+      testFilterSelectionOpts.map(_.sourceFilter)
+
     def testOpts[F[_]](executeOpts: Opts[Boolean]): Opts[Mode.Test[F]] =
       (
-        Opts
-          .options[String](
-            "filter",
-            help = "regular expression to filter package names"
-          )
-          .orNone,
+        testSelectionOpts,
         executeOpts,
         Opts
           .flag(
@@ -108,27 +267,7 @@ case object ClangTranspiler extends Transpiler {
             help = "only print failure details and final test summary"
           )
           .orFalse
-      ).tupled
-        .mapValidated {
-          case (None, execute, quiet) =>
-            Validated.valid(Test(None, NonEmptyList.one(".*"), execute, quiet))
-          case (Some(res), execute, quiet) =>
-            Try(res.map(RegexPat.compile(_))) match {
-              case Success(pats) =>
-                Validated.valid(
-                  Test(
-                    Some(pn => pats.exists(_.matcher(pn.asString).matches())),
-                    res,
-                    execute,
-                    quiet
-                  )
-                )
-              case Failure(e) =>
-                Validated.invalidNel(
-                  s"could not parse pattern: $res\n\n${e.getMessage}"
-                )
-            }
-        }
+      ).mapN(Test(_, _, _))
 
     def opts[F[_]: Applicative]: Opts[Mode[F]] =
       Opts
@@ -390,6 +529,17 @@ case object ClangTranspiler extends Transpiler {
     def exitCode: ExitCode = ExitCode.Error
   }
 
+  case class InvalidTestValueSelection(
+      packageName: PackageName,
+      valueName: Identifier.Bindable,
+      message: String
+  ) extends Exception(message)
+      with CliException {
+    def errDoc = Doc.text(getMessage())
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
+
   private def packageIdent(pack: PackageName): Identifier =
     Identifier.Synthetic(pack.asString)
 
@@ -423,6 +573,79 @@ case object ClangTranspiler extends Transpiler {
 
   private def invalidMainPackMsg(mainPack: PackageName, detail: String): String =
     s"invalid main package `${mainPack.asString}`: $detail"
+
+  private def invalidTestValueMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable,
+      detail: String
+  ): String =
+    s"invalid test value `${packageName.asString}::${bindable.sourceCodeRepr}`: $detail"
+
+  private def unknownTestPackMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable,
+      knownPacks: List[PackageName]
+  ): String = {
+    val suggestion =
+      nearestPackage(packageName, knownPacks)
+        .fold("")(pack => s"\nDid you mean: ${pack.asString} ?")
+    invalidTestValueMsg(
+      packageName,
+      bindable,
+      s"unknown package.$suggestion\n${packageCountMsg(knownPacks.size)}"
+    )
+  }
+
+  private def noExportedTestValuesMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable
+  ): String =
+    invalidTestValueMsg(
+      packageName,
+      bindable,
+      s"${packageName.asString} has no exported test values. Export a value with type Bosatsu/Predef::Test or Bosatsu/Prog::ProgTest."
+    )
+
+  private def testValueNotExportedMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable,
+      exportedTestValues: List[String]
+  ): String = {
+    val detail =
+      if (exportedTestValues.isEmpty) {
+        s"value is not exported by ${packageName.asString}."
+      } else {
+        val rendered = exportedTestValues.mkString(", ")
+        s"value is not exported by ${packageName.asString}. exported test values: [$rendered]"
+      }
+    invalidTestValueMsg(packageName, bindable, detail)
+  }
+
+  private def exportedValueNotTestMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable,
+      tpe: Type
+  ): String = {
+    val actualType = Type.fullyResolvedDocument.document(tpe).render(80)
+    invalidTestValueMsg(
+      packageName,
+      bindable,
+      s"exported value is not a test value. Expected Bosatsu/Predef::Test or Bosatsu/Prog::ProgTest, found: $actualType"
+    )
+  }
+
+  private def exportedValueNotTopLevelTestMsg(
+      packageName: PackageName,
+      bindable: Identifier.Bindable
+  ): String =
+    invalidTestValueMsg(
+      packageName,
+      bindable,
+      "exported value is not a top-level test value in this package."
+    )
+
+  private def isTestValueType(tpe: Type): Boolean =
+    tpe.sameAs(Type.TestType) || tpe.sameAs(Type.ProgTestType)
 
   private def testDiscoveryErrMsg(
       err: Package.TestDiscoveryError
@@ -550,18 +773,14 @@ case object ClangTranspiler extends Transpiler {
                       )
                 })
               }
-            case test @ Mode.Test(_, re, execute, quiet) =>
+            case test @ Mode.Test(_, execute, quiet) =>
               test.values(ns) match {
-                case Left(errors) =>
-                  moduleIOMonad.raiseError(
-                    InvalidTestDiscovery(
-                      NonEmptyList.fromListUnsafe(errors)
-                    )
-                  )
+                case Left(err) =>
+                  moduleIOMonad.raiseError(err)
                 case Right(tvs)   =>
                   if (tvs.isEmpty) {
                     moduleIOMonad.raiseError(
-                      NoTestsFound(ns.rootPackages.toList, re)
+                      NoTestsFound(ns.rootPackages.toList, test.filterRegexes)
                     )
                   } else {
                     val roots = tvs.iterator.map { case (p, entry) =>

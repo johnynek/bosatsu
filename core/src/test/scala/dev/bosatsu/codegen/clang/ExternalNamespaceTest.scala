@@ -35,6 +35,15 @@ class ExternalNamespaceTest extends munit.FunSuite {
         Toposort.Success(Vector.empty)
       def compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
         SortedMap.empty
+      def exportedValues(
+          packageName: PackageName
+      ): Option[Map[Identifier.Bindable, Type]] =
+        None
+      def exportedTestEntry(
+          packageName: PackageName,
+          bindable: Identifier.Bindable
+      ): Option[Package.TestEntry[Any]] =
+        None
       def testEntries
           : Map[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[
             Any

@@ -1525,7 +1525,7 @@ object Command {
         "check all the code, but do not build the final output library (faster than build)."
       ) {
         val sourceFilterOpt: Opts[Option[PackageName => Boolean]] =
-          ClangTranspiler.Mode.testOpts[F](Opts(false)).map(_.filter)
+          ClangTranspiler.Mode.testFilterOpts
 
         (
           ConfigConf.opts,
@@ -2459,7 +2459,7 @@ object Command {
                 msg <- cc.build(
                   colorize,
                   trans,
-                  test.filter,
+                  test.sourceFilter,
                   cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])
