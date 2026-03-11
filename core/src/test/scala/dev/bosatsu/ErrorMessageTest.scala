@@ -70,6 +70,98 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
     (errs, PackageMap.buildSourceMap(withPre))
   }
 
+  private def circularCycles(errs: NonEmptyList[PackageError]): List[List[String]] =
+    errs.toList.collect { case circular: PackageError.CircularDependency[?, ?, ?] =>
+      (circular.from :: circular.path.toList).map(_.asString)
+    }
+
+  test("circular dependency errors report canonical minimal loops") {
+    val a =
+      """package A
+        |from B import main as bMain
+        |from C import main as cMain
+        |from D import main as dMain
+        |
+        |main = 1
+        |""".stripMargin
+
+    val b =
+      """package B
+        |from A import main as aMain
+        |from C import main as cMain
+        |from D import main as dMain
+        |
+        |main = 2
+        |""".stripMargin
+
+    val c =
+      """package C
+        |from A import main as aMain
+        |from B import main as bMain
+        |from D import main as dMain
+        |
+        |main = 3
+        |""".stripMargin
+
+    val d =
+      """package D
+        |from A import main as aMain
+        |from B import main as bMain
+        |from C import main as cMain
+        |
+        |main = 4
+        |""".stripMargin
+
+    val (errs, _) = compileErrors(List(a, b, c, d))
+    val cycles = circularCycles(errs)
+
+    assertEquals(
+      cycles,
+      List(
+        List("A", "B", "A"),
+        List("A", "C", "A"),
+        List("A", "D", "A"),
+        List("B", "C", "B"),
+        List("B", "D", "B"),
+        List("C", "D", "C")
+      )
+    )
+  }
+
+  test("circular dependency loop path is trimmed to the cycle itself") {
+    val root =
+      """package Root
+        |from A import main as aMain
+        |
+        |main = 0
+        |""".stripMargin
+
+    val a =
+      """package A
+        |from B import main as bMain
+        |
+        |main = 1
+        |""".stripMargin
+
+    val b =
+      """package B
+        |from C import main as cMain
+        |
+        |main = 2
+        |""".stripMargin
+
+    val c =
+      """package C
+        |from A import main as aMain
+        |
+        |main = 3
+        |""".stripMargin
+
+    val (errs, _) = compileErrors(List(root, a, b, c))
+    val cycles = circularCycles(errs)
+    assertEquals(cycles, List(List("A", "B", "C", "A")))
+  }
+
   test("unused top-level let points to the whole binding") {
     val source =
       """package A
