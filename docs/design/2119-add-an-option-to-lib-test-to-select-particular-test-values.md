@@ -10,10 +10,9 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/library/DecodedLibraryWithDeps.scala
   - core/src/main/scala/dev/bosatsu/Package.scala
   - core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala
-  - core/src/test/scala/dev/bosatsu/Issue1654Test.scala
 depends_on: []
 estimated_size: M
-generated_at: 2026-03-11T05:37:55Z
+generated_at: 2026-03-11T23:20:00Z
 ---
 
 # Issue #2119 Design: add `--value` to `lib test` to select a particular test value
@@ -22,212 +21,162 @@ _Issue: #2119 (https://github.com/johnynek/bosatsu/issues/2119)_
 
 ## Summary
 
-Design for adding a mutually-exclusive `--value <package::value>` selector to `lib test`, including CLI parsing changes, test-target resolution/validation, acceptance criteria, risks, and rollout notes.
+Add a new `lib test --value <package::value>` selector that runs exactly one test value, with parser-level exclusivity against `--filter` via Decline `orElse`.
 
----
-issue: 2119
-title: add an option to `lib test` to select particular test values
-status: proposed
-base_branch: main
-touch_paths:
-  - docs/design/2119-add-an-option-to-lib-test-to-select-particular-test-values.md
-  - core/src/main/scala/dev/bosatsu/codegen/clang/ClangTranspiler.scala
-  - core/src/main/scala/dev/bosatsu/library/Command.scala
-  - core/src/main/scala/dev/bosatsu/codegen/CompilationNamespace.scala
-  - core/src/main/scala/dev/bosatsu/codegen/CompilationSource.scala
-  - core/src/main/scala/dev/bosatsu/library/DecodedLibraryWithDeps.scala
-  - core/src/main/scala/dev/bosatsu/Package.scala
-  - core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala
-  - core/src/test/scala/dev/bosatsu/Issue1654Test.scala
-depends_on: []
-estimated_size: M
-generated_at: 2026-03-10
----
-
-# Issue #2119 Design: add `--value` to `lib test` for selecting a single test value
-
-Issue: #2119 (https://github.com/johnynek/bosatsu/issues/2119)  
-Base branch: `main`  
-Status: proposed
-
-## Summary
-
-Add a new `lib test --value <package::value>` selection mode so users can run a single top-level test value (plain `Test` or `ProgTest`) without running all discovered tests in a package.
-
-`--value` must be mutually exclusive with `--filter`, enforced via Decline `orElse` composition. Invalid selections must fail with a clear CLI error.
+To keep compilation semantics simple and unchanged, `--value` only accepts exported test values. If the selected value is not exported or is not a test value, `lib test` errors clearly.
 
 ## Problem statement
 
-Current `lib test` selection behavior is package-level only:
+`lib test` currently only supports package-level narrowing via `--filter` regexes. That is useful but coarse during iteration, where users often want to run one named test value such as `Foo/Bar/Baz::quux`.
 
-1. CLI supports `--filter` regexes (package-level selection).
-2. Runtime selection uses discovered package test entries (`Package.testEntry`), i.e. one selected test entry per package.
-3. There is no way to target a single named test value such as `Foo/Bar/Baz::quux`.
+Issue #2119 requests:
 
-Issue #2119 requests a targeted mode for iteration:
-
-1. Add `--value Foo/Bar/Baz::quux`.
-2. Ensure `quux` is validated as a test value.
-3. Make `--value` and `--filter` exclusive using Decline `orElse`.
+1. A `--value` selector for `package::value`.
+2. A failure when the selected value is not a valid test value.
+3. Mutual exclusivity with `--filter` using Decline `orElse`.
 
 ## Goals
 
 1. Add `--value <package::value>` to `lib test`.
-2. Enforce `--value` XOR `--filter` at parser level.
-3. Validate that selected value is a test value (`Bosatsu/Predef::Test` or `Bosatsu/Prog::ProgTest`), otherwise error.
-4. Keep existing `--filter` and default (no selector) behavior unchanged.
-5. Keep C codegen/runtime execution path unchanged except for which test entries are selected.
+2. Enforce `--value` XOR `--filter` in CLI parsing.
+3. Fail fast with a clear message when the selected value is not exported as a test value.
+4. Keep existing `--filter` and default `lib test` behavior unchanged.
+5. Avoid changes to compilation/inlining semantics.
 
 ## Non-goals
 
-1. No change to `tool test` options in this issue.
-2. No C runtime API changes (`bsts_test_run`, `bsts_test_run_prog`, summaries remain as-is).
-3. No change to test output formatting.
-4. No support for selecting multiple explicit values in one invocation.
+1. No changes to `tool test` behavior or options.
+2. No C runtime API changes.
+3. No changes to test output formatting.
+4. No support for multiple `--value` selectors in one invocation.
 
-## Current behavior (relevant code paths)
+## Current behavior (relevant paths)
 
-1. `lib test` parses options through `ClangTranspiler.Mode.testOpts`.
-2. `Mode.Test.values` currently filters `ns.testEntries` by package regex, then renders/runs each selected package test entry.
-3. `Command.testCommand` passes `test.filter` into `cc.build(...)` to scope local package typechecking.
-4. `lib check` currently reuses `Mode.testOpts(...).map(_.filter)` to get package filter behavior.
+1. `lib test` options are parsed by `ClangTranspiler.Mode.testOpts`.
+2. `Mode.Test.values` currently filters discovered package test entries.
+3. `lib check` currently reuses a filter parser path from test options.
 
-This reuse is important because adding `--value` directly to `testOpts` without parser split would unintentionally leak option semantics into `lib check`.
+This is the key integration point for adding `--value` safely while preserving existing flows.
 
 ## Proposed architecture
 
-### 1) Introduce explicit test-selection mode in `ClangTranspiler.Mode.Test`
+### 1) Selection mode in `ClangTranspiler.Mode.Test`
 
-Add a selector ADT for test selection:
+Introduce explicit selector modes:
 
-1. `ByFilter(regexes, predicate)` for current package regex behavior.
-2. `ByValue(packageName, bindable)` for explicit named test selection.
+1. `ByFilter(regexes, predicate)` for the current package-regex behavior.
+2. `ByValue(packageName, bindable)` for explicit single-value selection.
 
-`Mode.Test` carries this selector and exposes a derived `sourceFilter`:
+`Mode.Test` exposes a derived source package filter:
 
-1. `ByFilter` -> existing package predicate (or none for default all).
-2. `ByValue` -> exact package predicate (`_ == packageName`) to keep local compilation scoped.
+1. `ByFilter` keeps current behavior.
+2. `ByValue` scopes local package compilation to the selected package.
 
-### 2) Parser design using Decline `orElse` (exclusive modes)
+### 2) CLI exclusivity via Decline `orElse`
 
-Use parser branches so `--value` and `--filter` cannot be combined:
+Build parser branches as:
 
-1. Value branch: parse one required `package::value` into `ByValue`.
-2. Filter branch: parse `--filter` regexes (or default all) into `ByFilter`.
+1. Value branch: `--value <package::value>`.
+2. Filter branch: existing `--filter` behavior (or default all).
 3. Compose as `valueBranch.orElse(filterBranch)`.
 
-This gives parser-level exclusivity and matches issue guidance.
+This enforces exclusive modes at parse time as requested.
 
-### 3) Keep `lib check` stable by splitting filter parser from test parser
+### 3) Keep `lib check` stable
 
-Because `lib check` currently consumes `.map(_.filter)` from `testOpts`, introduce a dedicated filter-only parser helper in `ClangTranspiler.Mode`:
+`lib check` should not gain `--value`. Split parser helpers in `ClangTranspiler.Mode`:
 
-1. `filterOpts` for package filtering only (used by `lib check`).
-2. `testOpts` for full `lib test` behavior (`--value` or `--filter`, plus `--quiet`, execute flag).
+1. A filter-only helper for `lib check`.
+2. Full selector parser (`--value` or `--filter`) for `lib test`.
 
-This avoids accidental acceptance of `--value` in `lib check`.
+This avoids accidental option leakage from `lib test` to `lib check`.
 
-### 4) Explicit value resolution and validation
+### 4) Export-gated value validation
 
-Current namespace API only exposes discovered test entry map. For `--value`, we need exact bindable lookup among all top-level test-typed lets in a package.
+For `ByValue(package::name)`, validation is:
 
-Add namespace support:
+1. Package exists in root-library scope.
+2. `name` is exported by that package.
+3. The exported `name` resolves to a top-level value typed as `Bosatsu/Predef::Test` or `Bosatsu/Prog::ProgTest`.
 
-1. `CompilationNamespace.testEntriesInPackage(pn): List[Package.TestEntry[Any]]`.
-2. Implement in `CompilationSource.packageMapSrc` and `DecodedLibraryWithDeps` namespace impl.
-3. Add helper in `Package.scala` to enumerate all top-level lets whose type is `Test` or `ProgTest`, preserving bindable/recursion/expr.
+If any check fails, emit a dedicated `InvalidTestValueSelection` error.
 
-Selection behavior:
+Rationale: requiring export means we only depend on values guaranteed to survive existing compilation/inlining behavior. We do not need to broaden root retention rules.
 
-1. `ByFilter`: preserve existing `ns.testEntries` discovery + discovery errors.
-2. `ByValue`: select exactly one matching bindable from `testEntriesInPackage`.
-3. If no match, raise a dedicated CLI error that states selected value is not a test value and includes available test values in the package (if any).
+### 5) Namespace lookup support
 
-### 5) Ensure optimizer does not drop valid `--value` targets
+Add lookup support in compilation namespace plumbing so `ByValue` can validate and resolve one value by package/name without changing runtime APIs.
 
-`Package.discardUnused` currently pins roots from `Package.testRootBindables`, which currently tracks discovered entry semantics. That can drop other valid test-typed lets before CLI selection is applied.
+Likely additions:
 
-To make `--value` reliable, broaden root pinning for test values:
+1. A namespace helper to look up exported value metadata by package/value.
+2. A namespace helper to resolve test-entry kind for the selected exported value.
 
-1. Update `Package.testRootBindables` to include all top-level test-typed bindables (`Test` and `ProgTest`).
-2. Keep `Package.testEntry` discovery/error semantics unchanged (only retention changes).
-
-This guarantees explicit test values remain available for selection in optimized compilation.
+Implement these in both package-map and decoded-library namespace implementations.
 
 ### 6) Error model
 
-Add a dedicated CLI exception in `ClangTranspiler` for explicit-value selection failures (instead of overloading `NoTestsFound`):
+Add a dedicated CLI error for explicit selection failures, with clear messages for:
 
-1. Unknown package in root library.
-2. Package exists but selected bindable is not a test value.
-3. Package has no test values.
+1. Unknown package.
+2. Value is not exported.
+3. Exported value exists but is not a test value.
+4. Package has no exported test values.
 
-Keep existing errors unchanged for filter/default mode:
-
-1. `InvalidTestDiscovery` for discovery-order violations.
-2. `NoTestsFound` for regex filters that match no discovered package tests.
+Keep existing `NoTestsFound` and discovery errors unchanged for filter/default modes.
 
 ## Detailed implementation plan
 
-1. In `ClangTranspiler.Mode`, add selector ADT and refactor `Mode.Test` to use it.
-2. Add `--value` parser (argument type `package::value`, bindable-only) and compose with filter parser via `orElse`.
-3. Add filter-only parser helper and switch `lib check` to that helper.
-4. Update `Command.testCommand` to pass `test.sourceFilter` into `cc.build`.
-5. Add `CompilationNamespace.testEntriesInPackage` API.
-6. Implement namespace API in `CompilationSource.scala` and `DecodedLibraryWithDeps.scala` namespace implementation.
-7. Add helper(s) in `Package.scala` to enumerate top-level test entries and lookup by bindable.
-8. Update `Mode.Test.values` to branch by selector mode (`ByFilter` vs `ByValue`).
-9. Add new `InvalidTestValueSelection` CLI exception with informative message and valid candidates.
-10. Update `Package.testRootBindables` to keep all top-level test-typed bindables so explicit value targets survive optimization.
-11. Add/extend tests for parser exclusivity, value selection success, and invalid selection errors.
+1. Refactor `ClangTranspiler.Mode.Test` to carry selector mode (`ByFilter` or `ByValue`).
+2. Add `--value` parsing (`package::value`, bindable-only) and compose with filter parser using `orElse`.
+3. Add filter-only parser helper and update `lib check` to use it.
+4. Update `Command.testCommand` to use derived source filter from the selector mode.
+5. Extend `CompilationNamespace` with exported-value lookup support required by `ByValue` validation.
+6. Implement namespace lookup support in `CompilationSource.scala` and `DecodedLibraryWithDeps.scala`.
+7. Add helper logic in `Package.scala` for resolving top-level test-entry kind for a named bindable.
+8. Update `Mode.Test.values`:
+   1. Filter mode keeps existing discovery behavior.
+   2. Value mode resolves a single exported test entry or errors.
+9. Add `InvalidTestValueSelection` CLI exception and wire it into error reporting.
+10. Add/adjust tests in `ToolAndLibCommandTest.scala` for selector exclusivity and export-gated validation.
 
 ## Testing strategy
 
-### Parser and command behavior (`ToolAndLibCommandTest.scala`)
+### CLI and command tests (`ToolAndLibCommandTest.scala`)
 
-1. `lib test --value Foo/Bar::quux --filter Foo/.*` fails parse (exclusive modes).
-2. `lib test --value <valid plain Test value>` selects that value and attempts execution path.
-3. `lib test --value <valid ProgTest value>` uses prog-test execution path.
-4. `lib test --value <non-test top-level value>` fails with clear invalid-selection message.
-5. `lib test --value <unknown package/value>` fails with clear message and candidate test values (when package exists).
-6. Existing `lib test --filter` tests continue to pass unchanged.
-7. Existing `lib check --filter` behavior remains unchanged; `--value` is not accepted there.
-
-### Core test-discovery helper coverage (`Issue1654Test.scala` or equivalent)
-
-1. Verify helper that enumerates test entries includes plain `Test` and `ProgTest` lets.
-2. Verify bindable lookup returns correct entry kind.
-3. Verify `testRootBindables` retains all top-level test-typed bindables needed for explicit selection.
+1. `lib test --value Foo/Bar::quux --filter Foo/.*` fails parse (exclusive selectors).
+2. `lib test --value <exported plain Test value>` selects one value and proceeds through existing execution path.
+3. `lib test --value <exported ProgTest value>` selects one value and uses prog-test path.
+4. `lib test --value <non-exported test value>` fails with explicit export requirement error.
+5. `lib test --value <exported non-test value>` fails with not-a-test-value error.
+6. `lib test --value <unknown package/value>` fails with clear selection error.
+7. Existing `lib test --filter` behavior remains unchanged.
+8. Existing `lib check --filter` behavior remains unchanged and does not accept `--value`.
 
 ## Acceptance criteria
 
-1. `lib test --value Foo/Bar/Baz::quux` is accepted when `quux` is a top-level test value.
-2. `lib test --value ...` runs only the selected value (single test entry target).
-3. If selected value is not a valid test value, command fails with a clear error.
-4. `--value` and `--filter` are mutually exclusive at CLI parse level.
-5. Existing `--filter` behavior and no-selector default behavior are unchanged.
-6. `lib check` retains existing filter-only behavior and does not silently accept `--value`.
-7. Both plain `Test` and `ProgTest` values are valid targets for `--value`.
-8. Discovery-order error handling remains unchanged for filter/default modes.
-9. Regression tests are added/updated to cover parser exclusivity, valid/invalid value selection, and filter compatibility.
+1. `lib test --value Foo/Bar/Baz::quux` is accepted only when `quux` is exported and is a valid test value.
+2. `lib test --value ...` runs exactly the selected value.
+3. Non-exported values passed to `--value` fail with a clear error.
+4. Exported but non-test values passed to `--value` fail with a clear error.
+5. `--value` and `--filter` are mutually exclusive at parse time.
+6. Existing `--filter` and default `lib test` flows behave as before.
+7. `lib check` remains filter-only and unchanged.
+8. No compilation root-retention behavior changes are required for this feature.
 
 ## Risks and mitigations
 
-1. Risk: explicit value targets could be optimized away before selection.
-   Mitigation: broaden `Package.testRootBindables` retention to all top-level test-typed lets.
+1. Risk: requiring export may force users to expose values they intended to keep private.
+   Mitigation: document this as the contract for `--value`; recommend a test-focused package API surface.
 
-2. Risk: parser refactor could change `lib check` semantics unintentionally.
-   Mitigation: split filter-only parser API and keep `lib check` on that path; add regression tests.
+2. Risk: parser refactor could unintentionally change `lib check` behavior.
+   Mitigation: split parser helpers and add explicit regression tests for `lib check`.
 
-3. Risk: unclear error messages reduce usability.
-   Mitigation: dedicated invalid-selection exception with package/value context and valid candidate list.
-
-4. Risk: retaining all test-typed lets increases generated code size for packages containing many test values.
-   Mitigation: scope change to test-typed lets only; keep tree-shaking from selected runtime root in transpiler to minimize emitted main/test harness impact.
+3. Risk: users may confuse non-exported with non-test failures.
+   Mitigation: provide separate, explicit error messages for "not exported" vs "not a test value".
 
 ## Rollout notes
 
-1. Land as one PR containing parser changes, selection-resolution changes, and tests.
-2. No migration required; existing commands continue to work.
-3. Mention new `lib test --value` option in release notes/changelog.
-4. Post-merge, monitor for parser regressions in `lib check` and for any code-size concerns from expanded test-value retention.
+1. Land as one PR with parser updates, selector wiring, and test coverage.
+2. No migration is required for existing `lib test` or `lib check` usage.
+3. Release notes should call out the new `--value` option and export requirement.
