@@ -2799,65 +2799,48 @@ x = 1.0 + 2.0
     )
   }
 
-  test(
-    "arity mismatch from another package does not render unrelated local context"
-  ) {
-    val leftPack = PackageName.parts("Left")
-    val rightPack = PackageName.parts("Right")
-
+  test("cross-package arity mismatch shows caller source for both sites") {
     val rightSource =
       """package Right
         |
         |export combine_n
         |
-        |def combine_n(inst, value, n): value
+        |def combine_n(inst, value, n):
+        |  inst.add(value).add(n)
         |""".stripMargin
 
-    val rightName = "combine_n"
-    val rightStart = rightSource.lastIndexOf(rightName)
-    assert(rightStart >= 0, rightSource)
-    val rightRegion = Region(rightStart, rightStart + rightName.length)
-
-    val leftHeader = "package Left\n\nleft_fn = 1\n\n"
     val unrelated = "UNRELATED_MARKER"
-    val padding = rightStart - leftHeader.length
-    assert(padding >= 0, s"left header too long for right region: $rightStart")
     val leftSource =
-      leftHeader + ("x" * padding) + unrelated + "\nmain = left_fn\n"
+      s"""package Left
+         |
+         |from Right import combine_n
+         |
+         |# $unrelated
+         |main = combine_n(1, 2)
+         |""".stripMargin
 
-    val leftName = "left_fn"
-    val leftStart = leftSource.indexOf(leftName)
-    assert(leftStart >= 0, leftSource)
-    val leftRegion = Region(leftStart, leftStart + leftName.length)
+    val (errs, sourceMap) = compileErrors(List(rightSource, leftSource))
+    val message =
+      errs.toList.collectFirst {
+        case te: PackageError.TypeErrorIn =>
+          te.message(sourceMap, Colorize.None)
+      }.getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
 
-    val err = PackageError.TypeErrorIn(
-      rankn.Infer.Error.ArityMismatch(3, leftRegion, 2, rightRegion),
-      leftPack,
-      Nil,
-      Map.empty,
-      Map.empty,
-      Set.empty
-    )
-
-    val sourceMap = Map(
-      leftPack -> (LocationMap(leftSource), "left.bosatsu"),
-      rightPack -> (LocationMap(rightSource), "right.bosatsu")
-    )
-
-    val message = err.message(sourceMap, Colorize.None)
-    assert(
-      message.contains("function with 3 arguments at:"),
-      message
-    )
+    assert(message.contains("function with 3 arguments at:"), message)
     assert(
       message.contains("does not match function with 2 arguments at:"),
       message
     )
-    assert(
-      message.contains(s"[${rightRegion.start}, ${rightRegion.end})"),
-      message
-    )
-    assert(!message.contains(unrelated), message)
+    assert(message.contains("main = combine_n(1, 2)"), message)
+    assert(!message.contains(s"at:\n["), message)
+    val markerLines =
+      message.linesIterator.filter(_.contains(unrelated)).toList
+    assert(markerLines.nonEmpty, message)
+    assert(markerLines.forall(!_.contains("^")), message)
+
+    val pointers = message.linesIterator.filter(_.contains("^")).toList
+    assert(pointers.length >= 2, message)
+    assert(pointers.distinct.length >= 2, message)
   }
 
   test(
