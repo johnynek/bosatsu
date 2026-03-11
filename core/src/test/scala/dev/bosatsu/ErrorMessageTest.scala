@@ -2800,6 +2800,67 @@ x = 1.0 + 2.0
   }
 
   test(
+    "arity mismatch from another package does not render unrelated local context"
+  ) {
+    val leftPack = PackageName.parts("Left")
+    val rightPack = PackageName.parts("Right")
+
+    val rightSource =
+      """package Right
+        |
+        |export combine_n
+        |
+        |def combine_n(inst, value, n): value
+        |""".stripMargin
+
+    val rightName = "combine_n"
+    val rightStart = rightSource.lastIndexOf(rightName)
+    assert(rightStart >= 0, rightSource)
+    val rightRegion = Region(rightStart, rightStart + rightName.length)
+
+    val leftHeader = "package Left\n\nleft_fn = 1\n\n"
+    val unrelated = "UNRELATED_MARKER"
+    val padding = rightStart - leftHeader.length
+    assert(padding >= 0, s"left header too long for right region: $rightStart")
+    val leftSource =
+      leftHeader + ("x" * padding) + unrelated + "\nmain = left_fn\n"
+
+    val leftName = "left_fn"
+    val leftStart = leftSource.indexOf(leftName)
+    assert(leftStart >= 0, leftSource)
+    val leftRegion = Region(leftStart, leftStart + leftName.length)
+
+    val err = PackageError.TypeErrorIn(
+      rankn.Infer.Error.ArityMismatch(3, leftRegion, 2, rightRegion),
+      leftPack,
+      Nil,
+      Map.empty,
+      Map.empty,
+      Set.empty
+    )
+
+    val sourceMap = Map(
+      leftPack -> (LocationMap(leftSource), "left.bosatsu"),
+      rightPack -> (LocationMap(rightSource), "right.bosatsu")
+    )
+
+    val message = err.message(sourceMap, Colorize.None)
+    assert(
+      message.contains("function with 3 arguments at:"),
+      message
+    )
+    assert(
+      message.contains("does not match function with 2 arguments at:"),
+      message
+    )
+    assert(
+      message.contains(s"[${rightRegion.start}, ${rightRegion.end})"),
+      message
+    )
+    assert(!message.contains(unrelated), message)
+  }
+
+  test(
     "inferred imported types from direct dependencies do not require type imports"
   ) {
     val libSrc =

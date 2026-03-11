@@ -1354,7 +1354,10 @@ object PackageError {
             val context0 = contextDoc(leftR)
             val context1 =
               if (leftR =!= rightR) {
-                Doc.text(" at: ") + Doc.hardLine + contextDoc(rightR)
+                // The secondary arity evidence region may come from a different
+                // package. Rendering it with this package's LocationMap can
+                // point at unrelated source; show the region directly instead.
+                Doc.text(" at: ") + Doc.hardLine + Doc.text(rightR.show)
               } else {
                 Doc.empty
               }
