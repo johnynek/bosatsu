@@ -7,7 +7,8 @@ import dev.bosatsu.tool.{CommonOpts, Output}
 
 object ToolCommand {
   def opts[F[_], Path](
-      platformIO: PlatformIO[F, Path]
+      platformIO: PlatformIO[F, Path],
+      evalPassthroughArgs: List[String] = Nil
   ): Opts[F[Output[Path]]] = {
     val commonOpts = new CommonOpts(platformIO)
 
@@ -15,7 +16,7 @@ object ToolCommand {
       CheckCommand.opts(platformIO, commonOpts) ::
         DocCommand.opts(platformIO, commonOpts) ::
         TestCommand.opts(platformIO, commonOpts) ::
-        EvalCommand.opts(platformIO, commonOpts) ::
+        EvalCommand.opts(platformIO, commonOpts, evalPassthroughArgs) ::
         JsonCommand.opts(platformIO, commonOpts) ::
         TranspileCommand.opts(platformIO, commonOpts) ::
         ShowCommand.opts(platformIO, commonOpts) ::

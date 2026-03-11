@@ -1833,6 +1833,88 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval --run forwards -- passthrough args") {
+    val appSrc =
+      """package Tool/Foo
+|
+|from Bosatsu/Prog import Main, pure
+|
+|main = Main(args -> match args:
+|  case [_, "--compact"]:
+|    pure(0)
+|  case _:
+|    pure(1)
+|)
+|""".stripMargin
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc,
+      Chain("src", "Tool", "Foo.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "tool",
+          "eval",
+          "--run",
+          "--main",
+          "Tool/Foo",
+          "--package_root",
+          "src",
+          "--input",
+          "src/Bosatsu/Prog.bosatsu",
+          "--input",
+          "src/Tool/Foo.bosatsu",
+          "--",
+          "--compact"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("tool eval without --run rejects -- passthrough args") {
+    val src =
+      """main = 42
+"""
+    val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
+
+    module.runWith(files)(
+      List(
+        "tool",
+        "eval",
+        "--main",
+        "Tool/Foo",
+        "--package_root",
+        "src",
+        "--input",
+        "src/Tool/Foo.bosatsu",
+        "--",
+        "--compact"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("trailing args require --run"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
+    }
+  }
+
   test("tool eval --run supports Bosatsu/Prog observe in Main") {
     val appSrc =
       """package Tool/ObserveMain
@@ -2142,6 +2224,81 @@ class ToolAndLibCommandTest extends FunSuite {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")
         }
+    }
+  }
+
+  test("lib eval --run merges positional and -- passthrough args in order") {
+    val appSrc =
+      """from Bosatsu/Prog import Main, pure
+|
+|main = Main(args -> match args:
+|  case [_, "foo", "--bar"]:
+|    pure(0)
+|  case _:
+|    pure(1)
+|)
+|""".stripMargin
+    val files =
+      baseLibFiles(appSrc) :+ (
+        Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> minimalProgModuleSrc
+      )
+
+    val result = for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/Foo",
+          "--run",
+          "foo",
+          "--",
+          "--bar"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval without --run rejects -- passthrough args") {
+    val src =
+      """main = 42
+"""
+    val files = baseLibFiles(src)
+
+    module.runWith(files)(
+      List(
+        "lib",
+        "eval",
+        "--repo_root",
+        "repo",
+        "--main",
+        "MyLib/Foo",
+        "--",
+        "--compact"
+      )
+    ) match {
+      case Left(err) =>
+        val msg = module.mainExceptionToString(err).getOrElse(
+          fail(s"expected CliException, found: $err")
+        )
+        assert(msg.contains("trailing args require --run"), msg)
+      case Right(other) =>
+        fail(s"expected error, found output: $other")
     }
   }
 

@@ -137,7 +137,10 @@ object Command {
     }
   }
 
-  def opts[F[_], P](platformIO: PlatformIO[F, P]): Opts[F[Output[P]]] = {
+  def opts[F[_], P](
+      platformIO: PlatformIO[F, P],
+      evalPassthroughArgs: List[String] = Nil
+  ): Opts[F[Output[P]]] = {
     import platformIO.{pathArg, moduleIOMonad, showPath, parallelF}
 
     implicit val hashArg: Argument[Algo.WithAlgo[HashValue]] =
@@ -1644,9 +1647,11 @@ object Command {
           Opts.arguments[String]("arg").orEmpty,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, target, runMain, runArgs, cacheDirFn, colorize) =>
+        ).mapN { (fcc, target, runMain, positionalRunArgs, cacheDirFn, colorize) =>
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
+
+          val effectiveRunArgs = positionalRunArgs ++ evalPassthroughArgs
 
           val sourcePackageFilter: PackageName => Boolean =
             _ == target._1
@@ -1676,7 +1681,7 @@ object Command {
                       memoE.map(
                         PredefImpl.runProgMainWithSystemStdin(
                           _,
-                          PredefImpl.evalRunArgs(runArgs)
+                          PredefImpl.evalRunArgs(effectiveRunArgs)
                         )
                       )
                     moduleIOMonad.pure(Output.RunMainResult(run): Output[P])
@@ -1689,7 +1694,7 @@ object Command {
                       )
                     )
                   }
-                } else if (runArgs.nonEmpty) {
+                } else if (effectiveRunArgs.nonEmpty) {
                   moduleIOMonad.raiseError(
                     CliException.Basic("trailing args require --run")
                   )
