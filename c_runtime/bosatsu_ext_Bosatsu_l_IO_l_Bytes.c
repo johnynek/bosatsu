@@ -16,7 +16,7 @@ typedef struct
 
 BSTS_Bytes *bsts_bytes_unbox(BValue bytes)
 {
-  return (BSTS_Bytes *)get_external(bytes);
+  return BSTS_PTR(BSTS_Bytes, bytes);
 }
 
 static uint8_t *bsts_bytes_alloc_data(int len)
@@ -47,7 +47,7 @@ BValue bsts_bytes_wrap(uint8_t *data, int offset, int len)
   bytes->data = data;
   bytes->offset = offset;
   bytes->len = len;
-  return alloc_external(bytes, NULL);
+  return BSTS_VALUE_FROM_PTR(bytes);
 }
 
 BValue bsts_bytes_empty(void)
@@ -83,7 +83,7 @@ static BValue bsts_array_wrap(BValue *data, int offset, int len)
   arr->data = data;
   arr->offset = offset;
   arr->len = len;
-  return alloc_external(arr, NULL);
+  return BSTS_VALUE_FROM_PTR(arr);
 }
 
 static _Bool bsts_bytes_index_in_range(BValue index, int len)
@@ -238,7 +238,7 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_from__List__Int(BValue ints)
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Bytes_l_from__Array__Int(BValue ints)
 {
-  BSTS_Array *arr = (BSTS_Array *)get_external(ints);
+  BSTS_Array *arr = BSTS_PTR(BSTS_Array, ints);
   if (arr->len <= 0)
   {
     return bsts_bytes_empty();

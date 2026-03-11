@@ -451,6 +451,9 @@ BValue get_enum_index(BValue v, int idx) {
 }
 
 // Externals:
+// alloc_external/get_external are for non-GC payloads that require explicit
+// finalization. GC-managed payloads should be represented directly as BValue
+// pointers and cast with BSTS_PTR/BSTS_VALUE_FROM_PTR.
 void free_external(void* ex, void* data) {
   BSTS_FreeFn ex_free = (BSTS_FreeFn)data;
 #if defined(BSTS_RUNTIME_DEBUG_CHECKS)

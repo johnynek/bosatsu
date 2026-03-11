@@ -61,7 +61,7 @@ typedef struct BSTS_String {
 #define BSTS_NAT_IS_0(n) ((n) == BSTS_NAT_0)
 #define BSTS_NAT_GT_0(n) ((n) != BSTS_NAT_0)
 
-// optional free function to call on an external value (may be NULL)
+// Finalizer for non-GC payloads stored via alloc_external.
 typedef void (*BSTS_FreeFn)(void*);
 // A function which constructs a BValue
 typedef BValue (*BConstruct)();
@@ -191,7 +191,11 @@ double bsts_float64_to_double(BValue v);
 _Bool bsts_float64_equals(BValue left, BValue right);
 int bsts_float64_cmp_total(BValue left, BValue right);
 
+// Wrap non-GC (e.g. malloc-backed) payload data with a finalizer callback.
+// Contract: free_fn is expected to be non-NULL for this representation.
+// For GC-managed payloads with no finalizer, use BSTS_VALUE_FROM_PTR/BSTS_PTR directly.
 BValue alloc_external(void* eval, BSTS_FreeFn free_fn);
+// Unwrap payloads created by alloc_external.
 void* get_external(BValue v);
 
 // Given the slots variable return the closure fn value

@@ -254,7 +254,7 @@ static BValue bsts_option_some(BValue v)
 
 static BSTS_Core_Handle *bsts_core_unbox_handle(BValue handle)
 {
-  return (BSTS_Core_Handle *)get_external(handle);
+  return BSTS_PTR(BSTS_Core_Handle, handle);
 }
 
 static BValue bsts_core_make_handle(
@@ -276,7 +276,7 @@ static BValue bsts_core_make_handle(
   h->writable = writable;
   h->close_on_close = close_on_close;
   h->closed = 0;
-  return alloc_external(h, NULL);
+  return BSTS_VALUE_FROM_PTR(h);
 }
 
 static char *bsts_string_to_cstr(BValue str)

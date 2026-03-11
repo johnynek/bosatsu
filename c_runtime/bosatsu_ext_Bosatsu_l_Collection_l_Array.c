@@ -14,7 +14,7 @@ typedef struct {
 } BSTS_Array;
 
 static BSTS_Array* bsts_array_unbox(BValue array) {
-  return (BSTS_Array*)get_external(array);
+  return BSTS_PTR(BSTS_Array, array);
 }
 
 static BValue* bsts_array_alloc_data(int len) {
@@ -53,7 +53,7 @@ static BValue bsts_array_wrap(BValue* data, int offset, int len) {
   arr->data = data;
   arr->offset = offset;
   arr->len = len;
-  return alloc_external(arr, NULL);
+  return BSTS_VALUE_FROM_PTR(arr);
 }
 
 static BValue bsts_array_empty(void) {

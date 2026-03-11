@@ -12,7 +12,7 @@ typedef struct {
 } BSTS_Lazy;
 
 static BSTS_Lazy* bsts_lazy_unbox(BValue lazy_value) {
-  return (BSTS_Lazy*)get_external(lazy_value);
+  return BSTS_PTR(BSTS_Lazy, lazy_value);
 }
 
 static BValue bsts_lazy_wrap(BValue thunk) {
@@ -25,7 +25,7 @@ static BValue bsts_lazy_wrap(BValue thunk) {
   atomic_init(&lazy->forced, 0);
   atomic_init(&lazy->thunk, thunk);
   atomic_init(&lazy->value, bsts_unit_value());
-  return alloc_external(lazy, NULL);
+  return BSTS_VALUE_FROM_PTR(lazy);
 }
 
 BValue ___bsts_g_Bosatsu_l_Lazy_l_lazy(BValue fn) {
