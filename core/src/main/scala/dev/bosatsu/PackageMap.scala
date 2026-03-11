@@ -105,6 +105,75 @@ case class PackageMap[A, B, C, +D](
 }
 
 object PackageMap {
+  private def circularDependencyCycle(
+      err: PackageError.CircularDependency[?, ?, ?]
+  ): List[PackageName] = {
+    val path = err.path.toList
+    val idx = path.indexOf(err.from)
+    val nonRepeating =
+      if (idx < 0) path.reverse
+      else path.take(idx).reverse
+
+    err.from :: nonRepeating ::: (err.from :: Nil)
+  }
+
+  private def canonicalCycle(cycle: List[PackageName]): List[PackageName] =
+    cycle match {
+      case first :: rest =>
+        val nodes = first :: rest.dropRight(1)
+        val min = nodes.min
+        val idx = nodes.indexOf(min)
+        val rotated = nodes.drop(idx) ::: nodes.take(idx)
+        rotated ::: (rotated.head :: Nil)
+      case Nil => Nil
+    }
+
+  private def normalizeCircularDependencyErrors(
+      errs: NonEmptyList[PackageError]
+  ): NonEmptyList[PackageError] = {
+    val circularAndOther =
+      errs.toList.foldLeft(
+        (List.empty[List[PackageName]], List.empty[PackageError])
+      ) { case ((cycles, others), err) =>
+        err match {
+          case circular: PackageError.CircularDependency[?, ?, ?] =>
+            (circularDependencyCycle(circular) :: cycles, others)
+          case other =>
+            (cycles, other :: others)
+        }
+      }
+
+    val (rawCyclesRev, otherErrsRev) = circularAndOther
+
+    if (rawCyclesRev.isEmpty) errs
+    else {
+      val canonicalCycles = rawCyclesRev.reverse.map(canonicalCycle)
+      val byStart = canonicalCycles.groupBy(_.head)
+
+      val minimalCycles: List[List[PackageName]] = byStart.iterator
+        .flatMap { case (_, cycles) =>
+          val minSize = cycles.iterator.map(_.size).min
+          cycles.filter(_.size == minSize)
+        }
+        .toList
+
+      implicit val cycleOrdering: Ordering[List[PackageName]] =
+        ListOrdering.onType(PackageName.packageNameOrdering)
+
+      val normalizedCircularErrs: List[PackageError] =
+        minimalCycles
+          .distinct
+          .sorted
+          .map { cycle =>
+            val from = cycle.head
+            val path = NonEmptyList.fromListUnsafe(cycle.tail)
+            PackageError.CircularDependency(from, path)
+          }
+
+      NonEmptyList.fromListUnsafe(normalizedCircularErrs ::: otherErrsRev.reverse)
+    }
+  }
+
   def empty[A, B, C, D]: PackageMap[A, B, C, D] =
     PackageMap(SortedMap.empty)
 
@@ -284,7 +353,7 @@ object PackageMap {
     // we start with no imports on
     val m: ErrorOr[M] = r.run(Nil)
 
-    m.map(PackageMap(_)).toValidated
+    m.leftMap(normalizeCircularDependencyErrors).map(PackageMap(_)).toValidated
   }
 
   /** Convenience method to create a PackageMap then resolve it
