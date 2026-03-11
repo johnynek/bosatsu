@@ -17,6 +17,7 @@ case class CcConf(
   )(
       platformIO: PlatformIO[F, Path]
   ): F[Unit] = {
+    val linkArgs = (libs ::: extraLibs).distinct
     val args = List.newBuilder[String]
 
     args ++= flags
@@ -25,8 +26,7 @@ case class CcConf(
     args += "-o"
     args += platformIO.pathToString(to)
     args += platformIO.pathToString(src)
-    args ++= libs
-    args ++= extraLibs
+    args ++= linkArgs
 
     platformIO.system(ccPath, args.result())
   }

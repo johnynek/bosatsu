@@ -61,8 +61,8 @@ typedef struct BSTS_String {
 #define BSTS_NAT_IS_0(n) ((n) == BSTS_NAT_0)
 #define BSTS_NAT_GT_0(n) ((n) != BSTS_NAT_0)
 
-// this is the free function to call on an external value
-typedef void (*FreeFn)(void*);
+// optional free function to call on an external value (may be NULL)
+typedef void (*BSTS_FreeFn)(void*);
 // A function which constructs a BValue
 typedef BValue (*BConstruct)();
 
@@ -191,7 +191,7 @@ double bsts_float64_to_double(BValue v);
 _Bool bsts_float64_equals(BValue left, BValue right);
 int bsts_float64_cmp_total(BValue left, BValue right);
 
-BValue alloc_external(void* eval, FreeFn free_fn);
+BValue alloc_external(void* eval, BSTS_FreeFn free_fn);
 void* get_external(BValue v);
 
 // Given the slots variable return the closure fn value

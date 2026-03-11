@@ -13,10 +13,6 @@ typedef struct {
   int len;
 } BSTS_Array;
 
-static void bsts_array_free(void* ptr) {
-  (void)ptr;
-}
-
 static BSTS_Array* bsts_array_unbox(BValue array) {
   return (BSTS_Array*)get_external(array);
 }
@@ -57,7 +53,7 @@ static BValue bsts_array_wrap(BValue* data, int offset, int len) {
   arr->data = data;
   arr->offset = offset;
   arr->len = len;
-  return alloc_external(arr, bsts_array_free);
+  return alloc_external(arr, NULL);
 }
 
 static BValue bsts_array_empty(void) {

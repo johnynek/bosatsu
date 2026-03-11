@@ -275,7 +275,7 @@ DEFINE_BSTS_ENUM(Enum0,);
 
 #include "bosatsu_generated.h"
 
-DEFINE_BSTS_OBJ(External, void* external;);
+DEFINE_BSTS_OBJ(BSTS_External, void* external;);
 DEFINE_BSTS_OBJ(BSTS_Integer, size_t len; _Bool sign; uint32_t words[];);
 
 typedef struct {
@@ -452,20 +452,25 @@ BValue get_enum_index(BValue v, int idx) {
 
 // Externals:
 void free_external(void* ex, void* data) {
-  FreeFn ex_free = (FreeFn)data;
+  BSTS_FreeFn ex_free = (BSTS_FreeFn)data;
+#if defined(BSTS_RUNTIME_DEBUG_CHECKS)
+  assert(ex_free != NULL);
+#endif
   ex_free(ex);
 }
 
-BValue alloc_external(void* data, FreeFn free) {
-    External* ext = GC_malloc(sizeof(External));
+BValue alloc_external(void* data, BSTS_FreeFn free) {
+    BSTS_External* ext = GC_malloc(sizeof(BSTS_External));
     ext->external = data;
-    GC_register_finalizer(ext, free_external, free, NULL, NULL);
+    if (free != NULL) {
+      GC_register_finalizer(ext, free_external, free, NULL, NULL);
+    }
     return BSTS_VALUE_FROM_PTR(ext);
 }
 
 void* get_external(BValue v) {
   // Externals can be static also, top level external values
-  External* ext = BSTS_PTR(External, v);
+  BSTS_External* ext = BSTS_PTR(BSTS_External, v);
   return ext->external;
 }
 

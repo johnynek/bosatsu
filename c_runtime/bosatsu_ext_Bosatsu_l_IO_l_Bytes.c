@@ -14,11 +14,6 @@ typedef struct
   int len;
 } BSTS_Array;
 
-static void bsts_bytes_free(void *ptr)
-{
-  (void)ptr;
-}
-
 BSTS_Bytes *bsts_bytes_unbox(BValue bytes)
 {
   return (BSTS_Bytes *)get_external(bytes);
@@ -52,7 +47,7 @@ BValue bsts_bytes_wrap(uint8_t *data, int offset, int len)
   bytes->data = data;
   bytes->offset = offset;
   bytes->len = len;
-  return alloc_external(bytes, bsts_bytes_free);
+  return alloc_external(bytes, NULL);
 }
 
 BValue bsts_bytes_empty(void)
@@ -76,11 +71,6 @@ static BValue *bsts_array_alloc_data(int len)
   return data;
 }
 
-static void bsts_array_free(void *ptr)
-{
-  (void)ptr;
-}
-
 static BValue bsts_array_wrap(BValue *data, int offset, int len)
 {
   BSTS_Array *arr = (BSTS_Array *)GC_malloc(sizeof(BSTS_Array));
@@ -93,7 +83,7 @@ static BValue bsts_array_wrap(BValue *data, int offset, int len)
   arr->data = data;
   arr->offset = offset;
   arr->len = len;
-  return alloc_external(arr, bsts_array_free);
+  return alloc_external(arr, NULL);
 }
 
 static _Bool bsts_bytes_index_in_range(BValue index, int len)
