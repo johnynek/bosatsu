@@ -31,6 +31,15 @@ Common flags:
 - `--main`: package or `package::value` to evaluate
 - `--color`: output mode (`none`, `ansi`, `html`)
 
+Passing args to `--run`:
+
+- Use `--` to separate bosatsu CLI flags from program args.
+- This is required when a program arg starts with `-`.
+
+```bash
+./bosatsuj lib eval --name core_alpha --main MyLib/Foo --run -- --compact
+```
+
 ## Finding values to inspect
 
 Use `lib show` to discover exported values in a package:

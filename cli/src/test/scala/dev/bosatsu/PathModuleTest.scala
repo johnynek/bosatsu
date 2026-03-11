@@ -212,6 +212,35 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     assertEquals(exitCode, ToolExitCode.Success)
   }
 
+  test("tool eval --run accepts delimiter-separated args") {
+    val cmd =
+      "tool eval --run --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu -- 20"
+        .split("\\s+")
+        .toSeq
+    val exitCode = runAndReport(cmd*)
+    assertEquals(exitCode, ToolExitCode.Success)
+  }
+
+  test("tool eval delimiter args without --run return trailing args error") {
+    val cmd =
+      "tool eval --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu -- --compact"
+        .split("\\s+")
+        .toList
+
+    PathModule.run(cmd) match {
+      case Left(help) =>
+        fail(s"got help: $help on command: ${cmd.mkString(" ")}")
+      case Right(io)  =>
+        io.attempt.unsafeRunSync() match {
+          case Left(err) =>
+            val msg = Option(err.getMessage).getOrElse(err.toString)
+            assert(msg.contains("trailing args require --run"), msg)
+          case Right(out) =>
+            fail(s"expected trailing-args failure, got output: $out")
+        }
+    }
+  }
+
   test("tool test python transpile on the entire test_workspace") {
     val out = run(
       "tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
