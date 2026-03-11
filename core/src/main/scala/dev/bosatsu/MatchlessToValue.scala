@@ -258,6 +258,12 @@ object MatchlessToValue {
             )
         }
 
+      private def valueToCodePoint(value: Any): Option[Int] =
+        value match {
+          case s: String if s.nonEmpty => Some(s.codePointAt(0))
+          case _                       => None
+        }
+
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
@@ -284,6 +290,26 @@ object MatchlessToValue {
                   valueEquals(external, lit.unboxToAny)
               }
             }
+
+          case LtEqLit(expr, Lit.Integer(i)) =>
+            val rhs = BInt.fromBigInteger(i)
+            loop(expr).map { e =>
+              e.asExternal.toAny match {
+                case BInt(lhs) => lhs.compare(rhs) <= 0
+                case _         => false
+              }
+            }
+          case LtEqLit(expr, c: Lit.Chr) =>
+            val rhsCodePoint = c.toCodePoint
+            loop(expr).map { e =>
+              valueToCodePoint(e.asExternal.toAny).exists(_ <= rhsCodePoint)
+            }
+          case LtEqLit(_, lit) =>
+            // $COVERAGE-OFF$
+            throw new IllegalStateException(
+              s"unexpected LtEqLit literal: $lit"
+            )
+          // $COVERAGE-ON$
 
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)

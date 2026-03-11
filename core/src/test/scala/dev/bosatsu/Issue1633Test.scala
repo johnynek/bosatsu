@@ -153,6 +153,8 @@ main = parse_value(" null")
       b match {
         case Matchless.EqualsLit(expr, _) =>
           loopExpr(expr)
+        case Matchless.LtEqLit(expr, _) =>
+          loopExpr(expr)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr)
         case Matchless.And(left, right) =>

@@ -4,6 +4,7 @@ import cats.Eval
 import cats.data.NonEmptyList
 import dev.bosatsu.rankn.DataRepr
 import dev.bosatsu.rankn.Type
+import java.math.BigInteger
 
 class MatchlessRegressionTest extends munit.FunSuite {
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
@@ -148,6 +149,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
     b match {
       case Matchless.EqualsLit(expr, _) =>
         countWhileExprs(expr)
+      case Matchless.LtEqLit(expr, _) =>
+        countWhileExprs(expr)
       case Matchless.EqualsNat(expr, _) =>
         countWhileExprs(expr)
       case Matchless.And(left, right) =>
@@ -173,6 +176,8 @@ class MatchlessRegressionTest extends munit.FunSuite {
     ): Int =
       b match {
         case Matchless.EqualsLit(expr, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.LtEqLit(expr, _) =>
           loopExpr(expr, activeRecNames)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr, activeRecNames)
@@ -400,6 +405,57 @@ def branch_blowup(args: L) -> Nat:
         .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
+  }
+
+  test("MatchlessToValue evaluates LtEqLit for Int and Char literals") {
+    val big = BigInteger("1099511627776")
+    val bigger = BigInteger("1099511627777")
+    val grin = Lit.fromCodePoint(0x1f600)
+    val smile = Lit.fromCodePoint(0x1f642)
+
+    val evalExprs = Vector(
+      Matchless.If(
+        Matchless.LtEqLit(
+          Matchless.Literal(Lit.fromInt(-5)),
+          Lit.fromInt(-1)
+        ),
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      ),
+      Matchless.If(
+        Matchless.LtEqLit(
+          Matchless.Literal(Lit(bigger)),
+          Lit(big)
+        ),
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      ),
+      Matchless.If(
+        Matchless.LtEqLit(
+          Matchless.Literal(grin),
+          smile
+        ),
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      ),
+      Matchless.If(
+        Matchless.LtEqLit(
+          Matchless.Literal(smile),
+          grin
+        ),
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      )
+    )
+
+    val evaluated =
+      MatchlessToValue
+        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .map(_.value)
+    assertEquals(
+      evaluated,
+      Vector(Value.VInt(1), Value.VInt(0), Value.VInt(1), Value.VInt(0))
+    )
   }
 
   Platform.onJvm(

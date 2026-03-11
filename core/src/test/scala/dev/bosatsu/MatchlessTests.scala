@@ -158,6 +158,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       b match {
         case Matchless.EqualsLit(e, _) =>
           loopExpr(e)
+        case Matchless.LtEqLit(e, _) =>
+          loopExpr(e)
         case Matchless.EqualsNat(e, _) =>
           loopExpr(e)
         case Matchless.And(l, r) =>
@@ -320,6 +322,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       b match {
         case Matchless.EqualsLit(e, _) =>
           loopCheap(e)
+        case Matchless.LtEqLit(e, _) =>
+          loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -422,6 +426,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       b match {
         case Matchless.EqualsLit(e, _) =>
           loopCheap(e)
+        case Matchless.LtEqLit(e, _) =>
+          loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -497,6 +503,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     ): Boolean =
       b match {
         case Matchless.EqualsLit(e, _) =>
+          loopCheap(e, inConditionalBranch)
+        case Matchless.LtEqLit(e, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e, inConditionalBranch)
@@ -595,6 +603,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     def loopBool(b: Matchless.BoolExpr[Unit]): Int =
       b match {
         case Matchless.EqualsLit(e, _) =>
+          loopCheap(e)
+        case Matchless.LtEqLit(e, _) =>
           loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
@@ -989,6 +999,8 @@ main = select
       def loopBool(b: Matchless.BoolExpr[Unit]): Int =
         b match {
           case Matchless.EqualsLit(e, _) =>
+            loopCheap(e)
+          case Matchless.LtEqLit(e, _) =>
             loopCheap(e)
           case Matchless.EqualsNat(e, _) =>
             loopCheap(e)
@@ -1650,6 +1662,8 @@ main = (cmp_guard, enum_guard)
       def checkBool(boolExpr: Matchless.BoolExpr[Unit]): Unit =
         boolExpr match {
           case Matchless.EqualsLit(e, _) =>
+            requireSubset(e)
+          case Matchless.LtEqLit(e, _) =>
             requireSubset(e)
           case Matchless.EqualsNat(e, _) =>
             requireSubset(e)
@@ -2513,6 +2527,8 @@ main = (cmp_guard, enum_guard)
       b match {
         case Matchless.EqualsLit(e, _) =>
           hasNestedProjectionCheap(e)
+        case Matchless.LtEqLit(e, _) =>
+          hasNestedProjectionCheap(e)
         case Matchless.EqualsNat(e, _) =>
           hasNestedProjectionCheap(e)
         case Matchless.And(l, r) =>
@@ -2764,6 +2780,134 @@ def pick(v):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("pick"))
       assertEquals(exprSwitchSubexpressions(expr).isEmpty, true, expr.toString)
+    }
+  }
+
+  test("matrix match uses LtEqLit tree for wide integer literal fanout") {
+    TestUtils.checkMatchless("""
+def small_spaces(rem):
+  match rem:
+    case 1: " "
+    case 2: "  "
+    case 3: "   "
+    case 4: "    "
+    case 5: "     "
+    case 6: "      "
+    case 7: "       "
+    case 8: "        "
+    case 9: "         "
+    case _: ""
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("small_spaces"))
+      assertEquals(
+        exprBoolSubexpressions(expr).exists {
+          case Matchless.LtEqLit(_, _) => true
+          case _                       => false
+        },
+        true,
+        expr.toString
+      )
+
+      val inputs = List(-1, 0, 1, 2, 5, 9, 10, 42)
+      val evalExprs = inputs.map { i =>
+        Matchless.App(
+          expr,
+          NonEmptyList.one(Matchless.Literal(Lit.fromInt(i)))
+        )
+      }.toVector
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      val expected = Vector(
+        Value.Str(""),
+        Value.Str(""),
+        Value.Str(" "),
+        Value.Str("  "),
+        Value.Str("     "),
+        Value.Str("         "),
+        Value.Str(""),
+        Value.Str("")
+      )
+      assertEquals(evaluated, expected)
+    }
+  }
+
+  test("matrix match uses LtEqLit tree for char dispatch fanout") {
+    TestUtils.checkMatchless("""
+def classify_char(ch):
+  match ch:
+    case .'a': 1
+    case .'b': 2
+    case .'c': 3
+    case .'d': 4
+    case .'e': 5
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("classify_char"))
+      assertEquals(
+        exprBoolSubexpressions(expr).exists {
+          case Matchless.LtEqLit(_, _) => true
+          case _                       => false
+        },
+        true,
+        expr.toString
+      )
+
+      val random = new scala.util.Random(12345L)
+      val otherCodePoints =
+        Iterator
+          .continually(33 + random.nextInt(90))
+          .filter(cp => !"abcde".contains(cp.toChar))
+          .take(5)
+          .toList
+
+      val baseInputs = List('a', 'b', 'c', 'd', 'e').map(_.toInt)
+      val allInputs = baseInputs ++ otherCodePoints
+      val evalExprs = allInputs.map { cp =>
+        Matchless.App(
+          expr,
+          NonEmptyList.one(Matchless.Literal(Lit.fromCodePoint(cp)))
+        )
+      }.toVector
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      val expected = Vector(
+        Value.VInt(1),
+        Value.VInt(2),
+        Value.VInt(3),
+        Value.VInt(4),
+        Value.VInt(5)
+      ) ++ Vector.fill(otherCodePoints.length)(Value.VInt(0))
+      assertEquals(evaluated, expected)
+    }
+  }
+
+  test("matrix match keeps linear literal checks below LtEqLit threshold") {
+    TestUtils.checkMatchless("""
+def classify_small(n):
+  match n:
+    case 1: 1
+    case 2: 2
+    case 3: 3
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("classify_small"))
+      assertEquals(
+        exprBoolSubexpressions(expr).exists {
+          case Matchless.LtEqLit(_, _) => true
+          case _                       => false
+        },
+        false,
+        expr.toString
+      )
     }
   }
 
