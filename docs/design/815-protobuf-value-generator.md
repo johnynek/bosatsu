@@ -1,41 +1,5 @@
 ---
 issue: 815
-priority: 3
-touch_paths:
-  - docs/design/815-protobuf-value-generator.md
-  - build.sbt
-  - project/Dependencies.scala
-  - protoc-gen-bosatsu
-  - cli/src/main/scala/dev/bosatsu/protobuf/ProtocPluginMain.scala
-  - core/src/main/scala/dev/bosatsu/protobuf/ProtoDescriptorModel.scala
-  - core/src/main/scala/dev/bosatsu/protobuf/ProtoNaming.scala
-  - core/src/main/scala/dev/bosatsu/protobuf/ProtoToBosatsu.scala
-  - test_workspace/Bosatsu/Proto/Wire.bosatsu
-  - test_workspace/core_alpha_conf.json
-  - cli/src/test/scala/dev/bosatsu/protobuf/ProtocPluginMainTest.scala
-  - core/src/test/scala/dev/bosatsu/protobuf/ProtoToBosatsuTest.scala
-  - core/src/test/scala/dev/bosatsu/protobuf/ProtoWireEncodingParityTest.scala
-  - core/src/test/resources/protobuf/config_v1.proto
-  - core/src/test/scala/dev/bosatsu/codegen/python/PythonGenTest.scala
-  - core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenTest.scala
-  - docs/src/main/paradox/generating_protobuf.md
-  - docs/src/main/paradox/index.md
-  - test_workspace/Bosatsu/Example/Proto/ConfigDemo.bosatsu
-depends_on: []
-estimated_size: M
-generated_at: 2026-03-11T21:08:36Z
----
-
-# Issue #815 Design: protobuf value generator
-
-_Issue: #815 (https://github.com/johnynek/bosatsu/issues/815)_
-
-## Summary
-
-Design for a protoc plugin that generates Bosatsu protobuf models plus pure Bosatsu wire encoders, with a cross-runtime (JVM/Python/C) serialization workflow, acceptance criteria, risks, and rollout plan.
-
----
-issue: 815
 priority: 2
 title: protobuf value generator
 status: proposed
@@ -51,6 +15,13 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/protobuf/ProtoToBosatsu.scala
   - test_workspace/Bosatsu/Proto/Wire.bosatsu
   - test_workspace/core_alpha_conf.json
+  - test_workspace/Float64.bosatsu
+  - core/src/main/scala/dev/bosatsu/Predef.scala
+  - test_workspace/ProgExt.py
+  - test_workspace/Prog.bosatsu_externals
+  - c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.c
+  - c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.h
+  - c_runtime/Makefile
   - cli/src/test/scala/dev/bosatsu/protobuf/ProtocPluginMainTest.scala
   - core/src/test/scala/dev/bosatsu/protobuf/ProtoToBosatsuTest.scala
   - core/src/test/scala/dev/bosatsu/protobuf/ProtoWireEncodingParityTest.scala
@@ -73,226 +44,223 @@ Status: proposed
 
 ## Summary
 
-Add a `protoc` plugin (`protoc-gen-bosatsu`) that generates Bosatsu packages from protobuf IDL and emits pure Bosatsu encoders (`Message -> Bosatsu/IO/Bytes::Bytes`). The encoder runtime is a shared Bosatsu package (`Bosatsu/Proto/Wire`) so protobuf bytes can be produced consistently on JVM evaluator, Python transpilation, and C transpilation without runtime protobuf dependencies.
+Add a standard `protoc` plugin (`protoc-gen-bosatsu`) that generates Bosatsu protobuf models and generated protobuf codecs:
+
+1. `encode_<Message>: <Message> -> Bosatsu/IO/Bytes::Bytes`
+2. `decode_<Message>: Bosatsu/IO/Bytes::Bytes -> Option[<Message>]`
+
+The wire implementation is in Bosatsu (`Bosatsu/Proto/Wire`) and uses existing runtime primitives, so generated serialization/deserialization works on JVM evaluator, Python transpilation, and C transpilation without linking host protobuf libraries.
 
 ## Problem statement
 
-Bosatsu currently has no first-class protobuf generation path comparable to JSON generation:
+Bosatsu does not currently provide a protobuf equivalent of JSON generation:
 
-1. There is no generator from `.proto` schemas to Bosatsu `struct`/`enum` definitions.
-2. There is no standard, portable protobuf wire encoder for Bosatsu values.
-3. Users can model data in Bosatsu, but producing protobuf bytes today requires custom host-language glue.
+1. No generator from `.proto` to Bosatsu `struct`/`enum` value models.
+2. No portable protobuf wire codec from Bosatsu values to bytes.
+3. No generated decode path back from bytes to typed Bosatsu values.
+4. No documented flow for using Bosatsu as protobuf config/payload authoring source.
 
-Issue #815 asks for a generation workflow that starts from protobuf IDL and ends with serialized protobuf bytes from Bosatsu values, with portability across JVM, Python, and C runtimes.
+Issue #815 asks for a pragmatic design that starts from protobuf IDL and enables Bosatsu to produce protobuf payloads (and consume them) across JVM/Python/C.
 
 ## Goals
 
-1. Provide a standard `protoc` plugin that emits Bosatsu source from protobuf descriptors.
-2. Generate Bosatsu `struct`/`enum` value models for protobuf messages/enums.
-3. Generate Bosatsu encoder functions for each message (`encode_<Message>`).
-4. Keep serialization runtime portable: same Bosatsu source works in JVM eval, Python transpile, and C transpile paths.
-5. Make generated output deterministic so regeneration is stable in CI.
-6. Surface unsupported protobuf features as clear generation-time errors.
-7. Document end-to-end usage from `protoc` invocation to byte emission.
+1. Implement `protoc-gen-bosatsu` with standard stdin/stdout plugin protocol.
+2. Generate Bosatsu models for protobuf messages/enums/oneofs.
+3. Generate `encode_` and `decode_` functions for messages in phase 1.
+4. Keep codec runtime implementation inside Bosatsu + existing Bosatsu runtime primitives.
+5. Avoid runtime dependency on C/JVM/Python protobuf libraries for generated codecs.
+6. Make generation deterministic (stable output for identical descriptor input).
+7. Validate codec correctness against reference protobuf behavior.
+8. Document end-to-end usage.
 
 ## Non-goals
 
-1. No protobuf decoding/parsing in this issue (`Bytes -> Message` is out of scope).
-2. No gRPC/service client or server stub generation.
-3. No unknown-field retention or roundtrip of unknown wire data.
-4. No proto2 support in v1.
-5. No `float` (32-bit) support in v1; generation fails clearly when used.
+1. gRPC service/client/server stub generation.
+2. proto2 support in this issue.
+3. Unknown-field preservation (unknown fields are skipped while decoding).
+4. Protobuf reflection API generation beyond what is needed for generated codecs.
 
 ## Proposed architecture
 
-### 1. `protoc-gen-bosatsu` plugin entrypoint
+### 1) `protoc-gen-bosatsu` plugin entrypoint
 
-1. Add a JVM plugin entrypoint (`cli/src/main/scala/dev/bosatsu/protobuf/ProtocPluginMain.scala`) that:
-2. Reads `CodeGeneratorRequest` bytes from stdin.
-3. Builds a normalized internal schema model.
-4. Generates Bosatsu files for `file_to_generate`.
-5. Writes `CodeGeneratorResponse` bytes to stdout.
-6. Returns non-zero on hard failures, with `CodeGeneratorResponse.error` for descriptor/feature errors.
+Add `cli/src/main/scala/dev/bosatsu/protobuf/ProtocPluginMain.scala`:
 
-A repository script (`protoc-gen-bosatsu`) will execute the class from the CLI assembly jar so standard `protoc` plugin flow works:
+1. Read `CodeGeneratorRequest` from stdin.
+2. Convert descriptors to internal normalized model.
+3. Generate Bosatsu source for each `file_to_generate`.
+4. Return generated files in `CodeGeneratorResponse`.
+5. Return descriptor/feature validation errors through `CodeGeneratorResponse.error`.
 
-`protoc --plugin=protoc-gen-bosatsu=./protoc-gen-bosatsu --bosatsu_out=./generated --proto_path=./proto ./proto/config/v1/config.proto`
+Repository wrapper script `protoc-gen-bosatsu` invokes the plugin class from the CLI assembly jar so standard protoc plugin discovery works.
 
-### 2. Normalized protobuf model in core
+### 2) Normalized descriptor model and generation pipeline
 
-Add generator-facing ADTs in `core/src/main/scala/dev/bosatsu/protobuf/ProtoDescriptorModel.scala`:
+Add generator infrastructure in core:
 
-1. `ProtoFileModel`, `MessageModel`, `EnumModel`, `FieldModel`, `OneOfModel`, `ScalarKind`.
-2. Resolved type references (local and cross-file) with fully-qualified protobuf symbol identity.
-3. Precomputed encoding metadata (wire type, packed/default behavior, field presence mode).
-
-This keeps descriptor parsing concerns separate from code emission, and makes tests independent of stdin/stdout plugin framing.
-
-### 3. Bosatsu code generation pipeline
-
-`core/src/main/scala/dev/bosatsu/protobuf/ProtoToBosatsu.scala` will map normalized models to `Package.Parsed`/`Statement` and render via existing `Document` instances. `ProtoNaming.scala` centralizes name normalization and collision handling.
+1. `ProtoDescriptorModel.scala`: normalized ADTs (`ProtoFileModel`, `MessageModel`, `EnumModel`, `FieldModel`, etc.).
+2. `ProtoNaming.scala`: deterministic package/type/field naming and collision handling.
+3. `ProtoToBosatsu.scala`: conversion from normalized model to Bosatsu source using existing `Package.Parsed` + `Statement` rendering.
 
 Generation rules:
 
 1. One Bosatsu package per protobuf file.
-2. Default package mapping: `Proto/<ProtoPackagePartsCapitalized>`.
-3. Messages map to Bosatsu `struct`.
-4. Enums map to Bosatsu `enum` and include an `Unknown(value: Int)` branch.
-5. `oneof` maps to a generated Bosatsu enum field with explicit `NotSet` case.
-6. Repeated fields map to `List[T]`.
-7. Map fields map to `List[(K, V)]` in v1 for deterministic order and no dict-runtime assumptions.
-8. Optional/presence fields map to `Option[T]`.
-9. Each message gets `encode_<Message>: <Message> -> Bosatsu/IO/Bytes::Bytes`.
+2. Default package mapping: `Proto/<ProtoPackageCapitalizedParts>`.
+3. `message` -> Bosatsu `struct`.
+4. `enum` -> Bosatsu `enum` with `Unknown(value: Int)` constructor.
+5. `oneof` -> generated Bosatsu enum field with explicit `NotSet` case.
+6. `repeated` -> `List[T]`.
+7. `map<K,V>` -> `List[(K, V)]` in phase 1 (preserves wire order and avoids dict-order assumptions).
+8. generated message codec surface:
+9. `encode_<Message>(value: <Message>) -> Bosatsu/IO/Bytes::Bytes`
+10. `decode_<Message>(bytes: Bosatsu/IO/Bytes::Bytes) -> Option[<Message>]`
 
-### 4. Wire-format runtime package in Bosatsu
+### 3) `float` and `double` strategy (phase 1)
 
-Add `test_workspace/Bosatsu/Proto/Wire.bosatsu` and export it through `test_workspace/core_alpha_conf.json`.
+We use Bosatsu `Float64` for both protobuf `float` and protobuf `double` fields.
 
-`Bosatsu/Proto/Wire` provides pure helpers used by generated code:
+Encoding:
 
-1. Varint encoding (`uvarint`, signed/zigzag variants).
-2. Fixed-width little-endian integer encoding (`fixed32`, `fixed64`, signed variants).
-3. Length-delimited helpers (strings, bytes, embedded messages).
-4. Field-key composition (`field_number << 3 | wire_type`).
-5. Packed repeated encoding helper.
-6. Message concatenation helper returning `Bosatsu/IO/Bytes::Bytes`.
+1. protobuf `double`: existing `Float64` bit path to IEEE754 binary64.
+2. protobuf `float`: convert `Float64` to IEEE754 binary32 bits, then write fixed32.
 
-Runtime portability is achieved because helpers use only already-portable Bosatsu features (`Int`, bit ops, `Float64` bits for double, `Bosatsu/IO/Bytes` operations).
+Decoding:
 
-### 5. Supported/unsupported scalar scope in v1
+1. protobuf `double`: read binary64 -> `Float64`.
+2. protobuf `float`: read binary32, widen to `Float64`.
 
-Supported protobuf field kinds in v1:
+To make this explicit and portable, phase 1 adds float32 conversion externals in Bosatsu float runtime surfaces (`Float64.bosatsu`, `Predef.scala`, Python externals, C float64 runtime extension files). This is a small runtime addition, not a protobuf library dependency.
 
-1. `bool`
-2. `string`
-3. `bytes`
-4. `double`
-5. `int32`, `int64`
-6. `uint32`, `uint64`
-7. `sint32`, `sint64`
-8. `fixed32`, `fixed64`
-9. `sfixed32`, `sfixed64`
-10. `enum`
-11. `message`
+### 4) Wire codec runtime package in Bosatsu
 
-Generation-time rejected in v1:
+Add `test_workspace/Bosatsu/Proto/Wire.bosatsu` and export it from `core_alpha_conf.json`.
 
-1. `float`
-2. `group`
-3. `extensions`
-4. proto2 syntax files
+`Bosatsu/Proto/Wire` provides shared codec helpers used by generated code:
 
-This keeps the first version portable and testable while avoiding float32 conversion primitives in three runtimes.
+1. varint encode/decode
+2. zigzag encode/decode
+3. fixed32/fixed64 read/write
+4. length-delimited read/write
+5. key/tag encoding and decoding
+6. packed repeated handling
+7. unknown field skipping
+8. message-frame decode combinators
 
-### 6. Minimal binary serialization workflow
+Important implementation decision:
 
-No new CLI subcommand is required for MVP binary emission.
+1. We do not link `libprotobuf`/`protobuf-c` for C runtime execution.
+2. We do not require protobuf runtime libraries in Python or JVM evaluator paths for generated codec execution.
+3. Generated codecs run on Bosatsu runtime primitives plus this Bosatsu wire module.
 
-1. User runs `protoc` with the Bosatsu plugin and checks generated `.bosatsu` into source.
-2. User builds Bosatsu values of generated message types.
-3. User calls generated `encode_<Message>` functions to get `Bosatsu/IO/Bytes::Bytes`.
-4. User writes bytes through existing `Bosatsu/IO/Core.write_bytes` inside `Prog` programs.
-5. Execution can happen through existing JVM evaluator (`tool eval --run` / `lib eval --run`) or transpiled Python/C binaries.
+Reference protobuf libraries are used only in tests to validate byte-level parity.
 
-This is the minimal path that satisfies cross-runtime output without adding runtime-specific protobuf dependencies.
+### 5) Binary serialization workflow
+
+No new CLI command is required for phase 1.
+
+1. Generate Bosatsu code from `.proto`.
+2. Construct typed message values in Bosatsu.
+3. Use generated `encode_` to produce `Bytes`.
+4. Use existing `Bosatsu/IO/Core.write_bytes` in `Prog` when emitting files/stdout/network payloads.
+5. Use generated `decode_` when reading protobuf bytes back in.
+
+This keeps implementation minimal while preserving portability across JVM/Python/C.
 
 ## Detailed implementation plan
 
-1. Add protobuf generator dependencies in `build.sbt`/`project/Dependencies.scala` for JVM plugin code and tests.
-2. Add `ProtoDescriptorModel.scala` ADTs for normalized descriptors.
-3. Implement `ProtoNaming.scala` for package/type/field symbol mapping, escaping, and collision suffixing.
-4. Implement `ProtoToBosatsu.scala` that emits `Package.Parsed` and deterministic source text.
-5. Add `ProtocPluginMain.scala` stdin/stdout plugin framing and option parsing.
-6. Add wrapper script `protoc-gen-bosatsu` for local/protoc integration.
-7. Add `Bosatsu/Proto/Wire.bosatsu` wire helpers and include package in `core_alpha_conf.json`.
-8. Add fixture proto file(s) under `core/src/test/resources/protobuf/`.
-9. Add generator golden tests (`ProtoToBosatsuTest.scala`) for shape/naming/defaults.
-10. Add plugin framing tests (`ProtocPluginMainTest.scala`) for request/response and error propagation.
-11. Add wire parity tests (`ProtoWireEncodingParityTest.scala`) comparing generated encoder bytes to Java protobuf bytes for fixture cases.
-12. Extend Python and C codegen tests (`PythonGenTest.scala`, `ClangGenTest.scala`) with fixture programs that encode messages and assert expected bytes.
-13. Add user docs page (`docs/src/main/paradox/generating_protobuf.md`) and docs index link.
-14. Add an example package (`test_workspace/Bosatsu/Example/Proto/ConfigDemo.bosatsu`) showing config-to-protobuf emission.
+1. Add plugin and test dependencies in `build.sbt`/`project/Dependencies.scala`.
+2. Implement normalized descriptor ADTs in `ProtoDescriptorModel.scala`.
+3. Implement naming/collision logic in `ProtoNaming.scala`.
+4. Implement source generation in `ProtoToBosatsu.scala` including `encode_` and `decode_` emission.
+5. Add plugin entrypoint `ProtocPluginMain.scala`.
+6. Add repository wrapper script `protoc-gen-bosatsu`.
+7. Add `Bosatsu/Proto/Wire.bosatsu` codec helpers.
+8. Export `Bosatsu/Proto/Wire` in `test_workspace/core_alpha_conf.json`.
+9. Add float32 conversion externals in:
+10. `test_workspace/Float64.bosatsu`
+11. `core/src/main/scala/dev/bosatsu/Predef.scala`
+12. `test_workspace/ProgExt.py`
+13. `test_workspace/Prog.bosatsu_externals`
+14. `c_runtime/bosatsu_ext_Bosatsu_l_Num_l_Float64.c/.h`
+15. Add fixture schema under `core/src/test/resources/protobuf/config_v1.proto`.
+16. Add golden generation tests (`ProtoToBosatsuTest.scala`).
+17. Add plugin protocol tests (`ProtocPluginMainTest.scala`).
+18. Add wire parity tests against reference protobuf (`ProtoWireEncodingParityTest.scala`).
+19. Add cross-runtime parity tests in Python/C codegen tests.
+20. Add docs page and example (`generating_protobuf.md`, docs index, `ConfigDemo.bosatsu`).
 
 ## Testing strategy
 
 ### A. Plugin protocol tests
 
-1. Construct synthetic `CodeGeneratorRequest` values and assert `CodeGeneratorResponse` files/errors.
-2. Verify only `file_to_generate` emits files.
-3. Verify invalid option values produce deterministic error output.
+1. Build synthetic `CodeGeneratorRequest` inputs and verify `CodeGeneratorResponse` outputs.
+2. Verify deterministic file list/order/content.
+3. Verify clear error responses for unsupported schemas (proto2, extensions, groups).
 
-### B. Generator golden tests
+### B. Golden generation tests
 
-1. Generate Bosatsu source for fixture schemas and snapshot expected output.
-2. Assert naming stability under collisions and reserved identifiers.
-3. Assert import and package mapping stability across multi-file schemas.
+1. Snapshot generated Bosatsu for representative schemas.
+2. Verify stable naming/collision handling.
+3. Verify generated imports for cross-file references.
 
-### C. Wire-compatibility parity tests (JVM)
+### C. JVM wire parity tests
 
-1. For each fixture message, build a Bosatsu value and encode with generated `encode_<Message>`.
-2. Build corresponding Java protobuf `DynamicMessage` and serialize.
-3. Assert byte-for-byte equality.
-4. Cover presence/default omission, packed repeated fields, maps, oneof, nested messages, enum unknown branch.
+1. Encode generated Bosatsu message values and compare bytes to Java protobuf serialization.
+2. Decode Java-produced bytes using generated `decode_` and assert typed equality.
+3. Validate oneof behavior, packed fields, optional presence, map/repeated behavior, enum unknown values.
 
 ### D. Cross-runtime parity tests
 
-1. Compile fixture Bosatsu code to Python and C.
-2. Run programs that encode fixed fixture values.
-3. Convert output `Bytes` to integer lists in-test and compare to known-good expected bytes.
-4. Assert JVM evaluator, Python output, and C output are identical.
+1. Run the same encode/decode fixture values in JVM evaluator, Python transpilation, and C transpilation.
+2. Assert identical byte output.
+3. Assert decoded values are equal where fixture uses supported features.
 
-### E. Failure-mode tests
+### E. Float-specific tests
 
-1. proto2 file input returns generation error with file path and reason.
-2. `float` field input returns generation error with field path and reason.
-3. Extensions/groups return generation error with actionable guidance.
+1. Validate protobuf `float` and `double` parity against Java reference bytes.
+2. Validate roundtrip decode for finite values and edge values (`+/-0`, infinities, NaN payload behavior expectations).
 
 ## Acceptance criteria
 
-1. `protoc-gen-bosatsu` can be invoked by `protoc` and emits Bosatsu files for each requested source file.
-2. Generated files typecheck with Bosatsu tooling in fixture tests.
-3. Message, enum, nested type, and oneof definitions are generated with deterministic naming and imports.
-4. Each generated message has an exported encoder function returning `Bosatsu/IO/Bytes::Bytes`.
-5. For supported field kinds, generated encoder output is byte-identical to official protobuf JVM serialization in parity tests.
-6. The same generated encoder logic produces identical bytes on JVM evaluator, Python transpile path, and C transpile path.
-7. `Bosatsu/Proto/Wire` is added to core alpha exports and used by generated code.
-8. Unsupported features (`proto2`, `float`, groups, extensions) fail generation with clear diagnostics.
-9. Generation output is deterministic across repeated runs with identical descriptor input.
-10. Docs include complete usage flow from `protoc` invocation to writing serialized bytes from Bosatsu programs.
-11. No runtime protobuf dependency is required for executing generated Bosatsu encoders on Python or C backends.
+1. `protoc-gen-bosatsu` works with standard protoc plugin invocation.
+2. Generated Bosatsu model files compile and typecheck.
+3. Generated message APIs include both `encode_` and `decode_` functions.
+4. For supported protobuf features, `encode_` output is byte-identical to reference protobuf serialization in tests.
+5. Generated `decode_` returns `Some(message)` for valid payloads and `None` for invalid payloads.
+6. `float` and `double` are both supported in phase 1 via Bosatsu `Float64` representation.
+7. No C protobuf library link is required for generated codec execution.
+8. Python runtime and JVM evaluator do not require protobuf libs for generated codec execution.
+9. Cross-runtime parity tests (JVM/Python/C) pass for encode/decode fixtures.
+10. Generation output is deterministic across repeated runs.
+11. Docs describe protoc generation and runtime usage.
 
 ## Risks and mitigations
 
-1. Risk: protobuf semantics mismatch (presence/default/packed) causes subtly invalid bytes.
-   Mitigation: JVM parity tests against official serialization for every supported feature combination.
+1. Risk: semantic mismatches with protobuf defaults/presence/oneof behavior.
+   Mitigation: reference parity tests and targeted fixtures for each semantic case.
 
-2. Risk: naming collisions create unstable or invalid Bosatsu identifiers.
-   Mitigation: centralized naming rules with deterministic suffixing, and golden tests on collision fixtures.
+2. Risk: float32 conversion edge behavior differs by runtime.
+   Mitigation: centralize conversion semantics and add explicit cross-runtime float parity tests.
 
-3. Risk: pure Bosatsu encoder allocation overhead for large messages.
-   Mitigation: keep wire helper API coarse-grained (packed and concatenation helpers), benchmark with representative payload sizes, and optimize helpers before broad rollout.
+3. Risk: generated decode complexity introduces subtle bugs.
+   Mitigation: shared decode combinators in `Bosatsu/Proto/Wire` and extensive malformed-input tests.
 
-4. Risk: users expect full protobuf feature coverage immediately.
-   Mitigation: explicit generation-time errors, clear docs on v1 supported subset, and tracked follow-up work.
-
-5. Risk: cross-runtime divergences in integer/bit edge behavior.
-   Mitigation: cross-runtime byte parity tests using shared fixtures and expected vectors.
+4. Risk: performance overhead from pure Bosatsu codec composition.
+   Mitigation: keep helper APIs coarse-grained, benchmark representative payload sizes, optimize hot helpers before expanding scope.
 
 ## Rollout notes
 
-1. Ship as additive and opt-in: users only adopt when they run the plugin.
-2. Mark feature as experimental in docs for first release.
-3. Land in three steps to reduce risk:
-4. Step 1: generator + wire library + JVM parity tests.
-5. Step 2: Python and C parity coverage.
-6. Step 3: user docs and example package.
-7. Keep unsupported-feature errors strict rather than partial generation.
-8. After one stable release cycle, expand coverage (proto2 and float32) in follow-up issues.
+1. Ship as additive and opt-in (`protoc` plugin use is explicit).
+2. Land in three steps:
+3. Step 1: generator + wire helpers + JVM parity tests.
+4. Step 2: float32 runtime helper wiring + Python/C parity.
+5. Step 3: docs and example workflow.
+6. Mark feature experimental for the first release cycle.
+7. Expand to proto2 as follow-up once phase-1 stability is proven.
 
-## Follow-up work (out of scope)
+## Follow-up work
 
-1. Add proto2 support, including required/optional semantics.
-2. Add `float` support with portable float32 bit conversion primitives.
-3. Add decode generation (`Bytes -> Message`) and unknown field preservation strategy.
-4. Add optional convenience command analogous to `lib json write` for direct bytes emission without a small `Prog` wrapper.
-5. Add service/gRPC-related generation if needed.
+1. proto2 support.
+2. Additional generated helper layers for validation or richer decode errors.
+3. Optional `lib/tool proto` convenience command analogous to JSON commands.
+4. Service-related generation if requested later.
