@@ -465,9 +465,10 @@ void free_external(void* ex, void* data) {
 BValue alloc_external(void* data, BSTS_FreeFn free) {
     BSTS_External* ext = GC_malloc(sizeof(BSTS_External));
     ext->external = data;
-    if (free != NULL) {
-      GC_register_finalizer(ext, free_external, free, NULL, NULL);
-    }
+#if defined(BSTS_RUNTIME_DEBUG_CHECKS)
+    assert(free != NULL);
+#endif
+    GC_register_finalizer(ext, free_external, free, NULL, NULL);
     return BSTS_VALUE_FROM_PTR(ext);
 }
 
