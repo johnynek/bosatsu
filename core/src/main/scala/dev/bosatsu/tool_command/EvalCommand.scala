@@ -138,7 +138,7 @@ object EvalCommand {
           runArgs,
           errColor
       ) =>
-        val effectiveRunArgs = runArgs ++ evalPassthroughArgs
+        val effectiveRunArgs = runArgs ::: evalPassthroughArgs
 
         platformIO.withEC {
           runEval(

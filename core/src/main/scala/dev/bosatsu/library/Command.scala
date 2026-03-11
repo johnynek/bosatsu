@@ -1651,7 +1651,7 @@ object Command {
           def toCliException(ex: Throwable): Throwable =
             CliException.Basic(Option(ex.getMessage).getOrElse(ex.toString))
 
-          val effectiveRunArgs = positionalRunArgs ++ evalPassthroughArgs
+          val effectiveRunArgs = positionalRunArgs ::: evalPassthroughArgs
 
           val sourcePackageFilter: PackageName => Boolean =
             _ == target._1
