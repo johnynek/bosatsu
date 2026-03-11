@@ -39,7 +39,10 @@ object Region extends RegionLowPriority {
     new cats.kernel.instances.LongOrder
 
   implicit val regionSemigroup: Semigroup[Region] =
-    Semigroup.instance(_ + _)
+    Semigroup.instance { (left, right) =>
+      // Use span-composition semantics, not numeric Long addition.
+      Region(left.start, right.end)
+    }
 
   implicit val regionShow: Show[Region] =
     Show.show(r => s"[${r.start}, ${r.end})")

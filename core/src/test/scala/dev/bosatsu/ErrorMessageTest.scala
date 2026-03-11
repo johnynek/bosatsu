@@ -2891,6 +2891,50 @@ x = 1.0 + 2.0
     )
   }
 
+  test("cross-package arity mismatch shows caller source for both sites") {
+    val rightSource =
+      """package Right
+        |
+        |export combine_n
+        |
+        |def combine_n(inst, value, n):
+        |  inst.add(value).add(n)
+        |""".stripMargin
+
+    val unrelated = "UNRELATED_MARKER"
+    val leftSource =
+      s"""package Left
+         |
+         |from Right import combine_n
+         |
+         |# $unrelated
+         |main = combine_n(1, 2)
+         |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(rightSource, leftSource))
+    val message =
+      errs.toList.collectFirst {
+        case te: PackageError.TypeErrorIn =>
+          te.message(sourceMap, Colorize.None)
+      }.getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
+
+    assert(message.contains("function with 3 arguments at:"), message)
+    assert(
+      message.contains("does not match function with 2 arguments at:"),
+      message
+    )
+    assert(message.contains("main = combine_n(1, 2)"), message)
+    assert(!message.contains(s"at:\n["), message)
+    val markerLines =
+      message.linesIterator.filter(_.contains(unrelated)).toList
+    assert(markerLines.nonEmpty, message)
+    assert(markerLines.forall(!_.contains("^")), message)
+
+    val pointers = message.linesIterator.filter(_.contains("^")).toList
+    assert(pointers.length >= 2, message)
+    assert(pointers.distinct.length >= 2, message)
+  }
+
   test(
     "inferred imported types from direct dependencies do not require type imports"
   ) {

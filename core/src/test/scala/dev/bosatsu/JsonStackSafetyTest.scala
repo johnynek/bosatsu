@@ -16,6 +16,9 @@ class JsonStackSafetyTest extends munit.FunSuite {
     test("Json.render should not stack overflow on deeply nested arrays") {
       val depth = sys.props.get("repro.jsonDepth").fold(1200)(_.toInt)
       val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      // Build parser-related state on a normal thread stack.
+      // This test is focused on render stack-safety for deep Json values.
+      val _ = Json.parser
       val json = deeplyNestedArray(depth)
 
       @volatile var failure: Option[Throwable] = None

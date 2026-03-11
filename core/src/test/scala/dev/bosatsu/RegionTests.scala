@@ -65,6 +65,15 @@ class RegionTests extends munit.ScalaCheckSuite {
     }
   }
 
+  property("Region.regionSemigroup matches region span composition") {
+    forAll { (r1: Region, r2: Region) =>
+      val semi = Region.regionSemigroup
+      val combined = semi.combine(r1, r2)
+      assertEquals(combined.start, r1.start)
+      assertEquals(combined.end, r2.end)
+    }
+  }
+
   property("Region follows OrderingLaws") {
     forAll { (r1: Region, r2: Region, r3: Region) =>
       OrderingLaws.law(r1, r2, r3)(using Region.ordering)
