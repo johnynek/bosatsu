@@ -414,6 +414,15 @@ main = pick
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def exportedValues(
+          packageName: PackageName
+      ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =
+        None
+      def exportedTestEntry(
+          packageName: PackageName,
+          bindable: Identifier.Bindable
+      ): Option[dev.bosatsu.Package.TestEntry[Any]] =
+        None
       val testEntries = Map.empty
       def mainValues(
           mainTypeFn: dev.bosatsu.rankn.Type => Boolean

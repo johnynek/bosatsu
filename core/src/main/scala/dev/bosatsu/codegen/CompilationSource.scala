@@ -3,11 +3,14 @@ package dev.bosatsu.codegen
 import cats.{Order, Show}
 import cats.data.NonEmptyList
 import dev.bosatsu.{
+  ExportedName,
   Identifier,
   MatchlessFromTypedExpr,
+  Package,
   PackageName,
   PackageMap,
-  Par
+  Par,
+  Referant
 }
 import dev.bosatsu.rankn.Type
 import scala.collection.immutable.{SortedMap, SortedSet}
@@ -53,6 +56,24 @@ object CompilationSource {
           )
 
           lazy val topoSort = pm.topoSort.map(p => ((), p))
+
+          def exportedValues(
+              packageName: PackageName
+          ): Option[Map[Identifier.Bindable, Type]] =
+            pm.toMap.get(packageName).map { pack =>
+              pack.exports.iterator.collect {
+                case ExportedName.Binding(name, Referant.Value(tpe)) =>
+                  (name, tpe)
+              }.toMap
+            }
+
+          def exportedTestEntry(
+              packageName: PackageName,
+              bindable: Identifier.Bindable
+          ): Option[Package.TestEntry[Any]] =
+            pm.toMap
+              .get(packageName)
+              .flatMap(Package.testEntryForBindable(_, bindable))
 
           lazy val testEntries = pm.testEntries
 
