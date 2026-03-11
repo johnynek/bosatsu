@@ -816,6 +816,148 @@ class ToolAndLibCommandTest extends FunSuite {
         )
     }
 
+  private def withExportedPredefInterface(
+      lib: Hashed[Algo.Blake3, proto.Library]
+  ): ErrorOr[Hashed[Algo.Blake3, proto.Library]] =
+    ProtoConverter
+      .interfaceToProto(Package.interfaceOf(PackageMap.predefCompiled))
+      .toEither
+      .leftMap(err =>
+        new Exception(
+          s"failed to encode Bosatsu/Predef interface: ${Option(err.getMessage).getOrElse(err.toString)}"
+        )
+      )
+      .map { predefIface =>
+        val exportedIfaces = lib.arg.exportedIfaces.toList
+        val updatedIfaces =
+          if (
+            exportedIfaces.exists(iface =>
+              ProtoConverter.iname(iface) == PackageName.PredefName.asString
+            )
+          ) {
+            exportedIfaces
+          } else {
+            predefIface :: exportedIfaces
+          }
+        val rewritten = lib.arg.copy(exportedIfaces = updatedIfaces)
+        Hashed(Algo.hashBytes(rewritten.toByteArray), rewritten)
+      }
+
+  private def addConfiguredCachedDep(
+      state: MemoryMain.State,
+      depLib: Hashed[Algo.Blake3, proto.Library],
+      depName: String,
+      depVersion: String,
+      isPublic: Boolean
+  ): ErrorOr[MemoryMain.State] = {
+    val visibilityFlag = if (isPublic) "--public" else "--private"
+    for {
+      s1 <- runWithState(
+        List(
+          "lib",
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          depName,
+          "--version",
+          depVersion,
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          show"https://example.com/$depName.bosatsu_lib",
+          visibilityFlag,
+          "--no-fetch"
+        ),
+        state
+      )
+      (state1, _) = s1
+      state2 <- state1.withFile(
+        casPathFor(Chain("repo"), depLib),
+        MemoryMain.FileContent.Lib(depLib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception("failed to inject dependency library into repo CAS")
+          )
+      }
+    } yield state2
+  }
+
+  private def stateWithLibDocDependency(
+      appSrc: String,
+      depSrc: String,
+      depDocBaseUrl: String,
+      includePredefInterface: Boolean
+  ): ErrorOr[MemoryMain.State] = {
+    val files =
+      baseLibFiles(appSrc) :+ (Chain("dep", "Dep", "Util.bosatsu") -> depSrc)
+
+    for {
+      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--package_root",
+          "dep",
+          "--input",
+          "dep/Dep/Util.bosatsu",
+          "--output",
+          "out/Dep.Util.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/Dep.Util.bosatsu_package",
+          "--doc_base_url",
+          depDocBaseUrl,
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
+      depLibWithPredef <-
+        if (includePredefInterface) withExportedPredefInterface(depLib)
+        else Right(depLib)
+      state3 <-
+        if (includePredefInterface)
+          state2.withFile(
+            Chain("out", "dep.bosatsu_lib"),
+            MemoryMain.FileContent.Lib(depLibWithPredef)
+          ) match {
+            case Some(next) => Right(next)
+            case None       =>
+              Left(
+                new Exception(
+                  "failed to rewrite dependency library after adding Predef interface"
+                )
+              )
+          }
+        else Right(state2)
+      state4 <- addConfiguredCachedDep(
+        state3,
+        depLibWithPredef,
+        depName = "dep",
+        depVersion = "0.0.1",
+        isPublic = false
+      )
+    } yield state4
+  }
+
   test("root eval command moved under tool") {
     module.run(List("eval", "--main", "MyLib/Foo")) match {
       case Left(_)  => ()
@@ -3222,6 +3364,205 @@ mk = (x) -> Thing(x)
           ),
           markdown
         )
+    }
+  }
+
+  test("lib doc --remote_doc_links_html rewrites dependency links to .html") {
+    val depSrc =
+      """export DepBox(), depBox
+|
+|struct DepBox(v: Int)
+|
+|depBox = DepBox(7)
+|""".stripMargin
+    val appSrc =
+      """from Dep/Util import depBox
+|
+|export dep_main
+|
+|dep_main = depBox
+|""".stripMargin
+
+    val result = for {
+      state <- stateWithLibDocDependency(
+        appSrc,
+        depSrc,
+        depDocBaseUrl = "https://docs.example.com/deps",
+        includePredefInterface = false
+      )
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs",
+          "--remote_doc_links_html"
+        ),
+        state
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown =
+          readStringFile(state, Chain("docs", "MyLib", "Foo.md"))
+        assert(
+          markdown.contains(
+            "public dependencies: [`Dep/Util`](https://docs.example.com/deps/Dep/Util.html)"
+          ),
+          markdown
+        )
+        assert(
+          markdown.contains(
+            "[`Dep/Util::DepBox`](https://docs.example.com/deps/Dep/Util.html#type-depbox)"
+          ),
+          markdown
+        )
+    }
+  }
+
+  test("lib doc keeps dependency links as .md when html rewrite flag is off") {
+    val depSrc =
+      """export DepBox(), depBox
+|
+|struct DepBox(v: Int)
+|
+|depBox = DepBox(7)
+|""".stripMargin
+    val appSrc =
+      """from Dep/Util import depBox
+|
+|export dep_main
+|
+|dep_main = depBox
+|""".stripMargin
+
+    val result = for {
+      state <- stateWithLibDocDependency(
+        appSrc,
+        depSrc,
+        depDocBaseUrl = "https://docs.example.com/deps",
+        includePredefInterface = false
+      )
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs"
+        ),
+        state
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val markdown =
+          readStringFile(state, Chain("docs", "MyLib", "Foo.md"))
+        assert(
+          markdown.contains(
+            "public dependencies: [`Dep/Util`](https://docs.example.com/deps/Dep/Util.md)"
+          ),
+          markdown
+        )
+        assert(
+          markdown.contains(
+            "[`Dep/Util::DepBox`](https://docs.example.com/deps/Dep/Util.md#type-depbox)"
+          ),
+          markdown
+        )
+    }
+  }
+
+  test("lib doc prefers local Predef links when included and remote when not") {
+    val depSrc =
+      """export dep_value
+|
+|dep_value = 1
+|""".stripMargin
+    val appSrc =
+      """export use_int
+|
+|external def use_int(a: Int) -> Int
+|""".stripMargin
+
+    val result = for {
+      state0 <- stateWithLibDocDependency(
+        appSrc,
+        depSrc,
+        depDocBaseUrl = "https://docs.example.com/deps",
+        includePredefInterface = true
+      )
+      s1 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs_remote"
+        ),
+        state0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "lib",
+          "doc",
+          "--repo_root",
+          "repo",
+          "--name",
+          "mylib",
+          "--outdir",
+          "docs_local",
+          "--include_predef"
+        ),
+        state1
+      )
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, _)) =>
+        val remoteMarkdown =
+          readStringFile(state, Chain("docs_remote", "MyLib", "Foo.md"))
+        assert(
+          remoteMarkdown.contains(
+            "https://docs.example.com/deps/Bosatsu/Predef.md#type-int"
+          ),
+          remoteMarkdown
+        )
+
+        val localMarkdown =
+          readStringFile(state, Chain("docs_local", "MyLib", "Foo.md"))
+        assert(
+          localMarkdown.contains("../Bosatsu/Predef.md#type-int"),
+          localMarkdown
+        )
+        assert(
+          !localMarkdown.contains(
+            "https://docs.example.com/deps/Bosatsu/Predef.md#type-int"
+          ),
+          localMarkdown
+        )
+        val predefDoc =
+          readStringFile(state, Chain("docs_local", "Bosatsu", "Predef.md"))
+        assert(predefDoc.contains("# `Bosatsu/Predef`"), predefDoc)
     }
   }
 
