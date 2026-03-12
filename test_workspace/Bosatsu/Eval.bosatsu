@@ -45,12 +45,6 @@ one_Eval: Eval[Int] = done(1)
 def defer(fn: () -> Eval[a]) -> Eval[a]:
     unit_Eval.flat_map(fn)   
 
-def defer_eval(e: Eval[a]) -> Eval[a]:
-    defer(() -> e)
-
-def defer_add(n: Int, acc: Eval[Int]) -> Eval[Int]:
-    defer_eval(acc).flat_map(x -> done(x.add(n)))
-
 enum Stack[a, b]:
     Last(fn: a -> Eval[b])
     More[c](first: a -> Eval[c], rest: Stack[c, b])
@@ -80,16 +74,17 @@ def eval(e: Eval[a]) -> a:
         case FlatMap(prev, fn):
             eval_loop(RunEval(prev, Last(fn)))
 
-def sum_defer(n: Int, acc: Eval[Int]) -> Eval[Int]:
-    recur (n, acc):
-        case (n, acc) if cmp_Int(n, 0) matches LT | EQ:
-            acc
-        case (n, acc):
-            sum_defer(n.sub(1), defer_add(n, acc))
+def sum_defer(n: Int) -> Eval[Int]:
+    recur n:
+        case _ if cmp_Int(n, 0) matches LT | EQ:
+            zero_Eval
+        case _:
+            prev <- defer(() -> sum_defer(n.sub(1))).flat_map()
+            done(prev.add(n))
 
-small_sum = eval(sum_defer(10, done(0)))
+small_sum = eval(sum_defer(10))
 long_n = 5000
-long_sum = eval(sum_defer(long_n, done(0)))
+long_sum = eval(sum_defer(long_n))
 long_expected = long_n.mul(long_n.add(1)).div(2)
 
 tests = TestSuite("Eval tests", [
