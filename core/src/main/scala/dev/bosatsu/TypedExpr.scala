@@ -1922,24 +1922,12 @@ object TypedExpr {
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] =
     new Traverse[TypedExpr] {
-      private def sequenceListFromReversed[F[_]: Applicative, A](
-          reversed: List[F[A]]
-      ): F[List[A]] = {
-        val app = Applicative[F]
-        var acc: F[List[A]] = app.pure(Nil)
-        var cursor = reversed
-        while (cursor.nonEmpty) {
-          val h = cursor.head
-          cursor = cursor.tail
-          acc = app.map2(h, acc)(_ :: _)
-        }
-        acc
-      }
-
-      private def rebuild[F[_]: Applicative, A, B](
-          root: TypedExpr[A]
-      )(fn: A => F[B]): F[TypedExpr[B]] = {
-        val app = Applicative[F]
+      def traverse[F[_]: Applicative, T, S](
+          typedExprT: TypedExpr[T]
+      )(fn: T => F[S]): F[TypedExpr[S]] = {
+        type A = T
+        type B = S
+        val root = typedExprT
 
         sealed trait Work
         case class Visit(expr: TypedExpr[A]) extends Work
@@ -2065,9 +2053,10 @@ object TypedExpr {
                 idx = idx + 1
               }
               val fnF = popBuilt()
-              val argsF = app.map(
-                sequenceListFromReversed(argFsRev.result())
-              )(args => NonEmptyList.fromListUnsafe(args))
+              val argsF =
+                argFsRev.result().reverse.sequence.map(args =>
+                  NonEmptyList.fromListUnsafe(args)
+                )
 
               pushBuilt(
                 (fnF, argsF, fn(tag)).mapN((fn1, args1, tag1) =>
@@ -2093,9 +2082,8 @@ object TypedExpr {
                 argFsRev += popBuilt()
                 idx = idx + 1
               }
-              val loopArgsF = app.map(
-                sequenceListFromReversed(argFsRev.result())
-              ) { argExprs =>
+              val loopArgsF = argFsRev.result().reverse.sequence.map {
+                argExprs =>
                 NonEmptyList.fromListUnsafe(args.toList.zip(argExprs))
               }
 
@@ -2112,9 +2100,10 @@ object TypedExpr {
                 argFsRev += popBuilt()
                 idx = idx + 1
               }
-              val argsF = app.map(
-                sequenceListFromReversed(argFsRev.result())
-              )(args => NonEmptyList.fromListUnsafe(args))
+              val argsF =
+                argFsRev.result().reverse.sequence.map(args =>
+                  NonEmptyList.fromListUnsafe(args)
+                )
 
               pushBuilt(
                 (argsF, fn(tag)).mapN((args1, tag1) =>
@@ -2138,9 +2127,10 @@ object TypedExpr {
                 branchFsRev += branchF
               }
               val argF = popBuilt()
-              val branchesF = app.map(
-                sequenceListFromReversed(branchFsRev.result())
-              )(bs => NonEmptyList.fromListUnsafe(bs))
+              val branchesF =
+                branchFsRev.result().reverse.sequence.map(bs =>
+                  NonEmptyList.fromListUnsafe(bs)
+                )
 
               pushBuilt(
                 (argF, branchesF, fn(tag)).mapN((arg1, branches1, tag1) =>
@@ -2222,11 +2212,6 @@ object TypedExpr {
         }
       }
 
-      def traverse[F[_]: Applicative, T, S](
-          typedExprT: TypedExpr[T]
-      )(fn: T => F[S]): F[TypedExpr[S]] =
-        rebuild[F, T, S](typedExprT)(fn)
-
       def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
         var acc = b
         foreachTagPostOrder(typedExprA) { a =>
@@ -2242,17 +2227,18 @@ object TypedExpr {
           reverseTags = a :: reverseTags
         }
 
-        var out = lb
-        var rem = reverseTags
-        while (rem.nonEmpty) {
-          out = f(rem.head, out)
-          rem = rem.tail
-        }
-        out
+        def loop(items: List[A]): Eval[B] =
+          items match {
+            case Nil      => lb
+            case h :: rem =>
+              f(h, Eval.defer(loop(rem)))
+          }
+
+        loop(reverseTags.reverse)
       }
 
       override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
-        rebuild[Id, A, B](te)(fn)
+        traverse[Id, A, B](te)(fn)
     }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
