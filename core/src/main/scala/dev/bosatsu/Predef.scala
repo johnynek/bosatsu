@@ -718,12 +718,6 @@ object PredefImpl {
     }
   }
 
-  private def evalPure_Eval(leaf: Value): Value =
-    SumValue(EvalTagPure, ProductValue.single(leaf))
-
-  private def evalFlatMap_Eval(prev: Value, chain: Value): Value =
-    SumValue(EvalTagFlatMap, ProductValue.fromList(prev :: chain :: Nil))
-
   private def evalStackLast_Eval(fn: Value): Value =
     SumValue(EvalStackTagLast, ProductValue.single(fn))
 
@@ -750,24 +744,10 @@ object PredefImpl {
 
           case EvalTagFlatMap =>
             val prev = eval.value.get(0)
-            val chain = eval.value.get(1).asSum
-            chain.variant match {
-              case EvalBindChainTagSingle =>
-                val fn = chain.value.get(0)
-                current = evalPure_Eval(prev)
-                stack = evalStackMore_Eval(fn, stack)
-                runEval = true
-
-              case EvalBindChainTagMany =>
-                val initChain = chain.value.get(0)
-                val lastFn = chain.value.get(1)
-                current = evalFlatMap_Eval(prev, initChain)
-                stack = evalStackMore_Eval(lastFn, stack)
-                runEval = true
-
-              case other =>
-                sys.error(s"invalid Eval.BindChain tag: $other")
-            }
+            val fn = eval.value.get(1)
+            current = prev
+            stack = evalStackMore_Eval(fn, stack)
+            runEval = true
 
           case other =>
             sys.error(s"invalid Eval tag: $other")
@@ -784,24 +764,10 @@ object PredefImpl {
 
               case EvalTagFlatMap =>
                 val prev = nextEval.value.get(0)
-                val chain = nextEval.value.get(1).asSum
-                chain.variant match {
-                  case EvalBindChainTagSingle =>
-                    val flatMapFn = chain.value.get(0)
-                    current = evalPure_Eval(prev)
-                    stack = evalStackLast_Eval(flatMapFn)
-                    runEval = true
-
-                  case EvalBindChainTagMany =>
-                    val initChain = chain.value.get(0)
-                    val lastFn = chain.value.get(1)
-                    current = evalFlatMap_Eval(prev, initChain)
-                    stack = evalStackLast_Eval(lastFn)
-                    runEval = true
-
-                  case other =>
-                    sys.error(s"invalid Eval.BindChain tag: $other")
-                }
+                val flatMapFn = nextEval.value.get(1)
+                current = prev
+                stack = evalStackLast_Eval(flatMapFn)
+                runEval = true
 
               case other =>
                 sys.error(s"invalid Eval tag: $other")
@@ -965,9 +931,6 @@ object PredefImpl {
   private val EvalLeafTagDone = 0
   private val EvalLeafTagLazyLeaf = 1
   private val EvalLeafTagAlways = 2
-
-  private val EvalBindChainTagSingle = 0
-  private val EvalBindChainTagMany = 1
 
   private val EvalTagPure = 0
   private val EvalTagFlatMap = 1

@@ -17,13 +17,9 @@ def eval_Leaf(leaf: Leaf[a]) -> a:
         case LazyLeaf(l): get_Lazy(l)
         case Always(fn): fn()
 
-enum BindChain[f: +(+* -> *), a: -*, b: +*]:
-    Single(fn: a -> f[b]),
-    Many[c](first: BindChain[f, a, c], last: c -> f[b])
-
 enum Eval[a: +*]:
     Pure(value: Leaf[a])
-    FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+    FlatMap[b](prev: Eval[b], fn: b -> Eval[a])
 
 def done(a: a) -> Eval[a]: Pure(Done(a))
 # this lifts a Lazy into an Eval
@@ -34,11 +30,7 @@ def lazy_Eval(fn: () -> a) -> Eval[a]: from_Lazy(lazy(fn))
 def always(fn: () -> a) -> Eval[a]: Pure(Always(fn))
 
 def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]:
-    match e:
-        case Pure(l):
-            FlatMap(l, Single(fn))
-        case FlatMap(l0, fn0):
-            FlatMap(l0, Many(fn0, fn))
+    FlatMap(e, fn)
 
 def map[a, b](e: Eval[a], fn: a -> b) -> Eval[b]:
     x <- e.flat_map()
@@ -52,6 +44,12 @@ one_Eval: Eval[Int] = done(1)
 
 def defer(fn: () -> Eval[a]) -> Eval[a]:
     unit_Eval.flat_map(fn)   
+
+def defer_eval(e: Eval[a]) -> Eval[a]:
+    defer(() -> e)
+
+def defer_add(n: Int, acc: Eval[Int]) -> Eval[Int]:
+    defer_eval(acc).flat_map(x -> done(x.add(n)))
 
 enum Stack[a, b]:
     Last(fn: a -> Eval[b])
@@ -69,39 +67,25 @@ external def eval_loop[a](loop: Loop[a]) -> a
 # def eval_loop[a](budget: Int, arg: Loop[a]) -> Option[a]:
 #     recur (budget, arg):
 #         case _ if cmp_Int(budget, 0) matches LT | EQ: None
-#         case (_, RunStack(a, Last(fn))):
-#             match fn(a):
-#                 case Pure(p): Some(eval_Leaf(p))
-#                 case FlatMap(l, Single(flatmap_fn)):
-#                     eval_loop(budget.sub(1), RunEval(Pure(l), Last(flatmap_fn)))
-#                 case FlatMap(l, Many(init, last)):
-#                     eval_loop(budget.sub(1), RunEval(FlatMap(l, init), Last(last)))
 #         case (_, RunEval(Pure(a), stack)):
 #             eval_loop(budget.sub(1), RunStack(eval_Leaf(a), stack))
-#         case (_, RunEval(FlatMap(prev, Single(fn)), stack)):
-#             eval_loop(budget.sub(1), RunEval(Pure(prev), More(fn, stack)))
-#         case (_, RunEval(FlatMap(prev, Many(init, last)), stack)):
-#             eval_loop(budget.sub(1), RunEval(FlatMap(prev, init), More(last, stack)))
+#         case (_, RunEval(FlatMap(prev, fn), stack)):
+#             eval_loop(budget.sub(1), RunEval(prev, More(fn, stack)))
 #         case (_, RunStack(a, More(first, rest))):
 #             eval_loop(budget.sub(1), RunEval(first(a), rest))
 
 def eval(e: Eval[a]) -> a:
     match e:
         case Pure(l): eval_Leaf(l)
-        case FlatMap(a, Single(fn)):
-            eval_loop(RunEval(Pure(a), Last(fn)))
-        case FlatMap(a, Many(init, last)):
-            eval_loop(RunEval(FlatMap(a, init), Last(last)))
+        case FlatMap(prev, fn):
+            eval_loop(RunEval(prev, Last(fn)))
 
 def sum_defer(n: Int, acc: Eval[Int]) -> Eval[Int]:
     recur (n, acc):
         case (n, acc) if cmp_Int(n, 0) matches LT | EQ:
             acc
         case (n, acc):
-            sum_defer(
-              n.sub(1),
-              defer(() -> acc).flat_map(x -> done(x.add(n)))
-            )
+            sum_defer(n.sub(1), defer_add(n, acc))
 
 small_sum = eval(sum_defer(10, done(0)))
 long_n = 5000

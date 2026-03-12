@@ -366,9 +366,6 @@ _EVAL_LEAF_DONE = 0
 _EVAL_LEAF_LAZY = 1
 _EVAL_LEAF_ALWAYS = 2
 
-_EVAL_BIND_SINGLE = 0
-_EVAL_BIND_MANY = 1
-
 _EVAL_PURE = 0
 _EVAL_FLAT_MAP = 1
 
@@ -411,17 +408,10 @@ def eval_loop(loop):
                 raise ValueError(f"invalid Eval value: {current!r}")
 
             prev = current[1]
-            chain = current[2]
-            chain_tag = chain[0]
-            if chain_tag == _EVAL_BIND_SINGLE:
-                current = (_EVAL_PURE, prev)
-                stack = (_EVAL_STACK_MORE, chain[1], stack)
-                continue
-            if chain_tag == _EVAL_BIND_MANY:
-                current = (_EVAL_FLAT_MAP, prev, chain[1])
-                stack = (_EVAL_STACK_MORE, chain[2], stack)
-                continue
-            raise ValueError(f"invalid Eval.BindChain value: {chain!r}")
+            fn = current[2]
+            current = prev
+            stack = (_EVAL_STACK_MORE, fn, stack)
+            continue
 
         stack_tag = stack[0]
         if stack_tag == _EVAL_STACK_MORE:
@@ -439,20 +429,9 @@ def eval_loop(loop):
         if next_tag != _EVAL_FLAT_MAP:
             raise ValueError(f"invalid Eval value: {next_eval!r}")
 
-        prev = next_eval[1]
-        chain = next_eval[2]
-        chain_tag = chain[0]
-        if chain_tag == _EVAL_BIND_SINGLE:
-            current = (_EVAL_PURE, prev)
-            stack = (_EVAL_STACK_LAST, chain[1])
-            run_eval = True
-            continue
-        if chain_tag == _EVAL_BIND_MANY:
-            current = (_EVAL_FLAT_MAP, prev, chain[1])
-            stack = (_EVAL_STACK_LAST, chain[2])
-            run_eval = True
-            continue
-        raise ValueError(f"invalid Eval.BindChain value: {chain!r}")
+        current = next_eval[1]
+        stack = (_EVAL_STACK_LAST, next_eval[2])
+        run_eval = True
 
 # Bosatsu/IO/Bytes externals
 empty_Bytes = _BosatsuBytes(b"", 0, 0)

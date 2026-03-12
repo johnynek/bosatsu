@@ -9,9 +9,6 @@ static const ENUM_TAG BSTS_EVAL_LEAF_DONE = 0;
 static const ENUM_TAG BSTS_EVAL_LEAF_LAZY_LEAF = 1;
 static const ENUM_TAG BSTS_EVAL_LEAF_ALWAYS = 2;
 
-static const ENUM_TAG BSTS_EVAL_BIND_SINGLE = 0;
-static const ENUM_TAG BSTS_EVAL_BIND_MANY = 1;
-
 static const ENUM_TAG BSTS_EVAL_PURE = 0;
 static const ENUM_TAG BSTS_EVAL_FLAT_MAP = 1;
 
@@ -70,26 +67,10 @@ BValue ___bsts_g_Bosatsu_l_Eval_l_eval__loop(BValue loop) {
         break;
       case BSTS_EVAL_FLAT_MAP: {
         BValue prev = get_enum_index(eval, 0);
-        BValue chain = get_enum_index(eval, 1);
-        switch (get_variant(chain)) {
-        case BSTS_EVAL_BIND_SINGLE: {
-          BValue fn = get_enum_index(chain, 0);
-          current = alloc_enum1(BSTS_EVAL_PURE, prev);
-          stack = alloc_enum2(BSTS_EVAL_STACK_MORE, fn, stack);
-          run_eval = 1;
-          break;
-        }
-        case BSTS_EVAL_BIND_MANY: {
-          BValue init = get_enum_index(chain, 0);
-          BValue last = get_enum_index(chain, 1);
-          current = alloc_enum2(BSTS_EVAL_FLAT_MAP, prev, init);
-          stack = alloc_enum2(BSTS_EVAL_STACK_MORE, last, stack);
-          run_eval = 1;
-          break;
-        }
-        default:
-          bsts_eval_invalid_tag("Eval.BindChain", get_variant(chain));
-        }
+        BValue fn = get_enum_index(eval, 1);
+        current = prev;
+        stack = alloc_enum2(BSTS_EVAL_STACK_MORE, fn, stack);
+        run_eval = 1;
         break;
       }
       default:
@@ -104,27 +85,9 @@ BValue ___bsts_g_Bosatsu_l_Eval_l_eval__loop(BValue loop) {
         case BSTS_EVAL_PURE:
           return bsts_eval_force_leaf(get_enum_index(next_eval, 0));
         case BSTS_EVAL_FLAT_MAP: {
-          BValue prev = get_enum_index(next_eval, 0);
-          BValue chain = get_enum_index(next_eval, 1);
-          switch (get_variant(chain)) {
-          case BSTS_EVAL_BIND_SINGLE: {
-            BValue flat_map_fn = get_enum_index(chain, 0);
-            current = alloc_enum1(BSTS_EVAL_PURE, prev);
-            stack = alloc_enum1(BSTS_EVAL_STACK_LAST, flat_map_fn);
-            run_eval = 1;
-            break;
-          }
-          case BSTS_EVAL_BIND_MANY: {
-            BValue init = get_enum_index(chain, 0);
-            BValue last = get_enum_index(chain, 1);
-            current = alloc_enum2(BSTS_EVAL_FLAT_MAP, prev, init);
-            stack = alloc_enum1(BSTS_EVAL_STACK_LAST, last);
-            run_eval = 1;
-            break;
-          }
-          default:
-            bsts_eval_invalid_tag("Eval.BindChain", get_variant(chain));
-          }
+          current = get_enum_index(next_eval, 0);
+          stack = alloc_enum1(BSTS_EVAL_STACK_LAST, get_enum_index(next_eval, 1));
+          run_eval = 1;
           break;
         }
         default:

@@ -147,4 +147,106 @@ example : runFuel 2 sample = some 42 := by
 example : ∃ n v, runFuel n sample = some v := by
   exact ⟨2, 42, rfl⟩
 
+namespace BosatsuLoop
+
+/-!
+Bosatsu-style representation (close to `test_workspace/Bosatsu/Eval.bosatsu`):
+- `Leaf`
+- `Eval`
+- `Stack`
+- `Loop` with `RunEval` / `RunStack`
+
+We connect this representation to the naive `Eval` above and reuse
+`exists_fuel_for_all` to define a fuel-free `eval_loop`.
+-/
+
+inductive Leaf : Type u → Type (u + 1) where
+  | done : α → Leaf α
+  | lazyLeaf : (Unit → α) → Leaf α
+  | always : (Unit → α) → Leaf α
+
+@[simp] def evalLeaf : Leaf α → α
+  | .done a => a
+  | .lazyLeaf fn => fn ()
+  | .always fn => fn ()
+
+inductive Eval : Type u → Type (u + 1) where
+  | pure : Leaf α → Eval α
+  | flatMap : Eval β → (β → Eval α) → Eval α
+
+@[simp] def flatMapEval : Eval α → (α → Eval β) → Eval β
+  | eval, fn => .flatMap eval fn
+
+inductive Stack : Type u → Type u → Type (u + 1) where
+  | last : (α → Eval β) → Stack α β
+  | more : (α → Eval γ) → Stack γ β → Stack α β
+
+inductive Loop : Type u → Type (u + 1) where
+  | runStack : α → Stack α β → Loop β
+  | runEval : Eval α → Stack α β → Loop β
+
+/-- Erase Bosatsu-style Eval into the naive Eval used above. -/
+@[simp] def toNaiveEval : Eval α → EvalFuelExistence.Eval α
+  | .pure leaf => .pure (evalLeaf leaf)
+  | .flatMap prev fn =>
+      EvalFuelExistence.Eval.flatMap
+        (toNaiveEval prev)
+        (fun a => toNaiveEval (fn a))
+
+@[simp] def toNaiveStack : Stack α β → α → EvalFuelExistence.Eval β
+  | .last fn => fun a => toNaiveEval (fn a)
+  | .more first rest => fun a =>
+      EvalFuelExistence.Eval.flatMap
+        (toNaiveEval (first a))
+        (toNaiveStack rest)
+
+@[simp] def toNaiveLoop : Loop β → EvalFuelExistence.Eval β
+  | .runEval e stack =>
+      EvalFuelExistence.Eval.flatMap
+        (toNaiveEval e)
+        (toNaiveStack stack)
+  | .runStack a stack =>
+      toNaiveStack stack a
+
+theorem exists_fuel_for_loop :
+    ∀ {β : Type u}, (st : Loop β) → ∃ n v, EvalFuelExistence.runFuel n (toNaiveLoop st) = some v := by
+  intro β st
+  exact EvalFuelExistence.exists_fuel_for_all (toNaiveLoop st)
+
+theorem exists_value_for_loop {β : Type u} (st : Loop β) :
+    ∃ v, ∃ n, EvalFuelExistence.runFuel n (toNaiveLoop st) = some v := by
+  rcases exists_fuel_for_loop st with ⟨n, v, h⟩
+  exact ⟨v, n, h⟩
+
+/--
+Fuel-free loop runner for the Bosatsu-style machine.
+
+This is noncomputable because it chooses a witness from
+`exists_fuel_for_loop`, but it matches the desired no-fuel API shape:
+`eval_loop : Loop α -> α`.
+-/
+noncomputable def eval_loop (st : Loop β) : β :=
+  Classical.choose (exists_value_for_loop st)
+
+theorem eval_loop_sound (st : Loop β) :
+    ∃ n, EvalFuelExistence.runFuel n (toNaiveLoop st) = some (eval_loop st) := by
+  exact Classical.choose_spec (exists_value_for_loop st)
+
+@[simp] def doneStack : Stack α α :=
+  .last (fun a => .pure (.done a))
+
+noncomputable def runEval (e : Eval α) : α :=
+  eval_loop (.runEval e doneStack)
+
+def plusOne (n : Nat) : Eval Nat :=
+  .pure (.done (n + 1))
+
+def sampleLoop : Loop Nat :=
+  .runEval (.flatMap (.pure (.done 41)) plusOne) doneStack
+
+example : ∃ n, EvalFuelExistence.runFuel n (toNaiveLoop sampleLoop) = some 42 := by
+  exact ⟨3, rfl⟩
+
+end BosatsuLoop
+
 end EvalFuelExistence
