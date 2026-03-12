@@ -12,23 +12,20 @@ object Writer {
 
   extension [M, A](tpe: Tpe[M, A]) {
     inline def tell(m: M)(using Semigroup[M]): Tpe[M, A] = {
-      val (m0, a) = tpe
-      val m1 = Semigroup[M].combine(m0, m)
-      (m1, a)
+      val m1 = Semigroup[M].combine(tpe._1, m)
+      (m1, tpe._2)
     }
 
-    inline def map[B](inline fn: A => B): Tpe[M, B] = {
-      val (m, a) = tpe
-      (m, fn(a))
-    }
+    inline def map[B](inline fn: A => B): Tpe[M, B] =
+      (written, fn(value))
 
     inline def flatMap[B](inline fn: A => Tpe[M, B])(using Semigroup[M]): Tpe[M, B] = {
-      val (m0, a) = tpe
-      val (m1, b) = fn(a)
-      (Semigroup[M].combine(m0, m1), b)
+      val tpeB = fn(value)
+      (Semigroup[M].combine(written, tpeB._1), tpeB._2)
     }
 
     inline def written: M = tpe._1
+    inline def value: A = tpe._2
 
     inline def run: (M, A) = tpe
   }
