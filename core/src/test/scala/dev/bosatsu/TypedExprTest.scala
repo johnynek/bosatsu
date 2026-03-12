@@ -1,7 +1,7 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eval, Id}
-import cats.data.{NonEmptyList, State, Writer}
+import cats.{Applicative, Eval, Id, Monad}
+import cats.data.{Chain, NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop
@@ -4259,6 +4259,71 @@ def makeLoop(fn):
           (traverse(expr)(fn), tbranch, fn(tag)).mapN(TypedExpr.Match(_, _, _))
       }
 
+    def traverseUp[F[_]: Monad, A](
+        te: TypedExpr[A]
+    )(fn: TypedExpr[A] => F[TypedExpr[A]]): F[TypedExpr[A]] = {
+      // be careful not to mistake loop with fn
+      def loop(term: TypedExpr[A]): F[TypedExpr[A]] = traverseUp(term)(fn)
+      val mon = Monad[F]
+
+      te match {
+        case TypedExpr.Generic(params, expr) =>
+          loop(expr).flatMap { fx =>
+            fn(TypedExpr.Generic(params, fx))
+          }
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          loop(of).flatMap { o2 =>
+            fn(TypedExpr.Annotation(o2, tpe, qev))
+          }
+        case TypedExpr.AnnotatedLambda(args, res, tag) =>
+          loop(res).flatMap { res1 =>
+            fn(TypedExpr.AnnotatedLambda(args, res1, tag))
+          }
+        case v @ (TypedExpr.Global(_, _, _, _) | TypedExpr.Local(_, _, _) |
+            TypedExpr.Literal(_, _, _)) =>
+          fn(v)
+        case TypedExpr.App(f, args, tpe, tag) =>
+          mon
+            .map2(loop(f), args.traverse(loop(_))) { (f1, args1) =>
+              TypedExpr.App(f1, args1, tpe, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          mon
+            .map2(loop(exp), loop(in)) { (exp1, in1) =>
+              TypedExpr.Let(v, exp1, in1, rec, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Loop(args, body, tag) =>
+          mon
+            .map2(
+              args.traverse { case (v, expr) =>
+                loop(expr).map((v, _))
+              },
+              loop(body)
+            ) { (args1, body1) =>
+              TypedExpr.Loop(args1, body1, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Recur(args, tpe, tag) =>
+          args.traverse(loop(_)).map(TypedExpr.Recur(_, tpe, tag)).flatMap(fn)
+        case TypedExpr.Match(expr, branches, tag) =>
+          val tbranch = branches.traverse { branch =>
+            mon.map2(
+              branch.guard.traverse(loop(_)),
+              loop(branch.expr)
+            ) { (guard, expr1) =>
+              branch.copy(guard = guard, expr = expr1)
+            }
+          }
+          mon
+            .map2(loop(expr), tbranch) { (expr1, branches1) =>
+              TypedExpr.Match(expr1, branches1, tag)
+            }
+            .flatMap(fn)
+      }
+    }
+
     def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
       typedExprA match {
         case TypedExpr.Generic(_, e) =>
@@ -4434,8 +4499,20 @@ def makeLoop(fn):
     }
   }
 
+  test("TypedExpr.traverseUp matches recursive oracle with Writer[Chain, _]") {
+    forAll(genTypedExprInt) { te =>
+      type W[X] = Writer[Chain[TypedExpr[Int]], X]
+      val record: TypedExpr[Int] => W[TypedExpr[Int]] = t =>
+        Writer(Chain.one(t), t)
+
+      val got = te.traverseUp[W](record).run
+      val expected = RecursiveTraverseOracle.traverseUp(te)(record).run
+      assertEquals(got, expected)
+    }
+  }
+
   Platform.onJvm(
-    test("TypedExpr traverse/map/folds are stack safe on deep let/app trees") {
+    test("TypedExpr traverseUp/traverse/map/folds are stack safe on deep let/app trees") {
       val depth = sys.props.get("repro.typedExprTraverseDepth").fold(12000)(_.toInt)
       val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
 
@@ -4452,6 +4529,9 @@ def makeLoop(fn):
               def runChecks(label: String, expr: TypedExpr[Int]): Unit = {
                 val mapped = expr.map(_ + 1)
                 val traversed: TypedExpr[Int] = expr.traverse[Id, Int](_ + 1)
+                type W[X] = Writer[Int, X]
+                val (traverseUpCount, traverseUpRes) =
+                  expr.traverseUp[W](t => Writer(1, t)).run
 
                 val expectedTagCount = (2 * depth) + 1
                 val leftCount = expr.foldLeft(0)((count, _) => count + 1)
@@ -4460,10 +4540,14 @@ def makeLoop(fn):
                 val mappedCount = mapped.foldLeft(0)((count, _) => count + 1)
                 val traversedCount =
                   traversed.foldLeft(0)((count, _) => count + 1)
+                val traverseUpResCount =
+                  traverseUpRes.foldLeft(0)((count, _) => count + 1)
                 assertEquals(leftCount, expectedTagCount, label)
                 assertEquals(rightCount, expectedTagCount, label)
                 assertEquals(mappedCount, expectedTagCount, label)
                 assertEquals(traversedCount, expectedTagCount, label)
+                assertEquals(traverseUpCount, expectedTagCount, label)
+                assertEquals(traverseUpResCount, expectedTagCount, label)
               }
 
               runChecks("let", letExpr)
