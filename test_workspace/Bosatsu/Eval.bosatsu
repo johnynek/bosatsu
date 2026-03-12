@@ -1,51 +1,70 @@
 package Bosatsu/Eval
 
-from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
+from Bosatsu/Lazy import Lazy, lazy, get_Lazy
 
-export Eval, done, map, flat_map, bind, eval
+export Eval, done, from_Lazy, always, map, flat_map, eval
 # port of cats.Eval to bosatsu
 
-enum Eval[a]:
-    Pure(a: a)
-    FlatMap(use: forall x. (forall y. (Eval[y], y -> Eval[a]) -> x) -> x)
+enum Leaf[a: +*]:
+    Done(done: a), LazyLeaf(run_lazy: Lazy[a]), Always(run: () -> a)
 
-def done(a: a) -> Eval[a]: Pure(a)
+def eval_leaf(l: Leaf[a]) -> a:
+    match l:
+        case Done(a): a
+        case LazyLeaf(l): get_Lazy(l)
+        case Always(fn): fn()
+
+enum BindChain[f: +* -> *, a: -*, b: +*]:
+    Single(fn: a -> f[b]),
+    Many[c](first: BindChain[f, a, c], last: b -> f[b])
+
+enum Eval[a: +*]:
+    Pure(value: Leaf[a])
+    FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+def done(a: a) -> Eval[a]: Pure(Done(a))
+def from_Lazy(lzy: Lazy[a]) -> Eval[a]: Pure(LazyLeaf(lzy))
+def always(fn: () -> a) -> Eval[a]: Pure(Always(fn))
 
 def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]:
-    FlatMap(cb -> cb(e, fn))
-
-def bind(e, fn): flat_map(e, fn)
+    match e:
+        case Pure(l): FlatMap(l, Single(fn))
+        case FlatMap(l0, fn0):
+            FlatMap(l0, Many(fn0, fn))
 
 def map[a, b](e: Eval[a], fn: a -> b) -> Eval[b]:
-    x <- e.bind()
-    Pure(fn(x))
+    x <- e.flat_map()
+    done(fn(x))
+
+unit_Eval: Eval[Unit] = done(())
+
+def defer(fn: () -> Eval[a]) -> Eval[a]:
+    unit_Eval.flatMap(fn)   
 
 enum Stack[a, b]:
-    Done(fn: a -> b)
-    More(use: forall x. (forall y. (a -> Eval[y], Stack[y, b]) -> x) -> x)
-
-def push_stack[a, b, c](fn: a -> Eval[b], stack: Stack[b, c]) -> Stack[a, c]:
-   More(use -> use(fn, stack))  
+    Last(fn: a -> Eval[b])
+    More[c](first: a -> Eval[c], rest: Stack[c, b])
 
 enum Loop[a, b]:
     RunStack(a: a, stack: Stack[a, b])
     RunEval(e: Eval[a], stack: Stack[a, b])
 
-def run[a, b](budget: Nat, arg: Loop[a, b]) -> Option[b]:
-  recur budget:
-      case Zero: None
-      case Succ(balance):
-          match arg:
-              case RunStack(a, Done(fn)): Some(fn(a))
-              case RunEval(Pure(a), stack):
-                  run(balance, RunStack(a, stack))
-              case RunEval(FlatMap(use), stack):
-                  use((prev, fn) -> run(balance, RunEval(prev, push_stack(fn, stack)))) 
-              case RunStack(a, More(use)):
-                use((fn, stack) -> (
-                  evalb = fn(a)
-                  run(balance, RunEval(evalb, stack))
-                ))
+def eval_loop[a, b](budget: Int, arg: Loop[a, b]) -> Option[b]:
+    recur (budget, arg):
+        case _ if cmp_Int(budget, 0) matches LT | EQ: None
+        case (_, RunStack(a, Last(fn))): Some(fn(a))
+        case (_, RunEval(Pure(a), stack)):
+            eval_loop(budget.sub(1), RunStack(eval_Leaf(a), stack))
+        case (_, RunEval(FlatMap(prev, Single(fn)), stack)):
+            eval_loop(budget.sub(1), RunEval(prev, More(fn, stack)))
+        case (_, RunStack(a, More(first, rest))):
+            eval_loop(budget.sub(1), RunEval(first(a), rest))
 
-def eval[a](budget: Int, ea: Eval[a]) -> Option[a]:
-    run(to_Nat(budget), RunEval(ea, Done(a -> a)))
+def eval(budget: Int, e: Eval[a]) -> Option[a]:
+    recur (budget, e):
+        case _ if cmp_Int(budget, 0) matches LT | EQ: None
+        case (_, Pure(l)): Some(eval_Leaf(l))
+        case (_, FlatMap(a, Single(fn))):
+            eval(budget.sub(1), fn(a))
+        case (_, FlatMap(a, Many(init, last))):
+            eval_loop(budget, Loop(FlatMap(a, init), Last(last)))
