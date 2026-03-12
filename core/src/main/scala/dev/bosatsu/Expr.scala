@@ -33,8 +33,19 @@ sealed abstract class Expr[T] derives CanEqual {
       case Lambda(args, res, _) =>
         val nameSet = args.toList.iterator.map(_._1).toSet
         ListUtil.filterNot(res.freeVarsDup)(nameSet)
-      case App(fn, args, _) =>
-        fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.freeVarsDup
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.freeVarsDup ::: step.arg.freeVarsDup ::: acc
+            }
+            acc
+          case None =>
+            fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+        }
       case Let(arg, argE, in, rec, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree =
@@ -86,8 +97,19 @@ sealed abstract class Expr[T] derives CanEqual {
       case Local(_, _)         => Set.empty
       case g @ Global(_, _, _) => Set.empty + g
       case Lambda(_, res, _)   => res.globals
-      case App(fn, args, _)    =>
-        fn.globals | args.reduceMap(_.globals)
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.globals
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.globals | step.arg.globals | acc
+            }
+            acc
+          case None =>
+            fn.globals | args.reduceMap(_.globals)
+        }
       case Let(_, argE, in, _, _) =>
         argE.globals | in.globals
       case Literal(_, _)           => Set.empty
@@ -128,8 +150,23 @@ sealed abstract class Expr[T] derives CanEqual {
         Generic(typeVars, in.eraseTags)
       case Lambda(args, expr, _) =>
         Lambda(args, expr.eraseTags, ())
-      case App(fn, args, _) =>
-        App(fn.eraseTags, args.map(_.eraseTags), ())
+      case app @ App(fn, args, _) =>
+        Expr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc: Expr[Unit] = last.eraseTags
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = App(
+                step.fn.eraseTags,
+                NonEmptyList.of(step.arg.eraseTags, acc),
+                ()
+              )
+            }
+            acc
+          case None =>
+            App(fn.eraseTags, args.map(_.eraseTags), ())
+        }
       case Let(arg, expr, in, recursive, _) =>
         Let(arg, expr.eraseTags, in.eraseTags, recursive, ())
       case Literal(lit, _) =>
@@ -271,8 +308,19 @@ object Expr {
       case Local(name, _)      => SortedSet(name)
       case Generic(_, in)      => allNames(in)
       case Global(_, _, _)     => SortedSet.empty
-      case App(fn, args, _)    =>
-        args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
+      case app @ App(fn, args, _) =>
+        flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = allNames(last)
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = allNames(step.fn) | allNames(step.arg) | acc
+            }
+            acc
+          case None =>
+            args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
+        }
       case Lambda(args, e, _) => allNames(e) ++ args.toList.iterator.map(_._1)
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _)            => SortedSet.empty
@@ -323,6 +371,53 @@ object Expr {
       case Nil          => fn
     }
 
+  final case class App2Step[T](fn: Expr[T], arg: Expr[T], tag: T)
+
+  // Flatten right-deep binary application chains:
+  // f0(x0, f1(x1, ... fn(xn, last)))
+  // into steps [(f0, x0), (f1, x1), ...] and the final `last`.
+  def flattenApp2[T](
+      root: App[T]
+  ): Option[(NonEmptyList[App2Step[T]], Expr[T])] = {
+    val steps = List.newBuilder[App2Step[T]]
+    var cursor: Expr[T] = root
+    var done = false
+    var valid = true
+    var last: Expr[T] = root
+
+    while (valid && !done) {
+      cursor match {
+        case App(fn, NonEmptyList(arg, rhs :: Nil), tag) =>
+          steps += App2Step(fn, arg, tag)
+          rhs match {
+            case next @ App(_, NonEmptyList(_, _ :: Nil), _) =>
+              cursor = next
+            case _ =>
+              last = rhs
+              done = true
+          }
+        case _ =>
+          valid = false
+      }
+    }
+
+    if (!valid) None
+    else NonEmptyList.fromList(steps.result()).map((_, last))
+  }
+
+  def rebuildApp2[T](
+      steps: NonEmptyList[App2Step[T]],
+      last: Expr[T]
+  ): Expr[T] = {
+    var res = last
+    val rev = steps.toList.reverseIterator
+    while (rev.hasNext) {
+      val step = rev.next()
+      res = App(step.fn, NonEmptyList.of(step.arg, res), step.tag)
+    }
+    res
+  }
+
   // Traverse all non-bound vars
   private def traverseType[T, F[_]](expr: Expr[T], bound: Set[Type.Var.Bound])(
       fn: (Type, Set[Type.Var.Bound]) => F[Type]
@@ -332,12 +427,27 @@ object Expr {
         (traverseType[T, F](e, bound)(fn), fn(tpe, bound))
           .mapN(Annotation(_, _, a))
       case v: Name[T]      => F.pure(v)
-      case App(f, args, t) =>
-        (
-          traverseType[T, F](f, bound)(fn),
-          args.traverse(traverseType[T, F](_, bound)(fn))
-        )
-          .mapN(App(_, _, t))
+      case app @ App(f, args, t) =>
+        flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc: F[Expr[T]] = traverseType[T, F](last, bound)(fn)
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = (
+                traverseType[T, F](step.fn, bound)(fn),
+                traverseType[T, F](step.arg, bound)(fn),
+                acc
+              ).mapN((fn1, arg1, rhs1) => App(fn1, NonEmptyList.of(arg1, rhs1), step.tag))
+            }
+            acc
+          case None =>
+            (
+              traverseType[T, F](f, bound)(fn),
+              args.traverse(traverseType[T, F](_, bound)(fn))
+            )
+              .mapN(App(_, _, t))
+        }
       case Generic(bs, in) =>
         // Seems dangerous since we are hiding from fn that the Type.TyVar inside
         // matching these are not unbound
