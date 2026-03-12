@@ -1618,6 +1618,16 @@ object TypedExpr {
         h
       }
 
+      def popListReverse(cnt: Int): List[F[TypedExpr[A]]] = {
+        var lst: List[F[TypedExpr[A]]] = Nil
+        var idx = 0
+        while (idx < cnt) {
+          lst = popBuilt() :: lst
+          idx = idx + 1
+        }
+        lst
+      }
+
       while (work.nonEmpty) {
         work.head match {
           case Visit(expr) =>
@@ -1691,15 +1701,10 @@ object TypedExpr {
             )
           case RebuildApp(result, tag, argCount) =>
             work = work.tail
-            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
-            var idx = 0
-            while (idx < argCount) {
-              argFsRev += popBuilt()
-              idx = idx + 1
-            }
+            val argFs = popListReverse(argCount)
             val fnF = popBuilt()
             val argsF =
-              argFsRev.result().reverse.sequence.map(args =>
+              argFs.sequence.map(args =>
                 NonEmptyList.fromListUnsafe(args)
               )
 
@@ -1724,14 +1729,9 @@ object TypedExpr {
           case RebuildLoop(args, tag) =>
             work = work.tail
             val bodyF = popBuilt()
-            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
-            var idx = 0
             val argCount = args.length
-            while (idx < argCount) {
-              argFsRev += popBuilt()
-              idx = idx + 1
-            }
-            val loopArgsF = argFsRev.result().reverse.sequence.map { argExprs =>
+            val argFs = popListReverse(argCount)
+            val loopArgsF = argFs.sequence.map { argExprs =>
               NonEmptyList.fromListUnsafe(args.toList.zip(argExprs))
             }
 
@@ -1744,14 +1744,8 @@ object TypedExpr {
             )
           case RebuildRecur(result, tag, argCount) =>
             work = work.tail
-            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
-            var idx = 0
-            while (idx < argCount) {
-              argFsRev += popBuilt()
-              idx = idx + 1
-            }
             val argsF =
-              argFsRev.result().reverse.sequence.map(args =>
+              popListReverse(argCount).sequence.map(args =>
                 NonEmptyList.fromListUnsafe(args)
               )
 
