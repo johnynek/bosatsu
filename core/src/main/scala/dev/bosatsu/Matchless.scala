@@ -3362,6 +3362,16 @@ object Matchless {
         case _: Pattern.ListPart.Glob => None
       }
 
+    def prepareLeftGlob(
+        glob: Pattern.ListPart.Glob
+    ): F[Option[(LocalAnonMut, Bindable)]] =
+      glob match {
+        case Pattern.ListPart.WildList =>
+          Monad[F].pure(None)
+        case Pattern.ListPart.NamedList(ln) =>
+          makeAnon.map(nm => Some((LocalAnonMut(nm), ln)))
+      }
+
     def advanceListBy(
         lead: LocalAnonMut,
         ok: LocalAnonMut,
@@ -3426,13 +3436,7 @@ object Matchless {
         exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
     ): F[UnionMatch] = {
       val exactPat = Pattern.ListPat(exactItems.toList.map(Pattern.ListPart.Item(_)))
-      val leftF: F[Option[(LocalAnonMut, Bindable)]] =
-        glob match {
-          case Pattern.ListPart.WildList =>
-            Monad[F].pure(None)
-          case Pattern.ListPart.NamedList(ln) =>
-            makeAnon.map(nm => Some((LocalAnonMut(nm), ln)))
-        }
+      val leftF = prepareLeftGlob(glob)
       val anon = makeAnon.map(LocalAnonMut(_))
 
       for {
@@ -3636,13 +3640,7 @@ object Matchless {
                   // we know all the bindings we will make, allocate
                   // anons for them, do the loop, and then return
                   // the boolean of did we match
-                  val leftF: F[Option[(LocalAnonMut, Bindable)]] =
-                    glob match {
-                      case Pattern.ListPart.WildList =>
-                        Monad[F].pure(None)
-                      case Pattern.ListPart.NamedList(ln) =>
-                        makeAnon.map(nm => Some((LocalAnonMut(nm), ln)))
-                    }
+                  val leftF = prepareLeftGlob(glob)
 
                   (leftF, makeAnon).tupled
                     .flatMap { case (optAnonLeft, tmpList) =>

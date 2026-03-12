@@ -443,53 +443,40 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           false
       }
 
-    def loopBool(b: Matchless.BoolExpr[Unit]): Boolean =
+    def walkBool(
+        b: Matchless.BoolExpr[Unit]
+    )(
+        exprFn: Matchless.Expr[Unit] => Boolean,
+        boolFn: Matchless.BoolExpr[Unit] => Boolean
+    ): Boolean =
       b match {
         case Matchless.EqualsLit(e, _) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.LtEqLit(e, _) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.EqualsNat(e, _) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.And(l, r) =>
-          loopBool(l) || loopBool(r)
+          boolFn(l) || boolFn(r)
         case Matchless.CheckVariant(e, _, _, _) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.CheckVariantSet(e, _, _, _) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.SetMut(_, e) =>
-          loopExpr(e)
+          exprFn(e)
         case Matchless.TrueConst =>
           false
         case Matchless.LetBool(_, value, in) =>
-          loopExpr(value) || loopBool(in)
+          exprFn(value) || boolFn(in)
         case Matchless.LetMutBool(_, in) =>
-          loopBool(in)
+          boolFn(in)
       }
 
+    def loopBool(b: Matchless.BoolExpr[Unit]): Boolean =
+      walkBool(b)(loopExpr, loopBool)
+
     def boolHasIf(b: Matchless.BoolExpr[Unit]): Boolean =
-      b match {
-        case Matchless.EqualsLit(e, _) =>
-          exprHasIf(e)
-        case Matchless.LtEqLit(e, _) =>
-          exprHasIf(e)
-        case Matchless.EqualsNat(e, _) =>
-          exprHasIf(e)
-        case Matchless.And(l, r) =>
-          boolHasIf(l) || boolHasIf(r)
-        case Matchless.CheckVariant(e, _, _, _) =>
-          exprHasIf(e)
-        case Matchless.CheckVariantSet(e, _, _, _) =>
-          exprHasIf(e)
-        case Matchless.SetMut(_, e) =>
-          exprHasIf(e)
-        case Matchless.TrueConst =>
-          false
-        case Matchless.LetBool(_, value, in) =>
-          exprHasIf(value) || boolHasIf(in)
-        case Matchless.LetMutBool(_, in) =>
-          boolHasIf(in)
-      }
+      walkBool(b)(exprHasIf, boolHasIf)
 
     def loopExpr(e: Matchless.Expr[Unit]): Boolean =
       e match {
