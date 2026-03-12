@@ -31,6 +31,12 @@ PATH="$PWD:$PATH" protoc \
   core/src/test/resources/protobuf/config_v1.proto
 ```
 
+The `protoc-gen-bosatsu` wrapper invokes the main CLI plugin command:
+
+```bash
+./bosatsu tool protoc-plugin
+```
+
 This writes a Bosatsu package under `Proto/...` that corresponds to the
 protobuf package (for example `config.v1` -> `Proto/Config/V1`).
 

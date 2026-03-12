@@ -55,6 +55,10 @@ object ProtocPluginMain {
   )
 
   def main(args: Array[String]): Unit = {
+    runFromStdio()
+  }
+
+  def runFromStdio(): Unit = {
     val response =
       try {
         val request = CodeGeneratorRequest.parseFrom(System.in)

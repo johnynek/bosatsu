@@ -374,12 +374,6 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto)
-    .jvmSettings(
-      libraryDependencies ++= Seq(
-        protobufJava.value % Test,
-        protobufJavaUtil.value % Test
-      )
-    )
     .jsSettings(
       commonJsSettings
     )

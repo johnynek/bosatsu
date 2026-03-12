@@ -1451,10 +1451,12 @@ def run(main):
 
 
 def float32_bits_to_Float64(bits):
+  # Use explicit network byte order so this is independent of host endianness.
   raw = int(bits) & 0xFFFFFFFF
   return _struct.unpack(">f", _struct.pack(">I", raw))[0]
 
 
 def float64_to_float32_bits(value):
+  # Return the IEEE754 binary32 bit pattern as an unsigned Int value.
   packed = _struct.pack(">f", float(value))
   return _struct.unpack(">I", packed)[0]

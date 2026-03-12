@@ -235,6 +235,7 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__bits__to__Int(BValue a) {
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64(BValue a) {
   uint32_t raw_bits = (uint32_t)bsts_integer_to_low_uint64(a);
   float as_float = 0.0f;
+  // This is a raw IEEE754 bit reinterpretation, not a byte-order conversion.
   memcpy(&as_float, &raw_bits, sizeof(as_float));
   return bsts_boxf((double)as_float);
 }
@@ -242,6 +243,7 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64(BValue a) 
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__float32__bits(BValue a) {
   float as_float = (float)bsts_unboxf(a);
   uint32_t raw_bits = 0;
+  // Preserve host bit pattern exactly; wire endianness is handled elsewhere.
   memcpy(&raw_bits, &as_float, sizeof(raw_bits));
   return bsts_integer_from_uint64((uint64_t)raw_bits);
 }

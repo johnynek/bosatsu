@@ -818,12 +818,14 @@ object PredefImpl {
       unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a)))
     )
   def float32_bits_to_Float64(a: Value): Value =
+    // Interpret Int as an IEEE754 binary32 bit pattern (not byte-ordered data).
     vf(
       java.lang.Float
         .intBitsToFloat(i(a).intValue())
         .toDouble
     )
   def float64_to_float32_bits(a: Value): Value = {
+    // Return raw IEEE754 binary32 bits as an unsigned Int value.
     val bits = java.lang.Float.floatToRawIntBits(d(a).toFloat)
     val unsigned = java.lang.Integer.toUnsignedLong(bits)
     Value.VInt(BigInteger.valueOf(unsigned))

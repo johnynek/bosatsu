@@ -66,6 +66,9 @@ external def cos(x: Float64) -> Float64
 external def cosh(x: Float64) -> Float64
 external def exp(x: Float64) -> Float64
 external def floor(x: Float64) -> Float64
+# These functions convert between Float64 values and IEEE754 bit patterns in Int.
+# Endianness is handled when bytes are written/read in wire codecs; these are
+# pure bit-pattern conversions and are stable across machine endianness.
 external def float64_bits_to_Int(x: Float64) -> Int
 external def float32_bits_to_Float64(x: Int) -> Float64
 external def float64_to_float32_bits(x: Float64) -> Int
