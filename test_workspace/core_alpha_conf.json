@@ -29,7 +29,6 @@
     "Bosatsu/Num/BinNat",
     "Bosatsu/Nothing",
     "Bosatsu/Option",
-    "Bosatsu/Predef",
     "Bosatsu/Json",
     "Bosatsu/Prog",
     "Bosatsu/Rand",
