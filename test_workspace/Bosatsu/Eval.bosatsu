@@ -16,7 +16,7 @@ def eval_leaf(l: Leaf[a]) -> a:
 
 enum BindChain[f: +* -> *, a: -*, b: +*]:
     Single(fn: a -> f[b]),
-    Many[c](first: BindChain[f, a, c], last: b -> f[b])
+    Many[c](first: BindChain[f, a, c], last: c -> f[b])
 
 enum Eval[a: +*]:
     Pure(value: Leaf[a])
