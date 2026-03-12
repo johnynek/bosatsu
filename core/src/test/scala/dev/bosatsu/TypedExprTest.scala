@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.{Applicative, Eval, Id}
 import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
@@ -4200,6 +4201,299 @@ def makeLoop(fn):
       assert(TypedExpr.toArgsBody(arity, te) ne null)
     }
   }
+
+  private object RecursiveTraverseOracle {
+    def traverse[F[_]: Applicative, T, S](
+        typedExprT: TypedExpr[T]
+    )(fn: T => F[S]): F[TypedExpr[S]] =
+      typedExprT match {
+        case TypedExpr.Generic(params, expr) =>
+          traverse(expr)(fn).map(TypedExpr.Generic(params, _))
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          traverse(of)(fn).map(TypedExpr.Annotation(_, tpe, qev))
+        case TypedExpr.AnnotatedLambda(args, res, tag) =>
+          (traverse(res)(fn), fn(tag)).mapN {
+            TypedExpr.AnnotatedLambda(args, _, _)
+          }
+        case TypedExpr.Local(v, tpe, tag) =>
+          fn(tag).map(TypedExpr.Local(v, tpe, _))
+        case TypedExpr.Global(p, v, tpe, tag) =>
+          fn(tag).map(TypedExpr.Global(p, v, tpe, _))
+        case TypedExpr.App(f, args, tpe, tag) =>
+          (
+            traverse(f)(fn),
+            args.traverse(arg => traverse(arg)(fn)),
+            fn(tag)
+          ).mapN {
+            TypedExpr.App(_, _, tpe, _)
+          }
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          (traverse(exp)(fn), traverse(in)(fn), fn(tag)).mapN {
+            TypedExpr.Let(v, _, _, rec, _)
+          }
+        case TypedExpr.Loop(args, body, tag) =>
+          (
+            args.traverse { case (v, expr) =>
+              traverse(expr)(fn).map((v, _))
+            },
+            traverse(body)(fn),
+            fn(tag)
+          ).mapN {
+            TypedExpr.Loop(_, _, _)
+          }
+        case TypedExpr.Recur(args, tpe, tag) =>
+          (args.traverse(arg => traverse(arg)(fn)), fn(tag)).mapN {
+            TypedExpr.Recur(_, tpe, _)
+          }
+        case TypedExpr.Literal(lit, tpe, tag) =>
+          fn(tag).map(TypedExpr.Literal(lit, tpe, _))
+        case TypedExpr.Match(expr, branches, tag) =>
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.guard.traverse(guard => traverse(guard)(fn)),
+              traverse(branch.expr)(fn)
+            ).mapN { (guard, expr1) =>
+              branch.copy(guard = guard, expr = expr1)
+            }
+          }
+          (traverse(expr)(fn), tbranch, fn(tag)).mapN(TypedExpr.Match(_, _, _))
+      }
+
+    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
+      typedExprA match {
+        case TypedExpr.Generic(_, e) =>
+          foldLeft(e, b)(f)
+        case TypedExpr.Annotation(e, _, _) =>
+          foldLeft(e, b)(f)
+        case TypedExpr.AnnotatedLambda(_, e, tag) =>
+          val b1 = foldLeft(e, b)(f)
+          f(b1, tag)
+        case n: TypedExpr.Name[A] =>
+          f(b, n.tag)
+        case TypedExpr.App(fn, args, _, tag) =>
+          val b1 = foldLeft(fn, b)(f)
+          val b2 = args.foldLeft(b1)((bnext, a) => foldLeft(a, bnext)(f))
+          f(b2, tag)
+        case TypedExpr.Let(_, exp, in, _, tag) =>
+          val b1 = foldLeft(exp, b)(f)
+          val b2 = foldLeft(in, b1)(f)
+          f(b2, tag)
+        case TypedExpr.Loop(args, body, tag) =>
+          val b1 = args.foldLeft(b) { case (bnext, (_, expr)) =>
+            foldLeft(expr, bnext)(f)
+          }
+          val b2 = foldLeft(body, b1)(f)
+          f(b2, tag)
+        case TypedExpr.Recur(args, _, tag) =>
+          val b1 = args.foldLeft(b)((bnext, a) => foldLeft(a, bnext)(f))
+          f(b1, tag)
+        case TypedExpr.Literal(_, _, tag) =>
+          f(b, tag)
+        case TypedExpr.Match(arg, branches, tag) =>
+          val b1 = foldLeft(arg, b)(f)
+          val b2 = branches.foldLeft(b1) { case (bnext, branch) =>
+            val bnext1 = branch.guard.fold(bnext)(foldLeft(_, bnext)(f))
+            foldLeft(branch.expr, bnext1)(f)
+          }
+          f(b2, tag)
+      }
+
+    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(
+        f: (A, Eval[B]) => Eval[B]
+    ): Eval[B] = typedExprA match {
+      case TypedExpr.Generic(_, e) =>
+        foldRight(e, lb)(f)
+      case TypedExpr.Annotation(e, _, _) =>
+        foldRight(e, lb)(f)
+      case TypedExpr.AnnotatedLambda(_, e, tag) =>
+        val lb1 = f(tag, lb)
+        foldRight(e, lb1)(f)
+      case n: TypedExpr.Name[A] =>
+        f(n.tag, lb)
+      case TypedExpr.App(fn, args, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = args.toList.foldRight(b1)((a, bnext) => foldRight(a, bnext)(f))
+        foldRight(fn, b2)(f)
+      case TypedExpr.Let(_, exp, in, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(in, b1)(f)
+        foldRight(exp, b2)(f)
+      case TypedExpr.Loop(args, body, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(body, b1)(f)
+        args.toList.foldRight(b2) { case ((_, expr), bnext) =>
+          foldRight(expr, bnext)(f)
+        }
+      case TypedExpr.Recur(args, _, tag) =>
+        val b1 = f(tag, lb)
+        args.toList.foldRight(b1)((a, bnext) => foldRight(a, bnext)(f))
+      case TypedExpr.Literal(_, _, tag) =>
+        f(tag, lb)
+      case TypedExpr.Match(arg, branches, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = branches.foldRight(b1) { case (branch, bnext) =>
+          val bnext1 = foldRight(branch.expr, bnext)(f)
+          branch.guard.fold(bnext1)(foldRight(_, bnext1)(f))
+        }
+        foldRight(arg, b2)(f)
+    }
+
+    def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
+      te match {
+        case TypedExpr.Generic(tv, in) =>
+          TypedExpr.Generic(tv, map(in)(fn))
+        case TypedExpr.Annotation(term, tpe, qev) =>
+          TypedExpr.Annotation(map(term)(fn), tpe, qev)
+        case TypedExpr.AnnotatedLambda(args, expr, tag) =>
+          TypedExpr.AnnotatedLambda(args, map(expr)(fn), fn(tag))
+        case l @ TypedExpr.Local(_, _, _) =>
+          l.copy(tag = fn(l.tag))
+        case g @ TypedExpr.Global(_, _, _, _) =>
+          g.copy(tag = fn(g.tag))
+        case TypedExpr.App(fnT, args, tpe, tag) =>
+          TypedExpr.App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
+        case TypedExpr.Let(b, e, in, r, t) =>
+          TypedExpr.Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+        case TypedExpr.Loop(args, body, tag) =>
+          TypedExpr.Loop(
+            args.map { case (b, expr) => (b, map(expr)(fn)) },
+            map(body)(fn),
+            fn(tag)
+          )
+        case TypedExpr.Recur(args, tpe, tag) =>
+          TypedExpr.Recur(args.map(a => map(a)(fn)), tpe, fn(tag))
+        case lit @ TypedExpr.Literal(_, _, _) =>
+          lit.copy(tag = fn(lit.tag))
+        case TypedExpr.Match(arg, branches, tag) =>
+          TypedExpr.Match(
+            map(arg)(fn),
+            branches.map { branch =>
+              branch.copy(
+                guard = branch.guard.map(map(_)(fn)),
+                expr = map(branch.expr)(fn)
+              )
+            },
+            fn(tag)
+          )
+      }
+  }
+
+  private def deepLetChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("base"), intT, -1)
+    var idx = depth - 1
+    while (idx >= 0) {
+      val name = Identifier.Name(s"n$idx")
+      val rhs = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor =
+        TypedExpr.Let(name, rhs, cursor, RecursionKind.NonRecursive, idx)
+      idx = idx - 1
+    }
+    cursor
+  }
+
+  private def deepAppChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    val fnT = Type.Fun(NonEmptyList.one(intT), intT)
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("f"), fnT, -1)
+    var idx = 0
+    while (idx < depth) {
+      val arg = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor = TypedExpr.App(cursor, NonEmptyList.one(arg), intT, idx)
+      idx = idx + 1
+    }
+    cursor
+  }
+
+  test("TypedExpr traverse/map/folds match recursive oracle") {
+    forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, seed) =>
+      val mapFn: Int => Int = i => (i * 31) + seed
+      assertEquals(te.map(mapFn), RecursiveTraverseOracle.map(te)(mapFn))
+
+      val foldFn: (Int, Int) => Int = (acc, i) => (acc * 17) + i + 1
+      assertEquals(
+        te.foldLeft(seed)(foldFn),
+        RecursiveTraverseOracle.foldLeft(te, seed)(foldFn)
+      )
+
+      val foldRightFn: (Int, Eval[Int]) => Eval[Int] =
+        (i, eb) => eb.map(b => (b * 13) ^ (i + seed))
+      assertEquals(
+        te.foldRight(Eval.now(seed))(foldRightFn).value,
+        RecursiveTraverseOracle.foldRight(te, Eval.now(seed))(foldRightFn).value
+      )
+
+      type W[X] = Writer[List[Int], X]
+      val traverseFn: Int => W[Int] = i => Writer(List(i), i + seed)
+      assertEquals(
+        te.traverse(traverseFn).run,
+        RecursiveTraverseOracle.traverse(te)(traverseFn).run
+      )
+    }
+  }
+
+  Platform.onJvm(
+    test("TypedExpr traverse/map/folds are stack safe on deep let/app trees") {
+      val depth = sys.props.get("repro.typedExprTraverseDepth").fold(12000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+
+      @volatile var failure: Option[Throwable] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              val letExpr = deepLetChain(depth)
+              val appExpr = deepAppChain(depth)
+
+              def runChecks(label: String, expr: TypedExpr[Int]): Unit = {
+                val mapped = expr.map(_ + 1)
+                val traversed: TypedExpr[Int] = expr.traverse[Id, Int](_ + 1)
+
+                val expectedTagCount = (2 * depth) + 1
+                val leftCount = expr.foldLeft(0)((count, _) => count + 1)
+                val rightCount =
+                  expr.foldRight(Eval.now(0))((_, eb) => eb.map(_ + 1)).value
+                val mappedCount = mapped.foldLeft(0)((count, _) => count + 1)
+                val traversedCount =
+                  traversed.foldLeft(0)((count, _) => count + 1)
+                assertEquals(leftCount, expectedTagCount, label)
+                assertEquals(rightCount, expectedTagCount, label)
+                assertEquals(mappedCount, expectedTagCount, label)
+                assertEquals(traversedCount, expectedTagCount, label)
+              }
+
+              runChecks("let", letExpr)
+              runChecks("app", appExpr)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-expr-traverse-small-stack",
+        stackBytes
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(so: StackOverflowError) =>
+          val trace = so.getStackTrace.iterator.take(40).mkString("\n")
+          fail(
+            s"TypedExpr traverse/map/folds overflowed on deep trees (depth=$depth, stackBytes=$stackBytes)\n$trace"
+          )
+        case Some(other) =>
+          val trace = other.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"unexpected failure: $other\n$trace")
+        case None =>
+          ()
+      }
+    }
+  )
 
   test("TypedExpr.fold matches traverse") {
     def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {

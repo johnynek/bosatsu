@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eq, Eval, Monad, Traverse, Order}
+import cats.{Applicative, Eq, Eval, Id, Monad, Order, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer, State}
 import cats.implicits._
@@ -1924,166 +1924,321 @@ object TypedExpr {
     new Traverse[TypedExpr] {
       def traverse[F[_]: Applicative, T, S](
           typedExprT: TypedExpr[T]
-      )(fn: T => F[S]): F[TypedExpr[S]] =
-        typedExprT match {
-          case Generic(params, expr) =>
-            expr.traverse(fn).map(Generic(params, _))
-          case Annotation(of, tpe, qev) =>
-            of.traverse(fn).map(Annotation(_, tpe, qev))
-          case AnnotatedLambda(args, res, tag) =>
-            (res.traverse(fn), fn(tag)).mapN {
-              AnnotatedLambda(args, _, _)
-            }
-          case Local(v, tpe, tag) =>
-            fn(tag).map(Local(v, tpe, _))
-          case Global(p, v, tpe, tag) =>
-            fn(tag).map(Global(p, v, tpe, _))
-          case App(f, args, tpe, tag) =>
-            (f.traverse(fn), args.traverse(_.traverse(fn)), fn(tag)).mapN {
-              App(_, _, tpe, _)
-            }
-          case Let(v, exp, in, rec, tag) =>
-            (exp.traverse(fn), in.traverse(fn), fn(tag)).mapN {
-              Let(v, _, _, rec, _)
-            }
-          case Loop(args, body, tag) =>
-            (
-              args.traverse { case (v, expr) =>
-                expr.traverse(fn).map((v, _))
-              },
-              body.traverse(fn),
-              fn(tag)
-            ).mapN {
-              Loop(_, _, _)
-            }
-          case Recur(args, tpe, tag) =>
-            (args.traverse(_.traverse(fn)), fn(tag)).mapN {
-              Recur(_, tpe, _)
-            }
-          case Literal(lit, tpe, tag) =>
-            fn(tag).map(Literal(lit, tpe, _))
-          case Match(expr, branches, tag) =>
-            // all branches have the same type:
-            val tbranch = branches.traverse { branch =>
-              (
-                branch.guard.traverse(_.traverse(fn)),
-                branch.expr.traverse(fn)
-              ).mapN { (guard, expr) =>
-                branch.copy(guard = guard, expr = expr)
-              }
-            }
-            (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
+      )(fn: T => F[S]): F[TypedExpr[S]] = {
+        type A = T
+        type B = S
+        val root = typedExprT
+
+        sealed trait Work
+        case class Visit(expr: TypedExpr[A]) extends Work
+        case class RebuildGeneric(quant: Quantification) extends Work
+        case class RebuildAnnotation(
+            coerce: Type,
+            qev: Option[QuantifierEvidence]
+        ) extends Work
+        case class RebuildAnnotatedLambda(
+            args: NonEmptyList[(Bindable, Type)],
+            tag: A
+        ) extends Work
+        case class RebuildApp(result: Type, tag: A, argCount: Int) extends Work
+        case class RebuildLet(
+            arg: Bindable,
+            rec: RecursionKind,
+            tag: A
+        ) extends Work
+        case class RebuildLoop(
+            args: NonEmptyList[Bindable],
+            tag: A
+        ) extends Work
+        case class RebuildRecur(result: Type, tag: A, argCount: Int)
+            extends Work
+        case class RebuildMatch(
+            branches: NonEmptyList[
+              (Pattern[(PackageName, Constructor), Type], Boolean)
+            ],
+            tag: A
+        ) extends Work
+
+        var work: List[Work] = Visit(root) :: Nil
+        var built: List[F[TypedExpr[B]]] = Nil
+
+        def pushBuilt(expr: F[TypedExpr[B]]): Unit =
+          built = expr :: built
+
+        def popBuilt(): F[TypedExpr[B]] = {
+          val h = built.head
+          built = built.tail
+          h
         }
 
-      def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
-        typedExprA match {
-          case Generic(_, e) =>
-            foldLeft(e, b)(f)
-          case Annotation(e, _, _) =>
-            foldLeft(e, b)(f)
-          case AnnotatedLambda(_, e, tag) =>
-            val b1 = foldLeft(e, b)(f)
-            f(b1, tag)
-          case n: Name[A]            => f(b, n.tag)
-          case App(fn, args, _, tag) =>
-            val b1 = foldLeft(fn, b)(f)
-            val b2 = args.foldLeft(b1)((b1, a) => foldLeft(a, b1)(f))
-            f(b2, tag)
-          case Let(_, exp, in, _, tag) =>
-            val b1 = foldLeft(exp, b)(f)
-            val b2 = foldLeft(in, b1)(f)
-            f(b2, tag)
-          case Loop(args, body, tag) =>
-            val b1 = args.foldLeft(b) { case (bn, (_, expr)) =>
-              foldLeft(expr, bn)(f)
-            }
-            val b2 = foldLeft(body, b1)(f)
-            f(b2, tag)
-          case Recur(args, _, tag) =>
-            val b1 = args.foldLeft(b)((bn, a) => foldLeft(a, bn)(f))
-            f(b1, tag)
-          case Literal(_, _, tag) =>
-            f(b, tag)
-          case Match(arg, branches, tag) =>
-            val b1 = foldLeft(arg, b)(f)
-            val b2 = branches.foldLeft(b1) { case (bn, branch) =>
-              val bn1 = branch.guard.fold(bn)(foldLeft(_, bn)(f))
-              foldLeft(branch.expr, bn1)(f)
-            }
-            f(b2, tag)
+        while (work.nonEmpty) {
+          work.head match {
+            case Visit(expr) =>
+              work = work.tail
+              expr match {
+                case Generic(quant, in) =>
+                  work = Visit(in) :: RebuildGeneric(quant) :: work
+                case Annotation(term, coerce, qev) =>
+                  work = Visit(term) :: RebuildAnnotation(coerce, qev) :: work
+                case AnnotatedLambda(args, res, tag) =>
+                  work =
+                    Visit(res) :: RebuildAnnotatedLambda(args, tag) :: work
+                case Local(v, tpe, tag) =>
+                  pushBuilt(fn(tag).map(Local(v, tpe, _)))
+                case Global(pack, v, tpe, tag) =>
+                  pushBuilt(fn(tag).map(Global(pack, v, tpe, _)))
+                case App(fnExpr, args, tpe, tag) =>
+                  work = RebuildApp(tpe, tag, args.length) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    work = Visit(revArgs.next()) :: work
+                  }
+                  work = Visit(fnExpr) :: work
+                case Let(arg, rhs, in, rec, tag) =>
+                  work = RebuildLet(arg, rec, tag) :: work
+                  work = Visit(in) :: work
+                  work = Visit(rhs) :: work
+                case Loop(args, body, tag) =>
+                  work = RebuildLoop(args.map(_._1), tag) :: work
+                  work = Visit(body) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    val (_, argExpr) = revArgs.next()
+                    work = Visit(argExpr) :: work
+                  }
+                case Recur(args, tpe, tag) =>
+                  work = RebuildRecur(tpe, tag, args.length) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    work = Visit(revArgs.next()) :: work
+                  }
+                case Literal(lit, tpe, tag) =>
+                  pushBuilt(fn(tag).map(Literal(lit, tpe, _)))
+                case Match(arg, branches, tag) =>
+                  work =
+                    RebuildMatch(branches.map(b => (b.pattern, b.guard.nonEmpty)), tag) :: work
+                  val revBranches = branches.toList.reverseIterator
+                  while (revBranches.hasNext) {
+                    val branch = revBranches.next()
+                    work = Visit(branch.expr) :: work
+                    branch.guard.foreach { guard =>
+                      work = Visit(guard) :: work
+                    }
+                  }
+                  work = Visit(arg) :: work
+              }
+
+            case RebuildGeneric(quant) =>
+              work = work.tail
+              val inF = popBuilt()
+              pushBuilt(inF.map(Generic(quant, _)))
+            case RebuildAnnotation(coerce, qev) =>
+              work = work.tail
+              val termF = popBuilt()
+              pushBuilt(termF.map(Annotation(_, coerce, qev)))
+            case RebuildAnnotatedLambda(args, tag) =>
+              work = work.tail
+              val resF = popBuilt()
+              pushBuilt(
+                (resF, fn(tag)).mapN((res, tag1) =>
+                  AnnotatedLambda(args, res, tag1)
+                )
+              )
+            case RebuildApp(result, tag, argCount) =>
+              work = work.tail
+              val argFsRev = List.newBuilder[F[TypedExpr[B]]]
+              var idx = 0
+              while (idx < argCount) {
+                argFsRev += popBuilt()
+                idx = idx + 1
+              }
+              val fnF = popBuilt()
+              val argsF =
+                argFsRev.result().reverse.sequence.map(args =>
+                  NonEmptyList.fromListUnsafe(args)
+                )
+
+              pushBuilt(
+                (fnF, argsF, fn(tag)).mapN((fn1, args1, tag1) =>
+                  App(fn1, args1, result, tag1)
+                )
+              )
+            case RebuildLet(arg, rec, tag) =>
+              work = work.tail
+              val inF = popBuilt()
+              val rhsF = popBuilt()
+              pushBuilt(
+                (rhsF, inF, fn(tag)).mapN((rhs1, in1, tag1) =>
+                  Let(arg, rhs1, in1, rec, tag1)
+                )
+              )
+            case RebuildLoop(args, tag) =>
+              work = work.tail
+              val bodyF = popBuilt()
+              val argFsRev = List.newBuilder[F[TypedExpr[B]]]
+              var idx = 0
+              val argCount = args.length
+              while (idx < argCount) {
+                argFsRev += popBuilt()
+                idx = idx + 1
+              }
+              val loopArgsF = argFsRev.result().reverse.sequence.map {
+                argExprs =>
+                NonEmptyList.fromListUnsafe(args.toList.zip(argExprs))
+              }
+
+              pushBuilt(
+                (loopArgsF, bodyF, fn(tag)).mapN((args1, body1, tag1) =>
+                  Loop(args1, body1, tag1)
+                )
+              )
+            case RebuildRecur(result, tag, argCount) =>
+              work = work.tail
+              val argFsRev = List.newBuilder[F[TypedExpr[B]]]
+              var idx = 0
+              while (idx < argCount) {
+                argFsRev += popBuilt()
+                idx = idx + 1
+              }
+              val argsF =
+                argFsRev.result().reverse.sequence.map(args =>
+                  NonEmptyList.fromListUnsafe(args)
+                )
+
+              pushBuilt(
+                (argsF, fn(tag)).mapN((args1, tag1) =>
+                  Recur(args1, result, tag1)
+                )
+              )
+            case RebuildMatch(branches, tag) =>
+              work = work.tail
+              val branchFsRev = List.newBuilder[F[Branch[B]]]
+              val revBranches = branches.toList.reverseIterator
+              while (revBranches.hasNext) {
+                val (pattern, hasGuard) = revBranches.next()
+                val exprF = popBuilt()
+                val branchF =
+                  if (hasGuard) {
+                    val guardF = popBuilt()
+                    (guardF, exprF).mapN((guard1, expr1) =>
+                      Branch(pattern, Some(guard1), expr1)
+                    )
+                  } else exprF.map(expr1 => Branch(pattern, None, expr1))
+                branchFsRev += branchF
+              }
+              val argF = popBuilt()
+              val branchesF =
+                branchFsRev.result().reverse.sequence.map(bs =>
+                  NonEmptyList.fromListUnsafe(bs)
+                )
+
+              pushBuilt(
+                (argF, branchesF, fn(tag)).mapN((arg1, branches1, tag1) =>
+                  Match(arg1, branches1, tag1)
+                )
+              )
+          }
         }
+
+        popBuilt()
+      }
+
+      private def foreachTagPostOrder[A](
+          root: TypedExpr[A]
+      )(fn: A => Unit): Unit = {
+        sealed trait Work
+        case class Visit(expr: TypedExpr[A]) extends Work
+        case class Emit(tag: A) extends Work
+
+        var work: List[Work] = Visit(root) :: Nil
+
+        while (work.nonEmpty) {
+          work.head match {
+            case Emit(tag) =>
+              work = work.tail
+              fn(tag)
+            case Visit(expr) =>
+              work = work.tail
+              expr match {
+                case Generic(_, in) =>
+                  work = Visit(in) :: work
+                case Annotation(term, _, _) =>
+                  work = Visit(term) :: work
+                case AnnotatedLambda(_, res, tag) =>
+                  work = Emit(tag) :: work
+                  work = Visit(res) :: work
+                case n: Name[A] =>
+                  work = Emit(n.tag) :: work
+                case App(fnExpr, args, _, tag) =>
+                  work = Emit(tag) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    work = Visit(revArgs.next()) :: work
+                  }
+                  work = Visit(fnExpr) :: work
+                case Let(_, rhs, in, _, tag) =>
+                  work = Emit(tag) :: work
+                  work = Visit(in) :: work
+                  work = Visit(rhs) :: work
+                case Loop(args, body, tag) =>
+                  work = Emit(tag) :: work
+                  work = Visit(body) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    val (_, argExpr) = revArgs.next()
+                    work = Visit(argExpr) :: work
+                  }
+                case Recur(args, _, tag) =>
+                  work = Emit(tag) :: work
+                  val revArgs = args.toList.reverseIterator
+                  while (revArgs.hasNext) {
+                    work = Visit(revArgs.next()) :: work
+                  }
+                case Literal(_, _, tag) =>
+                  work = Emit(tag) :: work
+                case Match(arg, branches, tag) =>
+                  work = Emit(tag) :: work
+                  val revBranches = branches.toList.reverseIterator
+                  while (revBranches.hasNext) {
+                    val branch = revBranches.next()
+                    work = Visit(branch.expr) :: work
+                    branch.guard.foreach { guard =>
+                      work = Visit(guard) :: work
+                    }
+                  }
+                  work = Visit(arg) :: work
+              }
+          }
+        }
+      }
+
+      def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
+        var acc = b
+        foreachTagPostOrder(typedExprA) { a =>
+          acc = f(acc, a)
+        }
+        acc
 
       def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(
           f: (A, Eval[B]) => Eval[B]
-      ): Eval[B] = typedExprA match {
-        case Generic(_, e) =>
-          foldRight(e, lb)(f)
-        case Annotation(e, _, _) =>
-          foldRight(e, lb)(f)
-        case AnnotatedLambda(_, e, tag) =>
-          val lb1 = f(tag, lb)
-          foldRight(e, lb1)(f)
-        case n: Name[A]            => f(n.tag, lb)
-        case App(fn, args, _, tag) =>
-          val b1 = f(tag, lb)
-          val b2 = args.toList.foldRight(b1)((a, b1) => foldRight(a, b1)(f))
-          foldRight(fn, b2)(f)
-        case Let(_, exp, in, _, tag) =>
-          val b1 = f(tag, lb)
-          val b2 = foldRight(in, b1)(f)
-          foldRight(exp, b2)(f)
-        case Loop(args, body, tag) =>
-          val b1 = f(tag, lb)
-          val b2 = foldRight(body, b1)(f)
-          args.toList.foldRight(b2) { case ((_, expr), bn) =>
-            foldRight(expr, bn)(f)
+      ): Eval[B] = {
+        var reverseTags: List[A] = Nil
+        foreachTagPostOrder(typedExprA) { a =>
+          reverseTags = a :: reverseTags
+        }
+
+        def loop(items: List[A]): Eval[B] =
+          items match {
+            case Nil      => lb
+            case h :: rem =>
+              f(h, Eval.defer(loop(rem)))
           }
-        case Recur(args, _, tag) =>
-          val b1 = f(tag, lb)
-          args.toList.foldRight(b1)((a, bn) => foldRight(a, bn)(f))
-        case Literal(_, _, tag) =>
-          f(tag, lb)
-        case Match(arg, branches, tag) =>
-          val b1 = f(tag, lb)
-          val b2 = branches.foldRight(b1) { case (branch, bn) =>
-            val bn1 = foldRight(branch.expr, bn)(f)
-            branch.guard.fold(bn1)(foldRight(_, bn1)(f))
-          }
-          foldRight(arg, b2)(f)
+
+        loop(reverseTags.reverse)
       }
 
       override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
-        te match {
-          case Generic(tv, in)            => Generic(tv, map(in)(fn))
-          case Annotation(term, tpe, qev) => Annotation(map(term)(fn), tpe, qev)
-          case AnnotatedLambda(args, expr, tag) =>
-            AnnotatedLambda(args, map(expr)(fn), fn(tag))
-          case l @ Local(_, _, _)       => l.copy(tag = fn(l.tag))
-          case g @ Global(_, _, _, _)   => g.copy(tag = fn(g.tag))
-          case App(fnT, args, tpe, tag) =>
-            App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
-          case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
-          case Loop(args, body, tag) =>
-            Loop(
-              args.map { case (b, expr) => (b, map(expr)(fn)) },
-              map(body)(fn),
-              fn(tag)
-            )
-          case Recur(args, tpe, tag) =>
-            Recur(args.map(a => map(a)(fn)), tpe, fn(tag))
-          case lit @ Literal(_, _, _)    => lit.copy(tag = fn(lit.tag))
-          case Match(arg, branches, tag) =>
-            Match(
-              map(arg)(fn),
-              branches.map { branch =>
-                branch.copy(
-                  guard = branch.guard.map(map(_)(fn)),
-                  expr = map(branch.expr)(fn)
-                )
-              },
-              fn(tag)
-            )
-        }
+        traverse[Id, A, B](te)(fn)
     }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
