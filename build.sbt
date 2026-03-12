@@ -209,9 +209,34 @@ lazy val docs = (project in file("docs"))
         s"generated ${markdownFiles.size} markdown files into $paradoxGeneratedRoot"
       )
     },
-    Compile / paradox := (Compile / paradox)
-      .dependsOn(Compile / generateCoreAlphaParadoxDocs)
-      .value,
+    Compile / paradox := {
+      val paradoxResult = (Compile / paradox)
+        .dependsOn(Compile / generateCoreAlphaParadoxDocs)
+        .value
+      val log = streams.value.log
+      val generatedSourceRoot =
+        (Compile / sourceDirectory).value / "paradox" / "generated" / "core_alpha"
+      val paradoxSiteRoot = (Compile / target).value / "paradox" / "site" / "main"
+      val generatedSiteRoot = paradoxSiteRoot / "generated" / "core_alpha"
+
+      val markdownFiles = (generatedSourceRoot ** "*.md").get
+      markdownFiles.foreach { sourceFile =>
+        IO.relativize(generatedSourceRoot, sourceFile) match {
+          case Some(relPath) =>
+            val targetFile = generatedSiteRoot / relPath
+            IO.createDirectory(targetFile.getParentFile)
+            IO.copyFile(sourceFile, targetFile)
+          case None =>
+            sys.error(
+              s"failed to relativize generated markdown path: $sourceFile against $generatedSourceRoot"
+            )
+        }
+      }
+      log.info(
+        s"copied ${markdownFiles.size} generated markdown files into $generatedSiteRoot"
+      )
+      paradoxResult
+    },
     publish / skip := true
   )
 

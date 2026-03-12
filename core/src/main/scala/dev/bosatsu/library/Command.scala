@@ -648,6 +648,7 @@ object Command {
           includePredef: Boolean,
           excludePrivatePackages: Boolean,
           sourceRepoUrlOpt: Option[String],
+          remoteDocLinksHtml: Boolean,
           compileCacheDirOpt: Option[P] = None
       ): F[List[(P, Doc)]] =
         for {
@@ -723,7 +724,19 @@ object Command {
             .toMap
           compiledPacks = {
             val packs0 = compiled.toMap.values.toList
-            packs0.filter { pack =>
+            val packs1 =
+              if (
+                includePredef && !packs0.exists(
+                  _.name == PackageName.PredefName
+                )
+              ) {
+                // If dependencies provide a Predef interface, typecheck may not include
+                // the internal Predef package in `compiled`; include it explicitly so
+                // `--include_predef` still emits local Bosatsu/Predef docs.
+                PackageMap.predefCompiledForMode(CompileOptions.Default.mode) :: packs0
+              } else packs0
+
+            packs1.filter { pack =>
               if (pack.name == PackageName.PredefName) includePredef
               else {
                 // We always typecheck all packages above; this only controls emitted docs.
@@ -741,7 +754,8 @@ object Command {
             colorize,
             sourceLinksByPackage,
             packageBaseUrls,
-            packageVisibility
+            packageVisibility,
+            remoteDocLinksHtml
           )
         } yield docs
 
@@ -1880,6 +1894,13 @@ object Command {
                 "optional URL to the repo root used to generate source code links in docs"
             )
             .orNone,
+          Opts
+            .flag(
+              "remote_doc_links_html",
+              help =
+                "rewrite dependency doc links from `.md` to `.html` for links resolved via `doc_base_url`"
+            )
+            .orFalse,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN {
@@ -1889,6 +1910,7 @@ object Command {
               includePredef,
               excludePrivatePackages,
               sourceRepoUrlOpt,
+              remoteDocLinksHtml,
               cacheDirFn,
               colorize
           ) =>
@@ -1900,6 +1922,7 @@ object Command {
               includePredef,
               excludePrivatePackages,
               sourceRepoUrlOpt,
+              remoteDocLinksHtml,
               cacheDirFn(cc.gitRoot)
             )
           } yield (Output.TranspileOut(docs): Output[P])
