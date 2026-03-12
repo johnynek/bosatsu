@@ -272,11 +272,13 @@ object KindFormula {
     dts
       .foldM(
         (List.empty[DefinedType[Kind.Arg]], Set.empty[RankNType.TyConst])
-      ) { case (st @ (acc, failed), dt) =>
+      ) { case ((acc, failed), dt) =>
         // don't evaluate dependsOn if failed is empty
         if (failed.nonEmpty && dt.dependsOn.exists(failed)) {
-          // there was at least one failure already, just return and let that failure signal
-          Ior.Right(st)
+          // If this type depends on a previously failed type, skip solving it and
+          // mark it as failed too. This prevents later types from seeing this local
+          // type as "unknown const" when it was only skipped due to dependency failure.
+          Ior.Right((acc, failed + dt.toTypeTyConst))
         } else {
           solveKind((imports, acc), dt) match {
             case Validated.Valid(good)   => Ior.Right((good :: acc, failed))

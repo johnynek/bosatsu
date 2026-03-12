@@ -57,5 +57,8 @@
   Bosatsu/Lazy: {
     lazy: ProgExt.lazy,
     get_Lazy: ProgExt.get_Lazy
+  },
+  Bosatsu/Eval: {
+    eval_loop: ProgExt.eval_loop
   }
 }
