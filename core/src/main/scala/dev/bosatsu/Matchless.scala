@@ -3045,13 +3045,34 @@ object Matchless {
             recurToSelfCall(loopName, loopType, body, inNestedLoop),
             tag
           )
-        case TypedExpr.App(fn, args, tpe, tag) =>
-          TypedExpr.App(
-            recurToSelfCall(loopName, loopType, fn, inNestedLoop),
-            args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop)),
-            tpe,
-            tag
-          )
+        case app @ TypedExpr.App(fn, args, tpe, tag) =>
+          TypedExpr.flattenApp2(app) match {
+            case Some((steps, last)) =>
+              var acc: TypedExpr[A] =
+                recurToSelfCall(loopName, loopType, last, inNestedLoop)
+              val rev = steps.toList.reverseIterator
+              while (rev.hasNext) {
+                val step = rev.next()
+                acc =
+                  TypedExpr.App(
+                    recurToSelfCall(loopName, loopType, step.fn, inNestedLoop),
+                    NonEmptyList.of(
+                      recurToSelfCall(loopName, loopType, step.arg, inNestedLoop),
+                      acc
+                    ),
+                    step.result,
+                    step.tag
+                  )
+              }
+              acc
+            case None =>
+              TypedExpr.App(
+                recurToSelfCall(loopName, loopType, fn, inNestedLoop),
+                args.map(recurToSelfCall(loopName, loopType, _, inNestedLoop)),
+                tpe,
+                tag
+              )
+          }
         case let @ TypedExpr.Let(
               arg,
               expr,
@@ -3160,9 +3181,28 @@ object Matchless {
           Monad[F].pure(Global(from, pack, notCons))
         case TypedExpr.Local(bind, _, _) =>
           Monad[F].pure(slots(bind))
-        case TypedExpr.App(fn, as, _, _) =>
-          (loop(fn, slots.unname), as.traverse(loop(_, slots.unname)))
-            .mapN(applyArgs(_, _))
+        case app @ TypedExpr.App(fn, as, _, _) =>
+          val unnameSlots = slots.unname
+          TypedExpr.flattenApp2(app) match {
+            case Some((steps, last)) =>
+              val compiledStepsF =
+                steps.toList.foldLeftM(List.empty[(Expr[B], Expr[B])]) {
+                  case (acc, step) =>
+                    (loop(step.fn, unnameSlots), loop(step.arg, unnameSlots))
+                      .mapN { (fn1, arg1) =>
+                        (fn1, arg1) :: acc
+                      }
+                }
+              (compiledStepsF, loop(last, unnameSlots)).mapN {
+                (compiledRev, lastExpr) =>
+                  compiledRev.foldLeft(lastExpr) { case (rhsExpr, (fnExpr, argExpr)) =>
+                    applyArgs(fnExpr, NonEmptyList.of(argExpr, rhsExpr))
+                  }
+              }
+            case None =>
+              (loop(fn, unnameSlots), as.traverse(loop(_, unnameSlots)))
+                .mapN(applyArgs(_, _))
+          }
         case TypedExpr.Loop(args, body, _) =>
           val avoid: Set[Bindable] =
             TypedExpr.allVarsSet(body :: args.toList.map(_._2)) ++
