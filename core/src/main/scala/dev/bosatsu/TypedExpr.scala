@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import cats.{Applicative, Eq, Eval, Id, Monad, Order, Traverse}
 import cats.arrow.FunctionK
-import cats.data.{NonEmptyList, Writer, State}
+import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.{Doc, Document}
@@ -2187,7 +2187,7 @@ object TypedExpr {
       type GlobalsWriter[A] = Writer[Set[(PackageName, Identifier)], A]
       traverseUp[GlobalsWriter] {
         case g @ Global(p, i, _, _) =>
-          Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
+          Writer(Set[(PackageName, Identifier)]((p, i)), g)
         case notG => Monad[GlobalsWriter].pure(notG)
       }.written
     }
