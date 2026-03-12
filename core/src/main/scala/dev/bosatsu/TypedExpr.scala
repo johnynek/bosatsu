@@ -1501,73 +1501,278 @@ object TypedExpr {
 
     /** Traverse all the *non-shadowed* types inside the TypedExpr
       */
-    def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
-      self match {
-        case gen @ Generic(quant, expr) =>
-          // params shadow below, so they are not free values
-          // and can easily create bugs if passed into fn
-          val params = quant.vars
-          val shadowed: Set[Type.Var.Bound] =
-            params.toList.iterator.map(_._1).toSet
-          val shadowFn: Type => F[Type] = {
-            case tvar @ Type.TyVar(v: Type.Var.Bound) if shadowed(v) =>
-              Applicative[F].pure(tvar)
-            case notShadowed => fn(notShadowed)
-          }
+    def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] = {
+      val app = Applicative[F]
 
-          val paramsF = params.traverse_(v => fn(Type.TyVar(v._1)))
-          (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
-            .map(Generic(quant, _))
-        case Annotation(of, tpe, qev) =>
-          (
-            of.traverseType(fn),
-            fn(tpe),
-            qev.traverse(_.traverseTypes(fn))
-          ).mapN(Annotation(_, _, _))
-        case lam @ AnnotatedLambda(args, res, tag) =>
-          val a1 = args.traverse { case (n, t) => fn(t).map(n -> _) }
-          fn(lam.getType) *> (a1, res.traverseType(fn)).mapN {
-            AnnotatedLambda(_, _, tag)
-          }
-        case Local(v, tpe, tag) =>
-          fn(tpe).map(Local(v, _, tag))
-        case Global(p, v, tpe, tag) =>
-          fn(tpe).map(Global(p, v, _, tag))
-        case App(f, args, tpe, tag) =>
-          (f.traverseType(fn), args.traverse(_.traverseType(fn)), fn(tpe))
-            .mapN {
-              App(_, _, _, tag)
-            }
-        case Let(v, exp, in, rec, tag) =>
-          (exp.traverseType(fn), in.traverseType(fn)).mapN {
-            Let(v, _, _, rec, tag)
-          }
-        case Loop(args, body, tag) =>
-          (
-            args.traverse { case (v, expr) =>
-              expr.traverseType(fn).map((v, _))
-            },
-            body.traverseType(fn)
-          ).mapN {
-            Loop(_, _, tag)
-          }
-        case Recur(args, tpe, tag) =>
-          (args.traverse(_.traverseType(fn)), fn(tpe)).mapN {
-            Recur(_, _, tag)
-          }
-        case Literal(lit, tpe, tag) =>
-          fn(tpe).map(Literal(lit, _, tag))
-        case Match(expr, branches, tag) =>
-          // all branches have the same type:
-          val tbranch = branches.traverse { branch =>
-            (
-              branch.pattern.traverseType(fn),
-              branch.guard.traverse(_.traverseType(fn)),
-              branch.expr.traverseType(fn)
-            ).mapN(Branch(_, _, _))
-          }
-          (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
+      def applyFn(t: Type, shadowed: Set[Type.Var.Bound]): F[Type] =
+        t match {
+          case tvar @ Type.TyVar(v: Type.Var.Bound) if shadowed(v) =>
+            app.pure(tvar)
+          case notShadowed =>
+            fn(notShadowed)
+        }
+
+      sealed trait Work
+      case class Visit(expr: TypedExpr[A], shadowed: Set[Type.Var.Bound])
+          extends Work
+      case class RebuildGeneric(
+          quant: Quantification,
+          exprType: Type,
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+      case class RebuildAnnotation(
+          tpe: Type,
+          qev: Option[QuantifierEvidence],
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+      case class RebuildAnnotatedLambda(
+          args: NonEmptyList[(Bindable, Type)],
+          tag: A,
+          lamType: Type,
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+      case class RebuildApp(
+          tpe: Type,
+          tag: A,
+          argCount: Int,
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+      case class RebuildLet(
+          v: Bindable,
+          rec: RecursionKind,
+          tag: A
+      ) extends Work
+      case class RebuildLoop(
+          args: NonEmptyList[Bindable],
+          tag: A
+      ) extends Work
+      case class RebuildRecur(
+          tpe: Type,
+          tag: A,
+          argCount: Int,
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+      case class RebuildMatch(
+          branches: NonEmptyList[
+            (Pattern[(PackageName, Constructor), Type], Boolean)
+          ],
+          tag: A,
+          shadowed: Set[Type.Var.Bound]
+      ) extends Work
+
+      var work: List[Work] =
+        Visit(self, Set.empty[Type.Var.Bound]) :: Nil
+      var built: List[F[TypedExpr[A]]] = Nil
+
+      def pushBuilt(expr: F[TypedExpr[A]]): Unit =
+        built = expr :: built
+
+      def popBuilt(): F[TypedExpr[A]] = {
+        val h = built.head
+        built = built.tail
+        h
       }
+
+      while (work.nonEmpty) {
+        work.head match {
+          case Visit(expr, shadowed) =>
+            work = work.tail
+            expr match {
+              case gen @ Generic(quant, in) =>
+                val shadowed1 =
+                  shadowed ++ quant.vars.iterator.map(_._1)
+                work =
+                  Visit(in, shadowed1) :: RebuildGeneric(
+                    quant,
+                    gen.getType,
+                    shadowed
+                  ) :: work
+              case Annotation(term, tpe, qev) =>
+                work =
+                  Visit(term, shadowed) :: RebuildAnnotation(
+                    tpe,
+                    qev,
+                    shadowed
+                  ) :: work
+              case lam @ AnnotatedLambda(args, res, tag) =>
+                work =
+                  Visit(res, shadowed) :: RebuildAnnotatedLambda(
+                    args,
+                    tag,
+                    lam.getType,
+                    shadowed
+                  ) :: work
+              case Local(v, tpe, tag) =>
+                pushBuilt(applyFn(tpe, shadowed).map(Local(v, _, tag)))
+              case Global(pack, v, tpe, tag) =>
+                pushBuilt(applyFn(tpe, shadowed).map(Global(pack, v, _, tag)))
+              case App(fnExpr, args, tpe, tag) =>
+                work = RebuildApp(tpe, tag, args.length, shadowed) :: work
+                val revArgs = args.toList.reverseIterator
+                while (revArgs.hasNext) {
+                  work = Visit(revArgs.next(), shadowed) :: work
+                }
+                work = Visit(fnExpr, shadowed) :: work
+              case Let(v, exp, in, rec, tag) =>
+                work = RebuildLet(v, rec, tag) :: work
+                work = Visit(in, shadowed) :: work
+                work = Visit(exp, shadowed) :: work
+              case Loop(args, body, tag) =>
+                work = RebuildLoop(args.map(_._1), tag) :: work
+                work = Visit(body, shadowed) :: work
+                val revArgs = args.toList.reverseIterator
+                while (revArgs.hasNext) {
+                  val (_, argExpr) = revArgs.next()
+                  work = Visit(argExpr, shadowed) :: work
+                }
+              case Recur(args, tpe, tag) =>
+                work = RebuildRecur(tpe, tag, args.length, shadowed) :: work
+                val revArgs = args.toList.reverseIterator
+                while (revArgs.hasNext) {
+                  work = Visit(revArgs.next(), shadowed) :: work
+                }
+              case Literal(lit, tpe, tag) =>
+                pushBuilt(applyFn(tpe, shadowed).map(Literal(lit, _, tag)))
+              case Match(arg, branches, tag) =>
+                work =
+                  RebuildMatch(
+                    branches.map(b => (b.pattern, b.guard.nonEmpty)),
+                    tag,
+                    shadowed
+                  ) :: work
+                val revBranches = branches.toList.reverseIterator
+                while (revBranches.hasNext) {
+                  val branch = revBranches.next()
+                  work = Visit(branch.expr, shadowed) :: work
+                  branch.guard.foreach { guard =>
+                    work = Visit(guard, shadowed) :: work
+                  }
+                }
+                work = Visit(arg, shadowed) :: work
+            }
+          case RebuildGeneric(quant, exprType, shadowed) =>
+            work = work.tail
+            val inF = popBuilt()
+            val paramsF = quant.vars.traverse_ { case (b, _) =>
+              applyFn(Type.TyVar(b), shadowed)
+            }
+            pushBuilt(
+              (paramsF *> applyFn(exprType, shadowed) *> inF).map(
+                Generic(quant, _)
+              )
+            )
+          case RebuildAnnotation(tpe, qev, shadowed) =>
+            work = work.tail
+            val termF = popBuilt()
+            val qevF =
+              qev.traverse(_.traverseTypes(t => applyFn(t, shadowed)))
+            pushBuilt(
+              (termF, applyFn(tpe, shadowed), qevF).mapN(Annotation(_, _, _))
+            )
+          case RebuildAnnotatedLambda(args, tag, lamType, shadowed) =>
+            work = work.tail
+            val resF = popBuilt()
+            val argsF =
+              args.traverse { case (n, t) =>
+                applyFn(t, shadowed).map(n -> _)
+              }
+            pushBuilt(
+              (applyFn(lamType, shadowed) *> (argsF, resF).mapN(
+                AnnotatedLambda(_, _, tag)
+              ))
+            )
+          case RebuildApp(tpe, tag, argCount, shadowed) =>
+            work = work.tail
+            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
+            var idx = 0
+            while (idx < argCount) {
+              argFsRev += popBuilt()
+              idx = idx + 1
+            }
+            val fnF = popBuilt()
+            val argsF =
+              argFsRev.result().reverse.sequence.map(args =>
+                NonEmptyList.fromListUnsafe(args)
+              )
+
+            pushBuilt(
+              (fnF, argsF, applyFn(tpe, shadowed)).mapN {
+                App(_, _, _, tag)
+              }
+            )
+          case RebuildLet(v, rec, tag) =>
+            work = work.tail
+            val inF = popBuilt()
+            val expF = popBuilt()
+            pushBuilt((expF, inF).mapN(Let(v, _, _, rec, tag)))
+          case RebuildLoop(args, tag) =>
+            work = work.tail
+            val bodyF = popBuilt()
+            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
+            var idx = 0
+            val argCount = args.length
+            while (idx < argCount) {
+              argFsRev += popBuilt()
+              idx = idx + 1
+            }
+            val loopArgsF = argFsRev.result().reverse.sequence.map { argExprs =>
+              NonEmptyList.fromListUnsafe(args.toList.zip(argExprs))
+            }
+
+            pushBuilt(
+              (loopArgsF, bodyF).mapN {
+                Loop(_, _, tag)
+              }
+            )
+          case RebuildRecur(tpe, tag, argCount, shadowed) =>
+            work = work.tail
+            val argFsRev = List.newBuilder[F[TypedExpr[A]]]
+            var idx = 0
+            while (idx < argCount) {
+              argFsRev += popBuilt()
+              idx = idx + 1
+            }
+            val argsF =
+              argFsRev.result().reverse.sequence.map(args =>
+                NonEmptyList.fromListUnsafe(args)
+              )
+
+            pushBuilt(
+              (argsF, applyFn(tpe, shadowed)).mapN {
+                Recur(_, _, tag)
+              }
+            )
+          case RebuildMatch(branches, tag, shadowed) =>
+            work = work.tail
+            val branchFsRev = List.newBuilder[F[Branch[A]]]
+            val revBranches = branches.toList.reverseIterator
+            while (revBranches.hasNext) {
+              val (pattern, hasGuard) = revBranches.next()
+              val exprF = popBuilt()
+              val patternF = pattern.traverseType(t => applyFn(t, shadowed))
+              val branchF =
+                if (hasGuard) {
+                  val guardF = popBuilt()
+                  (patternF, guardF, exprF).mapN((pat, guard, expr1) =>
+                    Branch(pat, Some(guard), expr1)
+                  )
+                } else (patternF, exprF).mapN((pat, expr1) =>
+                  Branch(pat, None, expr1)
+                )
+              branchFsRev += branchF
+            }
+            val argF = popBuilt()
+            val branchesF =
+              branchFsRev.result().reverse.sequence.map(bs =>
+                NonEmptyList.fromListUnsafe(bs)
+              )
+
+            pushBuilt((argF, branchesF).mapN(Match(_, _, tag)))
+        }
+      }
+
+      popBuilt()
+    }
 
     /** This applies fn on all the contained types, replaces the elements, then
       * calls on the resulting. This is "bottom up"
