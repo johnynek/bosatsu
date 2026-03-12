@@ -1,6 +1,17 @@
 package dev.bosatsu.protobuf
 
-import dev.bosatsu.PackageName
+import cats.data.NonEmptyList
+import dev.bosatsu.{
+  ExportedName,
+  Identifier,
+  Import,
+  ImportedName,
+  Package,
+  PackageName,
+  Parser,
+  Statement
+}
+import org.typelevel.paiges.Document
 
 object ProtoToBosatsu {
 
@@ -82,78 +93,105 @@ object ProtoToBosatsu {
     val exports =
       (typeExports ++ enumCodecExports ++ messageCodecExports).distinct.sorted
 
-    val crossPackageImports = computeCrossPackageImports(fileModel, ctx)
-
-    val sb = new StringBuilder
-
-    sb.append(s"package ${fileModel.bosatsuPackage.asString}\n\n")
-
-    sb.append("from Bosatsu/IO/Bytes import (\n")
-    sb.append("  Bytes,\n")
-    sb.append("  concat_all_Bytes,\n")
-    sb.append("  empty_Bytes,\n")
-    sb.append("  utf8_bytes_from_String,\n")
-    sb.append("  utf8_bytes_to_String,\n")
-    sb.append(")\n\n")
-
-    sb.append("from Bosatsu/Proto/Wire import (\n")
-    wireImports.toVector.sorted.foreach { item =>
-      sb.append(s"  $item,\n")
-    }
-    sb.append(")\n")
-
-    if (crossPackageImports.nonEmpty) {
-      sb.append("\n")
-      crossPackageImports.foreach { case (pack, items) =>
-        sb.append(s"from ${pack.asString} import (\n")
-        items.toVector.sorted.foreach { item =>
-          sb.append(s"  $item,\n")
+    val typeStatements =
+      fileModel.enums.map(renderEnum) ++
+        fileModel.messages.flatMap { messageModel =>
+          messageModel.oneofs.map(renderOneof) :+ renderStruct(messageModel)
         }
-        sb.append(")\n")
+
+    val enumCodecStatements =
+      fileModel.enums.map { enumModel =>
+        val codecInfo = ctx.enumCodecs((enumModel.packageName, enumModel.bosatsuName))
+        renderEnumCodec(enumModel, codecInfo)
       }
-    }
 
-    sb.append("\n")
-
-    sb.append("export (\n")
-    exports.foreach { item =>
-      sb.append(s"  $item,\n")
-    }
-    sb.append(")\n\n")
-
-    fileModel.enums.foreach { enumModel =>
-      sb.append(renderEnum(enumModel))
-      sb.append("\n\n")
-    }
-
-    fileModel.messages.foreach { messageModel =>
-      messageModel.oneofs.foreach { oneofModel =>
-        sb.append(renderOneof(oneofModel))
-        sb.append("\n\n")
+    val messageCodecStatements =
+      fileModel.messages.map { messageModel =>
+        val codecInfo =
+          ctx.messageCodecs((messageModel.packageName, messageModel.bosatsuName))
+        renderMessageCodec(messageModel, codecInfo, ctx)
       }
-      sb.append(renderStruct(messageModel))
-      sb.append("\n\n")
-    }
 
-    fileModel.enums.foreach { enumModel =>
-      val codecInfo = ctx.enumCodecs((enumModel.packageName, enumModel.bosatsuName))
-      sb.append(renderEnumCodec(enumModel, codecInfo))
-      sb.append("\n\n")
-    }
+    val statementSources =
+      typeStatements ++
+        enumCodecStatements ++
+        messageCodecStatements
 
-    fileModel.messages.foreach { messageModel =>
-      val codecInfo =
-        ctx.messageCodecs((messageModel.packageName, messageModel.bosatsuName))
-      sb.append(renderMessageCodec(messageModel, codecInfo, ctx))
-      sb.append("\n\n")
-    }
+    val bytesImports = usedNamesInSources(statementSources, bytesImportCandidates)
+    val usedWireImports = usedNamesInSources(statementSources, wireImports)
+    val crossPackageImports = computeCrossPackageImports(fileModel, ctx)
+    val imports =
+      Vector(
+        Option.when(bytesImports.nonEmpty) {
+          importOf(PackageName.parts("Bosatsu", "IO", "Bytes"), bytesImports)
+        },
+        Option.when(usedWireImports.nonEmpty) {
+          importOf(PackageName.parts("Bosatsu", "Proto", "Wire"), usedWireImports)
+        }
+      ).flatten ++
+        crossPackageImports.map { case (pack, items) =>
+          importOf(pack, items.toVector.sorted)
+        }
+
+    val statements =
+      if (statementSources.isEmpty) Nil
+      else Parser.unsafeParse(Statement.parser, statementSources.mkString("\n\n"))
+    val parsedPack =
+      Package(
+        fileModel.bosatsuPackage,
+        imports.toList,
+        exports.toList.map(exportedNameOf),
+        statements
+      )
+    val rendered = Document[Package.Parsed].document(parsedPack).render(80).trim + "\n"
 
     GeneratedFile(
       fileModel.bosatsuPackage,
       fileModel.outputFilePath,
-      sb.result().trim + "\n"
+      rendered
     )
   }
+
+  private def importOf(
+      packageName: PackageName,
+      names: Vector[String]
+  ): Import[PackageName, Unit] =
+    Import(
+      packageName,
+      NonEmptyList.fromListUnsafe(
+        names.toList.map(name => ImportedName.OriginalName(Identifier.unsafe(name), ()))
+      )
+    )
+
+  private def exportedNameOf(name: String): ExportedName[Unit] =
+    Identifier.unsafe(name) match {
+      case bindable: Identifier.Bindable =>
+        ExportedName.Binding(bindable, ())
+      case constructor: Identifier.Constructor =>
+        ExportedName.TypeName(constructor, ())
+    }
+
+  private def usedNamesInSources(
+      statementSources: Vector[String],
+      candidates: Set[String]
+  ): Vector[String] = {
+    val source = statementSources.mkString("\n")
+    candidates.toVector.sorted.filter(name => containsIdentifier(source, name))
+  }
+
+  private def containsIdentifier(source: String, name: String): Boolean = {
+    val pattern =
+      raw"(?<![A-Za-z0-9_])${java.util.regex.Pattern.quote(name)}(?![A-Za-z0-9_])".r
+    pattern.findFirstIn(source).nonEmpty
+  }
+
+  private val bytesImportCandidates: Set[String] = Set(
+    "Bytes",
+    "concat_all_Bytes",
+    "empty_Bytes",
+    "utf8_bytes_from_String",
+    "utf8_bytes_to_String"
+  )
 
   private val wireImports: Set[String] = Set(
     "decode_bool",
@@ -274,6 +312,17 @@ object ProtoToBosatsu {
   ): String = {
     val sb = new StringBuilder
 
+    messageModel.fields.foreach { fieldModel =>
+      fieldModel.fieldType match {
+        case mapType: FieldType.MapEntry =>
+          sb.append(renderMapEncodeHelper(fieldModel, mapType, ctx))
+          sb.append("\n\n")
+          sb.append(renderMapDecodeHelper(fieldModel, mapType, ctx))
+          sb.append("\n\n")
+        case _ => ()
+      }
+    }
+
     sb.append(
       s"def ${codecInfo.encodeFnName}(value: ${messageModel.bosatsuName}) -> Bytes:\n"
     )
@@ -303,17 +352,6 @@ object ProtoToBosatsu {
       sb.append("  empty_Bytes\n\n")
     }
 
-    messageModel.fields.foreach { fieldModel =>
-      fieldModel.fieldType match {
-        case mapType: FieldType.MapEntry =>
-          sb.append(renderMapEncodeHelper(fieldModel, mapType, ctx))
-          sb.append("\n\n")
-          sb.append(renderMapDecodeHelper(fieldModel, mapType, ctx))
-          sb.append("\n\n")
-        case _ => ()
-      }
-    }
-
     sb.append(
       s"def ${codecInfo.decodeFnName}(bytes: Bytes) -> Option[${messageModel.bosatsuName}]:\n"
     )
@@ -341,7 +379,7 @@ object ProtoToBosatsu {
 
     sb.append("\n")
     sb.append(
-      s"  loop(parsed, ${decodeInitialValues(messageModel).mkString(", ")})"
+      s"  loop(parsed, ${decodeInitialValues(messageModel, ctx).mkString(", ")})"
     )
 
     sb.result()
@@ -387,13 +425,23 @@ object ProtoToBosatsu {
           s"$indent  case None: [],\n"
 
       case Cardinality.Singular =>
-        val defaultExpr = defaultExprForType(fieldModel.fieldType, ctx)
         val encodedField =
           encodeFieldExpr(fieldModel.number, fieldModel.fieldType, valueName, ctx)
-        s"${indent}if $valueName matches $defaultExpr:\n" +
-          s"$indent  []\n" +
-          s"${indent}else:\n" +
-          s"$indent  [$encodedField],\n"
+
+        fieldModel.fieldType match {
+          case enumRef: FieldType.EnumRef =>
+            val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
+            s"${indent}if cmp_Int(${enumCodec.encodeFnName}($valueName), 0) matches EQ:\n" +
+              s"$indent  []\n" +
+              s"${indent}else:\n" +
+              s"$indent  [$encodedField],\n"
+          case _ =>
+            val defaultExpr = defaultExprForType(fieldModel.fieldType, ctx)
+            s"${indent}if $valueName matches $defaultExpr:\n" +
+              s"$indent  []\n" +
+              s"${indent}else:\n" +
+              s"$indent  [$encodedField],\n"
+        }
     }
   }
 
@@ -768,15 +816,21 @@ object ProtoToBosatsu {
     messageModel.fields.map(decodeVarName) ++
       messageModel.oneofs.map(_.bosatsuFieldName)
 
-  private def decodeInitialValues(messageModel: MessageModel): Vector[String] =
-    messageModel.fields.map(initialDecodeValue) ++
+  private def decodeInitialValues(
+      messageModel: MessageModel,
+      ctx: RenderContext
+  ): Vector[String] =
+    messageModel.fields.map(initialDecodeValue(_, ctx)) ++
       messageModel.oneofs.map(notSetCtor)
 
   private def decodeFinalValues(messageModel: MessageModel): Vector[String] =
     messageModel.fields.map(finalDecodeValue) ++
       messageModel.oneofs.map(_.bosatsuFieldName)
 
-  private def initialDecodeValue(fieldModel: FieldModel): String =
+  private def initialDecodeValue(
+      fieldModel: FieldModel,
+      ctx: RenderContext
+  ): String =
     fieldModel.cardinality match {
       case Cardinality.Repeated => "[]"
       case Cardinality.Optional => "None"
@@ -790,7 +844,9 @@ object ProtoToBosatsu {
               case ScalarType.BytesType                         => "empty_Bytes"
               case _                                            => "0"
             }
-          case _: FieldType.EnumRef => "decode_enum(0)"
+          case enumRef: FieldType.EnumRef =>
+            val enumCodec = ctx.enumCodecs((enumRef.packageName, enumRef.typeName))
+            s"${enumCodec.decodeFnName}(0)"
           case _: FieldType.MessageRef => "None"
           case _: FieldType.MapEntry => "[]"
         }

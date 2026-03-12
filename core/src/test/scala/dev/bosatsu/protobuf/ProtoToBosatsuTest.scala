@@ -1,6 +1,16 @@
 package dev.bosatsu.protobuf
 
-import dev.bosatsu.PackageName
+import cats.data.NonEmptyList
+import dev.bosatsu.IorMethods.IorExtension
+import dev.bosatsu.{
+  CompileOptions,
+  LocationMap,
+  Package,
+  PackageMap,
+  PackageName,
+  Par,
+  Parser
+}
 import dev.bosatsu.protobuf.ProtoDescriptorModel.{
   Cardinality,
   EnumModel,
@@ -16,6 +26,153 @@ import dev.bosatsu.protobuf.ProtoDescriptorModel.{
 }
 
 class ProtoToBosatsuTest extends munit.FunSuite {
+
+  private val bytesStub: String =
+    """package Bosatsu/IO/Bytes
+      |
+      |export (
+      |  Bytes,
+      |  concat_all_Bytes,
+      |  empty_Bytes,
+      |  utf8_bytes_from_String,
+      |  utf8_bytes_to_String,
+      |)
+      |
+      |external struct Bytes
+      |external empty_Bytes: Bytes
+      |external def concat_all_Bytes(chunks: List[Bytes]) -> Bytes
+      |external def utf8_bytes_from_String(str: String) -> Bytes
+      |external def utf8_bytes_to_String(bytes: Bytes) -> Option[String]
+      |""".stripMargin
+
+  private val wireStub: String =
+    """package Bosatsu/Proto/Wire
+      |
+      |from Bosatsu/IO/Bytes import Bytes
+      |
+      |export (
+      |  FieldValue(),
+      |  if_Some,
+      |  encode_varint_u64,
+      |  encode_fixed32,
+      |  encode_fixed64,
+      |  field_varint,
+      |  field_fixed32,
+      |  field_fixed64,
+      |  field_length_delimited,
+      |  decode_fields,
+      |  decode_packed_varints,
+      |  decode_packed_fixed32,
+      |  decode_packed_fixed64,
+      |  encode_int32,
+      |  encode_int64,
+      |  encode_uint32,
+      |  encode_uint64,
+      |  encode_sint32,
+      |  encode_sint64,
+      |  encode_fixed32_bits,
+      |  encode_fixed64_bits,
+      |  encode_sfixed32_bits,
+      |  encode_sfixed64_bits,
+      |  encode_bool,
+      |  encode_enum,
+      |  encode_double_bits,
+      |  encode_float_bits,
+      |  decode_int32,
+      |  decode_int64,
+      |  decode_uint32,
+      |  decode_uint64,
+      |  decode_sint32,
+      |  decode_sint64,
+      |  decode_fixed32,
+      |  decode_fixed64,
+      |  decode_sfixed32,
+      |  decode_sfixed64,
+      |  decode_bool,
+      |  decode_enum,
+      |  decode_double,
+      |  decode_float,
+      |)
+      |
+      |enum FieldValue:
+      |  Varint(bits: Int)
+      |  Fixed64(bits: Int)
+      |  LengthDelimited(payload: Bytes)
+      |  Fixed32(bits: Int)
+      |
+      |def if_Some(o: Option[a], fn: a -> Option[b]) -> Option[b]:
+      |  match o:
+      |    case Some(a): fn(a)
+      |    case None: None
+      |
+      |external def encode_varint_u64(value: Int) -> Bytes
+      |external def encode_fixed32(value: Int) -> Bytes
+      |external def encode_fixed64(value: Int) -> Bytes
+      |external def field_varint(field_number: Int, value: Int) -> Bytes
+      |external def field_fixed32(field_number: Int, value: Int) -> Bytes
+      |external def field_fixed64(field_number: Int, value: Int) -> Bytes
+      |external def field_length_delimited(field_number: Int, payload: Bytes) -> Bytes
+      |external def decode_fields(payload: Bytes) -> Option[List[(Int, FieldValue)]]
+      |external def decode_packed_varints(payload: Bytes) -> Option[List[Int]]
+      |external def decode_packed_fixed32(payload: Bytes) -> Option[List[Int]]
+      |external def decode_packed_fixed64(payload: Bytes) -> Option[List[Int]]
+      |external def encode_int32(value: Int) -> Int
+      |external def encode_int64(value: Int) -> Int
+      |external def encode_uint32(value: Int) -> Int
+      |external def encode_uint64(value: Int) -> Int
+      |external def encode_sint32(value: Int) -> Int
+      |external def encode_sint64(value: Int) -> Int
+      |external def encode_fixed32_bits(value: Int) -> Int
+      |external def encode_fixed64_bits(value: Int) -> Int
+      |external def encode_sfixed32_bits(value: Int) -> Int
+      |external def encode_sfixed64_bits(value: Int) -> Int
+      |external def encode_bool(value: Bool) -> Int
+      |external def encode_enum(value: Int) -> Int
+      |external def encode_double_bits(value: Float64) -> Int
+      |external def encode_float_bits(value: Float64) -> Int
+      |external def decode_int32(value: Int) -> Int
+      |external def decode_int64(value: Int) -> Int
+      |external def decode_uint32(value: Int) -> Int
+      |external def decode_uint64(value: Int) -> Int
+      |external def decode_sint32(value: Int) -> Int
+      |external def decode_sint64(value: Int) -> Int
+      |external def decode_fixed32(value: Int) -> Int
+      |external def decode_fixed64(value: Int) -> Int
+      |external def decode_sfixed32(value: Int) -> Int
+      |external def decode_sfixed64(value: Int) -> Int
+      |external def decode_bool(value: Int) -> Bool
+      |external def decode_enum(value: Int) -> Int
+      |external def decode_double(value: Int) -> Float64
+      |external def decode_float(value: Int) -> Float64
+      |""".stripMargin
+
+  private def assertGeneratedCodeCompiles(
+      generated: Vector[ProtoToBosatsu.GeneratedFile]
+  ): Unit = {
+    val parsedSources =
+      (List(
+        "Bosatsu/IO/Bytes.bosatsu" -> bytesStub,
+        "Bosatsu/Proto/Wire.bosatsu" -> wireStub
+      ) ++ generated.toList.map(g => g.outputFilePath -> g.content))
+        .map { case (name, source) =>
+          val pack = Parser.unsafeParse(Package.parser(None), source)
+          ((name, LocationMap(source)), pack)
+        }
+
+    val nel =
+      NonEmptyList
+        .fromList(parsedSources)
+        .getOrElse(fail("expected generated sources"))
+
+    val checked =
+      Par.noParallelism {
+        PackageMap
+          .typeCheckParsed(nel, Nil, "<generated>", CompileOptions.Default)
+          .strictToValidated
+      }
+
+    checked.fold(errs => fail(errs.toList.mkString("\n")), _ => ())
+  }
 
   test("render emits enums, oneofs, maps, and codecs") {
     val pkg = PackageName.parts("Proto", "Config", "V1")
@@ -157,6 +314,7 @@ class ProtoToBosatsuTest extends munit.FunSuite {
     assert(content.contains("def decode_AppConfig"), content)
     assert(content.contains("def encode_map_entry_labels"), content)
     assert(content.contains("def decode_map_entry_labels"), content)
+    assertGeneratedCodeCompiles(rendered)
   }
 
   test("renderAll is deterministic and includes cross-package codec imports") {
@@ -244,12 +402,13 @@ class ProtoToBosatsuTest extends munit.FunSuite {
     assertEquals(rendered.map(_.outputFilePath), Vector("Proto/App.bosatsu", "Proto/Shared.bosatsu"))
 
     val appContent = rendered.head.content
-    assert(appContent.contains("from Proto/Shared import ("), appContent)
+    assert(appContent.contains("from Proto/Shared import "), appContent)
     assert(appContent.contains("Child"), appContent)
     assert(appContent.contains("Kind"), appContent)
     assert(appContent.contains("encode_Child"), appContent)
     assert(appContent.contains("decode_Child"), appContent)
     assert(appContent.contains("encode_enum_Kind"), appContent)
     assert(appContent.contains("decode_enum_Kind"), appContent)
+    assertGeneratedCodeCompiles(rendered)
   }
 }
