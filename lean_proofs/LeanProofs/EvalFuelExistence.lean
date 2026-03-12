@@ -31,6 +31,22 @@ def Terminates (e : Eval α) : Prop :=
   ∃ v, Evaluates e v
 
 /--
+All values of this `Eval` shape terminate semantically.
+
+This is the key `hTotal` theorem: it is derivable by structural induction on
+`Eval`, because the `flatMap` induction case provides an IH for all `fn` outputs.
+-/
+theorem terminates_all : ∀ {α : Type u}, (e : Eval α) → Terminates e := by
+  intro α e
+  induction e with
+  | pure a =>
+      exact ⟨a, Evaluates.pure⟩
+  | flatMap prev fn ihPrev ihFn =>
+      rcases ihPrev with ⟨a, hPrev⟩
+      rcases ihFn a with ⟨b, hFn⟩
+      exact ⟨b, Evaluates.flatMap hPrev hFn⟩
+
+/--
 If `runFuel n e = some v`, then one extra unit of fuel still yields `v`.
 -/
 theorem runFuel_succ_mono {α : Type u} :
@@ -108,6 +124,15 @@ theorem exists_fuel_if_total
     ∀ {α : Type u}, (e : Eval α) → ∃ n v, runFuel n e = some v := by
   intro α e
   exact exists_fuel_of_terminates (hTotal e)
+
+/--
+Direct corollary for this `Eval` definition:
+for every `e`, there exists some finite fuel that succeeds.
+-/
+theorem exists_fuel_for_all :
+    ∀ {α : Type u}, (e : Eval α) → ∃ n v, runFuel n e = some v := by
+  intro α e
+  exact exists_fuel_of_terminates (terminates_all e)
 
 /-- Small sanity example. -/
 def plusOne (n : Nat) : Eval Nat :=
