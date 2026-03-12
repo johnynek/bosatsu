@@ -2466,6 +2466,48 @@ main = Pure(Leaf(1))
     assert(!rendered.contains("Unknown constructor `FlatMap`"), rendered)
   }
 
+  test(
+    "variance failures still allow independent lets to report actionable errors"
+  ) {
+    val testCode =
+      """
+package ErrorCheck
+export main
+
+enum Leaf[a]:
+  Leaf(value: a)
+
+enum BindChain[f: * -> *, a: *, b: *]:
+  One(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+blocked = Pure(Leaf(1))
+other = missing_name
+main = other
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val typeMessages = errs.toList.collect { case te: PackageError.TypeErrorIn =>
+      te.message(sourceMap, Colorize.None)
+    }
+
+    assert(
+      errs.toList.exists(_.isInstanceOf[PackageError.KindInferenceError]),
+      rendered
+    )
+    assert(
+      typeMessages.exists(_.contains("Unknown name `missing_name`.")),
+      rendered
+    )
+    assert(!rendered.contains("Unknown constructor `Pure`"), rendered)
+  }
+
   test("enum type parameter ownership collisions report scopes") {
     val testCode = """
 package ErrorCheck
