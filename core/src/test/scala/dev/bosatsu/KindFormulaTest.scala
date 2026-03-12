@@ -305,4 +305,25 @@ enum Free[a: +*]:
   Map(tup: exists b. (Free[b], b -> a))
 """)
   }
+
+  test("regression: Eval-like variance failure reports kind failure, not invariant") {
+    val res = makeTE("""#
+enum Leaf[a: +*]:
+  Done(done: a)
+
+enum BindChain[f: +* -> *, a: -*, b: +*]:
+  Single(fn: a -> f[b]),
+  Many[c](first: BindChain[f, a, c], last: b -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+enum Stack[a, b]:
+  Last(fn: a -> Eval[b])
+  More[c](first: a -> Eval[c], rest: Stack[c, b])
+""")
+
+    assertEquals(res.left.map(_ => ()), Left(()))
+  }
 }

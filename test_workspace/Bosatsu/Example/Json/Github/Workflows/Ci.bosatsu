@@ -89,6 +89,13 @@ struct WorkflowJobsNeedsRunStrategyStepsTimeout(
   `timeout-minutes`: Int,
 )
 
+struct WorkflowJobsNeedsRunStepsTimeout(
+  needs: String,
+  `runs-on`: String,
+  steps: List[Step[FetchJavaWith]],
+  `timeout-minutes`: Int,
+)
+
 struct WorkflowJobsLibPublishDryRun(
   needs: String,
   `runs-on`: String,
@@ -99,6 +106,7 @@ struct WorkflowJobsLibPublishDryRun(
 struct WorkflowJobs(
   test: WorkflowJobsTest,
   treeSitter: WorkflowJobsTestJS,
+  proofChecks: WorkflowJobsNeedsRunStepsTimeout,
   testPY: WorkflowJobsTestPY,
   testJS: WorkflowJobsTestJS,
   testWithCoverageReport: WorkflowJobsTestWithCoverageReport,
@@ -203,6 +211,18 @@ workflow =
           },
         ],
         java_strategy_17,
+        timeout_minutes_default,
+      ),
+      WorkflowJobsNeedsRunStepsTimeout(
+        needs_test,
+        runner_ubuntu_latest,
+        [
+          checkout_v2_step,
+          Step {
+            name: Set("run proof checks"),
+            run: Set("./scripts/check_proofs.sh"),
+          },
+        ],
         timeout_minutes_default,
       ),
       WorkflowJobsTestPY(
