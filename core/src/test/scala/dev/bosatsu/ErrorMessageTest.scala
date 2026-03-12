@@ -2427,6 +2427,34 @@ enum FreeF[a]:
     }
   }
 
+  test("ill-kinded dependency chain reports kind error and does not throw invariant") {
+    val testCode = """
+package ErrorCheck
+
+enum Leaf[a: +*]:
+  Done(done: a)
+
+enum BindChain[f: +* -> *, a: -*, b: +*]:
+  Single(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: b -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+enum Stack[a, b]:
+  Last(fn: a -> Eval[b])
+  More[c](first: a -> Eval[c], rest: Stack[c, b])
+"""
+
+    evalFail(List(testCode)) {
+      case kie @ PackageError.KindInferenceError(_, _, _) =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message.contains("could not solve for valid variances"), message)
+        assert(!message.contains("unknown const"), message)
+    }
+  }
+
   test("enum type parameter ownership collisions report scopes") {
     val testCode = """
 package ErrorCheck

@@ -306,9 +306,8 @@ enum Free[a: +*]:
 """)
   }
 
-  test("regression: Eval-like variance failure can trigger unknown const invariant") {
-    val err = intercept[RuntimeException] {
-      makeTE("""#
+  test("regression: Eval-like variance failure reports kind failure, not invariant") {
+    val res = makeTE("""#
 enum Leaf[a: +*]:
   Done(done: a)
 
@@ -324,9 +323,7 @@ enum Stack[a, b]:
   Last(fn: a -> Eval[b])
   More[c](first: a -> Eval[c], rest: Stack[c, b])
 """)
-    }
 
-    assert(err.getMessage.contains("unknown const"), err.getMessage)
-    assert(err.getMessage.contains("TypeName(Constructor(Eval))"), err.getMessage)
+    assertEquals(res.left.map(_ => ()), Left(()))
   }
 }
