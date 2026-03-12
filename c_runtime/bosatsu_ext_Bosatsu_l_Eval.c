@@ -5,18 +5,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const ENUM_TAG BSTS_EVAL_LEAF_DONE = 0;
-static const ENUM_TAG BSTS_EVAL_LEAF_LAZY_LEAF = 1;
-static const ENUM_TAG BSTS_EVAL_LEAF_ALWAYS = 2;
+enum {
+  BSTS_EVAL_LEAF_DONE = 0,
+  BSTS_EVAL_LEAF_LAZY_LEAF = 1,
+  BSTS_EVAL_LEAF_ALWAYS = 2,
+};
 
-static const ENUM_TAG BSTS_EVAL_PURE = 0;
-static const ENUM_TAG BSTS_EVAL_FLAT_MAP = 1;
+enum {
+  BSTS_EVAL_PURE = 0,
+  BSTS_EVAL_FLAT_MAP = 1,
+};
 
-static const ENUM_TAG BSTS_EVAL_STACK_LAST = 0;
-static const ENUM_TAG BSTS_EVAL_STACK_MORE = 1;
+enum {
+  BSTS_EVAL_STACK_LAST = 0,
+  BSTS_EVAL_STACK_MORE = 1,
+};
 
-static const ENUM_TAG BSTS_EVAL_LOOP_RUN_STACK = 0;
-static const ENUM_TAG BSTS_EVAL_LOOP_RUN_EVAL = 1;
+enum {
+  BSTS_EVAL_LOOP_RUN_STACK = 0,
+  BSTS_EVAL_LOOP_RUN_EVAL = 1,
+};
 
 static void bsts_eval_invalid_tag(const char* name, ENUM_TAG tag) {
   fprintf(stderr, "bosatsu Eval execution fault: invalid %s tag: %u\n", name, tag);
