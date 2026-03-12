@@ -4561,6 +4561,21 @@ def makeLoop(fn):
     cursor
   }
 
+  private def deepRightApp2Chain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    val fnT = Type.Fun(NonEmptyList.of(intT, intT), intT)
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("z"), intT, -1)
+    var idx = depth - 1
+    while (idx >= 0) {
+      val fn = TypedExpr.Local(Identifier.Name(s"f$idx"), fnT, idx)
+      val arg = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor = TypedExpr.App(fn, NonEmptyList.of(arg, cursor), intT, idx)
+      idx = idx - 1
+    }
+    cursor
+  }
+
   test("TypedExpr traverse/map/folds match recursive oracle") {
     forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, seed) =>
       val mapFn: Int => Int = i => (i * 31) + seed
@@ -4662,6 +4677,75 @@ def makeLoop(fn):
           val trace = so.getStackTrace.iterator.take(40).mkString("\n")
           fail(
             s"TypedExpr traverse/map/folds overflowed on deep trees (depth=$depth, stackBytes=$stackBytes)\n$trace"
+          )
+        case Some(other) =>
+          val trace = other.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"unexpected failure: $other\n$trace")
+        case None =>
+          ()
+      }
+    }
+  )
+
+  Platform.onJvm(
+    test(
+      "TypedExpr recursive app utilities are stack safe on right-deep binary app chains"
+    ) {
+      val depth = sys.props.get("repro.typedExprApp2Depth").fold(4000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+
+      @volatile var failure: Option[Throwable] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              val expr = deepRightApp2Chain(depth)
+              val expectedNameCount = depth + 1
+
+              assertEquals(expr.size, (2 * depth) + 1)
+              assertEquals(expr.freeVarsDup.length, expectedNameCount)
+              assertEquals(expr.allVarsDup.length, expectedNameCount)
+              assert(expr.allTypes(Type.IntType))
+              assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(expr, expr))
+
+              val subMap: Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
+                Map(Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) => loc))
+              val subRes = TypedExpr.substituteAll(subMap, expr, enterLambda = true)
+              assert(subRes.nonEmpty)
+
+              val tsub = TypedExpr.substituteTypeVar(
+                expr,
+                Map((Type.Var.Bound("a"): Type.Var) -> Type.IntType)
+              )
+              assertEquals(tsub.size, expr.size)
+
+              val quantified: TypedExpr[Int] =
+                TypedExpr.quantify[Id, Int](
+                  Map.empty,
+                  TypedExpr.Rho.assertRho(expr),
+                  (_: Type.Meta) => None,
+                  (_: Type.Meta, _: Type.Tau) => ()
+                )
+              assertEquals(quantified.size, expr.size)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-expr-app2-small-stack",
+        stackBytes
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(so: StackOverflowError) =>
+          val trace = so.getStackTrace.iterator.take(40).mkString("\n")
+          fail(
+            s"TypedExpr recursive app utilities overflowed on right-deep app2 chains (depth=$depth, stackBytes=$stackBytes)\n$trace"
           )
         case Some(other) =>
           val trace = other.getStackTrace.iterator.take(40).mkString("\n")

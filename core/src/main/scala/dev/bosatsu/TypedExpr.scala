@@ -58,7 +58,19 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case AnnotatedLambda(_, res, _) =>
         res.size
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
-      case App(fn, args, _, _) => fn.size + args.foldMap(_.size)
+      case app @ App(fn, args, _, _) =>
+        TypedExpr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.size
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.size + step.arg.size + acc
+            }
+            acc
+          case None =>
+            fn.size + args.foldMap(_.size)
+        }
       case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
         val (lets, tail) = TypedExpr.flattenLets(let)
         lets.foldLeft(tail.size) { case (acc, (_, rhs, _)) =>
@@ -219,8 +231,19 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case AnnotatedLambda(args, res, _) =>
         val nameSet = args.toList.iterator.map(_._1).toSet
         ListUtil.filterNot(res.freeVarsDup)(nameSet)
-      case App(fn, args, _, _) =>
-        fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+      case app @ App(fn, args, _, _) =>
+        TypedExpr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.freeVarsDup
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.freeVarsDup ::: step.arg.freeVarsDup ::: acc
+            }
+            acc
+          case None =>
+            fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
+        }
       case Let(arg, argE, in, RecursionKind.Recursive, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree = ListUtil.filterNot(argFree0)(_ == arg)
@@ -290,8 +313,19 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         Nil
       case AnnotatedLambda(args, res, _) =>
         args.toList.map(_._1) ::: res.allVarsDup
-      case App(fn, args, _, _) =>
-        fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
+      case app @ App(fn, args, _, _) =>
+        TypedExpr.flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc = last.allVarsDup
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc = step.fn.allVarsDup ::: step.arg.allVarsDup ::: acc
+            }
+            acc
+          case None =>
+            fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
+        }
       case Let(arg, argE, in, RecursionKind.Recursive, _) =>
         arg :: (argE.allVarsDup ::: in.allVarsDup)
       case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
@@ -463,11 +497,29 @@ object TypedExpr {
             eqIdentifier(ln, rn) &&
             eqType(lt, rt) &&
             eqA.eqv(ltag, rtag)
-          case (App(lf, largs, lres, ltag), App(rf, rargs, rres, rtag)) =>
-            loop(lf, rf) &&
-            eqExprs(largs, rargs) &&
-            eqType(lres, rres) &&
-            eqA.eqv(ltag, rtag)
+          case (lapp @ App(lf, largs, lres, ltag), rapp @ App(rf, rargs, rres, rtag)) =>
+            if (!eqType(lres, rres) || !eqA.eqv(ltag, rtag)) false
+            else {
+              (flattenApp2(lapp), flattenApp2(rapp)) match {
+                case (Some((lsteps, llast)), Some((rsteps, rlast)))
+                    if lsteps.length == rsteps.length =>
+                  val lit = lsteps.iterator
+                  val rit = rsteps.iterator
+                  var same = true
+                  while (same && lit.hasNext) {
+                    val lstep = lit.next()
+                    val rstep = rit.next()
+                    same =
+                      eqType(lstep.result, rstep.result) &&
+                        eqA.eqv(lstep.tag, rstep.tag) &&
+                        loop(lstep.fn, rstep.fn) &&
+                        loop(lstep.arg, rstep.arg)
+                  }
+                  same && loop(llast, rlast)
+                case _ =>
+                  loop(lf, rf) && eqExprs(largs, rargs)
+              }
+            }
           case (Let(ln, le, lin, lrec, ltag), Let(rn, re, rin, rrec, rtag)) =>
             eqBindable(ln, rn) &&
             loop(le, re) &&
@@ -913,6 +965,58 @@ object TypedExpr {
       branches: NonEmptyList[Branch[T]],
       tag: T
   ) extends TypedExpr[T]
+
+  final case class App2Step[T](
+      fn: TypedExpr[T],
+      arg: TypedExpr[T],
+      result: Type,
+      tag: T
+  )
+
+  // Flatten right-deep binary application chains:
+  // f0(x0, f1(x1, ... fn(xn, last)))
+  // into steps [(f0, x0), (f1, x1), ...] and the final `last`.
+  def flattenApp2[T](
+      root: App[T]
+  ): Option[(NonEmptyList[App2Step[T]], TypedExpr[T])] = {
+    val steps = List.newBuilder[App2Step[T]]
+    var cursor: TypedExpr[T] = root
+    var done = false
+    var valid = true
+    var last: TypedExpr[T] = root
+
+    while (valid && !done) {
+      cursor match {
+        case App(fn, NonEmptyList(arg, rhs :: Nil), result, tag) =>
+          steps += App2Step(fn, arg, result, tag)
+          rhs match {
+            case next @ App(_, NonEmptyList(_, _ :: Nil), _, _) =>
+              cursor = next
+            case _ =>
+              last = rhs
+              done = true
+          }
+        case _ =>
+          valid = false
+      }
+    }
+
+    if (!valid) None
+    else NonEmptyList.fromList(steps.result()).map((_, last))
+  }
+
+  def rebuildApp2[T](
+      steps: NonEmptyList[App2Step[T]],
+      last: TypedExpr[T]
+  ): TypedExpr[T] = {
+    var res = last
+    val rev = steps.toList.reverseIterator
+    while (rev.hasNext) {
+      val step = rev.next()
+      res = App(step.fn, NonEmptyList.of(step.arg, res), step.result, step.tag)
+    }
+    res
+  }
 
   sealed trait Domain {
     type TypeKind <: Type
@@ -1588,10 +1692,20 @@ object TypedExpr {
             visitType(tpe, shadowed)
           case Global(_, _, tpe, _) =>
             visitType(tpe, shadowed)
-          case App(f, args, tpe, _) =>
-            visitExpr(f, shadowed)
-            foreach(args.iterator)(visitExpr(_, shadowed))
-            visitType(tpe, shadowed)
+          case app @ App(f, args, tpe, _) =>
+            flattenApp2(app) match {
+              case Some((steps, last)) =>
+                foreach(steps.iterator) { step =>
+                  visitExpr(step.fn, shadowed)
+                  visitExpr(step.arg, shadowed)
+                }
+                visitExpr(last, shadowed)
+                foreach(steps.iterator)(step => visitType(step.result, shadowed))
+              case None =>
+                visitExpr(f, shadowed)
+                foreach(args.iterator)(visitExpr(_, shadowed))
+                visitType(tpe, shadowed)
+            }
           case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
             val (lets, tail) = flattenLets(let)
             val it = lets.iterator
@@ -1743,10 +1857,20 @@ object TypedExpr {
           case Global(_, _, tpe, _) =>
             // this shouldn't happen but does in generated tests
             addType(tpe)
-          case App(f, args, tpe, _) =>
-            loopExpr(f)
-            foreach(args.iterator)(loopExpr(_))
-            addType(tpe)
+          case app @ App(f, args, tpe, _) =>
+            flattenApp2(app) match {
+              case Some((steps, last)) =>
+                foreach(steps.iterator) { step =>
+                  loopExpr(step.fn)
+                  loopExpr(step.arg)
+                }
+                loopExpr(last)
+                foreach(steps.iterator)(step => addType(step.result))
+              case None =>
+                loopExpr(f)
+                foreach(args.iterator)(loopExpr(_))
+                addType(tpe)
+            }
           case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
             val (lets, tail) = flattenLets(let)
             val it = lets.iterator
@@ -2245,13 +2369,29 @@ object TypedExpr {
           ) { (e1, i1) =>
             Let(arg, e1, i1, rec, tag)
           }
-        case App(fn, args, tpe, tag) =>
+        case app @ App(fn, args, tpe, tag) =>
           val env1 = env + te.getType
-          mon.map2(
-            deepQuantify(env1, fn),
-            args.traverse(deepQuantify(env1, _))
-          ) { (f1, a1) =>
-            App(f1, a1, tpe, tag)
+          flattenApp2(app) match {
+            case Some((steps, last)) =>
+              var acc: F[TypedExpr[A]] = deepQuantify(env1, last)
+              val rev = steps.toList.reverseIterator
+              while (rev.hasNext) {
+                val step = rev.next()
+                val fnF = deepQuantify(env1, step.fn)
+                val argF = deepQuantify(env1, step.arg)
+                acc = mon.map2(
+                  fnF,
+                  mon.map2(argF, acc)((arg1, rhs1) => NonEmptyList.of(arg1, rhs1))
+                )((fn1, args1) => App(fn1, args1, step.result, step.tag))
+              }
+              acc
+            case None =>
+              mon.map2(
+                deepQuantify(env1, fn),
+                args.traverse(deepQuantify(env1, _))
+              ) { (f1, a1) =>
+                App(f1, a1, tpe, tag)
+              }
           }
         case Loop(args, body, tag) =>
           val env1 = env + te.getType
@@ -2989,9 +3129,23 @@ object TypedExpr {
               substituteAll(nonShadowed, res1, enterLambda = true).get
             Some(AnnotatedLambda(args1, subRes, tag1))
           }
-        case App(fn, args, tpe, tag) =>
-          (loop(table, fn), args.traverse(loop(table, _)))
-            .mapN(App(_, _, tpe, tag))
+        case app @ App(fn, args, tpe, tag) =>
+          flattenApp2(app) match {
+            case Some((steps, last)) =>
+              var acc: Option[TypedExpr[A]] = loop(table, last)
+              val rev = steps.toList.reverseIterator
+              while (acc.nonEmpty && rev.hasNext) {
+                val step = rev.next()
+                acc = (loop(table, step.fn), loop(table, step.arg), acc).mapN {
+                  (fn1, arg1, rhs1) =>
+                    App(fn1, NonEmptyList.of(arg1, rhs1), step.result, step.tag)
+                }
+              }
+              acc
+            case None =>
+              (loop(table, fn), args.traverse(loop(table, _)))
+                .mapN(App(_, _, tpe, tag))
+          }
         case let @ Let(arg, _, _, _, _) =>
           if (let.recursive.isRecursive) {
             // arg is in scope for argE and in
@@ -3211,13 +3365,29 @@ object TypedExpr {
           Local(v, Type.substituteVar(tpe, env), tag)
         case Global(p, v, tpe, tag) =>
           Global(p, v, Type.substituteVar(tpe, env), tag)
-        case App(f, args, tpe, tag) =>
-          App(
-            substituteTypeVar(f, env),
-            args.map(substituteTypeVar(_, env)),
-            Type.substituteVar(tpe, env),
-            tag
-          )
+        case app @ App(f, args, tpe, tag) =>
+          flattenApp2(app) match {
+            case Some((steps, last)) =>
+              var acc: TypedExpr[A] = substituteTypeVar(last, env)
+              val rev = steps.toList.reverseIterator
+              while (rev.hasNext) {
+                val step = rev.next()
+                acc = App(
+                  substituteTypeVar(step.fn, env),
+                  NonEmptyList.of(substituteTypeVar(step.arg, env), acc),
+                  Type.substituteVar(step.result, env),
+                  step.tag
+                )
+              }
+              acc
+            case None =>
+              App(
+                substituteTypeVar(f, env),
+                args.map(substituteTypeVar(_, env)),
+                Type.substituteVar(tpe, env),
+                tag
+              )
+          }
         case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
           val (lets, tail) = flattenLets(let)
           var changed = false
@@ -3289,8 +3459,20 @@ object TypedExpr {
         }
       case Local(nm, _, tag) if nm == name => Local(name, tpe, tag)
       case n: Name[A]                      => n
-      case App(fnT, args, tpe, tag)        =>
-        App(recur(fnT), args.map(recur), tpe, tag)
+      case app @ App(fnT, args, tpe, tag) =>
+        flattenApp2(app) match {
+          case Some((steps, last)) =>
+            var acc: TypedExpr[A] = recur(last)
+            val rev = steps.toList.reverseIterator
+            while (rev.hasNext) {
+              val step = rev.next()
+              acc =
+                App(recur(step.fn), NonEmptyList.of(recur(step.arg), acc), step.result, step.tag)
+            }
+            acc
+          case None =>
+            App(recur(fnT), args.map(recur), tpe, tag)
+        }
       case Let(b, e, in, RecursionKind.Recursive, t) =>
         if (b == name) {
           // in this case, b is in scope for e
