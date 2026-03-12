@@ -191,9 +191,21 @@ object ProtoToBosatsu {
   }
 
   private def containsIdentifier(source: String, name: String): Boolean = {
-    val pattern =
-      raw"(?<![A-Za-z0-9_])${java.util.regex.Pattern.quote(name)}(?![A-Za-z0-9_])".r
-    pattern.findFirstIn(source).nonEmpty
+    def isIdentChar(ch: Char): Boolean =
+      ch.isLetterOrDigit || ch == '_'
+
+    if (name.isEmpty) false
+    else {
+      var start = source.indexOf(name)
+      while (start >= 0) {
+        val end = start + name.length
+        val leftOk = start == 0 || !isIdentChar(source.charAt(start - 1))
+        val rightOk = end == source.length || !isIdentChar(source.charAt(end))
+        if (leftOk && rightOk) return true
+        start = source.indexOf(name, start + 1)
+      }
+      false
+    }
   }
 
   private val bytesImportCandidates: Set[String] = Set(
