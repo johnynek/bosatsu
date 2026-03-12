@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
+import cats.data.{Chain, NonEmptyList, NonEmptyMap}
 import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
