@@ -9,6 +9,13 @@ output-work bound (`BFn α β wOut wFn` with `wOut < wFn`).
 With that bound, the evaluator is accepted by Lean using a well-founded `rank`
 measure, proving termination of `runLoop`.
 
+It also contains a second proof over a naive `Eval`:
+
+- if `Eval` terminates semantically (`Evaluates`), then there exists some finite
+  fuel `n` such that `runFuel n` returns `some v`
+- this is packaged as `exists_fuel_of_terminates` and
+  `exists_fuel_if_total`
+
 Run locally:
 
 ```bash
