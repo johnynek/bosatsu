@@ -35,7 +35,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Local(_, tpe, _)     => tpe
       case Global(_, _, tpe, _) => tpe
       case App(_, _, tpe, _)    => tpe
-      case Let(_, _, in, _, _)  =>
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (_, tail) = TypedExpr.flattenLets(let)
+        tail.getType
+      case Let(_, _, in, _, _) =>
         in.getType
       case Loop(_, body, _) =>
         body.getType
@@ -56,7 +59,13 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         res.size
       case Local(_, _, _) | Literal(_, _, _) | Global(_, _, _, _) => 1
       case App(fn, args, _, _) => fn.size + args.foldMap(_.size)
-      case Let(_, e, in, _, _) => e.size + in.size
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        lets.foldLeft(tail.size) { case (acc, (_, rhs, _)) =>
+          rhs.size + acc
+        }
+      case Let(_, e, in, _, _) =>
+        e.size + in.size
       case Loop(args, body, _) =>
         args.foldMap(_._2.size) + body.size
       case Recur(args, _, _) =>
@@ -212,14 +221,19 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         ListUtil.filterNot(res.freeVarsDup)(nameSet)
       case App(fn, args, _, _) =>
         fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
-      case Let(arg, argE, in, rec, _) =>
+      case Let(arg, argE, in, RecursionKind.Recursive, _) =>
         val argFree0 = argE.freeVarsDup
-        val argFree =
-          if (rec.isRecursive) {
-            ListUtil.filterNot(argFree0)(_ == arg)
-          } else argFree0
-
+        val argFree = ListUtil.filterNot(argFree0)(_ == arg)
         argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ == arg))
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        val rev = lets.reverseIterator
+        var acc = tail.freeVarsDup
+        while (rev.hasNext) {
+          val (arg, rhs, _) = rev.next()
+          acc = rhs.freeVarsDup ::: ListUtil.filterNot(acc)(_ == arg)
+        }
+        acc
       case Loop(args, body, _) =>
         val argsSet = args.iterator.map(_._1).toSet
         val argsFree = args.foldMap(_._2.freeVarsDup)
@@ -278,8 +292,17 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         args.toList.map(_._1) ::: res.allVarsDup
       case App(fn, args, _, _) =>
         fn.allVarsDup ::: args.reduceMap(_.allVarsDup)
-      case Let(arg, argE, in, _, _) =>
+      case Let(arg, argE, in, RecursionKind.Recursive, _) =>
         arg :: (argE.allVarsDup ::: in.allVarsDup)
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = TypedExpr.flattenLets(let)
+        val rev = lets.reverseIterator
+        var acc = tail.allVarsDup
+        while (rev.hasNext) {
+          val (arg, rhs, _) = rev.next()
+          acc = arg :: (rhs.allVarsDup ::: acc)
+        }
+        acc
       case Loop(args, body, _) =>
         args.toList
           .map(_._1) ::: (args.foldMap(_._2.allVarsDup) ::: body.allVarsDup)
@@ -1102,6 +1125,20 @@ object TypedExpr {
         } else {
           None
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = flattenLets(let)
+        toArgsBody(arity, tail).flatMap { case (args, body0) =>
+          val rev = lets.reverseIterator
+          var ok = true
+          var body = body0
+          while (ok && rev.hasNext) {
+            val (arg, rhs, letTag) = rev.next()
+            if (args.exists(_._1 == arg)) ok = false
+            else body = Let(arg, rhs, body, RecursionKind.NonRecursive, letTag)
+          }
+          if (ok) Some((args, body))
+          else None
+        }
       case Let(arg, e, in, r, t) =>
         toArgsBody(arity, in).flatMap { case (args, body) =>
           // if args0 don't shadow arg, we can push
@@ -1271,6 +1308,14 @@ object TypedExpr {
             visitExpr(f, shadowed)
             foreach(args.iterator)(visitExpr(_, shadowed))
             visitType(tpe, shadowed)
+          case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+            val (lets, tail) = flattenLets(let)
+            val it = lets.iterator
+            while (it.hasNext) {
+              val (_, rhs, _) = it.next()
+              visitExpr(rhs, shadowed)
+            }
+            visitExpr(tail, shadowed)
           case Let(_, exp, in, _, _) =>
             visitExpr(exp, shadowed)
             visitExpr(in, shadowed)
@@ -1418,6 +1463,14 @@ object TypedExpr {
             loopExpr(f)
             foreach(args.iterator)(loopExpr(_))
             addType(tpe)
+          case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+            val (lets, tail) = flattenLets(let)
+            val it = lets.iterator
+            while (it.hasNext) {
+              val (_, rhs, _) = it.next()
+              loopExpr(rhs)
+            }
+            loopExpr(tail)
           case Let(_, exp, in, _, _) =>
             loopExpr(exp)
             loopExpr(in)
@@ -2418,6 +2471,18 @@ object TypedExpr {
           }
           Some(Match(arg, b1, tag))
         }
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = flattenLets(let)
+        val blocked = lets.exists { case (_, rhs, _) =>
+          val argFree = Type.freeBoundTyVars(rhs.getType :: Nil).toSet
+          Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }
+        }
+        if (blocked) None
+        else {
+          val gin = Generic(g.quant, tail)
+          val gin1 = pushGeneric(gin).getOrElse(gin)
+          Some(letAllNonRecWithTags(lets, gin1))
+        }
       case Let(b, v, in, rec, tag) =>
         val argFree = Type.freeBoundTyVars(v.getType :: Nil).toSet
         if (Type.quantVars(g.quantType).exists { case (b, _) => argFree(b) }) {
@@ -2503,6 +2568,9 @@ object TypedExpr {
                         ann(expr, tpe, None)
                     }
                 }
+              case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+                val (lets, tail) = flattenLets(let)
+                letAllNonRecWithTags(lets, self(tail))
               case Let(arg, argE, in, rec, tag) =>
                 Let(arg, argE, self(in), rec, tag)
               case Loop(args, body, tag) =>
@@ -2838,6 +2906,21 @@ object TypedExpr {
             Type.substituteVar(tpe, env),
             tag
           )
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = flattenLets(let)
+          var changed = false
+          val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (n, rhs, letTag) = it.next()
+            val rhs1 = substituteTypeVar(rhs, env)
+            if (!(rhs1 eq rhs)) changed = true
+            rebuilt += ((n, rhs1, letTag))
+          }
+          val tail1 = substituteTypeVar(tail, env)
+          if (!(tail1 eq tail)) changed = true
+          if (!changed) let
+          else letAllNonRecWithTags(rebuilt.result(), tail1)
         case Let(v, exp, in, rec, tag) =>
           Let(
             v,
@@ -2896,18 +2979,31 @@ object TypedExpr {
       case n: Name[A]                      => n
       case App(fnT, args, tpe, tag)        =>
         App(recur(fnT), args.map(recur), tpe, tag)
-      case Let(b, e, in, r, t) =>
+      case Let(b, e, in, RecursionKind.Recursive, t) =>
         if (b == name) {
-          if (r.isRecursive) {
-            // in this case, b is in scope for e
-            // so it shadows a the previous definition
-            te // shadow
-          } else {
-            // then b is not in scope for e
-            // but b does shadow inside `in`
-            Let(b, recur(e), in, r, t)
-          }
-        } else Let(b, recur(e), recur(in), r, t)
+          // in this case, b is in scope for e
+          // so it shadows the previous definition
+          te
+        } else Let(b, recur(e), recur(in), RecursionKind.Recursive, t)
+      case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+        val (lets, tail) = flattenLets(let)
+        var visible = true
+        var changed = false
+        val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+        val it = lets.iterator
+        while (it.hasNext) {
+          val (arg, rhs, letTag) = it.next()
+          val rhs1 =
+            if (visible) recur(rhs)
+            else rhs
+          if (!(rhs1 eq rhs)) changed = true
+          rebuilt += ((arg, rhs1, letTag))
+          if (visible && (arg == name)) visible = false
+        }
+        val tail1 = if (visible) recur(tail) else tail
+        if (!(tail1 eq tail)) changed = true
+        if (!changed) let
+        else letAllNonRecWithTags(rebuilt.result(), tail1)
       case Loop(args, body, tag) =>
         val args1 = args.map { case (b, expr) =>
           (b, recur(expr))
@@ -2998,6 +3094,9 @@ object TypedExpr {
             }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
             ann(expr, fntpe, None)
+          case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+            val (lets, tail) = flattenLets(let)
+            letAllNonRecWithTags(lets, self(tail))
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
           case Loop(args, body, tag) =>
