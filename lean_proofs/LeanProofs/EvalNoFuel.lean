@@ -58,8 +58,7 @@ def runLoop : Loop α β → β
   | .runStack a stack =>
       match stack with
       | .done k => k a
-      | .more (.mk run ltBound) tail =>
-          let _ := ltBound
+      | .more (.mk run _ltBound) tail =>
           runLoop (.runEval (run a) tail)
   | .runEval e stack =>
       match e with
@@ -69,7 +68,7 @@ termination_by st => rank st
 decreasing_by
   all_goals simp [rank, weight, phaseOf, Nat.add_assoc]
   all_goals try omega
-  exact odd_lt_even_of_lt _ _ (Nat.add_lt_add_right ltBound _)
+  exact odd_lt_even_of_lt _ _ (Nat.add_lt_add_right _ltBound _)
 
 @[simp] def pure (a : α) : Eval α 0 :=
   Eval.pure a
