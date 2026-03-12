@@ -18,6 +18,7 @@
     "Bosatsu/Collection/Queue",
     "Bosatsu/Collection/TreeList",
     "Bosatsu/Dict",
+    "Bosatsu/Eval",
     "Bosatsu/IO/Error",
     "Bosatsu/IO/Bytes",
     "Bosatsu/IO/Core",
@@ -39,5 +40,5 @@
   "all_packages": [
     ".*"
   ],
-  "doc_base_url": "https://github.com/johnynek/bosatsu/tree/main/"
+  "doc_base_url": "https://johnynek.github.io/bosatsu/generated/core_alpha/"
 }

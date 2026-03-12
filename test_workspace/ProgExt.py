@@ -362,6 +362,78 @@ def get_Lazy(lazy_value):
     l._thunk = None
     return value
 
+# Bosatsu/Eval externals
+_EVAL_LEAF_DONE = 0
+_EVAL_LEAF_LAZY = 1
+_EVAL_LEAF_ALWAYS = 2
+
+_EVAL_PURE = 0
+_EVAL_FLAT_MAP = 1
+
+_EVAL_STACK_LAST = 0
+_EVAL_STACK_MORE = 1
+
+_EVAL_LOOP_RUN_STACK = 0
+_EVAL_LOOP_RUN_EVAL = 1
+
+def _eval_leaf_value(leaf):
+    tag = leaf[0]
+    if tag == _EVAL_LEAF_DONE:
+        return leaf[1]
+    if tag == _EVAL_LEAF_LAZY:
+        return get_Lazy(leaf[1])
+    if tag == _EVAL_LEAF_ALWAYS:
+        return leaf[1](())
+    raise ValueError(f"invalid Eval.Leaf value: {leaf!r}")
+
+def eval_loop(loop):
+    loop_tag = loop[0]
+    if loop_tag == _EVAL_LOOP_RUN_EVAL:
+        run_eval = True
+    elif loop_tag == _EVAL_LOOP_RUN_STACK:
+        run_eval = False
+    else:
+        raise ValueError(f"invalid Eval.Loop value: {loop!r}")
+
+    current = loop[1]
+    stack = loop[2]
+
+    while True:
+        if run_eval:
+            eval_tag = current[0]
+            if eval_tag == _EVAL_PURE:
+                current = _eval_leaf_value(current[1])
+                run_eval = False
+                continue
+            if eval_tag != _EVAL_FLAT_MAP:
+                raise ValueError(f"invalid Eval value: {current!r}")
+
+            prev = current[1]
+            fn = current[2]
+            current = prev
+            stack = (_EVAL_STACK_MORE, fn, stack)
+            continue
+
+        stack_tag = stack[0]
+        if stack_tag == _EVAL_STACK_MORE:
+            current = stack[1](current)
+            stack = stack[2]
+            run_eval = True
+            continue
+        if stack_tag != _EVAL_STACK_LAST:
+            raise ValueError(f"invalid Eval.Stack value: {stack!r}")
+
+        next_eval = stack[1](current)
+        next_tag = next_eval[0]
+        if next_tag == _EVAL_PURE:
+            return _eval_leaf_value(next_eval[1])
+        if next_tag != _EVAL_FLAT_MAP:
+            raise ValueError(f"invalid Eval value: {next_eval!r}")
+
+        current = next_eval[1]
+        stack = (_EVAL_STACK_LAST, next_eval[2])
+        run_eval = True
+
 # Bosatsu/IO/Bytes externals
 empty_Bytes = _BosatsuBytes(b"", 0, 0)
 

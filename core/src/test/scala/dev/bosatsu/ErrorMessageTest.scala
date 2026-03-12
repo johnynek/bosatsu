@@ -2427,6 +2427,118 @@ enum FreeF[a]:
     }
   }
 
+  test(
+    "variance solving failures do not cascade into unknown constructor errors"
+  ) {
+    val testCode =
+      """
+package ErrorCheck
+export main
+
+enum Leaf[a]:
+  Leaf(value: a)
+
+enum BindChain[f: * -> *, a: *, b: *]:
+  One(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+main = Pure(Leaf(1))
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val kindErrors = errs.toList.collect {
+      case kie: PackageError.KindInferenceError => kie
+    }
+    val typeErrors = errs.toList.collect { case te: PackageError.TypeErrorIn =>
+      te
+    }
+
+    assert(kindErrors.nonEmpty, errs.toList.mkString("\n"))
+    assertEquals(typeErrors, Nil)
+
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    assert(!rendered.contains("Unknown constructor `Pure`"), rendered)
+    assert(!rendered.contains("Unknown constructor `FlatMap`"), rendered)
+  }
+
+  test("ill-kinded dependency chain reports precise recursive-variance hint") {
+    val testCode = """
+package ErrorCheck
+
+enum Leaf[a: +*]:
+  Done(done: a)
+
+enum BindChain[f: +* -> *, a: -*, b: +*]:
+  Single(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+enum Stack[a, b]:
+  Last(fn: a -> Eval[b])
+  More[c](first: a -> Eval[c], rest: Stack[c, b])
+"""
+
+    evalFail(List(testCode)) {
+      case kie @ PackageError.KindInferenceError(_, _, _) =>
+        val message = kie.message(Map.empty, Colorize.None)
+        assert(message.contains("could not solve for valid variances"), message)
+        assert(message.contains("recursive occurrences must be covariant"), message)
+        assert(message.contains("For higher-kinded parameters"), message)
+        assert(message.contains("f: +(+* -> *)"), message)
+        assert(!message.contains("unknown const"), message)
+    }
+  }
+
+  test(
+    "variance failures still allow independent lets to report actionable errors"
+  ) {
+    val testCode =
+      """
+package ErrorCheck
+export main
+
+enum Leaf[a]:
+  Leaf(value: a)
+
+enum BindChain[f: * -> *, a: *, b: *]:
+  One(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+blocked = Pure(Leaf(1))
+other = missing_name
+main = other
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    val typeMessages = errs.toList.collect { case te: PackageError.TypeErrorIn =>
+      te.message(sourceMap, Colorize.None)
+    }
+
+    assert(
+      errs.toList.exists(_.isInstanceOf[PackageError.KindInferenceError]),
+      rendered
+    )
+    assert(
+      typeMessages.exists(_.contains("Unknown name `missing_name`.")),
+      rendered
+    )
+    assert(!rendered.contains("Unknown constructor `Pure`"), rendered)
+  }
+
   test("enum type parameter ownership collisions report scopes") {
     val testCode = """
 package ErrorCheck
