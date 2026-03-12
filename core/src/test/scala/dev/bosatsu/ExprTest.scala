@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eq}
+import cats.{Applicative, Eq, Id}
 import cats.data.{Chain, NonEmptyList, Writer}
 import cats.syntax.all._
 import dev.bosatsu.rankn.Type
@@ -74,6 +74,18 @@ class ExprTest extends munit.ScalaCheckSuite {
     w.written.iterator.toList.distinct
   }
 
+  private def deepRightApp2Chain(depth: Int): Expr[Int] = {
+    var cursor: Expr[Int] = Expr.Local(Identifier.Name("z"), -1)
+    var idx = depth - 1
+    while (idx >= 0) {
+      val fn = Expr.Local(Identifier.Name(s"f$idx"), idx)
+      val arg = Expr.Local(Identifier.Name(s"x$idx"), idx)
+      cursor = Expr.App(fn, NonEmptyList.of(arg, cursor), idx)
+      idx = idx - 1
+    }
+    cursor
+  }
+
   test("replaceTag replaces") {
     forAll { (s: Expr[Int], i: Int) =>
       assertEquals(s.replaceTag(i).tag, i)
@@ -134,6 +146,75 @@ class ExprTest extends munit.ScalaCheckSuite {
       )
     }
   }
+
+  test("Expr flattenApp2/rebuildApp2 round trips right-deep binary app chains") {
+    val app = deepRightApp2Chain(64) match {
+      case app: Expr.App[Int] => app
+      case other              => fail(s"expected App, got $other")
+    }
+    val (steps, last) = Expr.flattenApp2(app).getOrElse(
+      fail("expected flattenApp2 to recognize right-deep app2 chain")
+    )
+    assertEquals(Expr.rebuildApp2(steps, last), app)
+  }
+
+  Platform.onJvm(
+    test("Expr recursive app utilities are stack safe on right-deep binary app chains") {
+      val depth = sys.props.get("repro.exprApp2Depth").fold(2000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+
+      @volatile var failure: Option[Throwable] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              val expr = deepRightApp2Chain(depth)
+              val expectedVars = (2 * depth) + 1
+
+              assertEquals(expr.freeVarsDup.length, expectedVars)
+              assertEquals(Expr.allNames(expr).size, expectedVars)
+              assertEquals(expr.globals, Set.empty[Expr.Global[Int]])
+              assertEquals(expr.eraseTags.freeVarsDup.length, expectedVars)
+
+              val tv = Type.Var.Bound("a")
+              val annotated = Expr.Annotation(expr, Type.TyVar(tv), depth)
+              val (sks, expr1) =
+                Expr.skolemizeVars[Id, Int](
+                  NonEmptyList.one((tv, Kind.Type)),
+                  annotated
+                ) { (b, k) =>
+                  Type.Var.Skolem(b.name, k, existential = false, id = 0L)
+                }
+              assertEquals(sks.length, 1)
+              assertEquals(expr1.freeVarsDup.length, expectedVars)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "expr-app2-small-stack",
+        stackBytes
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(so: StackOverflowError) =>
+          val trace = so.getStackTrace.iterator.take(40).mkString("\n")
+          fail(
+            s"Expr recursive app utilities overflowed on right-deep app2 chains (depth=$depth, stackBytes=$stackBytes)\n$trace"
+          )
+        case Some(other) =>
+          val trace = other.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"unexpected failure: $other\n$trace")
+        case None =>
+          ()
+      }
+    }
+  )
 
   test("let flattening makes sense") {
     forAll(genExpr) {
