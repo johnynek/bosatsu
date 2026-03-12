@@ -1,0 +1,24 @@
+---
+github.base_url=
+---
+
+# `Bosatsu/Bool`
+
+source code:
+- [`test_workspace/Bool.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Bool.bosatsu)
+
+## Index
+
+- Values: [`not`](#value-not)
+
+## Values
+
+<a id="value-not"></a>
+
+### `not`
+
+references: [`Bool`](Predef.html#type-bool)
+
+```bosatsu
+def not(b: Bool) -> Bool
+```
