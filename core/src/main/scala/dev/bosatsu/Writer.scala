@@ -17,6 +17,17 @@ object Writer {
       (m1, a)
     }
 
+    inline def map[B](inline fn: A => B): Tpe[M, B] = {
+      val (m, a) = tpe
+      (m, fn(a))
+    }
+
+    inline def flatMap[B](inline fn: A => Tpe[M, B])(using Semigroup[M]): Tpe[M, B] = {
+      val (m0, a) = tpe
+      val (m1, b) = fn(a)
+      (Semigroup[M].combine(m0, m1), b)
+    }
+
     inline def written: M = tpe._1
 
     inline def run: (M, A) = tpe
@@ -25,16 +36,11 @@ object Writer {
   given [M: Monoid] => Monad[[X] =>> Tpe[M, X]]:
     def pure[A](a: A): (M, A) = (Monoid[M].empty, a)
 
-    override def map[A, B](fa: (M, A))(fn: A => B): (M, B) = {
-      val (m, a) = fa
-      (m, fn(a))
-    }
+    override def map[A, B](fa: (M, A))(fn: A => B): (M, B) =
+      fa.map(fn)
 
-    def flatMap[A, B](fa: (M, A))(fn: A => (M, B)): (M, B) = {
-      val (m0, a) = fa
-      val (m1, b) = fn(a)
-      (Semigroup[M].combine(m0, m1), b)
-    }
+    def flatMap[A, B](fa: (M, A))(fn: A => (M, B)): (M, B) =
+      fa.flatMap(fn)
 
     def tailRecM[A, B](a: A)(fn: A => (M, Either[A, B])): (M, B) = {
       @annotation.tailrec
