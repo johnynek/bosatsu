@@ -44,12 +44,11 @@ class ProtocPluginMainTest extends munit.FunSuite {
         .withProtoFile(Vector(file))
         .withFileToGenerate(Vector(file.getName))
 
-    val response =
-      ProtocPluginMain.generateResponse(CodeGeneratorRequest.toJavaProto(request))
-    assertEquals(response.getError, "")
-    assertEquals(response.getFileCount, 1)
+    val response = ProtocPluginMain.generateResponse(request)
+    assertEquals(response.error, None)
+    assertEquals(response.file.size, 1)
 
-    val out = response.getFile(0)
+    val out = response.file.head
     assertEquals(out.getName, "Proto/Config/V1.bosatsu")
     assert(out.getContent.contains("package Proto/Config/V1"), out.getContent)
     assert(out.getContent.contains("struct SimpleConfig("), out.getContent)
@@ -97,12 +96,11 @@ class ProtocPluginMainTest extends munit.FunSuite {
         .withProtoFile(Vector(zFile, aFile))
         .withFileToGenerate(Vector(zFile.getName, aFile.getName))
 
-    val response =
-      ProtocPluginMain.generateResponse(CodeGeneratorRequest.toJavaProto(request))
-    assertEquals(response.getError, "")
-    assertEquals(response.getFileCount, 2)
+    val response = ProtocPluginMain.generateResponse(request)
+    assertEquals(response.error, None)
+    assertEquals(response.file.size, 2)
     assertEquals(
-      List(response.getFile(0).getName, response.getFile(1).getName),
+      List(response.file(0).getName, response.file(1).getName),
       List("Proto/Alpha.bosatsu", "Proto/Zeta.bosatsu")
     )
   }
@@ -171,10 +169,9 @@ class ProtocPluginMainTest extends munit.FunSuite {
           Vector(proto2File.getName, extensionFile.getName, groupFile.getName)
         )
 
-    val response =
-      ProtocPluginMain.generateResponse(CodeGeneratorRequest.toJavaProto(request))
-    assert(response.hasError)
-    val error = response.getError
+    val response = ProtocPluginMain.generateResponse(request)
+    assert(response.error.nonEmpty)
+    val error = response.error.getOrElse("")
     assert(error.contains("legacy.proto: only proto3 is supported"), error)
     assert(error.contains("extension.proto: extensions are not supported"), error)
     assert(error.contains("group.proto: groups are not supported"), error)
