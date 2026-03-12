@@ -504,7 +504,17 @@ object Package {
               infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
             )
 
-        inferVarianceParsed.flatMap { parsedTypeEnv =>
+        val inferVarianceStrict
+            : Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
+          inferVarianceParsed match {
+            case Ior.Both(kindErrors, _) =>
+              // Avoid cascading unknown-name diagnostics from partially inferred types.
+              Ior.Left(kindErrors)
+            case other                   =>
+              other
+          }
+
+        inferVarianceStrict.flatMap { parsedTypeEnv =>
           val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
           /*

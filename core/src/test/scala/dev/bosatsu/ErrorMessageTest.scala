@@ -2427,6 +2427,45 @@ enum FreeF[a]:
     }
   }
 
+  test(
+    "variance solving failures do not cascade into unknown constructor errors"
+  ) {
+    val testCode =
+      """
+package ErrorCheck
+export main
+
+enum Leaf[a]:
+  Leaf(value: a)
+
+enum BindChain[f: * -> *, a: *, b: *]:
+  One(fn: a -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
+
+enum Eval[a: +*]:
+  Pure(value: Leaf[a])
+  FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
+
+main = Pure(Leaf(1))
+"""
+
+    val (errs, sourceMap) = compileErrors(List(testCode))
+    val kindErrors = errs.toList.collect {
+      case kie: PackageError.KindInferenceError => kie
+    }
+    val typeErrors = errs.toList.collect { case te: PackageError.TypeErrorIn =>
+      te
+    }
+
+    assert(kindErrors.nonEmpty, errs.toList.mkString("\n"))
+    assertEquals(typeErrors, Nil)
+
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+    assert(!rendered.contains("Unknown constructor `Pure`"), rendered)
+    assert(!rendered.contains("Unknown constructor `FlatMap`"), rendered)
+  }
+
   test("enum type parameter ownership collisions report scopes") {
     val testCode = """
 package ErrorCheck

@@ -1049,7 +1049,10 @@ def getValue(v):
     case IsInt(i, _): i
 
 main = getValue(int)
-""")) { case _: PackageError.TypeErrorIn => () }
+""")) {
+      case _: PackageError.KindInferenceError => ()
+      case _: PackageError.TypeErrorIn        => ()
+    }
 
   }
 
