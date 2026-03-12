@@ -2,19 +2,22 @@ package Bosatsu/Eval
 
 from Bosatsu/Lazy import Lazy, lazy, get_Lazy
 
-export Eval, done, from_Lazy, always, map, flat_map, eval
+export (
+  Eval, done, from_Lazy, lazy_Eval, always, map, flat_map, eval, unit_Eval,
+  defer, true_Eval, false_Eval, zero_Eval, one_Eval
+)
 # port of cats.Eval to bosatsu
 
 enum Leaf[a: +*]:
     Done(done: a), LazyLeaf(run_lazy: Lazy[a]), Always(run: () -> a)
 
-def eval_leaf(l: Leaf[a]) -> a:
-    match l:
+def eval_Leaf(leaf: Leaf[a]) -> a:
+    match leaf:
         case Done(a): a
         case LazyLeaf(l): get_Lazy(l)
         case Always(fn): fn()
 
-enum BindChain[f: +* -> *, a: -*, b: +*]:
+enum BindChain[f: +(+* -> *), a: -*, b: +*]:
     Single(fn: a -> f[b]),
     Many[c](first: BindChain[f, a, c], last: c -> f[b])
 
@@ -23,12 +26,17 @@ enum Eval[a: +*]:
     FlatMap[b](prev: Leaf[b], chain: BindChain[Eval, b, a])
 
 def done(a: a) -> Eval[a]: Pure(Done(a))
+# this lifts a Lazy into an Eval
 def from_Lazy(lzy: Lazy[a]) -> Eval[a]: Pure(LazyLeaf(lzy))
+# this makes an Eval that evaluates the thunk one time
+def lazy_Eval(fn: () -> a) -> Eval[a]: from_Lazy(lazy(fn))
+# this calls the thunk every time it is needed
 def always(fn: () -> a) -> Eval[a]: Pure(Always(fn))
 
 def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]:
     match e:
-        case Pure(l): FlatMap(l, Single(fn))
+        case Pure(l):
+            FlatMap(l, Single(fn))
         case FlatMap(l0, fn0):
             FlatMap(l0, Many(fn0, fn))
 
@@ -37,34 +45,73 @@ def map[a, b](e: Eval[a], fn: a -> b) -> Eval[b]:
     done(fn(x))
 
 unit_Eval: Eval[Unit] = done(())
+true_Eval: Eval[Bool] = done(True)
+false_Eval: Eval[Bool] = done(False)
+zero_Eval: Eval[Int] = done(0)
+one_Eval: Eval[Int] = done(1)
 
 def defer(fn: () -> Eval[a]) -> Eval[a]:
-    unit_Eval.flatMap(fn)   
+    unit_Eval.flat_map(fn)   
 
 enum Stack[a, b]:
     Last(fn: a -> Eval[b])
     More[c](first: a -> Eval[c], rest: Stack[c, b])
 
-enum Loop[a, b]:
-    RunStack(a: a, stack: Stack[a, b])
-    RunEval(e: Eval[a], stack: Stack[a, b])
+enum Loop[b]:
+    RunStack[a](a: a, stack: Stack[a, b])
+    RunEval[a](e: Eval[a], stack: Stack[a, b])
 
-def eval_loop[a, b](budget: Int, arg: Loop[a, b]) -> Option[b]:
-    recur (budget, arg):
-        case _ if cmp_Int(budget, 0) matches LT | EQ: None
-        case (_, RunStack(a, Last(fn))): Some(fn(a))
-        case (_, RunEval(Pure(a), stack)):
-            eval_loop(budget.sub(1), RunStack(eval_Leaf(a), stack))
-        case (_, RunEval(FlatMap(prev, Single(fn)), stack)):
-            eval_loop(budget.sub(1), RunEval(prev, More(fn, stack)))
-        case (_, RunStack(a, More(first, rest))):
-            eval_loop(budget.sub(1), RunEval(first(a), rest))
+# Termination proof for this external loop is in:
+# lean_proofs/LeanProofs/EvalFuelExistence.lean
+external def eval_loop[a](loop: Loop[a]) -> a
 
-def eval(budget: Int, e: Eval[a]) -> Option[a]:
-    recur (budget, e):
-        case _ if cmp_Int(budget, 0) matches LT | EQ: None
-        case (_, Pure(l)): Some(eval_Leaf(l))
-        case (_, FlatMap(a, Single(fn))):
-            eval(budget.sub(1), fn(a))
-        case (_, FlatMap(a, Many(init, last))):
-            eval_loop(budget, Loop(FlatMap(a, init), Last(last)))
+# Previous fuel-based implementation kept for reference:
+# def eval_loop[a](budget: Int, arg: Loop[a]) -> Option[a]:
+#     recur (budget, arg):
+#         case _ if cmp_Int(budget, 0) matches LT | EQ: None
+#         case (_, RunStack(a, Last(fn))):
+#             match fn(a):
+#                 case Pure(p): Some(eval_Leaf(p))
+#                 case FlatMap(l, Single(flatmap_fn)):
+#                     eval_loop(budget.sub(1), RunEval(Pure(l), Last(flatmap_fn)))
+#                 case FlatMap(l, Many(init, last)):
+#                     eval_loop(budget.sub(1), RunEval(FlatMap(l, init), Last(last)))
+#         case (_, RunEval(Pure(a), stack)):
+#             eval_loop(budget.sub(1), RunStack(eval_Leaf(a), stack))
+#         case (_, RunEval(FlatMap(prev, Single(fn)), stack)):
+#             eval_loop(budget.sub(1), RunEval(Pure(prev), More(fn, stack)))
+#         case (_, RunEval(FlatMap(prev, Many(init, last)), stack)):
+#             eval_loop(budget.sub(1), RunEval(FlatMap(prev, init), More(last, stack)))
+#         case (_, RunStack(a, More(first, rest))):
+#             eval_loop(budget.sub(1), RunEval(first(a), rest))
+
+def eval(e: Eval[a]) -> a:
+    match e:
+        case Pure(l): eval_Leaf(l)
+        case FlatMap(a, Single(fn)):
+            eval_loop(RunEval(Pure(a), Last(fn)))
+        case FlatMap(a, Many(init, last)):
+            eval_loop(RunEval(FlatMap(a, init), Last(last)))
+
+def sum_defer(n: Int, acc: Eval[Int]) -> Eval[Int]:
+    recur (n, acc):
+        case (n, acc) if cmp_Int(n, 0) matches LT | EQ:
+            acc
+        case (n, acc):
+            sum_defer(
+              n.sub(1),
+              defer(() -> acc).flat_map(x -> done(x.add(n)))
+            )
+
+small_sum = eval(sum_defer(10, done(0)))
+long_n = 5000
+long_sum = eval(sum_defer(long_n, done(0)))
+long_expected = long_n.mul(long_n.add(1)).div(2)
+
+tests = TestSuite("Eval tests", [
+    Assertion(eval(done(11)) matches 11, "eval done"),
+    Assertion(eval(always(() -> 19)) matches 19, "eval always"),
+    Assertion(eval(done(40).flat_map(x -> done(x.add(2)))) matches 42, "flat_map composition"),
+    Assertion(eq_Int(small_sum, 55), "small defer sum"),
+    Assertion(eq_Int(long_sum, long_expected), "long defer sum"),
+])
