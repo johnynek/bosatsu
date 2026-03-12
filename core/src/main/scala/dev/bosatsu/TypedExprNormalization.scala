@@ -172,12 +172,20 @@ object TypedExprNormalization {
         case App(fn, args, _, _) =>
           collect(fn, blocked, blockedTy, inSuspension)
           args.iterator.foreach(collect(_, blocked, blockedTy, inSuspension))
-        case Let(arg, expr1, in, rec, _) =>
-          val blockedExpr =
-            if (rec.isRecursive) blocked + arg
-            else blocked
+        case Let(arg, expr1, in, RecursionKind.Recursive, _) =>
+          val blockedExpr = blocked + arg
           collect(expr1, blockedExpr, blockedTy, inSuspension)
           collect(in, blocked + arg, blockedTy, inSuspension)
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          var blockedIn = blocked
+          val it = lets.iterator
+          while (it.hasNext) {
+            val (arg, rhs, _) = it.next()
+            collect(rhs, blockedIn, blockedTy, inSuspension)
+            blockedIn = blockedIn + arg
+          }
+          collect(tail, blockedIn, blockedTy, inSuspension)
         case Loop(args, body, _) =>
           val blockedLoop = blocked ++ args.iterator.map(_._1)
           args.iterator.foreach { case (_, initExpr) =>
@@ -273,15 +281,30 @@ object TypedExprNormalization {
                   )
                 if ((fn1 eq fn) && (args1 eq args)) app0
                 else App(fn1, args1, tpe, tag)
-              case let0 @ Let(arg, expr1, in, rec, tag) =>
-                val blockedExpr =
-                  if (rec.isRecursive) blocked + arg
-                  else blocked
+              case let0 @ Let(arg, expr1, in, RecursionKind.Recursive, tag) =>
+                val blockedExpr = blocked + arg
                 val expr2 =
                   replace(expr1, blockedExpr, blockedTy, inSuspension)
                 val in1 = replace(in, blocked + arg, blockedTy, inSuspension)
                 if ((expr2 eq expr1) && (in1 eq in)) let0
-                else Let(arg, expr2, in1, rec, tag)
+                else Let(arg, expr2, in1, RecursionKind.Recursive, tag)
+              case let0 @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+                val (lets, tail) = TypedExpr.flattenLets(let0)
+                var blockedIn = blocked
+                var changed = false
+                val rebuilt = List.newBuilder[(Bindable, TypedExpr[A], A)]
+                val it = lets.iterator
+                while (it.hasNext) {
+                  val (arg, rhs, letTag) = it.next()
+                  val rhs1 = replace(rhs, blockedIn, blockedTy, inSuspension)
+                  if (!(rhs1 eq rhs)) changed = true
+                  rebuilt += ((arg, rhs1, letTag))
+                  blockedIn = blockedIn + arg
+                }
+                val tail1 = replace(tail, blockedIn, blockedTy, inSuspension)
+                if (!(tail1 eq tail)) changed = true
+                if (!changed) let0
+                else TypedExpr.letAllNonRecWithTags(rebuilt.result(), tail1)
               case loop0 @ Loop(args, body, tag) =>
                 val blockedLoop = blocked ++ args.iterator.map(_._1)
                 val args1 = ListUtil.mapConserveNel(args) {
@@ -1921,6 +1944,11 @@ object TypedExprNormalization {
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          lets.forall { case (_, rhs, _) =>
+            isSimpleNotTail(rhs, lambdaSimple)
+          } && isSimple(tail, lambdaSimple)
         case Let(_, ex, in, _, _) =>
           isSimpleNotTail(ex, lambdaSimple) && isSimple(in, lambdaSimple)
         case Loop(_, _, _) | Recur(_, _, _) =>
@@ -1972,12 +2000,12 @@ object TypedExprNormalization {
               else None
             case _ => None
           }
-        case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
-          evaluate(
-            in,
-            scope.updated(arg, (RecursionKind.NonRecursive, expr, scope)),
-            totalityCheck
-          )
+        case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
+          val (lets, tail) = TypedExpr.flattenLets(let)
+          val scope1 = lets.foldLeft(scope) { case (accScope, (arg, expr, _)) =>
+            accScope.updated(arg, (RecursionKind.NonRecursive, expr, accScope))
+          }
+          evaluate(tail, scope1, totalityCheck)
         case FnArgs(fn, args) =>
           evaluate(fn, scope, totalityCheck).map {
             case EvalResult.Cons(p, c, ahead) =>
