@@ -297,6 +297,33 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def matchlessListOfInts(items: List[Int]): Matchless.Expr[Unit] =
+    Matchless.ListExpr.listOf(items.map(i => Matchless.Literal(Lit.fromInt(i))))
+
+  private def matchlessEvalResolveReverseOnly(
+      from: Unit,
+      pack: PackageName,
+      ident: Identifier
+  ): Eval[Value] =
+    (from, pack, ident) match {
+      case ((), PackageName.PredefName, Identifier.Name("reverse")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(list, Nil) =>
+              Value.VList.unapply(list) match {
+                case Some(items) =>
+                  Value.VList(items.reverse)
+                case None =>
+                  fail(s"expected list argument to reverse, got: $list")
+              }
+            case args =>
+              fail(s"unexpected reverse args: $args")
+          }
+        )
+      case _ =>
+        Eval.now(fail(s"unexpected global during Matchless eval: $pack.$ident"))
+    }
+
   private def collectProjectionIndices(
       expr: Matchless.Expr[Unit]
   )(
@@ -384,6 +411,114 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     loopExpr(expr)
     indices.toSet
+  }
+
+  private def whileEffectsContainIf(
+      expr: Matchless.Expr[Unit]
+  ): Boolean = {
+    def exprHasIf(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.If(_, _, _) =>
+          true
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(exprHasIf) || exprHasIf(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          boolHasIf(cond) || exprHasIf(effectExpr)
+        case Matchless.App(fn, args) =>
+          exprHasIf(fn) || args.exists(exprHasIf)
+        case Matchless.Let(_, value, in) =>
+          exprHasIf(value) || exprHasIf(in)
+        case Matchless.LetMut(_, in) =>
+          exprHasIf(in)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          exprHasIf(on) || cases.exists { case (_, branch) =>
+            exprHasIf(branch)
+          } || default.exists(exprHasIf)
+        case Matchless.Always(cond, thenExpr) =>
+          boolHasIf(cond) || exprHasIf(thenExpr)
+        case Matchless.PrevNat(of) =>
+          exprHasIf(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          false
+      }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): Boolean =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          loopExpr(e)
+        case Matchless.LtEqLit(e, _) =>
+          loopExpr(e)
+        case Matchless.EqualsNat(e, _) =>
+          loopExpr(e)
+        case Matchless.And(l, r) =>
+          loopBool(l) || loopBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          loopExpr(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          loopExpr(e)
+        case Matchless.SetMut(_, e) =>
+          loopExpr(e)
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) || loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+      }
+
+    def boolHasIf(b: Matchless.BoolExpr[Unit]): Boolean =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          exprHasIf(e)
+        case Matchless.LtEqLit(e, _) =>
+          exprHasIf(e)
+        case Matchless.EqualsNat(e, _) =>
+          exprHasIf(e)
+        case Matchless.And(l, r) =>
+          boolHasIf(l) || boolHasIf(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          exprHasIf(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          exprHasIf(e)
+        case Matchless.SetMut(_, e) =>
+          exprHasIf(e)
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          exprHasIf(value) || boolHasIf(in)
+        case Matchless.LetMutBool(_, in) =>
+          boolHasIf(in)
+      }
+
+    def loopExpr(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr) || loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          exprHasIf(effectExpr) || loopBool(cond) || loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) || args.exists(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) || loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) || cases.exists { case (_, branch) =>
+            loopExpr(branch)
+          } || default.exists(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) || loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          false
+      }
+
+    loopExpr(expr)
   }
 
   private def leadingLetValuesBeforeDecision(
@@ -3305,6 +3440,62 @@ def pick(v):
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
     assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("exact trailing list suffix lowers without retry-if loop in WhileExpr") {
+    TestUtils.checkMatchless("""
+def suffix_exact(xs):
+  match xs:
+    case [*_, 2, 3]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("suffix_exact"))
+      assertEquals(whileEffectsContainIf(expr), false, expr.toString)
+    }
+  }
+
+  test("list search with later glob still uses retry-if loop") {
+    TestUtils.checkMatchless("""
+def suffix_with_glob(xs):
+  match xs:
+    case [*_, 2, *_]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("suffix_with_glob"))
+      assertEquals(whileEffectsContainIf(expr), true, expr.toString)
+    }
+  }
+
+  test("exact trailing list suffix preserves named prefix binding semantics") {
+    TestUtils.checkMatchless("""
+def suffix_prefix(xs):
+  match xs:
+    case [*prefix, 2, 3]: prefix
+    case _: xs
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("suffix_prefix"))
+      val evalExprs = Vector(
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 4 :: 2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+
+      val expected = Vector(
+        Value.VList(List(Value.VInt(1))),
+        Value.VList(List(Value.VInt(1), Value.VInt(4))),
+        Value.VList(Nil),
+        Value.VList(List(Value.VInt(2)))
+      )
+      assertEquals(evaluated, expected)
+    }
   }
 
   test("ordered matcher visits simplified string patterns") {
