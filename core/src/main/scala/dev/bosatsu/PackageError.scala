@@ -4,6 +4,7 @@ import cats.data.{Chain, NonEmptyList, Writer, NonEmptyMap}
 import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
+import scala.collection.immutable.LongMap
 
 import rankn._
 import LocationMap.Colorize
@@ -1824,6 +1825,117 @@ object PackageError {
     }
   }
 
+  private def varianceDoc(v: Variance): Doc =
+    Doc.text(
+      v match {
+        case Variance.Covariant     => "covariant (+)"
+        case Variance.Contravariant => "contravariant (-)"
+        case Variance.Invariant     => "invariant"
+        case Variance.Phantom       => "phantom"
+      }
+    )
+
+  private def inferredVariance(
+      varianceId: Long,
+      constraints: LongMap[NonEmptyList[KindFormula.Constraint]],
+      existing: LongMap[Variance]
+  ): Option[(Variance, Option[KindFormula.Constraint])] = {
+    val fixedByConstraint: List[(Variance, KindFormula.Constraint)] =
+      constraints
+        .get(varianceId)
+        .map(_.toList)
+        .getOrElse(Nil)
+        .collect {
+          case c @ KindFormula.Constraint.DeclaredParam(_, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.DeclaredType(_, _, _, _, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.ImportedConst(_, _, _, _, kindArg) =>
+            (kindArg.variance, c: KindFormula.Constraint)
+          case c @ KindFormula.Constraint.UnifyVariance(_, _, _, variance) =>
+            (variance, c: KindFormula.Constraint)
+        }
+
+    val fixedUnique: Option[(Variance, KindFormula.Constraint)] =
+      fixedByConstraint match {
+        case Nil =>
+          None
+        case (v, c) :: tail
+            if tail.forall { case (v1, _) =>
+              v1 == v
+            } =>
+          Some((v, c))
+        case _ =>
+          None
+      }
+
+    existing.get(varianceId) match {
+      case Some(v) => Some((v, fixedUnique.map(_._2)))
+      case None    => fixedUnique.map { case (v, c) => (v, Some(c)) }
+    }
+  }
+
+  private def unsatisfiableVarianceHint(
+      pack: PackageName,
+      unsat: KindFormula.Error.Unsatisfiable
+  ): Option[Doc] = {
+    val selfType: Type = unsat.dte.toTypeTyConst
+
+    val candidate = unsat.constraints.iterator
+      .flatMap { case (_, constraintsOnView) =>
+        if (constraintsOnView.exists(_.isInstanceOf[KindFormula.Constraint.RecursiveView])) {
+          constraintsOnView.toList.iterator.flatMap {
+            case KindFormula.Constraint.IsProduct(_, argVariance, tapply)
+                if (tapply.arg: Type) == selfType =>
+              inferredVariance(argVariance.id, unsat.constraints, unsat.existing) match {
+                case Some((argVar, _)) if argVar != Variance.co =>
+                  Iterator.single((tapply, argVar))
+                case _ =>
+                  Iterator.empty
+              }
+            case _ =>
+              Iterator.empty
+          }
+        } else Iterator.empty
+      }
+      .take(1)
+      .toList
+      .headOption
+
+    candidate.map { case (tapply, argVariance) =>
+      val shown = showTypes(pack, tapply :: tapply.arg :: Nil)
+      val appDoc = shown(tapply)
+      val argDoc = shown(tapply.arg)
+      val (_, args) = Type.unapplyAll(tapply)
+      val argPos = args.length
+
+      val base =
+        Doc.text("hint: recursive occurrences must be covariant.") +
+          Doc.hardLine +
+          Doc.text("In type application ") +
+          appDoc +
+          Doc.text(", argument #") +
+          Doc.text(argPos.toString) +
+          Doc.text(" (") +
+          argDoc +
+          Doc.text(") is constrained to ") +
+          varianceDoc(argVariance) +
+          Doc.text(
+            ", so this recursive use cannot satisfy the required covariant recursive view."
+          )
+
+      val hkHint =
+        if (argVariance == Variance.Invariant)
+          Doc.hardLine +
+            Doc.text(
+              "For higher-kinded parameters, `f: +* -> *` constrains f's input kind; use `f: +(+* -> *)` to make f itself covariant."
+            )
+        else Doc.empty
+
+      base + hkHint
+    }
+  }
+
   case class KindInferenceError(
       pack: PackageName,
       kindError: KindFormula.Error,
@@ -1840,10 +1952,12 @@ object PackageError {
         .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val prefix = sourceMap.headLine(pack, Some(region))
       val message = kindError match {
-        case KindFormula.Error.Unsatisfiable(_, _, _, _) =>
-          // TODO: would be good to give a more precise problem, e.g. which (https://github.com/johnynek/bosatsu/issues/4)
-          // type parameters are the problem.
-          Doc.text("could not solve for valid variances")
+        case unsat @ KindFormula.Error.Unsatisfiable(_, _, _, _) =>
+          val base = Doc.text("could not solve for valid variances")
+          unsatisfiableVarianceHint(pack, unsat) match {
+            case Some(hint) => base + Doc.hardLine + hint
+            case None       => base
+          }
         case KindFormula.Error.FromShapeError(se) =>
           se match {
             case Shape.UnificationError(_, cons, left, right) =>

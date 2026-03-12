@@ -2427,7 +2427,7 @@ enum FreeF[a]:
     }
   }
 
-  test("ill-kinded dependency chain reports kind error and does not throw invariant") {
+  test("ill-kinded dependency chain reports precise recursive-variance hint") {
     val testCode = """
 package ErrorCheck
 
@@ -2436,7 +2436,7 @@ enum Leaf[a: +*]:
 
 enum BindChain[f: +* -> *, a: -*, b: +*]:
   Single(fn: a -> f[b])
-  Many[c](first: BindChain[f, a, c], last: b -> f[b])
+  Many[c](first: BindChain[f, a, c], last: c -> f[b])
 
 enum Eval[a: +*]:
   Pure(value: Leaf[a])
@@ -2451,6 +2451,9 @@ enum Stack[a, b]:
       case kie @ PackageError.KindInferenceError(_, _, _) =>
         val message = kie.message(Map.empty, Colorize.None)
         assert(message.contains("could not solve for valid variances"), message)
+        assert(message.contains("recursive occurrences must be covariant"), message)
+        assert(message.contains("For higher-kinded parameters"), message)
+        assert(message.contains("f: +(+* -> *)"), message)
         assert(!message.contains("unknown const"), message)
     }
   }
