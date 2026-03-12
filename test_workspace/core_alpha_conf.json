@@ -29,6 +29,7 @@
     "Bosatsu/Num/BinNat",
     "Bosatsu/Nothing",
     "Bosatsu/Option",
+    "Bosatsu/Predef",
     "Bosatsu/Json",
     "Bosatsu/Prog",
     "Bosatsu/Rand",
@@ -38,5 +39,5 @@
   "all_packages": [
     ".*"
   ],
-  "doc_base_url": "https://github.com/johnynek/bosatsu/tree/main/"
+  "doc_base_url": "https://johnynek.github.io/bosatsu/generated/core_alpha/"
 }
