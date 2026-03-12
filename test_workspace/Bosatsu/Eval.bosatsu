@@ -1,4 +1,4 @@
-package Eval
+package Bosatsu/Eval
 
 from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
 
