@@ -17,6 +17,8 @@ export (
   cmp_Float64,
   eq_Float64,
   float64_bits_to_Int,
+  float32_bits_to_Float64,
+  float64_to_float32_bits,
   float64_to_Int,
   float64_to_String,
   inf,
@@ -65,6 +67,8 @@ external def cosh(x: Float64) -> Float64
 external def exp(x: Float64) -> Float64
 external def floor(x: Float64) -> Float64
 external def float64_bits_to_Int(x: Float64) -> Int
+external def float32_bits_to_Float64(x: Int) -> Float64
+external def float64_to_float32_bits(x: Float64) -> Int
 external def float64_to_Int(f: Float64) -> Option[Int]
 external def float64_to_String(x: Float64) -> String
 external def hypot(x: Float64, y: Float64) -> Float64

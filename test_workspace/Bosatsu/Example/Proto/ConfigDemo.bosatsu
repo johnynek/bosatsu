@@ -1,0 +1,13 @@
+package Bosatsu/Example/Proto/ConfigDemo
+
+from Bosatsu/IO/Bytes import Bytes, to_List_Int
+from Bosatsu/Proto/Wire import encode_uint32, field_varint
+
+export (
+  config_payload,
+  config_payload_bytes,
+)
+
+# Example payload: field 1 (varint) set to the value 3.
+config_payload: Bytes = field_varint(1, encode_uint32(3))
+config_payload_bytes: List[Int] = to_List_Int(config_payload)

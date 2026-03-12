@@ -430,6 +430,16 @@ object Predef {
       )
       .add(
         float64PackageName,
+        "float32_bits_to_Float64",
+        FfiCall.Fn1(PredefImpl.float32_bits_to_Float64(_))
+      )
+      .add(
+        float64PackageName,
+        "float64_to_float32_bits",
+        FfiCall.Fn1(PredefImpl.float64_to_float32_bits(_))
+      )
+      .add(
+        float64PackageName,
         "float64_to_Int",
         FfiCall.Fn1(PredefImpl.float64_to_Int(_))
       )
@@ -807,6 +817,17 @@ object PredefImpl {
     Value.VInt(
       unsignedLongToBigInteger(java.lang.Double.doubleToRawLongBits(d(a)))
     )
+  def float32_bits_to_Float64(a: Value): Value =
+    vf(
+      java.lang.Float
+        .intBitsToFloat(i(a).intValue())
+        .toDouble
+    )
+  def float64_to_float32_bits(a: Value): Value = {
+    val bits = java.lang.Float.floatToRawIntBits(d(a).toFloat)
+    val unsigned = java.lang.Integer.toUnsignedLong(bits)
+    Value.VInt(BigInteger.valueOf(unsigned))
+  }
   def float64_to_Int(a: Value): Value = {
     val value = d(a)
     if (java.lang.Double.isFinite(value))

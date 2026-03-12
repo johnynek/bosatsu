@@ -1164,6 +1164,73 @@ main = is_one
     }
   }
 
+  test("float32 conversion externals are referenced in C codegen") {
+    val src =
+      """package Test
+        |
+        |from Bosatsu/Num/Float64 import (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |def roundtrip(bits):
+        |  float64_to_float32_bits(float32_bits_to_Float64(bits))
+        |
+        |main = roundtrip
+        |""".stripMargin
+
+    val floatPkg =
+      """package Bosatsu/Num/Float64
+        |
+        |from Bosatsu/Predef import Float64
+        |
+        |export (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |external def float32_bits_to_Float64(x: Int) -> Float64
+        |external def float64_to_float32_bits(x: Float64) -> Int
+        |""".stripMargin
+
+    val parsed = NonEmptyList.of(
+      (("float", LocationMap(floatPkg)), Parser.unsafeParse(Package.parser(None), floatPkg)),
+      (("test", LocationMap(src)), Parser.unsafeParse(Package.parser(None), src))
+    )
+    val pm = Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(parsed, Nil, "<test>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parts("Test"),
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        assert(
+          rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64"
+          ),
+          rendered
+        )
+        assert(
+          rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__float32__bits"
+          ),
+          rendered
+        )
+    }
+  }
+
   val genBigInt: Gen[BigInt] = {
     val longBig = for {
       sign <- Gen.oneOf(-1, 1)

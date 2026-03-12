@@ -17,6 +17,8 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_is__infinite(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_is__nan(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__bits__to__Int(BValue a);
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float32__bits__to__Float64(BValue a);
+BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__float32__bits(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__Int(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_float64__to__String(BValue a);
 BValue ___bsts_g_Bosatsu_l_Num_l_Float64_l_int__to__Float64(BValue a);

@@ -757,6 +757,8 @@ object PythonGen {
       private val unsigned64TopBitExpr = Code.PyInt(
         java.math.BigInteger.ONE.shiftLeft(63)
       )
+      private val unsigned32ModExpr =
+        Code.PyInt(java.math.BigInteger.ONE.shiftLeft(32))
       private val unsigned64ModExpr =
         Code.PyInt(java.math.BigInteger.ONE.shiftLeft(64))
       private val maxFiniteFloatIntExpr = Code.PyInt(
@@ -921,6 +923,38 @@ object PythonGen {
           structModule.flatMap { struct =>
             Env.onLast(input.head) { arg =>
               unsignedBits64ToFloat(struct, arg)
+            }
+          }
+      }
+
+      private val intBits32ToFloatFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            Env.onLast(input.head) { arg =>
+              struct
+                .dot(Code.Ident("unpack"))(
+                  Code.PyString(">f"),
+                  struct
+                    .dot(Code.Ident("pack"))(
+                      Code.PyString(">I"),
+                      arg.eval(Code.Const.Mod, unsigned32ModExpr)
+                    )
+                )
+                .get(0)
+            }
+          }
+      }
+
+      private val floatToBits32Fn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          structModule.flatMap { struct =>
+            Env.onLast(input.head) { arg =>
+              struct
+                .dot(Code.Ident("unpack"))(
+                  Code.PyString(">I"),
+                  struct.dot(Code.Ident("pack"))(Code.PyString(">f"), arg)
+                )
+                .get(0)
             }
           }
       }
@@ -2379,6 +2413,14 @@ object PythonGen {
           (
             Identifier.Name("float64_bits_to_Int"),
             (floatBitsToIntFn, 1)
+          ),
+          (
+            Identifier.Name("float32_bits_to_Float64"),
+            (intBits32ToFloatFn, 1)
+          ),
+          (
+            Identifier.Name("float64_to_float32_bits"),
+            (floatToBits32Fn, 1)
           ),
           (
             Identifier.Name("float64_to_Int"),

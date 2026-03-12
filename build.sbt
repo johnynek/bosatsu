@@ -280,6 +280,7 @@ lazy val cli = (project in file("cli"))
         "us.bpsm" % "edn-java" % "0.7.1" % Test,
         jacksonYaml.value % Test,
         jython.value % Test,
+        protobufJava.value,
         munit.value % Test,
         munitScalaCheck.value % Test
       ),
@@ -373,6 +374,12 @@ lazy val core =
         "com.thesamet.scalapb" %%% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
       )
   ).dependsOn(base, proto)
+    .jvmSettings(
+      libraryDependencies ++= Seq(
+        protobufJava.value % Test,
+        protobufJavaUtil.value % Test
+      )
+    )
     .jsSettings(
       commonJsSettings
     )

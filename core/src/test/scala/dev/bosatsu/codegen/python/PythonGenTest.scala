@@ -2,12 +2,18 @@ package dev.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
 import dev.bosatsu.Generators.bindIdentGen
+import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.{
+  CompileOptions,
   Identifier,
   Lit,
+  LocationMap,
   Matchless,
+  Package,
+  PackageMap,
   PackageName,
   Par,
+  Parser,
   TestUtils
 }
 import dev.bosatsu.codegen.CompilationNamespace
@@ -37,6 +43,21 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           }
         )
     )
+  }
+
+  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
+    val parsed =
+      srcs.zipWithIndex.map { case (src, idx) =>
+        val pack = Parser.unsafeParse(Package.parser(None), src)
+        ((s"test_$idx", LocationMap(src)), pack)
+      }
+    val nel = NonEmptyList.fromList(parsed).getOrElse(fail("expected sources"))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<test>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
   }
 
   test("all escapes are valid python identifiers") {
@@ -339,6 +360,49 @@ main = classify_char
       assert(code.contains("[0] == 2"), code)
       assert(code.contains("[0] == 3"), code)
       assert(!code.contains("elif"), code)
+    }
+  }
+
+  test("float32 conversion externals render in python codegen") {
+    val src =
+      """package Test
+        |
+        |from Bosatsu/Num/Float64 import (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |def roundtrip(bits):
+        |  float64_to_float32_bits(float32_bits_to_Float64(bits))
+        |
+        |main = roundtrip
+        |""".stripMargin
+
+    val floatPkg =
+      """package Bosatsu/Num/Float64
+        |
+        |from Bosatsu/Predef import Float64
+        |
+        |export (
+        |  float32_bits_to_Float64,
+        |  float64_to_float32_bits,
+        |)
+        |
+        |external def float32_bits_to_Float64(x: Int) -> Float64
+        |external def float64_to_float32_bits(x: Float64) -> Int
+        |""".stripMargin
+
+    val pm = typeCheckPackages(List(floatPkg, src))
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Test"))._2
+      val code = doc.render(120)
+
+      assert(code.contains("import struct as"), code)
+      assert(code.contains(".pack(\">I\""), code)
+      assert(code.contains(".pack(\">f\""), code)
+      assert(code.contains(".unpack(\">I\""), code)
+      assert(code.contains(".unpack(\">f\""), code)
     }
   }
 

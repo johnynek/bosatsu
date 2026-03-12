@@ -10,6 +10,7 @@ import errno as _errno
 import os
 import shutil
 import stat as _stat
+import struct as _struct
 import subprocess
 import sys
 import tempfile
@@ -1447,3 +1448,13 @@ def run(main):
       arg = step_fix(arg[1], arg[2])
     else:
       raise Exception(f"invalid Prog tag: {prog_tag}")
+
+
+def float32_bits_to_Float64(bits):
+  raw = int(bits) & 0xFFFFFFFF
+  return _struct.unpack(">f", _struct.pack(">I", raw))[0]
+
+
+def float64_to_float32_bits(value):
+  packed = _struct.pack(">f", float(value))
+  return _struct.unpack(">I", packed)[0]
