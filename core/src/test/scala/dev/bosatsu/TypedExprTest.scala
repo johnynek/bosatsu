@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Applicative, Eval, Id, Monad}
+import cats.{Applicative, Eq, Eval, Id, Monad}
 import cats.data.{Chain, NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
@@ -3544,6 +3544,22 @@ x = Foo
     }
   }
 
+  test("TypedExpr.traverseType matches recursive oracle with writer chain") {
+    type W[X] = Writer[Chain[Type], X]
+    val chainEq = Eq[Chain[Type]]
+    val fn: Type => W[Type] = t => Writer(Chain.one(t), t)
+
+    forAll(genTypedExpr) { te =>
+      val oldRes = RecursiveTraverseTypeOracle.traverse(te)(fn)
+      val newRes = te.traverseType(fn)
+      assert(
+        chainEq.eqv(oldRes.written, newRes.written),
+        s"type traversal mismatch:\nold=${oldRes.written.toList}\nnew=${newRes.written.toList}\nexpr=${te.reprString}"
+      )
+      assertEquals(newRes.value, oldRes.value)
+    }
+  }
+
   test("TypedExpr.allTypes matches traverseType oracle") {
     forAll(genTypedExpr) { te =>
       assertEquals(te.allTypes, allTypesViaTraverseType(te))
@@ -4202,6 +4218,79 @@ def makeLoop(fn):
     }
   }
 
+  private object RecursiveTraverseTypeOracle {
+    def traverse[F[_]: Applicative, A](
+        self: TypedExpr[A]
+    )(fn: Type => F[Type]): F[TypedExpr[A]] =
+      self match {
+        case gen @ TypedExpr.Generic(quant, expr) =>
+          // params shadow below, so they are not free values
+          // and can easily create bugs if passed into fn
+          val params = quant.vars
+          val shadowed: Set[Type.Var.Bound] =
+            params.toList.iterator.map(_._1).toSet
+          val shadowFn: Type => F[Type] = {
+            case tvar @ Type.TyVar(v: Type.Var.Bound) if shadowed(v) =>
+              Applicative[F].pure(tvar)
+            case notShadowed =>
+              fn(notShadowed)
+          }
+
+          val paramsF = params.traverse_(v => fn(Type.TyVar(v._1)))
+          (paramsF *> fn(gen.getType) *> traverse(expr)(shadowFn))
+            .map(TypedExpr.Generic(quant, _))
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          (
+            traverse(of)(fn),
+            fn(tpe),
+            qev.traverse(_.traverseTypes(fn))
+          ).mapN(TypedExpr.Annotation(_, _, _))
+        case lam @ TypedExpr.AnnotatedLambda(args, res, tag) =>
+          val a1 = args.traverse { case (n, t) => fn(t).map(n -> _) }
+          fn(lam.getType) *> (a1, traverse(res)(fn)).mapN {
+            TypedExpr.AnnotatedLambda(_, _, tag)
+          }
+        case TypedExpr.Local(v, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Local(v, _, tag))
+        case TypedExpr.Global(p, v, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Global(p, v, _, tag))
+        case TypedExpr.App(f, args, tpe, tag) =>
+          (traverse(f)(fn), args.traverse(traverse(_)(fn)), fn(tpe))
+            .mapN {
+              TypedExpr.App(_, _, _, tag)
+            }
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          (traverse(exp)(fn), traverse(in)(fn)).mapN {
+            TypedExpr.Let(v, _, _, rec, tag)
+          }
+        case TypedExpr.Loop(args, body, tag) =>
+          (
+            args.traverse { case (v, expr) =>
+              traverse(expr)(fn).map((v, _))
+            },
+            traverse(body)(fn)
+          ).mapN {
+            TypedExpr.Loop(_, _, tag)
+          }
+        case TypedExpr.Recur(args, tpe, tag) =>
+          (args.traverse(traverse(_)(fn)), fn(tpe)).mapN {
+            TypedExpr.Recur(_, _, tag)
+          }
+        case TypedExpr.Literal(lit, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Literal(lit, _, tag))
+        case TypedExpr.Match(expr, branches, tag) =>
+          // all branches have the same type:
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.pattern.traverseType(fn),
+              branch.guard.traverse(traverse(_)(fn)),
+              traverse(branch.expr)(fn)
+            ).mapN(TypedExpr.Branch(_, _, _))
+          }
+          (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
+      }
+  }
+
   private object RecursiveTraverseOracle {
     def traverse[F[_]: Applicative, T, S](
         typedExprT: TypedExpr[T]
@@ -4529,6 +4618,7 @@ def makeLoop(fn):
               def runChecks(label: String, expr: TypedExpr[Int]): Unit = {
                 val mapped = expr.map(_ + 1)
                 val traversed: TypedExpr[Int] = expr.traverse[Id, Int](_ + 1)
+                val traversedType: TypedExpr[Int] = expr.traverseType[Id](identity)
                 type W[X] = Writer[Int, X]
                 val (traverseUpCount, traverseUpRes) =
                   expr.traverseUp[W](t => Writer(1, t)).run
@@ -4540,12 +4630,15 @@ def makeLoop(fn):
                 val mappedCount = mapped.foldLeft(0)((count, _) => count + 1)
                 val traversedCount =
                   traversed.foldLeft(0)((count, _) => count + 1)
+                val traversedTypeCount =
+                  traversedType.foldLeft(0)((count, _) => count + 1)
                 val traverseUpResCount =
                   traverseUpRes.foldLeft(0)((count, _) => count + 1)
                 assertEquals(leftCount, expectedTagCount, label)
                 assertEquals(rightCount, expectedTagCount, label)
                 assertEquals(mappedCount, expectedTagCount, label)
                 assertEquals(traversedCount, expectedTagCount, label)
+                assertEquals(traversedTypeCount, expectedTagCount, label)
                 assertEquals(traverseUpCount, expectedTagCount, label)
                 assertEquals(traverseUpResCount, expectedTagCount, label)
               }
