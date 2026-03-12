@@ -446,6 +446,161 @@ object Package {
       Infer.Error.Combine(acc, next)
     }
 
+  private type ParsedLet = (Identifier.Bindable, RecursionKind, Expr[Declaration])
+
+  private case class RemovedKindRefs(
+      pack: PackageName,
+      removedTypeConsts: Set[Type.Const.Defined],
+      removedConstructors: Set[Identifier.Constructor]
+  ) {
+    def isEmpty: Boolean =
+      removedTypeConsts.isEmpty && removedConstructors.isEmpty
+
+    def hasRemovedTypeConst(tpe: Type): Boolean =
+      Type.allConsts(tpe :: Nil).exists { tyConst =>
+        removedTypeConsts(tyConst.tpe.toDefined)
+      }
+
+    def hasRemovedPatternRef(
+        pat: Pattern[(PackageName, Identifier.Constructor), Type]
+    ): Boolean =
+      pat match {
+        case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+            Pattern.StrPat(_) =>
+          false
+        case Pattern.Named(_, inner) =>
+          hasRemovedPatternRef(inner)
+        case Pattern.ListPat(items)  =>
+          items.exists {
+            case Pattern.ListPart.Item(inner) =>
+              hasRemovedPatternRef(inner)
+            case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+              false
+          }
+        case Pattern.Annotation(inner, tpe) =>
+          hasRemovedTypeConst(tpe) || hasRemovedPatternRef(inner)
+        case Pattern.PositionalStruct((`pack`, ctor), params) =>
+          removedConstructors(ctor) || params.exists(hasRemovedPatternRef)
+        case Pattern.PositionalStruct(_, params) =>
+          params.exists(hasRemovedPatternRef)
+        case Pattern.Union(head, tail) =>
+          hasRemovedPatternRef(head) || tail.exists(hasRemovedPatternRef)
+      }
+
+    def hasRemovedExprRef[A](expr: Expr[A]): Boolean =
+      expr match {
+        case Expr.Annotation(inner, tpe, _) =>
+          hasRemovedTypeConst(tpe) || hasRemovedExprRef(inner)
+        case Expr.Local(_, _) =>
+          false
+        case Expr.Generic(_, inner) =>
+          hasRemovedExprRef(inner)
+        case Expr.Global(`pack`, ctor: Identifier.Constructor, _) =>
+          removedConstructors(ctor)
+        case Expr.Global(_, _, _) =>
+          false
+        case Expr.App(fn, args, _) =>
+          hasRemovedExprRef(fn) || args.exists(hasRemovedExprRef)
+        case Expr.Lambda(args, inner, _) =>
+          args.exists { case (_, ot) => ot.exists(hasRemovedTypeConst) } ||
+            hasRemovedExprRef(inner)
+        case Expr.Let(_, bound, in, _, _) =>
+          hasRemovedExprRef(bound) || hasRemovedExprRef(in)
+        case Expr.Literal(_, _) =>
+          false
+        case Expr.Match(arg, branches, _) =>
+          hasRemovedExprRef(arg) ||
+            branches.exists { branch =>
+              hasRemovedPatternRef(branch.pattern) ||
+              branch.guard.exists(hasRemovedExprRef) ||
+              hasRemovedExprRef(branch.expr)
+            }
+      }
+  }
+
+  private def removedKindRefs(
+      pack: PackageName,
+      parsedTypeEnv0: ParsedTypeEnv[Option[Kind.Arg]],
+      parsedTypeEnv: ParsedTypeEnv[Kind.Arg]
+  ): RemovedKindRefs = {
+    val parsedTypeConsts = parsedTypeEnv.allDefinedTypes.iterator
+      .map(_.toTypeConst)
+      .toSet
+    val removedTypeDefs =
+      parsedTypeEnv0.allDefinedTypes.filterNot { dt =>
+        parsedTypeConsts(dt.toTypeConst)
+      }
+    val removedTypeConsts = removedTypeDefs.iterator.map(_.toTypeConst).toSet
+    val removedConstructors = removedTypeDefs.iterator
+      .flatMap(_.constructors.iterator.map(_.name))
+      .toSet
+
+    RemovedKindRefs(pack, removedTypeConsts, removedConstructors)
+  }
+
+  private def transitiveDependents(
+      pack: PackageName,
+      lets: List[ParsedLet],
+      roots: Set[Identifier.Bindable]
+  ): Set[Identifier.Bindable] =
+    if (roots.isEmpty) Set.empty
+    else {
+      val dependents: Map[Identifier.Bindable, Set[Identifier.Bindable]] =
+        lets.iterator
+          .flatMap { case (dependent, _, expr) =>
+            expr.globals.iterator.collect {
+              case Expr.Global(`pack`, n, _) =>
+                n.toBindable.map((_, dependent))
+            }.flatten
+          }
+          .toList
+          .groupBy(_._1)
+          .iterator
+          .map { case (dependency, pairs) =>
+            (dependency, pairs.iterator.map(_._2).toSet)
+          }
+          .toMap
+
+      val blocked = scala.collection.mutable.Set.empty[Identifier.Bindable]
+      val queue = scala.collection.mutable.Queue.empty[Identifier.Bindable]
+
+      roots.foreach { root =>
+        blocked += root
+        queue.enqueue(root)
+      }
+
+      while (queue.nonEmpty) {
+        val next = queue.dequeue()
+        dependents.getOrElse(next, Set.empty).foreach { dependent =>
+          if (!blocked(dependent)) {
+            blocked += dependent
+            queue.enqueue(dependent)
+          }
+        }
+      }
+
+      blocked.toSet
+    }
+
+  private def letsForTypeChecking(
+      pack: PackageName,
+      parsedTypeEnv0: ParsedTypeEnv[Option[Kind.Arg]],
+      parsedTypeEnv: ParsedTypeEnv[Kind.Arg],
+      lets: List[ParsedLet]
+  ): List[ParsedLet] = {
+    val removed = removedKindRefs(pack, parsedTypeEnv0, parsedTypeEnv)
+    if (removed.isEmpty) lets
+    else {
+      val roots = lets.iterator.collect {
+        case (name, _, expr) if removed.hasRemovedExprRef(expr) =>
+          name
+      }.toSet
+      val blocked = transitiveDependents(pack, lets, roots)
+      if (blocked.isEmpty) lets
+      else lets.filterNot { case (name, _, _) => blocked(name) }
+    }
+  }
+
   /** Infer the types but do not optimize/normalize the lets. `exports` can be
     * provided to run pre-inference bindable checks from the expression DAG.
     */
@@ -505,131 +660,8 @@ object Package {
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
-          val parsedTypeConsts = parsedTypeEnv.allDefinedTypes.iterator
-            .map(_.toTypeConst)
-            .toSet
-          val removedTypeDefs =
-            parsedTypeEnv0.allDefinedTypes.filterNot { dt =>
-              parsedTypeConsts(dt.toTypeConst)
-            }
-          val removedTypeConsts = removedTypeDefs.iterator.map(_.toTypeConst).toSet
-          val removedConstructors = removedTypeDefs.iterator
-            .flatMap(_.constructors.iterator.map(_.name))
-            .toSet
-
-          def hasRemovedTypeConst(tpe: Type): Boolean =
-            Type.allConsts(tpe :: Nil).exists { tyConst =>
-              removedTypeConsts(tyConst.tpe.toDefined)
-            }
-
-          def hasRemovedPatternRef(
-              pat: Pattern[(PackageName, Identifier.Constructor), Type]
-          ): Boolean =
-            pat match {
-              case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
-                  Pattern.StrPat(_) =>
-                false
-              case Pattern.Named(_, inner) =>
-                hasRemovedPatternRef(inner)
-              case Pattern.ListPat(items)  =>
-                items.exists {
-                  case Pattern.ListPart.Item(inner) =>
-                    hasRemovedPatternRef(inner)
-                  case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
-                    false
-                }
-              case Pattern.Annotation(inner, tpe) =>
-                hasRemovedTypeConst(tpe) || hasRemovedPatternRef(inner)
-              case Pattern.PositionalStruct((`p`, ctor), params) =>
-                removedConstructors(ctor) || params.exists(hasRemovedPatternRef)
-              case Pattern.PositionalStruct(_, params) =>
-                params.exists(hasRemovedPatternRef)
-              case Pattern.Union(head, tail) =>
-                hasRemovedPatternRef(head) || tail.exists(hasRemovedPatternRef)
-            }
-
-          def hasRemovedExprRef(expr: Expr[Declaration]): Boolean =
-            expr match {
-              case Expr.Annotation(inner, tpe, _) =>
-                hasRemovedTypeConst(tpe) || hasRemovedExprRef(inner)
-              case Expr.Local(_, _) =>
-                false
-              case Expr.Generic(_, inner) =>
-                hasRemovedExprRef(inner)
-              case Expr.Global(`p`, ctor: Identifier.Constructor, _) =>
-                removedConstructors(ctor)
-              case Expr.Global(_, _, _) =>
-                false
-              case Expr.App(fn, args, _) =>
-                hasRemovedExprRef(fn) || args.exists(hasRemovedExprRef)
-              case Expr.Lambda(args, inner, _) =>
-                args.exists { case (_, ot) => ot.exists(hasRemovedTypeConst) } ||
-                  hasRemovedExprRef(inner)
-              case Expr.Let(_, bound, in, _, _) =>
-                hasRemovedExprRef(bound) || hasRemovedExprRef(in)
-              case Expr.Literal(_, _) =>
-                false
-              case Expr.Match(arg, branches, _) =>
-                hasRemovedExprRef(arg) ||
-                  branches.exists { branch =>
-                    hasRemovedPatternRef(branch.pattern) ||
-                    branch.guard.exists(hasRemovedExprRef) ||
-                    hasRemovedExprRef(branch.expr)
-                  }
-            }
-
-          val kindBlockedRoots: Set[Identifier.Bindable] =
-            if (removedTypeConsts.isEmpty && removedConstructors.isEmpty) Set.empty
-            else {
-              lets.iterator.collect {
-                case (name, _, expr) if hasRemovedExprRef(expr) =>
-                  name
-              }.toSet
-            }
-
-          val kindBlockedLets: Set[Identifier.Bindable] =
-            if (kindBlockedRoots.isEmpty) Set.empty
-            else {
-              val dependents: Map[Identifier.Bindable, Set[Identifier.Bindable]] =
-                lets.iterator
-                  .flatMap { case (dependent, _, expr) =>
-                    expr.globals.iterator.collect {
-                      case Expr.Global(`p`, n, _) =>
-                        n.toBindable.map((_, dependent))
-                    }.flatten
-                  }
-                  .toList
-                  .groupBy(_._1)
-                  .iterator
-                  .map { case (dependency, pairs) =>
-                    (dependency, pairs.iterator.map(_._2).toSet)
-                  }
-                  .toMap
-
-              val blocked = scala.collection.mutable.Set.empty[Identifier.Bindable]
-              val queue = scala.collection.mutable.Queue.empty[Identifier.Bindable]
-
-              kindBlockedRoots.foreach { root =>
-                blocked += root
-                queue.enqueue(root)
-              }
-
-              while (queue.nonEmpty) {
-                val next = queue.dequeue()
-                dependents.getOrElse(next, Set.empty).foreach { dependent =>
-                  if (!blocked(dependent)) {
-                    blocked += dependent
-                    queue.enqueue(dependent)
-                  }
-                }
-              }
-
-              blocked.toSet
-            }
-
-          val letsForTypeChecking =
-            if (kindBlockedLets.isEmpty) lets
-            else lets.filterNot { case (name, _, _) => kindBlockedLets(name) }
+          val letsForChecks =
+            letsForTypeChecking(p, parsedTypeEnv0, parsedTypeEnv, lets)
 
           val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
@@ -684,7 +716,7 @@ object Package {
             }.toSet
 
           val (nameCheckErrorOpt, nameCheckResult) =
-            NameCheck.checkLets(p, letsForTypeChecking, withFQN)
+            NameCheck.checkLets(p, letsForChecks, withFQN)
 
           val nameCheckErrors: Ior[NonEmptyList[PackageError], Unit] =
             nameCheckErrorOpt match {
@@ -704,7 +736,7 @@ object Package {
                     PackageError.TypeErrorIn(
                       mergedError,
                       p,
-                      letsForTypeChecking,
+                      letsForChecks,
                       theseExternals,
                       letNameRegions,
                       localTypeNames
@@ -744,7 +776,7 @@ object Package {
                 PackageError.TypeErrorIn(
                   tpeErr,
                   p,
-                  letsForTypeChecking,
+                  letsForChecks,
                   theseExternals,
                   letNameRegions,
                   localTypeNames
@@ -793,7 +825,7 @@ object Package {
             }
 
           val checkUnusedLets: ValidatedNel[PackageError, Unit] =
-            letsForTypeChecking
+            letsForChecks
               .traverse_ { case (_, _, expr) =>
                 UnusedLetCheck.check(expr)
               }
