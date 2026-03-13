@@ -27,6 +27,16 @@ the constraints too far, we risk losing non-negotiable properties: a sound type
 system we can trust, and recursion/loop forms with proven termination (so we do
 not admit nonsense inhabitants of types such as `forall a, b. a -> b`).
 
+Bosatsu also aims for source that is easy for humans to reason about locally.
+The compiler may do sophisticated work such as type inference, totality
+checking, and recursion checking, but the logic flow should remain literal in
+the code. A reader should be able to see:
+
+1. the package interface at the top of the file
+1. where each non-predef name comes from
+1. control flow directly from syntax rather than hidden mutation, implicit
+   effects, or implicit currying
+
 ## Quick start (5 minutes)
 A tiny, complete file:
 
@@ -69,6 +79,23 @@ most_fav = match mammals:
   case [head, *tail]: head
   case []: "who knows?"
 ```
+
+This is a design philosophy, not just a parser rule. A human reading a file
+should be able to answer:
+
+1. which packages this file depends on
+1. what values and types this package exposes
+1. where each external name used below came from
+
+Bosatsu is stricter about names than about type annotations. If source
+literally mentions a type from another package, import that type so the
+dependency stays explicit. If a foreign type appears only through inference
+from values you already import from a direct dependency, no extra type import
+is required.
+
+`Bosatsu/Predef` is the standard exception: its names are available by default,
+though you can still import or rename predef names explicitly when that is
+clearer.
 
 ## Literals
 
