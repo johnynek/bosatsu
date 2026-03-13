@@ -383,7 +383,7 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-  def headerParser: P0[Header] = {
+  def headerParser: P[Header] = {
     val spaceComment: P0[Unit] =
       (Parser.spaces.? ~ CommentStatement.commentPart.?).void
 
@@ -405,7 +405,9 @@ object Package {
       )
       .map(_.padded)
 
-    (parsePack, im, Parser.nonEmptyListToList(ex)).tupled
+    ((parsePack ~ im) ~ Parser.nonEmptyListToList(ex)).map {
+      case ((p, i), e) => (p, i, e)
+    }
   }
 
   def parser: P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
