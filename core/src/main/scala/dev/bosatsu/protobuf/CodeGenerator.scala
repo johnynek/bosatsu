@@ -25,6 +25,7 @@ import dev.bosatsu.protobuf.ProtoDescriptorModel.{
   Syntax
 }
 import scala.annotation.tailrec
+import scala.util.control.NonFatal
 
 object CodeGenerator {
 
@@ -70,6 +71,20 @@ object CodeGenerator {
         }
         CodeGeneratorResponse.defaultInstance.withFile(files)
     }
+  }
+
+  /** Shared protobuf plugin protocol entrypoint for JVM and Scala.js wrappers.
+    */
+  def generateResponseBytes(requestBytes: Array[Byte]): Array[Byte] = {
+    val response =
+      try {
+        generateResponse(CodeGeneratorRequest.parseFrom(requestBytes))
+      } catch {
+        case NonFatal(err) =>
+          val msg = Option(err.getMessage).getOrElse(err.toString)
+          CodeGeneratorResponse.defaultInstance.withError(msg)
+      }
+    response.toByteArray
   }
 
   private def buildModels(

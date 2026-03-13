@@ -4,7 +4,6 @@ import com.google.protobuf.compiler.plugin.{
   CodeGeneratorRequest,
   CodeGeneratorResponse
 }
-import scala.util.control.NonFatal
 
 object ProtocPluginMain {
 
@@ -13,17 +12,8 @@ object ProtocPluginMain {
   }
 
   def runFromStdio(): Unit = {
-    val response =
-      try {
-        val request = CodeGeneratorRequest.parseFrom(System.in)
-        generateResponse(request)
-      } catch {
-        case NonFatal(err) =>
-          val msg = Option(err.getMessage).getOrElse(err.toString)
-          CodeGeneratorResponse.defaultInstance.withError(msg)
-      }
-
-    response.writeTo(System.out)
+    val responseBytes = CodeGenerator.generateResponseBytes(System.in.readAllBytes())
+    System.out.write(responseBytes)
     System.out.flush()
   }
 

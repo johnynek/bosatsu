@@ -1,6 +1,7 @@
 package dev.bosatsu.protobuf
 
 import dev.bosatsu.PackageName
+import scala.collection.immutable.SortedMap
 
 object ProtoNaming {
 
@@ -69,16 +70,17 @@ object ProtoNaming {
     if (bindableKeywords(joined)) s"${joined}_value" else joined
   }
 
-  def dedupeNames[A](
+  def dedupeNames[A: Ordering](
       items: Vector[(A, String)]
-  ): Map[A, String] = {
-    val (_, out) = items.foldLeft((Map.empty[String, Int], Map.empty[A, String])) {
+  ): SortedMap[A, String] = {
+    val (_, out) =
+      items.foldLeft((Map.empty[String, Int], SortedMap.empty[A, String])) {
       case ((counts, acc), (key, base0)) =>
         val base = if (base0.nonEmpty) base0 else "value"
         val nextCount = counts.getOrElse(base, 0) + 1
         val name = if (nextCount == 1) base else s"${base}_$nextCount"
         (counts.updated(base, nextCount), acc.updated(key, name))
-    }
+      }
 
     out
   }

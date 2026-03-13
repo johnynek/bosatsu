@@ -37,6 +37,12 @@ The `protoc-gen-bosatsu` wrapper invokes the main CLI plugin command:
 ./bosatsu tool protoc-plugin
 ```
 
+The same plugin subcommand is also available from the Node CLI build:
+
+```bash
+./bosatsu_node tool protoc-plugin
+```
+
 This writes a Bosatsu package under `Proto/...` that corresponds to the
 protobuf package (for example `config.v1` -> `Proto/Config/V1`).
 
