@@ -1,8 +1,10 @@
 package dev.bosatsu.jsui
 
 import cats.data.Chain
+import cats.data.Validated
 import cats.effect.{IO, Resource}
-import dev.bosatsu.{MemoryMain, Package, Test, rankn}
+import cats.parse.{Parser => P}
+import dev.bosatsu.{MemoryMain, Package, Parser, Test, rankn}
 import dev.bosatsu.tool.Output
 import org.typelevel.paiges.{Doc, Document}
 import org.scalajs.dom.window.localStorage
@@ -13,6 +15,21 @@ object Store {
   private type ErrorOr[A] = Either[Throwable, A]
   val memoryMain = MemoryMain[ErrorOr]
   private val toolPrefix = List("tool")
+  private val webDemoPackageName = "WebDemo"
+  private val webDemoPath = Chain("root", webDemoPackageName)
+  private val optionalHeaderParser =
+    Package.headerParser.? <* P.anyChar.rep0
+
+  private[jsui] def withWebDemoPackage(str: String): String =
+    // In the web playground we accept snippets without an explicit package.
+    // If there is no parseable header, inject a stable package name for tool args.
+    Parser.parse(optionalHeaderParser, str) match {
+      case Validated.Valid((_, Some(_))) => str
+      case Validated.Valid((_, None)) =>
+        s"package $webDemoPackageName\n\n$str"
+      case Validated.Invalid(_) =>
+        str
+    }
 
   private def toolCommandArgs(
       subcommand: String,
@@ -94,9 +111,10 @@ object Store {
     val start = System.currentTimeMillis()
     println(s"starting $cmd: $start")
     val (args, handler) = cmdHandler(cmd)
+    val source = withWebDemoPackage(str)
 
     val res = memoryMain.runWith(
-      files = Map(Chain("root", "WebDemo") -> str)
+      files = Map(webDemoPath -> source)
     )(args) match {
       case Right(good) => handler(good)
       case Left(err)   =>

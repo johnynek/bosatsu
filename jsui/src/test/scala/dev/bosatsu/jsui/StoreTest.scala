@@ -13,6 +13,12 @@ class StoreTest extends munit.FunSuite {
       |test = Assertion(main.eq_Int(42), "main computes 42")
       |""".stripMargin
 
+  private val webDemoSourceNoPackage =
+    """main = add(40, 2)
+      |
+      |test = Assertion(main.eq_Int(42), "main computes 42")
+      |""".stripMargin
+
   private val webDemoFiles = Map(webDemoPath -> webDemoSource)
 
   private def runWith(args: List[String]): Either[Throwable, Output[Chain[String]]] =
@@ -75,6 +81,24 @@ class StoreTest extends munit.FunSuite {
       case Output.ShowOutput(_, _, _) => ()
       case other =>
         fail(s"expected Output.ShowOutput, got: $other")
+    }
+  }
+
+  test("withWebDemoPackage injects package header when absent") {
+    val parsed = Store.withWebDemoPackage(webDemoSourceNoPackage)
+    assert(parsed.startsWith("package WebDemo\n\n"), parsed)
+    assert(parsed.endsWith(webDemoSourceNoPackage), parsed)
+  }
+
+  test("cmdHandler eval args accept package-less web source") {
+    val source = Store.withWebDemoPackage(webDemoSourceNoPackage)
+    val (args, _) = Store.cmdHandler(Action.Cmd.Eval)
+    Store.memoryMain.runWith(files = Map(webDemoPath -> source))(args) match {
+      case Right(Output.EvaluationResult(_, _, _)) => ()
+      case Right(other) =>
+        fail(s"expected Output.EvaluationResult, got: $other")
+      case Left(err) =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
     }
   }
 
