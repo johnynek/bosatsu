@@ -380,7 +380,7 @@ workflow =
               "package Foo",
               "test = Assertion(True, \"foo\")",
               "EOF",
-              "./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm",
+              "./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm",
               "issue1642_repro/out/test_exe | tee issue1642_repro/output.txt",
               "grep -Eq '^Foo: [0-9]+\\.[0-9]{3}s$' issue1642_repro/output.txt",
               "grep -Eq '^    passed: .*1' issue1642_repro/output.txt",

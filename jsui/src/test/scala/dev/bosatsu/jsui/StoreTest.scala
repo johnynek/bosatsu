@@ -6,7 +6,9 @@ import dev.bosatsu.tool.Output
 class StoreTest extends munit.FunSuite {
   private val webDemoPath = Chain("root", "WebDemo")
   private val webDemoSource =
-    """main = add(40, 2)
+    """package WebDemo
+      |
+      |main = add(40, 2)
       |
       |test = Assertion(main.eq_Int(42), "main computes 42")
       |""".stripMargin
@@ -21,8 +23,6 @@ class StoreTest extends munit.FunSuite {
       "test",
       "--input",
       "root/WebDemo",
-      "--package_root",
-      "root",
       "--test_file",
       "root/WebDemo",
       "--color",

@@ -91,7 +91,7 @@ class ClangGenBooleanCodegenTest extends munit.FunSuite {
   }
 
   private lazy val packageMap: PackageMap.Typed[Any] = {
-    val pack = Parser.unsafeParse(Package.parser(None), source)
+    val pack = Parser.unsafeParse(Package.parser, source)
     val nel = NonEmptyList.one((("test", LocationMap(source)), pack))
     Par.noParallelism {
       PackageMap

@@ -28,8 +28,6 @@ object Store {
           "eval",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--main_file",
           "root/WebDemo",
           "--color",
@@ -51,8 +49,6 @@ object Store {
           "test",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--test_file",
           "root/WebDemo",
           "--color",
@@ -74,8 +70,6 @@ object Store {
           "show",
           "--input",
           "root/WebDemo",
-          "--package_root",
-          "root",
           "--color",
           "html"
         )

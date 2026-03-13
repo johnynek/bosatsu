@@ -31,7 +31,7 @@ object TreeSitterDifferential {
     raw"\[(\d+),\s*(\d+)\]".r
 
   private def builtInParse(source: String): BuiltInParse =
-    Parser.parse(Package.parser(None), source) match {
+    Parser.parse(Package.parser, source) match {
       case Validated.Valid(_) =>
         BuiltInParse.Success
       case Validated.Invalid(errs) =>

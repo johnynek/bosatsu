@@ -50,7 +50,9 @@ struct Main(x: Int)
 """
 
   private val fibSrc =
-    """from Bosatsu/Prog import Main
+    """package MyLib/Fib
+
+from Bosatsu/Prog import Main
 
 main = Main(0)
 """
@@ -67,7 +69,7 @@ main = Main(0)
     )
   }
 
-  test("lib build uses implicit package names derived from path") {
+  test("lib build uses explicit package names from source") {
     val cmd =
       List(
         "lib",

@@ -100,7 +100,7 @@ jobs:
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "generate python code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
       - name: "run python tests"
         run: "PYTHONPATH=$PYTHONPATH:$(pwd)/test_workspace:$(pwd)/pyout python3 -m unittest discover pyout -v --pattern \"*.py\""
     strategy:
@@ -212,7 +212,7 @@ jobs:
           cp cli/target/native-image/bosatsu-cli bosatsu
       - name: "run bosatsu tests"
         run: |
-          ./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/
+          ./bosatsu tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu
     strategy:
       matrix:
         java:
@@ -245,7 +245,7 @@ jobs:
           sbt "cliJSJS/fullOptJS"
       - name: "run bosatsu tests"
         run: |
-          ./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/
+          ./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu
       - name: "install boehm"
         run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
       - name: "install c runtime"
@@ -257,7 +257,7 @@ jobs:
           lib_eval_out=$(./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
           echo "$lib_eval_out"
           echo "$lib_eval_out" | grep -q "create_mode_test:ok"
-          tool_eval_out=$(./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace --search --package_root test_workspace)
+          tool_eval_out=$(./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace)
           echo "$tool_eval_out"
           echo "$tool_eval_out" | grep -q "create_mode_test:ok"
           mkdir node_out_lib
@@ -317,7 +317,7 @@ jobs:
           print(f"validated {conf_path}")
           PY
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "check single assertion test output"
@@ -328,7 +328,7 @@ jobs:
           package Foo
           test = Assertion(True, "foo")
           EOF
-          ./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm
           issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
           grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
           grep -Eq '^    passed: .*1' issue1642_repro/output.txt
@@ -438,7 +438,7 @@ jobs:
           print(f"validated {conf_path}")
           PY
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "run lib test"

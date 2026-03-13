@@ -337,7 +337,7 @@ object PackageError {
     Doc.text("Hint: add source containing package ") +
       quotedPackageName(pack) +
       Doc.text(
-        " to --input/--input_dir (and verify --package_root), or include a dependency library with --pub_dep/--priv_dep. Also check for package-name typos."
+        " to --input/--input_dir, or include a dependency library with --pub_dep/--priv_dep. Also check for package-name typos."
       )
 
   private def unknownImportPackageTypoHint(

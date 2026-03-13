@@ -245,7 +245,7 @@ object TestUtils {
       NonEmptyList(path, rest.toList)
         .map { s =>
           val str = toS(s)
-          val pack = Parser.unsafeParse(Package.parser(None), str)
+          val pack = Parser.unsafeParse(Package.parser, str)
           (("", LocationMap(str)), pack)
         }
 
@@ -262,16 +262,24 @@ object TestUtils {
   }
 
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
-    ("--package_root" :: "" :: Nil) ::: files.flatMap { case (idx, _) =>
+    files.flatMap { case (idx, _) =>
       "--input" :: idx.iterator.mkString("/") :: Nil
     }
 
   private type ErrorOr[A] = Either[Throwable, A]
   private val module = MemoryMain[ErrorOr]
 
+  private def withExplicitPackage(
+      packageName: String,
+      source: String
+  ): String =
+    if (source.linesIterator.exists(_.trim.startsWith("package "))) source
+    else s"package $packageName\n\n$source"
+
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content
+      val packageName = s"Package$idx"
+      Chain.one(packageName) -> withExplicitPackage(packageName, content)
     }
 
     module.runWith(files)(
@@ -300,7 +308,8 @@ object TestUtils {
       expected: Json
   ) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content
+      val packageName = s"Package$idx"
+      Chain.one(packageName) -> withExplicitPackage(packageName, content)
     }
 
     module.runWith(files)(
@@ -323,7 +332,8 @@ object TestUtils {
       assertionCount: Int
   ) = {
     val files = packages.zipWithIndex.map(_.swap).map { case (idx, content) =>
-      Chain.one(s"Package$idx") -> content
+      val packageName = s"Package$idx"
+      Chain.one(packageName) -> withExplicitPackage(packageName, content)
     }
 
     module.runWith(files)(
@@ -368,7 +378,7 @@ object TestUtils {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }
@@ -425,7 +435,7 @@ object TestUtils {
   )(errFn: PartialFunction[PackageError, Unit])(implicit ec: Par.EC) = {
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }
