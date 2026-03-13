@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5a282566*
+0.0.0+1-d0dc1b11*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5a282566*
+0.0.0+1-d0dc1b11*
 </div>
 </div>
 <div class="nav-toc">
@@ -134,6 +134,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>Conceptually, this is close to the simply typed lambda calculus with algebraic data types, mapped onto a Python-like syntax. It is combined with a package system (<code>package</code>, <code>from ... import</code>, <code>export</code>) so code can be composed safely across libraries.</p>
 <p>It is deliberately missing many common language features: methods, subtyping, mutable variables (or any mutation), casts, exceptions, and built-in magical hash/equals/string rendering behavior.</p>
 <p>We want the language to be as simple as possible, but no simpler. If we relax the constraints too far, we risk losing non-negotiable properties: a sound type system we can trust, and recursion/loop forms with proven termination (so we do not admit nonsense inhabitants of types such as <code>forall a, b. a -&gt; b</code>).</p>
+<p>Bosatsu also aims for source that is easy for humans to reason about locally. The compiler may do sophisticated work such as type inference, totality checking, and recursion checking, but the logic flow should remain literal in the code. A reader should be able to see:</p>
+<ol>
+  <li>the package interface at the top of the file</li>
+  <li>where each non-predef name comes from</li>
+  <li>control flow directly from syntax rather than hidden mutation, implicit  effects, or implicit currying</li>
+</ol>
 <h2><a href="#quick-start-5-minutes-" name="quick-start-5-minutes-" class="anchor"><span class="anchor-link"></span></a>Quick start (5 minutes)</h2>
 <p>A tiny, complete file:</p>
 <pre class="prettyprint"><code class="language-bosatsu">package Demo/Hello
@@ -164,6 +170,14 @@ most_fav = match mammals:
   case [head, *tail]: head
   case []: &quot;who knows?&quot;
 </code></pre>
+<p>This is a design philosophy, not just a parser rule. A human reading a file should be able to answer:</p>
+<ol>
+  <li>which packages this file depends on</li>
+  <li>what values and types this package exposes</li>
+  <li>where each external name used below came from</li>
+</ol>
+<p>Bosatsu is stricter about names than about type annotations. If source literally mentions a type from another package, import that type so the dependency stays explicit. If a foreign type appears only through inference from values you already import from a direct dependency, no extra type import is required.</p>
+<p><code>Bosatsu/Predef</code> is the standard exception: its names are available by default, though you can still import or rename predef names explicitly when that is clearer.</p>
 <h2><a href="#literals" name="literals" class="anchor"><span class="anchor-link"></span></a>Literals</h2>
 <h3><a href="#signed-big-integers" name="signed-big-integers" class="anchor"><span class="anchor-link"></span></a>Signed big integers</h3>
 <p>Like Python, Bosatsu supports literal signed big integers.</p>
@@ -886,7 +900,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a282566-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d0dc1b11-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

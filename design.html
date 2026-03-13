@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5a282566*
+0.0.0+1-d0dc1b11*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-5a282566*
+0.0.0+1-d0dc1b11*
 </div>
 </div>
 <div class="nav-toc">
@@ -127,8 +127,40 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>usability</li>
 </ol>
 <p>These are in priority order: we won’t trade correctness for usability, and we’re skeptical of features that add complexity just for convenience.</p>
+<p>Bosatsu aims to let the compiler do difficult proof work without hiding program behavior from readers. A human reading typechecked source should be able to recover a package&rsquo;s interface, the origin of each non-predef name, and the control flow of each function directly from the file.</p>
 <h2><a href="#relationship-to-python" name="relationship-to-python" class="anchor"><span class="anchor-link"></span></a>Relationship to Python</h2>
-<p>The user experience is inspired by Python, but Bosatsu is a minimal, statically typed, total language. All external names must be explicitly imported, and all values are private unless exported. This keeps package dependencies explicit without type inference.</p>
+<p>The user experience is inspired by Python, but Bosatsu is a minimal, statically typed, total language. All external names must be explicitly imported, and all values are private unless exported. This keeps package dependencies explicit even with type inference.</p>
+<p>The goal is not &ldquo;Python with more types.&rdquo; It is a language with Python-like syntax and much stricter rules about what may be implicit.</p>
+<h2><a href="#literal-source-over-hidden-flow" name="literal-source-over-hidden-flow" class="anchor"><span class="anchor-link"></span></a>Literal Source Over Hidden Flow</h2>
+<p>Bosatsu prefers source that is easy for humans to reason about locally:</p>
+<ol>
+  <li>the interface of a package is at the top of the file: package name, imports,  and exports</li>
+  <li>every non-predef name used in a file should have an obvious source: defined  locally or imported explicitly</li>
+  <li>control flow should be visible in the syntax rather than hidden in mutation,  exceptions, implicit effects, or implicit currying</li>
+  <li>surface sugar should desugar locally and mechanically: operators are  functions, method syntax is function application, and <code>&lt;-</code> is explicit  continuation-style binding</li>
+</ol>
+<p>The compiler may infer, normalize, and prove, but it should not invent hidden dependencies or hidden program behavior.</p>
+<h2><a href="#names-are-stricter-than-types" name="names-are-stricter-than-types" class="anchor"><span class="anchor-link"></span></a>Names Are Stricter Than Types</h2>
+<p>Bosatsu is intentionally stricter about names than about type annotations.</p>
+<p>Names create dependencies and carry most of the burden of human readability, so they stay explicit. Types also help humans, but once types can be inferred and checked, we do not require them just for ceremony.</p>
+<p>The practical rule is:</p>
+<ol>
+  <li>if source literally names a type from another package, import that type so  the dependency remains explicit</li>
+  <li>if a foreign type appears only through inference from values already  imported from a direct dependency, no extra type import is required</li>
+</ol>
+<p>This keeps logic flow readable without forcing type noise into every definition, while still making package dependencies visible.</p>
+<h2><a href="#explicit-boundaries" name="explicit-boundaries" class="anchor"><span class="anchor-link"></span></a>Explicit Boundaries</h2>
+<p>Bosatsu uses explicit boundaries to preserve modularity and safety:</p>
+<ol>
+  <li>values are private unless exported</li>
+  <li>types and constructors can be exported separately (<code>Type</code> vs <code>Type()</code>)</li>
+  <li>effects are explicit <code>Prog[...]</code> values rather than implicit execution</li>
+  <li>external power lives behind narrow trusted boundaries</li>
+  <li>unused imports and unused top-level values are errors; discard should be  written intentionally as <code>_ = expr</code></li>
+</ol>
+<p>These boundaries are part of both simplicity and correctness: they reduce surprising behavior and make composition safer.</p>
+<h2><a href="#source-locality-and-determinism" name="source-locality-and-determinism" class="anchor"><span class="anchor-link"></span></a>Source Locality And Determinism</h2>
+<p>Bosatsu prefers rules that preserve source order, stable diagnostics, and deterministic interfaces. Compiler checks may be sophisticated, but they should stay anchored to the user&rsquo;s source rather than to rewritten intermediate forms.</p>
 <h2><a href="#problem-domain-for-bosatsu" name="problem-domain-for-bosatsu" class="anchor"><span class="anchor-link"></span></a>Problem domain for Bosatsu</h2>
 <p>Bosatsu targets the space between general-purpose languages and data formats like JSON/YAML/TOML. It is total (all functions terminate), immutable, and has no side effects or exceptions. Functions have fixed arity (Fn1..Fn32); there is no implicit currying.</p>
 <p>The goal is similar to <a href="https://github.com/bazelbuild/starlark">Starlark</a>: a Python-like language for configuration and embedded scripting.</p>
@@ -221,7 +253,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a282566-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d0dc1b11-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
