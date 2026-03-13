@@ -23,7 +23,7 @@ class CompileCacheTest extends FunSuite {
   private val cache = CompileCache.filesystem(cacheDir, platform)
 
   private def parsePackage(source: String): Package.Parsed =
-    Package.parser(None).parseAll(source) match {
+    Package.parser.parseAll(source) match {
       case Right(pack) => pack
       case Left(err)   => fail(s"parse failure: $err")
     }

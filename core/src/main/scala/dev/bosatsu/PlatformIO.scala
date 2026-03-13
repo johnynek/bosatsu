@@ -74,11 +74,6 @@ trait PlatformIO[F[_], Path] {
       uri: String
   ): F[Either[PlatformIO.FetchHashFailure, Unit]]
 
-  /** given an ordered list of prefered roots, if a packFile starts with one of
-    * these roots, return a PackageName based on the rest
-    */
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
-
   def fsDataType(p: Path): F[Option[PlatformIO.FSDataType]]
 
   def fileExists(p: Path): F[Boolean] =
@@ -204,41 +199,6 @@ object PlatformIO {
             )
           )
       }
-  }
-
-  def pathPackage[Path](roots: List[Path], packFile: Path)(
-      relativeParts: (Path, Path) => Option[Iterable[String]]
-  ): Option[PackageName] = {
-    def dropExtension(parts: List[String]): List[String] =
-      if (parts.isEmpty) Nil
-      else {
-        val init = parts.init
-        val last = parts.last
-        val idx = last.lastIndexOf('.')
-        val noExt = if (idx > 0) last.substring(0, idx) else last
-        init :+ noExt
-      }
-
-    def normalizePart(part: String): String =
-      if (part.isEmpty) part
-      else {
-        val ch = part.charAt(0)
-        if ('a' <= ch && ch <= 'z') ch.toUpper.toString + part.substring(1)
-        else part
-      }
-
-    def getP(p: Path): Option[PackageName] =
-      relativeParts(p, packFile).flatMap { parts0 =>
-        val parts = dropExtension(parts0.iterator.map(_.toString).toList)
-        val raw = parts.mkString("/")
-        PackageName.parse(raw).orElse {
-          val normalized = parts.map(normalizePart).mkString("/")
-          PackageName.parse(normalized)
-        }
-      }
-
-    if (packFile.toString.isEmpty) None
-    else roots.collectFirstSome(getP)
   }
 
   sealed abstract class FSDataType derives CanEqual

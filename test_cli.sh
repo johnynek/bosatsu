@@ -13,8 +13,7 @@ time ./bosatsuj tool test \
   --input test_workspace/Bosatsu/Collection/Array.bosatsu \
   --input test_workspace/Bosatsu/IO/Core.bosatsu \
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
-  --input test_workspace/Bosatsu/IO/Std.bosatsu \
-  --package_root test_workspace
+  --input test_workspace/Bosatsu/IO/Std.bosatsu
 
 time ./bosatsuj lib fetch \
   --repo_root . \

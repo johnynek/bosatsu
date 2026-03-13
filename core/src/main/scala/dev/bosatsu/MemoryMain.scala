@@ -504,14 +504,6 @@ object MemoryMain {
         path.toList.lastOption.exists(_.endsWith(str))
       }
 
-      def pathPackage(
-          roots: List[Path],
-          packFile: Path
-      ): Option[PackageName] =
-        PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-          relativize(root, pf).map(_.iterator.toList)
-        }
-
       def writeFC(p: Path, fc: FileContent): F[Unit] =
         StateT.modifyF { state =>
           state.withFile(p, fc) match {

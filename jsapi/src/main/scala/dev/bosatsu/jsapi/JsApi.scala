@@ -37,7 +37,7 @@ object JsApi {
       mainFile: String,
       files: js.Dictionary[String]
   ): EvalSuccess | Error = {
-    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
+    val baseArgs = "--color" :: "html" :: Nil
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
@@ -93,7 +93,7 @@ object JsApi {
       mainFile: String,
       files: js.Dictionary[String]
   ): EvalSuccess | Error = {
-    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
+    val baseArgs = "--color" :: "html" :: Nil
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs

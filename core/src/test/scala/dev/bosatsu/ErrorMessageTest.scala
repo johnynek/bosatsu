@@ -14,7 +14,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
   import TestUtils._
 
   private def unusedLetMessage(source: String): String = {
-    val parsed = Parser.parse(Package.parser(None), source) match {
+    val parsed = Parser.parse(Package.parser, source) match {
       case Validated.Valid((lm, pack)) =>
         (("0", lm), pack) :: Nil
       case Validated.Invalid(errs) =>
@@ -47,7 +47,7 @@ class ErrorMessageTest extends munit.FunSuite with ParTest {
       Map[PackageName, (LocationMap, String)]
   ) = {
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }

@@ -506,7 +506,7 @@ object Command {
         publicDepClosureFromCas(cas, startLibs)
 
       private val inputRes =
-        PackageResolver.LocalRoots[F, P](NonEmptyList.one(confDir), None)
+        PackageResolver.ExplicitOnly[F, P]()
 
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
@@ -529,10 +529,9 @@ object Command {
               def parsedPackageMetaFor(
                   path: P
               ): F[Option[(PackageName, List[PackageName])]] = {
-                val defaultPack = inputRes.packageNameFor(path)(platformIO)
                 PathParseError
                   .parseFile(
-                    Package.parser(defaultPack),
+                    Package.parser,
                     path,
                     platformIO
                   )
@@ -546,9 +545,6 @@ object Command {
               val selectedInputsF: F[List[P]] = sourcePackageFilter match {
                 case None       => moduleIOMonad.pure(inputSrcs)
                 case Some(keep) =>
-                  val pathPackBySource =
-                    inputSrcs.map(p => (p, inputRes.packageNameFor(p)(platformIO)))
-
                   inputSrcs
                     .traverse(p => parsedPackageMetaFor(p).map(p -> _))
                     .map { parsedBySource =>
@@ -582,19 +578,15 @@ object Command {
                         }
 
                       val rootPackages =
-                        (parsedEntries.collect {
+                        parsedEntries.collect {
                           case (_, pack, _) if keep(pack) => pack
-                        } ::: pathPackBySource.collect {
-                          case (_, Some(pack)) if keep(pack) => pack
-                        }).distinct
+                        }.distinct
 
                       val selectedPackages = transitiveClosure(rootPackages, Set.empty)
 
-                      (selectedPackages.iterator.flatMap { pack =>
+                      selectedPackages.iterator.flatMap { pack =>
                         packageToPaths.getOrElse(pack, Nil)
-                      }.toSet ++ pathPackBySource.collect {
-                        case (path, Some(pack)) if selectedPackages(pack) => path
-                      }.toSet).toList
+                      }.toSet.toList
                         .sorted(using platformIO.pathOrdering)
                     }
               }

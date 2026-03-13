@@ -383,7 +383,7 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-  def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
+  def headerParser: P[Header] = {
     val spaceComment: P0[Unit] =
       (Parser.spaces.? ~ CommentStatement.commentPart.?).void
 
@@ -394,12 +394,6 @@ object Package {
         spaceComment
       )
       .map(_.padded)
-    val pname: P0[PackageName] =
-      defaultPack match {
-        case None    => parsePack
-        case Some(p) => parsePack.?.map(_.getOrElse(p))
-      }
-
     val im =
       Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
     val ex = Padding
@@ -411,14 +405,14 @@ object Package {
       )
       .map(_.padded)
 
-    (pname, im, Parser.nonEmptyListToList(ex)).tupled
+    ((parsePack ~ im) ~ Parser.nonEmptyListToList(ex)).map {
+      case ((p, i), e) => (p, i, e)
+    }
   }
 
-  def parser(
-      defaultPack: Option[PackageName]
-  ): P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
+  def parser: P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     val body: P0[List[Statement]] = Statement.parser
-    (headerParser(defaultPack), body)
+    (headerParser, body)
       .mapN { case ((p, i, e), b) => Package(p, i, e, b) }
   }
 
@@ -884,7 +878,7 @@ object Package {
     ExportedName.Binding(todoName, ())
 
   private lazy val predefEmitPackage: Package.Parsed =
-    parser(None).parse(Predef.predefString) match {
+    parser.parse(Predef.predefString) match {
       case Right((_, pack)) =>
         // Make function defs:
         def paramType(n: Int) =
