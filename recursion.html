@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d6089cdb*
+0.0.0+1-36a9681e*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-d6089cdb*
+0.0.0+1-36a9681e*
 </div>
 </div>
 <div class="nav-toc">
@@ -152,9 +152,9 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>
   <p>For ADT targets, Bosatsu also accepts constructor-rank decreases in a  branch that proves the current constructor.  A recursive call can pass an earlier constructor in source order  (for example <code>Some(_) -&gt; None</code>, <code>Even(prev) -&gt; Odd(prev)</code>), including  zero-argument constructors.  This still requires direct recursive payload fields (<code>Fi == T</code>) to use  already-proven smaller local names from the branch.  Wrapped recursive payloads (<code>Fi</code> contains <code>T</code> but <code>Fi != T</code>, such as  <code>List[T]</code>) are intentionally rejected in this version.</p></li>
   <li>
-  <p>Bosatsu also accepts two narrow force forms when the wrapped local is  already proven smaller in the current branch for that recur-target  component:</p></li>
+  <p>Bosatsu also accepts two trusted strict-child projections:</p></li>
   <li><code>th()</code> (canonical <code>th(())</code>) when <code>th: () -&gt; T</code>.</li>
-  <li><code>get_Lazy(l)</code> when callee resolves to trusted  <code>Bosatsu/Lazy.get_Lazy</code> and <code>l: Lazy[T]</code>.  This does not generalize to arbitrary wrappers or arbitrary <code>Lazy[T] -&gt; T</code>  helper functions.  The same force recognizers also apply when <code>T</code> changes through polymorphic  recursion (for example <code>FreeF[a] -&gt; FreeF[b]</code>) as long as the forced value  is still a branch-proven smaller local.</li>
+  <li><code>get_Lazy(l)</code> when callee resolves to trusted  <code>Bosatsu/Lazy.get_Lazy</code> and <code>l: Lazy[T]</code>.  If the wrapper expression is already known equal to or smaller than the  current recur-target component, forcing it yields a smaller value.  This composes through intermediate <code>let</code> bindings and nested <code>match</code>  destructuring, so a recursive call can use fields extracted from the forced  result.  This does not generalize to arbitrary wrappers or arbitrary <code>Lazy[T] -&gt; T</code>  helper functions.  The same force recognizers also apply when <code>T</code> changes through polymorphic  recursion (for example <code>FreeF[a] -&gt; FreeF[b]</code>).</li>
   <li>
   <p>With a tuple target (<code>recur (x0, x1, ..., xk)</code>), recursive calls must be  lexicographically smaller in that target order.</p></li>
   <li>
@@ -167,6 +167,24 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </ol>
 <p>Recursion validation runs after typechecking on typed IR, and before typed normalization/rewrite phases. This keeps recursion diagnostics anchored to source tags while preserving a clear trust boundary before optimization.</p>
 <p>Tuple targets are useful for nested-recursive definitions where one argument is allowed to reset or increase only after an earlier argument decreases.</p>
+<h3><a href="#trusted-delayed-projections" name="trusted-delayed-projections" class="anchor"><span class="anchor-link"></span></a>Trusted Delayed Projections</h3>
+<p>The checker treats thunk forcing and trusted <code>Lazy</code> forcing as exposing a strictly smaller child value. This lets structural recursion continue through delayed nodes without manually reshaping the data first.</p>
+<pre class="prettyprint"><code class="language-bosatsu">enum Stream[a]:
+  End
+  More(next: () -&gt; Stream[a])
+
+def consume(s: Stream[a]) -&gt; Stream[a]:
+  recur s:
+    case End:
+      End
+    case More(th):
+      match th():
+        case End:
+          End
+        case More(next):
+          consume(next())
+</code></pre>
+<p>The same rule applies to trusted <code>Bosatsu/Lazy.get_Lazy</code> calls. In both cases, the projection can be bound in a <code>let</code>, matched immediately, or destructured further before the recursive call. Bosatsu does not extend this trust to arbitrary helper functions, even if they have the same type.</p>
 <h2><a href="#the-loop-form" name="the-loop-form" class="anchor"><span class="anchor-link"></span></a>The <code>loop</code> Form</h2>
 <p><code>loop</code> has the same termination checks as <code>recur</code>, and adds one extra requirement: every recursive self-call must be in tail position.</p>
 <p>Unlike <code>recur</code>, <code>loop</code> is also a stack-safety guarantee: accepted <code>loop</code> definitions are compiled to loops and run in constant stack space. If a recursive call is not in tail position, compilation fails.</p>
@@ -436,7 +454,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-d6089cdb-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-36a9681e-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
