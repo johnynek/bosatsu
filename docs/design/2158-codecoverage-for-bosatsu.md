@@ -60,17 +60,22 @@ Chosen output plan:
 2. Keep internal data model JaCoCo-compatible so JaCoCo XML can be added without changing instrumentation.
 
 ## Coverage Data We Must Retain
-For each executed probe:
-1. Source package name.
-2. Source region (`start`, `end` offsets).
-3. Probe kind (`line` probe, `branch alternative` probe).
-4. Optional top-level owner (`package::bindable`) for function-style summaries.
-5. Runtime hit count.
+For each executable Matchless expression in coverage mode:
+1. Source key: `HashValue[Algo.Blake3]` of the source bytes.
+2. `RegionSet` of source offsets represented by that expression.
+3. Optional top-level owner (`package::bindable`) for function-style summaries.
+4. Runtime hit count.
 
-For branch reporting:
+Why branch data is not just “executed regions”:
+1. Executed regions are enough to infer that a specific branch body ran.
+2. Branch coverage formats also require the denominator (which alternatives existed but did not run).
+3. To report untaken alternatives, we still need static decision-group metadata (decision id + ordered alternatives), even if hits are derived from region execution.
+
+For branch reporting we retain:
 1. Decision group id (one source decision point).
 2. Ordered alternatives for that decision.
-3. Hit count per alternative.
+3. RegionSet for each alternative.
+4. Hit count per alternative (derived from executed expressions carrying that RegionSet).
 
 This is sufficient for:
 1. LCOV: `SF`, `DA`, `BRDA`, `FN/FNDA` (optional function section).
@@ -88,25 +93,28 @@ When coverage is enabled, compile with `NoOptimize` via `RuntimeCommandSupport` 
 
 ### 2) Static Probe Registration During Matchless Lowering
 Instrument at lowering time, not by changing Bosatsu language semantics:
-1. Extend `Matchless.fromLet` with optional coverage recorder callbacks.
-2. For each compiled typed-expression root that has usable source region metadata, register a probe id against the produced Matchless expression object identity.
-3. For each typed `Match`, additionally register a branch decision group with one alternative per branch body.
+1. Add coverage-mode source metadata for Matchless expressions: `(sourceHash, RegionSet)`.
+2. In `Matchless.fromLet`, initialize `RegionSet` from typed-expression source regions.
+3. When lowering/rewrites merge multiple source positions into one expression, union those regions into the resulting `RegionSet`.
+4. For each typed `Match`, register a decision group with ordered branch alternatives and the alternative RegionSet.
 
-This avoids invasive AST-wide payload changes while still mapping execution to source regions.
+This directly addresses optimization coalescing: one runtime expression can count for multiple source regions by carrying a merged RegionSet.
 
 ### 3) Runtime Hit Collection In Evaluator
-Extend `MatchlessToValue` with an optional expression-entry callback:
-1. On each expression evaluation, look up probe id by expression identity.
-2. Increment counter if present.
-3. No-op callback in default mode keeps current behavior.
+Coverage must be purely opt-in with zero normal-path cost:
+1. Keep current `MatchlessToValue` execution path unchanged for non-coverage runs.
+2. Add a separate coverage evaluator path used only when `--coverage` is set.
+3. In that coverage path, increment counters keyed by `(sourceHash, RegionSet)` at expression execution.
+4. Do not add callback branches or map lookups to the default hot path.
 
 `LibraryEvaluation` owns the coverage session (static metadata + mutable counters) for the test run.
 
 ### 4) Source Mapping And Filtering
 Coverage should only emit files we can map back to source paths:
-1. Use `(Path, PackageName)` mapping already returned by compilation (`RuntimeCommandSupport.packMap`) to map package to source file path.
-2. Build `LocationMap` per source file to convert probe offsets to line numbers.
-3. Skip probes for packages without known source path (typically precompiled deps), and surface a concise note in coverage summary.
+1. Compute `HashValue[Algo.Blake3]` for local source files during compile/test setup and build `hash -> (path, LocationMap)` mapping.
+2. Use this hash mapping (not package name) to resolve coverage entries to files.
+3. Build `LocationMap` per source file to convert RegionSet offsets to line numbers.
+4. Skip hashes without known local source path (typically precompiled deps), and surface a concise note in coverage summary.
 
 ### 5) Aggregation And Report Writers
 Introduce a small coverage module:
@@ -119,9 +127,9 @@ Introduce a small coverage module:
 ## Implementation Plan
 1. Add coverage option parsing to `TestCommand` and plumb configuration through runtime command flow.
 2. Update `RuntimeCommandSupport.packMap` to accept compile options from caller.
-3. Add coverage model classes (`CoverageModel`, `CoverageAggregator`) for static probes and runtime counters.
-4. Extend `Matchless.fromLet` and `MatchlessFromTypedExpr.compile` to register probes and branch groups during lowering.
-5. Extend `MatchlessToValue` with optional expression-entry callback.
+3. Add coverage model classes (`CoverageModel`, `CoverageAggregator`) around `(sourceHash, RegionSet)` counters plus decision-group metadata.
+4. Extend `Matchless.fromLet` and `MatchlessFromTypedExpr.compile` to build/merge RegionSets and register branch decision groups during lowering.
+5. Add a separate coverage evaluator path and keep existing `MatchlessToValue` untouched for non-coverage execution.
 6. Extend `LibraryEvaluation` to create/store coverage session and expose snapshot after tests.
 7. Extend `Output.TestOutput` reporting path to emit summary and optional file output.
 8. Add LCOV and Cobertura writers from canonical aggregated data.
@@ -130,32 +138,35 @@ Introduce a small coverage module:
 
 ## Testing Strategy
 1. Unit tests for probe registration stability and deterministic probe ids per compile run.
-2. Unit tests for LCOV rendering (`DA`, `BRDA`, `end_of_record`).
-3. Unit tests for Cobertura rendering (line hits, branch condition coverage).
-4. Integration test: `tool test` unchanged output when coverage flags are absent.
-5. Integration test: `tool test --coverage --coverage_format lcov --coverage_out ...` writes valid report and keeps test pass/fail semantics.
-6. Integration test: uncovered branch produces partial branch data in emitted report.
-7. Integration test: packages without source path are skipped from report with clear summary note.
+2. Unit tests for RegionSet union behavior when lowering/rewrites combine source positions.
+3. Unit tests for LCOV rendering (`DA`, `BRDA`, `end_of_record`).
+4. Unit tests for Cobertura rendering (line hits, branch condition coverage).
+5. Integration test: `tool test` unchanged output when coverage flags are absent.
+6. Integration test: `tool test --coverage --coverage_format lcov --coverage_out ...` writes valid report and keeps test pass/fail semantics.
+7. Integration test: uncovered branch produces partial branch data in emitted report.
+8. Integration test: packages without source path are skipped from report with clear summary note.
+9. Integration/perf guard: verify non-coverage test execution still uses the original evaluator path.
 
 ## Acceptance Criteria
 1. `tool test` supports opt-in coverage flags.
 2. Default `tool test` behavior and output remain unchanged when coverage is not requested.
-3. Coverage mode records execution counts tied to source regions.
-4. Coverage mode emits valid LCOV output.
-5. Coverage mode emits valid Cobertura XML output.
-6. Coverage collection is performed in the same run as test execution (no second run required).
-7. Branch alternatives from source `match` expressions are represented in coverage output.
-8. Precompiled dependency packages without source path are not emitted as malformed files.
-9. Existing test command pass/fail semantics are unchanged.
-10. New tests cover parser flags, runtime collection, and both report writers.
+3. Non-coverage runs use the existing evaluator path with no added coverage callback/lookup overhead.
+4. Coverage mode records execution counts tied to source regions.
+5. Coverage mode emits valid LCOV output.
+6. Coverage mode emits valid Cobertura XML output.
+7. Coverage collection is performed in the same run as test execution (no second run required).
+8. Branch alternatives from source `match` expressions are represented in coverage output.
+9. Precompiled dependency packages without source path are not emitted as malformed files.
+10. Existing test command pass/fail semantics are unchanged.
+11. New tests cover parser flags, RegionSet merge behavior, runtime collection, and both report writers.
 
 ## Risks And Mitigations
-1. Risk: Runtime overhead from per-expression callbacks.
-   Mitigation: callback only active under `--coverage`; keep default path zero-feature/no-op.
+1. Risk: Coverage instrumentation slows test execution.
+   Mitigation: run instrumentation only in explicit coverage mode and keep non-coverage evaluator path unchanged.
 2. Risk: Source fidelity drift due optimization rewrites.
    Mitigation: use `NoOptimize` in coverage mode for `tool test`.
-3. Risk: Probe identity collisions from shared singleton expressions.
-   Mitigation: register probes only for nodes with real source regions and ignore singleton synthetic constants.
+3. Risk: One optimized runtime expression may represent multiple source positions.
+   Mitigation: model expression provenance as `RegionSet` and merge regions on rewrite/combination.
 4. Risk: Report incompatibility across consumers.
    Mitigation: golden tests for emitted LCOV/Cobertura structure and sample ingestion checks in CI follow-up.
 
