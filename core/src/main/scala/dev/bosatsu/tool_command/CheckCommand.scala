@@ -69,7 +69,7 @@ object CheckCommand {
     val checkOpt = (
       commonOpts.sourcePathOpts,
       commonOpts.interfacePathOpts,
-      commonOpts.noSearchPackageResolverOpts,
+      commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
       commonOpts.compileCacheDirOpt,

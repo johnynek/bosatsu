@@ -10,7 +10,7 @@ class MatchlessInterfaceTest extends munit.FunSuite {
       src: String,
       ifaces: List[Package.Interface]
   ): PackageMap.Inferred = {
-    val pack = Parser.unsafeParse(Package.parser(None), src)
+    val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap

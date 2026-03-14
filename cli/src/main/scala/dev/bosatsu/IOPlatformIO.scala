@@ -416,15 +416,6 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     path.toString.endsWith(str)
   }
 
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] =
-    PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-      if (pf.startsWith(root)) Some {
-        import scala.jdk.CollectionConverters._
-        root.relativize(pf).asScala.map(_.toString)
-      }
-      else None
-    }
-
   def writeDoc(p: Path, d: Doc): IO[Unit] =
     IO.blocking {
       Option(p.getParent).foreach(_.toFile.mkdirs)

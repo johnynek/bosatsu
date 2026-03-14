@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.{Monad, Monoid, Semigroup}
+import cats.{Eval, Monad, Monoid, Semigroup}
 
 type Writer[M, +A] = Writer.Tpe[M, A]
 
@@ -35,6 +35,25 @@ object Writer {
 
     override def map[A, B](fa: (M, A))(fn: A => B): (M, B) =
       fa.map(fn)
+
+    override def ap[A, B](ff: (M, A => B))(fa: (M, A)): (M, B) = {
+      val m = Semigroup[M].combine(ff._1, fa._1)
+      val b = ff._2(fa._2)
+      (m, b)
+    }
+
+    override def map2[A, B, C](fa: (M, A), fb: (M, B))(fn: (A, B) => C): (M, C) = {
+      val m = Semigroup[M].combine(fa._1, fb._1)
+      val c = fn(fa._2, fb._2)
+      (m, c)
+    }
+
+    override def map2Eval[A, B, C](fa: (M, A), efb: Eval[(M, B)])(fn: (A, B) => C): Eval[(M, C)] =
+      efb.map { fb =>
+        val m = Semigroup[M].combine(fa._1, fb._1)
+        val c = fn(fa._2, fb._2)
+        (m, c)
+      }
 
     def flatMap[A, B](fa: (M, A))(fn: A => (M, B)): (M, B) =
       fa.flatMap(fn)

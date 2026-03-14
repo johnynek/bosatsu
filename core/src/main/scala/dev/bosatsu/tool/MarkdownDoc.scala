@@ -904,7 +904,7 @@ object MarkdownDoc {
           parsed <- CommandSupport.liftParseErrors(
             platformIO,
             PathParseError.parseString(
-              Package.parser(Some(packageName)),
+              Package.parser,
               path,
               source
             ),

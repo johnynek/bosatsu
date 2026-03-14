@@ -357,14 +357,6 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       })
   }
 
-  /** given an ordered list of prefered roots, if a packFile starts with one of
-    * these roots, return a PackageName based on the rest
-    */
-  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] =
-    PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-      relativize(root, pf).map(_.names.map(_.toString))
-    }
-
   def resolve(p: Path, c: String): Path = p.resolve(c)
   def resolve(p: Path, c: Path): Path = p.resolve(c)
   def relativize(root: Path, pf: Path): Option[Path] =

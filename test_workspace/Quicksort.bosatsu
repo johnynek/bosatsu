@@ -1,3 +1,5 @@
+package Quicksort
+
 def quick_sort0(cmp, left, right):
   recur left:
     case []: right

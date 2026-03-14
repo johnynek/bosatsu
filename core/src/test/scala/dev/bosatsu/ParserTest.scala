@@ -2141,7 +2141,7 @@ external def foo_co[a: +* -> *](i: Integer, b: a) -> String
 
   test("we can parse any package") {
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """
 # we can comment the package
 package Foo/Bar
@@ -2154,11 +2154,11 @@ foo = 1
 """
     )
 
-    val pp = Package.parser(None).map { pack =>
+    val pp = Package.parser.map { pack =>
       pack.copy(program = pack.program.map(_.replaceRegions(emptyRegion)))
     }
     roundTripExact(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 enum Res[a, b]: Err(a: a), Good(a: a, b: b)
@@ -2218,7 +2218,7 @@ z = (
     )
 
     expectFail(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 from Baz import a, , b
 
@@ -2228,7 +2228,7 @@ x = 1
     )
 
     expectFail(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 export x, , y
 
@@ -2238,7 +2238,7 @@ x = 1
     )
 
     expectFail(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 export x, ,
 
@@ -2247,7 +2247,7 @@ x = 1
       22
     )
     expectFail(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = Foo(bar if bar)
@@ -2256,7 +2256,7 @@ x = Foo(bar if bar)
     )
 
     expectFail(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 z = [x for x in xs if x < y else ]
@@ -2267,7 +2267,7 @@ z = [x for x in xs if x < y else ]
 
   test("using parens to make blocks") {
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = (
@@ -2279,7 +2279,7 @@ x = (
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = (
@@ -2292,7 +2292,7 @@ x = (
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = (
@@ -2305,7 +2305,7 @@ x = (
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = (
@@ -2319,7 +2319,7 @@ x = (
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = (
@@ -2335,7 +2335,7 @@ x = (
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = ( y = 3
@@ -2349,7 +2349,7 @@ y
   test("lambdas can have new lines") {
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = z ->
@@ -2359,7 +2359,7 @@ x = z ->
     )
 
     roundTrip(
-      Package.parser(None),
+      Package.parser,
       """package Foo
 
 x = z ->
@@ -2372,7 +2372,7 @@ x = z ->
 
   test("commenting out line patterns (issue 1635)") {
     def parses(src: String): Boolean =
-      Package.parser(None).parseAll(src).isRight
+      Package.parser.parseAll(src).isRight
 
     val cases = List(
       (

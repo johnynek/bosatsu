@@ -142,6 +142,75 @@ class ToolAndLibCommandTest extends FunSuite {
     }.toSet
   }
 
+  private def isSourcePath(path: Chain[String]): Boolean =
+    path.lastOption match {
+      case Some(name) =>
+        !name.contains(".") || name.endsWith(".bosatsu")
+      case None       =>
+        false
+    }
+
+  private def sourceParts(path: Chain[String]): List[String] =
+    path.toList match {
+      case Nil => Nil
+      case init :+ last if last.endsWith(".bosatsu") =>
+        init :+ last.stripSuffix(".bosatsu")
+      case parts => parts
+    }
+
+  private def hasExplicitPackage(src: String): Boolean =
+    src.linesIterator.exists(_.trim.startsWith("package "))
+
+  private def normalizePackagePart(part: String): String =
+    part.headOption match {
+      case Some(head) if head.isLower => s"${head.toUpper}${part.substring(1)}"
+      case _                          => part
+    }
+
+  private def inferredPackage(path: Chain[String]): Option[PackageName] = {
+    val parts = sourceParts(path)
+    if (parts.isEmpty) None
+    else {
+      def startsUpper(part: String): Boolean =
+        part.headOption.exists(_.isUpper)
+
+      val tails = parts.tails.collect { case h :: t => h :: t }.toList
+      val chosen = tails.find(_.forall(startsUpper)).getOrElse(parts)
+      val raw = chosen.mkString("/")
+
+      PackageName.parse(raw).orElse {
+        val normalized = chosen.map(normalizePackagePart).mkString("/")
+        PackageName.parse(normalized)
+      }
+    }
+  }
+
+  private def withExplicitPackage(path: Chain[String], src: String): String =
+    if (!isSourcePath(path) || hasExplicitPackage(src)) src
+    else {
+      inferredPackage(path) match {
+        case Some(pkg) => s"package ${pkg.asString}\n\n$src"
+        case None      => src
+      }
+    }
+
+  private def normalizeFiles(
+      files: List[(Chain[String], String)]
+  ): List[(Chain[String], String)] =
+    files.map { case (path, src) =>
+      (path, withExplicitPackage(path, src))
+    }
+
+  private def runWithFiles(
+      files: List[(Chain[String], String)]
+  )(cmd: List[String]): ErrorOr[Output[Chain[String]]] =
+    module.runWith(normalizeFiles(files))(cmd)
+
+  private def stateFromFiles(
+      files: List[(Chain[String], String)]
+  ): ErrorOr[MemoryMain.State] =
+    MemoryMain.State.from[ErrorOr](normalizeFiles(files))
+
   private def casPathFor(
       repoRoot: Chain[String],
       lib: Hashed[Algo.Blake3, proto.Library]
@@ -171,13 +240,11 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -262,13 +329,11 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep_a",
           "--input",
           "dep_a/DepA/Foo.bosatsu",
           "--output",
@@ -297,8 +362,6 @@ class ToolAndLibCommandTest extends FunSuite {
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep_b",
           "--input",
           "dep_b/DepB/Foo.bosatsu",
           "--output",
@@ -770,7 +833,7 @@ class ToolAndLibCommandTest extends FunSuite {
         "--json"
       ) ::: (if (noOpt) List("--no-opt") else Nil)
 
-    module.runWith(files)(cmd) match {
+    runWithFiles(files)(cmd) match {
       case Right(Output.JsonOutput(json, _)) =>
         json.render.length
       case Right(other) =>
@@ -896,13 +959,11 @@ class ToolAndLibCommandTest extends FunSuite {
       baseLibFiles(appSrc) :+ (Chain("dep", "Dep", "Util.bosatsu") -> depSrc)
 
     for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Util.bosatsu",
           "--output",
@@ -976,13 +1037,11 @@ class ToolAndLibCommandTest extends FunSuite {
     val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "src",
           "--input",
           "src/Tool/Foo.bosatsu",
           "--output",
@@ -1044,7 +1103,7 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "eval", "--repo_root", "repo", "--main", "MyLib/Foo")
     ) match {
       case Right(Output.EvaluationResult(_, _, _)) => ()
@@ -1052,7 +1111,7 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err)    => fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "json", "write", "--repo_root", "repo", "--main", "MyLib/Foo")
     ) match {
       case Right(Output.JsonOutput(Json.JNumberStr("42"), _)) => ()
@@ -1060,7 +1119,7 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err)    => fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
@@ -1069,7 +1128,7 @@ class ToolAndLibCommandTest extends FunSuite {
       case Left(err)    => fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1095,7 +1154,7 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1120,7 +1179,7 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1164,7 +1223,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("repo", "src", "MyLib", "ReproMinEval.bosatsu") -> unrelatedBrokenSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "eval",
@@ -1205,7 +1264,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("repo", "src", "MyLib", "ReproMinShow.bosatsu") -> unrelatedBrokenSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1232,7 +1291,7 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "show", "--repo_root", "repo", "--package", "euler1")
     ) match {
       case Left(err) =>
@@ -1254,7 +1313,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
@@ -1286,7 +1345,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
@@ -1323,7 +1382,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1353,7 +1412,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1385,7 +1444,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1402,7 +1461,7 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"expected optimized show to omit helper, found: $other")
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1478,7 +1537,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1514,7 +1573,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1546,7 +1605,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -1598,7 +1657,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("src", "App", "Bar.bosatsu") -> barSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "show",
@@ -1650,7 +1709,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("src", "App", "Regular.bosatsu") -> regularSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "show",
@@ -1699,7 +1758,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("src", "App", "Bar.bosatsu") -> barSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "show",
@@ -1731,7 +1790,7 @@ class ToolAndLibCommandTest extends FunSuite {
       Chain("src", "App", "Foo.bosatsu") -> src
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "show",
@@ -1762,7 +1821,7 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "eval",
@@ -1857,7 +1916,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -1889,14 +1948,12 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "eval",
         "--main",
         "Tool/Foo::missing",
-        "--package_root",
-        "src",
         "--input",
         "src/Tool/Foo.bosatsu"
       )
@@ -1941,7 +1998,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "tool",
@@ -1949,8 +2006,6 @@ class ToolAndLibCommandTest extends FunSuite {
           "--run",
           "--main",
           "Tool/Foo",
-          "--package_root",
-          "src",
           "--input",
           "src/Bosatsu/Prog.bosatsu",
           "--input",
@@ -1994,7 +2049,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "tool",
@@ -2002,8 +2057,6 @@ class ToolAndLibCommandTest extends FunSuite {
           "--run",
           "--main",
           "Tool/Foo",
-          "--package_root",
-          "src",
           "--input",
           "src/Bosatsu/Prog.bosatsu",
           "--input",
@@ -2033,14 +2086,12 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "eval",
         "--main",
         "Tool/Foo",
-        "--package_root",
-        "src",
         "--input",
         "src/Tool/Foo.bosatsu",
         "--",
@@ -2074,7 +2125,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "tool",
@@ -2082,8 +2133,6 @@ class ToolAndLibCommandTest extends FunSuite {
           "--run",
           "--main",
           "Tool/ObserveMain",
-          "--package_root",
-          "src",
           "--input",
           "src/Bosatsu/Prog.bosatsu",
           "--input",
@@ -2209,7 +2258,7 @@ class ToolAndLibCommandTest extends FunSuite {
 
     val result = withSystemStdin("alpha\nbeta\ngamma") {
       for {
-        s0 <- MemoryMain.State.from[ErrorOr](files)
+        s0 <- stateFromFiles(files)
         s1 <- runWithStateAndExit(
           List(
             "tool",
@@ -2217,8 +2266,6 @@ class ToolAndLibCommandTest extends FunSuite {
             "--run",
             "--main",
             "Tool/StdinEcho",
-            "--package_root",
-            "src",
             "--input",
             "src/Bosatsu/Prog.bosatsu",
             "--input",
@@ -2276,7 +2323,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "tool",
@@ -2284,8 +2331,6 @@ class ToolAndLibCommandTest extends FunSuite {
           "--run",
           "--main",
           "Tool/Foo",
-          "--package_root",
-          "src",
           "--input",
           "src/Bosatsu/Prog.bosatsu",
           "--input",
@@ -2340,7 +2385,7 @@ class ToolAndLibCommandTest extends FunSuite {
       )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2386,7 +2431,7 @@ class ToolAndLibCommandTest extends FunSuite {
       )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2422,7 +2467,7 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "eval",
@@ -2459,7 +2504,7 @@ class ToolAndLibCommandTest extends FunSuite {
       )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2589,7 +2634,7 @@ class ToolAndLibCommandTest extends FunSuite {
 
     val result = withSystemStdin("alpha\nbeta\ngamma") {
       for {
-        s0 <- MemoryMain.State.from[ErrorOr](files)
+        s0 <- stateFromFiles(files)
         s1 <- runWithStateAndExit(
           List(
             "lib",
@@ -2707,7 +2752,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2773,7 +2818,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2847,7 +2892,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
           "lib",
@@ -2881,15 +2926,13 @@ class ToolAndLibCommandTest extends FunSuite {
 """
     val files = List(Chain("src", "Tool", "Foo.bosatsu") -> src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "eval",
         "--run",
         "--main",
         "Tool/Foo",
-        "--package_root",
-        "src",
         "--input",
         "src/Tool/Foo.bosatsu"
       )
@@ -2911,7 +2954,7 @@ main = 42
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "eval",
@@ -2938,7 +2981,7 @@ main = 42
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -2991,13 +3034,11 @@ dep_main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Util.bosatsu",
           "--output",
@@ -3010,8 +3051,6 @@ dep_main = depBox
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/App/Main.bosatsu",
           "--include",
@@ -3088,13 +3127,11 @@ dep_main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Util.bosatsu",
           "--output",
@@ -3125,8 +3162,6 @@ dep_main = depBox
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/App/Main.bosatsu",
           "--pub_dep",
@@ -3180,13 +3215,11 @@ dep_main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Util.bosatsu",
           "--output",
@@ -3215,8 +3248,6 @@ dep_main = depBox
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/App/Main.bosatsu",
           "--pub_dep",
@@ -3256,7 +3287,7 @@ mk = (x) -> Thing(x)
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "doc",
@@ -3280,7 +3311,7 @@ mk = (x) -> Thing(x)
     }
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -3333,7 +3364,7 @@ mk = (x) -> Thing(x)
     val files = baseLibFiles(src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -3578,13 +3609,11 @@ mode = Auto
     val files = List(Chain("src", "EnumDocs", "Main.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/EnumDocs/Main.bosatsu",
           "--outdir",
@@ -3616,13 +3645,11 @@ build = (a, b, c, d, e, f, g, h, i, j, k) -> Massive(a, b, c, d, e, f, g, h, i, 
     val files = List(Chain("src", "Wrap", "Main.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/Wrap/Main.bosatsu",
           "--outdir",
@@ -3652,13 +3679,11 @@ external def apply_default[a](default: Unit -> a) -> a
     val files = List(Chain("src", "UnitFn", "Main.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/UnitFn/Main.bosatsu",
           "--outdir",
@@ -3689,13 +3714,11 @@ external def concat_all_Array(arrays: List[Dict[String, Int]]) -> List[Dict[Stri
     val files = List(Chain("src", "Refs", "Main.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/Refs/Main.bosatsu",
           "--outdir",
@@ -3728,13 +3751,11 @@ main = 1
     val files = List(Chain("src", "Simple", "Main.bosatsu") -> src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "doc",
-          "--package_root",
-          "src",
           "--input",
           "src/Simple/Main.bosatsu",
           "--outdir",
@@ -3865,7 +3886,7 @@ main = 1
     val files = baseLibFiles(src)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -3948,7 +3969,7 @@ main = 1
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -4021,13 +4042,11 @@ main = 1
     val files = List(Chain("dep", "Dep", "Foo.bosatsu") -> depSrc)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -4103,13 +4122,11 @@ main = depValue
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -4150,8 +4167,6 @@ main = depValue
         List(
           "tool",
           "check",
-          "--package_root",
-          "app",
           "--input",
           "app/App/Main.bosatsu",
           "--output",
@@ -4240,13 +4255,11 @@ main = depValue
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "deps",
-          "--package_root",
-          "src",
           "--input",
           "src/Zed/Main.bosatsu",
           "--input",
@@ -4269,8 +4282,6 @@ main = depValue
         List(
           "tool",
           "deps",
-          "--package_root",
-          "src",
           "--input",
           "src/Zed/Main.bosatsu",
           "--input",
@@ -4360,13 +4371,11 @@ y = x
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "deps",
-          "--package_root",
-          "src",
           "--input",
           "src/QA/A.bosatsu",
           "--input",
@@ -4434,13 +4443,11 @@ main = depValue
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -4469,8 +4476,6 @@ main = depValue
         List(
           "tool",
           "check",
-          "--package_root",
-          "app_v1",
           "--input",
           "app_v1/App/Main.bosatsu",
           "--pub_dep",
@@ -4507,8 +4512,6 @@ main = depValue
         List(
           "tool",
           "check",
-          "--package_root",
-          "app_v2",
           "--input",
           "app_v2/App/Main.bosatsu",
           "--output",
@@ -4573,13 +4576,11 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -4608,8 +4609,6 @@ main = depBox
         List(
           "tool",
           "check",
-          "--package_root",
-          "app",
           "--input",
           "app/App/Main.bosatsu",
           "--pub_dep",
@@ -4699,13 +4698,11 @@ main = depBox
       Chain("in.json") -> "[123]"
     )
 
-    val applyFromPath = module.runWith(applyFiles)(
+    val applyFromPath = runWithFiles(applyFiles)(
       List(
         "tool",
         "json",
         "apply",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4723,15 +4720,13 @@ main = depBox
     val wrongAritySrc =
       """main = (x, y) -> x.add(y)
 """
-    val wrongArity = module.runWith(
+    val wrongArity = runWithFiles(
       List(Chain("src", "Json", "Foo.bosatsu") -> wrongAritySrc)
     )(
       List(
         "tool",
         "json",
         "apply",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4759,13 +4754,11 @@ main = depBox
 """
     val files = List(Chain("src", "Json", "Foo.bosatsu") -> src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "json",
         "traverse",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4789,13 +4782,11 @@ main = depBox
 """
     val files = List(Chain("src", "Json", "Foo.bosatsu") -> src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "json",
         "traverse",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4831,13 +4822,11 @@ main = depBox
     val writeFiles = List(Chain("src", "Json", "Foo.bosatsu") -> writeSrc)
     val fnFiles = List(Chain("src", "Json", "Foo.bosatsu") -> fnSrc)
 
-    module.runWith(writeFiles)(
+    runWithFiles(writeFiles)(
       List(
         "tool",
         "json",
         "write",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4853,13 +4842,11 @@ main = depBox
         fail(err.getMessage)
     }
 
-    module.runWith(fnFiles)(
+    runWithFiles(fnFiles)(
       List(
         "tool",
         "json",
         "apply",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4877,13 +4864,11 @@ main = depBox
         fail(err.getMessage)
     }
 
-    module.runWith(fnFiles)(
+    runWithFiles(fnFiles)(
       List(
         "tool",
         "json",
         "traverse",
-        "--package_root",
-        "src",
         "--input",
         "src/Json/Foo.bosatsu",
         "--main",
@@ -4903,7 +4888,7 @@ main = depBox
   }
 
   test("tool check without inputs reports a cli error") {
-    module.runWith(Nil)(List("tool", "check")) match {
+    runWithFiles(Nil)(List("tool", "check")) match {
       case Right(out) =>
         fail(s"expected no-input check failure, got: $out")
       case Left(err) =>
@@ -4927,7 +4912,7 @@ main = depBox
       Chain("tmp", "UnknownImport.bosatsu") -> src
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "check",
@@ -4957,7 +4942,7 @@ main = depBox
           msg
         )
         assert(msg.contains("--input/--input_dir"), msg)
-        assert(msg.contains("--package_root"), msg)
+        assert(!msg.contains("--package_root"), msg)
         assert(msg.contains("--pub_dep/--priv_dep"), msg)
     }
   }
@@ -4980,14 +4965,12 @@ main = depBox
       Chain("src", "QA", "UnknownImport.bosatsu") -> appSrc
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "check",
         "--color",
         "none",
-        "--package_root",
-        "src",
         "--input",
         "src/Foo/Baz.bosatsu",
         "--input",
@@ -5022,14 +5005,12 @@ main = depBox
       Chain("src", "QA", "Bleed.bosatsu") -> src
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "check",
         "--color",
         "none",
-        "--package_root",
-        "src",
         "--input",
         "src/QA/Bleed.bosatsu"
       )
@@ -5064,12 +5045,10 @@ main = depBox
       Chain("src", "Todo", "Foo.bosatsu") -> src
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "check",
-        "--package_root",
-        "src",
         "--input",
         "src/Todo/Foo.bosatsu"
       )
@@ -5079,12 +5058,10 @@ main = depBox
       case Left(err)                         => fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "tool",
         "show",
-        "--package_root",
-        "src",
         "--input",
         "src/Todo/Foo.bosatsu",
         "--value",
@@ -5118,8 +5095,6 @@ main = depBox
     val cmd = List(
       "tool",
       "check",
-      "--package_root",
-      "src",
       "--input",
       "src/Cache/Dep.bosatsu",
       "--input",
@@ -5129,7 +5104,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, out1) = s1
       s2 <- runWithState(cmd, state1)
@@ -5188,8 +5163,6 @@ main = depBox
     val cmd = List(
       "tool",
       "check",
-      "--package_root",
-      "src",
       "--input",
       "src/Cache/Dep.bosatsu",
       "--input",
@@ -5199,7 +5172,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, _) = s1
       stateWithComments <- state1
@@ -5245,8 +5218,6 @@ main = depBox
     val cmd = List(
       "tool",
       "check",
-      "--package_root",
-      "src",
       "--input",
       "src/Cache/Dep.bosatsu",
       "--input",
@@ -5256,7 +5227,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, _) = s1
       stateWithDepChange <- state1
@@ -5299,14 +5270,12 @@ main = depBox
     val cmd = List(
       "tool",
       "check",
-      "--package_root",
-      "src",
       "--input",
       "src/Cache/Foo.bosatsu"
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, _) = s1
     } yield state1
@@ -5331,7 +5300,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, out1) = s1
       s2 <- runWithState(cmd, state1)
@@ -5368,7 +5337,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, out1) = s1
       s2 <- runWithState(cmd, state1)
@@ -5405,7 +5374,7 @@ main = depBox
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(cmd, s0)
       (state1, _) = s1
     } yield state1
@@ -5443,7 +5412,7 @@ main = depBox
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -5513,7 +5482,7 @@ main = depBox
 """
     val files = baseLibFiles(src) :+ (Chain("repo", "in.json") -> "[41]")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5531,7 +5500,7 @@ main = depBox
       case Left(err)    => fail(err.getMessage)
     }
 
-    val applyWrongArity = module.runWith(files)(
+    val applyWrongArity = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5552,7 +5521,7 @@ main = depBox
         assert(msg.contains("required a json array of size 1"), msg)
     }
 
-    val applyInvalidData = module.runWith(files)(
+    val applyInvalidData = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5573,7 +5542,7 @@ main = depBox
         assert(msg.contains("invalid input json"), msg)
     }
 
-    val applyParseError = module.runWith(files)(
+    val applyParseError = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5594,7 +5563,7 @@ main = depBox
         assert(msg.contains("could not parse a JSON record at 1"), msg)
     }
 
-    val traverseInvalidData = module.runWith(files)(
+    val traverseInvalidData = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5615,7 +5584,7 @@ main = depBox
         assert(msg.contains("invalid input json"), msg)
     }
 
-    val traverseWrongArity = module.runWith(files)(
+    val traverseWrongArity = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5636,7 +5605,7 @@ main = depBox
         assert(msg.contains("required a json array of size 1"), msg)
     }
 
-    val traverseNonArray = module.runWith(files)(
+    val traverseNonArray = runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5668,7 +5637,7 @@ main = depBox
     val writeFiles = baseLibFiles(writeSrc)
     val fnFiles = baseLibFiles(fnSrc)
 
-    module.runWith(writeFiles)(
+    runWithFiles(writeFiles)(
       List(
         "lib",
         "json",
@@ -5688,7 +5657,7 @@ main = depBox
         fail(err.getMessage)
     }
 
-    module.runWith(fnFiles)(
+    runWithFiles(fnFiles)(
       List(
         "lib",
         "json",
@@ -5710,7 +5679,7 @@ main = depBox
         fail(err.getMessage)
     }
 
-    module.runWith(fnFiles)(
+    runWithFiles(fnFiles)(
       List(
         "lib",
         "json",
@@ -5739,7 +5708,7 @@ main = depBox
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5767,7 +5736,7 @@ main = depBox
 """
     val charFiles = baseLibFiles(charSrc)
 
-    module.runWith(charFiles)(
+    runWithFiles(charFiles)(
       List(
         "lib",
         "json",
@@ -5804,7 +5773,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
     )
 
-    module.runWith(arrayFiles)(
+    runWithFiles(arrayFiles)(
       List(
         "lib",
         "json",
@@ -5850,7 +5819,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
     )
 
-    module.runWith(bytesFiles)(
+    runWithFiles(bytesFiles)(
       List(
         "lib",
         "json",
@@ -5905,7 +5874,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 |""".stripMargin
     val files = withBosatsuJsonModule(baseLibFiles(src))
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5932,7 +5901,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5960,7 +5929,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -5986,7 +5955,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 |""".stripMargin
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6007,7 +5976,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6043,7 +6012,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 |""".stripMargin
     val files = withBosatsuJsonModule(baseLibFiles(src))
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6062,7 +6031,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6086,7 +6055,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6119,7 +6088,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 |""".stripMargin
     val files = withBosatsuJsonModule(baseLibFiles(src))
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6137,7 +6106,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6157,7 +6126,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6184,7 +6153,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 """
     val charFnFiles = baseLibFiles(charFnSrc)
 
-    module.runWith(charFnFiles)(
+    runWithFiles(charFnFiles)(
       List(
         "lib",
         "json",
@@ -6208,7 +6177,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    val charInvalid = module.runWith(charFnFiles)(
+    val charInvalid = runWithFiles(charFnFiles)(
       List(
         "lib",
         "json",
@@ -6247,7 +6216,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
     )
 
-    module.runWith(arrayFnFiles)(
+    runWithFiles(arrayFnFiles)(
       List(
         "lib",
         "json",
@@ -6286,7 +6255,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") -> bytesPkgSrc
     )
 
-    module.runWith(bytesFnFiles)(
+    runWithFiles(bytesFnFiles)(
       List(
         "lib",
         "json",
@@ -6316,7 +6285,7 @@ external def size_Array[a](ary: Array[a]) -> Int
         fail(err.getMessage)
     }
 
-    val bytesInvalid = module.runWith(bytesFnFiles)(
+    val bytesInvalid = runWithFiles(bytesFnFiles)(
       List(
         "lib",
         "json",
@@ -6341,7 +6310,7 @@ external def size_Array[a](ary: Array[a]) -> Int
   test("lib json write reports unknown package clearly") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6364,7 +6333,7 @@ external def size_Array[a](ary: Array[a]) -> Int
   test("lib show reports unknown package clearly") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "show",
@@ -6387,7 +6356,7 @@ external def size_Array[a](ary: Array[a]) -> Int
   test("lib json write reports missing value in a known package") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6419,7 +6388,7 @@ main = 0
 """
     val files = baseLibFiles(src)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "json",
@@ -6453,7 +6422,7 @@ main = 0
       .copy(previous = Some(previousDesc))
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
-    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected missing-previous failure, got: $out")
       case Left(err) =>
@@ -6465,13 +6434,13 @@ main = 0
   test("lib check accepts todo but lib show rejects it") {
     val files = baseLibFiles("main = todo(1)\n")
 
-    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
       case Right(Output.Basic(_, _)) => ()
       case Right(other)              => fail(s"unexpected output: $other")
       case Left(err)                 => fail(err.getMessage)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(out) =>
@@ -6489,7 +6458,7 @@ main = 0
     )
 
     val result = for {
-      state0 <- MemoryMain.State.from[ErrorOr](files)
+      state0 <- stateFromFiles(files)
       stateAndExit <- runAndReportWithState(
         List("lib", "check", "--color", "none", "--repo_root", "repo"),
         state0
@@ -6526,7 +6495,7 @@ main = 0
     )
 
     val result = for {
-      state0 <- MemoryMain.State.from[ErrorOr](files)
+      state0 <- stateFromFiles(files)
       stateAndExit <- runAndReportWithState(
         List("lib", "check", "--color", "none", "--repo_root", "repo"),
         state0
@@ -6553,7 +6522,7 @@ main = 0
   test("lib fetch reports total fetched objects by default") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(List("lib", "fetch", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "fetch", "--repo_root", "repo")) match {
       case Right(Output.Basic(doc, None)) =>
         val rendered = doc.render(120)
         assert(rendered.contains("fetched 0 objects."), rendered)
@@ -6567,7 +6536,7 @@ main = 0
   test("lib fetch --quiet suppresses successful output") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "fetch", "--repo_root", "repo", "--quiet")
     ) match {
       case Right(Output.Basic(doc, None)) =>
@@ -6699,7 +6668,7 @@ main = 0
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -6745,7 +6714,7 @@ main = 0
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -6793,7 +6762,7 @@ main = 0
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -6836,7 +6805,7 @@ main = 0
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -6909,7 +6878,7 @@ main = 0
       .copy(previous = Some(previousDesc))
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
-    module.runWith(files)(List("lib", "fetch", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "fetch", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected previous fetch failure, got: $out")
       case Left(err) =>
@@ -6924,7 +6893,7 @@ main = 0
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -6976,7 +6945,7 @@ main = 0
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -7018,7 +6987,7 @@ main = 0
   test("lib build without --main_pack reports missing main") {
     val files = baseLibFiles("main = 1\n")
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "build", "--repo_root", "repo", "--outdir", "out")
     ) match {
       case Right(out) =>
@@ -7067,13 +7036,11 @@ main = 0
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "tool",
           "check",
-          "--package_root",
-          "dep",
           "--input",
           "dep/Dep/Foo.bosatsu",
           "--output",
@@ -7194,7 +7161,7 @@ main = 0
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
           "lib",
@@ -7261,7 +7228,7 @@ main = 0
         Chain(".", ".git", "HEAD") -> "ref: refs/heads/main\n"
       )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List("lib", "test", "--repo_root", "repo")
     ) match {
       case Right(out) =>
@@ -7289,7 +7256,7 @@ main = 0
 """
     val files = baseLibFiles(targetSrc)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7372,7 +7339,7 @@ main = 0
       Chain("repo", "cc_conf.json") -> ccConfJson
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7426,7 +7393,7 @@ main = 0
       Chain("repo", "cc_conf.json") -> ccConfJson
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7467,7 +7434,7 @@ main = 0
     val files =
       baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7507,7 +7474,7 @@ main = 0
     val files =
       baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7547,7 +7514,7 @@ main = 0
     val files =
       baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7586,7 +7553,7 @@ main = 0
     val files =
       baseLibFiles(targetSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7637,7 +7604,7 @@ main = 0
       Chain("repo", "cc_conf.json") -> ccConfJson
     )
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "test",
@@ -7678,7 +7645,7 @@ main = 0
       Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc
     )
 
-    module.runWith(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected unfiltered check failure, got: $out")
       case Left(err) =>
@@ -7686,7 +7653,7 @@ main = 0
         assert(msg.contains("does_not_exist"), msg)
     }
 
-    module.runWith(files)(
+    runWithFiles(files)(
       List(
         "lib",
         "check",
@@ -7727,15 +7694,13 @@ main = 0
 |])
 |""".stripMargin
 
-    module.runWith(List(Chain("Package0") -> src))(
+    runWithFiles(List(Chain("Package0") -> src))(
       List(
         "tool",
         "test",
         "--quiet",
         "--test_package",
         "Package0",
-        "--package_root",
-        "",
         "--input",
         "Package0"
       )
@@ -7760,14 +7725,12 @@ main = 0
       "test",
       "--test_package",
       "Package0",
-      "--package_root",
-      "",
       "--input",
       "Package0"
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](List(Chain("Package0") -> src))
+      s0 <- stateFromFiles(List(Chain("Package0") -> src))
       out <- runWithStateAndExit(cmd, s0)
     } yield out
 
@@ -7795,14 +7758,12 @@ main = 0
       "--quiet",
       "--test_package",
       "Package0",
-      "--package_root",
-      "",
       "--input",
       "Package0"
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](List(Chain("Package0") -> src))
+      s0 <- stateFromFiles(List(Chain("Package0") -> src))
       out <- runWithStateAndExit(cmd, s0)
     } yield out
 
@@ -7838,8 +7799,6 @@ main = 0
     val cmd = List(
       "tool",
       "test",
-      "--package_root",
-      "",
       "--input",
       "Bosatsu/Prog.bosatsu",
       "--input",
@@ -7847,7 +7806,7 @@ main = 0
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       out <- runWithStateAndExit(cmd, s0)
     } yield out
 
@@ -7884,15 +7843,13 @@ main = 0
     val cmd = List(
       "tool",
       "test",
-      "--package_root",
-      "",
       "--input",
       "Bosatsu/Prog.bosatsu",
       "--input",
       "App/BadOrder.bosatsu"
     )
 
-    module.runWith(files)(cmd) match {
+    runWithFiles(files)(cmd) match {
       case Right(out) =>
         fail(s"expected discovery error, got: $out")
       case Left(err)  =>
@@ -7936,8 +7893,6 @@ main = 0
     val cmd = List(
       "tool",
       "test",
-      "--package_root",
-      "",
       "--input",
       "Bosatsu/Prog.bosatsu",
       "--input",
@@ -7945,7 +7900,7 @@ main = 0
     )
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](files)
+      s0 <- stateFromFiles(files)
       out <- runWithStateAndExit(cmd, s0)
     } yield out
 
@@ -7991,7 +7946,7 @@ main = 0
     val out = Output.Many(Chain(first, second))
 
     val result = for {
-      s0 <- MemoryMain.State.from[ErrorOr](Nil)
+      s0 <- stateFromFiles(Nil)
       s1 <- module.reportOutput(out).run(s0)
     } yield s1
 

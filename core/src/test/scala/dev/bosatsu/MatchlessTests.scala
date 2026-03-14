@@ -297,6 +297,33 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def matchlessListOfInts(items: List[Int]): Matchless.Expr[Unit] =
+    Matchless.ListExpr.listOf(items.map(i => Matchless.Literal(Lit.fromInt(i))))
+
+  private def matchlessEvalResolveReverseOnly(
+      from: Unit,
+      pack: PackageName,
+      ident: Identifier
+  ): Eval[Value] =
+    (from, pack, ident) match {
+      case ((), PackageName.PredefName, Identifier.Name("reverse")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(list, Nil) =>
+              Value.VList.unapply(list) match {
+                case Some(items) =>
+                  Value.VList(items.reverse)
+                case None =>
+                  fail(s"expected list argument to reverse, got: $list")
+              }
+            case args =>
+              fail(s"unexpected reverse args: $args")
+          }
+        )
+      case _ =>
+        Eval.now(fail(s"unexpected global during Matchless eval: $pack.$ident"))
+    }
+
   private def collectProjectionIndices(
       expr: Matchless.Expr[Unit]
   )(
@@ -384,6 +411,225 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     loopExpr(expr)
     indices.toSet
+  }
+
+  private def whileEffectsContainIf(
+      expr: Matchless.Expr[Unit]
+  ): Boolean = {
+    def exprHasIf(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.If(_, _, _) =>
+          true
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(exprHasIf) || exprHasIf(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          boolHasIf(cond) || exprHasIf(effectExpr)
+        case Matchless.App(fn, args) =>
+          exprHasIf(fn) || args.exists(exprHasIf)
+        case Matchless.Let(_, value, in) =>
+          exprHasIf(value) || exprHasIf(in)
+        case Matchless.LetMut(_, in) =>
+          exprHasIf(in)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          exprHasIf(on) || cases.exists { case (_, branch) =>
+            exprHasIf(branch)
+          } || default.exists(exprHasIf)
+        case Matchless.Always(cond, thenExpr) =>
+          boolHasIf(cond) || exprHasIf(thenExpr)
+        case Matchless.PrevNat(of) =>
+          exprHasIf(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          false
+      }
+
+    def walkBool(
+        b: Matchless.BoolExpr[Unit]
+    )(
+        exprFn: Matchless.Expr[Unit] => Boolean,
+        boolFn: Matchless.BoolExpr[Unit] => Boolean
+    ): Boolean =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          exprFn(e)
+        case Matchless.LtEqLit(e, _) =>
+          exprFn(e)
+        case Matchless.EqualsNat(e, _) =>
+          exprFn(e)
+        case Matchless.And(l, r) =>
+          boolFn(l) || boolFn(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          exprFn(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          exprFn(e)
+        case Matchless.SetMut(_, e) =>
+          exprFn(e)
+        case Matchless.TrueConst =>
+          false
+        case Matchless.LetBool(_, value, in) =>
+          exprFn(value) || boolFn(in)
+        case Matchless.LetMutBool(_, in) =>
+          boolFn(in)
+      }
+
+    def loopBool(b: Matchless.BoolExpr[Unit]): Boolean =
+      walkBool(b)(loopExpr, loopBool)
+
+    def boolHasIf(b: Matchless.BoolExpr[Unit]): Boolean =
+      walkBool(b)(exprHasIf, boolHasIf)
+
+    def loopExpr(e: Matchless.Expr[Unit]): Boolean =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr) || loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          exprHasIf(effectExpr) || loopBool(cond) || loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) || args.exists(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) || loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) || cases.exists { case (_, branch) =>
+            loopExpr(branch)
+          } || default.exists(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) || loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          false
+      }
+
+    loopExpr(expr)
+  }
+
+  private val matchlessListFamArities = 0 :: 2 :: Nil
+
+  private def countWhileListVariantChecks(
+      expr: Matchless.Expr[Unit]
+  ): Int = {
+    def withinWhileExpr(e: Matchless.Expr[Unit]): Int =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.map(withinWhileExpr).sum + withinWhileExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          withinWhileBool(cond) + withinWhileExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          withinWhileExpr(fn) + args.toList.map(withinWhileExpr).sum
+        case Matchless.Let(_, value, in) =>
+          withinWhileExpr(value) + withinWhileExpr(in)
+        case Matchless.LetMut(_, in) =>
+          withinWhileExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          withinWhileBool(cond) + withinWhileExpr(thenExpr) + withinWhileExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          withinWhileExpr(on) +
+            cases.toList.map { case (_, branch) => withinWhileExpr(branch) }.sum +
+            default.toList.map(withinWhileExpr).sum
+        case Matchless.Always(cond, thenExpr) =>
+          withinWhileBool(cond) + withinWhileExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          withinWhileExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          withinWhileExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          withinWhileExpr(gs.arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
+            Matchless.SuccNat =>
+          0
+      }
+
+    def withinWhileBool(b: Matchless.BoolExpr[Unit]): Int =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          withinWhileExpr(e)
+        case Matchless.LtEqLit(e, _) =>
+          withinWhileExpr(e)
+        case Matchless.EqualsNat(e, _) =>
+          withinWhileExpr(e)
+        case Matchless.And(l, r) =>
+          withinWhileBool(l) + withinWhileBool(r)
+        case Matchless.CheckVariant(e, _, size, famArities) =>
+          withinWhileExpr(e) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
+                                else 0)
+        case Matchless.CheckVariantSet(e, _, size, famArities) =>
+          withinWhileExpr(e) + (if ((size == 2) && (famArities == matchlessListFamArities)) 1
+                                else 0)
+        case Matchless.SetMut(_, e) =>
+          withinWhileExpr(e)
+        case Matchless.TrueConst =>
+          0
+        case Matchless.LetBool(_, value, in) =>
+          withinWhileExpr(value) + withinWhileBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          withinWhileBool(in)
+      }
+
+    def findWhilesBool(b: Matchless.BoolExpr[Unit]): Int =
+      b match {
+        case Matchless.EqualsLit(e, _) =>
+          findWhiles(e)
+        case Matchless.LtEqLit(e, _) =>
+          findWhiles(e)
+        case Matchless.EqualsNat(e, _) =>
+          findWhiles(e)
+        case Matchless.And(l, r) =>
+          findWhilesBool(l) + findWhilesBool(r)
+        case Matchless.CheckVariant(e, _, _, _) =>
+          findWhiles(e)
+        case Matchless.CheckVariantSet(e, _, _, _) =>
+          findWhiles(e)
+        case Matchless.SetMut(_, e) =>
+          findWhiles(e)
+        case Matchless.TrueConst =>
+          0
+        case Matchless.LetBool(_, value, in) =>
+          findWhiles(value) + findWhilesBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          findWhilesBool(in)
+      }
+
+    def findWhiles(e: Matchless.Expr[Unit]): Int =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.map(findWhiles).sum + findWhiles(body)
+        case w @ Matchless.WhileExpr(_, _, _) =>
+          withinWhileExpr(w)
+        case Matchless.App(fn, args) =>
+          findWhiles(fn) + args.toList.map(findWhiles).sum
+        case Matchless.Let(_, value, in) =>
+          findWhiles(value) + findWhiles(in)
+        case Matchless.LetMut(_, in) =>
+          findWhiles(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          findWhilesBool(cond) + findWhiles(thenExpr) + findWhiles(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          findWhiles(on) +
+            cases.toList.map { case (_, branch) => findWhiles(branch) }.sum +
+            default.toList.map(findWhiles).sum
+        case Matchless.Always(cond, thenExpr) =>
+          findWhilesBool(cond) + findWhiles(thenExpr)
+        case Matchless.PrevNat(of) =>
+          findWhiles(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          findWhiles(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          findWhiles(gs.arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
+            Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
+            Matchless.SuccNat =>
+          0
+      }
+
+    findWhiles(expr)
   }
 
   private def leadingLetValuesBeforeDecision(
@@ -3305,6 +3551,152 @@ def pick(v):
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
     assertEquals(countStructConstructorApps(lowered, 2), 0)
+  }
+
+  test("exact trailing list suffix lowers without retry-if loop in WhileExpr") {
+    TestUtils.checkMatchless("""
+def suffix_exact(xs):
+  match xs:
+    case [*_, 2, 3]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("suffix_exact"))
+      assertEquals(whileEffectsContainIf(expr), false, expr.toString)
+    }
+  }
+
+  test("fixed-width middle list search keeps one list-spine check inside WhileExpr") {
+    TestUtils.checkMatchless("""
+def middle_window(xs):
+  match xs:
+    case [*_, 2, 3, *_]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("middle_window"))
+      assertEquals(countWhileListVariantChecks(expr), 1, expr.toString)
+    }
+  }
+
+  test("exact trailing list suffix preserves named prefix binding semantics") {
+    TestUtils.checkMatchless("""
+def suffix_prefix(xs):
+  match xs:
+    case [*prefix, 2, 3]: prefix
+    case _: xs
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("suffix_prefix"))
+      val evalExprs = Vector(
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 4 :: 2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+
+      val expected = Vector(
+        Value.VList(List(Value.VInt(1))),
+        Value.VList(List(Value.VInt(1), Value.VInt(4))),
+        Value.VList(Nil),
+        Value.VList(List(Value.VInt(2)))
+      )
+      assertEquals(evaluated, expected)
+    }
+  }
+
+  test("fixed-width middle list search preserves left-biased named prefix and suffix bindings") {
+    TestUtils.checkMatchless("""
+def middle_prefix(xs):
+  match xs:
+    case [*prefix, 2, 3, *_]: prefix
+    case _: xs
+
+def middle_suffix_named(xs):
+  match xs:
+    case [*_, 2, 3, *suffix]: suffix
+    case _: xs
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val prefixExpr = byName(Identifier.Name("middle_prefix"))
+      val suffixExpr = byName(Identifier.Name("middle_suffix_named"))
+      val prefixEvalExprs = Vector(
+        Matchless.App(
+          prefixExpr,
+          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+        ),
+        Matchless.App(prefixExpr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(prefixExpr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+      )
+      val suffixEvalExprs = Vector(
+        Matchless.App(
+          suffixExpr,
+          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+        ),
+        Matchless.App(suffixExpr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(suffixExpr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+      )
+      val prefixEvaluated =
+        MatchlessToValue
+          .traverse(prefixEvalExprs)(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+      val suffixEvaluated =
+        MatchlessToValue
+          .traverse(suffixEvalExprs)(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+
+      assertEquals(
+        prefixEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(9))),
+          Value.VList(Nil),
+          Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+        )
+      )
+      assertEquals(
+        suffixEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))),
+          Value.VList(Nil),
+          Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+        )
+      )
+    }
+  }
+
+  test("fixed-width middle list search with wildcard prefix binds suffix without reverse") {
+    TestUtils.checkMatchless("""
+def middle_suffix(xs):
+  match xs:
+    case [*_, 2, 3, *suffix]: suffix
+    case _: xs
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("middle_suffix"))
+      val evalExprs = Vector(
+        Matchless.App(
+          expr,
+          NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 3 :: 8 :: 2 :: 3 :: 7 :: Nil))
+        ),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 2 :: 4 :: 3 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      val expected = Vector(
+        Value.VList(List(Value.VInt(8), Value.VInt(2), Value.VInt(3), Value.VInt(7))),
+        Value.VList(Nil),
+        Value.VList(List(Value.VInt(5), Value.VInt(2), Value.VInt(4), Value.VInt(3)))
+      )
+      assertEquals(evaluated, expected)
+    }
   }
 
   test("ordered matcher visits simplified string patterns") {

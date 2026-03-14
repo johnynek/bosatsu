@@ -23,7 +23,7 @@ class PackageTest extends munit.FunSuite with ParTest {
     resolveThenInfer(ps, CompileOptions.Default)
 
   def parse(s: String): Package.Parsed =
-    Parser.unsafeParse(Package.parser(None), s)
+    Parser.unsafeParse(Package.parser, s)
 
   def parseUnit(ss: Iterable[String]) =
     resolveThenInfer(ss.map(parse(_)))

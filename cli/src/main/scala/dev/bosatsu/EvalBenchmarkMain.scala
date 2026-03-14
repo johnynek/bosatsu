@@ -169,7 +169,7 @@ object EvalBenchmarkMain extends IOApp {
   }
 
   private def compileBenchmarkEvaluation(): Either[String, Evaluation[Declaration]] = {
-    val parsed = Parser.unsafeParse(Package.parser(None), benchmarkSource)
+    val parsed = Parser.unsafeParse(Package.parser, benchmarkSource)
     val locMap = LocationMap(benchmarkSource)
 
     val result = Par.noParallelism {

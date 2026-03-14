@@ -43,7 +43,7 @@ print(f"validated {conf_path}")
 PY
 
 rm -rf c_out
-./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ c --outdir c_out --test --exe_out test_exe "${CC_FLAGS[@]}"
+./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe "${CC_FLAGS[@]}"
 ./c_out/test_exe
 
 rm -rf issue1642_repro
@@ -52,7 +52,7 @@ cat > issue1642_repro/Foo.bosatsu <<'EOS'
 package Foo
 test = Assertion(True, "foo")
 EOS
-./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu --package_root issue1642_repro c --outdir issue1642_repro/out --test --exe_out test_exe "${CC_FLAGS[@]}"
+./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe "${CC_FLAGS[@]}"
 issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
 grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
 grep -Eq '^    passed: .*1' issue1642_repro/output.txt
@@ -83,5 +83,5 @@ rm -f ./fib_bench_no_outdir
 ./fib_bench_no_outdir 10
 
 rm -rf c_out_prog_assoc
-./bosatsuj tool transpile --input test_workspace/ProgAssoc.bosatsu --input test_workspace/Loops.bosatsu --input test_workspace/Prog.bosatsu --package_root test_workspace/ c --outdir c_out_prog_assoc --test --filter ProgAssoc --exe_out test_exe "${CC_FLAGS[@]}"
+./bosatsuj tool transpile --input test_workspace/ProgAssoc.bosatsu --input test_workspace/Loops.bosatsu --input test_workspace/Prog.bosatsu c --outdir c_out_prog_assoc --test --filter ProgAssoc --exe_out test_exe "${CC_FLAGS[@]}"
 ./c_out_prog_assoc/test_exe

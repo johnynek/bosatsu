@@ -32,7 +32,7 @@ class ClangGenTest extends munit.ScalaCheckSuite {
       .withMaxDiscardRatio(10)
 
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
-    val pack = Parser.unsafeParse(Package.parser(None), src)
+    val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap

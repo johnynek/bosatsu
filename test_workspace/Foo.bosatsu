@@ -1,3 +1,5 @@
+package Foo
+
 export x,
 
 # testing an implicit package name
