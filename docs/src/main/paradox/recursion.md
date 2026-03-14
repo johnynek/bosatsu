@@ -64,17 +64,19 @@ At a high level:
    Wrapped recursive payloads (`Fi` contains `T` but `Fi != T`, such as
    `List[T]`) are intentionally rejected in this version.
 
-1. Bosatsu also accepts two narrow force forms when the wrapped local is
-   already proven smaller in the current branch for that recur-target
-   component:
+1. Bosatsu also accepts two trusted strict-child projections:
    1. `th()` (canonical `th(())`) when `th: () -> T`.
    1. `get_Lazy(l)` when callee resolves to trusted
       `Bosatsu/Lazy.get_Lazy` and `l: Lazy[T]`.
+   If the wrapper expression is already known equal to or smaller than the
+   current recur-target component, forcing it yields a smaller value.
+   This composes through intermediate `let` bindings and nested `match`
+   destructuring, so a recursive call can use fields extracted from the forced
+   result.
    This does not generalize to arbitrary wrappers or arbitrary `Lazy[T] -> T`
    helper functions.
    The same force recognizers also apply when `T` changes through polymorphic
-   recursion (for example `FreeF[a] -> FreeF[b]`) as long as the forced value
-   is still a branch-proven smaller local.
+   recursion (for example `FreeF[a] -> FreeF[b]`).
 
 1. With a tuple target (`recur (x0, x1, ..., xk)`), recursive calls must be
    lexicographically smaller in that target order.
@@ -96,6 +98,33 @@ source tags while preserving a clear trust boundary before optimization.
 
 Tuple targets are useful for nested-recursive definitions where one argument is
 allowed to reset or increase only after an earlier argument decreases.
+
+### Trusted Delayed Projections
+The checker treats thunk forcing and trusted `Lazy` forcing as exposing a
+strictly smaller child value. This lets structural recursion continue through
+delayed nodes without manually reshaping the data first.
+
+```bosatsu
+enum Stream[a]:
+  End
+  More(next: () -> Stream[a])
+
+def consume(s: Stream[a]) -> Stream[a]:
+  recur s:
+    case End:
+      End
+    case More(th):
+      match th():
+        case End:
+          End
+        case More(next):
+          consume(next())
+```
+
+The same rule applies to trusted `Bosatsu/Lazy.get_Lazy` calls. In both cases,
+the projection can be bound in a `let`, matched immediately, or destructured
+further before the recursive call. Bosatsu does not extend this trust to
+arbitrary helper functions, even if they have the same type.
 
 ## The `loop` Form
 `loop` has the same termination checks as `recur`, and adds one extra
