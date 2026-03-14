@@ -3,6 +3,9 @@
 This directory contains a machine-checked Lean proof for a `RunEval` / `RunStack`
 interpreter that does **not** take a fuel argument.
 
+It also contains a small proof that extending structural descent with trusted
+thunk/Lazy force steps preserves well-foundedness (`TrustedForceProjection`).
+
 The proof uses a minimal sound extension: each continuation frame carries a static
 output-work bound (`BFn α β wOut wFn` with `wOut < wFn`).
 
