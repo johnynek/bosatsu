@@ -54,6 +54,10 @@
     utf8_bytes_to_String: ProgExt.utf8_bytes_to_String,
     utf8_Char_at: ProgExt.utf8_Char_at
   },
+  Bosatsu/Num/Float64: {
+    float32_bits_to_Float64: ProgExt.float32_bits_to_Float64,
+    float64_to_float32_bits: ProgExt.float64_to_float32_bits
+  },
   Bosatsu/Lazy: {
     lazy: ProgExt.lazy,
     get_Lazy: ProgExt.get_Lazy

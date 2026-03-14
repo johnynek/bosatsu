@@ -305,6 +305,7 @@ lazy val cli = (project in file("cli"))
         "us.bpsm" % "edn-java" % "0.7.1" % Test,
         jacksonYaml.value % Test,
         jython.value % Test,
+        protobufJava.value,
         munit.value % Test,
         munitScalaCheck.value % Test
       ),

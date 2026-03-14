@@ -26,6 +26,10 @@ object Dependencies {
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.2.0")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
+  lazy val protobufJava =
+    Def.setting("com.google.protobuf" % "protobuf-java" % "3.25.8")
+  lazy val protobufJavaUtil =
+    Def.setting("com.google.protobuf" % "protobuf-java-util" % "3.25.8")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.19.0")
   lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.11")
