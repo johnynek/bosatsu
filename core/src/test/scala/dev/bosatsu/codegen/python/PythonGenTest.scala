@@ -48,7 +48,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
     val parsed =
       srcs.zipWithIndex.map { case (src, idx) =>
-        val pack = Parser.unsafeParse(Package.parser(None), src)
+        val pack = Parser.unsafeParse(Package.parser, src)
         ((s"test_$idx", LocationMap(src)), pack)
       }
     val nel = NonEmptyList.fromList(parsed).getOrElse(fail("expected sources"))

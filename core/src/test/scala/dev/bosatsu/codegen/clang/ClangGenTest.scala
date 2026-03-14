@@ -1194,8 +1194,8 @@ main = is_one
         |""".stripMargin
 
     val parsed = NonEmptyList.of(
-      (("float", LocationMap(floatPkg)), Parser.unsafeParse(Package.parser(None), floatPkg)),
-      (("test", LocationMap(src)), Parser.unsafeParse(Package.parser(None), src))
+      (("float", LocationMap(floatPkg)), Parser.unsafeParse(Package.parser, floatPkg)),
+      (("test", LocationMap(src)), Parser.unsafeParse(Package.parser, src))
     )
     val pm = Par.noParallelism {
       PackageMap

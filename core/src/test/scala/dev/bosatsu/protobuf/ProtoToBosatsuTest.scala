@@ -155,7 +155,7 @@ class ProtoToBosatsuTest extends munit.FunSuite {
         "Bosatsu/Proto/Wire.bosatsu" -> wireStub
       ) ++ generated.toList.map(g => g.outputFilePath -> g.content))
         .map { case (name, source) =>
-          val pack = Parser.unsafeParse(Package.parser(None), source)
+          val pack = Parser.unsafeParse(Package.parser, source)
           ((name, LocationMap(source)), pack)
         }
 
