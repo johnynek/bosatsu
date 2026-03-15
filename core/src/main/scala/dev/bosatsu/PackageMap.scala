@@ -782,8 +782,11 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
-    IorT
-      .fromIor[F](resolveAll(ps, ifs))
+    IorT(
+      summon[CanPromise[F]].compute {
+        resolveAll(ps, ifs)
+      }
+    )
       .flatMap(resolved => IorT(inferAll(resolved, compileOptions, cache, phases)))
       .value
 

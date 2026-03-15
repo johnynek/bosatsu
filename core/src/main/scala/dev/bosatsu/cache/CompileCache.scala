@@ -179,10 +179,15 @@ object CompileCache {
 
     override def dependencyHash(interface: Package.Interface): F[DepHash] = {
       statsUpdate { dependencyHashCalls.incrementAndGet(); () }
-      moduleIOMonad.fromTry(memoizedInterfaceHash(interface)).map { hash =>
-        interfaceByHashHex.putIfAbsent(hash.hex, interface)
-        hash
-      }
+      platformIO.canPromiseF
+        .compute {
+          memoizedInterfaceHash(interface)
+        }
+        .flatMap(moduleIOMonad.fromTry(_))
+        .map { hash =>
+          interfaceByHashHex.putIfAbsent(hash.hex, interface)
+          hash
+        }
     }
 
     private def keyPath(hash: HashValue[Algo.Blake3]): P =
@@ -219,7 +224,7 @@ object CompileCache {
         phaseIdentity: String
     ): F[Key] = {
       statsUpdate { keyGenCalls.incrementAndGet(); () }
-      moduleIOMonad.fromTry {
+      platformIO.canPromiseF.compute {
         val depInterfacesBuilder =
           SortedMap.newBuilder[PackageName, Package.Interface]
         val depHashIter = depInterfaceHashes.iterator
@@ -258,6 +263,7 @@ object CompileCache {
             Failure(err)
         }
       }
+      .flatMap(moduleIOMonad.fromTry(_))
     }
 
     def get(key: Key): F[Option[Package.Inferred]] = {

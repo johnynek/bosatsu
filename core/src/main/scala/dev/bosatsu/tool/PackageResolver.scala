@@ -36,17 +36,19 @@ sealed abstract class PackageResolver[IO[_], Path] {
   )(
       platformIO: PlatformIO[IO, Path]
   ): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{canPromiseF, moduleIOMonad}
     // we use IO(traverse) so we can accumulate all the errors in parallel easily
     // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
     // and use the composed applicative... too much work for the same result
     val headerParser = Package.headerParser <* P.anyChar.rep0
     paths
       .traverse { path =>
-        platformIO.readUtf8(path).map { str =>
-          PathParseError
-            .parseString(headerParser, path, str)
-            .map { case (_, pp) => (path, pp) }
+        platformIO.readUtf8(path).flatMap { str =>
+          canPromiseF.compute {
+            PathParseError
+              .parseString(headerParser, path, str)
+              .map { case (_, pp) => (path, pp) }
+          }
         }
       }
       .map(_.sequence)
