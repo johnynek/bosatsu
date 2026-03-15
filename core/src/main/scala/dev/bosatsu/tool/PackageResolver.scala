@@ -30,7 +30,6 @@ sealed abstract class PackageResolver[IO[_], Path] {
   ] = {
     import platformIO.{canPromiseF, moduleIOMonad}
     if (_included.nonEmpty) ()
-    val headerParser = Package.headerParser <* P.anyChar.rep0
     paths
       .traverse { path =>
         moduleIOMonad.attempt(platformIO.readBytes(path)).map {
@@ -39,7 +38,11 @@ sealed abstract class PackageResolver[IO[_], Path] {
           case Right(bytes) =>
             val source = new String(bytes, StandardCharsets.UTF_8)
             val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
-            PathParseError.parseString(headerParser, path, source).map {
+            PathParseError.parseString(
+              PackageResolver.headerParserIgnoreRest,
+              path,
+              source
+            ).map {
               case (lm, (packageName, imports, exports)) =>
                 PackageResolver.SourceFile(
                   path = path,
@@ -49,7 +52,7 @@ sealed abstract class PackageResolver[IO[_], Path] {
                   exports = exports,
                   sourceHash = rawHash,
                   loadParsed =
-                    canPromiseF.delay {
+                    canPromiseF.compute {
                       PathParseError
                         .parseString(Package.parser, path, source)
                         .map(_._2)
@@ -70,13 +73,12 @@ sealed abstract class PackageResolver[IO[_], Path] {
     // we use IO(traverse) so we can accumulate all the errors in parallel easily
     // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
     // and use the composed applicative... too much work for the same result
-    val headerParser = Package.headerParser <* P.anyChar.rep0
     paths
       .traverse { path =>
         platformIO.readUtf8(path).flatMap { str =>
           canPromiseF.compute {
             PathParseError
-              .parseString(headerParser, path, str)
+              .parseString(PackageResolver.headerParserIgnoreRest, path, str)
               .map { case (_, pp) => (path, pp) }
           }
         }
@@ -86,6 +88,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
 }
 
 object PackageResolver {
+  val headerParserIgnoreRest = Package.headerParser <* P.anyChar.rep0
+
   final case class SourceFile[IO[_], Path](
       path: Path,
       locationMap: LocationMap,
