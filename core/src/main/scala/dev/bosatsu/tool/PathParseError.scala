@@ -28,15 +28,20 @@ object PathParseError {
       path: Path,
       platformIO: PlatformIO[IO, Path]
   ): IO[ValidatedNel[PathParseError[Path], (LocationMap, A)]] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{canPromiseF, moduleIOMonad}
 
     platformIO
       .readUtf8(path)
       .attempt
-      .map {
-        case Right(str) => PathParseError.parseString(p, path, str)
+      .flatMap {
+        case Right(str) =>
+          canPromiseF.compute {
+            PathParseError.parseString(p, path, str)
+          }
         case Left(err)  =>
-          Validated.invalidNel(PathParseError.FileError(path, err))
+          moduleIOMonad.pure(
+            Validated.invalidNel(PathParseError.FileError(path, err))
+          )
       }
   }
 }
