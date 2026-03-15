@@ -2792,13 +2792,11 @@ object TypedExprRecursionCheck {
       getSt.flatMap {
         case InRecurBranch(inrec, _, _, _) =>
           withTemporaryRecurBranchProofs(in, _ => in) { proofs0 =>
-            val updated =
-              inrec.target.toList
-                .zip(proofs0.toList)
-                .map { case (targetItem, proof) =>
-                  extendProofWithExpr(inrec, targetItem, proof.without(name :: Nil), name, expr)
-                }
-            NonEmptyList.fromListUnsafe(updated)
+            inrec.target
+              .zip(proofs0)
+              .map { case (targetItem, proof) =>
+                extendProofWithExpr(inrec, targetItem, proof.without(name :: Nil), name, expr)
+              }
           }
         case _ =>
           in
@@ -2811,19 +2809,17 @@ object TypedExprRecursionCheck {
       getSt.flatMap {
         case InRecurBranch(inrec, _, _, _) =>
           withTemporaryRecurBranchProofs(in, _ => in) { proofs0 =>
-            val updated =
-              inrec.target.toList
-                .zip(proofs0.toList)
-                .map { case (targetItem, proof) =>
-                  extendProofWithPattern(
-                    inrec,
-                    targetItem,
-                    proof.without(pattern.names),
-                    scrutinee,
-                    pattern
-                  )
-                }
-            NonEmptyList.fromListUnsafe(updated)
+            inrec.target
+              .zip(proofs0)
+              .map { case (targetItem, proof) =>
+                extendProofWithPattern(
+                  inrec,
+                  targetItem,
+                  proof.without(pattern.names),
+                  scrutinee,
+                  pattern
+                )
+              }
           }
         case _ =>
           in
