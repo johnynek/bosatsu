@@ -72,7 +72,7 @@ object CompileCache {
          |optimize:${key.compileOptions.optimize}
          |compiler:${key.compilerIdentity}
          |phase:${key.phaseIdentity}
-         |source:${key.sourceExprHash.toIdent(using blake3)}
+         |source:${key.sourceHash.toIdent(using blake3)}
          |deps:
          |$deps
          |""".stripMargin
@@ -211,8 +211,9 @@ object CompileCache {
         fallback
       }
 
-    override def generateKey(
-        pack: Package.Parsed,
+    override def generateKeyFromHash(
+        packageName: PackageName,
+        sourceHash: HashValue[Algo.Blake3],
         depInterfaceHashes: SortedMap[PackageName, DepHash],
         compileOptions: CompileOptions,
         compilerIdentity: String,
@@ -243,11 +244,11 @@ object CompileCache {
           case None      =>
             Success(
               FsKey(
-                packageName = pack.name,
+                packageName = packageName,
                 compileOptions = compileOptions,
                 compilerIdentity = compilerIdentity,
                 phaseIdentity = phaseIdentity,
-                sourceExprHash = sourceExprHash(pack),
+                sourceHash = sourceHash,
                 depInterfaceHashes = depInterfaceHashes,
                 depInterfaces = depInterfacesBuilder.result(),
                 schemaVersion = schemaVersion

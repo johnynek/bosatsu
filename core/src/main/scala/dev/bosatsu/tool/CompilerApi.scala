@@ -328,18 +328,26 @@ object CompilerApi {
     import platformIO.{canPromiseF, moduleIOMonad, parallelF}
 
     for {
-      ins <- packRes.parseAllInputs(inputs, ifs.map(_.name).toSet)(platformIO)
-      // Now we have completed all IO, here we do all the checks we need for correctness
-      packs <- fromParse(platformIO, ins, errColor)
-      packsString = packs.map { case ((path, lm), parsed) =>
-        ((platformIO.pathToString(path), lm), parsed)
+      ins <- packRes.loadSourceFiles(inputs, ifs.map(_.name).toSet)(platformIO)
+      sourceFiles <- fromParse(platformIO, ins, errColor)
+      sources = sourceFiles.map { source =>
+        PackageMap.SourceUnit[IO, String](
+          sourceKey = platformIO.pathToString(source.path),
+          locationMap = source.locationMap,
+          packageName = source.packageName,
+          imports = source.imports,
+          exports = source.exports,
+          sourceHash = source.sourceHash,
+          loadParsed =
+            source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
+        )
       }
       cache: InferCache[IO] = compileCacheDirOpt match {
         case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
         case None           => InferCache.noop[IO]
       }
-      checked <- PackageMap.typeCheckParsed[IO, String](
-        packsString,
+      checked <- PackageMap.typeCheckSources[IO, String](
+        sources,
         ifs,
         "predef",
         compileOptions,
@@ -353,13 +361,10 @@ object CompilerApi {
         checked.strictToValidated match {
           case Validated.Valid(p) =>
             val pathToName: NonEmptyList[(Path, PackageName)] =
-              packs.map { case ((path, _), p) =>
-                (path, p.name)
-              }
+              sourceFiles.map(source => (source.path, source.packageName))
             moduleIOMonad.pure((p, pathToName))
           case Validated.Invalid(errs) =>
-            given cats.Show[Path] = platformIO.showPath
-            val sourceMap = PackageMap.buildSourceMap(packs)
+            val sourceMap = PackageMap.buildSourceMapFromSources(sources)
             moduleIOMonad.raiseError(
               PackageErrors(sourceMap, errs, errColor)
             )
