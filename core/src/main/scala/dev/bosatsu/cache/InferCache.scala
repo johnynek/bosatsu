@@ -1,6 +1,7 @@
 package dev.bosatsu.cache
 
 import cats.Applicative
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{CompileOptions, Package, PackageName}
 import java.util.concurrent.atomic.AtomicLong
 import scala.collection.immutable.SortedMap
@@ -9,13 +10,30 @@ trait InferCache[F[_]] {
   type Key
   type DepHash
 
+  def generateKeyFromHash(
+      packageName: PackageName,
+      sourceHash: HashValue[Algo.Blake3],
+      depInterfaceHashes: SortedMap[PackageName, DepHash],
+      compileOptions: CompileOptions,
+      compilerIdentity: String,
+      phaseIdentity: String
+  ): F[Key]
+
   def generateKey(
       pack: Package.Parsed,
       depInterfaceHashes: SortedMap[PackageName, DepHash],
       compileOptions: CompileOptions,
       compilerIdentity: String,
       phaseIdentity: String
-  ): F[Key]
+  ): F[Key] =
+    generateKeyFromHash(
+      pack.name,
+      CompileCache.sourceExprHash(pack),
+      depInterfaceHashes,
+      compileOptions,
+      compilerIdentity,
+      phaseIdentity
+    )
 
   def get(key: Key): F[Option[Package.Inferred]]
   def put(key: Key, value: Package.Inferred): F[Unit]
@@ -43,20 +61,44 @@ object InferCache {
       private val putCalls = new AtomicLong(0L)
       private val dependencyHashCalls = new AtomicLong(0L)
 
-      def generateKey(
-          pack: Package.Parsed,
+      def generateKeyFromHash(
+          packageName: PackageName,
+          sourceHash: HashValue[Algo.Blake3],
           depInterfaceHashes: SortedMap[PackageName, DepHash],
           compileOptions: CompileOptions,
           compilerIdentity: String,
           phaseIdentity: String
       ): F[Key] = {
-        val _ = depInterfaceHashes
+        val _ =
+          (
+            packageName,
+            sourceHash,
+            depInterfaceHashes,
+            compileOptions,
+            compilerIdentity,
+            phaseIdentity
+          )
         if (statsEnabled) {
           generateKeyCalls.incrementAndGet()
           ()
         }
         Applicative[F].unit
       }
+
+      override def generateKey(
+          pack: Package.Parsed,
+          depInterfaceHashes: SortedMap[PackageName, DepHash],
+          compileOptions: CompileOptions,
+          compilerIdentity: String,
+          phaseIdentity: String
+      ): F[Key] =
+        super.generateKey(
+          pack,
+          depInterfaceHashes,
+          compileOptions,
+          compilerIdentity,
+          phaseIdentity
+        )
 
       def get(key: Key): F[Option[Package.Inferred]] = {
         if (statsEnabled) {

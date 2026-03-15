@@ -531,13 +531,13 @@ object Command {
               ): F[Option[(PackageName, List[PackageName])]] = {
                 PathParseError
                   .parseFile(
-                    Package.parser,
+                    Package.headerParser <* CP.anyChar.rep0,
                     path,
                     platformIO
                   )
                   .map {
-                    case Validated.Valid((_, pack)) =>
-                      Some((pack.name, pack.imports.map(_.pack)))
+                    case Validated.Valid((_, (packageName, imports, _))) =>
+                      Some((packageName, imports.map(_.pack)))
                     case Validated.Invalid(_)       => None
                   }
               }
