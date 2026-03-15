@@ -216,7 +216,7 @@ object CompileCache {
         fallback
       }
 
-    override def generateKeyFromHash(
+    override def generateKey(
         packageName: PackageName,
         sourceHash: HashValue[Algo.Blake3],
         depInterfaceHashes: SortedMap[PackageName, DepHash],

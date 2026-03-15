@@ -741,7 +741,8 @@ object PackageMap {
                     depIfaceHashes <- IorT(depInterfaceHashesF)
                     key <- liftF(
                       cache.generateKey(
-                        parsedForKey,
+                        nm,
+                        CompileCache.sourceExprHash(parsedForKey),
                         depIfaceHashes,
                         compileOptions,
                         CompileCache.compilerIdentity,
@@ -1179,7 +1180,7 @@ object PackageMap {
                   (for {
                     depIfaceHashes <- IorT(depInterfaceHashesF)
                     key <- liftF(
-                      cache.generateKeyFromHash(
+                      cache.generateKey(
                         nm,
                         source.sourceHash,
                         depIfaceHashes,

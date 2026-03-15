@@ -10,7 +10,7 @@ trait InferCache[F[_]] {
   type Key
   type DepHash
 
-  def generateKeyFromHash(
+  def generateKey(
       packageName: PackageName,
       sourceHash: HashValue[Algo.Blake3],
       depInterfaceHashes: SortedMap[PackageName, DepHash],
@@ -18,22 +18,6 @@ trait InferCache[F[_]] {
       compilerIdentity: String,
       phaseIdentity: String
   ): F[Key]
-
-  def generateKey(
-      pack: Package.Parsed,
-      depInterfaceHashes: SortedMap[PackageName, DepHash],
-      compileOptions: CompileOptions,
-      compilerIdentity: String,
-      phaseIdentity: String
-  ): F[Key] =
-    generateKeyFromHash(
-      pack.name,
-      CompileCache.sourceExprHash(pack),
-      depInterfaceHashes,
-      compileOptions,
-      compilerIdentity,
-      phaseIdentity
-    )
 
   def get(key: Key): F[Option[Package.Inferred]]
   def put(key: Key, value: Package.Inferred): F[Unit]
@@ -61,7 +45,7 @@ object InferCache {
       private val putCalls = new AtomicLong(0L)
       private val dependencyHashCalls = new AtomicLong(0L)
 
-      def generateKeyFromHash(
+      def generateKey(
           packageName: PackageName,
           sourceHash: HashValue[Algo.Blake3],
           depInterfaceHashes: SortedMap[PackageName, DepHash],
@@ -84,21 +68,6 @@ object InferCache {
         }
         Applicative[F].unit
       }
-
-      override def generateKey(
-          pack: Package.Parsed,
-          depInterfaceHashes: SortedMap[PackageName, DepHash],
-          compileOptions: CompileOptions,
-          compilerIdentity: String,
-          phaseIdentity: String
-      ): F[Key] =
-        super.generateKey(
-          pack,
-          depInterfaceHashes,
-          compileOptions,
-          compilerIdentity,
-          phaseIdentity
-        )
 
       def get(key: Key): F[Option[Package.Inferred]] = {
         if (statsEnabled) {
