@@ -725,6 +725,8 @@ object PackageMap {
                     source.loadParsed.flatMap { parsed =>
                       inferImports.flatTraverse { impMap =>
                         val ilist = impMap.toList(using Package.orderByName)
+                        // Type inference plus assembly is the heaviest
+                        // per-package CPU step on a cache miss.
                         summon[CanPromise[F]].compute {
                           for {
                             (_, program) <- Package.inferBodyUnopt(
@@ -818,6 +820,8 @@ object PackageMap {
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
     IorT(
+      // Resolving imports and validating the full source graph is pure CPU
+      // work over the whole input set, so keep it on the compute pool.
       summon[CanPromise[F]].compute {
         resolveAllSourceUnits(ps, ifs)
       }
@@ -887,24 +891,18 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Inferred]] =
-    summon[CanPromise[F]]
-      .compute {
-        withEffectivePredefSources(
-          sources,
-          ifs,
-          predefKey,
-          compileOptions.mode
-        )
-      }
-      .flatMap { preparedSources =>
-        PackageMap.resolveThenInferSourceUnits[F, A](
-          preparedSources,
-          ifs,
-          compileOptions,
-          cache,
-          phases
-        )
-      }
+    PackageMap.resolveThenInferSourceUnits[F, A](
+      withEffectivePredefSources(
+        sources,
+        ifs,
+        predefKey,
+        compileOptions.mode
+      ),
+      ifs,
+      compileOptions,
+      cache,
+      phases
+    )
 
   def typeCheckParsed[F[_]: Monad: Parallel: CanPromise, A: Show](
       packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
@@ -914,22 +912,16 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Inferred]] =
-    summon[CanPromise[F]]
-      .compute {
-        NonEmptyList.fromListUnsafe(
-          packs.toList.map(SourceUnit.fromParsed[F, A])
-        )
-      }
-      .flatMap { sourceUnits =>
-        typeCheckSources(
-          sourceUnits,
-          ifs,
-          predefKey,
-          compileOptions,
-          cache,
-          phases
-        )
-      }
+    typeCheckSources(
+      NonEmptyList.fromListUnsafe(
+        packs.toList.map(SourceUnit.fromParsed[F, A])
+      ),
+      ifs,
+      predefKey,
+      compileOptions,
+      cache,
+      phases
+    )
 
   def resolveThenInfer[F[_]: Monad: Parallel: CanPromise, A: Show](
       ps: List[(A, Package.Parsed)],
@@ -938,19 +930,13 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
-    summon[CanPromise[F]]
-      .compute {
-        ps.map(SourceUnit.fromParsedWithoutLocation[F, A])
-      }
-      .flatMap { sourceUnits =>
-        resolveThenInferSourceUnits(
-          sourceUnits,
-          ifs,
-          compileOptions,
-          cache,
-          phases
-        )
-      }
+    resolveThenInferSourceUnits(
+      ps.map(SourceUnit.fromParsedWithoutLocation[F, A]),
+      ifs,
+      compileOptions,
+      cache,
+      phases
+    )
 
   def resolveThenInfer[A: Show](
       ps: List[(A, Package.Parsed)],

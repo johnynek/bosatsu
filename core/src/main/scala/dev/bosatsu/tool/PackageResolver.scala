@@ -37,6 +37,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
               cats.data.Validated.invalidNel(PathParseError.FileError(path, err))
             )
           case Right(bytes) =>
+            // Decoding, raw hashing, and header parsing can add up across many
+            // files, so keep that pure CPU work off the caller thread.
             canPromiseF.compute {
               val source = new String(bytes, StandardCharsets.UTF_8)
               val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
@@ -54,6 +56,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
                     exports = exports,
                     sourceHash = rawHash,
                     loadParsed =
+                      // On a cache miss we need the full parse; defer that
+                      // heavier pure work to the compute pool.
                       canPromiseF.compute {
                         PathParseError
                           .parseString(Package.parser, path, source)
@@ -79,6 +83,8 @@ sealed abstract class PackageResolver[IO[_], Path] {
     paths
       .traverse { path =>
         platformIO.readUtf8(path).flatMap { str =>
+          // Deps/header scans may parse a large number of files, so run the
+          // header parse on the compute pool.
           canPromiseF.compute {
             PathParseError
               .parseString(PackageResolver.headerParserIgnoreRest, path, str)
