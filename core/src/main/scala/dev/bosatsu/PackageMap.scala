@@ -887,19 +887,24 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Inferred]] =
-    PackageMap
-      .resolveThenInferSourceUnits[F, A](
+    summon[CanPromise[F]]
+      .compute {
         withEffectivePredefSources(
           sources,
           ifs,
           predefKey,
           compileOptions.mode
-        ),
-        ifs,
-        compileOptions,
-        cache,
-        phases
-      )
+        )
+      }
+      .flatMap { preparedSources =>
+        PackageMap.resolveThenInferSourceUnits[F, A](
+          preparedSources,
+          ifs,
+          compileOptions,
+          cache,
+          phases
+        )
+      }
 
   def typeCheckParsed[F[_]: Monad: Parallel: CanPromise, A: Show](
       packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
@@ -909,16 +914,22 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Inferred]] =
-    typeCheckSources(
-      NonEmptyList.fromListUnsafe(
-        packs.toList.map(SourceUnit.fromParsed[F, A])
-      ),
-      ifs,
-      predefKey,
-      compileOptions,
-      cache,
-      phases
-    )
+    summon[CanPromise[F]]
+      .compute {
+        NonEmptyList.fromListUnsafe(
+          packs.toList.map(SourceUnit.fromParsed[F, A])
+        )
+      }
+      .flatMap { sourceUnits =>
+        typeCheckSources(
+          sourceUnits,
+          ifs,
+          predefKey,
+          compileOptions,
+          cache,
+          phases
+        )
+      }
 
   def resolveThenInfer[F[_]: Monad: Parallel: CanPromise, A: Show](
       ps: List[(A, Package.Parsed)],
@@ -927,13 +938,19 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
-    resolveThenInferSourceUnits(
-      ps.map(SourceUnit.fromParsedWithoutLocation[F, A]),
-      ifs,
-      compileOptions,
-      cache,
-      phases
-    )
+    summon[CanPromise[F]]
+      .compute {
+        ps.map(SourceUnit.fromParsedWithoutLocation[F, A])
+      }
+      .flatMap { sourceUnits =>
+        resolveThenInferSourceUnits(
+          sourceUnits,
+          ifs,
+          compileOptions,
+          cache,
+          phases
+        )
+      }
 
   def resolveThenInfer[A: Show](
       ps: List[(A, Package.Parsed)],
