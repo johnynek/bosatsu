@@ -10,6 +10,7 @@ import dev.bosatsu.{
   Import,
   LocationMap,
   Package,
+  PackageMap,
   PackageName,
   PlatformIO
 }
@@ -21,15 +22,13 @@ import java.nio.charset.StandardCharsets
 sealed abstract class PackageResolver[IO[_], Path] {
 
   final def loadSourceFiles(
-      paths: NonEmptyList[Path],
-      _included: Set[PackageName]
+      paths: NonEmptyList[Path]
   )(platformIO: PlatformIO[IO, Path]): IO[
     ValidatedNel[PathParseError[Path], NonEmptyList[
       PackageResolver.SourceFile[IO, Path]
     ]]
   ] = {
     import platformIO.{canPromiseF, moduleIOMonad}
-    if (_included.nonEmpty) ()
     paths
       .traverse { path =>
         moduleIOMonad.attempt(platformIO.readBytes(path)).map {
@@ -98,7 +97,21 @@ object PackageResolver {
       exports: List[ExportedName[Unit]],
       sourceHash: HashValue[Algo.Blake3],
       loadParsed: IO[ValidatedNel[PathParseError[Path], Package.Parsed]]
-  )
+  ) {
+    def toSourceUnit[A](
+        sourceKey: A,
+        loadParsedF: IO[Package.Parsed]
+    ): PackageMap.SourceUnit[IO, A] =
+      PackageMap.SourceUnit(
+        sourceKey = sourceKey,
+        locationMap = locationMap,
+        packageName = packageName,
+        imports = imports,
+        exports = exports,
+        sourceHash = sourceHash,
+        loadParsed = loadParsedF
+      )
+  }
 
   case class ExplicitOnly[IO[_], Path]() extends PackageResolver[IO, Path]
 

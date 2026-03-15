@@ -328,18 +328,12 @@ object CompilerApi {
     import platformIO.{canPromiseF, moduleIOMonad, parallelF}
 
     for {
-      ins <- packRes.loadSourceFiles(inputs, ifs.map(_.name).toSet)(platformIO)
+      ins <- packRes.loadSourceFiles(inputs)(platformIO)
       sourceFiles <- fromParse(platformIO, ins, errColor)
       sources = sourceFiles.map { source =>
-        PackageMap.SourceUnit[IO, String](
-          sourceKey = platformIO.pathToString(source.path),
-          locationMap = source.locationMap,
-          packageName = source.packageName,
-          imports = source.imports,
-          exports = source.exports,
-          sourceHash = source.sourceHash,
-          loadParsed =
-            source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
+        source.toSourceUnit(
+          platformIO.pathToString(source.path),
+          source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
         )
       }
       cache: InferCache[IO] = compileCacheDirOpt match {

@@ -197,6 +197,38 @@ object PackageMap {
     def withImport(i: Import[PackageName, Unit]): SourceUnit[F, A] =
       copy(imports = i :: imports)
   }
+  object SourceUnit {
+    def fromParsed[F[_]: Applicative, A](
+        sourceKey: A,
+        locationMap: LocationMap,
+        parsed: Package.Parsed
+    ): SourceUnit[F, A] =
+      SourceUnit(
+        sourceKey = sourceKey,
+        locationMap = locationMap,
+        packageName = parsed.name,
+        imports = parsed.imports,
+        exports = parsed.exports,
+        sourceHash = CompileCache.sourceExprHash(parsed),
+        loadParsed = Applicative[F].pure(parsed)
+      )
+
+    def fromParsed[F[_]: Applicative, A](
+        parsed: ((A, LocationMap), Package.Parsed)
+    ): SourceUnit[F, A] =
+      fromParsed(parsed._1._1, parsed._1._2, parsed._2)
+
+    def fromParsedWithoutLocation[F[_]: Applicative, A](
+        parsed: (A, Package.Parsed)
+    ): SourceUnit[F, A] =
+      fromParsed(parsed._1, LocationMap(""), parsed._2)
+
+    def predef[F[_]: Applicative, A](
+        predefKey: A,
+        mode: CompileOptions.Mode
+    ): SourceUnit[F, A] =
+      fromParsed(predefKey, LocationMap(""), Package.predefPackageForMode(mode))
+  }
   type SourceImp[F[_], A] = PackageMap[
     PackageName,
     Unit,
@@ -785,69 +817,40 @@ object PackageMap {
       cache: InferCache[F],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
-    IorT
-      .fromIor[F](resolveAllSourceUnits(ps, ifs))
+    IorT(
+      summon[CanPromise[F]].compute {
+        resolveAllSourceUnits(ps, ifs)
+      }
+    )
       .flatMap(resolved =>
         IorT(inferAllSourceUnits(resolved, compileOptions, cache, phases))
       )
       .value
 
+  private def buildSourceMapImpl[F[_]: Foldable, A, B: Show](
+      values: F[A]
+  )(
+      packageNameOf: A => PackageName,
+      locationMapOf: A => LocationMap,
+      sourceKeyOf: A => B
+  ): Map[PackageName, (LocationMap, String)] =
+    values.foldLeft(Map.empty[PackageName, (LocationMap, String)]) {
+      case (map, value) =>
+        map.updated(
+          packageNameOf(value),
+          (locationMapOf(value), sourceKeyOf(value).show)
+        )
+    }
+
   def buildSourceMap[F[_]: Foldable, A: Show](
       parsedFiles: F[((A, LocationMap), Package.Parsed)]
   ): Map[PackageName, (LocationMap, String)] =
-    parsedFiles.foldLeft(Map.empty[PackageName, (LocationMap, String)]) {
-      case (map, ((path, lm), pack)) =>
-        map.updated(pack.name, (lm, path.show))
-    }
+    buildSourceMapImpl(parsedFiles)(_._2.name, _._1._2, _._1._1)
 
   def buildSourceMapFromSources[G[_]: Foldable, F[_], A: Show](
       sources: G[SourceUnit[F, A]]
   ): Map[PackageName, (LocationMap, String)] =
-    sources.foldLeft(Map.empty[PackageName, (LocationMap, String)]) {
-      case (map, source) =>
-        map.updated(source.packageName, (source.locationMap, source.sourceKey.show))
-    }
-
-  private def sourceUnitFromParsed[F[_]: Monad, A](
-      sourceKey: A,
-      locationMap: LocationMap,
-      parsed: Package.Parsed
-  ): SourceUnit[F, A] =
-    SourceUnit(
-      sourceKey = sourceKey,
-      locationMap = locationMap,
-      packageName = parsed.name,
-      imports = parsed.imports,
-      exports = parsed.exports,
-      sourceHash = CompileCache.sourceExprHash(parsed),
-      loadParsed = Monad[F].pure(parsed)
-    )
-
-  private def sourceUnitFromParsed[F[_]: Monad, A](
-      parsed: ((A, LocationMap), Package.Parsed)
-  ): SourceUnit[F, A] =
-    sourceUnitFromParsed(parsed._1._1, parsed._1._2, parsed._2)
-
-  private def sourceUnitFromParsedWithoutLocation[F[_]: Monad, A](
-      parsed: (A, Package.Parsed)
-  ): SourceUnit[F, A] =
-    sourceUnitFromParsed(parsed._1, LocationMap(""), parsed._2)
-
-  private def predefSourceUnit[F[_]: Monad, A](
-      predefA: A,
-      mode: CompileOptions.Mode
-  ): SourceUnit[F, A] = {
-    val parsed = Package.predefPackageForMode(mode)
-    SourceUnit(
-      sourceKey = predefA,
-      locationMap = LocationMap(""),
-      packageName = parsed.name,
-      imports = parsed.imports,
-      exports = parsed.exports,
-      sourceHash = CompileCache.sourceExprHash(parsed),
-      loadParsed = Monad[F].pure(parsed)
-    )
-  }
+    buildSourceMapImpl(sources)(_.packageName, _.locationMap, _.sourceKey)
 
   private def withPredefImportsSourceUnits[F[_], A](
       sources: List[SourceUnit[F, A]],
@@ -862,19 +865,17 @@ object PackageMap {
       mode: CompileOptions.Mode
   ): List[SourceUnit[F, A]] = {
     val predefIface = ifs.find(_.name == PackageName.PredefName)
-    val useInternalPredef = predefIface.isEmpty
-
-    if (useInternalPredef) {
-      predefSourceUnit(predefKey, mode) :: withPredefImportsSourceUnits(
+    val withPredefImports =
+      withPredefImportsSourceUnits(
         sources.toList,
-        predefImportsForMode(mode)
+        predefIface.fold(predefImportsForMode(mode))(iface =>
+          predefImportsFromExports(iface.exports)
+        )
       )
-    } else {
-      val predefImports = predefIface match {
-        case Some(iface) => predefImportsFromExports(iface.exports)
-        case None        => predefImportsForMode(mode)
-      }
-      withPredefImportsSourceUnits(sources.toList, predefImports)
+
+    predefIface match {
+      case None       => SourceUnit.predef(predefKey, mode) :: withPredefImports
+      case Some(_)    => withPredefImports
     }
   }
 
@@ -910,7 +911,7 @@ object PackageMap {
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Inferred]] =
     typeCheckSources(
       NonEmptyList.fromListUnsafe(
-        packs.toList.map(sourceUnitFromParsed[F, A])
+        packs.toList.map(SourceUnit.fromParsed[F, A])
       ),
       ifs,
       predefKey,
@@ -927,7 +928,7 @@ object PackageMap {
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Inferred]] =
     resolveThenInferSourceUnits(
-      ps.map(sourceUnitFromParsedWithoutLocation[F, A]),
+      ps.map(SourceUnit.fromParsedWithoutLocation[F, A]),
       ifs,
       compileOptions,
       cache,
