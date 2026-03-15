@@ -5136,7 +5136,7 @@ main = depBox
     }
   }
 
-  test("tool check --cache_dir keeps cache keys stable on comment-only edits") {
+  test("tool check --cache_dir reuses cas blobs on comment-only edits") {
     val depSrc =
       """package Cache/Dep
         |export dep
@@ -5150,7 +5150,7 @@ main = depBox
     val appSrcWithComments =
       """package Cache/App
         |
-        |# comment should not change the source hash
+        |# comment-only edits should still reuse the same compiled package bytes
         |from Cache/Dep import dep
         |
         |main = dep.add(1)
@@ -5188,7 +5188,7 @@ main = depBox
       case Right((state1, state2)) =>
         val keyPrefix = Chain("cache", "keys", "blake3")
         val casPrefix = Chain("cache", "cas", "blake3")
-        assertEquals(filePathsUnder(state2, keyPrefix), filePathsUnder(state1, keyPrefix))
+        assertNotEquals(filePathsUnder(state2, keyPrefix), filePathsUnder(state1, keyPrefix))
         assertEquals(filePathsUnder(state2, casPrefix), filePathsUnder(state1, casPrefix))
     }
   }

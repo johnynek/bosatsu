@@ -36,7 +36,6 @@ import dev.bosatsu.{
   Json,
   JsonEncodingError,
   LocationMap,
-  Package,
   PackageName,
   PackageMap,
   PlatformIO,
@@ -531,13 +530,13 @@ object Command {
               ): F[Option[(PackageName, List[PackageName])]] = {
                 PathParseError
                   .parseFile(
-                    Package.parser,
+                    PackageResolver.headerParserIgnoreRest,
                     path,
                     platformIO
                   )
                   .map {
-                    case Validated.Valid((_, pack)) =>
-                      Some((pack.name, pack.imports.map(_.pack)))
+                    case Validated.Valid((_, (packageName, imports, _))) =>
+                      Some((packageName, imports.map(_.pack)))
                     case Validated.Invalid(_)       => None
                   }
               }

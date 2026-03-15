@@ -80,7 +80,8 @@ class CompileCacheTest extends FunSuite {
 
     runF(
       cache.generateKey(
-        pack,
+        pack.name,
+        CompileCache.sourceExprHash(pack),
         depHashes,
         compileOptions,
         "compiler-id",
@@ -213,7 +214,8 @@ class CompileCacheTest extends FunSuite {
     val missingLookup =
       isolatedCache
         .generateKey(
-          consumer,
+          consumer.name,
+          CompileCache.sourceExprHash(consumer),
           depHashes,
           CompileOptions.Default,
           "compiler-id",
@@ -226,7 +228,8 @@ class CompileCacheTest extends FunSuite {
     val seededKey =
       runF(
         isolatedCache.generateKey(
-          consumer,
+          consumer.name,
+          CompileCache.sourceExprHash(consumer),
           depHashes,
           CompileOptions.Default,
           "compiler-id",
