@@ -509,25 +509,73 @@ object Command {
 
       private def parsedPackageMetaFor(
           path: P
-      ): F[Option[(PackageName, List[PackageName])]] =
+      ): F[ValidatedNel[PathParseError[P], (PackageName, List[PackageName])]] =
         PathParseError
           .parseFile(
             PackageResolver.headerParserIgnoreRest,
             path,
             platformIO
           )
-          .map {
-            case Validated.Valid((_, (packageName, imports, _))) =>
-              Some((packageName, imports.map(_.pack)))
-            case Validated.Invalid(_)                            => None
+          .map(
+            _.map { case (_, (packageName, imports, _)) =>
+              (packageName, imports.map(_.pack))
+            }
+          )
+
+      private def failHeaderParseErrors[A](
+          errs: NonEmptyList[PathParseError[P]]
+      ): F[A] = {
+        val messageDocs: List[Doc] =
+          errs.toList.flatMap {
+            case PathParseError.ParseFailure(pf, path) =>
+              val (r, c) = pf.locations.toLineCol(pf.position).get
+              List(
+                Doc.text(s"failed to parse $path:${r + 1}:${c + 1}"),
+                pf.showContext(Colorize.None)
+              )
+            case PathParseError.FileError(path, err) =>
+              err match {
+                case e
+                    if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
+                  // This class isn't present in scalajs, use the String
+                  List(Doc.text(s"file not found: $path"))
+                case _ =>
+                  List(
+                    Doc.text(s"failed to parse $path"),
+                    Doc.text(Option(err.getMessage).getOrElse(err.toString)),
+                    Doc.text(err.getClass.toString)
+                  )
+              }
+          }
+        val errDoc = Doc.intercalate(Doc.hardLine, messageDocs)
+        val messageString = errDoc.render(80)
+        moduleIOMonad.raiseError(CliException(messageString, err = errDoc))
+      }
+
+      private def sourceFileMetadata(
+          inputSrcs: List[P]
+      ): F[List[(P, PackageName, List[PackageName])]] =
+        inputSrcs
+          .traverse(path => parsedPackageMetaFor(path).map(path -> _))
+          .flatMap { parsedBySource =>
+            parsedBySource
+              .traverse { case (path, parsedMeta) =>
+                parsedMeta.map { case (pack, imports) =>
+                  (path, pack, imports)
+                }
+              }
+              .toEither match {
+              case Right(meta) => moduleIOMonad.pure(meta)
+              case Left(errs)  => failHeaderParseErrors(errs)
+            }
           }
 
       private def sourcePackages: F[List[PackageName]] =
         PathGen
           .recursiveChildren(confDir, ".bosatsu")(platformIO)
           .read
-          .flatMap(_.traverse(parsedPackageMetaFor))
-          .map(_.collect { case Some((pack, _)) => pack }.distinct.sorted)
+          .flatMap(sourceFileMetadata)
+          .map(_.map(_._2).distinct.sorted)
 
       def validateTestFilterMatches(
           filterRegexes: NonEmptyList[String],
@@ -562,15 +610,8 @@ object Command {
               val selectedInputsF: F[List[P]] = sourcePackageFilter match {
                 case None       => moduleIOMonad.pure(inputSrcs)
                 case Some(keep) =>
-                  inputSrcs
-                    .traverse(p => parsedPackageMetaFor(p).map(p -> _))
-                    .map { parsedBySource =>
-                      val parsedEntries =
-                        parsedBySource.collect {
-                          case (path, Some((pack, imports))) =>
-                            (path, pack, imports)
-                        }
-
+                  sourceFileMetadata(inputSrcs)
+                    .map { parsedEntries =>
                       val importsByPackage =
                         parsedEntries
                           .groupMap(_._2)(_._3)

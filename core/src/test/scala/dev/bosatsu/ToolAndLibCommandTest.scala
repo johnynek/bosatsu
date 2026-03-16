@@ -7626,6 +7626,60 @@ main = 0
   }
 
   test(
+    "lib test --filter fails when any source header fails to parse"
+  ) {
+    val noTestsSrc =
+      """value = 1
+"""
+    val brokenSrc =
+      """package MyLib/ReproMin8/
+|
+|broken = Assertion(True, "oops")
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Testing", "HedgeHog.bosatsu") -> noTestsSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> brokenSrc,
+      Chain("repo", "cc_conf.json") -> ccConfJson
+    )
+
+    runWithFiles(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--filter",
+        "MyLib/Testing/HedgeHog",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected parse failure for malformed header, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("failed to parse"), msg)
+        assert(msg.contains("ReproMin8.bosatsu"), msg)
+        assert(!msg.contains("no tests found"), msg)
+    }
+  }
+
+  test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
