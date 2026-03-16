@@ -55,6 +55,12 @@ object ProtoToBosatsu {
       messageCodecs: Map[(PackageName, String), MessageCodecInfo]
   )
 
+  private final case class TypeDecl(
+      name: String,
+      statement: Statement,
+      deps: Set[String]
+  )
+
   private val generatedRegion: Region = Region(0, 1)
 
   def renderAll(files: Vector[ProtoFileModel]): Vector[GeneratedFile] = {
@@ -106,11 +112,37 @@ object ProtoToBosatsu {
     val exports =
       (typeExports ++ enumCodecExports ++ messageCodecExports).distinct.sorted
 
-    val typeStatements: Vector[Statement] =
-      fileModel.enums.map(renderEnumStatement) ++
-        fileModel.messages.flatMap { messageModel =>
-          messageModel.oneofs.map(renderOneofStatement) :+ renderStructStatement(messageModel)
-        }
+    val typeStatements: Vector[Statement] = {
+      val typeDecls =
+        fileModel.enums.map(enumModel =>
+          TypeDecl(
+            name = enumModel.bosatsuName,
+            statement = renderEnumStatement(enumModel),
+            deps = Set.empty
+          )
+        ) ++
+          fileModel.messages.flatMap { messageModel =>
+            val oneofDecls = messageModel.oneofs.map { oneofModel =>
+              TypeDecl(
+                name = oneofModel.bosatsuTypeName,
+                statement = renderOneofStatement(oneofModel),
+                deps = oneofModel.fields.iterator.flatMap(field => fieldTypeDeps(field.fieldType)).toSet
+              )
+            }
+
+            val messageDeps =
+              messageModel.fields.iterator.flatMap(field => fieldTypeDeps(field.fieldType)).toSet ++
+                messageModel.oneofs.iterator.map(_.bosatsuTypeName)
+
+            oneofDecls :+ TypeDecl(
+              name = messageModel.bosatsuName,
+              statement = renderStructStatement(messageModel),
+              deps = messageDeps
+            )
+          }
+
+      orderTypeDecls(typeDecls)
+    }
 
     val enumCodecStatements: Vector[Statement] =
       fileModel.enums.flatMap { enumModel =>
@@ -118,8 +150,10 @@ object ProtoToBosatsu {
         renderEnumCodecStatements(enumModel, codecInfo)
       }
 
+    val orderedMessagesForCodecs = orderMessageModelsForCodecs(fileModel.messages)
+
     val messageCodecStatements: Vector[Statement] =
-      fileModel.messages.flatMap { messageModel =>
+      orderedMessagesForCodecs.flatMap { messageModel =>
         val codecInfo =
           ctx.messageCodecs((messageModel.packageName, messageModel.bosatsuName))
         renderMessageCodecStatements(messageModel, codecInfo, ctx)
@@ -313,6 +347,94 @@ object ProtoToBosatsu {
             listType(fieldTypeToTypeRef(fieldModel.fieldType))
         }
     }
+
+  private def fieldTypeDeps(fieldType: FieldType): Set[String] =
+    fieldType match {
+      case FieldType.Scalar(_) => Set.empty
+      case FieldType.EnumRef(_, typeName) =>
+        Set(typeName)
+      case FieldType.MessageRef(_, typeName) =>
+        Set(typeName)
+      case FieldType.MapEntry(_, valueType) =>
+        fieldTypeDeps(valueType)
+    }
+
+  private def fieldTypeMessageDeps(fieldType: FieldType): Set[String] =
+    fieldType match {
+      case FieldType.MessageRef(_, typeName) =>
+        Set(typeName)
+      case FieldType.MapEntry(_, valueType) =>
+        fieldTypeMessageDeps(valueType)
+      case _ =>
+        Set.empty
+    }
+
+  private def orderTypeDecls(
+      declarations: Vector[TypeDecl]
+  ): Vector[Statement] = {
+    val definedNames = declarations.iterator.map(_.name).toSet
+    val normalized = declarations.map(decl =>
+      decl.copy(deps = decl.deps.intersect(definedNames))
+    )
+
+    @scala.annotation.tailrec
+    def loop(
+        remaining: Vector[TypeDecl],
+        resolved: Set[String],
+        acc: Vector[Statement]
+    ): Vector[Statement] =
+      if (remaining.isEmpty) acc
+      else {
+        val (ready, waiting) =
+          remaining.partition(decl => (decl.deps -- resolved).isEmpty)
+
+        if (ready.isEmpty) {
+          // Keep output deterministic if a dependency cycle remains.
+          acc ++ remaining.map(_.statement)
+        } else {
+          val nextResolved = resolved ++ ready.iterator.map(_.name)
+          loop(waiting, nextResolved, acc ++ ready.map(_.statement))
+        }
+      }
+
+    loop(normalized, Set.empty, Vector.empty)
+  }
+
+  private def orderMessageModelsForCodecs(
+      messages: Vector[MessageModel]
+  ): Vector[MessageModel] = {
+    val knownNames = messages.iterator.map(_.bosatsuName).toSet
+    val depsByName = messages.map { messageModel =>
+      val deps =
+        messageModel.fields.iterator
+          .flatMap(field => fieldTypeMessageDeps(field.fieldType))
+          .toSet ++
+          messageModel.oneofs.iterator
+            .flatMap(oneof => oneof.fields.iterator.flatMap(field => fieldTypeMessageDeps(field.fieldType)))
+      messageModel.bosatsuName -> deps.intersect(knownNames)
+    }.toMap
+
+    @scala.annotation.tailrec
+    def loop(
+        remaining: Vector[MessageModel],
+        resolved: Set[String],
+        acc: Vector[MessageModel]
+    ): Vector[MessageModel] =
+      if (remaining.isEmpty) acc
+      else {
+        val (ready, waiting) = remaining.partition(messageModel =>
+          (depsByName.getOrElse(messageModel.bosatsuName, Set.empty) -- resolved).isEmpty
+        )
+
+        if (ready.isEmpty) acc ++ remaining
+        else {
+          val nextResolved = resolved ++ ready.iterator.map(_.bosatsuName)
+          loop(waiting, nextResolved, acc ++ ready)
+        }
+      }
+
+    loop(messages, Set.empty, Vector.empty)
+  }
 
   private def constructorArg(
       name: String,
@@ -544,7 +666,12 @@ object ProtoToBosatsu {
         messageModel.oneofs.map(_.bosatsuFieldName)
 
     val body: Declaration =
-      if (messageFieldNames.isEmpty) varRef("empty_Bytes")
+      if (messageFieldNames.isEmpty)
+        matchExpr(
+          Declaration.MatchKind.Match,
+          varRef("input_value"),
+          List(Pattern.WildCard -> varRef("empty_Bytes"))
+        )
       else {
         val chunkListsExpr =
           listLiteral(
@@ -585,14 +712,14 @@ object ProtoToBosatsu {
 
         bindIn(
           messageRecordPattern(messageModel.bosatsuName, messageFieldNames),
-          varRef("value"),
+          varRef("input_value"),
           chunkBindings
         )
       }
 
     defStatement(
       codecInfo.encodeFnName,
-      List("value" -> Some(typeNameRef(messageModel.bosatsuName))),
+      List("input_value" -> Some(typeNameRef(messageModel.bosatsuName))),
       typeNameRef("Bytes"),
       body
     )
@@ -609,6 +736,7 @@ object ProtoToBosatsu {
       renderDecodeLoopBody(
         loopTarget = "fields",
         tailVar = "tail",
+        bindFieldValueNames = messageModel.fields.nonEmpty || messageModel.oneofs.nonEmpty,
         emptyBody = someExpr(messageStructExpr(messageModel, decodeFinalValues(messageModel))),
         nonEmptyBody = renderDecodeLoopNonEmptyBody(messageModel, loopVars, ctx)
       )
@@ -869,6 +997,7 @@ object ProtoToBosatsu {
       renderDecodeLoopBody(
         loopTarget = "in_fields",
         tailVar = "tail",
+        bindFieldValueNames = true,
         emptyBody = someExpr(tupleExpr(List(varRef("current_key"), varRef("current_value")))),
         nonEmptyBody = {
           val keyBody =
@@ -925,15 +1054,19 @@ object ProtoToBosatsu {
   private def renderDecodeLoopBody(
       loopTarget: String,
       tailVar: String,
+      bindFieldValueNames: Boolean,
       emptyBody: Declaration,
       nonEmptyBody: Declaration
   ): Declaration.NonBinding = {
+    val pairPattern =
+      if (bindFieldValueNames)
+        tuplePattern(List(Pattern.Var(bindable("field_number")), Pattern.Var(bindable("field_value"))))
+      else tuplePattern(List(Pattern.WildCard, Pattern.WildCard))
+
     val nonEmptyPattern =
       Pattern.ListPat(
         List(
-          Pattern.ListPart.Item(
-            tuplePattern(List(Pattern.Var(bindable("field_number")), Pattern.Var(bindable("field_value"))))
-          ),
+          Pattern.ListPart.Item(pairPattern),
           Pattern.ListPart.NamedList(bindable(tailVar))
         )
       )

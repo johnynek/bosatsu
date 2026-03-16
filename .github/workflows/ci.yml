@@ -25,6 +25,24 @@ jobs:
         run: |
           sbt "coreJVM/testOnly * -- --log=failure; cli/testOnly * -- --log=failure; doc; paradox"
           ./test_cli.sh
+          if ! command -v protoc >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y protobuf-compiler
+          fi
+          generated_dir="$(mktemp -d)"
+          protoc \
+            --plugin=protoc-gen-bosatsu=./protoc-gen-bosatsu \
+            --bosatsu_out="$generated_dir" \
+            --proto_path=proto/src/main/protobuf \
+            proto/src/main/protobuf/bosatsu/TypedAst.proto
+          ./bosatsuj lib fetch --repo_root . --name core_alpha
+          dep_hash="$(python3 -c 'import json, pathlib; conf = json.loads(pathlib.Path("test_workspace/core_alpha_conf.json").read_text()); print(conf["previous"]["hashes"][0].split(":", 1)[1])')"
+          dep_path=".bosatsuc/cas/blake3/${dep_hash:0:2}/${dep_hash:2}"
+          ./bosatsuj tool check \
+            --input test_workspace/Float64.bosatsu \
+            --input test_workspace/Bosatsu/Proto/Wire.bosatsu \
+            --input_all_subdir "$generated_dir" \
+            --pub_dep "$dep_path"
     strategy:
       matrix:
         java:

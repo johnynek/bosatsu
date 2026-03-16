@@ -25,9 +25,12 @@ import dev.bosatsu.protobuf.ProtoDescriptorModel.{
   Syntax
 }
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.util.control.NonFatal
 
 object CodeGenerator {
+  // Matches protoc's FEATURE_PROTO3_OPTIONAL bit (1 << 0).
+  private val Proto3OptionalFeatureBit: Long = 1L
 
   private final case class EnumInfo(
       fileName: String,
@@ -56,7 +59,7 @@ object CodeGenerator {
   def generateResponse(
       request: CodeGeneratorRequest
   ): CodeGeneratorResponse = {
-    buildModels(request) match {
+    val response = buildModels(request) match {
       case Left(errors) =>
         CodeGeneratorResponse.defaultInstance.withError(errors.mkString("\n"))
 
@@ -71,6 +74,7 @@ object CodeGenerator {
         }
         CodeGeneratorResponse.defaultInstance.withFile(files)
     }
+    response.withSupportedFeatures(Proto3OptionalFeatureBit)
   }
 
   /** Shared protobuf plugin protocol entrypoint for JVM and Scala.js wrappers.
@@ -82,7 +86,9 @@ object CodeGenerator {
       } catch {
         case NonFatal(err) =>
           val msg = Option(err.getMessage).getOrElse(err.toString)
-          CodeGeneratorResponse.defaultInstance.withError(msg)
+          CodeGeneratorResponse.defaultInstance
+            .withError(msg)
+            .withSupportedFeatures(Proto3OptionalFeatureBit)
       }
     response.toByteArray
   }
@@ -119,6 +125,8 @@ object CodeGenerator {
         typeNameByFullName = rootTypeNames,
         packageByFileName = packageByFileName
       )
+
+      val cyclicMessageRefEdges = cyclicMessageReferenceEdges(allMessages, typeIndex)
 
       val sortedMessages =
         allMessages.filterNot(_.isMapEntry).sortBy(info => (info.fileName, info.fullName))
@@ -162,7 +170,8 @@ object CodeGenerator {
             info,
             typeIndex,
             messageBaseNames(info.fullName),
-            oneofTypeNameByMessage.getOrElse(info.fullName, Vector.empty)
+            oneofTypeNameByMessage.getOrElse(info.fullName, Vector.empty),
+            cyclicMessageRefEdges
           )
         }
 
@@ -321,7 +330,8 @@ object CodeGenerator {
       messageInfo: MessageInfo,
       typeIndex: TypeIndex,
       messageTypeName: String,
-      oneofTypeNames: Vector[(Int, String)]
+      oneofTypeNames: Vector[(Int, String)],
+      cyclicMessageRefEdges: Set[(String, String)]
   ): MessageModel = {
     val packageName = typeIndex.packageByFileName(messageInfo.fileName)
     val fields = messageInfo.descriptor.field.toVector
@@ -343,10 +353,19 @@ object CodeGenerator {
     )
 
     val regularModels = regularFields.map { case (field, idx) =>
-      val resolvedType = resolveFieldType(field, typeIndex)
+      val resolvedType =
+        resolveFieldType(
+          field,
+          typeIndex,
+          messageInfo.fullName,
+          cyclicMessageRefEdges
+        )
       val isMap = resolvedType.isInstanceOf[FieldType.MapEntry]
+      val isMessageField =
+        field.getType.equals(FieldDescriptorProto.Type.TYPE_MESSAGE) && !isMap
       val inOneof = field.oneofIndex.nonEmpty && realOneofIndexes(field.getOneofIndex)
-      val cardinality = fieldCardinality(field, resolvedType, isMap, inOneof)
+      val cardinality =
+        fieldCardinality(field, resolvedType, isMap, inOneof, isMessageField)
       val packed = fieldPacked(field, resolvedType, cardinality)
 
       FieldModel(
@@ -386,7 +405,12 @@ object CodeGenerator {
             protoName = field.getName,
             bosatsuCaseName = caseNames(idx),
             number = field.getNumber,
-            fieldType = resolveFieldType(field, typeIndex)
+            fieldType = resolveFieldType(
+              field,
+              typeIndex,
+              messageInfo.fullName,
+              cyclicMessageRefEdges
+            )
           )
         }
 
@@ -409,7 +433,9 @@ object CodeGenerator {
 
   private def resolveFieldType(
       field: FieldDescriptorProto,
-      typeIndex: TypeIndex
+      typeIndex: TypeIndex,
+      ownerMessageFullName: String,
+      cyclicMessageRefEdges: Set[(String, String)]
   ): FieldType = {
     val fieldType = field.getType
 
@@ -481,7 +507,13 @@ object CodeGenerator {
           )
         }
 
-        val keyType = resolveFieldType(keyField, typeIndex) match {
+        val keyType =
+          resolveFieldType(
+            keyField,
+            typeIndex,
+            ownerMessageFullName,
+            cyclicMessageRefEdges
+          ) match {
           case FieldType.Scalar(scalarType) => scalarType
           case other                        =>
             throw new IllegalArgumentException(
@@ -489,14 +521,26 @@ object CodeGenerator {
             )
         }
 
-        val valueType = resolveFieldType(valueField, typeIndex)
+        val valueType =
+          resolveFieldType(
+            valueField,
+            typeIndex,
+            ownerMessageFullName,
+            cyclicMessageRefEdges
+          )
 
         FieldType.MapEntry(keyType, valueType)
       } else {
-        FieldType.MessageRef(
-          packageName = typeIndex.packageByFileName(messageInfo.fileName),
-          typeName = typeIndex.typeNameByFullName(messageInfo.fullName)
-        )
+        // Bosatsu type definitions cannot express multi-type mutual recursion.
+        // For cyclic protobuf message references, use opaque Bytes payloads so
+        // generated code remains type-checkable and wire-compatible.
+        if (cyclicMessageRefEdges((ownerMessageFullName, messageInfo.fullName)))
+          FieldType.Scalar(ScalarType.BytesType)
+        else
+          FieldType.MessageRef(
+            packageName = typeIndex.packageByFileName(messageInfo.fileName),
+            typeName = typeIndex.typeNameByFullName(messageInfo.fullName)
+          )
       }
     } else
       throw new IllegalArgumentException(s"unsupported field type: $fieldType")
@@ -506,17 +550,20 @@ object CodeGenerator {
       field: FieldDescriptorProto,
       fieldType: FieldType,
       isMap: Boolean,
-      inOneof: Boolean
+      inOneof: Boolean,
+      isMessageField: Boolean
   ): Cardinality =
     if (isMap || field.getLabel.equals(FieldDescriptorProto.Label.LABEL_REPEATED))
       Cardinality.Repeated
     else if (field.getProto3Optional) Cardinality.Optional
     else if (inOneof) Cardinality.Singular
     else {
-      fieldType match {
-        case _: FieldType.MessageRef => Cardinality.Optional
-        case _                       => Cardinality.Singular
-      }
+      if (isMessageField) Cardinality.Optional
+      else
+        fieldType match {
+          case _: FieldType.MessageRef => Cardinality.Optional
+          case _                       => Cardinality.Singular
+        }
     }
 
   private def fieldPacked(
@@ -555,4 +602,94 @@ object CodeGenerator {
 
   private def uniqueTypeName(baseName: String, usedNames: Set[String]): String =
     uniqueBindableName(baseName, usedNames)
+
+  private def cyclicMessageReferenceEdges(
+      allMessages: Vector[MessageInfo],
+      typeIndex: TypeIndex
+  ): Set[(String, String)] = {
+    val nonMapMessages = allMessages.filterNot(_.isMapEntry)
+    val byFullName = nonMapMessages.map(msg => msg.fullName -> msg).toMap
+
+    val edges: Map[String, Set[String]] = nonMapMessages.map { messageInfo =>
+      val refs = messageInfo.descriptor.field.iterator
+        .filter(_.getType.equals(FieldDescriptorProto.Type.TYPE_MESSAGE))
+        .flatMap { field =>
+          typeIndex.messagesByFullName
+            .get(field.getTypeName)
+            .filterNot(_.isMapEntry)
+            .map(_.fullName)
+        }
+        .toSet
+      messageInfo.fullName -> refs
+    }.toMap
+
+    val sccs = stronglyConnectedComponents(edges)
+
+    sccs.iterator
+      .flatMap { component =>
+        val isSelfRecursive =
+          component.exists(node => edges.getOrElse(node, Set.empty).contains(node))
+        if (component.size <= 1 && !isSelfRecursive) Iterator.empty
+        else {
+          val componentSet = component.toSet
+          component.iterator.flatMap { src =>
+            edges
+              .getOrElse(src, Set.empty)
+              .iterator
+              .filter(componentSet)
+              .map(dst => (src, dst))
+          }
+        }
+      }
+      .filter { case (src, dst) =>
+        byFullName.contains(src) && byFullName.contains(dst)
+      }
+      .toSet
+  }
+
+  private def stronglyConnectedComponents(
+      graph: Map[String, Set[String]]
+  ): Vector[Vector[String]] = {
+    var index = 0
+    val indices = mutable.Map.empty[String, Int]
+    val lowLink = mutable.Map.empty[String, Int]
+    val onStack = mutable.Set.empty[String]
+    val stack = mutable.ArrayBuffer.empty[String]
+    val components = mutable.ArrayBuffer.empty[Vector[String]]
+
+    def strongConnect(node: String): Unit = {
+      indices(node) = index
+      lowLink(node) = index
+      index += 1
+      stack.append(node)
+      onStack += node
+
+      graph.getOrElse(node, Set.empty).toVector.sorted.foreach { next =>
+        if (!indices.contains(next)) {
+          strongConnect(next)
+          lowLink(node) = lowLink(node).min(lowLink(next))
+        } else if (onStack(next)) {
+          lowLink(node) = lowLink(node).min(indices(next))
+        }
+      }
+
+      if (lowLink(node) == indices(node)) {
+        val component = mutable.ArrayBuffer.empty[String]
+        var done = false
+        while (!done && stack.nonEmpty) {
+          val popped = stack.remove(stack.length - 1)
+          onStack -= popped
+          component.append(popped)
+          done = popped == node
+        }
+        components.append(component.toVector)
+      }
+    }
+
+    graph.keys.toVector.sorted.foreach { node =>
+      if (!indices.contains(node)) strongConnect(node)
+    }
+
+    components.toVector
+  }
 }
