@@ -522,33 +522,61 @@ object Command {
             }
           )
 
-      private def inferredPackageForSourcePath(path: P): Option[PackageName] =
-        platformIO.relativize(confDir, path).flatMap { relPath =>
-          val relPathStr = platformIO.pathToString(relPath).replace('\\', '/')
-          if (relPathStr.endsWith(".bosatsu")) {
-            val packageString = relPathStr.stripSuffix(".bosatsu")
-            if (packageString.isEmpty) None
-            else PackageName.parse(packageString)
-          } else None
-        }
+      private def failHeaderParseErrors[A](
+          errs: NonEmptyList[PathParseError[P]]
+      ): F[A] = {
+        val messages: List[String] =
+          errs.toList.flatMap {
+            case PathParseError.ParseFailure(pf, path) =>
+              val (r, c) = pf.locations.toLineCol(pf.position).get
+              val ctx = pf.showContext(Colorize.None)
+              List(
+                s"failed to parse $path:${r + 1}:${c + 1}",
+                ctx.render(80)
+              )
+            case PathParseError.FileError(path, err) =>
+              err match {
+                case e
+                    if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
+                  // This class isn't present in scalajs, use the String
+                  List(s"file not found: $path")
+                case _ =>
+                  List(
+                    s"failed to parse $path",
+                    err.getMessage,
+                    err.getClass.toString
+                  )
+              }
+          }
+        val messageString = messages.mkString("\n")
+        val errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+        moduleIOMonad.raiseError(CliException(messageString, err = errDoc))
+      }
+
+      private def sourceFileMetadata(
+          inputSrcs: List[P]
+      ): F[List[(P, PackageName, List[PackageName])]] =
+        inputSrcs
+          .traverse(path => parsedPackageMetaFor(path).map(path -> _))
+          .flatMap { parsedBySource =>
+            parsedBySource
+              .traverse { case (path, parsedMeta) =>
+                parsedMeta.map { case (pack, imports) =>
+                  (path, pack, imports)
+                }
+              }
+              .toEither match {
+              case Right(meta) => moduleIOMonad.pure(meta)
+              case Left(errs)  => failHeaderParseErrors(errs)
+            }
+          }
 
       private def sourcePackages: F[List[PackageName]] =
         PathGen
           .recursiveChildren(confDir, ".bosatsu")(platformIO)
           .read
-          .flatMap(_.traverse(path => parsedPackageMetaFor(path).map(path -> _)))
-          .map { parsedBySource =>
-            val parsedPackages =
-              parsedBySource.collect {
-                case (_, Validated.Valid((pack, _))) => pack
-              }
-            val inferredPackages =
-              parsedBySource.collect {
-                case (path, Validated.Invalid(_)) =>
-                  inferredPackageForSourcePath(path)
-              }.flatten
-            (parsedPackages ::: inferredPackages).distinct.sorted
-          }
+          .flatMap(sourceFileMetadata)
+          .map(_.map(_._2).distinct.sorted)
 
       def validateTestFilterMatches(
           filterRegexes: NonEmptyList[String],
@@ -583,20 +611,8 @@ object Command {
               val selectedInputsF: F[List[P]] = sourcePackageFilter match {
                 case None       => moduleIOMonad.pure(inputSrcs)
                 case Some(keep) =>
-                  inputSrcs
-                    .traverse(p => parsedPackageMetaFor(p).map(p -> _))
-                    .map { parsedBySource =>
-                      val parsedEntries =
-                        parsedBySource.collect {
-                          case (path, Validated.Valid((pack, imports))) =>
-                            (path, pack, imports)
-                        }
-                      val inferredEntries =
-                        parsedBySource.collect {
-                          case (path, Validated.Invalid(_)) =>
-                            inferredPackageForSourcePath(path).map(path -> _)
-                        }.flatten
-
+                  sourceFileMetadata(inputSrcs)
+                    .map { parsedEntries =>
                       val importsByPackage =
                         parsedEntries
                           .groupMap(_._2)(_._3)
@@ -604,13 +620,7 @@ object Command {
                           .withDefaultValue(Nil)
 
                       val packageToPaths =
-                        (parsedEntries.iterator.map { case (path, pack, _) =>
-                          (pack, path)
-                        } ++ inferredEntries.iterator.map { case (path, pack) =>
-                          (pack, path)
-                        }).toList
-                          .groupMap(_._1)(_._2)
-                          .transform((_, paths) => paths.distinct)
+                        parsedEntries.groupMap(_._2)(_._1)
 
                       @annotation.tailrec
                       def transitiveClosure(
@@ -627,11 +637,9 @@ object Command {
                         }
 
                       val rootPackages =
-                        (parsedEntries.collect {
+                        parsedEntries.collect {
                           case (_, pack, _) if keep(pack) => pack
-                        } ::: inferredEntries.collect {
-                          case (_, pack) if keep(pack) => pack
-                        }).distinct
+                        }.distinct
 
                       val selectedPackages = transitiveClosure(rootPackages, Set.empty)
 

@@ -7626,13 +7626,13 @@ main = 0
   }
 
   test(
-    "lib test --filter surfaces parse failures in matched packages instead of no tests found"
+    "lib test --filter fails when any source header fails to parse"
   ) {
     val noTestsSrc =
       """value = 1
 """
     val brokenSrc =
-      """package MyLib/Testing/HedgeHogBroken/
+      """package MyLib/ReproMin8/
 |
 |broken = Assertion(True, "oops")
 |""".stripMargin
@@ -7653,7 +7653,7 @@ main = 0
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
       Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
       Chain("repo", "src", "MyLib", "Testing", "HedgeHog.bosatsu") -> noTestsSrc,
-      Chain("repo", "src", "MyLib", "Testing", "HedgeHogBroken.bosatsu") -> brokenSrc,
+      Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> brokenSrc,
       Chain("repo", "cc_conf.json") -> ccConfJson
     )
 
@@ -7664,17 +7664,17 @@ main = 0
         "--repo_root",
         "repo",
         "--filter",
-        "MyLib/Testing/HedgeHog.*",
+        "MyLib/Testing/HedgeHog",
         "--cc_conf",
         "repo/cc_conf.json"
       )
     ) match {
       case Right(out) =>
-        fail(s"expected parse failure for matched broken package, got: $out")
+        fail(s"expected parse failure for malformed header, got: $out")
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("failed to parse"), msg)
-        assert(msg.contains("HedgeHogBroken.bosatsu"), msg)
+        assert(msg.contains("ReproMin8.bosatsu"), msg)
         assert(!msg.contains("no tests found"), msg)
     }
   }
