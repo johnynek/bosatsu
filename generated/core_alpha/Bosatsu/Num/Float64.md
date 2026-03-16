@@ -18,11 +18,11 @@ source code:
 [`floor`](#value-floor), [`hypot`](#value-hypot), [`inf`](#value-inf),
 [`int_bits_to_Float64`](#value-int-bits-to-float64), [`int_to_Float64`](#value-int-to-float64),
 [`is_finite`](#value-is-finite), [`is_infinite`](#value-is-infinite), [`is_nan`](#value-is-nan),
-[`log`](#value-log), [`log10`](#value-log10), [`neg_inf`](#value-neg-inf),
+[`log`](#value-log), [`log10`](#value-log10), [`mulf`](#value-mulf), [`neg_inf`](#value-neg-inf),
 [`operator *`](#value-operator), [`operator +`](#value-operator), [`operator -`](#value-operator),
 [`operator /`](#value-operator), [`pow`](#value-pow), [`sin`](#value-sin), [`sinh`](#value-sinh),
 [`sqrt`](#value-sqrt), [`string_to_Float64`](#value-string-to-float64), [`subf`](#value-subf),
-[`tan`](#value-tan), [`tanh`](#value-tanh), [`timesf`](#value-timesf)
+[`tan`](#value-tan), [`tanh`](#value-tanh)
 
 ## Values
 
@@ -296,6 +296,16 @@ references: [`Float64`](../Predef.html#type-float64)
 def log10(x: Float64) -> Float64
 ```
 
+<a id="value-mulf"></a>
+
+### `mulf`
+
+references: [`Float64`](../Predef.html#type-float64)
+
+```bosatsu
+def mulf(a: Float64, b: Float64) -> Float64
+```
+
 <a id="value-neg-inf"></a>
 
 ### `neg_inf`
@@ -424,14 +434,4 @@ references: [`Float64`](../Predef.html#type-float64)
 
 ```bosatsu
 def tanh(x: Float64) -> Float64
-```
-
-<a id="value-timesf"></a>
-
-### `timesf`
-
-references: [`Float64`](../Predef.html#type-float64)
-
-```bosatsu
-def timesf(a: Float64, b: Float64) -> Float64
 ```

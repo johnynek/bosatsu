@@ -40,7 +40,7 @@ github.base_url=
 [`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
 [`int_to_String`](#value-int-to-string), [`items`](#value-items),
 [`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
-[`mul`](#value-mul), [`not_Int`](#value-not-int), [`or_Int`](#value-or-int),
+[`mul`](#value-mul), [`mulf`](#value-mulf), [`not_Int`](#value-not-int), [`or_Int`](#value-or-int),
 [`partition_String`](#value-partition-string), [`popcount_Int`](#value-popcount-int),
 [`range`](#value-range), [`range_fold`](#value-range-fold), [`remove_key`](#value-remove-key),
 [`replicate_List`](#value-replicate-list), [`reverse`](#value-reverse),
@@ -48,8 +48,8 @@ github.base_url=
 [`shift_left_Int`](#value-shift-left-int), [`shift_right_Int`](#value-shift-right-int),
 [`string_Order`](#value-string-order), [`string_to_Int`](#value-string-to-int), [`sub`](#value-sub),
 [`subf`](#value-subf), [`tail_or_empty_String`](#value-tail-or-empty-string),
-[`timesf`](#value-timesf), [`trace`](#value-trace), [`uncons_String`](#value-uncons-string),
-[`uncurry2`](#value-uncurry2), [`uncurry3`](#value-uncurry3), [`xor_Int`](#value-xor-int)
+[`trace`](#value-trace), [`uncons_String`](#value-uncons-string), [`uncurry2`](#value-uncurry2),
+[`uncurry3`](#value-uncurry3), [`xor_Int`](#value-xor-int)
 
 ## Types
 
@@ -2621,6 +2621,18 @@ references: [`Int`](#type-int)
 def mul(a: Int, b: Int) -> Int
 ```
 
+<a id="value-mulf"></a>
+
+### `mulf`
+
+Floating-point multiplication.
+
+references: [`Float64`](#type-float64)
+
+```bosatsu
+def mulf(a: Float64, b: Float64) -> Float64
+```
+
 <a id="value-not-int"></a>
 
 ### `not_Int`
@@ -2840,18 +2852,6 @@ references: [`String`](#type-string)
 
 ```bosatsu
 def tail_or_empty_String(arg: String) -> String
-```
-
-<a id="value-timesf"></a>
-
-### `timesf`
-
-Floating-point multiplication.
-
-references: [`Float64`](#type-float64)
-
-```bosatsu
-def timesf(a: Float64, b: Float64) -> Float64
 ```
 
 <a id="value-trace"></a>
