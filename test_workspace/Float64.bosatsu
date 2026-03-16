@@ -4,7 +4,7 @@ from Bosatsu/Predef import (
   Float64,
   addf as addf_predef,
   subf as subf_predef,
-  timesf as timesf_predef,
+  mulf as mulf_predef,
   divf as divf_predef,
   cmp_Float64 as cmp_Float64_predef
 )
@@ -12,7 +12,7 @@ from Bosatsu/Predef import (
 export (
   addf,
   subf,
-  timesf,
+  mulf,
   divf,
   cmp_Float64,
   eq_Float64,
@@ -88,8 +88,8 @@ def addf(a: Float64, b: Float64) -> Float64:
 def subf(a: Float64, b: Float64) -> Float64:
   subf_predef(a, b)
 
-def timesf(a: Float64, b: Float64) -> Float64:
-  timesf_predef(a, b)
+def mulf(a: Float64, b: Float64) -> Float64:
+  mulf_predef(a, b)
 
 def divf(a: Float64, b: Float64) -> Float64:
   divf_predef(a, b)
@@ -102,7 +102,7 @@ neg_inf: Float64 = -∞
 
 def operator +(a, b): addf(a, b)
 def operator -(a, b): subf(a, b)
-def operator *(a, b): timesf(a, b)
+def operator *(a, b): mulf(a, b)
 def operator /(a, b): divf(a, b)
 
 def eq_Float64(a: Float64, b: Float64) -> Bool:

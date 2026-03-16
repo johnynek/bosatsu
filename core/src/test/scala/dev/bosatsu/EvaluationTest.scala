@@ -416,7 +416,7 @@ def classify(x):
 test = TestSuite("float", [
   Assertion(eqf(addf(1.25, 2.5), 3.75), "addf"),
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
-  Assertion(eqf(timesf(1.5, 2.0), 3.0), "timesf"),
+  Assertion(eqf(mulf(1.5, 2.0), 3.0), "mulf"),
   Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
   Assertion(eqf(.NaN, nan0), "nan equality"),
   Assertion(eqf(∞, inf0), "literal infinity"),

@@ -96,7 +96,7 @@ export (
   cmp_String,
   string_Order,
   mul,
-  timesf,
+  mulf,
   trace,
   uncurry2,
   uncurry3,
@@ -255,7 +255,7 @@ external def addf(a: Float64, b: Float64) -> Float64
 # Floating-point subtraction.
 external def subf(a: Float64, b: Float64) -> Float64
 # Floating-point multiplication.
-external def timesf(a: Float64, b: Float64) -> Float64
+external def mulf(a: Float64, b: Float64) -> Float64
 # IEEE754 floating-point division; unlike `div`, dividing by `0.0` yields `∞`, `-∞`, or `.NaN`.
 external def divf(a: Float64, b: Float64) -> Float64
 # Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
