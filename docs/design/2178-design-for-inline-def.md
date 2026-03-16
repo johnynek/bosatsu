@@ -79,7 +79,7 @@ Contract:
 2. It type-checks exactly like an ordinary `def` and exports as an ordinary value.
 3. Fully saturated direct calls are candidates for Matchless-time substitution.
 4. Unsaturated uses, passing the function as a value, or unresolved dependency bodies keep ordinary `Global` and `App` lowering.
-5. Recursive or mutually recursive inline defs are rejected.
+5. Non-tail self-recursive inline defs are rejected. Tail-recursive inline defs are allowed once loop lowering has converted them to loop form.
 
 Restricting V1 to top-level defs avoids having to tag every local `Let` shape throughout the typed AST while still covering the motivating cross-package control-flow use case.
 
@@ -94,7 +94,7 @@ Proposed in-memory shape:
 1. Parse `inline def` as a distinct top-level statement form or a top-level-only modifier on `Statement.Def`.
 2. Extend `Program` with `inlineDefs: SortedSet[Bindable]`.
 3. Preserve `inlineDefs` through normalization, tree shaking, filtering, voiding, and round-trip helpers.
-4. Add a validation step after typing that rejects any inline def participating in a recursive SCC.
+4. No general SCC validation is needed. Bosatsu name graphs are DAGs by construction apart from self recursion, so the inline-specific validation only needs to reject remaining non-tail self recursion after loop lowering.
 
 ### 2. Public interface metadata
 
@@ -121,21 +121,21 @@ Proposed protobuf changes:
 
 ## Matchless architecture
 
-### 1. Inline resolver
+### 1. Two-phase pipeline
 
-Introduce a resolver for already-lowered inline bodies instead of compiling every package in isolation.
+Keep the initial Matchless conversion fully parallel, then add a second phase that rewrites inline calls after raw Matchless bodies already exist.
 
 Proposed shape:
 
-1. Add an `InlineEnv[K]` keyed by `(scopeKey, packageName, bindable)` that returns a lowered Matchless body plus recovered arity.
-2. Change `MatchlessFromTypedExpr` from one blind parallel traversal to a package compiler that accepts an accumulated `InlineEnv` and returns compiled lets plus newly available inline bodies.
-3. Within a single package, lower inline defs first, in a local topo order derived from same-package references between inline defs.
-4. Then lower all lets in the package with the combined environment from already-compiled dependencies plus same-package inline defs.
+1. Keep `MatchlessFromTypedExpr.compile` as the raw conversion step so every let is lowered to Matchless in full parallelism.
+2. Add an `InlineEnv[K]` keyed by `(scopeKey, packageName, bindable)` that returns an already-rewritten inline Matchless body plus recovered arity.
+3. Add a second pass over compiled Matchless output that runs in topo order of packages and rewrites calls to inline defs using `InlineEnv`.
+4. Within each package, rewrite inline defs first so later lets in the same package can inline them too.
 
 This solves two problems at once:
 
 1. Forward references to later inline defs in the same package still inline.
-2. Imported inline defs can inline once their dependency packages have already been lowered.
+2. Imported inline defs can inline once their dependency packages have already gone through the post-lowering rewrite phase.
 
 ### 2. Inline application semantics
 
@@ -159,20 +159,37 @@ Trade-off:
 2. That is acceptable in V1 because inline is explicit and opt-in.
 3. Any future heuristic for sharing should be a follow-up and must not reintroduce eager evaluation ahead of control flow.
 
-### 3. Dependency ordering and remaining parallelism
+### 3. Post-lowering inlining sketch
 
-The issue text is correct that compilation can no longer be totally parallel if lowered dependency bodies may be needed.
+The clearer proposal is:
 
-The minimum change is to preserve parallelism by topo layer:
+1. Phase A runs exactly as the compiler does today: lower all lets to raw Matchless in full parallelism, with inline defs still called through `Global`.
+2. Build the inline candidate table from typed-program metadata (`Program.inlineDefs`) plus interface metadata for exported inline defs.
+3. Phase B walks packages in topo order and rewrites raw Matchless bodies:
+   - Process packages by topo layer so independent packages still rewrite in parallel.
+   - For one package, collect the lets whose bindable is in `Program.inlineDefs`.
+   - Order those local inline defs by same-package `Global` references, ignoring any self edge. This is a straight topo order because Bosatsu's name graph is already acyclic apart from self recursion.
+   - Rewrite each local inline body using already-processed dependency inline defs plus already-rewritten local inline defs.
+   - Publish the rewritten local inline defs into `InlineEnv`.
+   - Rewrite all lets in the package using the same environment.
+4. `Matchless.inlineApplyArgs` is used only in Phase B when the callee resolves to an inline body and the call is fully saturated.
+5. Tail-recursive inline defs work because `TypedExprLoopRecurLowering` has already rewritten them into loop form before Matchless lowering, so the post-pass just inlines a `WhileExpr`-shaped body.
+6. If an inline def body still contains a direct self call after loop lowering, Phase B reports it as an unsupported non-tail recursive inline def instead of recursing forever.
+
+### 4. Dependency ordering and remaining parallelism
+
+The point of the two-phase approach is that only the inlining rewrite needs ordering. Raw Matchless lowering can remain fully parallel.
+
+The remaining ordering work is therefore limited to Phase B:
 
 1. `CompilationSource.packageMapSrc.compiled` should iterate `PackageMap.topoSort.layers`.
 2. `DecodedLibraryWithDeps.compiled` should iterate `CompilationNamespace.topoSort.layers` so cross-library package dependencies are honored.
-3. Packages inside the same topo layer still compile in parallel.
-4. Only packages on actual dependency chains lose parallelism.
+3. Packages inside the same topo layer still rewrite in parallel.
+4. Only packages on actual dependency chains lose parallelism during the post-pass.
 
-This keeps the change localized to the compilation namespace builders rather than every backend.
+This keeps the ordering change localized to the namespace builders rather than the raw Matchless conversion itself or every backend.
 
-### 4. Cross-library lookup
+### 5. Cross-library lookup
 
 Decoded libraries already carry implementation packages in addition to interfaces. That is enough to inline without putting Matchless into interfaces.
 
@@ -186,19 +203,19 @@ Resolution rule:
 
 1. Add top-level `inline def` parsing and rendering in the statement layer.
 2. Extend `Program` with `inlineDefs` and thread it through package helpers, normalization, tree shaking, and typed-package utilities.
-3. Add a typed-package validation that rejects inline defs in recursive SCCs.
+3. Add a typed-package validation that rejects only non-tail self recursion that survives loop lowering.
 4. Extend exported-value metadata so interfaces record whether an exported value is inline.
 5. Update `TypedAst.proto` and `ProtoConverter` to round-trip both package-level inline defs and interface-level inline export flags with backward-compatible decode.
-6. Refactor `MatchlessFromTypedExpr` into a dependency-aware package compiler that accepts and produces inline-lowering metadata.
-7. Add `Matchless.inlineApplyArgs` and call it from lowering of fully saturated direct applications to inline globals.
-8. Update `CompilationSource` and `DecodedLibraryWithDeps` to compile by topo layer instead of starting every package or library independently.
+6. Keep the current parallel Matchless conversion and add a second inlining pass over compiled Matchless bodies.
+7. Add `Matchless.inlineApplyArgs` and use it during the post-lowering rewrite of fully saturated direct applications to inline globals.
+8. Update `CompilationSource` and `DecodedLibraryWithDeps` so the post-lowering inlining pass runs by topo layer over already-lowered packages.
 9. Keep evaluator and backend codegen unchanged except for consuming the new Matchless output they already receive.
 
 ## Testing plan
 
 1. Parser tests for top-level `inline def` round-tripping.
 2. Parser or package tests confirming nested `inline def` is rejected in V1.
-3. Package tests confirming recursive and mutually recursive inline defs are rejected.
+3. Package tests confirming non-tail self-recursive inline defs are rejected and tail-recursive inline defs remain allowed.
 4. Source-converter or package-shape tests confirming `Program.inlineDefs` is populated correctly.
 5. Proto round-trip tests for `inline_defs` on packages and inline export flags on interfaces.
 6. Backward-compat decode tests for old artifacts with no inline metadata.
@@ -210,22 +227,22 @@ Resolution rule:
 
 ## Acceptance criteria
 
-1. Top-level `inline def` parses and round-trips, while recursive inline defs are rejected.
+1. Top-level `inline def` parses and round-trips, non-tail self-recursive inline defs are rejected, and tail-recursive inline defs remain allowed.
 2. Typed programs preserve inline-def metadata, and package filtering, normalization, and tree shaking do not drop it accidentally.
 3. Exported inline defs are marked in interfaces, so interface bytes and dependency hashes change when a public def switches between ordinary and inline.
 4. Package and library serialization round-trip inline metadata, and older artifacts decode as non-inline.
 5. Fully saturated direct calls to inline defs are substituted during Matchless lowering without eagerly evaluating all actual arguments ahead of control-flow branches.
 6. Imported inline defs inline across package boundaries inside one compilation and across decoded library dependencies.
 7. Unsaturated uses and ordinary defs continue to use the current `Global` and `App` lowering paths.
-8. Builds remain parallel within topo layers, with serialization only along actual dependency edges.
+8. Raw Matchless lowering remains fully parallel, and only the post-lowering inline rewrite is ordered by topo layers.
 
 ## Risks and mitigations
 
 1. Risk: inline substitution can duplicate work or increase code size when a parameter is used multiple times.
 Mitigation: keep the feature explicit and opt-in, and accept duplication in V1 rather than weakening the laziness guarantee.
 
-2. Risk: inline dependency cycles can make lowering non-terminating.
-Mitigation: reject inline defs in recursive SCCs before Matchless compilation.
+2. Risk: self-recursive inline defs can make the post-pass recurse forever if recursion survives loop lowering.
+Mitigation: allow tail-recursive defs after loop lowering and reject only bodies that still contain a direct self call.
 
 3. Risk: if inline-ness is omitted from interfaces, caches can go stale because downstream generated code changes while the exported type does not.
 Mitigation: make exported inline-ness part of interface identity.
