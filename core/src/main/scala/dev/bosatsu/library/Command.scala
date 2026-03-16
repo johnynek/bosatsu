@@ -509,25 +509,46 @@ object Command {
 
       private def parsedPackageMetaFor(
           path: P
-      ): F[Option[(PackageName, List[PackageName])]] =
+      ): F[ValidatedNel[PathParseError[P], (PackageName, List[PackageName])]] =
         PathParseError
           .parseFile(
             PackageResolver.headerParserIgnoreRest,
             path,
             platformIO
           )
-          .map {
-            case Validated.Valid((_, (packageName, imports, _))) =>
-              Some((packageName, imports.map(_.pack)))
-            case Validated.Invalid(_)                            => None
-          }
+          .map(
+            _.map { case (_, (packageName, imports, _)) =>
+              (packageName, imports.map(_.pack))
+            }
+          )
+
+      private def inferredPackageForSourcePath(path: P): Option[PackageName] =
+        platformIO.relativize(confDir, path).flatMap { relPath =>
+          val relPathStr = platformIO.pathToString(relPath).replace('\\', '/')
+          if (relPathStr.endsWith(".bosatsu")) {
+            val packageString = relPathStr.stripSuffix(".bosatsu")
+            if (packageString.isEmpty) None
+            else PackageName.parse(packageString)
+          } else None
+        }
 
       private def sourcePackages: F[List[PackageName]] =
         PathGen
           .recursiveChildren(confDir, ".bosatsu")(platformIO)
           .read
-          .flatMap(_.traverse(parsedPackageMetaFor))
-          .map(_.collect { case Some((pack, _)) => pack }.distinct.sorted)
+          .flatMap(_.traverse(path => parsedPackageMetaFor(path).map(path -> _)))
+          .map { parsedBySource =>
+            val parsedPackages =
+              parsedBySource.collect {
+                case (_, Validated.Valid((pack, _))) => pack
+              }
+            val inferredPackages =
+              parsedBySource.collect {
+                case (path, Validated.Invalid(_)) =>
+                  inferredPackageForSourcePath(path)
+              }.flatten
+            (parsedPackages ::: inferredPackages).distinct.sorted
+          }
 
       def validateTestFilterMatches(
           filterRegexes: NonEmptyList[String],
@@ -567,9 +588,14 @@ object Command {
                     .map { parsedBySource =>
                       val parsedEntries =
                         parsedBySource.collect {
-                          case (path, Some((pack, imports))) =>
+                          case (path, Validated.Valid((pack, imports))) =>
                             (path, pack, imports)
                         }
+                      val inferredEntries =
+                        parsedBySource.collect {
+                          case (path, Validated.Invalid(_)) =>
+                            inferredPackageForSourcePath(path).map(path -> _)
+                        }.flatten
 
                       val importsByPackage =
                         parsedEntries
@@ -578,7 +604,13 @@ object Command {
                           .withDefaultValue(Nil)
 
                       val packageToPaths =
-                        parsedEntries.groupMap(_._2)(_._1)
+                        (parsedEntries.iterator.map { case (path, pack, _) =>
+                          (pack, path)
+                        } ++ inferredEntries.iterator.map { case (path, pack) =>
+                          (pack, path)
+                        }).toList
+                          .groupMap(_._1)(_._2)
+                          .transform((_, paths) => paths.distinct)
 
                       @annotation.tailrec
                       def transitiveClosure(
@@ -595,9 +627,11 @@ object Command {
                         }
 
                       val rootPackages =
-                        parsedEntries.collect {
+                        (parsedEntries.collect {
                           case (_, pack, _) if keep(pack) => pack
-                        }.distinct
+                        } ::: inferredEntries.collect {
+                          case (_, pack) if keep(pack) => pack
+                        }).distinct
 
                       val selectedPackages = transitiveClosure(rootPackages, Set.empty)
 
