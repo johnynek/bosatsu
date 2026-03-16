@@ -159,6 +159,11 @@ object TypedExprRecursionCheck {
     private val getLazyName = Identifier.Name("get_Lazy")
     private val lazyTypeConst =
       Type.Const.Defined(lazyPackageName, TypeName("Lazy"))
+    private val evalPackageName = PackageName.parts("Bosatsu", "Eval")
+    private val evalName = Identifier.Name("eval")
+    private val flatMapName = Identifier.Name("flat_map")
+    private val evalTypeConst =
+      Type.Const.Defined(evalPackageName, TypeName("Eval"))
 
     case class SmtBranchState(
         intBindings: Map[Bindable, SmtExpr.IntExpr],
@@ -2146,6 +2151,16 @@ object TypedExprRecursionCheck {
           false
       }
 
+    private def hasEvalType(
+        expr: TypedExpr[Declaration]
+    ): Boolean =
+      expr.getType match {
+        case Type.TyApply(Type.TyConst(const), _) =>
+          const == evalTypeConst
+        case _ =>
+          false
+      }
+
     private def isTrustedGlobalFn(
         expr: TypedExpr[Declaration],
         pack: PackageName,
@@ -2188,6 +2203,21 @@ object TypedExprRecursionCheck {
           Smaller
       }
 
+    private def classifyEvalForceArg(
+        inrec: InDefRecurred,
+        target: RecurTargetItem,
+        proof: TargetProof,
+        arg: TypedExpr[Declaration]
+    ): Option[ArgLexOrder] =
+      // Trust boundary: only the canonical Bosatsu/Eval.eval force form.
+      oneArgApp(arg).collect {
+        case (fnExpr, evalArg)
+            if isTrustedGlobalFn(fnExpr, evalPackageName, evalName) &&
+              (classifyExpr(inrec, target, proof, evalArg) != Other) &&
+              hasEvalType(evalArg) =>
+          Smaller
+      }
+
     private def classifyExpr(
         inrec: InDefRecurred,
         target: RecurTargetItem,
@@ -2207,6 +2237,7 @@ object TypedExprRecursionCheck {
         }
         .orElse(classifyThunkForceArg(inrec, target, proof, arg))
         .orElse(classifyLazyForceArg(inrec, target, proof, arg))
+        .orElse(classifyEvalForceArg(inrec, target, proof, arg))
         .orElse(
           proof.currentCtorIfEqual.map(
             classifyConstructorRankArg(inrec, target, proof, _, arg)
@@ -2226,6 +2257,20 @@ object TypedExprRecursionCheck {
         case Equal   => proof.withFact(name, ProvenRel.Equal)
         case Smaller => proof.withFact(name, ProvenRel.Smaller)
         case Other   => proof
+      }
+
+    private def extendProofWithStrictChildExpr(
+        inrec: InDefRecurred,
+        target: RecurTargetItem,
+        proof: TargetProof,
+        name: Bindable,
+        expr: TypedExpr[Declaration]
+    ): TargetProof =
+      classifyExpr(inrec, target, proof, expr) match {
+        case Equal | Smaller =>
+          proof.withFact(name, ProvenRel.Smaller)
+        case Other =>
+          proof
       }
 
     private def extendProofWithPattern(
@@ -2792,13 +2837,11 @@ object TypedExprRecursionCheck {
       getSt.flatMap {
         case InRecurBranch(inrec, _, _, _) =>
           withTemporaryRecurBranchProofs(in, _ => in) { proofs0 =>
-            val updated =
-              inrec.target.toList
-                .zip(proofs0.toList)
-                .map { case (targetItem, proof) =>
-                  extendProofWithExpr(inrec, targetItem, proof.without(name :: Nil), name, expr)
-                }
-            NonEmptyList.fromListUnsafe(updated)
+            inrec.target
+              .zip(proofs0)
+              .map { case (targetItem, proof) =>
+                extendProofWithExpr(inrec, targetItem, proof.without(name :: Nil), name, expr)
+              }
           }
         case _ =>
           in
@@ -2811,23 +2854,52 @@ object TypedExprRecursionCheck {
       getSt.flatMap {
         case InRecurBranch(inrec, _, _, _) =>
           withTemporaryRecurBranchProofs(in, _ => in) { proofs0 =>
-            val updated =
-              inrec.target.toList
-                .zip(proofs0.toList)
-                .map { case (targetItem, proof) =>
-                  extendProofWithPattern(
-                    inrec,
-                    targetItem,
-                    proof.without(pattern.names),
-                    scrutinee,
-                    pattern
-                  )
-                }
-            NonEmptyList.fromListUnsafe(updated)
+            inrec.target
+              .zip(proofs0)
+              .map { case (targetItem, proof) =>
+                extendProofWithPattern(
+                  inrec,
+                  targetItem,
+                  proof.without(pattern.names),
+                  scrutinee,
+                  pattern
+                )
+              }
           }
         case _ =>
           in
       }
+
+    private def checkAnnotatedLambdaWithProofs(
+        currentPackage: PackageName,
+        args: NonEmptyList[(Bindable, Type)],
+        body: TypedExpr[Declaration],
+        wrappers: WrapperScope,
+        region: Region
+    )(
+        updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
+    ): St[Unit] = {
+      val newBinds = args.toList.map(_._1)
+      val bareBodyCheck = checkExpr(currentPackage, body, wrappers)
+      val bodyCheck =
+        withTemporaryRecurBranchProofs(
+          bareBodyCheck,
+          _ => bareBodyCheck
+        ) { proofs =>
+          updateProofs(proofs.map(_.without(newBinds)))
+        }
+
+      checkForIllegalBindsSt(newBinds, region) *>
+        withTemporaryRecurBranchSmtState(
+          bodyCheck,
+          _ => bodyCheck
+        ) { smtState =>
+          args.foldLeft(smtState.removeBindings(newBinds)) {
+            case (st, (name, tpe)) =>
+              bindSymbolForType(name, tpe, st)
+          }
+        }
+    }
 
     private def checkReachableLambdaBody(
         currentPackage: PackageName,
@@ -2858,6 +2930,23 @@ object TypedExprRecursionCheck {
       }
       }
 
+    private def trustedEvalFlatMapCall(
+        fn: TypedExpr[Declaration],
+        args: NonEmptyList[TypedExpr[Declaration]]
+    ): Option[(TypedExpr[Declaration], TypedExpr.AnnotatedLambda[Declaration])] =
+      args.toList match {
+        case evalArg :: lambdaArg :: Nil
+            if isTrustedGlobalFn(fn, evalPackageName, flatMapName) &&
+              hasEvalType(evalArg) =>
+          asAnnotatedLambda(lambdaArg).collect {
+            case lam @ TypedExpr.AnnotatedLambda(lambdaArgs, _, _)
+                if lambdaArgs.tail.isEmpty =>
+              (evalArg, lam)
+          }
+        case _ =>
+          None
+      }
+
     private def checkApply(
         currentPackage: PackageName,
         fn: TypedExpr[Declaration],
@@ -2873,77 +2962,105 @@ object TypedExprRecursionCheck {
             checkExpr(currentPackage, _, wrappers)
           )
         case irb @ InRecurBranch(inrec, _, proofsPerTarget, _) =>
-          argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
-            case Some((nm, groups)) =>
-              if (nm == irb.defname) {
-                val targetArgsV: Res[NonEmptyList[TypedExpr[Declaration]]] =
-                  inrec.target.traverse { targetItem =>
-                    groups
-                      .get(targetItem.group.toLong)
-                      .flatMap(_.get(targetItem.index.toLong))
-                      .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
-                  }
-
-                val allArgs = groups.iterator.flatMap(_.iterator).toList
-                toSt(targetArgsV).flatMap { targetArgs =>
-                  recurAllowedByLexOrder(
-                    irb.defname,
-                    inrec,
-                    inrec.target,
-                    targetArgs,
-                    region
-                  )
-                } *>
-                  getSt.flatMap {
-                    case irbNow: InRecurBranch => setSt(irbNow.incRecCount)
-                    case _                     => setSt(irb.incRecCount)
-                  } *> allArgs.parTraverse_(
-                    checkExpr(currentPackage, _, wrappers)
-                  )
-              } else if (irb.defNamesContain(nm)) {
-                failSt(RecursionCheck.InvalidRecursion(nm, region))
-              } else if (smallerNamesFromProofs(proofsPerTarget).contains(nm)) {
-                // we are calling a reachable function. Any lambda args are new names:
-                args.parTraverse_[St, Unit] {
-                  case argExpr =>
-                    asAnnotatedLambda(argExpr) match {
-                      case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
-                        val names1 = lambdaArgs.toList.map(_._1)
-                        unionNames(names1)(
-                          checkReachableLambdaBody(
-                            currentPackage,
-                            body,
-                            wrappers,
-                            lambdaTag
-                          )
+          trustedEvalFlatMapCall(fn, args) match {
+            case Some((evalArg, TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag))) =>
+              val binderName = lambdaArgs.head._1
+              checkExpr(currentPackage, fn, wrappers) *>
+                checkExpr(currentPackage, evalArg, wrappers) *>
+                checkAnnotatedLambdaWithProofs(
+                  currentPackage,
+                  lambdaArgs,
+                  body,
+                  wrappers,
+                  lambdaTag.region
+                ) { proofs =>
+                  val updated =
+                    inrec.target.toList
+                      .zip(proofs.toList)
+                      .map { case (targetItem, proof) =>
+                        extendProofWithStrictChildExpr(
+                          inrec,
+                          targetItem,
+                          proof,
+                          binderName,
+                          evalArg
                         )
-                      case None =>
-                        localOrLocalPackageGlobalNameOf(
-                          currentPackage,
-                          argExpr
-                        ) match {
-                          case Some(fnname) if irb.defname == fnname =>
-                            val asLambda = irb.inDef.asLambda(argExpr.tag.region)
-                            val names1 = asLambda.args.toList.map(_._1)
+                      }
+                  NonEmptyList.fromListUnsafe(updated)
+                }
+            case None =>
+              argsOnDefName(currentPackage, fn, NonEmptyList.one(args)) match {
+                case Some((nm, groups)) =>
+                  if (nm == irb.defname) {
+                    val targetArgsV: Res[NonEmptyList[TypedExpr[Declaration]]] =
+                      inrec.target.traverse { targetItem =>
+                        groups
+                          .get(targetItem.group.toLong)
+                          .flatMap(_.get(targetItem.index.toLong))
+                          .toValidNec(RecursionCheck.NotEnoughRecurArgs(nm, region))
+                      }
+
+                    val allArgs = groups.iterator.flatMap(_.iterator).toList
+                    toSt(targetArgsV).flatMap { targetArgs =>
+                      recurAllowedByLexOrder(
+                        irb.defname,
+                        inrec,
+                        inrec.target,
+                        targetArgs,
+                        region
+                      )
+                    } *>
+                      getSt.flatMap {
+                        case irbNow: InRecurBranch => setSt(irbNow.incRecCount)
+                        case _                     => setSt(irb.incRecCount)
+                      } *> allArgs.parTraverse_(
+                        checkExpr(currentPackage, _, wrappers)
+                      )
+                  } else if (irb.defNamesContain(nm)) {
+                    failSt(RecursionCheck.InvalidRecursion(nm, region))
+                  } else if (smallerNamesFromProofs(proofsPerTarget).contains(nm)) {
+                    // we are calling a reachable function. Any lambda args are new names:
+                    args.parTraverse_[St, Unit] {
+                      case argExpr =>
+                        asAnnotatedLambda(argExpr) match {
+                          case Some(TypedExpr.AnnotatedLambda(lambdaArgs, body, lambdaTag)) =>
+                            val names1 = lambdaArgs.toList.map(_._1)
                             unionNames(names1)(
-                              checkExpr(currentPackage, asLambda.expr, wrappers)
+                              checkReachableLambdaBody(
+                                currentPackage,
+                                body,
+                                wrappers,
+                                lambdaTag
+                              )
                             )
-                          case _ =>
-                            checkExpr(currentPackage, argExpr, wrappers)
+                          case None =>
+                            localOrLocalPackageGlobalNameOf(
+                              currentPackage,
+                              argExpr
+                            ) match {
+                              case Some(fnname) if irb.defname == fnname =>
+                                val asLambda = irb.inDef.asLambda(argExpr.tag.region)
+                                val names1 = asLambda.args.toList.map(_._1)
+                                unionNames(names1)(
+                                  checkExpr(currentPackage, asLambda.expr, wrappers)
+                                )
+                              case _ =>
+                                checkExpr(currentPackage, argExpr, wrappers)
+                            }
                         }
                     }
-                }
-              } else {
-                // not a recursive call
-                setSt(irb.noteCalledName(nm)) *> args.parTraverse_(
-                  checkExpr(currentPackage, _, wrappers)
-                )
+                  } else {
+                    // not a recursive call
+                    setSt(irb.noteCalledName(nm)) *> args.parTraverse_(
+                      checkExpr(currentPackage, _, wrappers)
+                    )
+                  }
+                case None =>
+                  // this isn't a recursive call
+                  checkExpr(currentPackage, fn, wrappers) *> args.parTraverse_(
+                    checkExpr(currentPackage, _, wrappers)
+                  )
               }
-            case None =>
-              // this isn't a recursive call
-              checkExpr(currentPackage, fn, wrappers) *> args.parTraverse_(
-                checkExpr(currentPackage, _, wrappers)
-              )
           }
         case ir: InDefState =>
           // we have either not yet, or already done the recursion
@@ -2970,18 +3087,13 @@ object TypedExprRecursionCheck {
         case TypedExpr.Annotation(term, _, _) =>
           checkExpr(currentPackage, term, wrappers.pushAnnotation)
         case TypedExpr.AnnotatedLambda(args, body, _) =>
-          val newBinds = args.toList.map(_._1)
-          val bodyCheck = filterNames(newBinds)(checkExpr(currentPackage, body, wrappers))
-          checkForIllegalBindsSt(newBinds, expr.tag.region) *>
-            withTemporaryRecurBranchSmtState(
-              bodyCheck,
-              _ => bodyCheck
-            ) { smtState =>
-              args.foldLeft(smtState.removeBindings(newBinds)) {
-                case (st, (name, tpe)) =>
-                  bindSymbolForType(name, tpe, st)
-              }
-            }
+          checkAnnotatedLambdaWithProofs(
+            currentPackage,
+            args,
+            body,
+            wrappers,
+            expr.tag.region
+          )(identity)
         case TypedExpr.Local(v, _, _) =>
           getSt.flatMap {
             case TopLevel(_) =>

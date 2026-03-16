@@ -919,6 +919,83 @@ def bad(s: Stream) -> Stream:
 """)
   }
 
+  test("recur allows trusted Bosatsu/Eval.eval force on smaller local") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def eval[a](e: Eval[a]) -> a
+
+enum Stream:
+  End
+  More(next: Eval[Stream])
+
+def consume(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(ev):
+      consume(eval(ev))
+""",
+      evalPack
+    )
+  }
+
+  test("recur allows nested match after trusted Eval.eval force") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def eval[a](e: Eval[a]) -> a
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+
+def step(t: Tree) -> Tree:
+  recur t:
+    case Leaf:
+      Leaf
+    case Node(ev):
+      match eval(ev):
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(eval(next))
+""",
+      evalPack
+    )
+  }
+
+  test("recur allows pattern matching on trusted Eval.flat_map binder args") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def done[a](a: a) -> Eval[a]
+external def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+
+def step(t: Tree) -> Eval[Tree]:
+  recur t:
+    case Leaf:
+      done(Leaf)
+    case Node(ev):
+      flat_map(ev, next -> (
+        match next:
+          case Leaf:
+            done(Leaf)
+          case Node(_):
+            step(next)
+      ))
+""",
+      evalPack
+    )
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:

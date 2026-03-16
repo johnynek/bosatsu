@@ -6,6 +6,10 @@ interpreter that does **not** take a fuel argument.
 It also contains a small proof that extending structural descent with trusted
 thunk/Lazy force steps preserves well-foundedness (`TrustedForceProjection`).
 
+There is also a follow-on proof that adding trusted `Eval::eval` steps remains
+well-founded, and that the `flat_map` callback binder is just the evaluated
+input (`TrustedEvalProjection`).
+
 The proof uses a minimal sound extension: each continuation frame carries a static
 output-work bound (`BFn α β wOut wFn` with `wOut < wFn`).
 
