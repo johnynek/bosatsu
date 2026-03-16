@@ -698,6 +698,63 @@ def eval[a](ff: FreeF[a]) -> a:
 """)
   }
 
+  test("recur allows let-bound thunk force from equal wrapper") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def consume(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      next = th()
+      consume(next)
+""")
+  }
+
+  test("recur allows nested match after thunk force") {
+    allowed("""#
+enum Tree:
+  Leaf
+  Node(next: () -> Tree)
+
+def step(t: Tree) -> Tree:
+  recur t:
+    case Leaf:
+      Leaf
+    case Node(th):
+      match th():
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(next())
+""")
+  }
+
+  test("recur allows nested match after thunk force on wrapped payload") {
+    allowed("""#
+enum LazyList[a: +*]:
+  Empty
+  Cons(head: () -> a, tail: () -> LazyList[a])
+
+struct Tree(value: Int, children: LazyList[Tree])
+
+def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
+  recur trees:
+    case Empty:
+      Empty
+    case Cons(head, tail):
+      mapped_head = () -> (
+        Tree(h, hs) = head()
+        Tree(h, map_Trees(hs))
+      )
+      mapped_tail = () -> map_Trees(tail())
+      Cons(mapped_head, mapped_tail)
+""")
+  }
+
   test("recur allows trusted Bosatsu/Lazy.get_Lazy force on smaller local") {
     val lazyPack = PackageName.parts("Bosatsu", "Lazy")
     allowed(
@@ -715,6 +772,85 @@ def consume(s: Stream) -> Stream:
       End
     case More(l):
       consume(get_Lazy(l))
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows let-bound trusted lazy force from equal wrapper") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def consume(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(l):
+      next = get_Lazy(l)
+      consume(next)
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows nested match after trusted lazy force") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Tree:
+  Leaf
+  Node(next: Lazy[Tree])
+
+def step(t: Tree) -> Tree:
+  recur t:
+    case Leaf:
+      Leaf
+    case Node(l):
+      match get_Lazy(l):
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(get_Lazy(next))
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows nested match after trusted lazy force on wrapped payload") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def lazy[a](fn: () -> a) -> Lazy[a]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum LazyList[a: +*]:
+  Empty
+  Cons(head: Lazy[a], tail: Lazy[LazyList[a]])
+
+struct Tree(value: Int, children: LazyList[Tree])
+
+def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
+  recur trees:
+    case Empty:
+      Empty
+    case Cons(head, tail):
+      mapped_head = lazy(() -> (
+        Tree(h, hs) = get_Lazy(head)
+        Tree(h, map_Trees(hs))
+      ))
+      mapped_tail = lazy(() -> map_Trees(get_Lazy(tail)))
+      Cons(mapped_head, mapped_tail)
 """,
       lazyPack
     )

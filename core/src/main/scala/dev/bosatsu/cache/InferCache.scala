@@ -1,6 +1,7 @@
 package dev.bosatsu.cache
 
 import cats.Applicative
+import dev.bosatsu.hashing.{Algo, HashValue}
 import dev.bosatsu.{CompileOptions, Package, PackageName}
 import java.util.concurrent.atomic.AtomicLong
 import scala.collection.immutable.SortedMap
@@ -10,7 +11,8 @@ trait InferCache[F[_]] {
   type DepHash
 
   def generateKey(
-      pack: Package.Parsed,
+      packageName: PackageName,
+      sourceHash: HashValue[Algo.Blake3],
       depInterfaceHashes: SortedMap[PackageName, DepHash],
       compileOptions: CompileOptions,
       compilerIdentity: String,
@@ -44,13 +46,22 @@ object InferCache {
       private val dependencyHashCalls = new AtomicLong(0L)
 
       def generateKey(
-          pack: Package.Parsed,
+          packageName: PackageName,
+          sourceHash: HashValue[Algo.Blake3],
           depInterfaceHashes: SortedMap[PackageName, DepHash],
           compileOptions: CompileOptions,
           compilerIdentity: String,
           phaseIdentity: String
       ): F[Key] = {
-        val _ = depInterfaceHashes
+        val _ =
+          (
+            packageName,
+            sourceHash,
+            depInterfaceHashes,
+            compileOptions,
+            compilerIdentity,
+            phaseIdentity
+          )
         if (statsEnabled) {
           generateKeyCalls.incrementAndGet()
           ()

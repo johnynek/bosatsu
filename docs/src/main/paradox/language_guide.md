@@ -398,6 +398,26 @@ def len(lst):
 `loop` enforces that all recursive self-calls are in tail position. `recur`
 keeps the same termination checks but allows valid non-tail recursion.
 
+`recur` can also follow trusted delayed-value projections. If a branch binds
+`th: () -> T` or `l: Lazy[T]`, then `th()` and trusted
+`Bosatsu/Lazy.get_Lazy(l)` are treated like smaller children of the current
+value. Those facts compose through `let` bindings and nested `match`
+destructuring.
+
+```bosatsu
+enum Stream[a]:
+  End
+  More(next: () -> Stream[a])
+
+def consume(s: Stream[a]) -> Stream[a]:
+  recur s:
+    case End:
+      End
+    case More(th):
+      next = th()
+      consume(next)
+```
+
 Tuple recursion targets are also supported and checked lexicographically in the
 target order:
 ```

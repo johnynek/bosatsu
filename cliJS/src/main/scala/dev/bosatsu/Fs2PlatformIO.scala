@@ -12,6 +12,8 @@ import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
 import scala.util.{Failure, Success, Try}
 import scala.scalajs.js
+import scala.scalajs.js.Dynamic.global
+import scala.scalajs.js.typedarray.Uint8Array
 
 import cats.syntax.all._
 import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
@@ -394,11 +396,43 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       .compile
       .drain
 
+  private lazy val nodeFs = global.require("fs")
+
+  private def nodeBufferToBytes(buffer: js.Dynamic): Array[Byte] = {
+    val length = buffer.length.asInstanceOf[Int]
+    val out = new Array[Byte](length)
+    var idx = 0
+    while (idx < length) {
+      out(idx) = (buffer(idx).asInstanceOf[Int] & 0xff).toByte
+      idx += 1
+    }
+    out
+  }
+
+  private def bytesToUint8Array(bytes: Array[Byte]): Uint8Array = {
+    val out = new Uint8Array(bytes.length)
+    var idx = 0
+    while (idx < bytes.length) {
+      out(idx) = (bytes(idx) & 0xff).toShort
+      idx += 1
+    }
+    out
+  }
+
   def writeStdout(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.print(part))
 
   def writeError(doc: Doc): IO[Unit] =
     onParts(doc)(part => IO.consoleForIO.error(part))
+
+  def readStdinBytes: IO[Array[Byte]] =
+    IO.blocking(nodeBufferToBytes(nodeFs.readFileSync(0)))
+
+  def writeStdoutBytes(bytes: Array[Byte]): IO[Unit] =
+    IO.blocking {
+      val _ = nodeFs.writeFileSync(1, bytesToUint8Array(bytes))
+      ()
+    }
 
   def println(str: String): IO[Unit] =
     IO.println(str)

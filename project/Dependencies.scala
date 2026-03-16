@@ -11,8 +11,8 @@ object Dependencies {
   lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "1.1.0")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.6.0")
   lazy val ff4s = Def.setting("io.github.buntec" %%% "ff4s" % "0.26.1")
-  lazy val fs2core = Def.setting("co.fs2" %%% "fs2-core" % "3.12.2")
-  lazy val fs2io = Def.setting("co.fs2" %%% "fs2-io" % "3.12.2")
+  lazy val fs2core = Def.setting("co.fs2" %%% "fs2-core" % "3.13.0")
+  lazy val fs2io = Def.setting("co.fs2" %%% "fs2-io" % "3.13.0")
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jacksonYaml = Def.setting(
