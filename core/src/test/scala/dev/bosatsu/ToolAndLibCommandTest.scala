@@ -7575,6 +7575,57 @@ main = 0
   }
 
   test(
+    "lib test --filter reports no matching packages and suggests package typo fixes"
+  ) {
+    val targetSrc =
+      """export hedgehog_tests
+|
+|hedgehog_tests = Assertion(True, "ok")
+|""".stripMargin
+    val ccConfJson =
+      """{
+        |  "cc_path": "cc",
+        |  "flags": [],
+        |  "iflags": [],
+        |  "libs": [],
+        |  "os": "test"
+        |}
+|""".stripMargin
+
+    val libs = Libraries(SortedMap(Name("mylib") -> "src"))
+    val conf =
+      LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
+    val files = List(
+      Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
+      Chain("repo", "src", "mylib_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "MyLib", "Testing", "HedgeHog.bosatsu") -> targetSrc,
+      Chain("repo", "cc_conf.json") -> ccConfJson
+    )
+
+    runWithFiles(files)(
+      List(
+        "lib",
+        "test",
+        "--repo_root",
+        "repo",
+        "--filter",
+        "MyLib/Testing/Hedgehog",
+        "--cc_conf",
+        "repo/cc_conf.json"
+      )
+    ) match {
+      case Right(out) =>
+        fail(s"expected no matching packages error, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("no packages found matching regex"), msg)
+        assert(msg.contains("MyLib/Testing/Hedgehog"), msg)
+        assert(msg.contains("Did you mean: MyLib/Testing/HedgeHog ?"), msg)
+        assert(!msg.contains("no tests found"), msg)
+    }
+  }
+
+  test(
     "lib test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =

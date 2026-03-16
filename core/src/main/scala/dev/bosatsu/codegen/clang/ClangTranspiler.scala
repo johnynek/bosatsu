@@ -561,6 +561,16 @@ case object ClangTranspiler extends Transpiler {
     s"($count $packWord available.)"
   }
 
+  private def packageSuggestionsForRegexes(
+      regexes: NonEmptyList[String],
+      knownPacks: List[PackageName]
+  ): List[PackageName] =
+    regexes.toList
+      .flatMap(regex => PackageName.parse(regex).toList)
+      .flatMap(query => nearestPackage(query, knownPacks).toList)
+      .distinct
+      .sorted
+
   private def unknownMainPackMsg(
       mainPack: PackageName,
       knownPacks: List[PackageName]
@@ -670,6 +680,50 @@ case object ClangTranspiler extends Transpiler {
         (Doc.line + Doc
           .intercalate(Doc.line, regex.toList.map(Doc.text(_)))
           .nested(4)).grouped)
+
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
+
+  private def noPackagesMatchedDoc(
+      regexes: NonEmptyList[String],
+      knownPacks0: List[PackageName]
+  ): Doc = {
+    val knownPacks = knownPacks0.distinct.sorted
+    val suggestions = packageSuggestionsForRegexes(regexes, knownPacks)
+    val regexHeader =
+      if (regexes.tail.isEmpty) Doc.text("no packages found matching regex:")
+      else Doc.text("no packages found matching regexes:")
+    val regexListDoc =
+      Doc.intercalate(Doc.line, regexes.toList.map(Doc.text(_)))
+
+    val suggestionDocs =
+      suggestions match {
+        case Nil =>
+          Nil
+        case suggested :: Nil =>
+          (Doc.text("Did you mean: ") + Doc.text(suggested.asString) + Doc.text(
+            " ?"
+          )) :: Nil
+        case many =>
+          val listed = Doc.intercalate(Doc.line, many.map(pack => Doc.text(pack.asString)))
+          (Doc.text("Did you mean one of:") + (Doc.line + listed).nested(2))
+            .grouped :: Nil
+      }
+
+    Doc.intercalate(
+      Doc.hardLine,
+      (regexHeader + (Doc.line + regexListDoc).nested(2)).grouped ::
+        (suggestionDocs :+ Doc.text(packageCountMsg(knownPacks.size)))
+    )
+  }
+
+  case class NoPackagesMatchedFilter(
+      regexes: NonEmptyList[String],
+      knownPacks0: List[PackageName]
+  ) extends Exception(noPackagesMatchedDoc(regexes, knownPacks0).render(200))
+      with CliException {
+    def errDoc: Doc = noPackagesMatchedDoc(regexes, knownPacks0)
 
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error
