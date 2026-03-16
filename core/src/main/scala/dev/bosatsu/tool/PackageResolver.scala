@@ -4,29 +4,69 @@ import cats.data.{NonEmptyList, ValidatedNel}
 import cats.parse.{Parser => P}
 import cats.syntax.all._
 import com.monovore.decline.Opts
-import dev.bosatsu.{LocationMap, Package, PackageName, PlatformIO}
+import dev.bosatsu.hashing.{Algo, HashValue}
+import dev.bosatsu.{
+  ExportedName,
+  Import,
+  LocationMap,
+  Package,
+  PackageMap,
+  PackageName,
+  PlatformIO
+}
+
+import java.nio.charset.StandardCharsets
 
 /** This parses packages from explicit inputs.
   */
 sealed abstract class PackageResolver[IO[_], Path] {
 
-  final def parseAllInputs(
-      paths: NonEmptyList[Path],
-      _included: Set[PackageName]
+  final def loadSourceFiles(
+      paths: NonEmptyList[Path]
   )(platformIO: PlatformIO[IO, Path]): IO[
     ValidatedNel[PathParseError[Path], NonEmptyList[
-      ((Path, LocationMap), Package.Parsed)
+      PackageResolver.SourceFile[IO, Path]
     ]]
   ] = {
-    import platformIO.moduleIOMonad
-    if (_included.nonEmpty) ()
+    import platformIO.{canPromiseF, moduleIOMonad}
     paths
       .traverse { path =>
-        PathParseError
-          .parseFile(Package.parser, path, platformIO)
-          .map(_.map { case (lm, parsed) =>
-            ((path, lm), parsed)
-          })
+        moduleIOMonad.attempt(platformIO.readBytes(path)).flatMap {
+          case Left(err) =>
+            moduleIOMonad.pure(
+              cats.data.Validated.invalidNel(PathParseError.FileError(path, err))
+            )
+          case Right(bytes) =>
+            // Decoding, raw hashing, and header parsing can add up across many
+            // files, so keep that pure CPU work off the caller thread.
+            canPromiseF.compute {
+              val source = new String(bytes, StandardCharsets.UTF_8)
+              val rawHash = Algo.hashBytes[Algo.Blake3](bytes)
+              PathParseError.parseString(
+                PackageResolver.headerParserIgnoreRest,
+                path,
+                source
+              ).map {
+                case (lm, (packageName, imports, exports)) =>
+                  PackageResolver.SourceFile(
+                    path = path,
+                    locationMap = lm,
+                    packageName = packageName,
+                    imports = imports,
+                    exports = exports,
+                    sourceHash = rawHash,
+                    loadParsed =
+                      // On a cache miss we need the full parse; defer that
+                      // heavier pure work to the compute pool.
+                      canPromiseF.compute {
+                        PathParseError
+                          .parseString(Package.parser, path, source)
+                          .map(_._2)
+                      }
+                  )
+              }
+            }
+        }
       }
       .map(_.sequence)
   }
@@ -36,17 +76,20 @@ sealed abstract class PackageResolver[IO[_], Path] {
   )(
       platformIO: PlatformIO[IO, Path]
   ): IO[ValidatedNel[PathParseError[Path], List[(Path, Package.Header)]]] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{canPromiseF, moduleIOMonad}
     // we use IO(traverse) so we can accumulate all the errors in parallel easily
     // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
     // and use the composed applicative... too much work for the same result
-    val headerParser = Package.headerParser <* P.anyChar.rep0
     paths
       .traverse { path =>
-        platformIO.readUtf8(path).map { str =>
-          PathParseError
-            .parseString(headerParser, path, str)
-            .map { case (_, pp) => (path, pp) }
+        platformIO.readUtf8(path).flatMap { str =>
+          // Deps/header scans may parse a large number of files, so run the
+          // header parse on the compute pool.
+          canPromiseF.compute {
+            PathParseError
+              .parseString(PackageResolver.headerParserIgnoreRest, path, str)
+              .map { case (_, pp) => (path, pp) }
+          }
         }
       }
       .map(_.sequence)
@@ -54,6 +97,32 @@ sealed abstract class PackageResolver[IO[_], Path] {
 }
 
 object PackageResolver {
+  val headerParserIgnoreRest = Package.headerParser <* P.anyChar.rep0
+
+  final case class SourceFile[IO[_], Path](
+      path: Path,
+      locationMap: LocationMap,
+      packageName: PackageName,
+      imports: List[Import[PackageName, Unit]],
+      exports: List[ExportedName[Unit]],
+      sourceHash: HashValue[Algo.Blake3],
+      loadParsed: IO[ValidatedNel[PathParseError[Path], Package.Parsed]]
+  ) {
+    def toSourceUnit[A](
+        sourceKey: A,
+        loadParsedF: IO[Package.Parsed]
+    ): PackageMap.SourceUnit[IO, A] =
+      PackageMap.SourceUnit(
+        sourceKey = sourceKey,
+        locationMap = locationMap,
+        packageName = packageName,
+        imports = imports,
+        exports = exports,
+        sourceHash = sourceHash,
+        loadParsed = loadParsedF
+      )
+  }
+
   case class ExplicitOnly[IO[_], Path]() extends PackageResolver[IO, Path]
 
   def opts[IO[_], Path](
