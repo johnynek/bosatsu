@@ -1,0 +1,477 @@
+package Bosatsu/Proto/Wire
+
+from Bosatsu/IO/Bytes import (
+  Bytes,
+  concat_all_Bytes,
+  from_List_Int,
+  to_List_Int,
+)
+from Bosatsu/Num/Float64 import (
+  float32_bits_to_Float64,
+  float64_bits_to_Int,
+  float64_to_float32_bits,
+  int_bits_to_Float64,
+)
+
+export (
+  FieldValue(),
+  if_Some,
+  encode_varint_u64,
+  encode_fixed32,
+  encode_fixed64,
+  field_varint,
+  field_fixed32,
+  field_fixed64,
+  field_length_delimited,
+  decode_fields,
+  decode_packed_varints,
+  decode_packed_fixed32,
+  decode_packed_fixed64,
+  encode_int32,
+  encode_int64,
+  encode_uint32,
+  encode_uint64,
+  encode_sint32,
+  encode_sint64,
+  encode_fixed32_bits,
+  encode_fixed64_bits,
+  encode_sfixed32_bits,
+  encode_sfixed64_bits,
+  encode_bool,
+  encode_enum,
+  encode_double_bits,
+  encode_float_bits,
+  decode_int32,
+  decode_int64,
+  decode_uint32,
+  decode_uint64,
+  decode_sint32,
+  decode_sint64,
+  decode_fixed32,
+  decode_fixed64,
+  decode_sfixed32,
+  decode_sfixed64,
+  decode_bool,
+  decode_enum,
+  decode_double,
+  decode_float,
+)
+
+enum FieldValue:
+  Varint(bits: Int)
+  Fixed64(bits: Int)
+  LengthDelimited(payload: Bytes)
+  Fixed32(bits: Int)
+
+def if_Some(o: Option[a], fn: a -> Option[b]) -> Option[b]:
+  match o:
+    case Some(a):
+      fn(a)
+    case None:
+      None
+
+def lte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches LT | EQ
+
+def gte_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches GT | EQ
+
+def lt_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches LT
+
+def gt_Int(left: Int, right: Int) -> Bool:
+  cmp_Int(left, right) matches GT
+
+pow2_32 = shift_left_Int(1, 32)
+pow2_64 = shift_left_Int(1, 64)
+mask_32 = sub(pow2_32, 1)
+mask_64 = sub(pow2_64, 1)
+high_bit_32 = shift_left_Int(1, 31)
+high_bit_64 = shift_left_Int(1, 63)
+
+def to_u32(value: Int) -> Int:
+  and_Int(value, mask_32)
+
+def to_u64(value: Int) -> Int:
+  and_Int(value, mask_64)
+
+def to_i32(value: Int) -> Int:
+  v = to_u32(value)
+  if gte_Int(v, high_bit_32):
+    sub(v, pow2_32)
+  else:
+    v
+
+def to_i64(value: Int) -> Int:
+  v = to_u64(value)
+  if gte_Int(v, high_bit_64):
+    sub(v, pow2_64)
+  else:
+    v
+
+def zigzag_encode(value: Int) -> Int:
+  if lt_Int(value, 0):
+    sub(mul(-2, value), 1)
+  else:
+    mul(2, value)
+
+def zigzag_decode(value: Int) -> Int:
+  if and_Int(value, 1) matches 1:
+    sub(0, div(add(value, 1), 2))
+  else:
+    div(value, 2)
+
+def list_size(values: List[a]) -> Int:
+  recur values:
+    case []: 0
+    case [_, *tail]: add(1, list_size(tail))
+
+def take_ints(values: List[Int], count: Int) -> Option[(List[Int], List[Int])]:
+  if lt_Int(count, 0):
+    None
+  elif count matches 0:
+    Some(([], values))
+  else:
+    recur values:
+      case []:
+        None
+      case [head, *tail]:
+        rest <- take_ints(tail, sub(count, 1)).if_Some()
+        (taken_tail, remaining) = rest
+        Some(([head, *taken_tail], remaining))
+
+def decode_varint_list(values: List[Int]) -> Option[(Int, List[Int])]:
+  def loop(rest, shift, acc, count):
+    recur rest:
+      case []:
+        None
+      case [head, *tail]:
+        byte = and_Int(head, 255)
+        next_acc = or_Int(acc, shift_left_Int(and_Int(byte, 127), shift))
+        if and_Int(byte, 128) matches 0:
+          Some((next_acc, tail))
+        elif gt_Int(count, 9):
+          None
+        else:
+          loop(tail, add(shift, 7), next_acc, add(count, 1))
+
+  loop(values, 0, 0, 0)
+
+def decode_fixed32_list(values: List[Int]) -> Option[(Int, List[Int])]:
+  taken <- take_ints(values, 4).if_Some()
+  (chunk, remaining) = taken
+  match chunk:
+    case [b0, b1, b2, b3]:
+      raw = or_Int(
+        and_Int(b0, 255),
+        or_Int(
+          shift_left_Int(and_Int(b1, 255), 8),
+          or_Int(
+            shift_left_Int(and_Int(b2, 255), 16),
+            shift_left_Int(and_Int(b3, 255), 24)
+          )
+        )
+      )
+      Some((to_u32(raw), remaining))
+    case _:
+      None
+
+def decode_fixed64_list(values: List[Int]) -> Option[(Int, List[Int])]:
+  taken <- take_ints(values, 8).if_Some()
+  (chunk, remaining) = taken
+  match chunk:
+    case [b0, b1, b2, b3, b4, b5, b6, b7]:
+      raw =
+        or_Int(
+          and_Int(b0, 255),
+          or_Int(
+            shift_left_Int(and_Int(b1, 255), 8),
+            or_Int(
+              shift_left_Int(and_Int(b2, 255), 16),
+              or_Int(
+                shift_left_Int(and_Int(b3, 255), 24),
+                or_Int(
+                  shift_left_Int(and_Int(b4, 255), 32),
+                  or_Int(
+                    shift_left_Int(and_Int(b5, 255), 40),
+                    or_Int(
+                      shift_left_Int(and_Int(b6, 255), 48),
+                      shift_left_Int(and_Int(b7, 255), 56)
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      Some((to_u64(raw), remaining))
+    case _:
+      None
+
+def encode_varint_u64(value: Int) -> Bytes:
+  unsigned = to_u64(value)
+  max_steps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+  def loop(rem, rev_bytes, steps):
+    recur steps:
+      case []:
+        from_List_Int([rem, *rev_bytes].reverse())
+      case [_, *tail]:
+        if lt_Int(rem, 128):
+          from_List_Int([rem, *rev_bytes].reverse())
+        else:
+          next_byte = or_Int(and_Int(rem, 127), 128)
+          loop(shift_right_Int(rem, 7), [next_byte, *rev_bytes], tail)
+
+  loop(unsigned, [], max_steps)
+
+def encode_fixed32(value: Int) -> Bytes:
+  bits = to_u32(value)
+  from_List_Int([
+    and_Int(bits, 255),
+    and_Int(shift_right_Int(bits, 8), 255),
+    and_Int(shift_right_Int(bits, 16), 255),
+    and_Int(shift_right_Int(bits, 24), 255),
+  ])
+
+def encode_fixed64(value: Int) -> Bytes:
+  bits = to_u64(value)
+  from_List_Int([
+    and_Int(bits, 255),
+    and_Int(shift_right_Int(bits, 8), 255),
+    and_Int(shift_right_Int(bits, 16), 255),
+    and_Int(shift_right_Int(bits, 24), 255),
+    and_Int(shift_right_Int(bits, 32), 255),
+    and_Int(shift_right_Int(bits, 40), 255),
+    and_Int(shift_right_Int(bits, 48), 255),
+    and_Int(shift_right_Int(bits, 56), 255),
+  ])
+
+def field_key(field_number: Int, wire_type: Int) -> Bytes:
+  encode_varint_u64(or_Int(shift_left_Int(field_number, 3), wire_type))
+
+def field_varint(field_number: Int, value: Int) -> Bytes:
+  concat_all_Bytes([
+    field_key(field_number, 0),
+    encode_varint_u64(value),
+  ])
+
+def field_fixed64(field_number: Int, value: Int) -> Bytes:
+  concat_all_Bytes([
+    field_key(field_number, 1),
+    encode_fixed64(value),
+  ])
+
+def field_length_delimited(field_number: Int, payload: Bytes) -> Bytes:
+  concat_all_Bytes([
+    field_key(field_number, 2),
+    encode_varint_u64(list_size(to_List_Int(payload))),
+    payload,
+  ])
+
+def field_fixed32(field_number: Int, value: Int) -> Bytes:
+  concat_all_Bytes([
+    field_key(field_number, 5),
+    encode_fixed32(value),
+  ])
+
+def decode_fields(bytes: Bytes) -> Option[List[(Int, FieldValue)]]:
+  initial = to_List_Int(bytes)
+
+  def loop(step_fuel, rest, rev_items):
+    recur step_fuel:
+      case []:
+        if rest matches []:
+          Some(rev_items.reverse())
+        else:
+          None
+      case [_, *tail_fuel]:
+        match rest:
+          case []:
+            Some(rev_items.reverse())
+          case _:
+            key_part <- decode_varint_list(rest).if_Some()
+            (key, after_key) = key_part
+            field_number = shift_right_Int(key, 3)
+            wire_type = and_Int(key, 7)
+
+            if lte_Int(field_number, 0):
+              None
+            elif wire_type matches 0:
+              value_part <- decode_varint_list(after_key).if_Some()
+              (bits, next_rest) = value_part
+              loop(tail_fuel, next_rest, [(field_number, Varint(bits)), *rev_items])
+            elif wire_type matches 1:
+              value_part <- decode_fixed64_list(after_key).if_Some()
+              (bits, next_rest) = value_part
+              loop(tail_fuel, next_rest, [(field_number, Fixed64(bits)), *rev_items])
+            elif wire_type matches 2:
+              len_part <- decode_varint_list(after_key).if_Some()
+              (raw_len, after_len) = len_part
+              if lt_Int(raw_len, 0):
+                None
+              elif gt_Int(raw_len, list_size(after_len)):
+                None
+              else:
+                split <- take_ints(after_len, raw_len).if_Some()
+                (payload_list, next_rest) = split
+                payload = from_List_Int(payload_list)
+                loop(tail_fuel, next_rest, [(field_number, LengthDelimited(payload)), *rev_items])
+            elif wire_type matches 5:
+              value_part <- decode_fixed32_list(after_key).if_Some()
+              (bits, next_rest) = value_part
+              loop(tail_fuel, next_rest, [(field_number, Fixed32(bits)), *rev_items])
+            else:
+              None
+
+  loop(initial, initial, [])
+
+def decode_packed_varints(bytes: Bytes) -> Option[List[Int]]:
+  initial = to_List_Int(bytes)
+
+  def loop(step_fuel, rest, rev_items):
+    recur step_fuel:
+      case []:
+        if rest matches []:
+          Some(rev_items.reverse())
+        else:
+          None
+      case [_, *tail_fuel]:
+        match rest:
+          case []:
+            Some(rev_items.reverse())
+          case _:
+            value_part <- decode_varint_list(rest).if_Some()
+            (bits, next_rest) = value_part
+            loop(tail_fuel, next_rest, [bits, *rev_items])
+
+  loop(initial, initial, [])
+
+def decode_packed_fixed32(bytes: Bytes) -> Option[List[Int]]:
+  initial = to_List_Int(bytes)
+
+  def loop(step_fuel, rest, rev_items):
+    recur step_fuel:
+      case []:
+        if rest matches []:
+          Some(rev_items.reverse())
+        else:
+          None
+      case [_, *tail_fuel]:
+        match rest:
+          case []:
+            Some(rev_items.reverse())
+          case _:
+            value_part <- decode_fixed32_list(rest).if_Some()
+            (bits, next_rest) = value_part
+            loop(tail_fuel, next_rest, [bits, *rev_items])
+
+  loop(initial, initial, [])
+
+def decode_packed_fixed64(bytes: Bytes) -> Option[List[Int]]:
+  initial = to_List_Int(bytes)
+
+  def loop(step_fuel, rest, rev_items):
+    recur step_fuel:
+      case []:
+        if rest matches []:
+          Some(rev_items.reverse())
+        else:
+          None
+      case [_, *tail_fuel]:
+        match rest:
+          case []:
+            Some(rev_items.reverse())
+          case _:
+            value_part <- decode_fixed64_list(rest).if_Some()
+            (bits, next_rest) = value_part
+            loop(tail_fuel, next_rest, [bits, *rev_items])
+
+  loop(initial, initial, [])
+
+def encode_int32(value: Int) -> Int:
+  to_u64(to_i32(value))
+
+def encode_int64(value: Int) -> Int:
+  to_u64(value)
+
+def encode_uint32(value: Int) -> Int:
+  to_u64(to_u32(value))
+
+def encode_uint64(value: Int) -> Int:
+  to_u64(value)
+
+def encode_sint32(value: Int) -> Int:
+  to_u64(zigzag_encode(to_i32(value)))
+
+def encode_sint64(value: Int) -> Int:
+  to_u64(zigzag_encode(to_i64(value)))
+
+def encode_fixed32_bits(value: Int) -> Int:
+  to_u32(value)
+
+def encode_fixed64_bits(value: Int) -> Int:
+  to_u64(value)
+
+def encode_sfixed32_bits(value: Int) -> Int:
+  to_u32(value)
+
+def encode_sfixed64_bits(value: Int) -> Int:
+  to_u64(value)
+
+def encode_bool(value: Bool) -> Int:
+  if value:
+    1
+  else:
+    0
+
+def encode_enum(value: Int) -> Int:
+  encode_int32(value)
+
+def encode_double_bits(value: Float64) -> Int:
+  to_u64(float64_bits_to_Int(value))
+
+def encode_float_bits(value: Float64) -> Int:
+  to_u32(float64_to_float32_bits(value))
+
+def decode_int32(bits: Int) -> Int:
+  to_i32(bits)
+
+def decode_int64(bits: Int) -> Int:
+  to_i64(bits)
+
+def decode_uint32(bits: Int) -> Int:
+  to_u32(bits)
+
+def decode_uint64(bits: Int) -> Int:
+  to_u64(bits)
+
+def decode_sint32(bits: Int) -> Int:
+  to_i32(zigzag_decode(to_u64(bits)))
+
+def decode_sint64(bits: Int) -> Int:
+  to_i64(zigzag_decode(to_u64(bits)))
+
+def decode_fixed32(bits: Int) -> Int:
+  to_u32(bits)
+
+def decode_fixed64(bits: Int) -> Int:
+  to_u64(bits)
+
+def decode_sfixed32(bits: Int) -> Int:
+  to_i32(bits)
+
+def decode_sfixed64(bits: Int) -> Int:
+  to_i64(bits)
+
+def decode_bool(bits: Int) -> Bool:
+  cmp_Int(to_u64(bits), 0) matches GT
+
+def decode_enum(bits: Int) -> Int:
+  decode_int32(bits)
+
+def decode_double(bits: Int) -> Float64:
+  int_bits_to_Float64(to_u64(bits))
+
+def decode_float(bits: Int) -> Float64:
+  float32_bits_to_Float64(to_u32(bits))

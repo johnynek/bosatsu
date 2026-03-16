@@ -548,6 +548,12 @@ object MemoryMain {
           state.copy(stdErr = state.stdErr + (doc + Doc.hardLine))
         }
 
+      def readStdinBytes: F[Array[Byte]] =
+        moduleIOMonad.pure(Array.emptyByteArray)
+
+      def writeStdoutBytes(bytes: Array[Byte]): F[Unit] =
+        writeStdout(Doc.text(new String(bytes, StandardCharsets.ISO_8859_1)))
+
       def println(str: String): F[Unit] =
         writeStdout(Doc.text(str))
 

@@ -23,6 +23,7 @@ object ToolCommand {
         DepsCommand.opts(platformIO, commonOpts) ::
         ExtractIfaceCommand.opts(platformIO) ::
         AssembleCommand.opts(platformIO) ::
+        ProtocPluginCommand.opts(platformIO) ::
         Nil
     )
   }

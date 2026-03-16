@@ -442,6 +442,15 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       System.out.println("")
     }
 
+  def readStdinBytes: IO[Array[Byte]] =
+    IO.blocking(System.in.readAllBytes())
+
+  def writeStdoutBytes(bytes: Array[Byte]): IO[Unit] =
+    IO.blocking {
+      System.out.write(bytes)
+      System.out.flush()
+    }
+
   def writeError(doc: Doc): IO[Unit] =
     IO.blocking {
       doc

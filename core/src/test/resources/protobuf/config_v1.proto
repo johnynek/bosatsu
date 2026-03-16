@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package config.v1;
+
+message Endpoint {
+  string host = 1;
+  uint32 port = 2;
+}
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_ACTIVE = 1;
+  MODE_PASSIVE = 2;
+}
+
+message AppConfig {
+  string name = 1;
+  uint32 replicas = 2;
+  repeated sint32 weights = 3 [packed = true];
+  Mode mode = 4;
+
+  oneof transport {
+    string unix_socket = 5;
+    Endpoint endpoint = 6;
+  }
+
+  float ratio = 7;
+  double epsilon = 8;
+  map<string, string> labels = 9;
+}
