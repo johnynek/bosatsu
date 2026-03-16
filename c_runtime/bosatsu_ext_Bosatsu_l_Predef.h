@@ -62,6 +62,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_mul(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_times(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_mulf(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_timesf(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_trace(BValue a, BValue b);

@@ -173,7 +173,7 @@ object Predef {
       .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
       .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
       .add(predefPackageName, "mul", FfiCall.Fn2(PredefImpl.mul(_, _)))
-      .add(predefPackageName, "timesf", FfiCall.Fn2(PredefImpl.timesf(_, _)))
+      .add(predefPackageName, "mulf", FfiCall.Fn2(PredefImpl.mulf(_, _)))
       .add(predefPackageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
       .add(
         predefPackageName,
@@ -836,7 +836,7 @@ object PredefImpl {
   def mul(a: Value, b: Value): Value =
     ExternalValue(mulInt(intRaw(a), intRaw(b)))
 
-  def timesf(a: Value, b: Value): Value =
+  def mulf(a: Value, b: Value): Value =
     vf(d(a) * d(b))
 
   def eq_Int(a: Value, b: Value): Value =
