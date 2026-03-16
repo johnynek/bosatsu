@@ -561,6 +561,16 @@ case object ClangTranspiler extends Transpiler {
     s"($count $packWord available.)"
   }
 
+  private def packageSuggestionsForRegexes(
+      regexes: NonEmptyList[String],
+      knownPacks: List[PackageName]
+  ): List[PackageName] =
+    regexes.toList
+      .flatMap(regex => PackageName.parse(regex).toList)
+      .flatMap(query => nearestPackage(query, knownPacks).toList)
+      .distinct
+      .sorted
+
   private def unknownMainPackMsg(
       mainPack: PackageName,
       knownPacks: List[PackageName]
@@ -670,6 +680,35 @@ case object ClangTranspiler extends Transpiler {
         (Doc.line + Doc
           .intercalate(Doc.line, regex.toList.map(Doc.text(_)))
           .nested(4)).grouped)
+
+    def stdOutDoc: Doc = Doc.empty
+    def exitCode: ExitCode = ExitCode.Error
+  }
+
+  case class NoPackagesMatchedFilter(
+      regexes: NonEmptyList[String],
+      knownPacks0: List[PackageName]
+  ) extends Exception({
+        val knownPacks = knownPacks0.distinct.sorted
+        val suggestions = packageSuggestionsForRegexes(regexes, knownPacks)
+        val regexHeader =
+          if (regexes.tail.isEmpty) "no packages found matching regex:"
+          else "no packages found matching regexes:"
+        val regexList = regexes.toList.mkString("\n")
+        val suggestionBlock =
+          suggestions match {
+            case Nil =>
+              ""
+            case suggested :: Nil =>
+              s"\nDid you mean: ${suggested.asString} ?"
+            case many =>
+              val listed = many.map(_.asString).mkString("\n")
+              s"\nDid you mean one of:\n$listed"
+          }
+        s"$regexHeader\n$regexList$suggestionBlock\n${packageCountMsg(knownPacks.size)}"
+      })
+      with CliException {
+    def errDoc: Doc = Doc.text(getMessage())
 
     def stdOutDoc: Doc = Doc.empty
     def exitCode: ExitCode = ExitCode.Error

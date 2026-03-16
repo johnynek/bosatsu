@@ -507,6 +507,40 @@ object Command {
       private val inputRes =
         PackageResolver.ExplicitOnly[F, P]()
 
+      private def parsedPackageMetaFor(
+          path: P
+      ): F[Option[(PackageName, List[PackageName])]] =
+        PathParseError
+          .parseFile(
+            PackageResolver.headerParserIgnoreRest,
+            path,
+            platformIO
+          )
+          .map {
+            case Validated.Valid((_, (packageName, imports, _))) =>
+              Some((packageName, imports.map(_.pack)))
+            case Validated.Invalid(_)                            => None
+          }
+
+      private def sourcePackages: F[List[PackageName]] =
+        PathGen
+          .recursiveChildren(confDir, ".bosatsu")(platformIO)
+          .read
+          .flatMap(_.traverse(parsedPackageMetaFor))
+          .map(_.collect { case Some((pack, _)) => pack }.distinct.sorted)
+
+      def validateTestFilterMatches(
+          filterRegexes: NonEmptyList[String],
+          sourcePackageFilter: PackageName => Boolean
+      ): F[Unit] =
+        sourcePackages.flatMap { knownPacks =>
+          if (knownPacks.exists(sourcePackageFilter)) moduleIOMonad.unit
+          else
+            moduleIOMonad.raiseError[Unit](
+              ClangTranspiler.NoPackagesMatchedFilter(filterRegexes, knownPacks)
+            )
+        }
+
       case class CheckState(
           prevThis: Option[DecodedLibrary[Algo.Blake3]],
           pubDecodes: List[DecodedLibrary[Algo.Blake3]],
@@ -525,22 +559,6 @@ object Command {
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
             .flatMap { inputSrcs =>
-              def parsedPackageMetaFor(
-                  path: P
-              ): F[Option[(PackageName, List[PackageName])]] = {
-                PathParseError
-                  .parseFile(
-                    PackageResolver.headerParserIgnoreRest,
-                    path,
-                    platformIO
-                  )
-                  .map {
-                    case Validated.Valid((_, (packageName, imports, _))) =>
-                      Some((packageName, imports.map(_.pack)))
-                    case Validated.Invalid(_)       => None
-                  }
-              }
-
               val selectedInputsF: F[List[P]] = sourcePackageFilter match {
                 case None       => moduleIOMonad.pure(inputSrcs)
                 case Some(keep) =>
@@ -2458,6 +2476,16 @@ object Command {
             def useOutDir(outDir: P): F[Output[P]] = {
               for {
                 preflightOut <- runtimePreflight(out)
+                cc <- fcc
+                _ <- test.selection match {
+                  case ClangTranspiler.Mode.Test.SelectionMode.ByFilter(
+                        filterRegexes,
+                        Some(sourcePackageFilter)
+                      ) =>
+                    cc.validateTestFilterMatches(filterRegexes, sourcePackageFilter)
+                  case _ =>
+                    moduleIOMonad.unit
+                }
                 trans = Transpiler.optioned(ClangTranspiler) {
                   ClangTranspiler.Arguments(
                     test,
@@ -2468,7 +2496,6 @@ object Command {
                     platformIO
                   )
                 }
-                cc <- fcc
                 // build is the same as test, Transpiler controls the difference
                 msg <- cc.build(
                   colorize,
