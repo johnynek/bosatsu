@@ -1,0 +1,244 @@
+---
+issue: 2178
+priority: 3
+touch_paths:
+  - docs/design/2178-design-for-inline-def.md
+  - core/src/main/scala/dev/bosatsu/Statement.scala
+  - core/src/main/scala/dev/bosatsu/DefStatement.scala
+  - core/src/main/scala/dev/bosatsu/SourceConverter.scala
+  - core/src/main/scala/dev/bosatsu/Program.scala
+  - core/src/main/scala/dev/bosatsu/Package.scala
+  - core/src/main/scala/dev/bosatsu/PackageCustoms.scala
+  - core/src/main/scala/dev/bosatsu/ExportedName.scala
+  - core/src/main/scala/dev/bosatsu/Referant.scala
+  - proto/src/main/protobuf/bosatsu/TypedAst.proto
+  - core/src/main/scala/dev/bosatsu/ProtoConverter.scala
+  - core/src/main/scala/dev/bosatsu/tool/ShowEdn.scala
+  - core/src/main/scala/dev/bosatsu/Matchless.scala
+  - core/src/main/scala/dev/bosatsu/MatchlessFromTypedExpr.scala
+  - core/src/main/scala/dev/bosatsu/codegen/CompilationSource.scala
+  - core/src/main/scala/dev/bosatsu/library/DecodedLibraryWithDeps.scala
+  - core/src/test/scala/dev/bosatsu/ParserTest.scala
+  - core/src/test/scala/dev/bosatsu/SourceConverterTest.scala
+  - core/src/test/scala/dev/bosatsu/PackageTest.scala
+  - core/src/test/scala/dev/bosatsu/ProtoConverterTest.scala
+  - core/src/test/scala/dev/bosatsu/MatchlessInterfaceTest.scala
+  - core/src/test/scala/dev/bosatsu/tool/CompileCacheTest.scala
+  - core/src/test/scala/dev/bosatsu/codegen/clang/ClangGenLibraryDepsTest.scala
+  - core/src/test/scala/dev/bosatsu/codegen/python/PythonGenTest.scala
+depends_on: []
+estimated_size: M
+generated_at: 2026-03-16T17:23:05Z
+---
+
+# Top-level inline def lowered through Matchless
+
+_Issue: #2178 (https://github.com/johnynek/bosatsu/issues/2178)_
+
+## Summary
+
+Add opt-in top-level `inline def` syntax, persist inline metadata through interfaces and package serialization, and inline fully saturated calls during topo-ordered Matchless lowering so cross-package control-flow helpers avoid eager argument evaluation.
+
+## Context
+
+Bosatsu already gets some package-local inlining from `TypedExprNormalization`, but that behavior is heuristic and stops at package boundaries. Issue #2178 asks for an explicit source-level way to mark control-flow helpers so downstream lowering can avoid eagerly evaluating arguments that are only needed in some branches.
+
+The current Matchless pipeline lowers each package independently and preserves cross-package calls as `Global(from, pack, name)`. That means imported helpers can never be substituted once lowering starts, even when the implementation is available through decoded library packages.
+
+## Goals
+
+1. Add explicit `inline def` syntax for Bosatsu top-level definitions.
+2. Make fully saturated direct calls to inline defs lower without eagerly evaluating every actual argument ahead of control flow.
+3. Support inlining across package and library boundaries when dependency implementations are available.
+4. Preserve current behavior for ordinary `def`.
+5. Keep serialized artifacts backward compatible.
+
+## Non-goals
+
+1. General cross-package inlining for ordinary defs. That remains the broader work in #1315.
+2. Nested or expression-local `inline def` in this PR.
+3. Inlining partial applications or arbitrary higher-order uses of inline defs.
+4. Serializing full Matchless bodies into interfaces.
+5. Solving source-provenance/debug mapping for moved code. That stays aligned with the source-info work in #1778.
+
+## Syntax and surface contract
+
+V1 should support `inline def` only at the top-level statement layer:
+
+```bosatsu
+inline def if_else(cond, on_true, on_false):
+  if cond:
+    on_true
+  else:
+    on_false
+```
+
+Contract:
+
+1. `inline def` is accepted only as a top-level statement.
+2. It type-checks exactly like an ordinary `def` and exports as an ordinary value.
+3. Fully saturated direct calls are candidates for Matchless-time substitution.
+4. Unsaturated uses, passing the function as a value, or unresolved dependency bodies keep ordinary `Global` and `App` lowering.
+5. Recursive or mutually recursive inline defs are rejected.
+
+Restricting V1 to top-level defs avoids having to tag every local `Let` shape throughout the typed AST while still covering the motivating cross-package control-flow use case.
+
+## Data model
+
+### 1. Parsed and typed package metadata
+
+Introduce a top-level-only inline marker in the source AST, then preserve the resulting bindables in typed programs.
+
+Proposed in-memory shape:
+
+1. Parse `inline def` as a distinct top-level statement form or a top-level-only modifier on `Statement.Def`.
+2. Extend `Program` with `inlineDefs: SortedSet[Bindable]`.
+3. Preserve `inlineDefs` through normalization, tree shaking, filtering, voiding, and round-trip helpers.
+4. Add a validation step after typing that rejects any inline def participating in a recursive SCC.
+
+### 2. Public interface metadata
+
+Inline-ness of exported values must be visible in interfaces so downstream recompilation and cache keys see the change even when the value type stays identical.
+
+Proposed interface model:
+
+1. Extend `Referant.Value` to carry an `isInline` flag.
+2. Update `ExportedName.buildExports` so exported bindables found in `Program.inlineDefs` become inline-valued referants.
+3. Keep `TypeEnv` behavior unchanged. Inline-ness is lowering metadata, not a type-system property.
+
+This keeps the public API explicit without serializing implementation bodies into interfaces.
+
+### 3. Serialized package metadata
+
+Implementation packages need the full inline-def set so decoded libraries can inline private and public inline defs inside their own package graphs.
+
+Proposed protobuf changes:
+
+1. Add `repeated int32 inline_defs` to `proto.Package`, storing top-level bindable ids.
+2. Add a backward-compatible representation for inline exported values in `proto.Referant`, for example a new `ValueReferant` message carrying `type` plus `is_inline`, while continuing to accept the legacy scalar value arm during decode.
+3. Decode old artifacts as non-inline by default.
+4. Keep interface bodies absent; only the exported flag is serialized there.
+
+## Matchless architecture
+
+### 1. Inline resolver
+
+Introduce a resolver for already-lowered inline bodies instead of compiling every package in isolation.
+
+Proposed shape:
+
+1. Add an `InlineEnv[K]` keyed by `(scopeKey, packageName, bindable)` that returns a lowered Matchless body plus recovered arity.
+2. Change `MatchlessFromTypedExpr` from one blind parallel traversal to a package compiler that accepts an accumulated `InlineEnv` and returns compiled lets plus newly available inline bodies.
+3. Within a single package, lower inline defs first, in a local topo order derived from same-package references between inline defs.
+4. Then lower all lets in the package with the combined environment from already-compiled dependencies plus same-package inline defs.
+
+This solves two problems at once:
+
+1. Forward references to later inline defs in the same package still inline.
+2. Imported inline defs can inline once their dependency packages have already been lowered.
+
+### 2. Inline application semantics
+
+Direct substitution needs different behavior from the current `Matchless.applyArgs` helper.
+
+`applyArgs` deliberately introduces outer `Let`s for every argument. That preserves sharing, but it also makes all actual arguments eager before any branch executes, which is exactly what `inline def` is trying to avoid.
+
+Add a separate `Matchless.inlineApplyArgs` for inline calls:
+
+1. Resolve the callee to `recoverTopLevelLambda(compiledInlineExpr)`.
+2. Require a fully saturated direct call before using the inline path.
+3. Alpha-rename lambda binders to avoid capture.
+4. Substitute actual arguments directly into the body instead of wrapping them in eager outer `Let`s.
+5. Reuse existing branch-push and closure-slot rewriting machinery where possible.
+
+This keeps branch arguments inside the `If`, `SwitchVariant`, or similar control-flow node where they are actually needed.
+
+Trade-off:
+
+1. If an inline parameter is referenced multiple times, the argument IR can be duplicated.
+2. That is acceptable in V1 because inline is explicit and opt-in.
+3. Any future heuristic for sharing should be a follow-up and must not reintroduce eager evaluation ahead of control flow.
+
+### 3. Dependency ordering and remaining parallelism
+
+The issue text is correct that compilation can no longer be totally parallel if lowered dependency bodies may be needed.
+
+The minimum change is to preserve parallelism by topo layer:
+
+1. `CompilationSource.packageMapSrc.compiled` should iterate `PackageMap.topoSort.layers`.
+2. `DecodedLibraryWithDeps.compiled` should iterate `CompilationNamespace.topoSort.layers` so cross-library package dependencies are honored.
+3. Packages inside the same topo layer still compile in parallel.
+4. Only packages on actual dependency chains lose parallelism.
+
+This keeps the change localized to the compilation namespace builders rather than every backend.
+
+### 4. Cross-library lookup
+
+Decoded libraries already carry implementation packages in addition to interfaces. That is enough to inline without putting Matchless into interfaces.
+
+Resolution rule:
+
+1. Interfaces tell the compiler whether an imported exported value is inline.
+2. Implementation packages provide the typed body that can be lowered and cached into `InlineEnv`.
+3. If a context only has interfaces and no implementation package, lowering keeps the ordinary `Global` form.
+
+## Implementation plan
+
+1. Add top-level `inline def` parsing and rendering in the statement layer.
+2. Extend `Program` with `inlineDefs` and thread it through package helpers, normalization, tree shaking, and typed-package utilities.
+3. Add a typed-package validation that rejects inline defs in recursive SCCs.
+4. Extend exported-value metadata so interfaces record whether an exported value is inline.
+5. Update `TypedAst.proto` and `ProtoConverter` to round-trip both package-level inline defs and interface-level inline export flags with backward-compatible decode.
+6. Refactor `MatchlessFromTypedExpr` into a dependency-aware package compiler that accepts and produces inline-lowering metadata.
+7. Add `Matchless.inlineApplyArgs` and call it from lowering of fully saturated direct applications to inline globals.
+8. Update `CompilationSource` and `DecodedLibraryWithDeps` to compile by topo layer instead of starting every package or library independently.
+9. Keep evaluator and backend codegen unchanged except for consuming the new Matchless output they already receive.
+
+## Testing plan
+
+1. Parser tests for top-level `inline def` round-tripping.
+2. Parser or package tests confirming nested `inline def` is rejected in V1.
+3. Package tests confirming recursive and mutually recursive inline defs are rejected.
+4. Source-converter or package-shape tests confirming `Program.inlineDefs` is populated correctly.
+5. Proto round-trip tests for `inline_defs` on packages and inline export flags on interfaces.
+6. Backward-compat decode tests for old artifacts with no inline metadata.
+7. Interface-hash tests showing that changing a public `def` to `inline def` changes serialized interface bytes and cache identity.
+8. Matchless structural tests using an inline control-flow helper such as `if_else` and asserting actual branch arguments stay under the branch node instead of being hoisted into eager lets.
+9. Cross-package tests confirming imported inline defs inline even when defined later in source order.
+10. Cross-library codegen tests confirming decoded dependency libraries inline exported inline defs in downstream compilation.
+11. Regression tests confirming ordinary defs and interface-only constructor import behavior remain unchanged.
+
+## Acceptance criteria
+
+1. Top-level `inline def` parses and round-trips, while recursive inline defs are rejected.
+2. Typed programs preserve inline-def metadata, and package filtering, normalization, and tree shaking do not drop it accidentally.
+3. Exported inline defs are marked in interfaces, so interface bytes and dependency hashes change when a public def switches between ordinary and inline.
+4. Package and library serialization round-trip inline metadata, and older artifacts decode as non-inline.
+5. Fully saturated direct calls to inline defs are substituted during Matchless lowering without eagerly evaluating all actual arguments ahead of control-flow branches.
+6. Imported inline defs inline across package boundaries inside one compilation and across decoded library dependencies.
+7. Unsaturated uses and ordinary defs continue to use the current `Global` and `App` lowering paths.
+8. Builds remain parallel within topo layers, with serialization only along actual dependency edges.
+
+## Risks and mitigations
+
+1. Risk: inline substitution can duplicate work or increase code size when a parameter is used multiple times.
+Mitigation: keep the feature explicit and opt-in, and accept duplication in V1 rather than weakening the laziness guarantee.
+
+2. Risk: inline dependency cycles can make lowering non-terminating.
+Mitigation: reject inline defs in recursive SCCs before Matchless compilation.
+
+3. Risk: if inline-ness is omitted from interfaces, caches can go stale because downstream generated code changes while the exported type does not.
+Mitigation: make exported inline-ness part of interface identity.
+
+4. Risk: less parallelism can slow large builds with long dependency chains.
+Mitigation: preserve parallelism inside each topo layer and only serialize along real import edges.
+
+5. Risk: source attribution for inlined code remains coarse until source-info work lands.
+Mitigation: keep this design compatible with the provenance model proposed in #1778 and treat that as follow-up work.
+
+## Rollout notes
+
+1. Ship this as an additive feature with ordinary `def` unchanged.
+2. Keep V1 scoped to top-level defs; do not silently support only some nested cases.
+3. Decode older `.bosatsu_package`, `.bosatsu_interface`, and `.bosatsu_lib` artifacts as non-inline so mixed-version dependency graphs continue to work.
+4. Follow up after merge with user-facing examples of inline control-flow helpers and, separately, provenance improvements for inlined code.
