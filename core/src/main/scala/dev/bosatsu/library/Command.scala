@@ -525,31 +525,30 @@ object Command {
       private def failHeaderParseErrors[A](
           errs: NonEmptyList[PathParseError[P]]
       ): F[A] = {
-        val messages: List[String] =
+        val messageDocs: List[Doc] =
           errs.toList.flatMap {
             case PathParseError.ParseFailure(pf, path) =>
               val (r, c) = pf.locations.toLineCol(pf.position).get
-              val ctx = pf.showContext(Colorize.None)
               List(
-                s"failed to parse $path:${r + 1}:${c + 1}",
-                ctx.render(80)
+                Doc.text(s"failed to parse $path:${r + 1}:${c + 1}"),
+                pf.showContext(Colorize.None)
               )
             case PathParseError.FileError(path, err) =>
               err match {
                 case e
                     if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
                   // This class isn't present in scalajs, use the String
-                  List(s"file not found: $path")
+                  List(Doc.text(s"file not found: $path"))
                 case _ =>
                   List(
-                    s"failed to parse $path",
-                    err.getMessage,
-                    err.getClass.toString
+                    Doc.text(s"failed to parse $path"),
+                    Doc.text(Option(err.getMessage).getOrElse(err.toString)),
+                    Doc.text(err.getClass.toString)
                   )
               }
           }
-        val messageString = messages.mkString("\n")
-        val errDoc = Doc.intercalate(Doc.hardLine, messages.map(Doc.text(_)))
+        val errDoc = Doc.intercalate(Doc.hardLine, messageDocs)
+        val messageString = errDoc.render(80)
         moduleIOMonad.raiseError(CliException(messageString, err = errDoc))
       }
 
