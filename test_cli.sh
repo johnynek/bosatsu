@@ -6,6 +6,8 @@ check_lib_eval_output() {
   printf '%s\n' "$output" | grep -Eq '^Main \{ run: <fn arity=1> \}: Bosatsu/Prog::Main$'
 }
 
+./scripts/test_launcher_passthrough.sh
+
 sbt cli/assembly
 time ./bosatsuj tool test \
   --input_dir test_workspace \
