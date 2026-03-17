@@ -3,6 +3,8 @@ package Bosatsu/Prog
 export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Var, new_var, update, set, get, swap, modify, get_and_update, update_and_get, Prog, Main(), ProgTest())
 
 external struct Prog[err: +*, res: +*]
+
+# Var is an effectful mutable cell. The type parameter is invariant.
 external struct Var[a]
 
 external def pure[err, res](a: res) -> Prog[err, res]
@@ -23,10 +25,20 @@ def ignore_err[err, res](prog: Prog[err, res], default: res) -> forall e. Prog[e
 external def apply_fix(a: a,
   fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
 external def observe[a](a: a) -> forall err. Prog[err, Unit]
+
+# Allocate a fresh cell when the Prog is executed.
 external def new_var[a](a: a) -> forall e. Prog[e, Var[a]]
+
+# Atomically transform the current value. On some runtimes fn may be retried.
 external def update[a, b](v: Var[a], fn: a -> (a, b)) -> forall e. Prog[e, b]
-external def set[a](v: Var[a], value: a) -> forall e. Prog[e, a]
+
+# Store a new value in the cell and return ().
+external def set[a](v: Var[a], value: a) -> forall e. Prog[e, Unit]
+
+# Read the current value in the cell.
 external def get[a](v: Var[a]) -> forall e. Prog[e, a]
+
+# Store a new value in the cell and return the previous value.
 external def swap[a](v: Var[a], new_value: a) -> forall e. Prog[e, a]
 
 def await(p, fn): p.flat_map(fn)
@@ -34,12 +46,15 @@ def await(p, fn): p.flat_map(fn)
 def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err, b]):
   a -> apply_fix(a, fn)
 
+# Update a cell and discard the projected result.
 def modify[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, Unit]:
   update(v, value -> (fn(value), ()))
 
+# Update a cell and return the previous value.
 def get_and_update[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, a]:
   update(v, value -> (fn(value), value))
 
+# Update a cell and return the new value.
 def update_and_get[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, a]:
   update(v, value -> (
     next = fn(value)

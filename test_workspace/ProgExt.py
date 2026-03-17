@@ -79,7 +79,7 @@ def set(var_value, value):
             raise ValueError(f"invalid Var value: {var_value!r}")
         with cell._lock:
             cell._value = value
-            return pure(value)
+            return _pure_unit
 
     return effect(fn)
 

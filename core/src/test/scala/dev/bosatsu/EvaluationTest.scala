@@ -3278,7 +3278,7 @@ tests = TestSuite("lazy eval", [
     assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(1)))
     assertEquals(
       PredefImpl.runProg(PredefImpl.prog_var_set(firstCell, VInt(2))).result,
-      Right(VInt(2))
+      Right(UnitValue)
     )
     assertEquals(
       PredefImpl.runProg(PredefImpl.prog_var_swap(firstCell, VInt(5))).result,
@@ -3305,7 +3305,7 @@ from Bosatsu/Prog import ProgTest, await, get, get_and_update, modify, new_var, 
 tests = ProgTest(_ -> (
     v <- new_var(1).await()
     initial <- get(v).await()
-    wrote <- set(v, 2).await()
+    set_result <- set(v, 2).await()
     after_set <- get(v).await()
     swapped <- swap(v, 5).await()
     update_result <- update(v, current -> (add(current, 1), mul(current, 10))).await()
@@ -3318,7 +3318,7 @@ tests = ProgTest(_ -> (
         "prog var",
         [
           Assertion(initial matches 1, "initial"),
-          Assertion(wrote matches 2, "set returns new value"),
+          Assertion(set_result matches (), "set returns unit"),
           Assertion(after_set matches 2, "get after set"),
           Assertion(swapped matches 2, "swap returns old value"),
           Assertion(update_result matches 50, "update returns projection"),

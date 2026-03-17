@@ -55,7 +55,7 @@ Add to `Bosatsu/Prog`:
 - `external struct Var[a]`
 - `external def new_var[a](a: a) -> forall e. Prog[e, Var[a]]`
 - `external def update[a, b](v: Var[a], fn: a -> (a, b)) -> forall e. Prog[e, b]`
-- `external def set[a](v: Var[a], value: a) -> forall e. Prog[e, a]`
+- `external def set[a](v: Var[a], value: a) -> forall e. Prog[e, Unit]`
 - `external def get[a](v: Var[a]) -> forall e. Prog[e, a]`
 - `external def swap[a](v: Var[a], new_value: a) -> forall e. Prog[e, a]`
 
@@ -69,12 +69,12 @@ Add the following non-external helpers and stop there for v1:
 Rationale:
 - `modify` is the common `Unit`-returning case and removes tuple boilerplate.
 - `get_and_update` and `update_and_get` cover the two common projections of `update`.
-- Do not add aliases for `swap` or `set` in v1. `swap` already serves as get-and-set, and `set` already returns the written value, so extra wrappers add surface area without new capability.
+- Do not add aliases for `swap` or `set` in v1. `swap` already serves as get-and-set, and `set` already covers the write-only case, so extra wrappers add surface area without new capability.
 
 ## Semantics
 1. `new_var` allocates a fresh cell when the `Prog` is executed, not when the Bosatsu expression is constructed.
 2. `get` returns the current value in the cell.
-3. `set` writes the new value and returns that same new value. This is why it can be more efficient than `swap`.
+3. `set` writes the new value and returns `Unit`.
 4. `swap` writes the new value and returns the previous value.
 5. `update` atomically transforms the current value using `fn`, stores the first element of the returned pair, and returns the second element.
 6. On backends that use CAS-style retry loops, `update` may invoke `fn` more than once under contention. This is acceptable because `fn` is pure.
@@ -103,7 +103,7 @@ Implementation details:
 - do not add a new `Prog` tag
 - `new_var` effect allocates `ExternalValue(new AtomicReference[Value](initial))` and returns `prog_pure(cell)`
 - `get` loads the current value and returns `prog_pure(value)`
-- `set` performs `state.set(value)` and returns `prog_pure(value)`
+- `set` performs `state.set(value)` and returns `prog_pure(UnitValue)`
 - `swap` performs `state.getAndSet(value)` and returns the old value
 - `update` uses a CAS loop:
   1. read current value
@@ -137,7 +137,7 @@ In `c_runtime/bosatsu_ext_Bosatsu_l_Prog.h` and `c_runtime/bosatsu_ext_Bosatsu_l
 Implementation details:
 - `new_var` allocates a `BSTS_Prog_Var` with `GC_malloc`, initializes `_Atomic BValue value`, and returns `Pure(cell)` from the effect callback
 - `get` uses `atomic_load_explicit(..., memory_order_acquire)`
-- `set` uses `atomic_store_explicit(..., memory_order_release)` and returns the written value
+- `set` uses `atomic_store_explicit(..., memory_order_release)` and returns `Unit`
 - `swap` uses `atomic_exchange_explicit(..., memory_order_acq_rel)` so the exchange synchronizes with both preceding and following accesses
 - `update` uses a compare-exchange loop:
   1. load current
@@ -159,7 +159,7 @@ Also, do not add any trusted recursion-check rule for `Var`. `Lazy` and `Eval` a
 ## Testing Strategy
 1. `EvaluationTest.scala`
    - Bosatsu-level fixture exercising `new_var`, `get`, `set`, `swap`, `update`, and the helper functions
-   - direct runtime tests for sequential semantics in `PredefImpl`, especially `set` returning the new value and `swap` returning the old value
+   - direct runtime tests for sequential semantics in `PredefImpl`, especially `set` returning `Unit` and `swap` returning the old value
 2. `ToolAndLibCommandTest.scala`
    - `tool eval --run` program that allocates a `Var`, updates it, reads it back, and exits with the final value
    - corresponding `lib eval --run` coverage if that is the existing pattern for new `Bosatsu/Prog` APIs
@@ -175,7 +175,7 @@ Also, do not add any trusted recursion-check rule for `Var`. `Lazy` and `Eval` a
 2. `Var[a]` is invariant, and recursive type definitions through `Var` are rejected by existing variance checks.
 3. `new_var` allocates only when the `Prog` is executed.
 4. `get` returns the current value.
-5. `set` returns the newly written value.
+5. `set` returns `Unit`.
 6. `swap` returns the previously stored value.
 7. `update` stores the first element of the callback result and returns the second.
 8. JVM evaluator implementation uses `AtomicReference[Value]` in `PredefImpl`.

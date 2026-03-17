@@ -1077,7 +1077,7 @@ If you call `observe` but never execute that `Prog`, it has no effect.
 cell with `new_var`, read with `get`, transform atomically with `update`, and
 write with either `set` or `swap`. The return values differ:
 
-1. `set(v, next)` stores `next` and returns `next`.
+1. `set(v, next)` stores `next` and returns `()`.
 1. `swap(v, next)` stores `next` and returns the previous value.
 
 ## External functions and values

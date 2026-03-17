@@ -1100,7 +1100,7 @@ object PredefImpl {
       newValue,
       (cell, value) => {
         asVar(cell).set(value)
-        prog_pure(value)
+        prog_pure(UnitValue)
       }
     )
 

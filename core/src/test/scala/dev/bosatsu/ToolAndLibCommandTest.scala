@@ -525,8 +525,8 @@ class ToolAndLibCommandTest extends FunSuite {
 |
 |main = Main(_ -> (
 |  v <- new_var(10).await()
-|  wrote <- set(v, 12).await()
-|  swapped <- swap(v, add(wrote, 8)).await()
+|  _ <- set(v, 12).await()
+|  swapped <- swap(v, 20).await()
 |  summary <- update(v, current -> (mul(current, 2), add(current, swapped))).await()
 |  final <- get(v).await()
 |  pure(add(summary, sub(final, 30)))

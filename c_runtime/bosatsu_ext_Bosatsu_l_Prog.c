@@ -107,7 +107,7 @@ static BValue bsts_prog_var_set_effect(BValue pair)
   BValue next_value = get_struct_index(pair, 1);
   BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
   atomic_store_explicit(&cell->value, next_value, memory_order_release);
-  return ___bsts_g_Bosatsu_l_Prog_l_pure(next_value);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
 }
 
 static BValue bsts_prog_var_swap_effect(BValue pair)
