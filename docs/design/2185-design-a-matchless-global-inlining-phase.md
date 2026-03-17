@@ -59,7 +59,7 @@ Matchless is a better place to recover these wins because it is type-erased, str
 
 1. No new `inline def` syntax, export metadata, or protobuf/interface changes. That remains the scope of #2178.
 2. No forced inlining annotation or user-configurable pragma in this PR.
-3. No aggressive recursive-function inlining, mutual-recursion handling, or whole-program dead-code elimination.
+3. No special handling for recursive source forms that have not already lowered cleanly to Matchless, and no new whole-program dead-code elimination pass beyond the tree shaking that already exists.
 4. No generalized global CSE for arbitrary values beyond small cleanup needed after inlining.
 5. No inlining when only interfaces are present and implementation packages are unavailable.
 
@@ -82,7 +82,7 @@ Reason rejected: issue #2185 asks for heuristic wins that should apply to ordina
 2. `Toposort.Result[(K, PackageName)]` for dependency ordering
 3. `depFor` so `Global(from, pack, name)` can be resolved to the correct scope key
 
-The new phase returns the same `MatchlessFromTypedExpr.Compiled[K]` shape. Backends and the evaluator do not need a new IR.
+The new phase returns the same `MatchlessFromTypedExpr.Compiled[K]` shape. Backends and the evaluator do not need a new IR. In codegen flows, it should run on the already tree-shaken namespace so discarded lets are never summarized or inlined.
 
 ### 2. Publish summaries for rewritten globals
 
@@ -93,14 +93,14 @@ Likely summary fields:
 1. recovered lambda form from `Matchless.recoverTopLevelLambda`, if the binding can be treated as a top-level lambda
 2. arity and rewritten body
 3. expression weight / size estimate for budget checks
-4. purity flags derived from existing helpers such as `hasSideEffect`, `Expr.readsMutable`, and `Expr.containsWhileExpr`
+4. boundary-safety flags describing whether the body, or any nested lambda/value it produces, captures a free `LocalAnonMut` from outside the candidate
 5. per-parameter demand facts: unused, eager, branch-guarded only, lambda-callee-only, and total use count
 
 V1 should only publish conservative candidates:
 
-1. non-recursive lets
-2. no mutable effects
-3. fully known top-level lambda arity
+1. fully known top-level lambda arity
+2. no captured free mutable anons cross the inline boundary
+3. bodies that have already lowered recursion to a closed `WhileExpr` remain eligible and are judged by the same size and duplication heuristics
 4. body size below a fixed budget after rewrite
 
 ### 3. Rewrite in topo order while keeping layer parallelism
@@ -137,7 +137,7 @@ Inline only fully saturated direct calls whose callee resolves to an `InlineSumm
 
 Hard gates:
 
-1. the summary is non-recursive and effect-free enough for duplication
+1. the summary does not expose a free mutable anon across the inline boundary
 2. the recovered lambda arity exactly matches the call arity
 3. the candidate body stays under a configurable size budget
 4. no non-cheap actual argument would be duplicated more than a small threshold
@@ -156,13 +156,13 @@ Cost signals:
 3. actual-argument weight when that argument would be copied multiple times
 4. introduction of additional control-flow or loop structure at the call site
 
-Inline when the benefit exceeds the cost and all hard gates pass. The initial constants should mirror the intent of `TypedExprNormalization.ResolveToLambda`, but stay separate so Matchless tuning does not silently perturb typedexpr behavior.
+Inline when the benefit exceeds the cost and all hard gates pass. A small helper whose recursion has already lowered to a self-contained `WhileExpr` is still eligible under this policy. The initial constants should mirror the intent of `TypedExprNormalization.ResolveToLambda`, but stay separate so Matchless tuning does not silently perturb typedexpr behavior.
 
 ### 6. Reuse local cleanup after inlining
 
 After rewriting a let body, rerun existing local Matchless cleanup that is already safe post-lowering, especially `reuseConstructors`. If `inlineApplyArgs` introduces trivial `Let` wrappers or immediate alias opportunities, clean those up before publishing the summary.
 
-V1 should not erase top-level bindings. The phase only rewrites bodies. Tree shaking, export selection, and `ShowSelection` behavior remain unchanged.
+Existing tree shaking and dead-code elimination should still run first and determine which top-level bindings reach this phase. V1 does not add another DCE step; it only rewrites the surviving bodies. Export selection and `ShowSelection` behavior remain unchanged.
 
 ### 7. Integrate at the common compilation entry points
 
@@ -172,14 +172,14 @@ Route the user-facing Matchless compilation paths through the new post-pass:
 2. `DecodedLibraryWithDeps` compiled namespace construction
 3. `LibraryEvaluation` compiled scope cache
 
-That keeps codegen and evaluator behavior aligned. Interface-only contexts continue to use raw `Global` calls because no implementation body exists to inline.
+That keeps codegen and evaluator behavior aligned. For codegen, the post-pass should run after `CompilationNamespace.treeShake(...)` has selected the reachable graph. Interface-only contexts continue to use raw `Global` calls because no implementation body exists to inline.
 
 ## Detailed Implementation Plan
 
 1. Add shared Matchless analysis helpers in `Matchless.scala`: expression weight, parameter-demand summary, lambda-callee-only detection, and `inlineApplyArgs`.
 2. Add `MatchlessGlobalInlining.scala` with `InlineSummary`, local dependency sorting, topo-layer rewrite orchestration, and call-site heuristic evaluation.
 3. Keep `MatchlessFromTypedExpr.compile` as the raw primitive and call it from the new coordinator.
-4. Update `CompilationSource`, `DecodedLibraryWithDeps`, and `LibraryEvaluation` to use the optimized pipeline instead of exposing only raw compiled output.
+4. Update `CompilationSource`, `DecodedLibraryWithDeps`, and `LibraryEvaluation` to use the optimized pipeline instead of exposing only raw compiled output, and ensure any existing tree-shake step feeds the inliner rather than the reverse.
 5. Preserve deterministic output by using topo order plus stable tie-breaks based on original let position or bindable ordering.
 6. Add structural tests for `inlineApplyArgs` and for heuristic inlining decisions.
 7. Add cross-package and cross-library regressions that prove imported helpers inline when implementations are available and remain uninlined when only interfaces are available.
@@ -190,19 +190,20 @@ That keeps codegen and evaluator behavior aligned. Interface-only contexts conti
 1. Extend `MatchlessApplyArgsTest.scala` with branch-sensitive cases that show `inlineApplyArgs` keeps expensive arguments under `If` or `SwitchVariant` branches instead of hoisting them into eager lets.
 2. Extend `MatchlessTests.scala` with an unused-parameter or branch-only-parameter example that should inline.
 3. Extend `MatchlessTests.scala` with a lambda-argument example that becomes directly beta-reducible after inlining.
-4. Extend `MatchlessTests.scala` with a rejected case where a large or duplicated argument should not inline.
-5. Extend `MatchlessInterfaceTest.scala` with a cross-package example that proves imported implementations can inline while interface-only dependencies still compile through the old `Global` path.
-6. Extend `ClangGenLibraryDepsTest.scala` with a cross-library helper whose generated code no longer materializes both branch arguments before the helper call shape.
-7. Keep the broader Matchless, evaluator, and codegen suites green to validate semantic preservation.
+4. Extend `MatchlessTests.scala` with a helper that lowers to a small closed `WhileExpr` and remains eligible for inlining.
+5. Extend `MatchlessTests.scala` with a rejected case where a large or duplicated argument should not inline.
+6. Extend `MatchlessInterfaceTest.scala` with a cross-package example that proves imported implementations can inline while interface-only dependencies still compile through the old `Global` path.
+7. Extend `ClangGenLibraryDepsTest.scala` with a cross-library helper whose generated code no longer materializes both branch arguments before the helper call shape.
+8. Keep the broader Matchless, evaluator, and codegen suites green to validate semantic preservation.
 
 ## Acceptance Criteria
 
 1. The compiler has a distinct Matchless global inlining phase that runs after raw lowering and before Matchless consumers.
-2. Raw Matchless lowering remains parallel; ordered work is limited to the post-pass and still runs in topo layers.
-3. Fully saturated calls to eligible non-recursive globals can inline across packages and across library dependency scopes when implementation packages are available.
+2. Raw Matchless lowering remains parallel, and in codegen flows the post-pass runs after existing tree shaking/dead-code elimination on the already-selected graph.
+3. Fully saturated calls to eligible globals, including helpers whose recursion has already lowered to a closed `WhileExpr`, can inline across packages and across library dependency scopes when implementation packages are available.
 4. The heuristic handles at least the two motivating cases from the issue: branch-delayed arguments and lambda-argument beta opportunities.
 5. `Matchless.inlineApplyArgs` avoids eager outer lets for inlined arguments and preserves capture and dependency-scope correctness.
-6. Oversized, recursive, effectful, or duplication-heavy candidates remain as ordinary global calls.
+6. Candidates that would expose free mutable anons across the boundary, exceed size budgets, or duplicate expensive arguments remain as ordinary global calls.
 7. Codegen and evaluator compilation entry points use the same optimized Matchless pipeline.
 8. Interface-only dependency flows require no schema changes and still compile without attempting unavailable global inlining.
 9. New structural and cross-library tests fail before the change and pass after it.
@@ -211,7 +212,7 @@ That keeps codegen and evaluator behavior aligned. Interface-only contexts conti
 ## Risks And Mitigations
 
 1. Risk: code size grows quickly when a helper body is duplicated at many call sites.
-Mitigation: keep budgets conservative, block multi-use expensive arguments, and skip recursive candidates in v1.
+Mitigation: keep budgets conservative, block multi-use expensive arguments, and score `WhileExpr` bodies by size instead of rejecting them blindly.
 2. Risk: wrong name capture or wrong dependency scope after copying a callee body into a caller.
 Mitigation: alpha-rename binders before substitution and preserve the callee body's original `from` scope on nested globals.
 3. Risk: codegen and evaluator diverge if only one path uses the new pass.
