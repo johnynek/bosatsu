@@ -517,6 +517,22 @@ class ToolAndLibCommandTest extends FunSuite {
 |struct ProgTest(test_fn: List[String] -> forall err. Prog[err, Test])
 |""".stripMargin
 
+  private val fullProgModuleSrc: String =
+    Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+
+  private val progVarMainBody: String =
+    """from Bosatsu/Prog import Main, await, get, new_var, pure, set, swap, update
+|
+|main = Main(_ -> (
+|  v <- new_var(10).await()
+|  wrote <- set(v, 12).await()
+|  swapped <- swap(v, add(wrote, 8)).await()
+|  summary <- update(v, current -> (mul(current, 2), add(current, swapped))).await()
+|  final <- get(v).await()
+|  pure(add(summary, sub(final, 30)))
+|))
+|""".stripMargin
+
   private val minimalIoErrorModuleSrc: String =
     """package Bosatsu/IO/Error
 |
@@ -2154,6 +2170,43 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool eval --run supports Bosatsu/Prog Var in Main") {
+    val appSrc = s"package Tool/VarMain\n\n$progVarMainBody"
+    val files = List(
+      Chain("src", "Bosatsu", "Prog.bosatsu") -> fullProgModuleSrc,
+      Chain("src", "Tool", "VarMain.bosatsu") -> appSrc
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithStateAndExit(
+        List(
+          "tool",
+          "eval",
+          "--run",
+          "--main",
+          "Tool/VarMain",
+          "--input",
+          "src/Bosatsu/Prog.bosatsu",
+          "--input",
+          "src/Tool/VarMain.bosatsu"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.fromInt(42))
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
   test("tool eval --run reads stdin for IO/Std read_line and read_all_stdin") {
     val ioCoreSrc =
       """package Bosatsu/IO/Core
@@ -2524,6 +2577,40 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(err.getMessage)
       case Right((_, out, exitCode)) =>
         assertEquals(exitCode, ExitCode.Success)
+        out match {
+          case Output.RunMainResult(_) => ()
+          case other                   => fail(s"unexpected output: $other")
+        }
+    }
+  }
+
+  test("lib eval --run supports Bosatsu/Prog Var in Main") {
+    val files =
+      baseLibFiles(progVarMainBody) :+ (
+        Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> fullProgModuleSrc
+      )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithStateAndExit(
+        List(
+          "lib",
+          "eval",
+          "--repo_root",
+          "repo",
+          "--main",
+          "MyLib/Foo",
+          "--run"
+        ),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((_, out, exitCode)) =>
+        assertEquals(exitCode, ExitCode.fromInt(42))
         out match {
           case Output.RunMainResult(_) => ()
           case other                   => fail(s"unexpected output: $other")

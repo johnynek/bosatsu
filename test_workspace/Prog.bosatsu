@@ -1,8 +1,9 @@
 package Bosatsu/Prog
 
-export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Prog, Main(), ProgTest())
+export (unit, pure, raise_error, recover, ignore_err, await, recursive, map, map_err, observe, Var, new_var, update, set, get, swap, modify, get_and_update, update_and_get, Prog, Main(), ProgTest())
 
 external struct Prog[err: +*, res: +*]
+external struct Var[a]
 
 external def pure[err, res](a: res) -> Prog[err, res]
 external def raise_error[err, res](e: err) -> Prog[err, res]
@@ -22,11 +23,28 @@ def ignore_err[err, res](prog: Prog[err, res], default: res) -> forall e. Prog[e
 external def apply_fix(a: a,
   fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> Prog[err, b]
 external def observe[a](a: a) -> forall err. Prog[err, Unit]
+external def new_var[a](a: a) -> forall e. Prog[e, Var[a]]
+external def update[a, b](v: Var[a], fn: a -> (a, b)) -> forall e. Prog[e, b]
+external def set[a](v: Var[a], value: a) -> forall e. Prog[e, a]
+external def get[a](v: Var[a]) -> forall e. Prog[e, a]
+external def swap[a](v: Var[a], new_value: a) -> forall e. Prog[e, a]
 
 def await(p, fn): p.flat_map(fn)
 
 def recursive(fn: (a -> Prog[err, b]) -> (a -> Prog[err, b])) -> (a -> Prog[err, b]):
   a -> apply_fix(a, fn)
+
+def modify[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, Unit]:
+  update(v, value -> (fn(value), ()))
+
+def get_and_update[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, a]:
+  update(v, value -> (fn(value), value))
+
+def update_and_get[a](v: Var[a], fn: a -> a) -> forall e. Prog[e, a]:
+  update(v, value -> (
+    next = fn(value)
+    (next, next)
+  ))
 
 unit: forall err. Prog[err, ()] = pure(())
 

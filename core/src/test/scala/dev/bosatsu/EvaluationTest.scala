@@ -3262,6 +3262,78 @@ tests = TestSuite("lazy eval", [
     assertEquals(PredefImpl.runProg(chained).result, Right(VInt(99)))
   }
 
+  test("prog var allocates on run and preserves sequential semantics") {
+    val alloc = PredefImpl.prog_new_var(VInt(1))
+
+    val firstCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating first var: $err")
+    }
+    val secondCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating second var: $err")
+    }
+
+    assertNotEquals(firstCell.asExternal.toAny, secondCell.asExternal.toAny)
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(1)))
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_set(firstCell, VInt(2))).result,
+      Right(VInt(2))
+    )
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_swap(firstCell, VInt(5))).result,
+      Right(VInt(2))
+    )
+
+    val updateFn = FnValue { case NonEmptyList(current, _) =>
+      Tuple(PredefImpl.add(current, VInt(1)), PredefImpl.mul(current, VInt(10)))
+    }
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_update(firstCell, updateFn)).result,
+      Right(VInt(50))
+    )
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(6)))
+  }
+
+  test("prog var helper functions compose in Bosatsu code") {
+    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val progVarPack = """
+package ProgVarEval
+
+from Bosatsu/Prog import ProgTest, await, get, get_and_update, modify, new_var, pure, set, swap, update, update_and_get
+
+tests = ProgTest(_ -> (
+    v <- new_var(1).await()
+    initial <- get(v).await()
+    wrote <- set(v, 2).await()
+    after_set <- get(v).await()
+    swapped <- swap(v, 5).await()
+    update_result <- update(v, current -> (add(current, 1), mul(current, 10))).await()
+    old_value <- get_and_update(v, current -> add(current, 3)).await()
+    new_value <- update_and_get(v, current -> mul(current, 2)).await()
+    _ <- modify(v, current -> sub(current, 1)).await()
+    final <- get(v).await()
+    pure(
+      TestSuite(
+        "prog var",
+        [
+          Assertion(initial matches 1, "initial"),
+          Assertion(wrote matches 2, "set returns new value"),
+          Assertion(after_set matches 2, "get after set"),
+          Assertion(swapped matches 2, "swap returns old value"),
+          Assertion(update_result matches 50, "update returns projection"),
+          Assertion(old_value matches 6, "get_and_update returns old value"),
+          Assertion(new_value matches 18, "update_and_get returns new value"),
+          Assertion(final matches 17, "modify updates final state")
+        ]
+      )
+    )
+  ))
+"""
+
+    runBosatsuTest(List(progPack, progVarPack), "ProgVarEval", 8)
+  }
+
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
