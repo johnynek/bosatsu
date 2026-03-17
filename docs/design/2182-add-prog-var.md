@@ -94,14 +94,14 @@ No `core_alpha_conf.json` change is needed because `Bosatsu/Prog` is already exp
 ### 2. JVM evaluator implementation
 In `core/src/main/scala/dev/bosatsu/Predef.scala`:
 - add `FfiCall` registrations for the five new `Bosatsu/Prog` externals
-- add a new runtime representation, for example `final case class VarCell(state: AtomicReference[Value])`
-- add an `asVar` extractor analogous to `asLazy`
+- store the mutable cell directly as `ExternalValue(new AtomicReference[Value](initial))`
+- add an `asVar` extractor that unwraps `AtomicReference[Value]`
 - implement `prog_new_var`, `prog_var_get`, `prog_var_set`, `prog_var_swap`, and `prog_var_update`
 
 Implementation details:
 - represent every operation as a `Prog` effect via existing `prog_effect` or `prog_effect2`
 - do not add a new `Prog` tag
-- `new_var` effect allocates `ExternalValue(VarCell(new AtomicReference(initial)))` and returns `prog_pure(cell)`
+- `new_var` effect allocates `ExternalValue(new AtomicReference[Value](initial))` and returns `prog_pure(cell)`
 - `get` loads the current value and returns `prog_pure(value)`
 - `set` performs `state.set(value)` and returns `prog_pure(value)`
 - `swap` performs `state.getAndSet(value)` and returns the old value
@@ -113,7 +113,7 @@ Implementation details:
   5. on success return `prog_pure(result)`
   6. on failure retry from step 1
 
-This keeps all mutation inside the existing effect interpreter and matches the issue's `AtomicReference` expectation, but in the actual public-runtime implementation location used today.
+This keeps all mutation inside the existing effect interpreter and matches the issue's `AtomicReference` expectation, but in the actual public-runtime implementation location used today. A separate `VarCell` wrapper is not needed unless a later implementation wants to hang extra metadata off the cell.
 
 ### 3. Python runtime implementation
 In `test_workspace/ProgExt.py` and `test_workspace/Prog.bosatsu_externals`:
@@ -138,12 +138,12 @@ Implementation details:
 - `new_var` allocates a `BSTS_Prog_Var` with `GC_malloc`, initializes `_Atomic BValue value`, and returns `Pure(cell)` from the effect callback
 - `get` uses `atomic_load_explicit(..., memory_order_acquire)`
 - `set` uses `atomic_store_explicit(..., memory_order_release)` and returns the written value
-- `swap` uses `atomic_exchange_explicit`
+- `swap` uses `atomic_exchange_explicit(..., memory_order_acq_rel)` so the exchange synchronizes with both preceding and following accesses
 - `update` uses a compare-exchange loop:
   1. load current
   2. call `fn(current)`
   3. read tuple fields with `get_struct_index`
-  4. attempt `atomic_compare_exchange_weak_explicit`
+  4. attempt `atomic_compare_exchange_weak_explicit` with `memory_order_acq_rel` on success and `memory_order_acquire` on failure
   5. retry on failure
 
 No `c_runtime/Makefile` change should be required because `bosatsu_ext_Bosatsu_l_Prog.c` is already built and installed.
