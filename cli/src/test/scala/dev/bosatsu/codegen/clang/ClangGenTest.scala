@@ -42,7 +42,7 @@ class ClangGenTest extends munit.FunSuite {
       To inspect the code, change the hash, and it will print the code out
      */
     testFilesCompilesToHash("test_workspace/Ackermann.bosatsu")(
-      "6f8476751495555d241581dec1151cae"
+      "4f7e9c1785d8f28f6a529151749da7e7"
     )
   }
 }

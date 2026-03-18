@@ -287,6 +287,12 @@ test_string = TestSuite("String tests", [
     "unicode literal candidate miss then hit"),
 ])
 
+test_list = TestSuite("List tests", [
+  Assertion(length_List([]) matches 0, "length_List empty"),
+  Assertion(length_List([1, 2, 3]) matches 3, "length_List items"),
+  Assertion(length_List(["a", "b"]) matches 2, "length_List polymorphic"),
+])
+
 def eqf(a, b): eq_Float64(a, b)
 def eqi(a, b): cmp_Int(a, b) matches EQ
 def eqb(a, b):
@@ -544,6 +550,7 @@ test = TestSuite("Predef tests", [
     test_int,
     test_cmp_eq,
     test_string,
+    test_list,
     test_list_patterns,
     test_float,
 ])
