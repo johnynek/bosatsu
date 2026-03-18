@@ -7,6 +7,7 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/tool/CompilerApi.scala
   - core/src/main/scala/dev/bosatsu/tool/LintMode.scala
   - core/src/main/scala/dev/bosatsu/Package.scala
+  - core/src/main/scala/dev/bosatsu/PackageError.scala
   - core/src/main/scala/dev/bosatsu/PackageCustoms.scala
   - core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala
   - docs/src/main/paradox/writing_bosatsu_5_minutes.md
@@ -70,9 +71,10 @@ The maximal safe v1 set of postponable checks is:
 3. `PackageError.UnusedLets`
 4. `PackageError.ShadowedBindingTypeError`
 5. `PackageError.TotalityCheckError` when the underlying error is `TotalityCheck.UnreachableBranches`
-6. `PackageError.TotalityCheckError` when the underlying error is `TotalityCheck.InvalidPattern(InvalidStrPat | MultipleSplicesInPattern)`
 
 These are postponable because they do not affect type soundness, recursion soundness, or the requirement that successful matches be total.
+
+Invalid-pattern totality errors such as `InvalidStrPat` and `MultipleSplicesInPattern` stay hard. Even though they are style-adjacent, downstream code generation currently assumes validated patterns and can `sys.error` or throw if those forms are allowed through.
 
 The following remain hard in all modes:
 
@@ -82,7 +84,7 @@ The following remain hard in all modes:
 4. Kind, type, variance, and private-type-escape failures.
 5. Recursion errors.
 6. `TotalityCheck.NonTotalMatch`.
-7. Structural totality failures such as `UnknownConstructor` or `ArityMismatch`.
+7. `TotalityCheck.InvalidPattern` failures such as `UnknownConstructor`, `ArityMismatch`, `InvalidStrPat`, and `MultipleSplicesInPattern`.
 8. `LibConfig` validation failures and runtime-readiness preflight failures.
 
 `DuplicatedImport` is intentionally left hard in v1 even though it is style-adjacent. It is produced during import unification, and demoting it would require a separate decision about canonical import precedence.
@@ -105,7 +107,21 @@ This mode is orthogonal to `CompileOptions`:
 2. `lib test` continues to use `CompileOptions.Default`.
 3. Lint mode controls only how eligible diagnostics are handled after or during compilation.
 
-### 2. Make lint-only diagnostics non-blocking in the compiler pipeline
+### 2. Centralize postponable classification
+
+Add a single shared classifier, likely on `PackageError`, that answers whether a given `PackageError` is postponable in `Warn`/`Lax` modes.
+
+For v1, that classifier should return `true` only for:
+
+1. `UnusedImport`
+2. `UnusedLetError`
+3. `UnusedLets`
+4. `ShadowedBindingTypeError`
+5. `TotalityCheckError(UnreachableBranches)`
+
+All compile-time partitioning, success-path replay filtering, and warn/lax rendering should use this one classifier rather than open-coding separate lists in `Package`, `CompilerApi`, and tests.
+
+### 3. Make lint-only diagnostics non-blocking in the compiler pipeline
 
 The compiler should keep collecting lint diagnostics on cold compiles even when later hard failures also exist, but those lint diagnostics should no longer prevent a typed package from existing when the rest of compilation succeeds.
 
@@ -115,15 +131,15 @@ The main refactor point is `Package.inferBodyUnopt`:
 2. Change `UnusedLetCheck` from a blocking `Validated` contribution to a lint-only `Ior` contribution.
 3. Change `ShadowedBindingTypeCheck` from a blocking `Validated` contribution to a lint-only `Ior` contribution.
 4. Partition typed totality failures into:
-   1. hard: `NonTotalMatch`, `UnknownConstructor`, `ArityMismatch`
-   2. lint: `UnreachableBranches`, `InvalidStrPat`, `MultipleSplicesInPattern`
+   1. hard: `NonTotalMatch` and all `InvalidPattern(...)` cases
+   2. lint: `UnreachableBranches`
 5. Combine hard and lint results with `Ior` so lint-only packages can still produce a typed program, while mixed hard-plus-lint packages still preserve both sets of diagnostics.
 
 `PackageCustoms.checkExprDagBindables` should continue to emit `UnusedImport` on cold compiles so mixed failures still report it, but `UnknownExport` remains hard.
 
 `PackageCustoms.assemble` already returns `Ior.Both` for package-level customs. That is the behavior to preserve and reuse rather than replace.
 
-### 3. Replay lint diagnostics from successful typed packages
+### 4. Replay lint diagnostics from successful typed packages
 
 Making lint diagnostics non-blocking on a cold compile is not enough because cache hits currently return only compiled package artifacts. The success path therefore needs a canonical replay pass that recomputes the lint set from `PackageMap.Inferred`.
 
@@ -134,7 +150,7 @@ The replay should cover:
 1. package-level lint from `PackageCustoms`, exposed through a new lint-only helper rather than rerunning hard customs checks
 2. local unused bindings via `UnusedLetCheck.check` on typed lets
 3. shadowed-binding lint via `ShadowedBindingTypeCheck.checkLets`
-4. typed totality lint, filtered to the explicit postponable subset
+4. typed totality lint, which in v1 is only `UnreachableBranches`
 
 Compiler-side diagnostics from the cold path and replayed diagnostics from the success path should be deduplicated by `PackageError` equality before rendering.
 
@@ -145,7 +161,7 @@ This gives the required behavior:
 3. A later strict run still fails on the same lint diagnostics even if a previous `--warn` or `--lax` run populated the infer cache.
 4. Lint mode does not need to participate in infer-cache keys because it does not change the compiled package artifact.
 
-### 4. Add a diagnostics-aware `CompilerApi` entry point
+### 5. Add a diagnostics-aware `CompilerApi` entry point
 
 `CompilerApi` should gain a diagnostics-aware typecheck entry point that returns:
 
@@ -170,7 +186,7 @@ Behavior by lint mode:
 
 Warning rendering should reuse existing `PackageError.message` bodies, but the summary labels should be warning-oriented rather than reusing error labels blindly. In particular, `ShadowedBindingTypeError` should not be summarized as a `type error` inside a warning block.
 
-### 5. Wire lint mode into `lib check` and `lib test` only
+### 6. Wire lint mode into `lib check` and `lib test` only
 
 `library.Command.scala` should thread `LintMode` only through the two affected library commands.
 
@@ -186,13 +202,14 @@ This keeps the CLI surface narrow while still putting the reusable logic in `Com
 ## Implementation Plan
 
 1. Add `LintMode` and shared `--warn` / `--lax` parsing in `library.Command.scala`.
-2. Refactor `Package.inferBodyUnopt` so the postponable lint set contributes via `Ior.Both` rather than blocking `Validated` failures.
-3. Expose a lint-only replay helper from `PackageCustoms` for package-level lints.
-4. Add a diagnostics-aware `CompilerApi` path that partitions hard and lint diagnostics and performs replay on successful package maps.
-5. Keep `CompilerApi.typeCheck` as the strict compatibility wrapper.
-6. Thread lint mode through `lib check` and `lib test` only.
-7. Update docs that describe the `lib check` / `lib test` iteration loop.
-8. Add command-level tests for strict, warn, lax, mixed diagnostics, and cache-hit parity.
+2. Add a shared `PackageError` postponability classifier for the explicit v1 lint set.
+3. Refactor `Package.inferBodyUnopt` so the postponable lint set contributes via `Ior.Both` rather than blocking `Validated` failures.
+4. Expose a lint-only replay helper from `PackageCustoms` for package-level lints.
+5. Add a diagnostics-aware `CompilerApi` path that partitions hard and lint diagnostics and performs replay on successful package maps.
+6. Keep `CompilerApi.typeCheck` as the strict compatibility wrapper.
+7. Thread lint mode through `lib check` and `lib test` only.
+8. Update docs that describe the `lib check` / `lib test` iteration loop.
+9. Add command-level tests for strict, warn, lax, mixed diagnostics, and cache-hit parity.
 
 ## Acceptance Criteria
 
@@ -200,16 +217,18 @@ This keeps the CLI surface narrow while still putting the reusable logic in `Com
 2. `lib test` accepts `--warn` and `--lax`.
 3. `--warn` and `--lax` are mutually exclusive.
 4. Default strict behavior is unchanged when neither flag is present.
-5. The demoted lint set is exactly the explicit list in this design.
+5. The demoted lint set is exactly the explicit list in this design, with `UnreachableBranches` as the only postponable totality diagnostic.
 6. `RecursionError` and `TotalityCheck.NonTotalMatch` remain fatal in all modes.
-7. `lib check --warn` succeeds when the only diagnostics are postponable lint diagnostics and prints them as warnings.
-8. `lib check --lax` succeeds when the only diagnostics are postponable lint diagnostics and suppresses them.
-9. `lib test --warn` and `lib test --lax` still run tests when the only compile-time diagnostics are postponable lint diagnostics.
-10. Mixed hard-plus-lint compilations still fail, and `--warn` renders both blocks in a stable order.
-11. Warning behavior is identical on cache misses and cache hits.
-12. A strict run after a prior `--warn` or `--lax` run still fails on the same lint diagnostics.
-13. `lib build`, `tool check`, and other unaffected commands remain strict and gain no new flags.
-14. `todo` remains unavailable in `lib test` regardless of lint mode.
+7. Invalid-pattern totality errors such as `InvalidStrPat` and `MultipleSplicesInPattern` remain fatal in all modes.
+8. A single shared classifier determines postponability, and both compile-time partitioning and replay use that classifier.
+9. `lib check --warn` succeeds when the only diagnostics are postponable lint diagnostics and prints them as warnings.
+10. `lib check --lax` succeeds when the only diagnostics are postponable lint diagnostics and suppresses them.
+11. `lib test --warn` and `lib test --lax` still run tests when the only compile-time diagnostics are postponable lint diagnostics.
+12. Mixed hard-plus-lint compilations still fail, and `--warn` renders both blocks in a stable order.
+13. Warning behavior is identical on cache misses and cache hits.
+14. A strict run after a prior `--warn` or `--lax` run still fails on the same lint diagnostics.
+15. `lib build`, `tool check`, and other unaffected commands remain strict and gain no new flags.
+16. `todo` remains unavailable in `lib test` regardless of lint mode.
 
 ## Risks And Mitigations
 
