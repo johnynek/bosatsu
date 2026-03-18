@@ -32,12 +32,14 @@ github.base_url=
 [`and`](#value-and), [`and_Int`](#value-and-int), [`build_List`](#value-build-list),
 [`char_List_to_String`](#value-char-list-to-string), [`char_to_Int`](#value-char-to-int),
 [`char_to_String`](#value-char-to-string), [`clear_Dict`](#value-clear-dict),
+[`cmp_Bool`](#value-cmp-bool), [`cmp_Comparison`](#value-cmp-comparison),
 [`cmp_Float64`](#value-cmp-float64), [`cmp_Int`](#value-cmp-int), [`cmp_String`](#value-cmp-string),
 [`concat`](#value-concat), [`concat_String`](#value-concat-string), [`div`](#value-div),
-[`divf`](#value-divf), [`empty_Dict`](#value-empty-dict), [`eq_Int`](#value-eq-int),
-[`flat_map_List`](#value-flat-map-list), [`foldl_List`](#value-foldl-list),
-[`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int), [`get_key`](#value-get-key),
-[`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
+[`divf`](#value-divf), [`empty_Dict`](#value-empty-dict), [`eq_Bool`](#value-eq-bool),
+[`eq_Comparison`](#value-eq-comparison), [`eq_Float64`](#value-eq-float64),
+[`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string), [`flat_map_List`](#value-flat-map-list),
+[`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
+[`get_key`](#value-get-key), [`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
 [`int_to_String`](#value-int-to-string), [`items`](#value-items),
 [`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
 [`mul`](#value-mul), [`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int),
@@ -2367,6 +2369,26 @@ references: [`Dict`](#type-dict)
 def clear_Dict[a, b](dict: Dict[a, b]) -> Dict[a, b]
 ```
 
+<a id="value-cmp-bool"></a>
+
+### `cmp_Bool`
+
+references: [`Bool`](#type-bool), [`Comparison`](#type-comparison)
+
+```bosatsu
+def cmp_Bool(left: Bool, right: Bool) -> Comparison
+```
+
+<a id="value-cmp-comparison"></a>
+
+### `cmp_Comparison`
+
+references: [`Comparison`](#type-comparison)
+
+```bosatsu
+def cmp_Comparison(left: Comparison, right: Comparison) -> Comparison
+```
+
 <a id="value-cmp-float64"></a>
 
 ### `cmp_Float64`
@@ -2463,6 +2485,36 @@ references: [`Dict`](#type-dict), [`Order`](#type-order)
 def empty_Dict[a](comp: Order[a]) -> forall b: *. Dict[a, b]
 ```
 
+<a id="value-eq-bool"></a>
+
+### `eq_Bool`
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def eq_Bool(left: Bool, right: Bool) -> Bool
+```
+
+<a id="value-eq-comparison"></a>
+
+### `eq_Comparison`
+
+references: [`Bool`](#type-bool), [`Comparison`](#type-comparison)
+
+```bosatsu
+def eq_Comparison(left: Comparison, right: Comparison) -> Bool
+```
+
+<a id="value-eq-float64"></a>
+
+### `eq_Float64`
+
+references: [`Bool`](#type-bool), [`Float64`](#type-float64)
+
+```bosatsu
+def eq_Float64(a: Float64, b: Float64) -> Bool
+```
+
 <a id="value-eq-int"></a>
 
 ### `eq_Int`
@@ -2473,6 +2525,16 @@ references: [`Bool`](#type-bool), [`Int`](#type-int)
 
 ```bosatsu
 def eq_Int(a: Int, b: Int) -> Bool
+```
+
+<a id="value-eq-string"></a>
+
+### `eq_String`
+
+references: [`Bool`](#type-bool), [`String`](#type-string)
+
+```bosatsu
+def eq_String(str0: String, str1: String) -> Bool
 ```
 
 <a id="value-flat-map-list"></a>
