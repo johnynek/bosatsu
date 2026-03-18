@@ -8,13 +8,11 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/tool/LintMode.scala
   - core/src/main/scala/dev/bosatsu/Package.scala
   - core/src/main/scala/dev/bosatsu/PackageCustoms.scala
-  - core/src/main/scala/dev/bosatsu/UnusedLetCheck.scala
   - core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala
-  - core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala
-  - docs/src/main/paradox/language_guide.md
+  - docs/src/main/paradox/writing_bosatsu_5_minutes.md
 depends_on: []
 estimated_size: M
-generated_at: 2026-03-18T02:13:50Z
+generated_at: 2026-03-18T03:27:54Z
 ---
 
 # Add `--warn` and `--lax` lint modes to `lib check` and `lib test`
@@ -23,180 +21,177 @@ _Issue: #2192 (https://github.com/johnynek/bosatsu/issues/2192)_
 
 ## Summary
 
-Add non-strict lint handling for `lib check` and `lib test` by demoting an explicit set of lint-only diagnostics, replaying typed lints after successful compilation so cache hits still surface them, and keeping all soundness-critical checks fatal.
+Introduce library-only lint modes that demote a fixed set of non-soundness diagnostics to warnings or silence them, while keeping recursion, non-total matches, type/import/export failures, and library validation strict. The design relies on non-blocking `Ior` diagnostics in the compiler, success-path lint replay so cache hits behave the same as cache misses, and `CompilerApi` plus `library.Command` plumbing to expose `--warn` and `--lax` without changing default strict behavior.
 
 ## Context
 
-Issue #2192 asks for a less strict edit/test loop in `lib check`, with the same behavior likely useful in `lib test`.
+Issue #2192 asks for a less strict edit loop in `lib check`, with the same behavior likely useful in `lib test`. The immediate pain is source-level strictness checks such as unused values that are currently fatal even when the program is otherwise well-typed and the author intends to use the code shortly.
 
-On `main`, several diagnostics that are better described as lints are still fatal because they are produced inside the normal compile pipeline. The important ones are:
+Two existing architectural facts matter here:
 
-1. `PackageError.UnusedImport`
-2. `PackageError.UnusedLetError`
-3. `PackageError.UnusedLets`
-4. `PackageError.ShadowedBindingTypeError`
-5. `PackageError.TotalityCheckError` when the underlying typed-totality error is `UnreachableBranches`
-6. `PackageError.TotalityCheckError` when the underlying error is structural-pattern lint (`InvalidStrPat` or `MultipleSplicesInPattern`)
+1. `lib check` already uses `CompileOptions.TypeCheckOnly`, while `lib test` still uses `CompileOptions.Default` because it emits and runs code. Lint mode must therefore be separate from compile mode.
+2. `PackageCustoms.assemble` already has the right shape for non-blocking diagnostics because it can return `Ior.Both` with a compiled package and package-level customs errors. The current strictness comes mostly from `CompilerApi.typeCheck`, which collapses any `Ior.Both` into failure via `strictToValidated`, and from a few checks in `Package.inferBodyUnopt` that still produce hard `Validated` failures.
 
-At the same time, issue #2192 explicitly does not want to relax soundness-critical checks such as recursion safety or non-total matches. The design therefore needs a precise split between hard errors and lint-only diagnostics.
-
-A second constraint is caching. `lib check` and `lib test` both go through cached typed-package compilation. If warnings only exist on fresh compiles and disappear on cache hits, the new modes will be unreliable. Strict mode also cannot be bypassed just because a previous `--warn` or `--lax` run populated cache artifacts.
+The design needs a precise split between lint-like diagnostics and soundness-critical diagnostics, and it needs that split to behave the same on cache hits and cache misses.
 
 ## Goals
 
 1. Add `--warn` and `--lax` to `lib check`.
 2. Add the same options to `lib test`.
-3. Keep strict mode as the default, with current behavior unchanged when no new flag is passed.
-4. Demote only a small, explicit set of lint diagnostics.
-5. Keep all soundness-critical diagnostics fatal in every mode.
-6. Preserve mixed-diagnostic reporting when hard errors and lint diagnostics coexist.
-7. Keep warning behavior stable across cache misses and cache hits.
+3. Keep strict mode as the default, with no behavior change when neither flag is passed.
+4. Demote only an explicit, small set of lint-like diagnostics.
+5. Keep soundness-critical diagnostics fatal in every mode.
+6. Preserve mixed reporting when hard errors and lint diagnostics coexist.
+7. Make warning behavior stable across cache misses and cache hits.
 
 ## Non-goals
 
-1. No new non-strict flags for `lib build`, `publish`, or other commands in this issue.
+1. No new non-strict flags for `lib build`, `lib publish`, `tool check`, or other commands in this issue.
 2. No relaxation of recursion checking.
-3. No relaxation of `NonTotalMatch` totality failures.
-4. No machine-readable warnings format.
-5. No attempt to reclassify every existing `PackageError`; only clearly lint-like cases are in scope.
+3. No relaxation of `TotalityCheck.NonTotalMatch`.
+4. No change to `todo` availability rules: `lib test` remains an emit/run command, so `todo` stays invalid there.
+5. No relaxation of `LibConfig` versioning, dependency-closure, or runtime-readiness validation in this issue.
+
+## Current Architecture
+
+1. `library.Command.check` already calls `CompilerApi.typeCheck` with `CompileOptions.TypeCheckOnly`.
+2. `library.Command.test` reaches compilation through the normal build path, which still uses `CompileOptions.Default` so codegen and runtime checks can happen.
+3. `Package.inferBodyUnopt` currently treats `UnusedLetError`, `ShadowedBindingTypeError`, and all typed totality failures as blocking.
+4. `PackageCustoms.checkExprDagBindables` and `PackageCustoms.assemble` already produce some diagnostics that are naturally lint-like, especially `UnusedImport` and `UnusedLets`.
+5. `CompilerApi.typeCheck` converts the final `Ior` result to `Validated`, which means any `Ior.Both` still fails the command.
+6. Cached inferred packages do not store warning metadata, so lint diagnostics produced on a cold compile disappear on a warm compile unless they are replayed from the typed package.
 
 ## Postponable Checks
 
-Within the current architecture, the maximal safe v1 set of postponable checks is:
+The maximal safe v1 set of postponable checks is:
 
-1. `UnusedImport`
-2. `UnusedLetError`
-3. `UnusedLets`
-4. `ShadowedBindingTypeError`
-5. `TotalityCheckError(UnreachableBranches)`
-6. `TotalityCheckError(InvalidPattern(InvalidStrPat | MultipleSplicesInPattern))`
+1. `PackageError.UnusedImport`
+2. `PackageError.UnusedLetError`
+3. `PackageError.UnusedLets`
+4. `PackageError.ShadowedBindingTypeError`
+5. `PackageError.TotalityCheckError` when the underlying error is `TotalityCheck.UnreachableBranches`
+6. `PackageError.TotalityCheckError` when the underlying error is `TotalityCheck.InvalidPattern(InvalidStrPat | MultipleSplicesInPattern)`
 
-These are postponable because they do not affect type soundness, recursion soundness, or totality of successful matches.
+These are postponable because they do not affect type soundness, recursion soundness, or the requirement that successful matches be total.
 
 The following remain hard in all modes:
 
-1. Source conversion and parse-derived semantic errors.
-2. Unknown or invalid imports/exports.
-3. Duplicate package resolution failures.
-4. Kind, type, variance, and private-type-escape errors.
+1. Parse and source-conversion failures.
+2. Unknown or invalid imports and exports.
+3. Duplicate package and import-resolution failures.
+4. Kind, type, variance, and private-type-escape failures.
 5. Recursion errors.
-6. `TotalityCheckError(NonTotalMatch)`.
-7. Any invariant-style totality failure such as `UnknownConstructor` or `ArityMismatch` if it ever escapes the typed pipeline.
-8. Library config validation and build/runtime readiness failures.
+6. `TotalityCheck.NonTotalMatch`.
+7. Structural totality failures such as `UnknownConstructor` or `ArityMismatch`.
+8. `LibConfig` validation failures and runtime-readiness preflight failures.
 
-`DuplicatedImport` is intentionally left hard in this issue even though it is stylistic, because it is produced during import unification. Demoting it cleanly would require a separate decision about canonical import precedence during resolution.
+`DuplicatedImport` is intentionally left hard in v1 even though it is style-adjacent. It is produced during import unification, and demoting it would require a separate decision about canonical import precedence.
 
-## Proposed CLI Surface
+## Proposed Design
 
-1. `lib check --warn` and `lib test --warn` print lint diagnostics as warnings and continue unless a hard error exists.
-2. `lib check --lax` and `lib test --lax` suppress the same lint diagnostics entirely and continue unless a hard error exists.
-3. `--warn` and `--lax` are mutually exclusive.
-4. With no new flag, behavior remains strict.
-5. `lib build` and the rest of the CLI stay strict in this issue.
+### 1. Add an explicit lint mode
 
-## Architecture
-
-### 1. Make lint diagnostics non-blocking inside compilation
-
-Today, several lint-producing checks return `Validated` or left-only `Ior` values, so they block package compilation even when the underlying program is otherwise well typed.
-
-Refactor the lint-producing sites so they split diagnostics into hard and lint subsets before joining the overall result:
-
-1. In `Package.inferBodyUnopt`, `checkExprDagBindables` should stop treating unused imports as blocking. Unknown exports remain hard.
-2. `UnusedLetCheck` should become non-blocking for successful compilation.
-3. `ShadowedBindingTypeCheck` should become non-blocking for successful compilation.
-4. Typed totality should be split into:
-   1. hard: `NonTotalMatch`
-   2. lint: `UnreachableBranches`, `InvalidStrPat`, `MultipleSplicesInPattern`
-5. If a phase produces both hard and lint diagnostics, keep both in the accumulated diagnostic set so the caller can still render both sections on failure.
-
-The target behavior is:
-
-1. lint-only packages can still produce a typed package result,
-2. hard errors still prevent a typed package result,
-3. lint diagnostics are not lost when hard errors also exist.
-
-`PackageCustoms.assemble` already has the right general shape for successful packages because it can return `Ior.Both` with a package and additional diagnostics.
-
-### 2. Replay typed lints after successful compilation
-
-Demoting lint diagnostics during compilation is not enough, because cache hits currently only return the inferred package bytes, not the original lint list.
-
-To keep cache behavior correct, successful compilation must be followed by a canonical typed lint replay over the resulting `PackageMap.Inferred`.
-
-This replay should be the authoritative success-path lint source for all modes, on both cache misses and cache hits.
-
-The replay should use:
-
-1. a typed or shared traversal in `UnusedLetCheck` so local unused-value diagnostics can be recomputed from `TypedExpr[Declaration]`,
-2. exposed lint-only helpers in `PackageCustoms` for unused imports and unused top-level values,
-3. `ShadowedBindingTypeCheck` over typed lets,
-4. `TotalityCheck`, filtered down to its lint-only variants.
-
-This replay is what guarantees:
-
-1. `--warn` still prints warnings on repeated cached runs,
-2. strict mode still fails after a previous `--warn` or `--lax` run populated cache,
-3. warning behavior does not depend on whether the compiler got a cache hit.
-
-### 3. Make `CompilerApi` lint-mode aware
-
-Add a diagnostics-aware entry point in `CompilerApi`, for example `typeCheckWithLintMode`, and keep the existing strict `typeCheck` as a wrapper around `Strict` mode.
-
-`CompilerApi` should own three responsibilities:
-
-1. partition accumulated diagnostics into hard errors and lint warnings,
-2. run typed lint replay after any successful compile result,
-3. render warnings and errors according to the selected lint mode.
-
-Behavior by mode:
+Introduce a small `LintMode` enum, likely in `core/src/main/scala/dev/bosatsu/tool/LintMode.scala`, with three values:
 
 1. `Strict`
-   1. if hard errors exist, fail as today,
-   2. if only lint diagnostics exist, fail as today,
-   3. keep existing strict commands working without CLI-surface changes.
 2. `Warn`
-   1. if hard errors exist, render warnings first, then hard errors, and exit non-zero,
-   2. if only lint diagnostics exist, return success and emit warnings on stderr.
 3. `Lax`
-   1. if hard errors exist, render only hard errors and exit non-zero,
-   2. if only lint diagnostics exist, return success and emit no warning block.
 
-For render stability, deduplicate by `PackageError` equality before building the warning/error docs, so miss-time diagnostics and replay diagnostics do not double-render.
+`library.Command.scala` should parse `--warn` and `--lax` as mutually exclusive flags and default to `Strict` when neither is present.
 
-### 4. Wire lint modes only into `lib check` and `lib test`
+This mode is orthogonal to `CompileOptions`:
 
-`library/Command.scala` should add a small shared parser for `--warn` and `--lax` and thread the resulting mode only through the two affected commands.
+1. `lib check` continues to use `CompileOptions.TypeCheckOnly`.
+2. `lib test` continues to use `CompileOptions.Default`.
+3. Lint mode controls only how eligible diagnostics are handled after or during compilation.
+
+### 2. Make lint-only diagnostics non-blocking in the compiler pipeline
+
+The compiler should keep collecting lint diagnostics on cold compiles even when later hard failures also exist, but those lint diagnostics should no longer prevent a typed package from existing when the rest of compilation succeeds.
+
+The main refactor point is `Package.inferBodyUnopt`:
+
+1. Keep recursion checking hard.
+2. Change `UnusedLetCheck` from a blocking `Validated` contribution to a lint-only `Ior` contribution.
+3. Change `ShadowedBindingTypeCheck` from a blocking `Validated` contribution to a lint-only `Ior` contribution.
+4. Partition typed totality failures into:
+   1. hard: `NonTotalMatch`, `UnknownConstructor`, `ArityMismatch`
+   2. lint: `UnreachableBranches`, `InvalidStrPat`, `MultipleSplicesInPattern`
+5. Combine hard and lint results with `Ior` so lint-only packages can still produce a typed program, while mixed hard-plus-lint packages still preserve both sets of diagnostics.
+
+`PackageCustoms.checkExprDagBindables` should continue to emit `UnusedImport` on cold compiles so mixed failures still report it, but `UnknownExport` remains hard.
+
+`PackageCustoms.assemble` already returns `Ior.Both` for package-level customs. That is the behavior to preserve and reuse rather than replace.
+
+### 3. Replay lint diagnostics from successful typed packages
+
+Making lint diagnostics non-blocking on a cold compile is not enough because cache hits currently return only compiled package artifacts. The success path therefore needs a canonical replay pass that recomputes the lint set from `PackageMap.Inferred`.
+
+This replay should be the authoritative source of warnings for successful compilations, regardless of whether the packages came from cache.
+
+The replay should cover:
+
+1. package-level lint from `PackageCustoms`, exposed through a new lint-only helper rather than rerunning hard customs checks
+2. local unused bindings via `UnusedLetCheck.check` on typed lets
+3. shadowed-binding lint via `ShadowedBindingTypeCheck.checkLets`
+4. typed totality lint, filtered to the explicit postponable subset
+
+Compiler-side diagnostics from the cold path and replayed diagnostics from the success path should be deduplicated by `PackageError` equality before rendering.
+
+This gives the required behavior:
+
+1. `--warn` still prints warnings on repeated cached runs.
+2. `--lax` still suppresses the same warnings on repeated cached runs.
+3. A later strict run still fails on the same lint diagnostics even if a previous `--warn` or `--lax` run populated the infer cache.
+4. Lint mode does not need to participate in infer-cache keys because it does not change the compiled package artifact.
+
+### 4. Add a diagnostics-aware `CompilerApi` entry point
+
+`CompilerApi` should gain a diagnostics-aware typecheck entry point that returns:
+
+1. compiled packages
+2. source-path metadata
+3. partitioned hard diagnostics
+4. partitioned lint diagnostics
+
+The existing `typeCheck` method stays as the strict wrapper used by existing callers.
+
+Behavior by lint mode:
+
+1. `Strict`
+   1. if hard errors exist, fail
+   2. if only lint diagnostics exist, fail
+2. `Warn`
+   1. if only lint diagnostics exist, emit a warning block on stderr and return success
+   2. if both hard and lint diagnostics exist, emit warnings first, then fail with the hard-error block
+3. `Lax`
+   1. if only lint diagnostics exist, return success and emit nothing
+   2. if hard diagnostics exist, fail and do not render the suppressed lint block
+
+Warning rendering should reuse existing `PackageError.message` bodies, but the summary labels should be warning-oriented rather than reusing error labels blindly. In particular, `ShadowedBindingTypeError` should not be summarized as a `type error` inside a warning block.
+
+### 5. Wire lint mode into `lib check` and `lib test` only
+
+`library.Command.scala` should thread `LintMode` only through the two affected library commands.
 
 Required call-path changes:
 
-1. `lib check` should pass lint mode into `CheckState.packageMap` and `check`.
-2. `lib test` should pass lint mode into the `build` path used for test transpilation/execution.
-3. `lib build`, `doc`, `eval`, `json`, and the `tool` subcommands should continue to use the strict wrapper.
+1. `lib check` passes `LintMode` into `CheckState.packageMap` and `check`.
+2. `lib test` passes `LintMode` into the build path used before transpilation and test execution.
+3. Other library commands continue to use strict behavior.
+4. `tool` commands continue to use the existing strict wrapper.
 
-This keeps the user-facing surface narrowly scoped while still making the compiler core ready for a later follow-up if `tool check` or `tool test` should gain the same flags.
-
-### 5. Warning rendering
-
-Reuse existing `PackageError.message` bodies. Only the container and summary should change.
-
-Requirements:
-
-1. warnings are clearly labeled as warnings, not as type errors,
-2. warnings go to stderr,
-3. `lib check` still produces no normal stdout payload,
-4. `lib test --warn` emits warnings before transpile/test output begins,
-5. the existing strict multi-diagnostic error formatting remains the model for the strict path.
+This keeps the CLI surface narrow while still putting the reusable logic in `CompilerApi` for a future follow-up if `tool check` or `tool test` should gain the same flags.
 
 ## Implementation Plan
 
-1. Add a `LintMode` enum plus a small CLI parser helper, likely in a new shared file under `core/src/main/scala/dev/bosatsu/tool/`.
-2. Refactor `Package.inferBodyUnopt` so lint-only diagnostics no longer block typed-package production.
-3. Split or expose lint-only helpers in `PackageCustoms` for unused imports and unused top-level values.
-4. Extend `UnusedLetCheck` with a typed replay path, or refactor it so untyped and typed traversals share one implementation strategy.
-5. Add `CompilerApi.typeCheckWithLintMode` and keep the existing strict `typeCheck` as a wrapper.
-6. Update `library/Command.scala` to parse and pass lint mode in `lib check` and `lib test` only.
-7. Update docs to mention `--warn` and `--lax` on the relevant library commands.
+1. Add `LintMode` and shared `--warn` / `--lax` parsing in `library.Command.scala`.
+2. Refactor `Package.inferBodyUnopt` so the postponable lint set contributes via `Ior.Both` rather than blocking `Validated` failures.
+3. Expose a lint-only replay helper from `PackageCustoms` for package-level lints.
+4. Add a diagnostics-aware `CompilerApi` path that partitions hard and lint diagnostics and performs replay on successful package maps.
+5. Keep `CompilerApi.typeCheck` as the strict compatibility wrapper.
+6. Thread lint mode through `lib check` and `lib test` only.
+7. Update docs that describe the `lib check` / `lib test` iteration loop.
 8. Add command-level tests for strict, warn, lax, mixed diagnostics, and cache-hit parity.
 
 ## Acceptance Criteria
@@ -205,41 +200,39 @@ Requirements:
 2. `lib test` accepts `--warn` and `--lax`.
 3. `--warn` and `--lax` are mutually exclusive.
 4. Default strict behavior is unchanged when neither flag is present.
-5. The demoted lint set is exactly the explicit list in this design, and no soundness-critical diagnostics are demoted.
-6. `RecursionError` and `NonTotalMatch` remain fatal in all modes.
-7. `--warn` exits successfully when the only diagnostics are lint diagnostics and emits them as warnings.
-8. `--lax` exits successfully when the only diagnostics are lint diagnostics and suppresses them.
-9. If hard errors and lint diagnostics coexist, `--warn` still exits non-zero because of the hard errors and still shows the warning block.
-10. `lib test --warn` and `lib test --lax` still execute tests when the only compile-time diagnostics are lint diagnostics.
-11. Warning behavior is stable across cache hits and cache misses.
+5. The demoted lint set is exactly the explicit list in this design.
+6. `RecursionError` and `TotalityCheck.NonTotalMatch` remain fatal in all modes.
+7. `lib check --warn` succeeds when the only diagnostics are postponable lint diagnostics and prints them as warnings.
+8. `lib check --lax` succeeds when the only diagnostics are postponable lint diagnostics and suppresses them.
+9. `lib test --warn` and `lib test --lax` still run tests when the only compile-time diagnostics are postponable lint diagnostics.
+10. Mixed hard-plus-lint compilations still fail, and `--warn` renders both blocks in a stable order.
+11. Warning behavior is identical on cache misses and cache hits.
 12. A strict run after a prior `--warn` or `--lax` run still fails on the same lint diagnostics.
-13. `lib build` remains strict and gains no new flags in this issue.
+13. `lib build`, `tool check`, and other unaffected commands remain strict and gain no new flags.
+14. `todo` remains unavailable in `lib test` regardless of lint mode.
 
 ## Risks And Mitigations
 
 1. Risk: cache hits silently lose warnings.
-   Mitigation: typed lint replay after every successful compile result.
+   Mitigation: replay the lint set from `PackageMap.Inferred` on every successful compile.
 
-2. Risk: miss-time lint collection and replay-time lint collection drift apart.
-   Mitigation: use the same `PackageError` variants in both paths and add parity tests that run the same source twice, once cold and once warm.
+2. Risk: cold-path lint collection and replay-path lint collection drift apart.
+   Mitigation: keep the postponable set centralized in one classifier and add warm-vs-cold parity tests.
 
-3. Risk: duplicate warning rendering from precheck plus replay.
-   Mitigation: deduplicate `PackageError` values before rendering.
+3. Risk: warning summaries are confusing because some existing diagnostics are currently categorized as errors.
+   Mitigation: add warning-specific summary labels in `CompilerApi` instead of reusing the current error summary labels verbatim.
 
-4. Risk: typed unused-let replay does not exactly match the existing untyped lint behavior.
-   Mitigation: add focused tests covering lets, lambda args, pattern bindings, and top-level defs on successfully compiled programs.
+4. Risk: replay adds noticeable latency to successful `lib check` and `lib test` runs.
+   Mitigation: replay only the explicit lint subset and reuse typed packages rather than reparsing sources.
 
-5. Risk: users find warning-plus-error output noisy on `--warn` failure cases.
-   Mitigation: keep warnings in a clearly separated block and preserve the current strict error block format underneath.
-
-6. Risk: the added replay pass slows successful `lib check` and `lib test` runs.
-   Mitigation: keep replay limited to the explicit lint set, and reuse already-typed package data instead of reparsing sources.
+5. Risk: users expect library-config lint such as unused deps to be covered too.
+   Mitigation: document that v1 is scoped to compiler/package diagnostics only, and treat `LibConfig` lint demotion as a separate follow-up.
 
 ## Rollout Notes
 
-1. Land the compiler plumbing first so strict mode still behaves exactly as today through the existing `CompilerApi.typeCheck` wrapper.
-2. Then expose `--warn` and `--lax` on `lib check` and `lib test`.
-3. Update user docs in the same PR so the new modes are discoverable.
+1. Land the compiler refactor and strict-wrapper preservation in the same PR so default behavior does not regress.
+2. Expose `--warn` and `--lax` on `lib check` and `lib test` in that same change.
+3. Update the iteration docs in the same PR so the new modes are discoverable.
 4. No migration is required because strict mode remains the default.
-5. If the lint set proves too broad or too narrow, adjust the central classifier rather than adding more ad hoc command-specific conditionals.
-6. A later follow-up can expose the same lint modes on `tool check` and `tool test` without reworking the compiler internals again.
+5. No infer-cache key change is required because lint mode does not alter compiled artifacts; replay makes the user-visible behavior stable.
+6. Likely follow-ups are `tool check` parity and a separate decision on whether any `LibConfig` errors should become warnable.
