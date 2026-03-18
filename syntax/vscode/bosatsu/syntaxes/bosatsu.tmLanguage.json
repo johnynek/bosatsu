@@ -123,6 +123,34 @@
 		"interpolation": {
 			"patterns": [
 				{
+					"name": "constant.character.escape.bosatsu",
+					"match": "\\$\\$"
+				},
+				{
+					"name": "meta.interpolation.char.bosatsu",
+					"match": "(\\$\\.)(_|[a-z][A-Za-z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.interpolation.begin.bosatsu"
+						},
+						"2": {
+							"name": "variable.other.readwrite.bosatsu"
+						}
+					}
+				},
+				{
+					"name": "meta.interpolation.string.bosatsu",
+					"match": "(\\$)(_|[a-z][A-Za-z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.interpolation.begin.bosatsu"
+						},
+						"2": {
+							"name": "variable.other.readwrite.bosatsu"
+						}
+					}
+				},
+				{
 					"name": "meta.interpolation.string.bosatsu",
 					"begin": "\\$\\{",
 					"beginCaptures": {

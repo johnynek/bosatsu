@@ -343,6 +343,9 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
 }
 
 object Pattern {
+  private val rawInterpolationFailMessage =
+    "raw interpolation only accepts a single bindable; use braces for larger expressions or $$ for a literal $"
+
   implicit def patternOrder[N: Order, T: Order]: Order[Pattern[N, T]] = {
     val ordN: Ordering[N] = Order[N].toOrdering
     val ordT: Ordering[T] = Order[T].toOrdering
@@ -1203,22 +1206,111 @@ object Pattern {
     val intp =
       (Lit.float64Parser.backtrack | Lit.integerParser | Lit.codePointParser)
         .map(Literal(_))
-    val startStr = P.string("${").as { (opt: Option[Bindable]) =>
-      opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_))
-    }
-    val startChar = P.string("$.{").as { (opt: Option[Bindable]) =>
-      opt.fold(StrPart.WildChar: StrPart)(StrPart.NamedChar(_))
-    }
-    val start = startStr | startChar
     val end = P.char('}')
 
     val pwild = P.char('_').as(None)
     val pname = Identifier.bindableParser.map(Some(_))
     val part: P[Option[Bindable]] = pwild | pname
 
+    def rawBindable(
+        start: P[Unit],
+        fn: Bindable => StrPart
+    ): P[Either[StrPart, String]] =
+      (start *> P.defer(Declaration.nonBindingParser.run(""))).flatMap {
+        case Declaration.Var(v: Bindable) => P.pure(Left(fn(v)))
+        case _                            =>
+          P.failWith(rawInterpolationFailMessage)
+      }
+
+    val rawBindableCandidate: P[Bindable] =
+      Identifier.bindableParser.mapFilter {
+        case Identifier.Name(asString) if Declaration.keywords(asString) =>
+          None
+        case bindable =>
+          Some(bindable)
+      }
+
+    val rawDeclBindableStart: P0[Unit] =
+      rawBindableCandidate.peek.void
+    val rawStrStart = (P.char('$') *> rawDeclBindableStart).backtrack
+    val rawCharStart = (P.string("$.") *> rawDeclBindableStart).backtrack
+
+    val dollarPart: P[Either[StrPart, String]] =
+      P.string("$$").as(Right("$"))
+        .orElse(
+          (P.string("$.{") *> part <* end).map(
+            _.fold(StrPart.WildChar: StrPart)(StrPart.NamedChar(_))
+          ).map(Left(_))
+        )
+        .orElse(P.string("$._").as(Left(StrPart.WildChar)))
+        .orElse(rawBindable(rawCharStart, StrPart.NamedChar(_)))
+        .orElse(
+          (P.string("${") *> part <* end).map(
+            _.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_))
+          ).map(Left(_))
+        )
+        .orElse(P.string("$_").as(Left(StrPart.WildStr)))
+        .orElse(rawBindable(rawStrStart, StrPart.NamedStr(_)))
+        .orElse(P.char('$').as(Right("$")))
+
+    def dollarInterpolatedString(
+        quoteChar: Char
+    ): P[List[Either[StrPart, (Region, String)]]] = {
+      val strQuote = P.char(quoteChar)
+      val strLit =
+        StringUtil.undelimitedString1(strQuote.orElse(P.char('$').void))
+
+      val litPart: P[Either[StrPart, (Region, String)]] =
+        (P.index.with1 ~ strLit ~ P.index)
+          .map { case ((s, str), l) => Right((Region(s, l), str)) }
+
+      val dollarChunk: P[Either[StrPart, (Region, String)]] =
+        (P.index.with1 ~ dollarPart ~ P.index).map {
+          case ((_, Left(part)), _) => Left(part)
+          case ((s, Right(str)), l) => Right((Region(s, l), str))
+        }
+
+      def mergeLiteralChunks(
+          parts: List[Either[StrPart, (Region, String)]]
+      ): List[Either[StrPart, (Region, String)]] = {
+        @annotation.tailrec
+        def loop(
+            rem: List[Either[StrPart, (Region, String)]],
+            pending: Option[(Region, String)],
+            acc: List[Either[StrPart, (Region, String)]]
+        ): List[Either[StrPart, (Region, String)]] =
+          rem match {
+            case Nil =>
+              pending match {
+                case None      => acc.reverse
+                case Some(lit) => (Right(lit) :: acc).reverse
+              }
+            case Left(part) :: tail =>
+              val acc1 =
+                pending match {
+                  case None      => acc
+                  case Some(lit) => Right(lit) :: acc
+                }
+              loop(tail, None, Left(part) :: acc1)
+            case Right((region, str)) :: tail =>
+              val nextPending =
+                pending match {
+                  case None => Some((region, str))
+                  case Some((prevRegion, prevStr)) =>
+                    Some((Region(prevRegion.start, region.end), prevStr + str))
+                }
+              loop(tail, nextPending, acc)
+          }
+
+        loop(parts, None, Nil)
+      }
+
+      (strQuote ~ (litPart.orElse(dollarChunk)).rep0 ~ strQuote)
+        .map { case ((_, lst), _) => mergeLiteralChunks(lst) }
+    }
+
     def strp(q: Char): P[List[StrPart]] =
-      StringUtil
-        .interpolatedString(q, start, part, end)
+      dollarInterpolatedString(q)
         .map(_.map {
           case Left(p)         => p
           case Right((_, str)) => StrPart.LitStr(str)

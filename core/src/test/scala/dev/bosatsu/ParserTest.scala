@@ -272,6 +272,40 @@ class ParserTest extends ParserTestBase {
     )
   }
 
+  test("declaration strings support raw dollar interpolation") {
+    def parseDecl(str: String): Declaration.NonBinding =
+      unsafeParse(Declaration.nonBindingParser.run(""), str)
+        .replaceRegionsNB(emptyRegion)
+
+    assertEquals(parseDecl("'$x'"), parseDecl("'${x}'"))
+    assertEquals(parseDecl("'$.c'"), parseDecl("'$.{c}'"))
+    assertEquals(parseDecl("'pre $x post'"), parseDecl("'pre ${x} post'"))
+    assertEquals(parseDecl("'$$x'"), parseDecl("'\\$x'"))
+    assertEquals(parseDecl("'$5'"), parseDecl("'\\$5'"))
+    assertEquals(parseDecl("'$if'"), parseDecl("'\\$if'"))
+
+    assertEquals(
+      Document[Declaration].document(parseDecl("'$x'")).render(80),
+      "'${x}'"
+    )
+    assertEquals(
+      Document[Declaration].document(parseDecl("'$.c'")).render(80),
+      "'$.{c}'"
+    )
+
+    List(
+      "'$foo(bar)'",
+      "'$.foo(bar)'",
+      "'$foo.bar'",
+      "'$foo: T'"
+    ).foreach { source =>
+      assert(
+        Declaration.nonBindingParser.run("").parseAll(source).isLeft,
+        source
+      )
+    }
+  }
+
   test("we can decode any utf16") {
     val p =
       StringUtil.utf16Codepoint.repAs(using StringUtil.codePointAccumulator) |

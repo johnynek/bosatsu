@@ -3,6 +3,7 @@ package dev.bosatsu
 import cats.data.NonEmptyList
 import org.scalacheck.{Gen, Arbitrary}
 import org.scalacheck.Prop.forAll
+import org.typelevel.paiges.Document
 
 class PatternTest extends munit.ScalaCheckSuite {
   override def scalaCheckTestParameters =
@@ -14,6 +15,28 @@ class PatternTest extends munit.ScalaCheckSuite {
 
   def pat(s: String): Pattern.Parsed =
     Parser.unsafeParse(Pattern.bindParser, s)
+
+  test("string patterns support raw dollar bindings") {
+    assertEquals(pat("'$x'"), pat("'${x}'"))
+    assertEquals(pat("'$.c'"), pat("'$.{c}'"))
+    assertEquals(pat("'$_'"), pat("'${_}'"))
+    assertEquals(pat("'$._'"), pat("'$.{_}'"))
+    assertEquals(pat("'$$x'"), pat("'\\$x'"))
+    assertEquals(pat("'$5'"), pat("'\\$5'"))
+    assertEquals(pat("'$if'"), pat("'\\$if'"))
+
+    assertEquals(Document[Pattern.Parsed].document(pat("'$x'")).render(80), "'${x}'")
+    assertEquals(Document[Pattern.Parsed].document(pat("'$.c'")).render(80), "'$.{c}'")
+
+    List(
+      "'$foo(bar)'",
+      "'$.foo(bar)'",
+      "'$foo.bar'",
+      "'$foo: T'"
+    ).foreach { source =>
+      assert(Pattern.bindParser.parseAll(source).isLeft, source)
+    }
+  }
 
   test("Pattern.unbind is the same as filterVars(Set.empty)") {
     forAll(patGen) { p =>
