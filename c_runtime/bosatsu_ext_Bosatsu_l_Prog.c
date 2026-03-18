@@ -1,6 +1,9 @@
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 
+#include <gc.h>
 #include <stdio.h>
+#include <stdatomic.h>
+#include <stdlib.h>
 
 /*
 # Prog is an ADT with the following values:
@@ -11,6 +14,10 @@
 # ApplyFix(a, f) => (4, a, f)
 # Effect(arg: BValue, f: BValue => BValue) => (5, arg, f)
 */
+
+typedef struct {
+  _Atomic BValue value;
+} BSTS_Prog_Var;
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_pure(BValue a)
 {
@@ -59,6 +66,110 @@ BValue ___bsts_g_Bosatsu_l_Prog_l_recover(BValue p, BValue f)
   return alloc_enum2(3, p, f);
 }
 
+static BValue bsts_prog_effect1(BValue a, BValue (*fn)(BValue))
+{
+  return alloc_enum2(5, a, alloc_boxed_pure_fn1(fn));
+}
+
+static BValue bsts_prog_effect2(BValue a, BValue b, BValue (*fn)(BValue))
+{
+  return alloc_enum2(5, alloc_struct2(a, b), alloc_boxed_pure_fn1(fn));
+}
+
+static BSTS_Prog_Var *bsts_prog_unbox_var(BValue var_value)
+{
+  return BSTS_PTR(BSTS_Prog_Var, var_value);
+}
+
+static BValue bsts_prog_new_var_effect(BValue initial)
+{
+  BSTS_Prog_Var *cell = (BSTS_Prog_Var *)GC_malloc(sizeof(BSTS_Prog_Var));
+  if (cell == NULL)
+  {
+    perror("GC_malloc failure in bsts_prog_new_var_effect");
+    abort();
+  }
+
+  atomic_init(&cell->value, initial);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(BSTS_VALUE_FROM_PTR(cell));
+}
+
+static BValue bsts_prog_var_get_effect(BValue var_value)
+{
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  BValue current = atomic_load_explicit(&cell->value, memory_order_acquire);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(current);
+}
+
+static BValue bsts_prog_var_set_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue next_value = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  atomic_store_explicit(&cell->value, next_value, memory_order_release);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue bsts_prog_var_swap_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue next_value = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+  BValue current = atomic_exchange_explicit(&cell->value, next_value, memory_order_acq_rel);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(current);
+}
+
+static BValue bsts_prog_var_update_effect(BValue pair)
+{
+  BValue var_value = get_struct_index(pair, 0);
+  BValue fn = get_struct_index(pair, 1);
+  BSTS_Prog_Var *cell = bsts_prog_unbox_var(var_value);
+
+  while (1)
+  {
+    BValue current = atomic_load_explicit(&cell->value, memory_order_acquire);
+    BValue update_result = call_fn1(fn, current);
+    BValue next_value = get_struct_index(update_result, 0);
+    BValue result = get_struct_index(update_result, 1);
+    BValue expected = current;
+    // Weak CAS may retry even without contention, so fn may be re-run.
+    if (atomic_compare_exchange_weak_explicit(
+            &cell->value,
+            &expected,
+            next_value,
+            memory_order_acq_rel,
+            memory_order_acquire))
+    {
+      return ___bsts_g_Bosatsu_l_Prog_l_pure(result);
+    }
+  }
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_new__var(BValue a)
+{
+  return bsts_prog_effect1(a, bsts_prog_new_var_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_get(BValue a)
+{
+  return bsts_prog_effect1(a, bsts_prog_var_get_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_set(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_set_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_swap(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_swap_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_Prog_l_update(BValue a, BValue b)
+{
+  return bsts_prog_effect2(a, b, bsts_prog_var_update_effect);
+}
+
 static volatile BValue bsts_prog_observe_sink = (BValue)0;
 
 static BValue bsts_prog_observe_effect(BValue arg)
@@ -70,8 +181,7 @@ static BValue bsts_prog_observe_effect(BValue arg)
 
 BValue ___bsts_g_Bosatsu_l_Prog_l_observe(BValue a)
 {
-  BValue effect_fn = alloc_boxed_pure_fn1(bsts_prog_observe_effect);
-  return alloc_enum2(5, a, effect_fn);
+  return bsts_prog_effect1(a, bsts_prog_observe_effect);
 }
 
 BValue bsts_prog_step_fix_closure(BValue *slots, BValue a)

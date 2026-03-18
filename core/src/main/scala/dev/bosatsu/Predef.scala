@@ -474,6 +474,31 @@ object Predef {
       )
       .add(
         progPackageName,
+        "new_var",
+        FfiCall.Fn1(PredefImpl.prog_new_var(_))
+      )
+      .add(
+        progPackageName,
+        "update",
+        FfiCall.Fn2(PredefImpl.prog_var_update(_, _))
+      )
+      .add(
+        progPackageName,
+        "set",
+        FfiCall.Fn2(PredefImpl.prog_var_set(_, _))
+      )
+      .add(
+        progPackageName,
+        "get",
+        FfiCall.Fn1(PredefImpl.prog_var_get(_))
+      )
+      .add(
+        progPackageName,
+        "swap",
+        FfiCall.Fn2(PredefImpl.prog_var_swap(_, _))
+      )
+      .add(
+        progPackageName,
         "apply_fix",
         FfiCall.Fn2(PredefImpl.prog_apply_fix(_, _))
       )
@@ -674,6 +699,16 @@ object PredefImpl {
       case other              =>
         // $COVERAGE-OFF$
         sys.error(s"expected lazy external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
+  private def asVar(a: Value): AtomicReference[Value] =
+    a.asExternal.toAny match {
+      case cell: AtomicReference[?] =>
+        cell.asInstanceOf[AtomicReference[Value]]
+      case other                    =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected var external value, found: $other")
       // $COVERAGE-ON$
     }
 
@@ -1047,6 +1082,58 @@ object PredefImpl {
         // Clear quickly so long benchmark loops do not retain observed values.
         observedProgValueSink.set(UnitValue)
         prog_pure(UnitValue)
+      }
+    )
+
+  def prog_new_var(a: Value): Value =
+    prog_effect(
+      a,
+      initial => prog_pure(ExternalValue(new AtomicReference[Value](initial)))
+    )
+
+  def prog_var_get(cellValue: Value): Value =
+    prog_effect(cellValue, cell => prog_pure(asVar(cell).get()))
+
+  def prog_var_set(cellValue: Value, newValue: Value): Value =
+    prog_effect2(
+      cellValue,
+      newValue,
+      (cell, value) => {
+        asVar(cell).set(value)
+        prog_pure(UnitValue)
+      }
+    )
+
+  def prog_var_swap(cellValue: Value, newValue: Value): Value =
+    prog_effect2(
+      cellValue,
+      newValue,
+      (cell, value) => prog_pure(asVar(cell).getAndSet(value))
+    )
+
+  def prog_var_update(cellValue: Value, fn: Value): Value =
+    prog_effect2(
+      cellValue,
+      fn,
+      (cellValue0, updateFn) => {
+        val cell = asVar(cellValue0)
+
+        @annotation.tailrec
+        def loop(): Value = {
+          val current = cell.get()
+          callFn1(updateFn, current) match {
+            case pair: ProductValue if pair.values.length == 2 =>
+              val next = pair.get(0)
+              val result = pair.get(1)
+              // CAS retries may invoke updateFn more than once under contention.
+              if (cell.compareAndSet(current, next)) prog_pure(result)
+              else loop()
+            case other =>
+              sys.error(s"invalid Prog.update result: $other")
+          }
+        }
+
+        loop()
       }
     )
 

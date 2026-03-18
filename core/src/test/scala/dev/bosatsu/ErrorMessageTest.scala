@@ -2497,6 +2497,25 @@ enum Stack[a, b]:
     }
   }
 
+  test("recursive occurrences through Bosatsu/Prog Var are rejected") {
+    val progSrc = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val testCode = """
+package ErrorCheck
+
+from Bosatsu/Prog import Var
+
+enum Bad:
+  Step(next: Var[Bad])
+"""
+
+    val (errs, sourceMap) = compileErrors(List(progSrc, testCode))
+    val rendered =
+      errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("recursive occurrences must be covariant"), rendered)
+    assert(!rendered.contains("Unknown type"), rendered)
+  }
+
   test(
     "variance failures still allow independent lets to report actionable errors"
   ) {

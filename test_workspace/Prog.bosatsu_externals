@@ -5,6 +5,11 @@
     flat_map: ProgExt.flat_map,
     recover: ProgExt.recover,
     observe: ProgExt.observe,
+    new_var: ProgExt.new_var,
+    update: ProgExt.update,
+    set: ProgExt.set,
+    get: ProgExt.get,
+    swap: ProgExt.swap,
     apply_fix: ProgExt.apply_fix
   },
   Bosatsu/IO/Core: {

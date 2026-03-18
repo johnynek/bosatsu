@@ -1073,6 +1073,13 @@ For benchmarks, `Bosatsu/Prog` also exposes:
 executed `Prog` (for example inside `Main` or `ProgTest` via `await`/`flat_map`).
 If you call `observe` but never execute that `Prog`, it has no effect.
 
+`Bosatsu/Prog` also exposes `Var[a]` for effectful mutable cells. Allocate a
+cell with `new_var`, read with `get`, transform atomically with `update`, and
+write with either `set` or `swap`. The return values differ:
+
+1. `set(v, next)` stores `next` and returns `()`.
+1. `swap(v, next)` stores `next` and returns the previous value.
+
 ## External functions and values
 There is syntax for declaring external values and functions, but regular Bosatsu
 library code cannot define new externals today.
