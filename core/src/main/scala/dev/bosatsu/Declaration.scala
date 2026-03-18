@@ -1782,27 +1782,33 @@ object Declaration {
         // here is if/ternary operator
         // we still recurse in subexpressions so parenthesized ternaries are allowed,
         // but reject bare composed ternaries to avoid ambiguous chaining.
-        val ternary: P[NonBinding => NonBinding] =
-          (((spaces *> P.string(
+        val ternary: P[NonBinding => NonBinding] = {
+          val ifElsePart = (((spaces *> P.string(
             "if"
           ) *> spaces).backtrack *> ternaryCondP) ~ (spaces *> keySpace(
             "else"
           ) *> ternaryElseP))
-            .flatMap {
-              case (cond, falseCase) =>
-                def isBareTernary(nb: NonBinding): Boolean =
-                  nb match {
-                    case Ternary(_, _, _) => true
-                    case _                => false
-                  }
 
-                if (isBareTernary(cond) || isBareTernary(falseCase))
-                  P.failWith("composed ternary expressions require parentheses")
-                else
-                  P.pure { (trueCase: NonBinding) =>
-                    Ternary(trueCase, cond, falseCase)
-                  }
+          val checked = ifElsePart.map { case (cond, falseCase) =>
+            def isBareTernary(nb: NonBinding): Boolean =
+              nb match {
+                case Ternary(_, _, _) => true
+                case _                => false
+              }
+
+            if (isBareTernary(cond) || isBareTernary(falseCase))
+              Left(())
+            else
+              Right { (trueCase: NonBinding) =>
+                Ternary(trueCase, cond, falseCase)
+              }
             }
+          val repair: P[Unit => (NonBinding => NonBinding)] =
+            P.failWith("composed ternary expressions require parentheses")
+
+          // Using select is more efficient than flatMap
+          P.select(checked)(repair)
+        }
 
         val guardedMatchesElse: NonBinding => P0[NonBinding] = {
           case m @ Matches(_, _, Some(_)) if pm.allowGuardedMatchesElse =>
