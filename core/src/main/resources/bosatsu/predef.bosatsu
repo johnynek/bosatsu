@@ -75,6 +75,7 @@ export (
   int_loop,
   int_to_Char,
   int_to_String,
+  length_List,
   length_String,
   not,
   or,
@@ -221,6 +222,15 @@ def map_List(lst: List[a], fn: a -> b) -> List[b]:
 # Map each item to a list and flatten the result.
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldl_List([], (t, a) -> fn(a).reverse_concat(t)).reverse()
+
+# Count the number of items in a list.
+def length_List(lst: List[a]) -> Int:
+  def loop(rem: List[a], acc: Int) -> Int:
+    loop rem:
+      case []: acc
+      case [_, *tail]: loop(tail, acc.add(1))
+
+  loop(lst, 0)
 
 #############
 # Some utilities for dealing with functions
