@@ -17,11 +17,7 @@ from Bosatsu/IO/Core import (
 )
 from Bosatsu/IO/Std import println, show_error
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
 def create_new_success(path: Path) -> Prog[IOError, Bool]:
   recover(

@@ -47,22 +47,6 @@ int_props = suite_Prop(
   ]
 )
 
-def cmp_Comparison(c1: Comparison, c2: Comparison) -> Comparison:
-    match c1:
-        case LT:
-            match c2:
-                case LT: EQ
-                case _: LT
-        case EQ:
-            match c2:
-                case LT: GT
-                case EQ: EQ
-                case GT: LT
-        case GT:
-            match c2:
-                case GT: EQ
-                case _: GT
-
 def exp_Int(base: Int, power: Int) -> Int:
   range_foldr(power, 1, (_, acc) -> acc.mul(base))
 

@@ -1351,6 +1351,32 @@ object PackageError {
               Some(region)
             )
 
+          case Infer.Error.ConstructorArityMismatch(
+                (optPack, cons),
+                expectedArity,
+                foundArity,
+                region
+              ) =>
+            def args(n: Int) =
+              if (n == 0) "no arguments"
+              else if (n == 1) "one argument"
+              else s"$n arguments"
+
+            val constructorName =
+              optPack match {
+                case Some(pn) if pn =!= pack =>
+                  s"${pn.asString}::${cons.sourceCodeRepr}"
+                case _ =>
+                  cons.sourceCodeRepr
+              }
+
+            (
+              Doc.text(
+                s"$constructorName is a constructor that takes ${args(expectedArity)}, but this call passes ${args(foundArity)}."
+              ) + Doc.hardLine + contextDoc(region),
+              Some(region)
+            )
+
           case Infer.Error.ArityMismatch(leftA, leftR, rightA, rightR) =>
             val context0 = contextDoc(leftR)
             val context1 =

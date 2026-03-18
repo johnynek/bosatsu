@@ -321,6 +321,12 @@ object Infer {
         rightArity: Int,
         rightRegion: Region
     ) extends TypeError
+    case class ConstructorArityMismatch(
+        constructorName: (Option[PackageName], Constructor),
+        expectedArity: Int,
+        foundArity: Int,
+        region: Region
+    ) extends TypeError
     case class ArityTooLarge(arity: Int, maxArity: Int, region: Region)
         extends TypeError
 
@@ -1772,6 +1778,16 @@ object Infer {
           None
       }
 
+    private def constructorNameHint[A](
+        fn: Expr[A]
+    ): Option[(Option[PackageName], Constructor)] =
+      fn match {
+        case Expr.Global(pack, cons: Constructor, _) =>
+          Some((Some(pack), cons))
+        case _ =>
+          None
+      }
+
     private def contextualTypeError(
         site: Error.MismatchSite
     ): Error => Error = {
@@ -2096,7 +2112,22 @@ object Infer {
           region(fn),
           argsRegion,
           Error.Direction.ExpectRight
-        )
+        ).mapError {
+          case ar @ Error.ArityMismatch(expectedArity, _, foundArity, _) =>
+            constructorNameHint(fn) match {
+              case Some(name) =>
+                Error.ConstructorArityMismatch(
+                  name,
+                  expectedArity,
+                  foundArity,
+                  region(tag)
+                )
+              case None =>
+                ar
+            }
+          case other =>
+            other
+        }
         fnName = functionNameHint(fn)
         typedArg <- args.zip(argT).zipWithIndex.parTraverse {
           case ((arg, argT), idx) =>

@@ -22,14 +22,19 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
-def notb(a):
-  match a:
-    case True: False
-    case False: True
-def andb(a, b):
-  match a:
-    case True: b
-    case False: False
+notb = not
+andb = and
+
+test_bool = TestSuite("Bool tests", [
+  Assertion(and(True, True), "and(True, True)"),
+  Assertion(and(True, False) matches False, "and(True, False)"),
+  Assertion(and(False, True) matches False, "and(False, True)"),
+  Assertion(or(False, False) matches False, "or(False, False)"),
+  Assertion(or(False, True), "or(False, True)"),
+  Assertion(or(True, False), "or(True, False)"),
+  Assertion(not(True) matches False, "not(True)"),
+  Assertion(not(False), "not(False)"),
+])
 
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
@@ -113,6 +118,19 @@ test_int = TestSuite("Int tests", [
       Assertion(string_to_Int("-2147483649") matches Some(-2147483649), "Int.Min - 1 string_to_Int"),
       Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
+
+test_cmp_eq = TestSuite("Comparison/equality tests", [
+  Assertion(cmp_Bool(False, False) matches EQ, "cmp_Bool EQ"),
+  Assertion(cmp_Bool(False, True) matches LT, "cmp_Bool LT"),
+  Assertion(cmp_Bool(True, False) matches GT, "cmp_Bool GT"),
+  Assertion(eq_Bool(True, True), "eq_Bool true"),
+  Assertion(notb(eq_Bool(True, False)), "eq_Bool false"),
+  Assertion(cmp_Comparison(LT, EQ) matches LT, "cmp_Comparison LT"),
+  Assertion(cmp_Comparison(EQ, EQ) matches EQ, "cmp_Comparison EQ"),
+  Assertion(cmp_Comparison(GT, LT) matches GT, "cmp_Comparison GT"),
+  Assertion(eq_Comparison(GT, GT), "eq_Comparison true"),
+  Assertion(notb(eq_Comparison(LT, GT)), "eq_Comparison false"),
+])
 
 def cmp_to_int(c: Comparison) -> Int:
   match c:
@@ -200,6 +218,8 @@ cmp_string_samples = [
 ]
 
 test_string = TestSuite("String tests", [
+  Assertion(eq_String("foo", "foo"), "eq_String equal"),
+  Assertion(notb(eq_String("foo", "food")), "eq_String unequal"),
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
   Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
   Assertion("foo".partition_String("x") matches None, "foo partition_String x"),
@@ -273,7 +293,7 @@ test_list = TestSuite("List tests", [
   Assertion(length_List(["a", "b"]) matches 2, "length_List polymorphic"),
 ])
 
-def eqf(a, b): cmp_Float64(a, b) matches EQ
+def eqf(a, b): eq_Float64(a, b)
 def eqi(a, b): cmp_Int(a, b) matches EQ
 def eqb(a, b):
   if a:
@@ -459,7 +479,8 @@ test_float = TestSuite("Float tests", [
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
   Assertion(eqf(mulf(1.5, 2.0), 3.0), "mulf"),
   Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
-  Assertion(eqf(.NaN, nan0), "nan equality"),
+  Assertion(eq_Float64(.NaN, nan0), "nan equality"),
+  Assertion(notb(eq_Float64(1.0, 2.0)), "float inequality"),
   Assertion(eqf(1_234.5_6, 1234.56), "underscore parsing"),
   Assertion(eqf(.5, 0.5), "leading dot"),
   Assertion(eqf(5., 5.0), "trailing dot"),
@@ -525,7 +546,9 @@ test_float = TestSuite("Float tests", [
 ])
 
 test = TestSuite("Predef tests", [
+    test_bool,
     test_int,
+    test_cmp_eq,
     test_string,
     test_list,
     test_list_patterns,

@@ -41,11 +41,7 @@ enum Nullable[a]:
   Null
   NonNull(value: a)
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
 def operator &(left: Bool, right: Bool) -> Bool:
   andb(left, right)

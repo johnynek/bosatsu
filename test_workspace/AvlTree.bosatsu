@@ -190,8 +190,6 @@ Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i .
 
 contains_i = (tree, i) -> (contains_i_opt(tree, i) matches Some(_))
 
-def not(x): False if x else True
-
 contains_test = (
     def add_law(t, i, msg):
         Assertion(t.add_i(i).contains_i(i), msg)
