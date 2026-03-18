@@ -106,22 +106,31 @@ In `core/src/main/scala/dev/bosatsu/Declaration.scala`:
 4. Keep the guard attached to `matches`, not to the pattern.
 
 Ternary interaction:
-the parser should preserve the existing ternary form without mandatory parentheses. The intended behavior is:
+the parser should preserve the existing ternary capability without mandatory parentheses, but it should do so with forward parsing rather than backtracking. The intended behavior is:
 
 ```bosatsu
 x matches p if cond
 ```
 
-parses as guarded `matches`, but:
+parses as guarded `matches`.
+
+If a same-level `else` follows:
 
 ```bosatsu
 x matches p if cond else other
 ```
 
-should backtrack to the existing ternary parse rather than forcing the guard interpretation. One workable implementation is:
-1. parse a candidate `matches` guard after `if`
-2. if a same-level `else` follows, backtrack the whole `if <guard>` suffix
-3. let the existing ternary parser consume `if ... else ...`
+the parser should keep moving forward and construct the ternary-shaped equivalent of:
+
+```bosatsu
+True if (x matches p if cond) else other
+```
+
+This preserves the desired scoping rule:
+1. any names bound by `p` are in scope for `cond`
+2. those names are not in scope for `other`
+
+Because the ternary condition is itself a guarded `matches` expression, the parser does not need to backtrack, and the existing ternary lowering can still be reused.
 
 ### 2. Update source-level scope bookkeeping
 Also in `Declaration.scala`, update helpers that currently assume `matches` has no guard:
@@ -138,6 +147,7 @@ In `core/src/main/scala/dev/bosatsu/SourceConverter.scala`:
 2. Convert the guard under `withBound(_, pattern.names)` so the predicate sees pattern-bound names.
 3. Reuse the existing branch-guard canonicalization rule: if the guard resolves to Predef `True`, erase the guard and treat the form as unguarded.
 4. Lower to a two-branch `Expr.Match` returning `True`/`False`.
+5. Rely on the existing ternary lowering for the `... if cond else other` case once the parser has represented it as `True if (matches-with-guard) else other`.
 
 Proposed lowering shape:
 1. first branch: `Branch(pattern, guardOpt, True)`
@@ -196,13 +206,13 @@ In `docs/src/main/paradox/language_guide.md`:
 1. replace the current caveat that `matches` cannot introduce bindings
 2. document the new guarded form
 3. explicitly state that names bound by the pattern are scoped only inside the guard
-4. note the parenthesization rule for ternary expressions if needed
+4. document that `x matches p if cond else other` keeps names from `p` in scope for `cond`, but not for `other`
 
 ## Testing Strategy
 1. Parser tests in `core/src/test/scala/dev/bosatsu/ParserTest.scala`:
    1. positive round-trip for `xs matches [*_, x, *_] if pred(x)`
    2. positive round-trip for binding-free guarded `matches`
-   3. `xs matches p if cond else other` still parses as the existing ternary form without requiring parentheses
+   3. `xs matches [*_, x, *_] if pred(x) else other` parses without parentheses, with `x` available in `pred(x)` but not in `other`
    4. require at least one space before `if`
    5. commit after `if` so `xs matches p if` is a parse error at the guard site when there is no ternary `else`
 2. Evaluation tests in `core/src/test/scala/dev/bosatsu/EvaluationTest.scala`:
@@ -211,7 +221,7 @@ In `docs/src/main/paradox/language_guide.md`:
    3. a guarded `matches` true path returns `True`
 3. Error-message tests in `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala`:
    1. no-guard binding form still errors with the revised message
-   2. guard-only scope is enforced, for example using a bound name outside the guard still fails
+   2. guard-only scope is enforced, for example using a bound name in `other` still fails
 4. Totality tests in `core/src/test/scala/dev/bosatsu/TypedTotalityTest.scala`:
    1. `x matches y if pred(y)` does not report “always true”
    2. unguarded irrefutable `matches` still report “always true”
@@ -223,18 +233,19 @@ In `docs/src/main/paradox/language_guide.md`:
 2. Pattern-bound names are in scope while typechecking and lowering the predicate.
 3. Pattern-bound names are not in scope outside the predicate or in the body of an enclosing `if` that consumes the `matches` result.
 4. `matches` with bindings and no guard still reports a source-level error.
-5. `x matches p if cond else other` remains accepted as the existing ternary form without mandatory parentheses.
-6. The parser enforces the same whitespace behavior as branch guards and only commits to the guarded-`matches` parse when there is no same-level ternary `else`.
-7. Guarded `matches` lower through ordinary guarded `Expr.Match` branches with no new typed or Matchless IR.
-8. Existing guarded-branch typing and lowering continue to work unchanged downstream.
-9. Unguarded irrefutable `matches` still produce always-true diagnostics.
-10. Guarded irrefutable `matches` do not produce always-true diagnostics unless the guard canonicalizes to Predef `True`.
-11. Parser, evaluation, error-message, and totality tests cover the new form.
-12. Public docs describe the new syntax and scope rule.
+5. `x matches p if cond else other` is supported without mandatory parentheses.
+6. Any bindings introduced by `p` are in scope for `cond`, but not for `other`.
+7. The parser handles the ternary case with forward parsing rather than backtracking.
+8. Guarded `matches` lower through ordinary guarded `Expr.Match` branches with no new typed or Matchless IR.
+9. Existing guarded-branch typing and lowering continue to work unchanged downstream.
+10. Unguarded irrefutable `matches` still produce always-true diagnostics.
+11. Guarded irrefutable `matches` do not produce always-true diagnostics unless the guard canonicalizes to Predef `True`.
+12. Parser, evaluation, error-message, and totality tests cover the new form.
+13. Public docs describe the new syntax and scope rule.
 
 ## Risks And Mitigations
 1. Risk: parser ambiguity around `if` after `matches`, especially with ternary syntax.
-Mitigation: parse a candidate guard first, but if a same-level `else` follows, backtrack and defer to the existing ternary parser.
+Mitigation: forward-parse `... if cond else other` into the ternary-shaped form `True if (matches-with-guard) else other`, so the parser never needs to backtrack the `if` suffix.
 
 2. Risk: scope leakage through the existing `if x matches p` rewrite in `SourceConverter`.
 Mitigation: keep that rewrite restricted to unguarded, binding-free `matches`.
@@ -250,6 +261,6 @@ Mitigation: update generator/shrinker utilities and constructor-based tests in t
 
 ## Rollout Notes
 1. Land this as a single parser/source-conversion/doc/test PR; no runtime or backend coordination is needed.
-2. Call out the ternary interaction in docs and parser tests so `x matches p if cond else other` remains stable.
+2. Call out the ternary interaction in docs and parser tests, especially that names from `p` are visible in `cond` but not in `other`.
 3. Existing unguarded `matches` code continues to work unchanged.
 4. The only intentional behavior change is that guarded `matches` with bound names become valid while those names remain guard-local.
