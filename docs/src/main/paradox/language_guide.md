@@ -518,7 +518,8 @@ short = ["foo", "bar"] matches ["foo", *_]
 ```
 `matches` can also take a guard:
 ```
-exists = [1, 2, 3] matches [*_, x, *_] if x matches 2
+is_even = x -> x.mod_Int(2).eq_Int(0)
+contains_even = [1, 2, 3] matches [*_, x, *_] if is_even(x)
 ```
 Any names bound by the pattern are only in scope inside that guard. They are
 not available after the `matches` expression itself.

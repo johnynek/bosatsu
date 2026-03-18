@@ -1676,9 +1676,12 @@ object Declaration {
         // matched
         val matched: P[NonBinding] = {
           val spaceBeforeIf: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
+          val guardIf: P[Unit] = (spaceBeforeIf *> P.string("if")).void
           val guardPrefix: P[Unit] = spaceBeforeIf *> Parser.keySpace("if")
           val guard: P0[Option[NonBinding]] =
-            (P.peek((spaceBeforeIf *> P.string("if")).backtrack) *>
+            // Peek for bare `if` so `x matches p if` stays committed to parsing
+            // a guard even when the guard expression is missing.
+            (P.peek(guardIf.backtrack) *>
               (guardPrefix *> ternaryElseP).map(Some(_))).orElse(P.pure(None))
 
           // x matches p [if guard]
@@ -1753,14 +1756,11 @@ object Declaration {
 
         val finalNonBind: P[NonBinding] =
           if (!pm.isComprehensionSource)
-            postOperators(matched).flatMap { nb =>
-              guardedMatchesElse(nb).flatMap { nb1 =>
-                ternary.?.map {
-                  case Some(fn) => fn(nb1)
-                  case None     => nb1
-                }
-              }
-            }
+            for {
+              nb <- postOperators(matched)
+              nb1 <- guardedMatchesElse(nb)
+              tern <- ternary.?
+            } yield tern.fold(nb1)(_(nb1))
           else postOperators(matched)
 
         if (!pm.isDecl) finalNonBind
