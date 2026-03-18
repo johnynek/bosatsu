@@ -20,5 +20,5 @@ source code:
 references: [`Bool`](Predef.html#type-bool)
 
 ```bosatsu
-def not(b: Bool) -> Bool
+def not(arg1: Bool) -> Bool
 ```

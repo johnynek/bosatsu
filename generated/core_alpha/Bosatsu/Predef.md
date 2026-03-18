@@ -29,7 +29,7 @@ github.base_url=
 [`Tuple29`](#type-tuple29), [`Tuple30`](#type-tuple30), [`Tuple31`](#type-tuple31),
 [`Tuple32`](#type-tuple32), [`Unit`](#type-unit)
 - Values: [`add`](#value-add), [`add_key`](#value-add-key), [`addf`](#value-addf),
-[`and_Int`](#value-and-int), [`build_List`](#value-build-list),
+[`and`](#value-and), [`and_Int`](#value-and-int), [`build_List`](#value-build-list),
 [`char_List_to_String`](#value-char-list-to-string), [`char_to_Int`](#value-char-to-int),
 [`char_to_String`](#value-char-to-string), [`clear_Dict`](#value-clear-dict),
 [`cmp_Float64`](#value-cmp-float64), [`cmp_Int`](#value-cmp-int), [`cmp_String`](#value-cmp-string),
@@ -40,15 +40,16 @@ github.base_url=
 [`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
 [`int_to_String`](#value-int-to-string), [`items`](#value-items),
 [`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
-[`mul`](#value-mul), [`mulf`](#value-mulf), [`not_Int`](#value-not-int), [`or_Int`](#value-or-int),
-[`partition_String`](#value-partition-string), [`popcount_Int`](#value-popcount-int),
-[`range`](#value-range), [`range_fold`](#value-range-fold), [`remove_key`](#value-remove-key),
-[`replicate_List`](#value-replicate-list), [`reverse`](#value-reverse),
-[`reverse_concat`](#value-reverse-concat), [`rpartition_String`](#value-rpartition-string),
-[`shift_left_Int`](#value-shift-left-int), [`shift_right_Int`](#value-shift-right-int),
-[`string_Order`](#value-string-order), [`string_to_Int`](#value-string-to-int), [`sub`](#value-sub),
-[`subf`](#value-subf), [`tail_or_empty_String`](#value-tail-or-empty-string),
-[`trace`](#value-trace), [`uncons_String`](#value-uncons-string), [`uncurry2`](#value-uncurry2),
+[`mul`](#value-mul), [`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int),
+[`or`](#value-or), [`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
+[`popcount_Int`](#value-popcount-int), [`range`](#value-range), [`range_fold`](#value-range-fold),
+[`remove_key`](#value-remove-key), [`replicate_List`](#value-replicate-list),
+[`reverse`](#value-reverse), [`reverse_concat`](#value-reverse-concat),
+[`rpartition_String`](#value-rpartition-string), [`shift_left_Int`](#value-shift-left-int),
+[`shift_right_Int`](#value-shift-right-int), [`string_Order`](#value-string-order),
+[`string_to_Int`](#value-string-to-int), [`sub`](#value-sub), [`subf`](#value-subf),
+[`tail_or_empty_String`](#value-tail-or-empty-string), [`trace`](#value-trace),
+[`uncons_String`](#value-uncons-string), [`uncurry2`](#value-uncurry2),
 [`uncurry3`](#value-uncurry3), [`xor_Int`](#value-xor-int)
 
 ## Types
@@ -2282,6 +2283,18 @@ references: [`Float64`](#type-float64)
 def addf(a: Float64, b: Float64) -> Float64
 ```
 
+<a id="value-and"></a>
+
+### `and`
+
+Boolean conjunction.
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def and(x: Bool, y: Bool) -> Bool
+```
+
 <a id="value-and-int"></a>
 
 ### `and_Int`
@@ -2633,6 +2646,18 @@ references: [`Float64`](#type-float64)
 def mulf(a: Float64, b: Float64) -> Float64
 ```
 
+<a id="value-not"></a>
+
+### `not`
+
+Boolean negation.
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def not(x: Bool) -> Bool
+```
+
 <a id="value-not-int"></a>
 
 ### `not_Int`
@@ -2643,6 +2668,18 @@ references: [`Int`](#type-int)
 
 ```bosatsu
 def not_Int(a: Int) -> Int
+```
+
+<a id="value-or"></a>
+
+### `or`
+
+Boolean disjunction.
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def or(x: Bool, y: Bool) -> Bool
 ```
 
 <a id="value-or-int"></a>
