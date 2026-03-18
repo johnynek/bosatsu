@@ -3066,6 +3066,33 @@ x = 1.0 + 2.0
     assert(pointers.distinct.length >= 2, message)
   }
 
+  test("constructor arity mismatch reports constructor-specific message") {
+    val source =
+      """package Repro
+        |
+        |struct Foo(a: Int, b: Int)
+        |
+        |x = Foo(1)
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(source))
+    val message =
+      errs.toList.collectFirst {
+        case te: PackageError.TypeErrorIn =>
+          te.message(sourceMap, Colorize.None)
+      }.getOrElse(fail(s"expected TypeErrorIn, found: ${errs.toList}"))
+
+    assert(
+      message.contains("Foo is a constructor that takes 2 arguments"),
+      message
+    )
+    assert(message.contains("this call passes one argument"), message)
+    assert(message.contains("x = Foo(1)"), message)
+    assert(!message.contains("does not match function with"), message)
+    val pointers = message.linesIterator.filter(_.contains("^")).toList
+    assertEquals(pointers.length, 1, message)
+  }
+
   test(
     "inferred imported types from direct dependencies do not require type imports"
   ) {
