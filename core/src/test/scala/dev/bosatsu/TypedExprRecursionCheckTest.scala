@@ -540,6 +540,38 @@ def ok(i: Int) -> Int:
 """)
   }
 
+  test("Int recursion lowers predef and/or/not aliases into SMT guard facts") {
+    allowed("""#
+both = and
+either = or
+neg = not
+
+def ok(i: Int) -> Int:
+  recur i:
+    case _ if both(
+      neg(cmp_Int(i, 0) matches LT | EQ),
+      either(cmp_Int(i, 2) matches GT, cmp_Int(i, 2) matches EQ)
+    ):
+      ok(i.sub(2))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers total string-pattern guard matches via final fallback") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if (
+      match txt:
+        case "${_}": cmp_Int(idx, 0) matches GT
+    ):
+      walk(idx.sub(1), txt)
+    case _:
+      idx
+""")
+  }
+
   test("loop Int recursion accepts equivalent add(-1) decrement") {
     allowed("""#
 def demo(n: Int) -> Int:
