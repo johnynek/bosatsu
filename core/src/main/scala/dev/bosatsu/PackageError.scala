@@ -1623,6 +1623,26 @@ object PackageError {
               Doc.char(',') + Doc.lineOrSpace,
               unreachableBranches.toList.map(doc.document(_))
             ))
+        case TotalityCheck.MatchesAlwaysTrue(matchExpr) =>
+          val scrutineeType = matchExpr.arg.getType
+          val showT = showTypes(pack, scrutineeType :: Nil)
+
+          given Document[Type] = Document.instance(showT)
+
+          matchExpr.tag match {
+            case Declaration.Matches(_, pattern) =>
+              Doc.text("`matches` pattern covers all values of type ") +
+                Document[Type].document(scrutineeType) +
+                Doc.text(", so this expression is always `True`:") +
+                Doc.hardLine +
+                Document[Pattern.Parsed].document(pattern) +
+                Doc.hardLine +
+                Doc.text(
+                  "use explicit equality if comparison was intended, or a more specific pattern."
+                )
+            case _ =>
+              Doc.text("`matches` expression is always `True`")
+          }
         case TotalityCheck.InvalidPattern(_, err) =>
           import TotalityCheck._
           err match {
