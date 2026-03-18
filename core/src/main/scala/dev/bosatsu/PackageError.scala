@@ -236,6 +236,22 @@ object PackageError {
       }
   }
 
+  def isPostponable(err: PackageError): Boolean =
+    err match {
+      case _: PackageError.UnusedImport           => true
+      case _: PackageError.UnusedLetError         => true
+      case _: PackageError.UnusedLets             => true
+      case _: PackageError.ShadowedBindingTypeError =>
+        true
+      case PackageError.TotalityCheckError(
+            _,
+            _: TotalityCheck.UnreachableBranches[?]
+          ) =>
+        true
+      case _ =>
+        false
+    }
+
   private val importWithRegionParser: P[
     (
         (Region, PackageName),

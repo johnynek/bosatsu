@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import cats.{Functor, Order, Applicative}
-import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
+import cats.data.{Ior, Validated, NonEmptyList}
 import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -595,6 +595,18 @@ object Package {
     }
   }
 
+  private def diagnosticsToIor[A](
+      errors: List[PackageError],
+      value: => A
+  ): Ior[NonEmptyList[PackageError], A] =
+    NonEmptyList.fromList(errors) match {
+      case None =>
+        Ior.right(value)
+      case Some(errs) =>
+        if (errs.forall(PackageError.isPostponable)) Ior.both(errs, value)
+        else Ior.left(errs)
+    }
+
   /** Infer the types but do not optimize/normalize the lets. `exports` can be
     * provided to run pre-inference bindable checks from the expression DAG.
     */
@@ -741,22 +753,24 @@ object Package {
 
           val exprDagBindableChecks: Ior[NonEmptyList[PackageError], Unit] =
             PackageCustoms
-              .checkExprDagBindables(p, imps, exports, lets, extDefs)
-              .leftMap(_.toNonEmptyList)
-              .toIor
+              .checkExprDagBindables(p, imps, exports, lets, extDefs) match {
+              case Validated.Valid(_)     =>
+                Ior.right(())
+              case Validated.Invalid(errs) =>
+                diagnosticsToIor(errs.toChain.toList, ())
+            }
 
-          val inferenceEither
-              : Either[
-                NonEmptyList[PackageError],
-                (
-                    TypeEnv[Kind.Arg],
-                    Program[
-                      TypeEnv[Kind.Arg],
-                      TypedExpr[Declaration],
-                      List[Statement]
-                    ]
-                )
-              ] = Infer
+          val inference: Ior[
+            NonEmptyList[PackageError],
+            (
+                TypeEnv[Kind.Arg],
+                Program[
+                  TypeEnv[Kind.Arg],
+                  TypedExpr[Declaration],
+                  List[Statement]
+                ]
+            )
+          ] = Infer
             // Blocked lets (with direct/transitive name errors) are excluded,
             // so missing-name diagnostics come from NameCheck exactly once.
             .typeCheckLets(p, nameCheckResult.typecheckLets, theseExternals)
@@ -777,82 +791,76 @@ object Package {
                 )
               )
             }
+            .toIor
             .flatMap { typedLets =>
               val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
 
-              val recursionCheck: ValidatedNel[PackageError, Unit] =
+              val recursionErrors: List[PackageError] =
                 TypedExprRecursionCheck
                 .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-                .leftMap(
-                  _.map(err => PackageError.RecursionError(p, err): PackageError)
-                    .toNonEmptyList
+                .fold(
+                  _.map(err => PackageError.RecursionError(p, err): PackageError).toList,
+                  _ => Nil
                 )
 
-              def shadowedBindingTypeCheck
-                  : ValidatedNel[PackageError, Unit] =
+              val shadowedBindingErrors: List[PackageError] =
                 ShadowedBindingTypeCheck
                   .checkLets(p, typedLets)
-                  .leftMap(
+                  .fold(
                     _.map(err =>
                       PackageError.ShadowedBindingTypeError(
                         p,
                         err,
                         localTypeNames
                       ): PackageError
-                    ).toNonEmptyList
+                    ).toList,
+                    _ => Nil
                   )
 
-              val totalityCheck: ValidatedNel[PackageError, Unit] =
+              val totalityErrors: List[PackageError] =
                 typedLets
                   .traverse_ { case (_, _, expr) =>
                     TotalityCheck(fullTypeEnv).checkExpr(expr)
                   }
-                  .leftMap { errs =>
-                    errs.map(PackageError.TotalityCheckError(p, _))
-                  }
+                  .fold(
+                    errs => errs.map(PackageError.TotalityCheckError(p, _)).toList,
+                    _ => Nil
+                  )
 
-              (recursionCheck, shadowedBindingTypeCheck, totalityCheck)
-                .mapN { (_, _, _) =>
-                  (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
-                }
-                .toEither
+              // Preserve lint diagnostics alongside hard failures, but only
+              // keep the typed program on the success path when every
+              // diagnostic is postponable.
+              diagnosticsToIor(
+                recursionErrors ::: shadowedBindingErrors ::: totalityErrors,
+                (
+                  fullTypeEnv,
+                  Program(typeEnv, typedLets, extDefs, stmts)
+                )
+              )
             }
 
-          val checkUnusedLets: ValidatedNel[PackageError, Unit] =
+          val checkUnusedLets: Ior[NonEmptyList[PackageError], Unit] =
             letsForChecks
               .traverse_ { case (_, _, expr) =>
                 UnusedLetCheck.check(expr)
-              }
-              .leftMap { errs =>
-                NonEmptyList.one(
-                  PackageError.UnusedLetError(p, errs.toNonEmptyList)
+              } match {
+              case Validated.Valid(_)     =>
+                Ior.right(())
+              case Validated.Invalid(errs) =>
+                diagnosticsToIor(
+                  List(
+                    PackageError.UnusedLetError(p, errs.toNonEmptyList)
+                  ),
+                  ()
                 )
-              }
-
-          /*
-           * Checks accumulate errors, but have no return value:
-           * warning: if we refactor this from validated, we need parMap on Ior to get this
-           * error accumulation
-           */
-          val inference: Ior[
-            NonEmptyList[PackageError],
-            (
-                TypeEnv[Kind.Arg],
-                Program[
-                  TypeEnv[Kind.Arg],
-                  TypedExpr[Declaration],
-                  List[Statement]
-                ]
-            )
-          ] =
-            Validated.fromEither(inferenceEither).toIor
+            }
 
           // Name errors force a Left result, but we still collect any
           // independent inference and import/export diagnostics in the same run.
           (
             exprDagBindableChecks,
             nameCheckErrors,
-            checkUnusedLets.toIor,
+            checkUnusedLets,
             inference
           ).parMapN { (_, _, _, res) => res }
         }

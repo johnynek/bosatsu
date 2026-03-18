@@ -27,8 +27,27 @@ object PackageCustoms {
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
     checkValuesHaveExportedTypes(pack.name, pack.exports) *>
-      noUselessBinds(pack) *>
+      noUselessBinds(pack, None) *>
       allImportsAreUsed(pack)
+
+  private def errorsOf[A](validated: ValidatedNec[PackageError, A]): List[PackageError] =
+    validated match {
+      case Validated.Valid(_)     => Nil
+      case Validated.Invalid(errs) =>
+        errs.toChain.toList
+    }
+
+  // Replay only the postponable customs on successful packages so cache hits
+  // surface the same lint diagnostics as cache misses.
+  def lintDiagnostics[A: HasRegion](
+      pack: Package.Typed[A],
+      sourceStatements: Option[List[Statement]] = None
+  ): List[PackageError] =
+    (
+      errorsOf(noUselessBinds(pack, sourceStatements)) :::
+        errorsOf(allImportsAreUsed(pack).void)
+    )
+      .filter(PackageError.isPostponable)
 
   /** Build the exports and check the customs, and then return the Typed package
     */
@@ -384,7 +403,8 @@ object PackageCustoms {
   }
 
   private def noUselessBinds[A: HasRegion](
-      pack: Package.Typed[A]
+      pack: Package.Typed[A],
+      sourceStatements: Option[List[Statement]]
   ): ValidatedNec[PackageError, Unit] = {
     type Node = Either[pack.exports.type, Bindable]
     implicit val ordNode: Ordering[Node] =
@@ -406,19 +426,24 @@ object PackageCustoms {
       }
 
     val exports: Node = Left(pack.exports)
-    val nonBindingUses: List[Node] =
-      pack.program._1.from match {
-        case stmts: List[?] =>
-          stmts.iterator
-            .collect {
-              case Statement.Bind(BindingStatement(bound, decl, _))
-                  if bound.names.isEmpty =>
-                decl.freeVars.iterator.map(Right(_))
-            }
-            .flatten
-            .toList
-        case _ => Nil
+    val sourceStmts: List[Statement] =
+      sourceStatements.getOrElse {
+        pack.program._1.from match {
+          case stmts: List[?] =>
+            stmts.collect { case stmt: Statement => stmt }
+          case _              =>
+            Nil
+        }
       }
+    val nonBindingUses: List[Node] =
+      sourceStmts.iterator
+        .collect {
+          case Statement.Bind(BindingStatement(bound, decl, _))
+              if bound.names.isEmpty =>
+            decl.freeVars.iterator.map(Right(_))
+        }
+        .flatten
+        .toList
 
     val roots: List[Node] =
       (exports ::
@@ -457,17 +482,12 @@ object PackageCustoms {
     }
 
     val statementRegions: Map[Bindable, Region] =
-      pack.program._1.from match {
-        case stmts: List[?] =>
-          stmts.iterator
-            .collect { case vs: Statement.ValueStatement =>
-              vs.names.iterator.map(_ -> vs.region)
-            }
-            .flatten
-            .toMap
-        case _ =>
-          Map.empty
-      }
+      sourceStmts.iterator
+        .collect { case vs: Statement.ValueStatement =>
+          vs.names.iterator.map(_ -> vs.region)
+        }
+        .flatten
+        .toMap
 
     NonEmptyList.fromList(unused) match {
       case None        => Validated.unit
