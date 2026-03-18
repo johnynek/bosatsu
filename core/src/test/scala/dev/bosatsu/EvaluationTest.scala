@@ -641,6 +641,24 @@ test = TestSuite("exists", [
       5
     )
 
+    runBosatsuTest(
+      List("""
+package GuardedMatches
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+test = TestSuite("guarded matches", [
+  Assertion(exists([2], x -> x matches 2), "guarded true"),
+  Assertion(exists([2], x -> x matches 4) matches False, "guarded false"),
+  Assertion([3] matches [*_, x, *_] if x matches 3, "direct true"),
+  Assertion(([3] matches [*_, x, *_] if x matches 9) matches False, "direct false"),
+  ])
+"""),
+      "GuardedMatches",
+      4
+    )
+
     evalTest(
       List("""
 package Foo

@@ -1656,7 +1656,7 @@ object PackageError {
           given Document[Type] = Document.instance(showT)
 
           matchExpr.tag match {
-            case Declaration.Matches(_, pattern) =>
+            case Declaration.Matches(_, pattern, None) =>
               Doc.text("`matches` pattern covers all values of type ") +
                 Document[Type].document(scrutineeType) +
                 Doc.text(", so this expression is always `True`:") +
