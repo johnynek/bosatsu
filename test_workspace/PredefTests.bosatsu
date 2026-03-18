@@ -22,14 +22,19 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
-def notb(a):
-  match a:
-    case True: False
-    case False: True
-def andb(a, b):
-  match a:
-    case True: b
-    case False: False
+notb = not
+andb = and
+
+test_bool = TestSuite("Bool tests", [
+  Assertion(and(True, True), "and(True, True)"),
+  Assertion(and(True, False) matches False, "and(True, False)"),
+  Assertion(and(False, True) matches False, "and(False, True)"),
+  Assertion(or(False, False) matches False, "or(False, False)"),
+  Assertion(or(False, True), "or(False, True)"),
+  Assertion(or(True, False), "or(True, False)"),
+  Assertion(not(True) matches False, "not(True)"),
+  Assertion(not(False), "not(False)"),
+])
 
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
@@ -519,6 +524,7 @@ test_float = TestSuite("Float tests", [
 ])
 
 test = TestSuite("Predef tests", [
+    test_bool,
     test_int,
     test_string,
     test_list_patterns,

@@ -1,6 +1,5 @@
 package Bosatsu/List
 
-from Bosatsu/Bool import not
 from Bosatsu/Num/Nat import Nat, Zero, Succ
 export any, eq_List, exists, get_List, head, for_all, set_List, size, sum, sort, uncons, zip
 
