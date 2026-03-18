@@ -465,6 +465,25 @@ object TypedExprNormalization {
   private val FalsePattern: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
 
+  private def ifThenElse[A](
+      cond: TypedExpr[A],
+      thenCase: TypedExpr[A],
+      elseCase: TypedExpr[A]
+  ): TypedExpr[A] =
+    (boolConst(thenCase), boolConst(elseCase)) match {
+      case (Some(true), Some(false)) =>
+        cond
+      case _                         =>
+        Match(
+          cond,
+          NonEmptyList.of(
+            Branch(TruePattern, None, thenCase),
+            Branch(FalsePattern, None, elseCase)
+          ),
+          cond.tag
+        )
+    }
+
   private def flattenBoolMatchArg[A, V](
       arg: TypedExpr[A],
       branches: NonEmptyList[Branch[A]],
@@ -1661,17 +1680,18 @@ object TypedExprNormalization {
         ): Option[NonEmptyList[Branch[A]]] =
           bs.toList match {
             case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
-                if totalityCheck.difference(p2, p1).isEmpty &&
-                  p1.names.isEmpty && p2.names.isEmpty =>
-              val ifExpr = Match(
-                g,
-                NonEmptyList(
-                  Branch(TruePattern, None, e1),
-                  Branch(FalsePattern, None, e2) :: Nil
-                ),
-                g.tag
-              )
-              Some(NonEmptyList.ofInitLast(init, Branch(p1, None, ifExpr)))
+                if p2.names.isEmpty &&
+                  p1.ambiguousBindings.intersect(g.freeVarsDup.toSet).isEmpty =>
+              val rewrittenHead = Branch(p1, None, ifThenElse(g, e1, e2))
+              val rewritten =
+                if (totalityCheck.difference(p2, p1).isEmpty)
+                  NonEmptyList.ofInitLast(init, rewrittenHead)
+                else
+                  NonEmptyList.ofInitLast(
+                    init :+ rewrittenHead,
+                    Branch(p2, None, e2)
+                  )
+              Some(rewritten)
             case _ =>
               None
           }
