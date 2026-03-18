@@ -196,7 +196,7 @@ def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
 # Count the number of items in a list.
 def length_List(lst: List[a]) -> Int:
   def loop(rem: List[a], acc: Int) -> Int:
-    recur rem:
+    loop rem:
       case []: acc
       case [_, *tail]: loop(tail, acc.add(1))
 
