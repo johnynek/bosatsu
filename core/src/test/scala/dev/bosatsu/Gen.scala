@@ -844,6 +844,16 @@ object Generators {
     ).map { case (a, p, guard) =>
       import Declaration._
 
+      @annotation.tailrec
+      def guardedMatchesNeedsParens(g: NonBinding): Boolean =
+        g match {
+          case Annotation(of, _) => guardedMatchesNeedsParens(of)
+          case Matches(_, _, Some(_)) =>
+            true
+          case _ =>
+            false
+        }
+
       val fixa = a match {
         // matches binds tighter than all these
         case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
@@ -851,7 +861,13 @@ object Generators {
           Parens(a)(using emptyRegion)
         case _ => a
       }
-      Matches(fixa, p, guard)(using emptyRegion)
+      val fixGuard = guard.map {
+        case g if guardedMatchesNeedsParens(g) =>
+          Parens(g)(using emptyRegion)
+        case g =>
+          g
+      }
+      Matches(fixa, p, fixGuard)(using emptyRegion)
     }
 
   val genLit: Gen[Lit] = {

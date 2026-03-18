@@ -170,11 +170,22 @@ sealed abstract class Declaration derives CanEqual {
             arg.toDoc
         }
         @annotation.tailrec
+        def syntacticGuardParens(g: NonBinding): Boolean =
+          g match {
+            case Annotation(of, _) => syntacticGuardParens(of)
+            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+              true
+            case _ =>
+              false
+          }
+
+        @annotation.tailrec
         def guardNeedsParens(g: NonBinding): Boolean =
           g match {
             case Annotation(of, _) => guardNeedsParens(of)
-            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) |
-                Ternary(_, _, _) | Matches(_, _, Some(_)) =>
+            case Matches(_, _, Some(_)) =>
+              true
+            case g if syntacticGuardParens(g) =>
               true
             case Parens(_) =>
               false
@@ -184,8 +195,14 @@ sealed abstract class Declaration derives CanEqual {
         val guardDoc =
           guard.fold(Doc.empty) { g =>
             val gd =
-              if (guardNeedsParens(g)) Parens(g)(using g.region).toDoc
-              else g.toDoc
+              g match {
+                case Parens(inner: NonBinding) if syntacticGuardParens(inner) =>
+                  Parens(g)(using g.region).toDoc
+                case _ if guardNeedsParens(g) =>
+                  Parens(g)(using g.region).toDoc
+                case _ =>
+                  g.toDoc
+              }
             Doc.text(" if ") + gd
           }
         da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p) + guardDoc
@@ -1695,13 +1712,31 @@ object Declaration {
           val spaceBeforeIf: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
           val guardIf: P[Unit] = (spaceBeforeIf *> P.string("if")).void
           val guardPrefix: P[Unit] = spaceBeforeIf *> Parser.keySpace("if")
+          def stripsSyntacticGuardParens(g: NonBinding): Boolean =
+            g match {
+              case Annotation(of, _) => stripsSyntacticGuardParens(of)
+              case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+                true
+              case _ =>
+                false
+            }
+
+          def stripSyntacticGuardParens(g: NonBinding): NonBinding =
+            g match {
+              case Parens(inner: NonBinding) if stripsSyntacticGuardParens(inner) =>
+                inner
+              case _ =>
+                g
+            }
           val guard: P0[Option[NonBinding]] =
             // Peek for bare `if` so `x matches p if` stays committed to parsing
             // a guard even when the guard expression is missing. We also parse
             // guards with nested guarded-`matches` `else` disabled so
             // unparenthesized nested forms cannot rely on precedence.
             (P.peek(guardIf.backtrack) *>
-              (guardPrefix *> ternaryCondP).map(Some(_))).orElse(P.pure(None))
+              (guardPrefix *> ternaryCondP).map(g =>
+                Some(stripSyntacticGuardParens(g))
+              )).orElse(P.pure(None))
 
           // x matches p [if guard]
           val matchesOp =

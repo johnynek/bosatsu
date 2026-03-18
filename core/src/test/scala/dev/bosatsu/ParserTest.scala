@@ -1718,12 +1718,10 @@ x"""
             Declaration.Var(Identifier.Name("x")),
             _,
             Some(
-              Declaration.Parens(
-                Declaration.Ternary(
-                  Declaration.Var(Identifier.Constructor("True")),
-                  Declaration.Matches(_, _, Some(_)),
-                  Declaration.Var(Identifier.Name("y"))
-                )
+              Declaration.Ternary(
+                Declaration.Var(Identifier.Constructor("True")),
+                Declaration.Matches(_, _, Some(_)),
+                Declaration.Var(Identifier.Name("y"))
               )
             )
           ) =>
