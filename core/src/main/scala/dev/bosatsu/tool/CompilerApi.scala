@@ -367,11 +367,28 @@ object CompilerApi {
       case (packageName, tn) if packageName == pack.name => tn
     }.toSet
 
+  private def isScalaJsUndefinedBehavior(err: Throwable): Boolean =
+    err.getClass.getName == "org.scalajs.linker.runtime.UndefinedBehaviorError"
+
+  private def bestEffortTypedReplay(
+      replay: => List[PackageError]
+  ): List[PackageError] =
+    try replay
+    catch {
+      case NonFatal(_) =>
+        Nil
+      case err: VirtualMachineError if isScalaJsUndefinedBehavior(err) =>
+        // Cached Scala.js typed packages can lose source declaration tags that
+        // these replay-only lint passes inspect. Treat that as a dropped replay
+        // diagnostic rather than a hard command failure.
+        Nil
+    }
+
   private def replayTypedLintDiagnostics(
       pack: Package.Inferred
   ): List[PackageError] = {
     val shadowedBindings =
-      try {
+      bestEffortTypedReplay {
         ShadowedBindingTypeCheck
           .checkLets(pack.name, pack.lets) match {
           case Validated.Valid(_)     =>
@@ -386,13 +403,10 @@ object CompilerApi {
               ): PackageError
             }
         }
-      } catch {
-        case NonFatal(_) =>
-          Nil
       }
 
     val totalityLint =
-      try {
+      bestEffortTypedReplay {
         pack.lets.traverse_ { case (_, _, expr) =>
           TotalityCheck(pack.types).checkExpr(expr)
         } match {
@@ -405,13 +419,6 @@ object CompilerApi {
               .toList
               .filter(PackageError.isPostponable)
         }
-      } catch {
-        // Optimized packages can carry normalized declaration tags that are no
-        // longer accepted by TotalityCheck's source-oriented validator. In that
-        // case we keep the rest of the replayed lint set and skip totality
-        // replay for this package.
-        case NonFatal(_) =>
-          Nil
       }
 
     (shadowedBindings ::: totalityLint)
