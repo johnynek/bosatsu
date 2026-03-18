@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-47783ad2*
+0.0.0+1-3aeffa88*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-47783ad2*
+0.0.0+1-3aeffa88*
 </div>
 </div>
 <div class="nav-toc">
@@ -445,7 +445,15 @@ result4 = match [False, True, True]:
 
 short = [&quot;foo&quot;, &quot;bar&quot;] matches [&quot;foo&quot;, *_]
 </code></pre>
-<p>The caveat is that you cannot have any bindings in the pattern when used as a matches expression.</p>
+<p><code>matches</code> can also take a guard:</p>
+<pre><code>is_even = x -&gt; x.mod_Int(2).eq_Int(0)
+contains_even = [1, 2, 3] matches [*_, x, *_] if is_even(x)
+</code></pre>
+<p>Any names bound by the pattern are only in scope inside that guard. They are not available after the <code>matches</code> expression itself.</p>
+<p>This also works with ternary syntax without extra parentheses:</p>
+<pre><code>result = xs matches [*_, x, *_] if pred(x) else fallback
+</code></pre>
+<p>This is equivalent to <code>True if (xs matches [*_, x, *_] if pred(x)) else fallback</code>, so names from the pattern are available in <code>pred(x)</code> but not in <code>fallback</code>. If the guard itself is another guarded <code>matches</code>, add parentheses around the inner expression to make the grouping explicit.</p>
 <p>Patterns can bind the matched value with <code>as</code>:</p>
 <pre><code>case Some(v) as whole: whole
 case [*_, 4 as four]: four
@@ -918,7 +926,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-47783ad2-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aeffa88-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
