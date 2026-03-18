@@ -1316,6 +1316,171 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites terminal guarded bool branches for deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, suffixPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewritten trailing bool match, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops redundant terminal False fallback after rewriting deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val emptyPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(Nil)
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(emptyPat, None, bool(false)),
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(suffixPat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.toList.count(_.pattern == suffixPat), 1)
+        assertEquals(branches1.last.pattern, suffixPat)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected redundant False fallback to be removed, got: $other")
+    }
+  }
+
+  test(
+    "normalization keeps terminal guarded bool branches when search bindings are ambiguous"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val ambiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(ambiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    val normalized =
+      TypedExprNormalization.normalize(guardedTail).getOrElse(guardedTail)
+
+    normalized match {
+      case TypedExpr.Match(arg1, branches1, _) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, ambiguousPat)
+        assertEquals(branches1.head.guard, Some(guardExpr))
+        assertEquals(branches1.head.expr, bool(true))
+      case other =>
+        fail(s"expected guarded ambiguous search match to stay ordered, got: $other")
+    }
+  }
+
+  test(
+    "normalization rewrites terminal guarded bool branches when the guard ignores ambiguous bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val partiallyAmbiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(yName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val expectedPat = partiallyAmbiguousPat.filterVars(Set(xName))
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(partiallyAmbiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, expectedPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewrite when guard ignores ambiguous bindings, got: $other")
+    }
+  }
+
+  test(
     "normalization flattens bool selector matches with a nameless top fallback pattern"
   ) {
     val x = varTE("x", intTpe)
