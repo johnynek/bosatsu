@@ -1148,6 +1148,73 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites terminal guarded bool branches to branch expressions"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops terminal False fallback when its pattern is a subset"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, None, bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(falsePat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, bool(true))
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected subset-pruned terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
     "normalization rewrites leading wildcard guards to a bool selector match"
   ) {
     val x = varTE("x", intTpe)
