@@ -1780,19 +1780,35 @@ object Declaration {
         }
 
         // here is if/ternary operator
-        // it fully recurses on the else branch, which will parse any repeated ternaryies
-        // so no need to repeat here for correct precedence
-        val ternary: P[NonBinding => NonBinding] =
-          (((spaces *> P.string(
+        // we still recurse in subexpressions so parenthesized ternaries are allowed,
+        // but reject bare composed ternaries to avoid ambiguous chaining.
+        val ternary: P[NonBinding => NonBinding] = {
+          val ifElsePart = (((spaces *> P.string(
             "if"
           ) *> spaces).backtrack *> ternaryCondP) ~ (spaces *> keySpace(
             "else"
           ) *> ternaryElseP))
-            .map {
-              case (cond, falseCase) => { (trueCase: NonBinding) =>
+
+          val checked = ifElsePart.map { case (cond, falseCase) =>
+            def isBareTernary(nb: NonBinding): Boolean =
+              nb match {
+                case Ternary(_, _, _) => true
+                case _                => false
+              }
+
+            if (isBareTernary(cond) || isBareTernary(falseCase))
+              Left(())
+            else
+              Right { (trueCase: NonBinding) =>
                 Ternary(trueCase, cond, falseCase)
               }
             }
+          val repair: P[Unit => (NonBinding => NonBinding)] =
+            P.failWith("composed ternary expressions require parentheses")
+
+          // Using select is more efficient than flatMap
+          P.select(checked)(repair)
+        }
 
         val guardedMatchesElse: NonBinding => P0[NonBinding] = {
           case m @ Matches(_, _, Some(_)) if pm.allowGuardedMatchesElse =>
