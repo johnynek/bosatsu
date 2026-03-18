@@ -88,9 +88,6 @@ def bool_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> Bool): Reco
 
 ##################################################
 
-def and(x, y):
-  y if x else False
-
 operator && = and
 
 def equal_List(is_equal, l1, l2):

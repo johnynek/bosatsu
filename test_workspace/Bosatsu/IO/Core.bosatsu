@@ -131,17 +131,9 @@ def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
   to_nanos
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
-def orb(left: Bool, right: Bool) -> Bool:
-  if left:
-    True
-  else:
-    right
+orb = or
 
 def starts_with_slash(s: String) -> Bool:
   s matches "/${_}" | "/"
