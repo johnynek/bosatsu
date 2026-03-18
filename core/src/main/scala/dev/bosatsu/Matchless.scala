@@ -4244,22 +4244,7 @@ object Matchless {
     def isNonOrthogonal(
         p: Pattern[(PackageName, Constructor), Type]
     ): Boolean =
-      p match {
-        case Pattern.Annotation(p1, _) => isNonOrthogonal(p1)
-        case Pattern.Named(_, p1)      => isNonOrthogonal(p1)
-        case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
-          false
-        case sp @ Pattern.StrPat(_)  => sp.simplify.isEmpty
-        case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
-            case Right(p1) => isNonOrthogonal(p1)
-            case Left(_)   => true
-          }
-        case Pattern.PositionalStruct(_, ps) =>
-          ps.exists(isNonOrthogonal)
-        case Pattern.Union(h, t) =>
-          isNonOrthogonal(h) || t.exists(isNonOrthogonal)
-      }
+      p.isSearchPattern
 
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
