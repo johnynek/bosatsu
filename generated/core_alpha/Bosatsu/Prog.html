@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-aa36d190*
+0.0.0+1-34309e69*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-aa36d190*
+0.0.0+1-34309e69*
 </div>
 </div>
 <div class="nav-toc">
@@ -124,8 +124,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>source code: - <a href="https://github.com/johnynek/bosatsu/blob/main/test_workspace/Prog.bosatsu"><code>test_workspace/Prog.bosatsu</code></a></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
-  <li>Types: <a href="#type-main"><code>Main</code></a>, <a href="#type-prog"><code>Prog</code></a>, <a href="#type-progtest"><code>ProgTest</code></a></li>
-  <li>Values: <a href="#value-await"><code>await</code></a>, <a href="#value-ignore-err"><code>ignore_err</code></a>, <a href="#value-map"><code>map</code></a>, <a href="#value-map-err"><code>map_err</code></a>, <a href="#value-observe"><code>observe</code></a>, <a href="#value-pure"><code>pure</code></a>, <a href="#value-raise-error"><code>raise_error</code></a>, <a href="#value-recover"><code>recover</code></a>, <a href="#value-recursive"><code>recursive</code></a>, <a href="#value-unit"><code>unit</code></a></li>
+  <li>Types: <a href="#type-main"><code>Main</code></a>, <a href="#type-prog"><code>Prog</code></a>, <a href="#type-progtest"><code>ProgTest</code></a>, <a href="#type-var"><code>Var</code></a></li>
+  <li>Values: <a href="#value-await"><code>await</code></a>, <a href="#value-get"><code>get</code></a>, <a href="#value-get-and-update"><code>get_and_update</code></a>, <a href="#value-ignore-err"><code>ignore_err</code></a>, <a href="#value-map"><code>map</code></a>, <a href="#value-map-err"><code>map_err</code></a>, <a href="#value-modify"><code>modify</code></a>, <a href="#value-new-var"><code>new_var</code></a>, <a href="#value-observe"><code>observe</code></a>, <a href="#value-pure"><code>pure</code></a>, <a href="#value-raise-error"><code>raise_error</code></a>, <a href="#value-recover"><code>recover</code></a>, <a href="#value-recursive"><code>recursive</code></a>, <a href="#value-set"><code>set</code></a>, <a href="#value-swap"><code>swap</code></a>, <a href="#value-unit"><code>unit</code></a>, <a href="#value-update"><code>update</code></a>, <a href="#value-update-and-get"><code>update_and_get</code></a></li>
 </ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
 <a id="type-main"></a>
@@ -148,11 +148,28 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li><code>ProgTest(test_fn: List[String] -&gt; forall err: *. Prog[err, Test])</code></li>
 </ul>
+<a id="type-var"></a>
+<h3><a href="#var-a-" name="var-a-" class="anchor"><span class="anchor-link"></span></a><code>Var[a]</code></h3>
+<p>Var is an effectful mutable cell. The type parameter is invariant.</p>
+<pre class="prettyprint"><code class="language-bosatsu">type Var[a: 👻*]
+</code></pre>
 <h2><a href="#values" name="values" class="anchor"><span class="anchor-link"></span></a>Values</h2>
 <a id="value-await"></a>
 <h3><a href="#await" name="await" class="anchor"><span class="anchor-link"></span></a><code>await</code></h3>
 <p>references: <a href="#type-prog"><code>Prog</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def await[a, b, c](p: Prog[a, b], fn: b -&gt; Prog[a, c]) -&gt; Prog[a, c]
+</code></pre>
+<a id="value-get"></a>
+<h3><a href="#get" name="get" class="anchor"><span class="anchor-link"></span></a><code>get</code></h3>
+<p>Read the current value in the cell.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def get[a](v: Var[a]) -&gt; forall e: *. Prog[e, a]
+</code></pre>
+<a id="value-get-and-update"></a>
+<h3><a href="#get-and-update" name="get-and-update" class="anchor"><span class="anchor-link"></span></a><code>get_and_update</code></h3>
+<p>Update a cell and return the previous value.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_and_update[a](v: Var[a], fn: a -&gt; a) -&gt; forall b: *. Prog[b, a]
 </code></pre>
 <a id="value-ignore-err"></a>
 <h3><a href="#ignore-err" name="ignore-err" class="anchor"><span class="anchor-link"></span></a><code>ignore_err</code></h3>
@@ -168,6 +185,18 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#map-err" name="map-err" class="anchor"><span class="anchor-link"></span></a><code>map_err</code></h3>
 <p>references: <a href="#type-prog"><code>Prog</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_err[a, b, c](prog: Prog[a, b], fn: a -&gt; c) -&gt; Prog[c, b]
+</code></pre>
+<a id="value-modify"></a>
+<h3><a href="#modify" name="modify" class="anchor"><span class="anchor-link"></span></a><code>modify</code></h3>
+<p>Update a cell and discard the projected result.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="Predef.html#type-unit"><code>Unit</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def modify[a](v: Var[a], fn: a -&gt; a) -&gt; forall a: *. Prog[a, ()]
+</code></pre>
+<a id="value-new-var"></a>
+<h3><a href="#new-var" name="new-var" class="anchor"><span class="anchor-link"></span></a><code>new_var</code></h3>
+<p>Allocate a fresh cell when the Prog is executed.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def new_var[a](a: a) -&gt; forall e: *. Prog[e, Var[a]]
 </code></pre>
 <a id="value-observe"></a>
 <h3><a href="#observe" name="observe" class="anchor"><span class="anchor-link"></span></a><code>observe</code></h3>
@@ -194,10 +223,34 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>references: <a href="#type-prog"><code>Prog</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def recursive[a, b, c](fn: (a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]) -&gt; a -&gt; Prog[b, c]
 </code></pre>
+<a id="value-set"></a>
+<h3><a href="#set" name="set" class="anchor"><span class="anchor-link"></span></a><code>set</code></h3>
+<p>Store a new value in the cell and return ().</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="Predef.html#type-unit"><code>Unit</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def set[a](v: Var[a], value: a) -&gt; forall e: *. Prog[e, ()]
+</code></pre>
+<a id="value-swap"></a>
+<h3><a href="#swap" name="swap" class="anchor"><span class="anchor-link"></span></a><code>swap</code></h3>
+<p>Store a new value in the cell and return the previous value.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def swap[a](v: Var[a], new_value: a) -&gt; forall e: *. Prog[e, a]
+</code></pre>
 <a id="value-unit"></a>
 <h3><a href="#unit" name="unit" class="anchor"><span class="anchor-link"></span></a><code>unit</code></h3>
 <p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="Predef.html#type-unit"><code>Unit</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">unit: forall a: *. Prog[a, ()]
+</code></pre>
+<a id="value-update"></a>
+<h3><a href="#update" name="update" class="anchor"><span class="anchor-link"></span></a><code>update</code></h3>
+<p>Atomically transform the current value. On some runtimes fn may be retried.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="Predef.html#type-tuple2"><code>Tuple2</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def update[a, b](v: Var[a], fn: a -&gt; (a, b)) -&gt; forall e: *. Prog[e, b]
+</code></pre>
+<a id="value-update-and-get"></a>
+<h3><a href="#update-and-get" name="update-and-get" class="anchor"><span class="anchor-link"></span></a><code>update_and_get</code></h3>
+<p>Update a cell and return the new value.</p>
+<p>references: <a href="#type-prog"><code>Prog</code></a>, <a href="#type-var"><code>Var</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def update_and_get[a](v: Var[a], fn: a -&gt; a) -&gt; forall b: *. Prog[b, a]
 </code></pre>
 <div class="nav-next">
 <p><strong>Next:</strong> <a href="../../../generated/core_alpha/Bosatsu/Rand.html"><code>Bosatsu/Rand</code></a></p>
@@ -276,7 +329,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-aa36d190-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-34309e69-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
