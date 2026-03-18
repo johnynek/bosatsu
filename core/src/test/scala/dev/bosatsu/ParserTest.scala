@@ -1682,6 +1682,56 @@ x"""
         fail(s"expected guarded matches ternary, found: $other")
     }
 
+    roundTrip(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg) else y"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg else y)"
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg) else y"
+    ) match {
+      case Declaration.Ternary(
+            Declaration.Var(Identifier.Constructor("True")),
+            Declaration.Matches(
+              Declaration.Var(Identifier.Name("x")),
+              _,
+              Some(Declaration.Parens(Declaration.Matches(_, _, Some(_))))
+            ),
+            Declaration.Var(Identifier.Name("y"))
+          ) =>
+        ()
+      case other =>
+        fail(s"expected parenthesized outer ternary grouping, found: $other")
+    }
+
+    unsafeParse(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg else y)"
+    ) match {
+      case Declaration.Matches(
+            Declaration.Var(Identifier.Name("x")),
+            _,
+            Some(
+              Declaration.Parens(
+                Declaration.Ternary(
+                  Declaration.Var(Identifier.Constructor("True")),
+                  Declaration.Matches(_, _, Some(_)),
+                  Declaration.Var(Identifier.Name("y"))
+                )
+              )
+            )
+          ) =>
+        ()
+      case other =>
+        fail(s"expected parenthesized inner ternary grouping, found: $other")
+    }
+
     val matchesNoSpaceBeforeIf = "xs matches [*_, x, *_]if pred(x)"
     assert(
       Declaration.parser("").parseAll(matchesNoSpaceBeforeIf).isLeft,

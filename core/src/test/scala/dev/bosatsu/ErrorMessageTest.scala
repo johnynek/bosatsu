@@ -274,6 +274,29 @@ main = int_to_String(42) matches str
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
 
+  test("nested guarded matches in a guard require parentheses") {
+    evalFail(List("""
+package GuardAmbiguity
+
+main = [0] matches [1] if [0] matches [1] if True else True
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "`matches` guards cannot be another guarded `matches` without parentheses:"
+        ),
+        msg
+      )
+      assert(
+        msg.contains(
+          "add parentheses around the inner guarded `matches` to choose the grouping explicitly."
+        ),
+        msg
+      )
+      ()
+    }
+  }
+
   test("typed-irrefutable matches get an always-true diagnostic") {
     def assertMatchesAlwaysTrueMessage(
         source: String,

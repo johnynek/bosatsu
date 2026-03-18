@@ -680,6 +680,26 @@ test = TestSuite("guarded matches coherence", [
       7
     )
 
+    runBosatsuTest(
+      List("""
+package GuardedMatchesParens
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+p1 = [0] matches [1] if ([0] matches [1] if True) else True
+p2 = [0] matches [1] if ([0] matches [1] if True else True)
+
+test = TestSuite("guarded matches parens", [
+  Assertion(p1, "outer else grouping"),
+  Assertion(p2 matches False, "inner else grouping"),
+  Assertion(not(eq_Bool(p1, p2)), "explicit parens pick different meanings"),
+  ])
+"""),
+      "GuardedMatchesParens",
+      3
+    )
+
     evalTest(
       List("""
 package Foo

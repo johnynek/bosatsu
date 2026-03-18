@@ -1680,9 +1680,11 @@ object Declaration {
           val guardPrefix: P[Unit] = spaceBeforeIf *> Parser.keySpace("if")
           val guard: P0[Option[NonBinding]] =
             // Peek for bare `if` so `x matches p if` stays committed to parsing
-            // a guard even when the guard expression is missing.
+            // a guard even when the guard expression is missing. We also parse
+            // guards with nested guarded-`matches` `else` disabled so
+            // unparenthesized nested forms cannot rely on precedence.
             (P.peek(guardIf.backtrack) *>
-              (guardPrefix *> ternaryElseP).map(Some(_))).orElse(P.pure(None))
+              (guardPrefix *> ternaryCondP).map(Some(_))).orElse(P.pure(None))
 
           // x matches p [if guard]
           val matchesOp =

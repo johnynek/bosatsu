@@ -89,6 +89,17 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     )
 
+  @annotation.tailrec
+  private def isUnparenthesizedGuardedMatches(
+      decl: Declaration.NonBinding
+  ): Boolean =
+    decl match {
+      case Annotation(of, _)      => isUnparenthesizedGuardedMatches(of)
+      case Matches(_, _, Some(_)) => true
+      case Parens(_)              => false
+      case _                      => false
+    }
+
   /*
    * This ignores the name completely and just returns the lambda expression here
    */
@@ -540,6 +551,15 @@ final class SourceConverter(
         //   _: False
         val hasPatternBindings = p.names.nonEmpty
         val isDefinitelyTotal = p.definitelyTotal
+        val guardShapeCheck =
+          guard match {
+            case Some(g) if isUnparenthesizedGuardedMatches(g) =>
+              SourceConverter.failure(
+                SourceConverter.NestedGuardedMatchesInGuard(g, g.region)
+              )
+            case _ =>
+              SourceConverter.successUnit
+          }
         val True: Expr[Declaration] =
           Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
         val False: Expr[Declaration] = Expr.Global(
@@ -585,22 +605,25 @@ final class SourceConverter(
             )
           } else withDiagnostics
 
-        (loop(a), checkedPattern1, guardExpr).mapN { (a, p, guard1) =>
-          val tag =
-            if (guard.nonEmpty && guard1.isEmpty) Matches(m.arg, m.pattern, None)(using m.region)
-            else m
-          val branches =
-            if (isDefinitelyTotal && guard1.isEmpty) {
-              NonEmptyList.one(
-                Expr.Branch(Pattern.WildCard, None, True)(using m.region)
-              )
-            } else {
-              NonEmptyList(
-                Expr.Branch(p, guard1, True)(using m.region),
-                Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
-              )
-            }
-          Expr.Match(a, branches, tag)
+        guardShapeCheck.flatMap { _ =>
+          (loop(a), checkedPattern1, guardExpr).mapN { (a, p, guard1) =>
+            val tag =
+              if (guard.nonEmpty && guard1.isEmpty)
+                Matches(m.arg, m.pattern, None)(using m.region)
+              else m
+            val branches =
+              if (isDefinitelyTotal && guard1.isEmpty) {
+                NonEmptyList.one(
+                  Expr.Branch(Pattern.WildCard, None, True)(using m.region)
+                )
+              } else {
+                NonEmptyList(
+                  Expr.Branch(p, guard1, True)(using m.region),
+                  Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
+                )
+              }
+            Expr.Match(a, branches, tag)
+          }
         }
       case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
       case s @ StringDecl(parts) =>
@@ -2741,6 +2764,19 @@ object SourceConverter {
         .text(
           "add an `if` guard to use the bindings there, or use explicit equality if comparison was intended."
         ))
+        .render(80)
+  }
+
+  final case class NestedGuardedMatchesInGuard(
+      guard: Declaration.NonBinding,
+      region: Region
+  ) extends Error {
+    def message =
+      (Doc.text(
+        "`matches` guards cannot be another guarded `matches` without parentheses:"
+      ) + Doc.line + guard.toDoc + Doc.line + Doc.text(
+        "add parentheses around the inner guarded `matches` to choose the grouping explicitly."
+      ))
         .render(80)
   }
 

@@ -530,6 +530,8 @@ result = xs matches [*_, x, *_] if pred(x) else fallback
 ```
 This is equivalent to `True if (xs matches [*_, x, *_] if pred(x)) else fallback`,
 so names from the pattern are available in `pred(x)` but not in `fallback`.
+If the guard itself is another guarded `matches`, add parentheses around the
+inner expression to make the grouping explicit.
 
 Patterns can bind the matched value with `as`:
 ```
