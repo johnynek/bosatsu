@@ -169,8 +169,25 @@ sealed abstract class Declaration derives CanEqual {
           case _ =>
             arg.toDoc
         }
+        @annotation.tailrec
+        def guardNeedsParens(g: NonBinding): Boolean =
+          g match {
+            case Annotation(of, _) => guardNeedsParens(of)
+            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) |
+                Ternary(_, _, _) | Matches(_, _, Some(_)) =>
+              true
+            case Parens(_) =>
+              false
+            case _ =>
+              false
+          }
         val guardDoc =
-          guard.fold(Doc.empty)(g => Doc.text(" if ") + g.toDoc)
+          guard.fold(Doc.empty) { g =>
+            val gd =
+              if (guardNeedsParens(g)) Parens(g)(using g.region).toDoc
+              else g.toDoc
+            Doc.text(" if ") + gd
+          }
         da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p) + guardDoc
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
