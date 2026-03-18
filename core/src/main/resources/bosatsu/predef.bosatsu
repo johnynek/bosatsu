@@ -52,6 +52,8 @@ export (
   char_to_Int,
   char_List_to_String,
   char_to_String,
+  cmp_Bool,
+  cmp_Comparison,
   cmp_Int,
   cmp_Float64,
   concat,
@@ -60,7 +62,10 @@ export (
   divf,
   clear_Dict,
   empty_Dict,
+  eq_Bool,
+  eq_Comparison,
   eq_Int,
+  eq_Float64,
   flat_map_List,
   foldl_List,
   foldr_List,
@@ -94,6 +99,7 @@ export (
   sub,
   subf,
   cmp_String,
+  eq_String,
   string_Order,
   mul,
   mulf,
@@ -138,6 +144,15 @@ struct Tuple32[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j:
 
 enum Bool:
   False, True
+
+def cmp_Bool(left: Bool, right: Bool) -> Comparison:
+  match (left, right):
+    case (False, True): LT
+    case (True, False): GT
+    case _: EQ
+
+def eq_Bool(left: Bool, right: Bool) -> Bool:
+  cmp_Bool(left, right) matches EQ
 
 #############
 # Support for built-in lists
@@ -209,6 +224,17 @@ def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
 enum Comparison:
     LT, EQ, GT
 
+def cmp_Comparison(left: Comparison, right: Comparison) -> Comparison:
+  match (left, right):
+    case (LT, LT) | (EQ, EQ) | (GT, GT): EQ
+    case (LT, _): LT
+    case (EQ, LT): GT
+    case (EQ, GT): LT
+    case (GT, _): GT
+
+def eq_Comparison(left: Comparison, right: Comparison) -> Bool:
+  cmp_Comparison(left, right) matches EQ
+
 struct Order(to_Fn: (a, a) -> Comparison)
 
 enum Option:
@@ -260,6 +286,9 @@ external def mulf(a: Float64, b: Float64) -> Float64
 external def divf(a: Float64, b: Float64) -> Float64
 # Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
+
+def eq_Float64(a: Float64, b: Float64) -> Bool:
+  cmp_Float64(a, b) matches EQ
 
 # Loop until the returned Int is <= 0 or >= intValue.
 def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
@@ -327,6 +356,10 @@ external def char_List_to_String(chars: List[Char]) -> String
 external def int_to_Char(code_point: Int) -> Option[Char]
 # Total string comparison.
 external def cmp_String(str0: String, str1: String) -> Comparison
+
+def eq_String(str0: String, str1: String) -> Bool:
+  cmp_String(str0, str1) matches EQ
+
 # Ordering instance for strings.
 string_Order = Order(cmp_String)
 # Concatenate a list of strings.

@@ -93,15 +93,6 @@ def and(x, y):
 
 operator && = and
 
-def equals(compare, x, y):
-  compare(x,y) matches EQ
-
-def cmp_Bool(x, y):
-  match (x, y):
-    case (True, False): GT
-    case (False, True): LT
-    case _: EQ
-
 def equal_List(is_equal, l1, l2):
   recur l1:
     case []: match l2:
@@ -113,9 +104,9 @@ def equal_List(is_equal, l1, l2):
 
 def equal_RowEntry(re1, re2):
   match (re1, re2):
-    case (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
-    case (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
-    case (REString(RecordValue(x1)), REString(RecordValue(x2))): cmp_String.equals(x1, x2)
+    case (REBool(RecordValue(x1)), REBool(RecordValue(x2))): eq_Bool(x1, x2)
+    case (REInt(RecordValue(x1)), REInt(RecordValue(x2))): eq_Int(x1, x2)
+    case (REString(RecordValue(x1)), REString(RecordValue(x2))): eq_String(x1, x2)
     case _: False
 
 equal_rows = (a, b) -> equal_List(equal_RowEntry, a, b)

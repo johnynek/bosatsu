@@ -6,7 +6,8 @@ from Bosatsu/Predef import (
   subf as subf_predef,
   mulf as mulf_predef,
   divf as divf_predef,
-  cmp_Float64 as cmp_Float64_predef
+  cmp_Float64 as cmp_Float64_predef,
+  eq_Float64 as eq_Float64_predef,
 )
 
 export (
@@ -106,7 +107,7 @@ def operator *(a, b): mulf(a, b)
 def operator /(a, b): divf(a, b)
 
 def eq_Float64(a: Float64, b: Float64) -> Bool:
-  cmp_Float64(a, b) matches EQ
+  eq_Float64_predef(a, b)
 
 def is_finite(x: Float64) -> Bool:
   if is_nan(x):
