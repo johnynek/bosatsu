@@ -516,8 +516,22 @@ long = match ["foo", "bar"]:
 
 short = ["foo", "bar"] matches ["foo", *_]
 ```
-The caveat is that you cannot have any bindings in the pattern when used
-as a matches expression.
+`matches` can also take a guard:
+```
+is_even = x -> x.mod_Int(2).eq_Int(0)
+contains_even = [1, 2, 3] matches [*_, x, *_] if is_even(x)
+```
+Any names bound by the pattern are only in scope inside that guard. They are
+not available after the `matches` expression itself.
+
+This also works with ternary syntax without extra parentheses:
+```
+result = xs matches [*_, x, *_] if pred(x) else fallback
+```
+This is equivalent to `True if (xs matches [*_, x, *_] if pred(x)) else fallback`,
+so names from the pattern are available in `pred(x)` but not in `fallback`.
+If the guard itself is another guarded `matches`, add parentheses around the
+inner expression to make the grouping explicit.
 
 Patterns can bind the matched value with `as`:
 ```

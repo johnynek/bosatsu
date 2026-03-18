@@ -109,6 +109,8 @@ sealed abstract class Declaration derives CanEqual {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail
           .map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
+      case Ternary(Var(Identifier.Constructor("True")), m @ Matches(_, _, Some(_)), falseCase) =>
+        m.toDoc + Doc.text(" else ") + falseCase.toDoc
       case Ternary(trueCase, cond, falseCase) =>
         Doc.intercalate(
           Doc.space,
@@ -158,16 +160,52 @@ sealed abstract class Declaration derives CanEqual {
         // TODO this isn't quite right
         kindDoc + typeName.toDoc + Doc.char(':') + args.sepDoc +
           piPat.document(args)
-      case m @ Matches(arg, p) =>
+      case m @ Matches(arg, p, guard) =>
         val da = arg match {
           // matches binds tighter than all these
           case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) |
-              Match(_, _, _) =>
+              Match(_, _, _) | Matches(_, _, Some(_)) | Ternary(_, _, _) =>
             Parens(arg)(using m.region).toDoc
           case _ =>
             arg.toDoc
         }
-        da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p)
+        @annotation.tailrec
+        def syntacticGuardParens(g: NonBinding): Boolean =
+          g match {
+            case Annotation(of, _) => syntacticGuardParens(of)
+            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+              true
+            case _ =>
+              false
+          }
+
+        @annotation.tailrec
+        def guardNeedsParens(g: NonBinding): Boolean =
+          g match {
+            case Annotation(of, _) => guardNeedsParens(of)
+            case Matches(_, _, Some(_)) =>
+              true
+            case g if syntacticGuardParens(g) =>
+              true
+            case Parens(_) =>
+              false
+            case _ =>
+              false
+          }
+        val guardDoc =
+          guard.fold(Doc.empty) { g =>
+            val gd =
+              g match {
+                case Parens(inner: NonBinding) if syntacticGuardParens(inner) =>
+                  Parens(g)(using g.region).toDoc
+                case _ if guardNeedsParens(g) =>
+                  Parens(g)(using g.region).toDoc
+                case _ =>
+                  g.toDoc
+              }
+            Doc.text(" if ") + gd
+          }
+        da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p) + guardDoc
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case TupleCons(h :: Nil) =>
@@ -284,8 +322,10 @@ sealed abstract class Declaration derives CanEqual {
             val acc1 = guard.fold(acc0)(loop(_, bound1, acc0))
             loop(res.get, bound1, acc1)
           }
-        case Matches(a, _) =>
-          loop(a, bound, acc)
+        case Matches(a, p, guard) =>
+          val acc1 = loop(a, bound, acc)
+          val bound1 = bound ++ p.names
+          guard.fold(acc1)(loop(_, bound1, acc1))
         case Parens(p)        => loop(p, bound, acc)
         case TupleCons(items) =>
           items.foldLeft(acc)((acc0, d) => loop(d, bound, acc0))
@@ -398,8 +438,9 @@ sealed abstract class Declaration derives CanEqual {
             val acc2 = guard.fold(acc1)(loop(_, acc1))
             loop(res.get, acc2)
           }
-        case Matches(a, p) =>
-          loop(a, acc ++ p.names)
+        case Matches(a, p, guard) =>
+          val acc1 = loop(a, acc ++ p.names)
+          guard.fold(acc1)(loop(_, acc1))
         case Parens(p)        => loop(p, acc)
         case TupleCons(items) =>
           items.foldLeft(acc)((acc0, d) => loop(d, acc0))
@@ -611,9 +652,20 @@ object Declaration {
               }
 
           (loop(arg), caseRes).mapN(Match(k, _, _)(using decl.region))
-        case Matches(a, p) =>
-          // matches does not currently set up bindings
-          loop(a).map(Matches(_, p)(using decl.region))
+        case Matches(a, p, guard) =>
+          loop(a).flatMap { a1 =>
+            guard match {
+              case None =>
+                Some(Matches(a1, p, None)(using decl.region))
+              case Some(g) =>
+                val pnames = p.names
+                if (pnames.exists(masks)) None
+                else if (pnames.exists(shadows))
+                  Some(Matches(a1, p, guard)(using decl.region))
+                else
+                  loop(g).map(g1 => Matches(a1, p, Some(g1))(using decl.region))
+            }
+          }
         case Parens(p) =>
           loopDec(p).map(Parens(_)(using decl.region))
         case TupleCons(items) =>
@@ -785,8 +837,12 @@ object Declaration {
               )(using r)
             })
           )(using r)
-        case Matches(a, p) =>
-          Matches(a.replaceRegionsNB(r), p)(using r)
+        case Matches(a, p, guard) =>
+          Matches(
+            a.replaceRegionsNB(r),
+            p,
+            guard.map(_.replaceRegionsNB(r))
+          )(using r)
         case Parens(p)        => Parens(p.replaceRegions(r))(using r)
         case TupleCons(items) =>
           TupleCons(items.map(_.replaceRegionsNB(r)))(using r)
@@ -957,7 +1013,11 @@ object Declaration {
       cases: OptIndent[NonEmptyList[MatchBranch]]
   )(using val region: Region)
       extends NonBinding
-  case class Matches(arg: NonBinding, pattern: Pattern.Parsed)(implicit
+  case class Matches(
+      arg: NonBinding,
+      pattern: Pattern.Parsed,
+      guard: Option[NonBinding]
+  )(implicit
       val region: Region
   ) extends NonBinding
   case class Parens(of: Declaration)(using val region: Region)
@@ -1445,12 +1505,20 @@ object Declaration {
         Literal(l)(using r)
       }
 
-  sealed abstract private class ParseMode derives CanEqual
+  sealed abstract private class ParseMode(
+      val isDecl: Boolean,
+      val isBranchArg: Boolean,
+      val isComprehensionSource: Boolean,
+      val allowGuardedMatchesElse: Boolean
+  ) derives CanEqual
   private object ParseMode {
-    case object Decl extends ParseMode
-    case object NB extends ParseMode
-    case object BranchArg extends ParseMode
-    case object ComprehensionSource extends ParseMode
+    case object Decl extends ParseMode(true, false, false, true)
+    case object NB extends ParseMode(false, false, false, true)
+    case object NBNoGuardedMatchesElse extends ParseMode(false, false, false, false)
+    case object BranchArg extends ParseMode(false, true, false, true)
+    case object BranchArgNoGuardedMatchesElse
+        extends ParseMode(false, true, false, false)
+    case object ComprehensionSource extends ParseMode(false, false, true, true)
 
     given cats.Eq[ParseMode] = cats.Eq.fromUniversalEquals
   }
@@ -1490,6 +1558,14 @@ object Declaration {
         val recArgIndy: Indy[NonBinding] = Indy { i =>
           rec((ParseMode.BranchArg, i)).asInstanceOf[P[NonBinding]]
         }
+        val recNBNoGuardedMatchesElse: P[NonBinding] =
+          P.defer(
+            rec((ParseMode.NBNoGuardedMatchesElse, indent))
+          ).asInstanceOf[P[NonBinding]]
+        val recArgNoGuardedMatchesElse: P[NonBinding] = P.defer(
+          rec((ParseMode.BranchArgNoGuardedMatchesElse, indent))
+            .asInstanceOf[P[NonBinding]]
+        )
 
         val recComp: P[NonBinding] = P
           .defer(rec((ParseMode.ComprehensionSource, indent)))
@@ -1531,11 +1607,14 @@ object Declaration {
         // since x -> y: t will parse like x -> (y: t)
         // if we are in a branch arg, we can't parse annotations on the body of the lambda
         val lambBody =
-          if (pm == ParseMode.BranchArg)
+          if (pm.isBranchArg)
             recArgIndy.asInstanceOf[Indy[Declaration]]
           else recIndy
         val ternaryElseP =
-          if (pm == ParseMode.BranchArg) recArg else recNonBind
+          if (pm.isBranchArg) recArg else recNonBind
+        val ternaryCondP =
+          if (pm.isBranchArg) recArgNoGuardedMatchesElse
+          else recNBNoGuardedMatchesElse
 
         val allNonBind: P[NonBinding] =
           P.defer(
@@ -1610,7 +1689,7 @@ object Declaration {
         }
         // lower priority than calls is type annotation
         val annotated: P[NonBinding] =
-          if (pm == ParseMode.BranchArg) applied
+          if (pm.isBranchArg) applied
           else {
             val an: P[NonBinding => NonBinding] =
               TypeRef.annotationParser
@@ -1630,14 +1709,43 @@ object Declaration {
 
         // matched
         val matched: P[NonBinding] = {
-          // x matches p
+          val spaceBeforeIf: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
+          val guardIf: P[Unit] = (spaceBeforeIf *> P.string("if")).void
+          val guardPrefix: P[Unit] = spaceBeforeIf *> Parser.keySpace("if")
+          def stripsSyntacticGuardParens(g: NonBinding): Boolean =
+            g match {
+              case Annotation(of, _) => stripsSyntacticGuardParens(of)
+              case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+                true
+              case _ =>
+                false
+            }
+
+          def stripSyntacticGuardParens(g: NonBinding): NonBinding =
+            g match {
+              case Parens(inner: NonBinding) if stripsSyntacticGuardParens(inner) =>
+                inner
+              case _ =>
+                g
+            }
+          val guard: P0[Option[NonBinding]] =
+            // Peek for bare `if` so `x matches p if` stays committed to parsing
+            // a guard even when the guard expression is missing. We also parse
+            // guards with nested guarded-`matches` `else` disabled so
+            // unparenthesized nested forms cannot rely on precedence.
+            (P.peek(guardIf.backtrack) *>
+              (guardPrefix *> ternaryCondP).map(g =>
+                Some(stripSyntacticGuardParens(g))
+              )).orElse(P.pure(None))
+
+          // x matches p [if guard]
           val matchesOp =
             ((maybeSpace.with1 *> P.string(
               "matches"
-            ) *> spaces).backtrack *> Pattern.matchParser).region
+            ) *> spaces).backtrack *> (Pattern.matchParser ~ guard).region)
               .map {
-                case (region, pat) => { (nb: NonBinding) =>
-                  Matches(nb, pat)(using nb.region + region)
+                case (region, (pat, guard)) => { (nb: NonBinding) =>
+                  Matches(nb, pat, guard)(using nb.region + region)
                 }
               }
               .rep
@@ -1677,7 +1785,7 @@ object Declaration {
         val ternary: P[NonBinding => NonBinding] =
           (((spaces *> P.string(
             "if"
-          ) *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace(
+          ) *> spaces).backtrack *> ternaryCondP) ~ (spaces *> keySpace(
             "else"
           ) *> ternaryElseP))
             .map {
@@ -1686,12 +1794,30 @@ object Declaration {
               }
             }
 
+        val guardedMatchesElse: NonBinding => P0[NonBinding] = {
+          case m @ Matches(_, _, Some(_)) if pm.allowGuardedMatchesElse =>
+            ((spaces *> keySpace("else")).backtrack *> ternaryElseP).?.map {
+              case Some(falseCase) =>
+                val trueCase =
+                  Var(Identifier.Constructor("True"))(using m.region)
+                Ternary(trueCase, m, falseCase)
+              case None =>
+                m
+            }
+          case other =>
+            P.pure(other)
+        }
+
         val finalNonBind: P[NonBinding] =
-          if (pm != ParseMode.ComprehensionSource)
-            postOperators(matched).maybeAp(ternary)
+          if (!pm.isComprehensionSource)
+            for {
+              nb <- postOperators(matched)
+              nb1 <- guardedMatchesElse(nb)
+              tern <- ternary.?
+            } yield tern.fold(nb1)(_(nb1))
           else postOperators(matched)
 
-        if (pm != ParseMode.Decl) finalNonBind
+        if (!pm.isDecl) finalNonBind
         else {
           val finalBind: P[Declaration] = P.defer(
             P.oneOf(

@@ -641,6 +641,65 @@ test = TestSuite("exists", [
       5
     )
 
+    runBosatsuTest(
+      List("""
+package GuardedMatches
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+test = TestSuite("guarded matches", [
+  Assertion(exists([2], x -> x matches 2), "guarded true"),
+  Assertion(exists([2], x -> x matches 4) matches False, "guarded false"),
+  Assertion([3] matches [*_, x, *_] if x matches 3, "direct true"),
+  Assertion(([3] matches [*_, x, *_] if x matches 9) matches False, "direct false"),
+  ])
+"""),
+      "GuardedMatches",
+      4
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesCoherence
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+test = TestSuite("guarded matches coherence", [
+  Assertion(eq_Bool(2 matches 2 if True else False, (2 matches 2) if True else False), "binding-free guard groups like ternary"),
+  Assertion(eq_Bool(2 matches 3 if True else False, (2 matches 3) if True else False), "binding-free guard groups like ternary no match"),
+  Assertion(eq_Bool(True if (2 matches 2) else False, (2 matches 2) if True else False), "commuted and when both true"),
+  Assertion(eq_Bool(True if (2 matches 3) else False, (2 matches 3) if True else False), "commuted and when match is false"),
+  Assertion(eq_Bool(False if (2 matches 2) else False, (2 matches 2) if False else False), "commuted and when pred is false"),
+  Assertion(eq_Bool([1] matches [x] if x matches 1 else True, True if ([1] matches [x] if x matches 1) else True), "normalized form with bindings true"),
+  Assertion(eq_Bool([2] matches [x] if x matches 1 else False, True if ([2] matches [x] if x matches 1) else False), "normalized form with bindings false"),
+  ])
+"""),
+      "GuardedMatchesCoherence",
+      7
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesParens
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+p1 = [0] matches [1] if ([0] matches [1] if True) else True
+p2 = [0] matches [1] if ([0] matches [1] if True else True)
+
+test = TestSuite("guarded matches parens", [
+  Assertion(p1, "outer else grouping"),
+  Assertion(p2 matches False, "inner else grouping"),
+  Assertion(not(eq_Bool(p1, p2)), "explicit parens pick different meanings"),
+  ])
+"""),
+      "GuardedMatchesParens",
+      3
+    )
+
     evalTest(
       List("""
 package Foo

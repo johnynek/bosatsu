@@ -182,7 +182,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
         cases.get.toList.parTraverse_(branch =>
           validateParsedPattern(branch.pattern)
         )
-      case Declaration.Matches(_, pat) =>
+      case Declaration.Matches(_, pat, _) =>
         validateParsedPattern(pat)
       case Declaration.Binding(BindingStatement(pat, _, _)) =>
         validateParsedPattern(pat)
@@ -259,7 +259,7 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
 
     val matchesAlwaysTrue: ValidatedNel[ExprError[Declaration], Unit] =
       matchExpr.tag match {
-        case _: Declaration.Matches
+        case Declaration.Matches(_, _, None)
             if !isUninhabitedScrutinee &&
               branchesList.headOption.exists(branch =>
                 branch.guard.isEmpty && patternSetOps.isTop(branch.pattern)
