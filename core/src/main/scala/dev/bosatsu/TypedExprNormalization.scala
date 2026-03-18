@@ -1658,44 +1658,35 @@ object TypedExprNormalization {
 
         def rewriteTrailingGuardPair(
             bs: NonEmptyList[Branch[A]]
-        ): Option[NonEmptyList[Branch[A]]] = {
-          val boolRewrite =
-            bs.toList match {
-              case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
-                  if boolConst(e1).contains(true) &&
-                    boolConst(e2).contains(false) =>
-                // For a terminal `case p if g: True; case q: False`,
-                // expose the guard as the branch result. We only need
-                // to keep the `False` fallback when q has values outside p.
-                NonEmptyList.fromList(
-                  if (totalityCheck.difference(p2, p1).isEmpty)
-                    init :+ Branch(p1, None, g)
-                  else
-                    init :+ Branch(p1, None, g) :+ Branch(p2, None, e2)
-                )
-              case _ =>
-                None
-            }
-
-          boolRewrite.orElse {
-            bs.toList match {
-              case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
-                  if totalityCheck.difference(p2, p1).isEmpty &&
-                    p1.names.isEmpty && p2.names.isEmpty =>
-                val ifExpr = Match(
-                  g,
-                  NonEmptyList(
-                    Branch(TruePattern, None, e1),
-                    Branch(FalsePattern, None, e2) :: Nil
-                  ),
-                  g.tag
-                )
-                Some(NonEmptyList.ofInitLast(init, Branch(p1, None, ifExpr)))
-              case _ =>
-                None
-            }
+        ): Option[NonEmptyList[Branch[A]]] =
+          bs.toList match {
+            case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
+                if boolConst(e1).contains(true) &&
+                  boolConst(e2).contains(false) =>
+              // For a terminal `case p if g: True; case q: False`,
+              // expose the guard as the branch result. We only need
+              // to keep the `False` fallback when q has values outside p.
+              NonEmptyList.fromList(
+                if (totalityCheck.difference(p2, p1).isEmpty)
+                  init :+ Branch(p1, None, g)
+                else
+                  init :+ Branch(p1, None, g) :+ Branch(p2, None, e2)
+              )
+            case init :+ Branch(p1, Some(g), e1) :+ Branch(p2, None, e2)
+                if totalityCheck.difference(p2, p1).isEmpty &&
+                  p1.names.isEmpty && p2.names.isEmpty =>
+              val ifExpr = Match(
+                g,
+                NonEmptyList(
+                  Branch(TruePattern, None, e1),
+                  Branch(FalsePattern, None, e2) :: Nil
+                ),
+                g.tag
+              )
+              Some(NonEmptyList.ofInitLast(init, Branch(p1, None, ifExpr)))
+            case _ =>
+              None
           }
-        }
 
         val (changed1, branches1a) =
           rewriteTrailingGuardPair(branches1) match {
