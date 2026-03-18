@@ -41,9 +41,10 @@ github.base_url=
 [`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
 [`get_key`](#value-get-key), [`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
 [`int_to_String`](#value-int-to-string), [`items`](#value-items),
-[`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
-[`mul`](#value-mul), [`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int),
-[`or`](#value-or), [`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
+[`length_List`](#value-length-list), [`length_String`](#value-length-string),
+[`map_List`](#value-map-list), [`mod_Int`](#value-mod-int), [`mul`](#value-mul),
+[`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int), [`or`](#value-or),
+[`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
 [`popcount_Int`](#value-popcount-int), [`range`](#value-range), [`range_fold`](#value-range-fold),
 [`remove_key`](#value-remove-key), [`replicate_List`](#value-replicate-list),
 [`reverse`](#value-reverse), [`reverse_concat`](#value-reverse-concat),
@@ -2646,6 +2647,18 @@ references: [`Dict`](#type-dict), [`List`](#type-list), [`Tuple2`](#type-tuple2)
 
 ```bosatsu
 def items[a, b](dict: Dict[a, b]) -> List[(a, b)]
+```
+
+<a id="value-length-list"></a>
+
+### `length_List`
+
+Count the number of items in a list.
+
+references: [`Int`](#type-int), [`List`](#type-list)
+
+```bosatsu
+def length_List[a](lst: List[a]) -> Int
 ```
 
 <a id="value-length-string"></a>
