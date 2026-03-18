@@ -1,7 +1,7 @@
 package dev.bosatsu
 
+import cats.Show
 import cats.data.Validated
-import dev.bosatsu.DirectEC.directEC
 import Identifier.{Constructor, Name}
 import TestUtils.checkEnvExpr
 
@@ -53,11 +53,14 @@ class TypedTotalityTest extends munit.FunSuite {
 
     val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
     val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
     val errs =
-      PackageMap
-        .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
-        .left
-        .getOrElse(fail("expected always-true `matches` error"))
+      Par.noParallelism {
+        PackageMap
+          .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+          .left
+          .getOrElse(fail("expected always-true `matches` error"))
+      }
 
     val hasAlwaysTrue = errs.exists {
       case PackageError.TotalityCheckError(
