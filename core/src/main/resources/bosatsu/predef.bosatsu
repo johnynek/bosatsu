@@ -47,6 +47,7 @@ export (
   Dict,
   add,
   addf,
+  and,
   add_key,
   build_List,
   char_to_Int,
@@ -70,6 +71,8 @@ export (
   int_to_Char,
   int_to_String,
   length_String,
+  not,
+  or,
   string_to_Int,
   tail_or_empty_String,
   uncons_String,
@@ -138,6 +141,18 @@ struct Tuple32[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j:
 
 enum Bool:
   False, True
+
+# Boolean conjunction.
+def and(x: Bool, y: Bool) -> Bool:
+  y if x else False
+
+# Boolean disjunction.
+def or(x: Bool, y: Bool) -> Bool:
+  True if x else y
+
+# Boolean negation.
+def not(x: Bool) -> Bool:
+  False if x else True
 
 #############
 # Support for built-in lists

@@ -54,7 +54,7 @@ shift_unshift_law = forall_Prop(
   ))
 
 def gtez(x): x.cmp_Int(0) matches (GT | EQ)
-def operator ||(a, b): True if a else b
+operator || = or
 def implies(a, b): b if a else True
 
 positive_and_law = forall_Prop(

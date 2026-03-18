@@ -48,17 +48,9 @@ def int_to_Char(code_point: Int) -> Option[Char]:
 def cmp_Char(a: Char, b: Char) -> Comparison:
   cmp_Int(char_to_Int(a), char_to_Int(b))
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
-def orb(left: Bool, right: Bool) -> Bool:
-  if left:
-    True
-  else:
-    right
+orb = or
 
 def lte_Int(left: Int, right: Int) -> Bool:
   cmp_Int(left, right) matches (LT | EQ)
