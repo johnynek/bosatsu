@@ -1945,6 +1945,15 @@ loop(12)"""
     prop
   }
 
+  test("composed ternaries require parentheses") {
+    assert(Declaration.parser("").parse("x if y else z if w else v").isLeft)
+    assert(Declaration.parser("").parse("x if y if z else v else w").isLeft)
+
+    roundTripExact(Declaration.parser(""), "x if y else (z if w else v)")
+    roundTripExact(Declaration.parser(""), "(x if y else z) if w else v")
+    roundTripExact(Declaration.parser(""), "x if (y if z else v) else w")
+  }
+
   test("we can parse any Statement") {
     val prop = forAll(Generators.genStatements(4, 10))(
       law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion))))
