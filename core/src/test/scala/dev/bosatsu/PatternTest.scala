@@ -278,6 +278,10 @@ class PatternTest extends munit.ScalaCheckSuite {
 
     noSearch("Foo(x)")
     noSearch("[x, y]")
+    noSearch("[*xs]")
+    noSearch("[x, *y]")
+    noSearch("[x, y, *zs]")
+    noSearch("Foo([x, *y])")
 
     yesSearch("[*_, x]")
     yesSearch("[x, *mid, y]")
@@ -285,6 +289,10 @@ class PatternTest extends munit.ScalaCheckSuite {
     yesSearch(""""ab${middle}cd"""")
     yesSearch(""""${prefix}$.{ch}z"""")
 
+    expectBindings("[*xs]", Set.empty)
+    expectBindings("[x, *y]", Set.empty)
+    expectBindings("[x, y, *zs]", Set.empty)
+    expectBindings("Foo([x, *y])", Set.empty)
     expectBindings("[*_, x]", Set.empty)
     expectBindings("[x, *mid, y]", Set.empty)
     expectBindings("Foo([*_, x])", Set.empty)
