@@ -261,6 +261,54 @@ main = int_to_String(42) matches str
     }
   }
 
+  test("typed-irrefutable matches get an always-true diagnostic") {
+    def assertMatchesAlwaysTrueMessage(
+        source: String,
+        pack: String,
+        typeRepr: String
+    ): Unit = {
+      val (errs, sourceMap) = compileErrors(source :: Nil)
+      errs.toList.collectFirst {
+        case te @ PackageError.TotalityCheckError(_, _) =>
+          val msg = te.message(sourceMap, Colorize.None)
+          assert(
+            msg.contains(
+              s"`matches` pattern covers all values of type $typeRepr"
+            ),
+            msg
+          )
+          assert(msg.contains("always `True`"), msg)
+          assert(!msg.contains("unreachable branches"), msg)
+          assert(msg.contains(pack), msg)
+          ()
+      }.getOrElse(fail(s"expected totality error, found: $errs"))
+    }
+
+    assertMatchesAlwaysTrueMessage(
+      """package UnitMatch
+        |
+        |x = ()
+        |
+        |main = x matches ()
+        |""".stripMargin,
+      "UnitMatch",
+      "()"
+    )
+
+    assertMatchesAlwaysTrueMessage(
+      """package StructMatch
+        |
+        |struct Foo
+        |
+        |x = Foo
+        |
+        |main = x matches Foo
+        |""".stripMargin,
+      "StructMatch",
+      "Foo"
+    )
+  }
+
   test("shadowed binding type mismatch has a focused message") {
     val source =
       """package Shadowed

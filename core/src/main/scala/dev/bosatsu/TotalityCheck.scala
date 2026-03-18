@@ -54,6 +54,8 @@ object TotalityCheck {
       matchExpr: TypedExpr.Match[A],
       branches: NonEmptyList[Pattern[Cons, Type]]
   ) extends ExprError[A]
+  case class MatchesAlwaysTrue[A](matchExpr: TypedExpr.Match[A])
+      extends ExprError[A]
 }
 
 /** Here is code for performing totality checks of matches. One key thing: we
@@ -255,6 +257,18 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       )
     val branchesList = branches.toList
 
+    val matchesAlwaysTrue: ValidatedNel[ExprError[Declaration], Unit] =
+      matchExpr.tag match {
+        case _: Declaration.Matches
+            if !isUninhabitedScrutinee &&
+              branchesList.headOption.exists(branch =>
+                branch.guard.isEmpty && patternSetOps.isTop(branch.pattern)
+              ) =>
+          Validated.invalidNel(MatchesAlwaysTrue(matchExpr))
+        case _ =>
+          Validated.unit
+      }
+
     inline def onEmptyErr[P](bs: List[P])(inline fn: NonEmptyList[P] => ExprError[Declaration]): ValidatedNel[ExprError[Declaration], Unit] =
       NonEmptyList.fromList(bs) match {
         case Some(nel) => Validated.invalidNel(fn(nel))
@@ -291,36 +305,37 @@ case class TotalityCheck(inEnv: TypeEnv[Kind.Arg]) {
       onEmptyErr(mis)(NonTotalMatch(matchExpr, _))
     }
 
-    val unreachable: ValidatedNel[ExprError[Declaration], Unit] = {
-      @annotation.tailrec
-      def loop(
-          rem: List[TypedExpr.Branch[Declaration]],
-          covered: List[Pattern[Cons, Type]],
-          acc: List[Pattern[Cons, Type]]
-      ): List[Pattern[Cons, Type]] =
-        rem match {
-          case Nil            => acc.reverse
-          case branch :: tail =>
-            val isUnreachable = fromList(covered) match {
-              case None      => false
-              case Some(cov) =>
-                patternSetOps
-                  .difference(branch.pattern, cov)
-                  .isEmpty
-            }
-            val covered1 =
-              if (branch.guard.isEmpty) branch.pattern :: covered
-              else covered
-            val acc1 =
-              if (isUnreachable) branch.pattern :: acc
-              else acc
-            loop(tail, covered1, acc1)
+    val unreachable: ValidatedNel[ExprError[Declaration], Unit] =
+      matchesAlwaysTrue.andThen { _ =>
+        @annotation.tailrec
+        def loop(
+            rem: List[TypedExpr.Branch[Declaration]],
+            covered: List[Pattern[Cons, Type]],
+            acc: List[Pattern[Cons, Type]]
+        ): List[Pattern[Cons, Type]] =
+          rem match {
+            case Nil            => acc.reverse
+            case branch :: tail =>
+              val isUnreachable = fromList(covered) match {
+                case None      => false
+                case Some(cov) =>
+                  patternSetOps
+                    .difference(branch.pattern, cov)
+                    .isEmpty
+              }
+              val covered1 =
+                if (branch.guard.isEmpty) branch.pattern :: covered
+                else covered
+              val acc1 =
+                if (isUnreachable) branch.pattern :: acc
+                else acc
+              loop(tail, covered1, acc1)
+          }
+        val unr = loop(branchesList, Nil, Nil)
+        onEmptyErr(unr) { nel =>
+          UnreachableBranches(matchExpr, nel)
         }
-      val unr = loop(branchesList, Nil, Nil)
-      onEmptyErr(unr) { nel =>
-        UnreachableBranches(matchExpr, nel)
       }
-    }
 
     missing *> unreachable
   }

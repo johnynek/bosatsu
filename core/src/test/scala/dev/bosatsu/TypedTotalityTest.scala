@@ -1,5 +1,6 @@
 package dev.bosatsu
 
+import cats.Show
 import cats.data.Validated
 import Identifier.{Constructor, Name}
 import TestUtils.checkEnvExpr
@@ -41,6 +42,44 @@ class TypedTotalityTest extends munit.FunSuite {
           fail("expected non-total match error")
       }
     }
+
+  private def assertMatchesAlwaysTrue(statement: String): Unit =
+    val parsed = Parser.parse(Package.parser, statement) match {
+      case Validated.Valid((lm, parsed)) =>
+        ((0.toString, lm), parsed) :: Nil
+      case Validated.Invalid(errs) =>
+        fail(s"parse fail: $errs")
+    }
+
+    val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
+    val errs =
+      Par.noParallelism {
+        PackageMap
+          .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+          .left
+          .getOrElse(fail("expected always-true `matches` error"))
+      }
+
+    val hasAlwaysTrue = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.MatchesAlwaysTrue(_)
+          ) =>
+        true
+      case _ => false
+    }
+    val hasUnreachable = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.UnreachableBranches(_, _)
+          ) =>
+        true
+      case _ => false
+    }
+    assert(hasAlwaysTrue, errs.toList.mkString(", "))
+    assert(!hasUnreachable, errs.toList.mkString(", "))
 
   test("Result[Never, Value] with only Ok branch is total") {
     assertTotal(
@@ -99,6 +138,30 @@ def vacuous(z: Never) -> Never:
   a
 """,
       "vacuous"
+    )
+  }
+
+  test("unit matches totality errors report always-true matches") {
+    assertMatchesAlwaysTrue(
+      """package TotalUnit
+        |
+        |x = ()
+        |
+        |y = x matches ()
+        |""".stripMargin
+    )
+  }
+
+  test("struct matches totality errors report always-true matches") {
+    assertMatchesAlwaysTrue(
+      """package TotalStruct
+        |
+        |struct Foo
+        |
+        |x = Foo
+        |
+        |y = x matches Foo
+        |""".stripMargin
     )
   }
 
