@@ -42,38 +42,36 @@ object PackageCustoms {
   // lets/import graph here so optimized cached packages do not change the
   // lint set by dropping unused private top levels.
   def lintDiagnosticsFromSource(
-      pack: Package.Inferred,
+      packName: PackageName,
+      roots: List[Bindable],
       sourceImports: List[
         Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
       ],
       sourceExports: List[ExportedName[Unit]],
       sourceProgram: Program[?, Expr[Declaration], List[Statement]]
   ): List[PackageError] =
-    (
+    errorsOf(
+      checkExprDagBindables(
+        packName,
+        sourceImports,
+        sourceExports,
+        sourceProgram.lets,
+        sourceProgram.externalDefs
+      )
+    ) :::
       errorsOf(
-        checkExprDagBindables(
-          pack.name,
-          sourceImports,
+        noUselessBindsFromLets(
+          packName,
           sourceExports,
           sourceProgram.lets,
-          sourceProgram.externalDefs
+          sourceProgram.from,
+          roots,
+          expr =>
+            usedGlobalsExpr(expr).collect {
+              case (pn, i: Bindable) if pn == packName => i
+            }
         )
-      ) :::
-        errorsOf(
-          noUselessBindsFromLets(
-            pack.name,
-            sourceExports,
-            sourceProgram.lets,
-            sourceProgram.from,
-            Package.testRootBindables(pack),
-            Package.mainValue(pack).map(_._1),
-            expr =>
-              usedGlobalsExpr(expr).collect {
-                case (pn, i: Bindable) if pn == pack.name => i
-              }
-          )
-        )
-    ).filter(PackageError.isPostponable)
+      )
 
   /** Build the exports and check the customs, and then return the Typed package
     */
@@ -433,8 +431,7 @@ object PackageCustoms {
       exports: List[ExportedName[?]],
       lets: List[(Bindable, RecursionKind, A)],
       sourceStmts: List[Statement],
-      testRoots: Set[Bindable],
-      mainRoot: Option[Bindable],
+      roots: List[Bindable],
       internalDeps: A => Set[Bindable]
   ): ValidatedNec[PackageError, Unit] = {
     val exportedBindings =
@@ -449,17 +446,16 @@ object PackageCustoms {
         .flatten
         .toList
 
-    val roots: List[Bindable] =
+    val allRoots: List[Bindable] =
       (exportedBindings :::
-        testRoots.toList :::
-        mainRoot.toList :::
+        roots :::
         nonBindingUses).distinct
 
     val bindMap: Map[Bindable, A] =
       lets.iterator.map { case (b, _, te) => (b, te) }.toMap
 
     val canReach: Set[Bindable] =
-      Dag.transitiveSet(roots)(value =>
+      Dag.transitiveSet(allRoots)(value =>
         bindMap.get(value).iterator.flatMap(internalDeps).toList
       )
 
@@ -511,8 +507,10 @@ object PackageCustoms {
       pack.exports,
       pack.lets,
       sourceStmts,
-      Package.testRootBindables(pack),
-      Package.mainValue(pack).map(_._1),
+      Package.testRootBindables(pack).toList ::: Package
+        .mainValue(pack)
+        .map(_._1)
+        .toList,
       te =>
         TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
           case (pn, i: Identifier.Bindable) if pn == pack.name => i

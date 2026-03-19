@@ -1,7 +1,7 @@
 package dev.bosatsu
 
-import cats.{Functor, Order, Applicative}
-import cats.data.{Ior, Validated, NonEmptyList}
+import cats.{Applicative, Foldable, Functor, Order}
+import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec, ValidatedNel}
 import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -607,6 +607,30 @@ object Package {
         else Ior.left(errs)
     }
 
+  private def toErrs[A](v: ValidatedNel[A, Unit]): List[A] =
+    v match {
+      case Validated.Valid(_)     => Nil
+      case Validated.Invalid(errs) => errs.toList
+    }
+
+  private def toErrsChain[A](v: ValidatedNec[A, Unit]): Chain[A] =
+    v match {
+      case Validated.Valid(_)     => Chain.empty
+      case Validated.Invalid(errs) => errs.toChain
+    }
+
+  private def toIorPostponable[F[_]: Foldable, A](
+      v: Validated[F[A], Unit]
+  )(
+      isPostponable: A => Boolean
+  ): Ior[F[A], Unit] =
+    v match {
+      case Validated.Valid(unit)  => Ior.right(unit)
+      case Validated.Invalid(errs) =>
+        if (Foldable[F].forall(errs)(isPostponable)) Ior.both(errs, ())
+        else Ior.left(errs)
+    }
+
   /** Infer the types but do not optimize/normalize the lets. `exports` can be
     * provided to run pre-inference bindable checks from the expression DAG.
     */
@@ -752,13 +776,10 @@ object Package {
             }
 
           val exprDagBindableChecks: Ior[NonEmptyList[PackageError], Unit] =
-            PackageCustoms
-              .checkExprDagBindables(p, imps, exports, lets, extDefs) match {
-              case Validated.Valid(_)     =>
-                Ior.right(())
-              case Validated.Invalid(errs) =>
-                diagnosticsToIor(errs.toChain.toList, ())
-            }
+            toIorPostponable(
+              PackageCustoms
+                .checkExprDagBindables(p, imps, exports, lets, extDefs)
+            )(PackageError.isPostponable).leftMap(_.toNonEmptyList)
 
           val inference: Ior[
             NonEmptyList[PackageError],
@@ -796,36 +817,39 @@ object Package {
               val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
 
               val recursionErrors: List[PackageError] =
-                TypedExprRecursionCheck
-                .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-                .fold(
-                  _.map(err => PackageError.RecursionError(p, err): PackageError).toList,
-                  _ => Nil
-                )
+                toErrsChain(
+                  TypedExprRecursionCheck
+                    .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                    .leftMap(
+                      _.map(err => PackageError.RecursionError(p, err): PackageError)
+                    )
+                ).toList
 
               val shadowedBindingErrors: List[PackageError] =
-                ShadowedBindingTypeCheck
-                  .checkLets(p, typedLets)
-                  .fold(
-                    _.map(err =>
-                      PackageError.ShadowedBindingTypeError(
-                        p,
-                        err,
-                        localTypeNames
-                      ): PackageError
-                    ).toList,
-                    _ => Nil
-                  )
+                toErrsChain(
+                  ShadowedBindingTypeCheck
+                    .checkLets(p, typedLets)
+                    .leftMap(
+                      _.map(err =>
+                        PackageError.ShadowedBindingTypeError(
+                          p,
+                          err,
+                          localTypeNames
+                        ): PackageError
+                      )
+                    )
+                ).toList
 
               val totalityErrors: List[PackageError] =
-                typedLets
-                  .traverse_ { case (_, _, expr) =>
-                    TotalityCheck(fullTypeEnv).checkExpr(expr)
-                  }
-                  .fold(
-                    errs => errs.map(PackageError.TotalityCheckError(p, _)).toList,
-                    _ => Nil
-                  )
+                toErrs(
+                  typedLets
+                    .traverse_ { case (_, _, expr) =>
+                      TotalityCheck(fullTypeEnv).checkExpr(expr)
+                    }
+                    .leftMap(
+                      _.map(err => PackageError.TotalityCheckError(p, err): PackageError)
+                    )
+                )
 
               // Preserve lint diagnostics alongside hard failures, but only
               // keep the typed program on the success path when every
@@ -840,20 +864,17 @@ object Package {
             }
 
           val checkUnusedLets: Ior[NonEmptyList[PackageError], Unit] =
-            letsForChecks
-              .traverse_ { case (_, _, expr) =>
-                UnusedLetCheck.check(expr)
-              } match {
-              case Validated.Valid(_)     =>
-                Ior.right(())
-              case Validated.Invalid(errs) =>
-                diagnosticsToIor(
-                  List(
+            toIorPostponable(
+              letsForChecks
+                .traverse_ { case (_, _, expr) =>
+                  UnusedLetCheck.check(expr)
+                }
+                .leftMap(errs =>
+                  NonEmptyList.one[PackageError](
                     PackageError.UnusedLetError(p, errs.toNonEmptyList)
-                  ),
-                  ()
+                  )
                 )
-            }
+            )(PackageError.isPostponable)
 
           // Name errors force a Left result, but we still collect any
           // independent inference and import/export diagnostics in the same run.

@@ -794,35 +794,32 @@ object PackageMap {
           s"invariant violation: missing inference results for: ${missingKeys.mkString(", ")}"
         )
       } else {
-        // Keep successfully inferred packages alongside hard failures so later
-        // callers can still replay lint for the warm-cache-success subset.
-        val (errsRev, inferredByName) =
-          resultMap.iterator.foldLeft(
-            (
-              List.empty[PackageError],
-              SortedMap.empty[PackageName, Package.Inferred]
-            )
-          ) { case ((errsAcc, packsAcc), (name, result)) =>
-            result match {
+        val sequenced =
+          resultMap.map { case (name, result) =>
+            name -> (result match {
               case Ior.Left(errs)     =>
-                (errs.reverse.toList ::: errsAcc, packsAcc)
+                Ior.both(errs, Option.empty[(PackageName, Package.Inferred)])
               case Ior.Right(inferred) =>
-                (errsAcc, packsAcc.updated(name, inferred.inferred))
+                Ior.right(Some(name -> inferred.inferred))
               case Ior.Both(errs, inferred) =>
-                (
-                  errs.reverse.toList ::: errsAcc,
-                  packsAcc.updated(name, inferred.inferred)
-                )
-            }
-          }
+                Ior.both(errs, Some(name -> inferred.inferred))
+            })
+          }.sequence
 
-        val dedupedErrs = errsRev.reverse.distinct
-        val inferred = PackageMap(inferredByName)
+        val deduped = sequenced.leftMap { errs =>
+          NonEmptyList.fromListUnsafe(errs.toList.distinct)
+        }
 
-        NonEmptyList.fromList(dedupedErrs) match {
-          case Some(errs) if inferredByName.nonEmpty => Ior.Both(errs, inferred)
-          case Some(errs)                            => Ior.Left(errs)
-          case None                                  => Ior.Right(inferred)
+        deduped match {
+          case Ior.Right(entries) =>
+            Ior.right(PackageMap(SortedMap.from(entries.valuesIterator.flatten)))
+          case Ior.Both(errs, entries) =>
+            val inferred =
+              PackageMap(SortedMap.from(entries.valuesIterator.flatten))
+            if (inferred.toMap.isEmpty) Ior.left(errs)
+            else Ior.both(errs, inferred)
+          case Ior.Left(errs) =>
+            Ior.left(errs)
         }
       }
     }

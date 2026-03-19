@@ -24,9 +24,9 @@ import dev.bosatsu.{
 import dev.bosatsu.LocationMap.Colorize
 import dev.bosatsu.rankn.Infer
 import org.typelevel.paiges.Doc
-import scala.util.control.NonFatal
 
 import cats.syntax.all._
+import scala.util.control.NonFatal
 
 object CompilerApi {
   private enum DiagnosticKind derives CanEqual {
@@ -383,8 +383,7 @@ object CompilerApi {
   private def renderMultiErrorMessage(
       diagnostics: List[RenderedError]
   ): Doc = {
-    val divider = "-" * 72
-    val dividerDoc = Doc.text(divider)
+    val dividerDoc = Doc.char('-') * 72
     val entrySeparator =
       Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + Doc.hardLine
     val entries = diagnostics.zipWithIndex.map { case (diag, idx) =>
@@ -398,8 +397,7 @@ object CompilerApi {
   private def renderMultiWarningMessage(
       diagnostics: List[RenderedLint]
   ): Doc = {
-    val divider = "-" * 72
-    val dividerDoc = Doc.text(divider)
+    val dividerDoc = Doc.char('-') * 72
     val entrySeparator =
       Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + Doc.hardLine
     val entries = diagnostics.zipWithIndex.map { case (diag, idx) =>
@@ -438,17 +436,25 @@ object CompilerApi {
   private def isScalaJsUndefinedBehavior(err: Throwable): Boolean =
     err.getClass.getName == "org.scalajs.linker.runtime.UndefinedBehaviorError"
 
-  private def bestEffortTypedReplay(
+  private def bestEffortCachedTypedReplay(
       replay: => List[PackageError]
   ): List[PackageError] =
     try replay
     catch {
       case NonFatal(_) =>
+        // CompileCache.get deserializes cached packages with source tags erased
+        // to `Unit` and then casts them back to `Package.Inferred`. That keeps
+        // cached artifacts usable for code generation, but replay-only lint
+        // passes such as `ShadowedBindingTypeCheck` and `TotalityCheck` can
+        // still touch `Declaration` tags to recover source-level patterns.
+        // On the JVM those erased tags usually limp along until a pass reads
+        // one; on Scala.js the same bad read can surface earlier as an
+        // `UndefinedBehaviorError` when `undefined` is cast back to
+        // `Declaration`. This path only replays optional lint on cache hits, so
+        // we drop that replay contribution rather than turning a successful
+        // cached compile into a hard failure.
         Nil
       case err: VirtualMachineError if isScalaJsUndefinedBehavior(err) =>
-        // Cached Scala.js typed packages can lose source declaration tags that
-        // these replay-only lint passes inspect. Treat that as a dropped replay
-        // diagnostic rather than a hard command failure.
         Nil
     }
 
@@ -456,7 +462,7 @@ object CompilerApi {
       pack: Package.Inferred
   ): List[PackageError] = {
     val shadowedBindings =
-      bestEffortTypedReplay {
+      bestEffortCachedTypedReplay {
         ShadowedBindingTypeCheck
           .checkLets(pack.name, pack.lets) match {
           case Validated.Valid(_)     =>
@@ -474,7 +480,7 @@ object CompilerApi {
       }
 
     val totalityLint =
-      bestEffortTypedReplay {
+      bestEffortCachedTypedReplay {
         pack.lets.traverse_ { case (_, _, expr) =>
           TotalityCheck(pack.types).checkExpr(expr)
         } match {
@@ -515,6 +521,11 @@ object CompilerApi {
     // detail needed for unused-let replay, so reusing the parsed source here
     // keeps warm-cache warnings aligned with cold compiles.
     val sourceImports = pack.imports
+    val roots =
+      Package.testRootBindables(pack).toList ::: Package
+        .mainValue(pack)
+        .map(_._1)
+        .toList
     val resolvedImports =
       sourceImports.map(imp => imp.copy(pack = imp.pack.name))
 
@@ -529,7 +540,8 @@ object CompilerApi {
       case Ior.Right(program0) =>
         (
           PackageCustoms.lintDiagnosticsFromSource(
-            pack,
+            pack.name,
+            roots,
             sourceImports,
             parsed.exports,
             program0
@@ -539,7 +551,8 @@ object CompilerApi {
       case Ior.Both(_, program0) =>
         (
           PackageCustoms.lintDiagnosticsFromSource(
-            pack,
+            pack.name,
+            roots,
             sourceImports,
             parsed.exports,
             program0

@@ -236,6 +236,9 @@ object PackageError {
       }
   }
 
+  // These are the non-soundness diagnostics that `lib check` / `lib test`
+  // may demote to warnings (`--warn`) or silence (`--lax`) during local
+  // iteration. Everything else remains a hard correctness error.
   def isPostponable(err: PackageError): Boolean =
     err match {
       case _: PackageError.UnusedImport           => true
