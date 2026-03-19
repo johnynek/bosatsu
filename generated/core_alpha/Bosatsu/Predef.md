@@ -39,21 +39,20 @@ github.base_url=
 [`eq_Comparison`](#value-eq-comparison), [`eq_Float64`](#value-eq-float64),
 [`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string), [`flat_map_List`](#value-flat-map-list),
 [`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
-[`get_key`](#value-get-key), [`implies`](#value-implies), [`int_loop`](#value-int-loop),
-[`int_to_Char`](#value-int-to-char), [`int_to_String`](#value-int-to-string),
-[`items`](#value-items), [`length_List`](#value-length-list),
-[`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
-[`mul`](#value-mul), [`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int),
-[`or`](#value-or), [`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
-[`popcount_Int`](#value-popcount-int), [`range`](#value-range), [`range_fold`](#value-range-fold),
-[`remove_key`](#value-remove-key), [`replicate_List`](#value-replicate-list),
-[`reverse`](#value-reverse), [`reverse_concat`](#value-reverse-concat),
-[`rpartition_String`](#value-rpartition-string), [`shift_left_Int`](#value-shift-left-int),
-[`shift_right_Int`](#value-shift-right-int), [`string_Order`](#value-string-order),
-[`string_to_Int`](#value-string-to-int), [`sub`](#value-sub), [`subf`](#value-subf),
-[`tail_or_empty_String`](#value-tail-or-empty-string), [`trace`](#value-trace),
-[`uncons_String`](#value-uncons-string), [`uncurry2`](#value-uncurry2),
-[`uncurry3`](#value-uncurry3), [`xor`](#value-xor), [`xor_Int`](#value-xor-int)
+[`get_key`](#value-get-key), [`implies`](#value-implies), [`int_to_Char`](#value-int-to-char),
+[`int_to_String`](#value-int-to-string), [`items`](#value-items),
+[`length_List`](#value-length-list), [`length_String`](#value-length-string),
+[`map_List`](#value-map-list), [`mod_Int`](#value-mod-int), [`mul`](#value-mul),
+[`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int), [`or`](#value-or),
+[`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
+[`popcount_Int`](#value-popcount-int), [`range`](#value-range), [`remove_key`](#value-remove-key),
+[`replicate_List`](#value-replicate-list), [`reverse`](#value-reverse),
+[`reverse_concat`](#value-reverse-concat), [`rpartition_String`](#value-rpartition-string),
+[`shift_left_Int`](#value-shift-left-int), [`shift_right_Int`](#value-shift-right-int),
+[`string_Order`](#value-string-order), [`string_to_Int`](#value-string-to-int), [`sub`](#value-sub),
+[`subf`](#value-subf), [`tail_or_empty_String`](#value-tail-or-empty-string),
+[`trace`](#value-trace), [`uncons_String`](#value-uncons-string), [`xor`](#value-xor),
+[`xor_Int`](#value-xor-int)
 
 ## Types
 
@@ -2613,18 +2612,6 @@ references: [`Bool`](#type-bool)
 def implies(x: Bool, y: Bool) -> Bool
 ```
 
-<a id="value-int-loop"></a>
-
-### `int_loop`
-
-Loop until the returned Int is <= 0 or >= intValue.
-
-references: [`Int`](#type-int), [`Tuple2`](#type-tuple2)
-
-```bosatsu
-def int_loop[a](intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
-```
-
 <a id="value-int-to-char"></a>
 
 ### `int_to_Char`
@@ -2819,18 +2806,6 @@ references: [`Int`](#type-int), [`List`](#type-list)
 def range(exclusiveUpper: Int) -> List[Int]
 ```
 
-<a id="value-range-fold"></a>
-
-### `range_fold`
-
-Fold over `[inclusiveLower, ..., exclusiveUpper - 1]`.
-
-references: [`Int`](#type-int)
-
-```bosatsu
-def range_fold[a](inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a
-```
-
 <a id="value-remove-key"></a>
 
 ### `remove_key`
@@ -3001,26 +2976,6 @@ references: [`Char`](#type-char), [`Option`](#type-option), [`String`](#type-str
 
 ```bosatsu
 def uncons_String(arg: String) -> Option[(Char, String)]
-```
-
-<a id="value-uncurry2"></a>
-
-### `uncurry2`
-
-Some utilities for dealing with functions
-
-```bosatsu
-def uncurry2[a, b, c](f: a -> b -> c) -> (a, b) -> c
-```
-
-<a id="value-uncurry3"></a>
-
-### `uncurry3`
-
-Convert a curried 3-argument function into one that takes a tuple of 3 arguments.
-
-```bosatsu
-def uncurry3[a, b, c, d](f: a -> b -> c -> d) -> (a, b, c) -> d
 ```
 
 <a id="value-xor"></a>

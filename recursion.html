@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-866b4d75*
+0.0.0+1-0a2aea04*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-866b4d75*
+0.0.0+1-0a2aea04*
 </div>
 </div>
 <div class="nav-toc">
@@ -333,7 +333,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 <h2><a href="#pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" name="pattern-10-random-choice-divide-patterns-with-explicit-size-fuel" class="anchor"><span class="anchor-link"></span></a>Pattern 10: Random Choice / Divide Patterns With Explicit Size Fuel</h2>
 <p><code>Rand.bosatsu</code> function <code>one_of</code> computes <code>len(items)</code> as a <code>BinNat</code>, then recurses on that size while splitting the list. This is the same termination proof idea as sorting: derive a bound, decrease it, recurse.</p>
 <h2><a href="#int-loops" name="int-loops" class="anchor"><span class="anchor-link"></span></a>Int Loops</h2>
-<p>Bosatsu supports direct recursion on <code>Int</code> when the checker can prove the next recursive argument is non-negative and strictly smaller on the recursive path. The standard library <code>int_loop</code> is implemented in Bosatsu using these checks.</p>
+<p>Bosatsu supports direct recursion on <code>Int</code> when the checker can prove the next recursive argument is non-negative and strictly smaller on the recursive path. A helper like <code>int_loop</code> can be implemented in Bosatsu using these checks.</p>
 <h2><a href="#relation-to-fuel-and-bove-capretta" name="relation-to-fuel-and-bove-capretta" class="anchor"><span class="anchor-link"></span></a>Relation To Fuel And Bove-Capretta</h2>
 <p>The design request for this page is tracked at <a href="https://github.com/johnynek/bosatsu/issues/410">https://github.com/johnynek/bosatsu/issues/410</a>.</p>
 <p>How that maps to Bosatsu practice:</p>
@@ -454,7 +454,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-866b4d75-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-0a2aea04-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
