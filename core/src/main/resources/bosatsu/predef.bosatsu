@@ -73,7 +73,6 @@ export (
   gcd_Int,
   implies,
   get_key,
-  int_loop,
   int_to_Char,
   int_to_String,
   length_List,
@@ -96,7 +95,6 @@ export (
   partition_String,
   rpartition_String,
   range,
-  range_fold,
   remove_key,
   replicate_List,
   reverse,
@@ -109,8 +107,6 @@ export (
   mul,
   mulf,
   trace,
-  uncurry2,
-  uncurry3,
   xor,
 )
 
@@ -243,17 +239,6 @@ def length_List(lst: List[a]) -> Int:
   loop(lst, 0)
 
 #############
-# Some utilities for dealing with functions
-#############
-
-def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
-  (x1, x2) -> f(x1)(x2)
-
-# Convert a curried 3-argument function into one that takes a tuple of 3 arguments.
-def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
-  (x1, x2, x3) -> f(x1)(x2)(x3)
-
-#############
 # Standardize notion of ordering
 #############
 enum Comparison:
@@ -325,21 +310,6 @@ external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 def eq_Float64(a: Float64, b: Float64) -> Bool:
   cmp_Float64(a, b) matches EQ
 
-# Loop until the returned Int is <= 0 or >= intValue.
-def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  loop intValue:
-    case _ if cmp_Int(intValue, 0) matches GT:
-      (next_i, next_state) = fn(intValue, state)
-      if cmp_Int(next_i, 0) matches GT:
-        if cmp_Int(next_i, intValue) matches LT:
-          int_loop(next_i, next_state, fn)
-        else:
-          next_state
-      else:
-        next_state
-    case _:
-      state
-
 # Repeat `item` `cnt` times.
 def replicate_List[a](item: a, cnt: Int) -> List[a]:
   def go(i: Int, acc: List[a]) -> List[a]:
@@ -362,18 +332,6 @@ def range(exclusiveUpper: Int) -> List[Int]:
         tail
 
   go(exclusiveUpper, [])
-
-# Fold over `[inclusiveLower, ..., exclusiveUpper - 1]`.
-def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
-  def go(diff0: Int, acc: a) -> a:
-    loop diff0:
-      case _ if cmp_Int(diff0, 0) matches GT:
-        idx = exclusiveUpper.sub(diff0)
-        go(diff0.sub(1), fn(acc, idx))
-      case _:
-        acc
-
-  go(exclusiveUpper.sub(inclusiveLower), init)
 
 #############
 # String functions
