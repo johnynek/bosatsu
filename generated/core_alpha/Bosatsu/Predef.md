@@ -39,12 +39,12 @@ github.base_url=
 [`eq_Comparison`](#value-eq-comparison), [`eq_Float64`](#value-eq-float64),
 [`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string), [`flat_map_List`](#value-flat-map-list),
 [`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
-[`get_key`](#value-get-key), [`int_loop`](#value-int-loop), [`int_to_Char`](#value-int-to-char),
-[`int_to_String`](#value-int-to-string), [`items`](#value-items),
-[`length_List`](#value-length-list), [`length_String`](#value-length-string),
-[`map_List`](#value-map-list), [`mod_Int`](#value-mod-int), [`mul`](#value-mul),
-[`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int), [`or`](#value-or),
-[`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
+[`get_key`](#value-get-key), [`implies`](#value-implies), [`int_loop`](#value-int-loop),
+[`int_to_Char`](#value-int-to-char), [`int_to_String`](#value-int-to-string),
+[`items`](#value-items), [`length_List`](#value-length-list),
+[`length_String`](#value-length-string), [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int),
+[`mul`](#value-mul), [`mulf`](#value-mulf), [`not`](#value-not), [`not_Int`](#value-not-int),
+[`or`](#value-or), [`or_Int`](#value-or-int), [`partition_String`](#value-partition-string),
 [`popcount_Int`](#value-popcount-int), [`range`](#value-range), [`range_fold`](#value-range-fold),
 [`remove_key`](#value-remove-key), [`replicate_List`](#value-replicate-list),
 [`reverse`](#value-reverse), [`reverse_concat`](#value-reverse-concat),
@@ -53,7 +53,7 @@ github.base_url=
 [`string_to_Int`](#value-string-to-int), [`sub`](#value-sub), [`subf`](#value-subf),
 [`tail_or_empty_String`](#value-tail-or-empty-string), [`trace`](#value-trace),
 [`uncons_String`](#value-uncons-string), [`uncurry2`](#value-uncurry2),
-[`uncurry3`](#value-uncurry3), [`xor_Int`](#value-xor-int)
+[`uncurry3`](#value-uncurry3), [`xor`](#value-xor), [`xor_Int`](#value-xor-int)
 
 ## Types
 
@@ -2601,6 +2601,18 @@ references: [`Dict`](#type-dict), [`Option`](#type-option)
 def get_key[a, b](dict: Dict[a, b], key: a) -> Option[b]
 ```
 
+<a id="value-implies"></a>
+
+### `implies`
+
+Boolean implication.
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def implies(x: Bool, y: Bool) -> Bool
+```
+
 <a id="value-int-loop"></a>
 
 ### `int_loop`
@@ -3009,6 +3021,18 @@ Convert a curried 3-argument function into one that takes a tuple of 3 arguments
 
 ```bosatsu
 def uncurry3[a, b, c, d](f: a -> b -> c -> d) -> (a, b, c) -> d
+```
+
+<a id="value-xor"></a>
+
+### `xor`
+
+Boolean exclusive or.
+
+references: [`Bool`](#type-bool)
+
+```bosatsu
+def xor(x: Bool, y: Bool) -> Bool
 ```
 
 <a id="value-xor-int"></a>
