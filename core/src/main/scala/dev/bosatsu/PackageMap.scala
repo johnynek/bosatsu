@@ -979,66 +979,6 @@ object PackageMap {
     )
   }
 
-  /** Internal cold-path helper for tests and source-sensitive compiler checks
-    * that still need Declaration-tagged packages after finish phases run.
-    */
-  private[bosatsu] def typeCheckParsedInferred[A: Show](
-      packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
-      ifs: List[Package.Interface],
-      predefKey: A,
-      compileOptions: CompileOptions
-  )(implicit
-      cpuEC: Par.EC
-  ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
-    import Par.F
-
-    val captured =
-      scala.collection.concurrent.TrieMap.empty[PackageName, Package.Inferred]
-    val defaultPhases = InferPhases.default
-    val capturePhases = new InferPhases {
-      val id: String = defaultPhases.id
-
-      def dependencyInterface(pack: Package.Typed[Any]): Package.Interface =
-        defaultPhases.dependencyInterface(pack)
-
-      def finishPackage(
-          pack: Package.Inferred,
-          depIfaces: SortedMap[PackageName, Package.Interface],
-          compileOptions: CompileOptions
-      ): Package.Inferred = {
-        val finished =
-          defaultPhases.finishPackage(pack, depIfaces, compileOptions)
-        captured.update(finished.name, finished)
-        finished
-      }
-    }
-
-    def toInferredMap(compiled: PackageMap.Compiled): PackageMap.Inferred =
-      PackageMap(
-        SortedMap.from(
-          compiled.toMap.keysIterator.map { name =>
-            name -> captured.getOrElse(
-              name,
-              sys.error(
-                s"invariant violation: missing captured inferred package for $name"
-              )
-            )
-          }
-        )
-      )
-
-    Par.await(
-      typeCheckParsed[F, A](
-        packs,
-        ifs,
-        predefKey,
-        compileOptions,
-        InferCache.noop[F],
-        capturePhases
-      )
-    ).map(toInferredMap)
-  }
-
   private def internalPredefCompileOptions(
       mode: CompileOptions.Mode
   ): CompileOptions =
