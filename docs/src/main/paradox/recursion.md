@@ -378,7 +378,7 @@ proof idea as sorting: derive a bound, decrease it, recurse.
 ## Int Loops
 Bosatsu supports direct recursion on `Int` when the checker can prove the next
 recursive argument is non-negative and strictly smaller on the recursive path.
-The standard library `int_loop` is implemented in Bosatsu using these checks.
+A helper like `int_loop` can be implemented in Bosatsu using these checks.
 
 ## Relation To Fuel And Bove-Capretta
 The design request for this page is tracked at

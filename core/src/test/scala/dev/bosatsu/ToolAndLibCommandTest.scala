@@ -1907,14 +1907,20 @@ class ToolAndLibCommandTest extends FunSuite {
 |  "\"${pad3(i)}\""
 |
 |def make_csv(n: Int) -> String:
-|  int_loop(n, "", (i, acc) ->
-|    part = quoted(i)
-|    next =
-|      if acc matches "":
-|        part
-|      else:
-|        "${part},${acc}"
-|    (i.sub(1), next))
+|  def go(i: Int, acc: String) -> String:
+|    loop i:
+|      case _ if cmp_Int(i, 0) matches GT:
+|        part = quoted(i)
+|        next =
+|          if acc matches "":
+|            part
+|          else:
+|            "${part},${acc}"
+|        go(i.sub(1), next)
+|      case _:
+|        acc
+|
+|  go(n, "")
 |
 |names_csv = make_csv(178)
 |computed = list_len(sort_names(parse_names(names_csv)), 0)
@@ -3885,9 +3891,7 @@ main = 1
           !indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"),
           predefDoc
         )
-        assert(predefDoc.contains("[`int_loop`](#value-int-loop)"), predefDoc)
         assert(predefDoc.contains("<a id=\"type-bool\"></a>"), predefDoc)
-        assert(predefDoc.contains("<a id=\"value-int-loop\"></a>"), predefDoc)
         assert(predefDoc.contains("type Dict[k: *, v: +*]"), predefDoc)
         assert(predefDoc.contains("type Int"), predefDoc)
         assert(!predefDoc.contains("type Int: *"), predefDoc)
@@ -3926,18 +3930,19 @@ main = 1
           ),
           predefDoc
         )
-        assert(
-          predefDoc.contains("returned Int is <= 0"),
-          predefDoc
-        )
-        assert(
-          predefDoc.contains("intValue"),
-          predefDoc
-        )
-        assert(predefDoc.contains("def int_loop[a]("), predefDoc)
-        assert(predefDoc.contains("intValue: Int"), predefDoc)
-        assert(predefDoc.contains("state: a"), predefDoc)
-        assert(predefDoc.contains("fn: (Int, a) -> (Int, a)"), predefDoc)
+        List(
+          "[`int_loop`](#value-int-loop)",
+          "[`range_fold`](#value-range-fold)",
+          "[`uncurry2`](#value-uncurry2)",
+          "[`uncurry3`](#value-uncurry3)",
+          "<a id=\"value-int-loop\"></a>",
+          "def int_loop",
+          "def range_fold",
+          "def uncurry2",
+          "def uncurry3"
+        ).foreach { removed =>
+          assert(!predefDoc.contains(removed), predefDoc)
+        }
         def containsAny(strs: List[String]): Boolean =
           strs.exists(predefDoc.contains)
         assert(

@@ -95,6 +95,20 @@ def operator >(a, b):
 
 operator - = sub
 
+def int_loop(i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      (next_i, next_state) = fn(i, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, i) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
+
 # given a maximum value, and a function to Option[Int], return
 # the maximum value of the function for inputs greater than 0
 # if the starting number is <= 0, we return None

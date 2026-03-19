@@ -568,6 +568,20 @@ main = pick
         |operator - = sub
         |operator * = mul
         |
+        |def int_loop(i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+        |  loop i:
+        |    case _ if cmp_Int(i, 0) matches GT:
+        |      (next_i, next_state) = fn(i, state)
+        |      if cmp_Int(next_i, 0) matches GT:
+        |        if cmp_Int(next_i, i) matches LT:
+        |          int_loop(next_i, next_state, fn)
+        |        else:
+        |          next_state
+        |      else:
+        |        next_state
+        |    case _:
+        |      state
+        |
         |def sum(fn, n):
         |  int_loop(n, 0, (i, r) ->
         |    i = i - 1
@@ -599,13 +613,13 @@ main = pick
         )
         assert(
           rendered.contains(
-            "___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,"
+            "___bsts_g_Euler_l_P6_l_int__loop(__bsts_b_n0,"
           )
         )
         val boxedLambda = "alloc_boxed_pure_fn2\\(__bsts_t_lambda\\d+\\)".r
         assert(boxedLambda.findFirstIn(rendered).nonEmpty)
         assert(
-          !rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop")
+          !rendered.contains("call_fn2(___bsts_g_Euler_l_P6_l_int__loop")
         )
     }
   }
