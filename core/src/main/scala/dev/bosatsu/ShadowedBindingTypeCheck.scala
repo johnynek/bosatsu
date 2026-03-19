@@ -210,7 +210,6 @@ object ShadowedBindingTypeCheck {
       lets: List[(Bindable, RecursionKind, TypedExpr[A])]
   ): Res[Unit] = {
     val _ = pack
-    val regionOf = (tag: A) => HasRegion.region(tag)
     lets.traverse_ { case (name, recursive, expr) =>
       val recursiveEnv =
         if (recursive.isRecursive) {
@@ -218,12 +217,12 @@ object ShadowedBindingTypeCheck {
           val top = BoundInfo(
             tpe = tpe,
             canonicalTpe = TypeContext.empty.canonicalize(tpe),
-            region = regionOf(expr.tag),
+            region = HasRegion.region(expr.tag),
             site = BindingSite.TopLevel
           )
           addBinding(Map.empty, name, top)
         } else Map.empty[Bindable, BoundInfo]
-      checkExpr(expr, recursiveEnv, TypeContext.empty, regionOf)
+      checkExpr(expr, recursiveEnv, TypeContext.empty, HasRegion.region[A])
     }
   }
 }

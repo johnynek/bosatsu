@@ -69,9 +69,6 @@ object HasRegion {
   given HasRegion[Region] =
     instance(identity)
 
-  given HasRegion[Unit] =
-    instance(_ => Region.empty)
-
   def region[T](t: T)(implicit hr: HasRegion[T]): Region =
     hr.region(t)
 }

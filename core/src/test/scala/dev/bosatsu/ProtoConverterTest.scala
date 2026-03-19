@@ -33,6 +33,57 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       length <- Gen.choose(0, 50)
     } yield Region(start, start + length)
 
+  private val genSmallInt: Gen[Int] =
+    Gen.choose(0, 20)
+
+  private val genCompiledPackageSource: Gen[String] = {
+    val genLiteralPackage =
+      genSmallInt.map { value =>
+        s"""package Proto/RoundTrip
+           |
+           |export main
+           |
+           |main = $value
+           |""".stripMargin
+      }
+
+    val genIdentityPackage =
+      genSmallInt.map { value =>
+        s"""package Proto/RoundTrip
+           |
+           |export main
+           |
+           |def id(x: Int) -> Int:
+           |  x
+           |
+           |main = id($value)
+           |""".stripMargin
+      }
+
+    val genMatchPackage =
+      for {
+        someValue <- genSmallInt
+        noneValue <- genSmallInt
+      } yield
+        s"""package Proto/RoundTrip
+           |
+           |export main
+           |
+           |def select(opt: Option[Int]) -> Int:
+           |  match opt:
+           |    case Some(v): v
+           |    case None: $noneValue
+           |
+           |main = select(Some($someValue))
+           |""".stripMargin
+
+    Gen.frequency(
+      (2, genLiteralPackage),
+      (2, genIdentityPackage),
+      (3, genMatchPackage)
+    )
+  }
+
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
     assert(maybeProto.isSuccess, maybeProto.toString)
@@ -419,6 +470,13 @@ bar = 1
         }
     }
 
+  property("compiled package roundtrip law holds for generated sources") {
+    forAll(genCompiledPackageSource) { source =>
+      val compiled = compilePackage(source)
+      assertEquals(roundTrip(compiled), compiled)
+    }
+  }
+
   test("compiled package roundtrip preserves typed-expression regions") {
     val source =
       """package Proto/Regions
@@ -475,7 +533,7 @@ bar = 1
   }
 
   test("packagesFromProto accepts interface/package name overlap") {
-    forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
+    forAll(Generators.genPackage(genRegion, 5)) { packMap =>
       val packs = packMap.values.toList
       val ifaces = packs.map(Package.interfaceOf(_))
       val res = for {
