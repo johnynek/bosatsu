@@ -2114,7 +2114,7 @@ object PackageError {
   case class UnusedLets(
       inPack: PackageName,
       unusedLets: NonEmptyList[
-        (Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)
+        (Identifier.Bindable, RecursionKind, Region)
       ]
   ) extends PackageError {
     def message(
@@ -2123,7 +2123,7 @@ object PackageError {
     ) =
       unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) },
+        unusedLets.map { case (b, _, r) => (b, r) },
         sourceMap,
         errColor,
         if (unusedLets.tail.isEmpty) {

@@ -38,16 +38,42 @@ object PackageCustoms {
     }
 
   // Replay only the postponable customs on successful packages so cache hits
-  // surface the same lint diagnostics as cache misses.
-  def lintDiagnostics[A: HasRegion](
-      pack: Package.Typed[A],
-      sourceStatements: Option[List[Statement]] = None
+  // surface the same lint diagnostics as cache misses. Use the source-level
+  // lets/import graph here so optimized cached packages do not change the
+  // lint set by dropping unused private top levels.
+  def lintDiagnosticsFromSource(
+      pack: Package.Inferred,
+      sourceImports: List[
+        Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+      ],
+      sourceExports: List[ExportedName[Unit]],
+      sourceProgram: Program[?, Expr[Declaration], List[Statement]]
   ): List[PackageError] =
     (
-      errorsOf(noUselessBinds(pack, sourceStatements)) :::
-        errorsOf(allImportsAreUsed(pack).void)
-    )
-      .filter(PackageError.isPostponable)
+      errorsOf(
+        checkExprDagBindables(
+          pack.name,
+          sourceImports,
+          sourceExports,
+          sourceProgram.lets,
+          sourceProgram.externalDefs
+        )
+      ) :::
+        errorsOf(
+          noUselessBindsFromLets(
+            pack.name,
+            sourceExports,
+            sourceProgram.lets,
+            sourceProgram.from,
+            Package.testRootBindables(pack),
+            Package.mainValue(pack).map(_._1),
+            expr =>
+              usedGlobalsExpr(expr).collect {
+                case (pn, i: Bindable) if pn == pack.name => i
+              }
+          )
+        )
+    ).filter(PackageError.isPostponable)
 
   /** Build the exports and check the customs, and then return the Typed package
     */
@@ -402,83 +428,43 @@ object PackageCustoms {
     }
   }
 
-  private def noUselessBinds[A: HasRegion](
-      pack: Package.Typed[A],
-      sourceStatements: Option[List[Statement]]
+  private def noUselessBindsFromLets[A: HasRegion](
+      packName: PackageName,
+      exports: List[ExportedName[?]],
+      lets: List[(Bindable, RecursionKind, A)],
+      sourceStmts: List[Statement],
+      testRoots: Set[Bindable],
+      mainRoot: Option[Bindable],
+      internalDeps: A => Set[Bindable]
   ): ValidatedNec[PackageError, Unit] = {
-    type Node = Either[pack.exports.type, Bindable]
-    implicit val ordNode: Ordering[Node] =
-      new Ordering[Node] {
-        def compare(x: Node, y: Node): Int =
-          x match {
-            case Right(bx) =>
-              y match {
-                case Left(_)   => 1
-                case Right(by) =>
-                  Ordering[Identifier].compare(bx, by)
-              }
-            case Left(_) =>
-              y match {
-                case Left(_)  => 0
-                case Right(_) => -1
-              }
-          }
-      }
-
-    val exports: Node = Left(pack.exports)
-    val sourceStmts: List[Statement] =
-      sourceStatements.getOrElse {
-        pack.program._1.from match {
-          case stmts: List[?] =>
-            stmts.collect { case stmt: Statement => stmt }
-          case _              =>
-            Nil
-        }
-      }
+    val exportedBindings =
+      exports.collect { case ExportedName.Binding(name, _) => name }
     val nonBindingUses: List[Node] =
       sourceStmts.iterator
         .collect {
           case Statement.Bind(BindingStatement(bound, decl, _))
               if bound.names.isEmpty =>
-            decl.freeVars.iterator.map(Right(_))
+            decl.freeVars.iterator
         }
         .flatten
         .toList
 
-    val roots: List[Node] =
-      (exports ::
-        Package.testRootBindables(pack).iterator.map(Right(_)).toList :::
-        Package
-          .mainValue(pack)
-          .map { case (b, _, _) => Right(b) }
-          .toList :::
+    val roots: List[Bindable] =
+      (exportedBindings :::
+        testRoots.toList :::
+        mainRoot.toList :::
         nonBindingUses).distinct
 
-    val bindMap: Map[Bindable, TypedExpr[A]] =
-      pack.program._1.lets.iterator.map { case (b, _, te) => (b, te) }.toMap
+    val bindMap: Map[Bindable, A] =
+      lets.iterator.map { case (b, _, te) => (b, te) }.toMap
 
-    def internalDeps(te: TypedExpr[A]): Set[Bindable] =
-      TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
-        case (pn, i: Identifier.Bindable) if pn == pack.name => i
-      }
+    val canReach: Set[Bindable] =
+      Dag.transitiveSet(roots)(value =>
+        bindMap.get(value).iterator.flatMap(internalDeps).toList
+      )
 
-    def depsOf(n: Node): Iterable[Node] =
-      n match {
-        case Left(_) =>
-          pack.exports.flatMap {
-            case ExportedName.Binding(n, _) => Right(n) :: Nil
-            case _                          => Nil
-          }
-        case Right(value) =>
-          bindMap.get(value) match {
-            case None     => Nil
-            case Some(te) => internalDeps(te).map(Right(_))
-          }
-      }
-    val canReach: SortedSet[Node] = Dag.transitiveSet(roots)(depsOf)
-
-    val unused = pack.lets.filter { case (bn, _, _) =>
-      !Identifier.isSynthetic(bn) && !canReach.contains(Right(bn))
+    val unused = lets.filter { case (bn, _, _) =>
+      !Identifier.isSynthetic(bn) && !canReach(bn)
     }
 
     val statementRegions: Map[Bindable, Region] =
@@ -494,13 +480,43 @@ object PackageCustoms {
       case Some(value) =>
         Validated.invalidNec(
           PackageError.UnusedLets(
-            pack.name,
+            packName,
             value.map { case (b, r, te) =>
               val region = statementRegions.getOrElse(b, HasRegion.region(te))
-              (b, r, te, region)
+              (b, r, region)
             }
           )
         )
     }
+  }
+
+  private type Node = Bindable
+
+  private def noUselessBinds[A: HasRegion](
+      pack: Package.Typed[A],
+      sourceStatements: Option[List[Statement]]
+  ): ValidatedNec[PackageError, Unit] = {
+    val sourceStmts: List[Statement] =
+      sourceStatements.getOrElse {
+        pack.program._1.from match {
+          case stmts: List[?] =>
+            stmts.collect { case stmt: Statement => stmt }
+          case _              =>
+            Nil
+        }
+      }
+
+    noUselessBindsFromLets(
+      pack.name,
+      pack.exports,
+      pack.lets,
+      sourceStmts,
+      Package.testRootBindables(pack),
+      Package.mainValue(pack).map(_._1),
+      te =>
+        TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
+          case (pn, i: Identifier.Bindable) if pn == pack.name => i
+        }
+    )
   }
 }

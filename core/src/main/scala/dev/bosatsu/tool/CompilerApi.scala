@@ -29,46 +29,69 @@ import scala.util.control.NonFatal
 import cats.syntax.all._
 
 object CompilerApi {
-  private final case class DiagnosticCategory(
-      singularLabel: String,
-      pluralLabel: String,
-      order: Int
-  )
-  private object DiagnosticCategory {
-    val UnusedValue =
-      DiagnosticCategory("unused value", "unused values", 0)
-    val TypeError =
-      DiagnosticCategory("type error", "type errors", 1)
-    val RecursionError =
-      DiagnosticCategory("recursion error", "recursion errors", 2)
-    val TotalityError =
-      DiagnosticCategory("totality error", "totality errors", 3)
-    val SourceConversionError =
-      DiagnosticCategory("source conversion error", "source conversion errors", 4)
-    val ImportError =
-      DiagnosticCategory("import error", "import errors", 5)
-    val PackageError =
-      DiagnosticCategory("package error", "package errors", 6)
-
-    val ShadowedBinding =
-      DiagnosticCategory("shadowed binding", "shadowed bindings", 1)
-    val UnreachableBranch =
-      DiagnosticCategory("unreachable branch", "unreachable branches", 2)
-    val UnusedImport =
-      DiagnosticCategory("unused import", "unused imports", 3)
-  }
-
   private enum DiagnosticKind derives CanEqual {
     case Error
     case Warning
   }
 
-  private final case class RenderedDiagnostic(
-      category: DiagnosticCategory,
+  private enum ErrorCategory(
+      val singularLabel: String,
+      val pluralLabel: String,
+      val order: Int
+  ) {
+    // Errors and lint render in separate blocks, so each block gets its own
+    // category ordering instead of trying to share a single cross-kind index.
+    case UnusedValue
+        extends ErrorCategory("unused value", "unused values", 0)
+    case TypeError extends ErrorCategory("type error", "type errors", 1)
+    case RecursionError
+        extends ErrorCategory("recursion error", "recursion errors", 2)
+    case TotalityError
+        extends ErrorCategory("totality error", "totality errors", 3)
+    case SourceConversionError
+        extends ErrorCategory(
+          "source conversion error",
+          "source conversion errors",
+          4
+        )
+    case ImportError extends ErrorCategory("import error", "import errors", 5)
+    case PackageError
+        extends ErrorCategory("package error", "package errors", 6)
+  }
+
+  private enum LintCategory(
+      val singularLabel: String,
+      val pluralLabel: String,
+      val order: Int
+  ) {
+    case UnusedValue
+        extends LintCategory("unused value", "unused values", 0)
+    case ShadowedBinding
+        extends LintCategory("shadowed binding", "shadowed bindings", 1)
+    case UnreachableBranch
+        extends LintCategory("unreachable branch", "unreachable branches", 2)
+    case UnusedImport extends LintCategory("unused import", "unused imports", 3)
+  }
+
+  private sealed trait RenderedDiagnostic {
+    def title: String
+    def summaryCount: Int
+    def body: Doc
+  }
+
+  private final case class RenderedError(
+      category: ErrorCategory,
       title: String,
       summaryCount: Int,
       body: Doc
-  )
+  ) extends RenderedDiagnostic
+
+  private final case class RenderedLint(
+      category: LintCategory,
+      title: String,
+      summaryCount: Int,
+      body: Doc
+  ) extends RenderedDiagnostic
 
   private final case class TypeCheckDiagnostics[Path](
       packages: Option[PackageMap.Inferred],
@@ -87,11 +110,12 @@ object CompilerApi {
     if (count == 1) s"1 $singular" else s"$count $plural"
 
   private def formatDiagnosticTitle(
-      category: DiagnosticCategory,
+      singularLabel: String,
+      pluralLabel: String,
       count: Int
   ): String =
-    if (count == 1) category.singularLabel
-    else s"$count ${category.pluralLabel}"
+    if (count == 1) singularLabel
+    else s"$count $pluralLabel"
 
   private def typeErrorCount(err: PackageError.TypeErrorIn): Int =
     err.tpeErr match {
@@ -102,135 +126,159 @@ object CompilerApi {
   private def classifyError(
       err: PackageError,
       body: Doc
-  ): RenderedDiagnostic =
+  ): RenderedError =
     err match {
       case e: PackageError.UnusedLetError =>
         val count = e.errs.length
         val title =
           if (count == 1) s"unused value '${e.errs.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(DiagnosticCategory.UnusedValue, title, count, body)
+        RenderedError(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
           if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(DiagnosticCategory.UnusedValue, title, count, body)
+        RenderedError(ErrorCategory.UnusedValue, title, count, body)
       case e: PackageError.TypeErrorIn =>
         val count = typeErrorCount(e)
-        RenderedDiagnostic(
-          DiagnosticCategory.TypeError,
-          formatDiagnosticTitle(DiagnosticCategory.TypeError, count),
+        RenderedError(
+          ErrorCategory.TypeError,
+          formatDiagnosticTitle(
+            ErrorCategory.TypeError.singularLabel,
+            ErrorCategory.TypeError.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case _: PackageError.KindInferenceError =>
-        RenderedDiagnostic(
-          DiagnosticCategory.TypeError,
+        RenderedError(
+          ErrorCategory.TypeError,
           "type error",
           1,
           body
         )
       case _: PackageError.ShadowedBindingTypeError =>
-        RenderedDiagnostic(
-          DiagnosticCategory.TypeError,
+        RenderedError(
+          ErrorCategory.TypeError,
           "type error",
           1,
           body
         )
       case _: PackageError.PrivateTypeEscape[?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.TypeError,
+        RenderedError(
+          ErrorCategory.TypeError,
           "type error",
           1,
           body
         )
       case _: PackageError.RecursionError =>
-        RenderedDiagnostic(
-          DiagnosticCategory.RecursionError,
+        RenderedError(
+          ErrorCategory.RecursionError,
           "recursion error",
           1,
           body
         )
       case _: PackageError.TotalityCheckError =>
-        RenderedDiagnostic(
-          DiagnosticCategory.TotalityError,
+        RenderedError(
+          ErrorCategory.TotalityError,
           "totality error",
           1,
           body
         )
       case e: PackageError.SourceConverterErrorsIn =>
         val count = e.errs.length
-        RenderedDiagnostic(
-          DiagnosticCategory.SourceConversionError,
-          formatDiagnosticTitle(DiagnosticCategory.SourceConversionError, count),
+        RenderedError(
+          ErrorCategory.SourceConversionError,
+          formatDiagnosticTitle(
+            ErrorCategory.SourceConversionError.singularLabel,
+            ErrorCategory.SourceConversionError.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case e: PackageError.UnusedImport =>
         val count = e.badImports.length
-        RenderedDiagnostic(
-          DiagnosticCategory.ImportError,
-          formatDiagnosticTitle(DiagnosticCategory.ImportError, count),
+        RenderedError(
+          ErrorCategory.ImportError,
+          formatDiagnosticTitle(
+            ErrorCategory.ImportError.singularLabel,
+            ErrorCategory.ImportError.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case e: PackageError.DuplicatedImport =>
         val count = e.duplicates.length
-        RenderedDiagnostic(
-          DiagnosticCategory.ImportError,
-          formatDiagnosticTitle(DiagnosticCategory.ImportError, count),
+        RenderedError(
+          ErrorCategory.ImportError,
+          formatDiagnosticTitle(
+            ErrorCategory.ImportError.singularLabel,
+            ErrorCategory.ImportError.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case _: PackageError.UnknownImportPackage[?, ?, ?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.ImportError,
+        RenderedError(
+          ErrorCategory.ImportError,
           "import error",
           1,
           body
         )
       case _: PackageError.UnknownImportName[?, ?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.ImportError,
+        RenderedError(
+          ErrorCategory.ImportError,
           "import error",
           1,
           body
         )
       case _: PackageError.UnknownImportFromInterface[?, ?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.ImportError,
+        RenderedError(
+          ErrorCategory.ImportError,
           "import error",
           1,
           body
         )
       case _: PackageError.UnknownExport[?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.PackageError,
+        RenderedError(
+          ErrorCategory.PackageError,
           "package error",
           1,
           body
         )
       case _: PackageError.CircularDependency[?, ?, ?] =>
-        RenderedDiagnostic(
-          DiagnosticCategory.PackageError,
+        RenderedError(
+          ErrorCategory.PackageError,
           "package error",
           1,
           body
         )
       case e: PackageError.VarianceInferenceFailure =>
         val count = e.failed.length
-        RenderedDiagnostic(
-          DiagnosticCategory.PackageError,
-          formatDiagnosticTitle(DiagnosticCategory.PackageError, count),
+        RenderedError(
+          ErrorCategory.PackageError,
+          formatDiagnosticTitle(
+            ErrorCategory.PackageError.singularLabel,
+            ErrorCategory.PackageError.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case e: PackageError.DuplicatedPackageError =>
         val count = e.dups.length
-        RenderedDiagnostic(
-          DiagnosticCategory.PackageError,
-          formatDiagnosticTitle(DiagnosticCategory.PackageError, count),
+        RenderedError(
+          ErrorCategory.PackageError,
+          formatDiagnosticTitle(
+            ErrorCategory.PackageError.singularLabel,
+            ErrorCategory.PackageError.pluralLabel,
+            count
+          ),
           count,
           body
         )
@@ -239,31 +287,35 @@ object CompilerApi {
   private def classifyWarning(
       err: PackageError,
       body: Doc
-  ): RenderedDiagnostic =
+  ): RenderedLint =
     err match {
       case e: PackageError.UnusedLetError =>
         val count = e.errs.length
         val title =
           if (count == 1) s"unused value '${e.errs.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(DiagnosticCategory.UnusedValue, title, count, body)
+        RenderedLint(LintCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedLets =>
         val count = e.unusedLets.length
         val title =
           if (count == 1) s"unused value '${e.unusedLets.head._1.sourceCodeRepr}'"
           else s"$count unused values"
-        RenderedDiagnostic(DiagnosticCategory.UnusedValue, title, count, body)
+        RenderedLint(LintCategory.UnusedValue, title, count, body)
       case e: PackageError.UnusedImport =>
         val count = e.badImports.length
-        RenderedDiagnostic(
-          DiagnosticCategory.UnusedImport,
-          formatDiagnosticTitle(DiagnosticCategory.UnusedImport, count),
+        RenderedLint(
+          LintCategory.UnusedImport,
+          formatDiagnosticTitle(
+            LintCategory.UnusedImport.singularLabel,
+            LintCategory.UnusedImport.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case e: PackageError.ShadowedBindingTypeError =>
-        RenderedDiagnostic(
-          DiagnosticCategory.ShadowedBinding,
+        RenderedLint(
+          LintCategory.ShadowedBinding,
           s"shadowed binding '${e.err.name.sourceCodeRepr}' changes type",
           1,
           body
@@ -273,24 +325,18 @@ object CompilerApi {
             TotalityCheck.UnreachableBranches(_, branches)
           ) =>
         val count = branches.length
-        RenderedDiagnostic(
-          DiagnosticCategory.UnreachableBranch,
-          formatDiagnosticTitle(DiagnosticCategory.UnreachableBranch, count),
+        RenderedLint(
+          LintCategory.UnreachableBranch,
+          formatDiagnosticTitle(
+            LintCategory.UnreachableBranch.singularLabel,
+            LintCategory.UnreachableBranch.pluralLabel,
+            count
+          ),
           count,
           body
         )
       case _ =>
-        classifyError(err, body)
-    }
-
-  private def classifyDiagnostic(
-      err: PackageError,
-      body: Doc,
-      kind: DiagnosticKind
-  ): RenderedDiagnostic =
-    kind match {
-      case DiagnosticKind.Error   => classifyError(err, body)
-      case DiagnosticKind.Warning => classifyWarning(err, body)
+        sys.error(s"unexpected non-lint warning: $err")
     }
 
   private def renderDiagnostic(
@@ -300,9 +346,8 @@ object CompilerApi {
     Doc.text(s"$idx. ${diagnostic.title}") +
       (Doc.hardLine + diagnostic.body).nested(2)
 
-  private def renderDiagnosticSummary(
-      diagnostics: List[RenderedDiagnostic],
-      kind: DiagnosticKind
+  private def renderErrorSummary(
+      diagnostics: List[RenderedError]
   ): Doc = {
     val grouped = diagnostics
       .groupMapReduce(_.category)(_.summaryCount)(_ + _)
@@ -313,19 +358,30 @@ object CompilerApi {
       Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
     }
     val summaryWord =
-      kind match {
-        case DiagnosticKind.Error =>
-          if (totalDiagnostics == 1) "error" else "errors"
-        case DiagnosticKind.Warning =>
-          if (totalDiagnostics == 1) "warning" else "warnings"
-      }
+      if (totalDiagnostics == 1) "error" else "errors"
     Doc.text(s"$totalDiagnostics $summaryWord: ") +
       Doc.intercalate(Doc.text(", "), parts)
   }
 
-  private def renderMultiDiagnosticMessage(
-      diagnostics: List[RenderedDiagnostic],
-      kind: DiagnosticKind
+  private def renderLintSummary(
+      diagnostics: List[RenderedLint]
+  ): Doc = {
+    val grouped = diagnostics
+      .groupMapReduce(_.category)(_.summaryCount)(_ + _)
+      .toList
+      .sortBy { case (category, _) => category.order }
+    val totalDiagnostics = grouped.iterator.map(_._2).sum
+    val parts = grouped.map { case (category, count) =>
+      Doc.text(pluralizedLabel(count, category.singularLabel, category.pluralLabel))
+    }
+    val summaryWord =
+      if (totalDiagnostics == 1) "warning" else "warnings"
+    Doc.text(s"$totalDiagnostics $summaryWord: ") +
+      Doc.intercalate(Doc.text(", "), parts)
+  }
+
+  private def renderMultiErrorMessage(
+      diagnostics: List[RenderedError]
   ): Doc = {
     val divider = "-" * 72
     val dividerDoc = Doc.text(divider)
@@ -335,7 +391,22 @@ object CompilerApi {
       renderDiagnostic(idx + 1, diag)
     }
     val entriesDoc = Doc.intercalate(entrySeparator, entries)
-    val summaryDoc = renderDiagnosticSummary(diagnostics, kind)
+    val summaryDoc = renderErrorSummary(diagnostics)
+    entriesDoc + Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + summaryDoc
+  }
+
+  private def renderMultiWarningMessage(
+      diagnostics: List[RenderedLint]
+  ): Doc = {
+    val divider = "-" * 72
+    val dividerDoc = Doc.text(divider)
+    val entrySeparator =
+      Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + Doc.hardLine
+    val entries = diagnostics.zipWithIndex.map { case (diag, idx) =>
+      renderDiagnostic(idx + 1, diag)
+    }
+    val entriesDoc = Doc.intercalate(entrySeparator, entries)
+    val summaryDoc = renderLintSummary(diagnostics)
     entriesDoc + Doc.hardLine + Doc.hardLine + dividerDoc + Doc.hardLine + summaryDoc
   }
 
@@ -350,9 +421,6 @@ object CompilerApi {
       case Validated.Invalid(errs) =>
         platformIO.moduleIOMonad.raiseError(ParseErrors(errs, color))
     }
-
-  private def distinctErrors(errors: List[PackageError]): List[PackageError] =
-    errors.distinct
 
   private def partitionDiagnostics(
       errors: List[PackageError]
@@ -446,25 +514,39 @@ object CompilerApi {
     // Cached inferred packages can drop the source-level statement/region
     // detail needed for unused-let replay, so reusing the parsed source here
     // keeps warm-cache warnings aligned with cold compiles.
-    val customs =
-      PackageCustoms.lintDiagnostics(pack, Some(parsed.program))
+    val sourceImports = pack.imports
+    val resolvedImports =
+      sourceImports.map(imp => imp.copy(pack = imp.pack.name))
 
-    val unusedLets =
-      SourceConverter
-        .toProgram(
-          parsed.name,
-          pack.imports.map(imp => imp.copy(pack = imp.pack.name)),
-          parsed.program
-        ) match {
-        case Ior.Left(_)         =>
-          Nil
-        case Ior.Right(program0) =>
-          replayUnusedLets(parsed.name, program0.lets)
-        case Ior.Both(_, program0) =>
-          replayUnusedLets(parsed.name, program0.lets)
-      }
-
-    (customs ::: unusedLets).filter(PackageError.isPostponable)
+    SourceConverter
+      .toProgram(
+        parsed.name,
+        resolvedImports,
+        parsed.program
+      ) match {
+      case Ior.Left(_)         =>
+        Nil
+      case Ior.Right(program0) =>
+        (
+          PackageCustoms.lintDiagnosticsFromSource(
+            pack,
+            sourceImports,
+            parsed.exports,
+            program0
+          ) :::
+            replayUnusedLets(parsed.name, program0.lets)
+        ).filter(PackageError.isPostponable)
+      case Ior.Both(_, program0) =>
+        (
+          PackageCustoms.lintDiagnosticsFromSource(
+            pack,
+            sourceImports,
+            parsed.exports,
+            program0
+          ) :::
+            replayUnusedLets(parsed.name, program0.lets)
+        ).filter(PackageError.isPostponable)
+    }
   }
 
   private def replayLintDiagnostics[IO[_], Path](
@@ -496,28 +578,59 @@ object CompilerApi {
       .map(_.flatten)
   }
 
+  private def phasesForLintMode(
+      lintMode: LintMode
+  ): InferPhases = {
+    val base = InferPhases.default
+    // Cache the strict and relaxed lint modes separately even though they share
+    // the same finishPackage steps. Strict runs must not reuse artifacts that
+    // only existed because warn/lax allowed postponable diagnostics through.
+    new InferPhases {
+      val id: String =
+        s"${base.id}:lint:${lintMode.toString.toLowerCase}"
+
+      def dependencyInterface(pack: Package.Inferred): Package.Interface =
+        base.dependencyInterface(pack)
+
+      def finishPackage(
+          pack: Package.Inferred,
+          depIfaces: scala.collection.immutable.SortedMap[
+            dev.bosatsu.PackageName,
+            Package.Interface
+          ],
+          compileOptions: CompileOptions
+      ): Package.Inferred =
+        base.finishPackage(pack, depIfaces, compileOptions)
+    }
+  }
+
   private def diagnosticDoc(
       sourceMap: PackageMap.SourceMap,
       diagnostics: NonEmptyList[PackageError],
       color: Colorize,
       kind: DiagnosticKind
-  ): Doc = {
-    val rendered = diagnostics.toList.distinct
-      .map { err =>
-        val message = err.message(sourceMap, color)
-        classifyDiagnostic(err, Doc.text(message), kind)
-      }
-
+  ): Doc =
     kind match {
       case DiagnosticKind.Error =>
+        val rendered = diagnostics.toList.distinct
+          .map { err =>
+            val message = err.message(sourceMap, color)
+            classifyError(err, Doc.text(message))
+          }
+
         rendered match {
           case one :: Nil => one.body
-          case many       => renderMultiDiagnosticMessage(many, kind)
+          case many       => renderMultiErrorMessage(many)
         }
       case DiagnosticKind.Warning =>
-        renderMultiDiagnosticMessage(rendered, kind)
+        val rendered = diagnostics.toList.distinct
+          .map { err =>
+            val message = err.message(sourceMap, color)
+            classifyWarning(err, Doc.text(message))
+          }
+
+        renderMultiWarningMessage(rendered)
     }
-  }
 
   private def WarningDoc(
       sourceMap: PackageMap.SourceMap,
@@ -533,6 +646,7 @@ object CompilerApi {
       errColor: Colorize,
       packRes: PackageResolver[IO, Path],
       compileOptions: CompileOptions,
+      lintMode: LintMode,
       replaySuccessfulLint: Boolean,
       compileCacheDirOpt: Option[Path]
   )(implicit
@@ -559,7 +673,7 @@ object CompilerApi {
         "predef",
         compileOptions,
         cache,
-        InferPhases.default
+        phasesForLintMode(lintMode)
       )
       _ <- cache.statsSnapshot.traverse_(platformIO.println)
       sourceMap = PackageMap.buildSourceMapFromSources(sources)
@@ -576,7 +690,7 @@ object CompilerApi {
         compiled match {
           case Some(_) if !replaySuccessfulLint =>
             moduleIOMonad.pure(Nil)
-          case Some(packs) if hardDiagnostics0.isEmpty =>
+          case Some(packs) =>
             replayLintDiagnostics(
               platformIO,
               sourceFiles,
@@ -588,10 +702,10 @@ object CompilerApi {
             moduleIOMonad.pure(Nil)
         }
       lintDiagnostics =
-        distinctErrors(replayedLintDiagnostics ::: compileLintDiagnostics)
-      hardDiagnostics = distinctErrors(hardDiagnostics0)
+        (replayedLintDiagnostics ::: compileLintDiagnostics).distinct
+      hardDiagnostics = hardDiagnostics0.distinct
       orderedDiagnostics =
-        if (hardDiagnostics.nonEmpty) distinctErrors(compileDiagnostics)
+        if (hardDiagnostics.nonEmpty) compileDiagnostics.distinct
         else lintDiagnostics
     } yield TypeCheckDiagnostics(
       packages = compiled,
@@ -674,6 +788,7 @@ object CompilerApi {
         errColor,
         packRes,
         compileOptions,
+        LintMode.Strict,
         replaySuccessfulLint = false,
         compileCacheDirOpt
       )
@@ -750,6 +865,7 @@ object CompilerApi {
         errColor,
         packRes,
         compileOptions,
+        lintMode,
         replaySuccessfulLint = true,
         compileCacheDirOpt
       )

@@ -426,7 +426,7 @@ object Command {
         .orElse(Opts(defaultDirFn))
     }
 
-    val lintModeOpt: Opts[LintMode] =
+    val lintMode: Opts[LintMode] =
       Opts
         .flag(
           "warn",
@@ -621,7 +621,7 @@ object Command {
             colorize: Colorize,
             sourcePackageFilter: Option[PackageName => Boolean] = None,
             compileOptions: CompileOptions,
-            lintMode: Option[LintMode] = None,
+            lintMode: LintMode,
             compileCacheDirOpt: Option[P] = None
         ): F[PackageMap.Inferred] =
           PathGen
@@ -675,35 +675,19 @@ object Command {
                   case Some(inputNel) =>
                     platformIO
                       .withEC {
-                        lintMode match {
-                          case Some(mode) =>
-                            CompilerApi.typeCheckWithLintMode(
-                              platformIO,
-                              inputNel,
-                              pubDecodes.flatMap(_.interfaces) ::: privDecodes
-                                .flatMap(
-                                  _.interfaces
-                                ),
-                              colorize,
-                              inputRes,
-                              compileOptions,
-                              mode,
-                              compileCacheDirOpt
-                            )
-                          case None       =>
-                            CompilerApi.typeCheck(
-                              platformIO,
-                              inputNel,
-                              pubDecodes.flatMap(_.interfaces) ::: privDecodes
-                                .flatMap(
-                                  _.interfaces
-                                ),
-                              colorize,
-                              inputRes,
-                              compileOptions,
-                              compileCacheDirOpt
-                            )
-                        }
+                        CompilerApi.typeCheckWithLintMode(
+                          platformIO,
+                          inputNel,
+                          pubDecodes.flatMap(_.interfaces) ::: privDecodes
+                            .flatMap(
+                              _.interfaces
+                            ),
+                          colorize,
+                          inputRes,
+                          compileOptions,
+                          lintMode,
+                          compileCacheDirOpt
+                        )
                       }
                       .map(_._1)
                   case None =>
@@ -851,7 +835,7 @@ object Command {
           colorize: Colorize,
           sourcePackageFilter: Option[PackageName => Boolean] = None,
           compileOptions: CompileOptions,
-          lintMode: Option[LintMode] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[LibConfig.ValidationResult] =
         for {
@@ -882,7 +866,7 @@ object Command {
       def decodedWithDeps(
           colorize: Colorize,
           compileOptions: CompileOptions,
-          lintMode: Option[LintMode] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -913,7 +897,7 @@ object Command {
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
           compileOptions: CompileOptions,
-          lintMode: Option[LintMode] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -987,7 +971,7 @@ object Command {
       def decodedWithDepsFilteredForTest(
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
-          lintMode: Option[LintMode] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         decodedWithDepsFiltered(
@@ -1002,7 +986,7 @@ object Command {
           colorize: Colorize,
           trans: Transpiler.Optioned[F, P],
           sourcePackageFilter: Option[PackageName => Boolean] = None,
-          lintMode: Option[LintMode] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[Doc] =
         for {
@@ -1041,6 +1025,7 @@ object Command {
             colorize,
             None,
             CompileOptions.Default,
+            LintMode.Strict,
             compileCacheDirOpt = compileCacheDirOpt
           )
           validated = conf.assemble(
@@ -1643,7 +1628,7 @@ object Command {
         (
           ConfigConf.opts,
           sourceFilterOpt,
-          lintModeOpt,
+          lintMode,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
         ).mapN { (fcc, sourceFilter, lintMode, cacheDirFn, colorize) =>
@@ -1654,7 +1639,7 @@ object Command {
                 colorize,
                 sourceFilter,
                 CompileOptions.TypeCheckOnly,
-                Some(lintMode),
+                lintMode,
                 cacheDir
               )
               msg = Doc.text("")
@@ -1780,6 +1765,7 @@ object Command {
                   colorize,
                   sourcePackageFilter,
                   CompileOptions.Default,
+                  LintMode.Strict,
                   compileCacheDirOpt = cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
@@ -1923,6 +1909,7 @@ object Command {
                     cc.decodedWithDeps(
                       colorize,
                       compileOptions,
+                      LintMode.Strict,
                       compileCacheDirOpt = cacheDir
                     )
                   case Some(sourceFilter) =>
@@ -1930,6 +1917,7 @@ object Command {
                       colorize,
                       sourceFilter,
                       compileOptions,
+                      LintMode.Strict,
                       compileCacheDirOpt = cacheDir
                     )
                 }
@@ -2180,6 +2168,7 @@ object Command {
                 dec <- cc.decodedWithDeps(
                   colorize,
                   CompileOptions.Default,
+                  LintMode.Strict,
                   compileCacheDirOpt = cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
@@ -2478,6 +2467,7 @@ object Command {
                 msg <- cc.build(
                   colorize,
                   trans,
+                  lintMode = LintMode.Strict,
                   compileCacheDirOpt = cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])
@@ -2537,7 +2527,7 @@ object Command {
             ConfigConf.opts,
             // we want to run the test after generating it
             ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
-            lintModeOpt,
+            lintMode,
             clangOut,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts,
@@ -2598,7 +2588,7 @@ object Command {
                   colorize,
                   trans,
                   test.sourceFilter,
-                  Some(lintMode),
+                  lintMode,
                   cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])

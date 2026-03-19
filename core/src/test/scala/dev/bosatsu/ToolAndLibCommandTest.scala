@@ -2,13 +2,22 @@ package dev.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eval
-import cats.data.Chain
+import cats.data.{Chain, NonEmptyList}
 import cats.implicits._
 import dev.bosatsu.edn.Edn
 import dev.bosatsu.hashing.{Algo, Hashed}
 import dev.bosatsu.library.{LibConfig, Libraries, Name, Version}
 import dev.bosatsu.LocationMap.Colorize
-import dev.bosatsu.tool.{CliException, ExitCode, GraphOutput, Output, ShowEdn}
+import dev.bosatsu.tool.{
+  CliException,
+  CompilerApi,
+  ExitCode,
+  GraphOutput,
+  LintMode,
+  Output,
+  PackageResolver,
+  ShowEdn
+}
 import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.charset.StandardCharsets
 import munit.FunSuite
@@ -17,6 +26,7 @@ import scala.collection.immutable.SortedMap
 
 class ToolAndLibCommandTest extends FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
+  private type StateIO[A] = MemoryMain.StateF[ErrorOr][A]
   private val module = MemoryMain[ErrorOr]
   private val validHash1 = "blake3:" + ("1" * 64)
   private val validHash2 = "blake3:" + ("2" * 64)
@@ -210,6 +220,30 @@ class ToolAndLibCommandTest extends FunSuite {
       files: List[(Chain[String], String)]
   ): ErrorOr[MemoryMain.State] =
     MemoryMain.State.from[ErrorOr](normalizeFiles(files))
+
+  private def typeCheckWithLintMode(
+      state: MemoryMain.State,
+      inputs: NonEmptyList[Chain[String]],
+      compileOptions: CompileOptions,
+      lintMode: LintMode,
+      compileCacheDirOpt: Option[Chain[String]]
+  ): ErrorOr[(MemoryMain.State, (PackageMap.Inferred, NonEmptyList[
+    (Chain[String], PackageName)
+  ]))] =
+    Par.noParallelism {
+      CompilerApi
+        .typeCheckWithLintMode[StateIO, Chain[String]](
+          module.platformIO,
+          inputs,
+          Nil,
+          Colorize.None,
+          PackageResolver.ExplicitOnly(),
+          compileOptions,
+          lintMode,
+          compileCacheDirOpt
+        )
+        .run(state)
+    }
 
   private def casPathFor(
       repoRoot: Chain[String],
@@ -483,6 +517,18 @@ class ToolAndLibCommandTest extends FunSuite {
   private def resetLogs(state: MemoryMain.State): MemoryMain.State =
     state.copy(stdOut = Doc.empty, stdErr = Doc.empty)
 
+  private def writeStringFile(
+      state: MemoryMain.State,
+      path: Chain[String],
+      content: String
+  ): MemoryMain.State =
+    state
+      .withFile(
+        path,
+        MemoryMain.FileContent.Str(withExplicitPackage(path, content))
+      )
+      .getOrElse(fail(s"failed to write ${path.mkString_("/")}"))
+
   private val lintOnlyLibSrc =
     """def keep(x: Int) -> Int:
       |  unused = x.add(1)
@@ -560,6 +606,23 @@ class ToolAndLibCommandTest extends FunSuite {
       |  Assertion(True, "ok")
       |
       |test_one = make_test()
+      |""".stripMargin
+
+  private val topLevelLintLibTestSrc =
+    """from MyLib/Dep import dep
+      |
+      |export test_one
+      |
+      |helper = dep
+      |test_one = Assertion(True, "ok")
+      |""".stripMargin
+
+  private val simpleOkLibSrc =
+    """main = 1
+      |""".stripMargin
+
+  private val hardTypeErrorLibSrc =
+    """main = missing_value
       |""".stripMargin
 
   private val minimalProgModuleSrc: String =
@@ -5844,6 +5907,97 @@ main = depBox
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("system not supported in memory mode"), msg)
         assert(!msg.contains("unused value 'unused'"), msg)
+    }
+  }
+
+  test("warn lint replay stays stable across optimize cache hits used by lib test") {
+    val inputs = NonEmptyList.of(
+      Chain("repo", "src", "MyLib", "Foo.bosatsu"),
+      Chain("repo", "src", "MyLib", "Dep.bosatsu")
+    )
+    val files =
+      baseLibFiles(topLevelLintLibTestSrc) ++
+        List(
+          Chain("repo", "src", "MyLib", "Dep.bosatsu") ->
+            """export dep
+              |
+              |dep = 1
+              |""".stripMargin
+        )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- typeCheckWithLintMode(
+        s0,
+        inputs,
+        CompileOptions.Default,
+        LintMode.Warn,
+        Some(Chain("cache"))
+      )
+      (state1, _) = s1
+      s2 <- typeCheckWithLintMode(
+        resetLogs(state1),
+        inputs,
+        CompileOptions.Default,
+        LintMode.Warn,
+        Some(Chain("cache"))
+      )
+      (state2, _) = s2
+    } yield (state1, state2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2)) =>
+        val err1 = state1.stdErr.render(400)
+        val err2 = state2.stdErr.render(400)
+        assert(err1.contains("unused value 'helper'"), err1)
+        assert(err2.contains("unused value 'helper'"), err2)
+        assert(!err1.contains("unused import"), err1)
+        assert(!err2.contains("unused import"), err2)
+    }
+  }
+
+  test("lib check --warn still prints cached lint when another package fails hard") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+    val initialFiles =
+      baseLibFiles(lintOnlyLibSrc) :+
+        (Chain("repo", "src", "MyLib", "Bar.bosatsu") -> simpleOkLibSrc)
+
+    val result = for {
+      s0 <- stateFromFiles(initialFiles)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      updated = writeStringFile(
+        resetLogs(state1),
+        Chain("repo", "src", "MyLib", "Bar.bosatsu"),
+        hardTypeErrorLibSrc
+      )
+      s2 <- runAndReportWithState(cmd, updated)
+    } yield (state1, out1, s2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, out1, (state2, exitCode))) =>
+        val err1 = state1.stdErr.render(200)
+        val err2 = state2.stdErr.render(400)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assert(err1.contains("unused value 'unused'"), err1)
+        assertEquals(exitCode, ExitCode.Error)
+        assert(err2.contains("unused value 'unused'"), err2)
+        assert(err2.contains("missing_value"), err2)
+        val warningIdx = err2.indexOf("unused value 'unused'")
+        val errorIdx = err2.indexOf("missing_value")
+        assert(warningIdx >= 0 && warningIdx < errorIdx, err2)
     }
   }
 

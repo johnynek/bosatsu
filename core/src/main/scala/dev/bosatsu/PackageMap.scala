@@ -787,11 +787,6 @@ object PackageMap {
         }
         .map(SortedMap.from(_))
 
-    def dedupeErrors[A1](res: ErrorOr[A1]): ErrorOr[A1] =
-      res.leftMap { errs =>
-        NonEmptyList.fromListUnsafe(errs.toList.distinct)
-      }
-
     allResults.map { resultMap =>
       val missingKeys = resolvedByName.keySet.diff(resultMap.keySet).toList.sorted
       if (missingKeys.nonEmpty) {
@@ -799,15 +794,36 @@ object PackageMap {
           s"invariant violation: missing inference results for: ${missingKeys.mkString(", ")}"
         )
       } else {
-        dedupeErrors(resultMap.sequence.map { inferredByName =>
-          PackageMap(
-            SortedMap.from(
-              inferredByName.iterator.map { case (name, inferredPack) =>
-                name -> inferredPack.inferred
-              }
+        // Keep successfully inferred packages alongside hard failures so later
+        // callers can still replay lint for the warm-cache-success subset.
+        val (errsRev, inferredByName) =
+          resultMap.iterator.foldLeft(
+            (
+              List.empty[PackageError],
+              SortedMap.empty[PackageName, Package.Inferred]
             )
-          )
-        })
+          ) { case ((errsAcc, packsAcc), (name, result)) =>
+            result match {
+              case Ior.Left(errs)     =>
+                (errs.reverse.toList ::: errsAcc, packsAcc)
+              case Ior.Right(inferred) =>
+                (errsAcc, packsAcc.updated(name, inferred.inferred))
+              case Ior.Both(errs, inferred) =>
+                (
+                  errs.reverse.toList ::: errsAcc,
+                  packsAcc.updated(name, inferred.inferred)
+                )
+            }
+          }
+
+        val dedupedErrs = errsRev.reverse.distinct
+        val inferred = PackageMap(inferredByName)
+
+        NonEmptyList.fromList(dedupedErrs) match {
+          case Some(errs) if inferredByName.nonEmpty => Ior.Both(errs, inferred)
+          case Some(errs)                            => Ior.Left(errs)
+          case None                                  => Ior.Right(inferred)
+        }
       }
     }
   }
