@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.{Eval, Order}
 import cats.data.NonEmptyList
+import dev.bosatsu.IorMethods.IorExtension
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 
@@ -299,6 +300,28 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def matchlessListOfInts(items: List[Int]): Matchless.Expr[Unit] =
     Matchless.ListExpr.listOf(items.map(i => Matchless.Literal(Lit.fromInt(i))))
+
+  private def checkMatchlessPackage[A](
+      source: String
+  )(
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
+  ): A = {
+    val pack = Parser.unsafeParse(Package.parser, source)
+    val nel = NonEmptyList.one((("test", LocationMap(source)), pack))
+    val pm = Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+    Par.withEC {
+      val comp = MatchlessFromTypedExpr.compile((), pm)
+      fn(comp)
+    }
+  }
 
   private def matchlessEvalResolveReverseOnly(
       from: Unit,
@@ -3576,6 +3599,41 @@ def middle_window(xs):
       val byName = binds(TestUtils.testPackage).toMap
       val expr = byName(Identifier.Name("middle_window"))
       assertEquals(countWhileListVariantChecks(expr), 1, expr.toString)
+    }
+  }
+
+  test("guarded fixed-width middle list search evaluates guard per candidate") {
+    checkMatchlessPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+test = TestSuite("guarded list search", [
+  Assertion(has_two([2]), "has_two used"),
+  ])
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val hasTwo = byName(Identifier.Name("has_two"))
+
+      assertEquals(countWhileListVariantChecks(hasTwo), 1, hasTwo.toString)
+      assertEquals(whileEffectsContainIf(hasTwo), true, hasTwo.toString)
+
+      val evalExprs = Vector(
+        Matchless.App(
+          hasTwo,
+          NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))
+        ),
+        Matchless.App(
+          hasTwo,
+          NonEmptyList.one(matchlessListOfInts(1 :: 3 :: Nil))
+        )
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.True, Value.False))
     }
   }
 

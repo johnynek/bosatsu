@@ -2,12 +2,18 @@ package dev.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
 import dev.bosatsu.Generators.bindIdentGen
+import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.{
+  CompileOptions,
   Identifier,
   Lit,
+  LocationMap,
   Matchless,
+  Package,
+  PackageMap,
   PackageName,
   Par,
+  Parser,
   TestUtils
 }
 import dev.bosatsu.codegen.CompilationNamespace
@@ -35,8 +41,26 @@ class PythonGenTest extends munit.ScalaCheckSuite {
             next = next + 1
             nm
           }
-        )
+      )
     )
+  }
+
+  private def extractPythonDef(code: String, name: String): String = {
+    val start = code.indexOf(s"def $name(")
+    assert(start >= 0, code)
+    val end = code.indexOf("\n\n", start)
+    if (end >= 0) code.slice(start, end) else code.drop(start)
+  }
+
+  private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser, src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
   }
 
   test("all escapes are valid python identifiers") {
@@ -115,6 +139,34 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           normalizeGeneratedTemps(expected)
         )
       }
+    }
+  }
+
+  test("guarded middle list search lowers to a scan loop in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+main = has_two
+""")
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val hasTwo = normalizeGeneratedTemps(extractPythonDef(code, "has_two"))
+      assert(hasTwo.contains("while ___v4:"), hasTwo)
+      assert(hasTwo.contains("if (___v2[1] == 2) == 1:"), hasTwo)
+      assert(hasTwo.contains("elif ___v3[0] == 1:"), hasTwo)
+      assert(hasTwo.contains("___v3 = ___v3[2]"), hasTwo)
+
+      val whileIdx = hasTwo.indexOf("while ___v4:")
+      val guardIdx = hasTwo.indexOf("if (___v2[1] == 2) == 1:")
+      val advanceIdx = hasTwo.indexOf("___v3 = ___v3[2]")
+
+      assert(whileIdx >= 0, hasTwo)
+      assert(guardIdx > whileIdx, hasTwo)
+      assert(advanceIdx > guardIdx, hasTwo)
     }
   }
 

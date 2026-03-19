@@ -661,6 +661,33 @@ test = TestSuite("guarded matches", [
 
     runBosatsuTest(
       List("""
+package GuardedListSearch
+
+def not(x): False if x else True
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+def forall(as, pred):
+  match as:
+    case [*_, x, *_] if not(pred(x)): False
+    case _: True
+
+test = TestSuite("guarded list search", [
+  Assertion(exists([1, 2, 3], x -> x matches 2), "exists middle hit"),
+  Assertion(exists([2, 1, 3], x -> x matches 2), "exists head hit"),
+  Assertion(not(exists([1, 3], x -> x matches 2)), "exists miss"),
+  Assertion(forall([1, 2, 3], x -> x matches (1 | 2 | 3)), "forall all true"),
+  Assertion(forall([], _ -> False), "forall empty"),
+  Assertion(not(forall([1, 2, 3], x -> x matches (1 | 3))), "forall middle failure"),
+  ])
+"""),
+      "GuardedListSearch",
+      6
+    )
+
+    runBosatsuTest(
+      List("""
 package GuardedMatchesCoherence
 
 def not(x): False if x else True
