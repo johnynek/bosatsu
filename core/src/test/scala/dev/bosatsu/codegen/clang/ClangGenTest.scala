@@ -42,6 +42,22 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+    val start = code.indexOf(mangledNameFragment)
+    assert(start >= 0, code)
+    val headerStart = code.lastIndexOf("BValue ", start)
+    assert(headerStart >= 0, code)
+    val nextFn = code.indexOf("\n\nBValue ", start)
+    val nextMain = code.indexOf("\n\nint main(", start)
+    val end =
+      List(nextFn, nextMain)
+        .filter(_ > headerStart)
+        .sorted
+        .headOption
+        .getOrElse(code.length)
+    code.slice(headerStart, end)
+  }
+
   def assertPredefFns(
       fns: String*
   )(matches: String)(implicit loc: munit.Location) =
@@ -174,6 +190,36 @@ main = foldr_local
             !rendered.contains("alloc_boxed_pure_fn3(__bsts_t_lambda__loop")
           )
       }
+    }
+  }
+
+  test("guarded middle list search lowers to a scan loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+main = has_two
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_two"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val hasTwo = extractCFunction(rendered, "_l_has__two(BValue")
+
+        val loopPattern =
+          """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*BValue __bsts_a_\d+ = alloc_enum0\(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\);\s*if \(get_variant_value\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
+
+        assert(loopPattern.findFirstIn(hasTwo).nonEmpty, hasTwo)
     }
   }
 
