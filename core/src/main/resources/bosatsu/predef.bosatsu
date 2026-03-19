@@ -71,6 +71,7 @@ export (
   foldl_List,
   foldr_List,
   gcd_Int,
+  implies,
   get_key,
   int_loop,
   int_to_Char,
@@ -110,6 +111,7 @@ export (
   trace,
   uncurry2,
   uncurry3,
+  xor,
 )
 
 struct Unit
@@ -169,6 +171,14 @@ def or(x: Bool, y: Bool) -> Bool:
 # Boolean negation.
 def not(x: Bool) -> Bool:
   False if x else True
+
+# Boolean exclusive or.
+def xor(x: Bool, y: Bool) -> Bool:
+  (x, y) matches (True, False) | (False, True)
+
+# Boolean implication.
+def implies(x: Bool, y: Bool) -> Bool:
+  y if x else True
 
 #############
 # Support for built-in lists

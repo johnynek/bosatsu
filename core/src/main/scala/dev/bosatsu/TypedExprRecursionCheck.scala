@@ -1048,7 +1048,9 @@ object TypedExprRecursionCheck {
       Identifier.Name("eq_Int"),
       Identifier.Name("and"),
       Identifier.Name("or"),
-      Identifier.Name("not")
+      Identifier.Name("not"),
+      Identifier.Name("xor"),
+      Identifier.Name("implies")
     )
 
     private def resolvedPredefFnName(
@@ -1617,6 +1619,21 @@ object TypedExprRecursionCheck {
             case Some(Identifier.Name("not")) =>
               lowerUnaryBool(args, state)(arg =>
                 simplifyBoolExpr(SmtExpr.Not(arg))
+              )
+            case Some(Identifier.Name("xor")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(
+                  mkOr(
+                    Vector(
+                      mkAnd(Vector(left, SmtExpr.Not(right))),
+                      mkAnd(Vector(SmtExpr.Not(left), right))
+                    )
+                  )
+                )
+              )
+            case Some(Identifier.Name("implies")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(mkOr(Vector(SmtExpr.Not(left), right)))
               )
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
