@@ -795,16 +795,16 @@ object PackageMap {
         )
       } else {
         val sequenced =
-          resultMap.map { case (name, result) =>
-            name -> (result match {
+          resultMap.traverse { result =>
+            result match {
               case Ior.Left(errs)     =>
-                Ior.both(errs, Option.empty[(PackageName, Package.Inferred)])
+                Ior.both(errs, Option.empty[Package.Inferred])
               case Ior.Right(inferred) =>
-                Ior.right(Some(name -> inferred.inferred))
+                Ior.right(Some(inferred.inferred))
               case Ior.Both(errs, inferred) =>
-                Ior.both(errs, Some(name -> inferred.inferred))
-            })
-          }.sequence
+                Ior.both(errs, Some(inferred.inferred))
+            }
+          }
 
         val deduped = sequenced.leftMap { errs =>
           NonEmptyList.fromListUnsafe(errs.toList.distinct)
@@ -812,10 +812,24 @@ object PackageMap {
 
         deduped match {
           case Ior.Right(entries) =>
-            Ior.right(PackageMap(SortedMap.from(entries.valuesIterator.flatten)))
+            Ior.right(
+              PackageMap(
+                SortedMap.from(
+                  entries.iterator.collect { case (name, Some(pack)) =>
+                    (name, pack)
+                  }
+                )
+              )
+            )
           case Ior.Both(errs, entries) =>
             val inferred =
-              PackageMap(SortedMap.from(entries.valuesIterator.flatten))
+              PackageMap(
+                SortedMap.from(
+                  entries.iterator.collect { case (name, Some(pack)) =>
+                    (name, pack)
+                  }
+                )
+              )
             if (inferred.toMap.isEmpty) Ior.left(errs)
             else Ior.both(errs, inferred)
           case Ior.Left(errs) =>
