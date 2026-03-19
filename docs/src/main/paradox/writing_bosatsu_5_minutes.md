@@ -38,7 +38,7 @@ Top-order bits:
 
 1. Everything is immutable. You can shadow names, but not mutate values.
 2. Blocks are expressions: the last line is the return value.
-3. No `while`/mutation loops; use `recur`, `int_loop`, folds, or comprehensions.
+3. No `while`/mutation loops; use `recur`, direct recursion on `Int`, folds, or comprehensions.
 4. No exceptions as control flow in normal code. Model errors in types.
 5. Side effects are explicit `Prog[...]` values, not implicit execution.
 

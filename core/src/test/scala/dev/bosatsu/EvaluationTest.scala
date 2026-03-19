@@ -577,6 +577,17 @@ main = 1
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, add)
 """),
       "Foo",
@@ -587,6 +598,17 @@ main = range_fold(0, 10, 0, add)
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, (_, y) -> y)
 """),
       "Foo",
@@ -596,6 +618,17 @@ main = range_fold(0, 10, 0, (_, y) -> y)
     evalTest(
       List("""
 package Foo
+
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
 
 main = range_fold(0, 10, 100, (x, _) -> x)
 """),
@@ -1466,6 +1499,9 @@ package A
 
 struct TwoVar(one, two)
 
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  (x1, x2) -> f(x1)(x2)
+
 constructed = uncurry2(x -> y -> TwoVar(x, y))(1, "two")
 
 main = match constructed:
@@ -1482,6 +1518,9 @@ main = match constructed:
 package A
 
 struct ThreeVar(one, two, three)
+
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  (x1, x2, x3) -> f(x1)(x2)(x3)
 
 constructed = uncurry3(x -> y -> z -> ThreeVar(x, y, z))(1, "two", 3)
 
