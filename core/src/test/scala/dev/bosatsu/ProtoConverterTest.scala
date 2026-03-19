@@ -3,6 +3,7 @@ package dev.bosatsu
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
 import cats.data.NonEmptyList
+import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -15,13 +16,22 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   private given Eq[Package.Interface] =
     // Safe: Package.Interface is immutable and uses structural equals.
     Eq.fromUniversalEquals
-  private given Eq[Package.Typed[Unit]] =
-    // Safe: Package.Typed[Unit] is immutable and uses structural equals.
+  private given Eq[TypedExpr[Region]] =
+    // Safe: TypedExpr[Region] is immutable and uses structural equals.
+    Eq.fromUniversalEquals
+  private given Eq[Package.Compiled] =
+    // Safe: Package.Compiled is immutable and uses structural equals.
     Eq.fromUniversalEquals
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 100 else 5
     )
+
+  private val genRegion: Gen[Region] =
+    for {
+      start <- Gen.choose(0, 200)
+      length <- Gen.choose(0, 50)
+    } yield Region(start, start + length)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
@@ -95,7 +105,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   }
 
   test("we can roundtrip TypedExpr through proto") {
-    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
       (ss, idx) =>
         for {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
@@ -111,7 +121,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     }
 
     forAll(
-      Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
+      Generators.genTypedExpr(genRegion, 4, rankn.NTypeGen.genDepth03)
     )(testFn)
   }
 
@@ -121,22 +131,22 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     val intType = rankn.Type.IntType
     val synthetic = Identifier.synthetic("x")
     val backticked = Identifier.Backticked("_x")
-    val literal = TypedExpr.Literal(Lit.fromInt(1), intType, ())
+    val literal = TypedExpr.Literal(Lit.fromInt(1), intType, Region(1, 2))
     val expr = TypedExpr.Let(
       synthetic,
       literal,
       TypedExpr.Let(
         backticked,
-        TypedExpr.Local(synthetic, intType, ()),
-        TypedExpr.Local(backticked, intType, ()),
+        TypedExpr.Local(synthetic, intType, Region(2, 3)),
+        TypedExpr.Local(backticked, intType, Region(3, 4)),
         RecursionKind.NonRecursive,
-        ()
+        Region(4, 5)
       ),
       RecursionKind.NonRecursive,
-      ()
+      Region(5, 6)
     )
 
-    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
       (ss, idx) =>
         for {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
@@ -157,25 +167,29 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   test("we can roundtrip Loop/Recur TypedExpr through proto") {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
-    val xExpr = TypedExpr.Local(x, intType, ())
+    val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
     val loopExpr = TypedExpr.Loop(
-      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, ()))),
+      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, Region(2, 3)))),
       TypedExpr.Match(
         xExpr,
         NonEmptyList.of(
-          TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, xExpr),
+          TypedExpr.Branch(
+            Pattern.Literal(Lit.fromInt(0)),
+            None,
+            xExpr
+          )(using Region(3, 4)),
           TypedExpr.Branch(
             Pattern.WildCard,
             None,
-            TypedExpr.Recur(NonEmptyList.one(xExpr), intType, ())
-          )
+            TypedExpr.Recur(NonEmptyList.one(xExpr), intType, Region(4, 5))
+          )(using Region(5, 6))
         ),
-        ()
+        Region(6, 7)
       ),
-      ()
+      Region(7, 8)
     )
 
-    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
       (ss, idx) =>
         for {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
@@ -197,18 +211,21 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     val intType = rankn.Type.IntType
     val boolType = rankn.Type.BoolType
     val x = Identifier.Name("x")
-    val xExpr = TypedExpr.Local(x, intType, ())
+    val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
     val eqInt = TypedExpr.Global(
       PackageName.PredefName,
       Identifier.Name("eq_Int"),
       rankn.Type.Fun(NonEmptyList.of(intType, intType), boolType),
-      ()
+      Region(2, 3)
     )
     val guardExpr = TypedExpr.App(
       eqInt,
-      NonEmptyList.of(xExpr, TypedExpr.Literal(Lit.fromInt(1), intType, ())),
+      NonEmptyList.of(
+        xExpr,
+        TypedExpr.Literal(Lit.fromInt(1), intType, Region(3, 4))
+      ),
       boolType,
-      ()
+      Region(4, 5)
     )
     val guardedMatch = TypedExpr.Match(
       xExpr,
@@ -216,13 +233,13 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
         TypedExpr.Branch(
           Pattern.WildCard,
           Some(guardExpr),
-          TypedExpr.Literal(Lit.fromInt(7), intType, ())
-        )
+          TypedExpr.Literal(Lit.fromInt(7), intType, Region(5, 6))
+        )(using Region(6, 7))
       ),
-      ()
+      Region(7, 8)
     )
 
-    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
       (ss, idx) =>
         for {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
@@ -238,6 +255,45 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     }
 
     testFn(guardedMatch)
+  }
+
+  test("we can roundtrip match branch pattern regions through proto") {
+    val intType = rankn.Type.IntType
+    val x = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
+    val matchExpr = TypedExpr.Match(
+      xExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.Literal(Lit.fromInt(1)),
+          None,
+          TypedExpr.Literal(Lit.fromInt(7), intType, Region(2, 3))
+        )(using Region(10, 11)),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(9), intType, Region(3, 4))
+        )(using Region(11, 12))
+      ),
+      Region(4, 5)
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          expr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- expr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(matchExpr)
   }
 
   test("we can roundtrip interface through proto") {
@@ -270,7 +326,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   }
 
   test("we can roundtrip interfaces from full packages through proto") {
-    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
+    forAll(Generators.genPackage(genRegion, 10)) { packMap =>
       val ifaces = packMap.iterator.map { case (_, p) =>
         Package.interfaceOf(p)
       }.toList
@@ -283,14 +339,13 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
   }
 
   test("test some hand written packages") {
-    def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
+    def ser(p: List[Package.Compiled]): Try[List[proto.Package]] =
       p.traverse(ProtoConverter.packageToProto)
-    def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
+    def deser(ps: List[proto.Package]): Try[List[Package.Compiled]] =
       ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
         p.sortBy(_.name)
       }
 
-    val tf = Package.typedFunctor
     TestUtils.testInferred(
       List(
         """package Foo
@@ -303,9 +358,7 @@ bar = 1
       "Foo",
       (packs, _) =>
         law(
-          packs.toMap.values.toList.sortBy(_.name).map { pt =>
-            Package.setProgramFrom(tf.void(pt), ())
-          },
+          packs.toMap.values.toList.sortBy(_.name),
           ser,
           deser
         )
@@ -313,10 +366,10 @@ bar = 1
   }
 
   test("we can roundtrip packages through proto") {
-    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
-      def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
+    forAll(Generators.genPackage(genRegion, 10)) { packMap =>
+      def ser(p: List[Package.Compiled]): Try[List[proto.Package]] =
         p.traverse(ProtoConverter.packageToProto)
-      def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
+      def deser(ps: List[proto.Package]): Try[List[Package.Compiled]] =
         ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
           p.sortBy(_.name)
         }
@@ -324,6 +377,101 @@ bar = 1
       val packList = packMap.toList.sortBy(_._1).map(_._2)
       law(packList, ser, deser)
     }
+  }
+
+  private def compilePackage(source: String): Package.Compiled = {
+    val parsed = Parser.unsafeParse(Package.parser, source)
+    val withPath =
+      NonEmptyList.one((("proto-roundtrip", LocationMap(source)), parsed))
+
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(withPath, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(
+          errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
+          _.toMap.getOrElse(parsed.name, fail(s"missing package ${parsed.name}"))
+        )
+    }
+  }
+
+  @annotation.tailrec
+  private def stripWrappers(
+      expr: TypedExpr[Region]
+  ): TypedExpr[Region] =
+    expr match {
+      case TypedExpr.Generic(_, in)       => stripWrappers(in)
+      case TypedExpr.Annotation(in, _, _) => stripWrappers(in)
+      case _                              => expr
+    }
+
+  private def roundTrip(pack: Package.Compiled): Package.Compiled =
+    ProtoConverter.packageToProto(pack) match {
+      case Failure(err) => fail(s"failed to encode package: $err")
+      case Success(protoPack) =>
+        ProtoConverter.packagesFromProto(Nil, protoPack :: Nil) match {
+          case Failure(err) =>
+            fail(s"failed to decode package: $err")
+          case Success((_, decoded :: Nil)) =>
+            decoded
+          case Success((_, other)) =>
+            fail(s"expected one package after roundtrip, got ${other.map(_.name)}")
+        }
+    }
+
+  test("compiled package roundtrip preserves typed-expression regions") {
+    val source =
+      """package Proto/Regions
+        |
+        |export main
+        |
+        |def id(x: Int) -> Int:
+        |  x
+        |
+        |main = id(1)
+        |""".stripMargin
+
+    val compiled = compilePackage(source)
+    assertEquals(roundTrip(compiled), compiled)
+  }
+
+  test("compiled package roundtrip preserves branch pattern regions") {
+    val source =
+      """package Proto/MatchRegions
+        |
+        |export select
+        |
+        |def select(opt: Option[Int]) -> Int:
+        |  match opt:
+        |    case Some(v): v
+        |    case None: 0
+        |""".stripMargin
+
+    val compiled = compilePackage(source)
+    val roundTripped = roundTrip(compiled)
+
+    def branchesOf(pack: Package.Compiled): NonEmptyList[TypedExpr.Branch[Region]] = {
+      val selectExpr = pack.lets.collectFirst {
+        case (Identifier.Name("select"), _, te) => te
+      }.getOrElse(fail(s"missing select in ${pack.name}"))
+
+      stripWrappers(selectExpr) match {
+        case TypedExpr.AnnotatedLambda(_, body, _) =>
+          stripWrappers(body) match {
+            case TypedExpr.Match(_, branches, _) => branches
+            case other                           =>
+              fail(s"expected select body to be a match expression, got $other")
+          }
+        case other =>
+          fail(s"expected select to be a lambda, got $other")
+      }
+    }
+
+    val originalBranches = branchesOf(compiled)
+    val decodedBranches = branchesOf(roundTripped)
+
+    assert(originalBranches.exists(b => !b.patternRegion.eqv(Region.empty)))
+    assertEquals(decodedBranches.map(_.patternRegion), originalBranches.map(_.patternRegion))
   }
 
   test("packagesFromProto accepts interface/package name overlap") {
@@ -343,7 +491,6 @@ bar = 1
   test(
     "packagesFromProto can decode package with external dependency interfaces"
   ) {
-    val tf = Package.typedFunctor
     TestUtils.testInferred(
       List(
         """package Other/Dep
@@ -365,7 +512,6 @@ main = dep_value
       (packs, _) => {
         val typedPacks = packs.toMap.values.toList
           .filterNot(_.name == PackageName.PredefName)
-          .map(pt => Package.setProgramFrom(tf.void(pt), ()))
 
         val depPack = typedPacks.find(_.name.asString == "Other/Dep")
         val mainPack = typedPacks.find(_.name.asString == "Main")

@@ -7,6 +7,7 @@ import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import dev.bosatsu.{
+  HasRegion,
   Json,
   Kind,
   Package,
@@ -46,10 +47,10 @@ case class LibConfig(
 
   /** validate then unvalidatedAssemble
     */
-  def assemble(
+  def assemble[A: HasRegion](
       vcsIdent: String,
       previous: Option[DecodedLibrary[Algo.Blake3]],
-      packs: List[Package.Typed[Any]],
+      packs: List[Package.Typed[A]],
       deps: List[DecodedLibrary[Algo.Blake3]],
       publicDepClosureLibs: List[DecodedLibrary[Algo.Blake3]],
       prevPublicDepLibs: List[DecodedLibrary[Algo.Blake3]]
@@ -570,7 +571,7 @@ case class LibConfig(
       validateDeps(deps)
 
   // just build the library without any validations
-  def unvalidatedAssemble[A](
+  def unvalidatedAssemble[A: HasRegion](
       previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
       packs: List[Package.Typed[A]],

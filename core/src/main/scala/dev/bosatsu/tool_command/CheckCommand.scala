@@ -26,7 +26,7 @@ object CheckCommand {
       errColor: LocationMap.Colorize
   )(implicit
       ec: Par.EC
-  ): F[PackageMap.Inferred] = {
+  ): F[PackageMap.Compiled] = {
     import platformIO.moduleIOMonad
 
     def inNel: F[NonEmptyList[Path]] =

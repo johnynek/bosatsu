@@ -231,7 +231,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
         }
       }
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Compiled]] =
     paths
       .parTraverse { path =>
         for {
@@ -419,7 +419,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
       .flatMap(write(_, path))
 
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
+  def writePackages(packages: List[Package.Compiled], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 

@@ -9,7 +9,7 @@ class MatchlessInterfaceTest extends munit.FunSuite {
   private def typeCheck(
       src: String,
       ifaces: List[Package.Interface]
-  ): PackageMap.Inferred = {
+  ): PackageMap.Compiled = {
     val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {

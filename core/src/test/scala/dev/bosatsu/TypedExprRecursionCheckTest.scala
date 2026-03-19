@@ -36,7 +36,7 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     val parsed = Package.fromStatements(packageName, stmts)
     given Show[String] = Show.fromToString
     PackageMap
-      .typeCheckParsed(
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",
@@ -128,7 +128,7 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     val parsed = Package.fromStatements(pack, stmts)
     given Show[String] = Show.fromToString
     PackageMap
-      .typeCheckParsed(
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",

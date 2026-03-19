@@ -213,7 +213,7 @@ object TestUtils {
         val pack: Package.Typed[Declaration] =
           Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
-          PackageMap.empty + pack + PackageMap.predefCompiled
+          PackageMap.empty + pack + PackageMap.predefInferred
         assertPackageMapTypeConnections(pm, "optimized")
         fn(pm)
     }
@@ -373,7 +373,7 @@ object TestUtils {
   def testInferred(
       packages: List[String],
       mainPackS: String,
-      inferredHandler: (PackageMap.Inferred, PackageName) => Unit
+      inferredHandler: (PackageMap.Compiled, PackageName) => Unit
   )(implicit ec: Par.EC) = {
     val mainPack = PackageName.parse(mainPackS).get
 

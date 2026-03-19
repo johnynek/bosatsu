@@ -130,7 +130,7 @@ object CompilerApi {
           1,
           body
         )
-      case _: PackageError.TotalityCheckError =>
+      case _: PackageError.TotalityCheckError[?] =>
         RenderedDiagnostic(
           ErrorCategory.TotalityError,
           "totality error",
@@ -276,7 +276,7 @@ object CompilerApi {
       compileCacheDirOpt: Option[Path]
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Compiled, List[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     NonEmptyList.fromList(inputs) match {
@@ -324,7 +324,7 @@ object CompilerApi {
       compileCacheDirOpt: Option[Path] = None
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.{canPromiseF, moduleIOMonad, parallelF}
 
     for {

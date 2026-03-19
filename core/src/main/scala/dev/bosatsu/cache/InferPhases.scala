@@ -11,7 +11,7 @@ import scala.collection.immutable.SortedMap
 trait InferPhases {
   def id: String
 
-  def dependencyInterface(pack: Package.Inferred): Package.Interface
+  def dependencyInterface(pack: Package.Typed[Any]): Package.Interface
 
   def finishPackage(
       pack: Package.Inferred,
@@ -25,7 +25,7 @@ object InferPhases {
     new InferPhases {
       val id: String = "tool-default-v1"
 
-      def dependencyInterface(pack: Package.Inferred): Package.Interface =
+      def dependencyInterface(pack: Package.Typed[Any]): Package.Interface =
         Package.interfaceOf(pack)
 
       def finishPackage(
