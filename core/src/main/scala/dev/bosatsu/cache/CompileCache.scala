@@ -135,8 +135,7 @@ object CompileCache {
     private final class RefKey[A <: AnyRef](val ref: A) {
       override def equals(that: Any): Boolean =
         that match {
-          case other: RefKey[_] =>
-            (ref.asInstanceOf[AnyRef] eq other.ref.asInstanceOf[AnyRef])
+          case other: RefKey[_] => (ref eq other.ref)
           case _                => false
         }
 
