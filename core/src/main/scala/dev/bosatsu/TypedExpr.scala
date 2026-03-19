@@ -960,7 +960,7 @@ object TypedExpr {
       guard: Option[TypedExpr[T]],
       expr: TypedExpr[T]
   )(using val patternRegion: Region = Region.empty) {
-    def copy[T1 >: T](
+    private[bosatsu] def copy[T1 >: T](
         pattern: Pattern[(PackageName, Constructor), Type] = this.pattern,
         guard: Option[TypedExpr[T1]] = this.guard,
         expr: TypedExpr[T1] = this.expr

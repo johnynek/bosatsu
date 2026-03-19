@@ -14,7 +14,7 @@ class TestBench {
   private def prepPackages(
       packages: List[String],
       mainPackS: String
-  ): (PackageMap.Inferred, PackageName) = {
+  ): (PackageMap.Compiled, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -61,7 +61,7 @@ gauss$n = range($n).foldLeft(0, add)
     "Gauss"
   )
 
-  val compiled0: (PackageMap.Inferred, PackageName) =
+  val compiled0: (PackageMap.Compiled, PackageName) =
     gauss(10)
 
   @Benchmark def bench0(): Unit = {
@@ -72,7 +72,7 @@ gauss$n = range($n).foldLeft(0, add)
     ()
   }
 
-  val compiled1: (PackageMap.Inferred, PackageName) =
+  val compiled1: (PackageMap.Compiled, PackageName) =
     gauss(20)
 
   @Benchmark def bench1(): Unit = {
