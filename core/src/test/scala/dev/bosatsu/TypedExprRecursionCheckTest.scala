@@ -558,6 +558,30 @@ def ok(i: Int) -> Int:
 """)
   }
 
+  test("Int recursion lowers predef xor/implies aliases into SMT guard facts") {
+    allowed("""#
+both = and
+exclusive = xor
+follows = implies
+
+def ok(i: Int) -> Int:
+  recur i:
+    case _ if both(
+      follows(cmp_Int(i, 0) matches LT, False),
+      follows(
+        exclusive(
+          cmp_Int(i, 0) matches LT,
+          cmp_Int(i, 0) matches LT | EQ
+        ),
+        False
+      )
+    ):
+      ok(i.sub(1))
+    case _:
+      i
+""")
+  }
+
   test("Int recursion lowers total string-pattern guard matches via final fallback") {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
