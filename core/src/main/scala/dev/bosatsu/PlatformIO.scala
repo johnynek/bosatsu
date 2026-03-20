@@ -61,7 +61,7 @@ trait PlatformIO[F[_], Path] {
       case None    => moduleIOMonad.raiseError(msg)
     }
 
-  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
+  def readPackages(paths: List[Path]): F[List[Package.Compiled]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
@@ -152,7 +152,7 @@ trait PlatformIO[F[_], Path] {
   def writeBytes(path: Path, bytes: Array[Byte]): F[Unit]
 
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
+  def writePackages(packages: List[Package.Compiled], path: Path): F[Unit]
 
   /** Create a temporary directory with the given prefix, run the function, then
     * delete the directory (best-effort) before returning the original result.

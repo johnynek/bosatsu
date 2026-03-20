@@ -4517,7 +4517,9 @@ def makeLoop(fn):
               branch.pattern.traverseType(fn),
               branch.guard.traverse(traverse(_)(fn)),
               traverse(branch.expr)(fn)
-            ).mapN(TypedExpr.Branch(_, _, _))
+            ).mapN { (pattern, guard, expr1) =>
+              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+            }
           }
           (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
       }
@@ -4574,10 +4576,16 @@ def makeLoop(fn):
               branch.guard.traverse(guard => traverse(guard)(fn)),
               traverse(branch.expr)(fn)
             ).mapN { (guard, expr1) =>
-              branch.copy(guard = guard, expr = expr1)
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
             }
           }
-          (traverse(expr)(fn), tbranch, fn(tag)).mapN(TypedExpr.Match(_, _, _))
+          (traverse(expr)(fn), tbranch, fn(tag)).mapN { (expr1, branches1, tag1) =>
+            TypedExpr.Match(expr1, branches1, tag1)
+          }
       }
 
     def traverseUp[F[_]: Monad, A](
@@ -4634,7 +4642,11 @@ def makeLoop(fn):
               branch.guard.traverse(loop(_)),
               loop(branch.expr)
             ) { (guard, expr1) =>
-              branch.copy(guard = guard, expr = expr1)
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
             }
           }
           mon
@@ -4754,10 +4766,11 @@ def makeLoop(fn):
           TypedExpr.Match(
             map(arg)(fn),
             branches.map { branch =>
-              branch.copy(
-                guard = branch.guard.map(map(_)(fn)),
-                expr = map(branch.expr)(fn)
-              )
+              TypedExpr.Branch(
+                branch.pattern,
+                branch.guard.map(map(_)(fn)),
+                map(branch.expr)(fn)
+              )(using branch.patternRegion)
             },
             fn(tag)
           )

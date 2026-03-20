@@ -66,6 +66,9 @@ object HasRegion {
       def region(t: T) = fn(t)
     }
 
+  given HasRegion[Region] =
+    instance(identity)
+
   def region[T](t: T)(implicit hr: HasRegion[T]): Region =
     hr.region(t)
 }

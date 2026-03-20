@@ -5221,7 +5221,22 @@ main = depBox
                 Output.CompileOut(packs1, _, _),
                 Output.CompileOut(packs2, _, _)
               ) =>
+            val appName = PackageName.parts("Cache", "App")
+            def appPack(packs: List[Package.Compiled]): Package.Compiled =
+              packs.find(_.name == appName).getOrElse {
+                fail(s"missing Cache/App in ${packs.map(_.name)}")
+              }
+
+            def mainRegion(pack: Package.Compiled): Region =
+              pack.lets
+                .collectFirst {
+                  case (Identifier.Name("main"), _, expr) =>
+                    HasRegion.region(expr)
+                }
+                .getOrElse(fail(s"missing Cache/App::main in ${pack.name}"))
+
             assertEquals(packs2.map(_.name), packs1.map(_.name))
+            assertEquals(mainRegion(appPack(packs2)), mainRegion(appPack(packs1)))
           case other =>
             fail(s"unexpected outputs: $other")
         }
@@ -5280,8 +5295,13 @@ main = depBox
       case Right((state1, state2)) =>
         val keyPrefix = Chain("cache", "keys", "blake3")
         val casPrefix = Chain("cache", "cas", "blake3")
-        assertNotEquals(filePathsUnder(state2, keyPrefix), filePathsUnder(state1, keyPrefix))
-        assertEquals(filePathsUnder(state2, casPrefix), filePathsUnder(state1, casPrefix))
+        val keyFiles1 = filePathsUnder(state1, keyPrefix)
+        val keyFiles2 = filePathsUnder(state2, keyPrefix)
+        val casFiles1 = filePathsUnder(state1, casPrefix)
+        val casFiles2 = filePathsUnder(state2, casPrefix)
+        assertNotEquals(keyFiles2, keyFiles1)
+        assert(casFiles1.subsetOf(casFiles2), (casFiles1, casFiles2).toString)
+        assert(casFiles2.size > casFiles1.size, (casFiles1, casFiles2).toString)
     }
   }
 

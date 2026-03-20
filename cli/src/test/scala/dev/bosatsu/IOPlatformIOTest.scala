@@ -9,6 +9,12 @@ import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
 class IOPlatformIOTest extends munit.ScalaCheckSuite {
+  private val genRegion: Gen[Region] =
+    for {
+      start <- Gen.choose(0, 200)
+      length <- Gen.choose(0, 50)
+    } yield Region(start, start + length)
+
   val sortedEq: Eq[List[Package.Interface]] =
     new Eq[List[Package.Interface]] {
       given Eq[Package.Interface] =
@@ -50,7 +56,7 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
   }
 
   test("we can roundtrip packages through proto on disk") {
-    forAll(Generators.genPackage(Gen.const(()), 3)) { packMap =>
+    forAll(Generators.genPackage(genRegion, 3)) { packMap =>
       val packList = packMap.toList.sortBy(_._1).map(_._2)
       testWithTempFile { path =>
         for {
