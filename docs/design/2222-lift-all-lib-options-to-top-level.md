@@ -29,7 +29,7 @@ _Issue: #2222 (https://github.com/johnynek/bosatsu/issues/2222)_
 
 ## Summary
 
-Make library-mode commands canonical at the CLI root, keep `tool` as the explicit file-based/compiler namespace, preserve `lib` as a compatibility alias via argument normalization, and update help, docs, tests, and automation to use the new surface.
+Make library-mode commands canonical at the CLI root, keep `tool` as the explicit file-based/compiler namespace, remove `lib` from the documented/tested user surface, and update help, docs, tests, and automation to use the new top-level commands.
 
 ## Context
 
@@ -41,9 +41,9 @@ In practice, the common Bosatsu workflows are library-mode workflows: `check`, `
 
 ## Goals
 
-1. Make the current `bosatsu lib <cmd>` workflows available as canonical `bosatsu <cmd>` workflows.
+1. Make the current library workflows available as canonical `bosatsu <cmd>` workflows.
 2. Keep `tool` as the explicit low-level/file-based namespace.
-3. Preserve existing automation and scripts that still call `bosatsu lib <cmd>`.
+3. Remove `lib` usage from in-repo docs, tests, and automation.
 4. Improve `--help` discoverability by surfacing common library commands directly at the root.
 5. Keep command semantics, flags, and outputs stable.
 
@@ -72,9 +72,8 @@ One additional detail matters: `MainModule.run` already does pre-parse argument 
 | --- | --- |
 | `bosatsu check`, `test`, `build`, `eval`, `json`, `show`, `doc`, `deps`, `fetch`, `init`, `list`, `assemble`, `publish` | Current library-mode implementation |
 | `bosatsu tool <subcommand>` | Current file-based/compiler implementation |
-| `bosatsu lib <subcommand>` | Compatibility alias to the lifted library command |
 
-Canonical usage becomes the top-level form. `tool` remains the escape hatch for compiler/file-based behavior. `lib` remains accepted for compatibility, but it is no longer the documented primary path.
+Canonical usage becomes the top-level form. `tool` remains the escape hatch for compiler/file-based behavior. In-repo docs, tests, and scripts should stop using the `lib` spelling entirely.
 
 Top-level help should also be reordered so the most common workflows are first. A reasonable order is:
 
@@ -110,21 +109,25 @@ Keep `tool`, `version`, and `c-runtime` as explicit root subcommands. This prese
 
 No library command bodies need to be rewritten. The existing `library.Command` implementations remain the source of truth.
 
-### 2. Preserve backwards compatibility without keeping `lib` visible in `--help`
+### 2. Remove `lib` from the public CLI surface
 
-The cleanest compatibility path is a small pre-parse normalization step in `MainModule.run`:
+`MainModule.opts` should stop exposing `lib` as a first-class root subcommand. The intended public interface after this change is:
 
-- `lib <known-library-subcommand> ...` rewrites to `<known-library-subcommand> ...`
-- `lib --help` rewrites to root help
-- `lib <cmd> --help` rewrites to the lifted command help
+- `bosatsu <library-command>` for normal repo/library workflows
+- `bosatsu tool <subcommand>` for file-based/compiler workflows
 
-This keeps existing scripts working while avoiding a second visible `lib` parser branch. A visible alias would still leave the old ceremony on the main help screen, which undercuts the discoverability goal of this issue.
-
-Compatibility should be limited to known library subcommands so unsupported `lib ...` invocations are not accidentally reinterpreted.
+That means the repository should also stop documenting or testing the old nested spelling.
 
 ### 3. Update help text and command ordering
 
 `library.Command` should be reordered so the lifted top-level help emphasizes common workflows first. This is the main place where the issue's discoverability goal is realized.
+
+Decline 2.6.1 does preserve subcommand help order based on construction order. I checked the Decline source for this version:
+
+- `Help.collectCommandHelp` uses `collectCommandHelp(f) ++ collectCommandHelp(a)` for both `Opts.App` and `Opts.OrElse`
+- `Help.commandList` uses the same left-to-right `++` traversal
+
+That means the displayed subcommand order follows the order in which the `Opts.subcommand(...)` values are combined. In practice, carefully ordering the `MonoidK[Opts].combineAllK(...)` list in `library.Command` and the top-level `orElse` composition in `MainModule` is sufficient; no custom help renderer is needed.
 
 `MainModule` help text should also be updated to make the model explicit:
 
@@ -139,13 +142,12 @@ Compatibility should be limited to known library subcommands so unsupported `lib
 
 - `bosatsu eval --run ... -- <args>`
 - `bosatsu tool eval --run ... -- <args>`
-- `bosatsu lib eval --run ... -- <args>` via compatibility normalization
 
 This keeps the existing `--` passthrough behavior stable while the command path changes.
 
 ### 5. Update canonical docs and automation
 
-The PR should convert user-facing examples from `bosatsu lib <cmd>` to `bosatsu <cmd>` wherever library mode is intended.
+The PR should convert user-facing examples from the old nested spelling to `bosatsu <cmd>` wherever library mode is intended.
 
 This includes:
 
@@ -159,61 +161,59 @@ This includes:
 
 ### 6. Add focused regression coverage
 
-The current tests already provide broad behavioral coverage for `lib` and `tool`. The new work should add focused routing coverage rather than duplicate the entire suite.
+The current tests already provide broad behavioral coverage for the existing library and tool flows. The new work should update that coverage to the new top-level spelling rather than preserve dual spellings.
 
 Specifically:
 
 - replace the current expectation that root `eval` is a parse failure
 - add representative tests showing root `eval`/`json`/`show`/`check`/`test`/`build` resolve to library mode
-- keep existing `lib` tests in place to exercise compatibility
-- add parity checks showing `cmd` and `lib cmd` are equivalent for representative library commands
+- rewrite in-repo `lib`-prefixed tests to the top-level commands
 - keep explicit tests showing `tool cmd` still means file-based/compiler mode
 
 ## Testing Strategy
 
-1. In `core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala`, add representative root-command tests and alias-parity tests.
+1. In `core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala`, add representative root-command tests and rewrite existing library-mode tests to the top-level commands.
 2. In `cli/src/test/scala/dev/bosatsu/PathModuleTest.scala`, add filesystem smoke tests for lifted top-level commands and top-level `eval --run` passthrough handling.
 3. In `cli/src/test/scala/dev/bosatsu/GithubWorkflowJsonParityTest.scala`, switch the workflow-generation path to canonical top-level `fetch` / `json write` commands.
 4. In `.github/workflows/ci.yml`, exercise top-level `fetch`, `test`, and `build` at least once through the shipped wrappers so the canonical surface is covered end-to-end.
 
 ## Acceptance Criteria
 
-1. `bosatsu check`, `test`, `build`, `eval`, `json`, `show`, `doc`, `deps`, `fetch`, `init`, `list`, `assemble`, and `publish` invoke the same library-mode logic that `bosatsu lib <cmd>` invokes today.
+1. `bosatsu check`, `test`, `build`, `eval`, `json`, `show`, `doc`, `deps`, `fetch`, `init`, `list`, `assemble`, and `publish` invoke the existing library-mode logic.
 2. `bosatsu tool <cmd>` continues to invoke the existing file-based/compiler implementation, including `tool transpile` and `tool extract-iface`.
-3. Existing `bosatsu lib <cmd>` invocations continue to work for supported library commands.
-4. `bosatsu --help` surfaces the lifted library commands directly, with common workflows listed before `tool`.
-5. `eval --run` passthrough handling via `--` works for canonical top-level `eval` and for legacy `lib eval`.
+3. `bosatsu --help` surfaces the lifted library commands directly, with common workflows listed before `tool`, and no longer relies on `lib` as the discoverable entrypoint.
+4. `eval --run` passthrough handling via `--` works for canonical top-level `eval` and for `tool eval`.
+5. In-repo docs, tests, and automation no longer use the old nested spelling.
 6. User-facing docs and at least one CI/release automation path use the new canonical top-level syntax.
-7. Regression tests cover canonical top-level commands, legacy `lib` compatibility, and continued `tool` separation.
+7. Regression tests cover canonical top-level commands and continued `tool` separation.
 
 ## Risks and Mitigations
 
-1. Risk: keeping a visible `lib` alias would clutter the main help surface.
-   Mitigation: preserve compatibility with argument normalization instead of a second visible parser branch.
+1. Risk: users and external scripts may still call the old nested command form after the change.
+   Mitigation: update all in-repo usage in the same PR and call out the migration explicitly in release notes.
 
-2. Risk: parser normalization could rewrite unsupported `lib` invocations incorrectly.
-   Mitigation: only normalize known library subcommands and cover alias/help cases in tests.
-
-3. Risk: users may confuse root `check`/`test`/`eval` with `tool check`/`tool test`/`tool eval`.
+2. Risk: users may confuse root `check`/`test`/`eval` with `tool check`/`tool test`/`tool eval`.
    Mitigation: make the distinction explicit in top-level help and docs, and keep `tool` described as file-based/compiler mode.
 
-4. Risk: docs and automation drift could leave the new syntax under-tested.
+3. Risk: docs and automation drift could leave the new syntax under-tested.
    Mitigation: update docs, CI smoke commands, and publish scripts in the same PR.
+
+4. Risk: help ordering could drift if command composition order changes later.
+   Mitigation: rely on Decline's construction-order behavior intentionally and keep the command lists in `library.Command` and `MainModule` arranged explicitly.
 
 ## Rollout Notes
 
-1. Ship this as a compatibility-preserving change: top-level commands become canonical immediately, while existing `lib` commands continue to function.
-2. Update release notes and docs to recommend `bosatsu <cmd>` as the preferred form and `bosatsu tool <cmd>` as the explicit escape hatch for raw compiler mode.
-3. Do not remove or deprecate `lib` in the same PR. If removal is ever desired, it should be a separate follow-up after the new surface has been in docs and releases for a while.
-4. Because command implementations are being reused rather than rewritten, rollback is straightforward: restore the old root wiring while leaving the command bodies unchanged.
+1. Ship the CLI change together with the in-repo docs/tests/script rewrites so the repository immediately reflects the new top-level surface.
+2. Call out the user-facing migration in release notes: `bosatsu lib <cmd>` becomes `bosatsu <cmd>`, while `bosatsu tool <cmd>` remains the raw compiler mode.
+3. Because command implementations are being reused rather than rewritten, rollback is straightforward: restore the old root wiring while leaving the command bodies unchanged.
 
 ## Alternatives Considered
 
 1. Keep both lifted commands and a visible `lib` subcommand.
    Rejected because it improves typing ergonomics but still leaves the old ceremony in the primary help surface.
 
-2. Remove `lib` compatibility entirely.
-   Rejected because the repo, docs, CI, and likely downstream scripts currently rely heavily on `lib`.
+2. Keep an undocumented `lib` parser shim indefinitely.
+   Rejected because it weakens the migration to the new surface and leaves unnecessary parser complexity in place.
 
 3. Lift both library and tool commands to the root.
    Rejected because overlapping names like `check`, `test`, `eval`, `json`, `show`, `doc`, `deps`, and `assemble` would make the default mode ambiguous and work against the issue's goal of making library mode the obvious default.
