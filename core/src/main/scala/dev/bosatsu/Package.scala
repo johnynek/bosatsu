@@ -139,6 +139,7 @@ object Package {
     TypedProgram[T]
   ]
   type Inferred = Typed[Declaration]
+  type Compiled = Typed[Region]
 
   type Header =
     (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
@@ -153,6 +154,13 @@ object Package {
         fa.copy(program = (prog.copy(lets = mapLet), imap))
       }
     }
+
+  def toCompiled[A: HasRegion](pack: Typed[A]): Compiled = {
+    val withRegions = typedFunctor.map(pack)(tag => HasRegion.region(tag))
+    // Serialized compiled artifacts never retain the parsed-source payload in
+    // Program.from, so drop it before crossing the cache/compiler boundary.
+    setProgramFrom(withRegions, ())
+  }
 
   sealed trait TestEntry[+A] {
     def bindable: Identifier.Bindable

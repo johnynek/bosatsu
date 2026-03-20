@@ -26,7 +26,6 @@ import dev.bosatsu.rankn.Infer
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
-import scala.util.control.NonFatal
 
 object CompilerApi {
   private enum DiagnosticKind derives CanEqual {
@@ -94,7 +93,7 @@ object CompilerApi {
   ) extends RenderedDiagnostic
 
   private final case class TypeCheckDiagnostics[Path](
-      packages: Option[PackageMap.Inferred],
+      packages: Option[PackageMap.Compiled],
       sourcePaths: NonEmptyList[(Path, PackageName)],
       sourceMap: PackageMap.SourceMap,
       orderedDiagnostics: List[PackageError],
@@ -180,7 +179,7 @@ object CompilerApi {
           1,
           body
         )
-      case _: PackageError.TotalityCheckError =>
+      case _: PackageError.TotalityCheckError[?] =>
         RenderedError(
           ErrorCategory.TotalityError,
           "totality error",
@@ -428,71 +427,42 @@ object CompilerApi {
       else Left(err)
     }
 
-  private def localTypeNames(pack: Package.Inferred): Set[TypeName] =
+  private def localTypeNames(pack: Package.Compiled): Set[TypeName] =
     pack.types.definedTypes.keysIterator.collect {
       case (packageName, tn) if packageName == pack.name => tn
     }.toSet
 
-  private def isScalaJsUndefinedBehavior(err: Throwable): Boolean =
-    err.getClass.getName == "org.scalajs.linker.runtime.UndefinedBehaviorError"
-
-  private def bestEffortCachedTypedReplay(
-      replay: => List[PackageError]
-  ): List[PackageError] =
-    try replay
-    catch {
-      case NonFatal(_) =>
-        // CompileCache.get deserializes cached packages with source tags erased
-        // to `Unit` and then casts them back to `Package.Inferred`. That keeps
-        // cached artifacts usable for code generation, but replay-only lint
-        // passes such as `ShadowedBindingTypeCheck` and `TotalityCheck` can
-        // still touch `Declaration` tags to recover source-level patterns.
-        // On the JVM those erased tags usually limp along until a pass reads
-        // one; on Scala.js the same bad read can surface earlier as an
-        // `UndefinedBehaviorError` when `undefined` is cast back to
-        // `Declaration`. This path only replays optional lint on cache hits, so
-        // we drop that replay contribution rather than turning a successful
-        // cached compile into a hard failure.
-        Nil
-      case err: VirtualMachineError if isScalaJsUndefinedBehavior(err) =>
-        Nil
-    }
-
   private def replayTypedLintDiagnostics(
-      pack: Package.Inferred
+      pack: Package.Compiled
   ): List[PackageError] = {
     val shadowedBindings =
-      bestEffortCachedTypedReplay {
-        ShadowedBindingTypeCheck
-          .checkLets(pack.name, pack.lets) match {
-          case Validated.Valid(_)     =>
-            Nil
-          case Validated.Invalid(errs) =>
-            val localNames = localTypeNames(pack)
-            errs.toNonEmptyList.toList.map { err =>
-              PackageError.ShadowedBindingTypeError(
-                pack.name,
-                err,
-                localNames
-              ): PackageError
-            }
-        }
+      ShadowedBindingTypeCheck
+        .checkLets(pack.name, pack.lets) match {
+        case Validated.Valid(_)     =>
+          Nil
+        case Validated.Invalid(errs) =>
+          val localNames = localTypeNames(pack)
+          errs.toNonEmptyList.toList.map { err =>
+            PackageError.ShadowedBindingTypeError(
+              pack.name,
+              err,
+              localNames
+            ): PackageError
+          }
       }
 
     val totalityLint =
-      bestEffortCachedTypedReplay {
-        pack.lets.traverse_ { case (_, _, expr) =>
-          TotalityCheck(pack.types).checkExpr(expr)
-        } match {
-          case Validated.Valid(_)   =>
-            Nil
-          case Validated.Invalid(errs) =>
-            errs
-              .toNonEmptyList
-              .map(err => PackageError.TotalityCheckError(pack.name, err): PackageError)
-              .toList
-              .filter(PackageError.isPostponable)
-        }
+      pack.lets.traverse_ { case (_, _, expr) =>
+        TotalityCheck(pack.types).checkExprReplay(expr)
+      } match {
+        case Validated.Valid(_)   =>
+          Nil
+        case Validated.Invalid(errs) =>
+          errs
+            .toNonEmptyList
+            .map(err => PackageError.TotalityCheckError(pack.name, err): PackageError)
+            .toList
+            .filter(PackageError.isPostponable)
       }
 
     (shadowedBindings ::: totalityLint)
@@ -514,10 +484,10 @@ object CompilerApi {
     }
 
   private def replaySourceLintDiagnostics(
-      pack: Package.Inferred,
+      pack: Package.Compiled,
       parsed: Package.Parsed
   ): List[PackageError] = {
-    // Cached inferred packages can drop the source-level statement/region
+    // Cached compiled packages can drop the source-level statement/region
     // detail needed for unused-let replay, so reusing the parsed source here
     // keeps warm-cache warnings aligned with cold compiles.
     val sourceImports = pack.imports
@@ -565,7 +535,7 @@ object CompilerApi {
   private def replayLintDiagnostics[IO[_], Path](
       platformIO: PlatformIO[IO, Path],
       sourceFiles: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
-      packs: PackageMap.Inferred,
+      packs: PackageMap.Compiled,
       allowedPackages: Set[PackageName],
       errColor: Colorize
   ): IO[List[PackageError]] = {
@@ -602,7 +572,7 @@ object CompilerApi {
       val id: String =
         s"${base.id}:lint:${lintMode.toString.toLowerCase}"
 
-      def dependencyInterface(pack: Package.Inferred): Package.Interface =
+      def dependencyInterface(pack: Package.Typed[Any]): Package.Interface =
         base.dependencyInterface(pack)
 
       def finishPackage(
@@ -617,6 +587,17 @@ object CompilerApi {
     }
   }
 
+  private def dedupeDiagnostics(
+      sourceMap: PackageMap.SourceMap,
+      diagnostics: List[PackageError]
+  ): List[PackageError] = {
+    val seen = scala.collection.mutable.HashSet.empty[(String, String)]
+    diagnostics.filter { err =>
+      val key = (err.getClass.getName, err.message(sourceMap, Colorize.None))
+      seen.add(key)
+    }
+  }
+
   private def diagnosticDoc(
       sourceMap: PackageMap.SourceMap,
       diagnostics: NonEmptyList[PackageError],
@@ -625,7 +606,7 @@ object CompilerApi {
   ): Doc =
     kind match {
       case DiagnosticKind.Error =>
-        val rendered = diagnostics.toList.distinct
+        val rendered = dedupeDiagnostics(sourceMap, diagnostics.toList)
           .map { err =>
             val message = err.message(sourceMap, color)
             classifyError(err, Doc.text(message))
@@ -636,7 +617,7 @@ object CompilerApi {
           case many       => renderMultiErrorMessage(many)
         }
       case DiagnosticKind.Warning =>
-        val rendered = diagnostics.toList.distinct
+        val rendered = dedupeDiagnostics(sourceMap, diagnostics.toList)
           .map { err =>
             val message = err.message(sourceMap, color)
             classifyWarning(err, Doc.text(message))
@@ -715,10 +696,14 @@ object CompilerApi {
             moduleIOMonad.pure(Nil)
         }
       lintDiagnostics =
-        (replayedLintDiagnostics ::: compileLintDiagnostics).distinct
-      hardDiagnostics = hardDiagnostics0.distinct
+        dedupeDiagnostics(
+          sourceMap,
+          replayedLintDiagnostics ::: compileLintDiagnostics
+        )
+      hardDiagnostics = dedupeDiagnostics(sourceMap, hardDiagnostics0)
       orderedDiagnostics =
-        if (hardDiagnostics.nonEmpty) compileDiagnostics.distinct
+        if (hardDiagnostics.nonEmpty)
+          dedupeDiagnostics(sourceMap, compileDiagnostics)
         else lintDiagnostics
     } yield TypeCheckDiagnostics(
       packages = compiled,
@@ -742,7 +727,7 @@ object CompilerApi {
       compileCacheDirOpt: Option[Path]
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Compiled, List[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     NonEmptyList.fromList(inputs) match {
@@ -790,7 +775,7 @@ object CompilerApi {
       compileCacheDirOpt: Option[Path] = None
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     for {
@@ -832,12 +817,12 @@ object CompilerApi {
       compileCacheDirOpt: Option[Path] = None
   )(implicit
       ec: Par.EC
-  ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] = {
+  ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] = {
     import platformIO.moduleIOMonad
 
     def compiledOrError(
         diagnostics: TypeCheckDiagnostics[Path]
-    ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] =
+    ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] =
       diagnostics.packages match {
         case Some(packs) =>
           moduleIOMonad.pure((packs, diagnostics.sourcePaths))
@@ -861,7 +846,7 @@ object CompilerApi {
     def hardFailure(
         diagnostics: TypeCheckDiagnostics[Path],
         errors: List[PackageError]
-    ): IO[(PackageMap.Inferred, NonEmptyList[(Path, PackageName)])] =
+    ): IO[(PackageMap.Compiled, NonEmptyList[(Path, PackageName)])] =
       moduleIOMonad.raiseError(
         PackageErrors(
           diagnostics.sourceMap,

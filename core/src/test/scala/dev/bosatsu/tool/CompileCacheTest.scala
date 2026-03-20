@@ -1,15 +1,19 @@
 package dev.bosatsu.tool
 
-import cats.data.Chain
+import cats.data.{Chain, NonEmptyList}
 import dev.bosatsu.cache.{CompileCache, FsKey}
 import dev.bosatsu.{
   CompileOptions,
+  HasRegion,
+  Identifier,
   LocationMap,
   MemoryMain,
   Package,
   PackageMap,
   PackageName,
-  Par
+  Par,
+  Region,
+  TypedExpr
 }
 import munit.FunSuite
 import scala.collection.immutable.SortedMap
@@ -32,7 +36,7 @@ class CompileCacheTest extends FunSuite {
       source: String,
       depIfaces: List[Package.Interface] = Nil,
       compileOptions: CompileOptions = CompileOptions.Default
-  ): Package.Inferred = {
+  ): Package.Compiled = {
     val parsed = parsePackage(source)
     val checked = Par.noParallelism {
       PackageMap.typeCheckParsed(
@@ -90,6 +94,39 @@ class CompileCacheTest extends FunSuite {
       stateAfterDepHashes
     )._2
   }
+
+  private def keyPathFor(key: FsKey): Chain[String] = {
+    val keyHex = CompileCache.keyHashHex(key)
+    Chain("cache", "keys", "blake3", keyHex.take(2), keyHex.drop(2))
+  }
+
+  private def casPathFor(pack: Package.Compiled): Chain[String] = {
+    val outputHex = CompileCache.outputHashHex(pack).getOrElse {
+      fail("expected compiled package output hash")
+    }
+    Chain(
+      "cache",
+      "cas",
+      "blake3",
+      outputHex.take(2),
+      s"${outputHex.drop(2)}.bosatsu_package"
+    )
+  }
+
+  private def mainExpr(pack: Package.Compiled): TypedExpr[Region] =
+    pack.lets.collectFirst {
+      case (Identifier.Name("main"), _, expr) => expr
+    }.getOrElse(fail(s"missing main in ${pack.name}"))
+
+  @annotation.tailrec
+  private def stripWrappers(
+      expr: TypedExpr[Region]
+  ): TypedExpr[Region] =
+    expr match {
+      case TypedExpr.Generic(_, in)       => stripWrappers(in)
+      case TypedExpr.Annotation(in, _, _) => stripWrappers(in)
+      case _                              => expr
+    }
 
   test("sourceExprHash ignores statement regions") {
     val sourceA =
@@ -260,14 +297,7 @@ class CompileCacheTest extends FunSuite {
     val (_, initialHit) = runF(cache.get(key), stateWithCache)
     assert(initialHit.nonEmpty)
 
-    val keyHex = CompileCache.keyHashHex(key)
-    val keyPath = Chain(
-      "cache",
-      "keys",
-      "blake3",
-      keyHex.take(2),
-      keyHex.drop(2)
-    )
+    val keyPath = keyPathFor(key)
     val corruptState = stateWithCache
       .withFile(keyPath, MemoryMain.FileContent.Str("invalid-hash-ident"))
       .getOrElse(fail(s"failed to write corrupt link at $keyPath"))
@@ -275,16 +305,7 @@ class CompileCacheTest extends FunSuite {
     val (_, missFromCorruptLink) = runF(cache.get(key), corruptState)
     assertEquals(missFromCorruptLink, None)
 
-    val outputHex = CompileCache.outputHashHex(compiled).getOrElse {
-      fail("expected compiled package output hash")
-    }
-    val casPath = Chain(
-      "cache",
-      "cas",
-      "blake3",
-      outputHex.take(2),
-      s"${outputHex.drop(2)}.bosatsu_package"
-    )
+    val casPath = casPathFor(compiled)
     val missingCasState = stateWithCache.remove(casPath)
 
     val (_, missFromMissingCas) = runF(cache.get(key), missingCasState)
@@ -313,6 +334,76 @@ class CompileCacheTest extends FunSuite {
     val (_, warmHit) = runF(cache.get(key), stateWithCache)
 
     assert(warmHit.nonEmpty, "expected warm cache hit for package with imports")
-    assertEquals(warmHit.map(_.name), Some(appParsed.name))
+    assertEquals(warmHit, Some(appCompiled))
+    assertEquals(
+      warmHit.map(pack => HasRegion.region(mainExpr(pack))),
+      Some(HasRegion.region(mainExpr(appCompiled)))
+    )
+  }
+
+  test("warm hits preserve branch pattern regions") {
+    val source =
+      """package Cache/Match
+        |export select
+        |def select(opt: Option[Int]) -> Int:
+        |  match opt:
+        |    case Some(v): v
+        |    case None: 0
+        |""".stripMargin
+
+    val parsed = parsePackage(source)
+    val compiled = compilePackage(source)
+    val key = compileKey(parsed)
+    val (stateWithCache, _) = runF(cache.put(key, compiled))
+    val (_, warmHit) = runF(cache.get(key), stateWithCache)
+    val warmPack = warmHit.getOrElse(fail("expected warm cache hit"))
+
+    def patternRegions(
+        pack: Package.Compiled
+    ): NonEmptyList[Region] =
+      pack.lets.collectFirst {
+        case (Identifier.Name("select"), _, expr) => expr
+      }.map(stripWrappers).getOrElse(fail(s"missing select in ${pack.name}")) match {
+        case TypedExpr.AnnotatedLambda(_, body, _) =>
+          stripWrappers(body) match {
+            case TypedExpr.Match(_, branches, _) => branches.map(_.patternRegion)
+            case other                           =>
+              fail(s"expected select body to be a match expression, got $other")
+          }
+        case other =>
+          fail(s"expected select to be a lambda, got $other")
+      }
+
+    val originalRegions = patternRegions(compiled)
+    assert(originalRegions.exists(r => !r.eqv(Region.empty)))
+    assertEquals(patternRegions(warmPack), originalRegions)
+  }
+
+  test("old schema entries are ignored after the cache schema bump") {
+    val source =
+      """package Cache/Foo
+        |main = 1
+        |""".stripMargin
+    val parsed = parsePackage(source)
+    val compiled = compilePackage(source)
+    val currentKey = compileKey(parsed)
+    val oldKey = currentKey.copy(schemaVersion = 1)
+    val outputHex = CompileCache.outputHashHex(compiled).getOrElse {
+      fail("expected compiled package output hash")
+    }
+    val oldState = MemoryMain.State.empty
+      .withFile(
+        casPathFor(compiled),
+        MemoryMain.FileContent.Packages(List(compiled))
+      )
+      .getOrElse(fail("failed to seed legacy cas entry"))
+      .withFile(
+        keyPathFor(oldKey),
+        MemoryMain.FileContent.Str(outputHex)
+      )
+      .getOrElse(fail("failed to seed legacy key entry"))
+
+    val (_, miss) = runF(cache.get(currentKey), oldState)
+    assertEquals(miss, None)
   }
 }

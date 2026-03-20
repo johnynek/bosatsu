@@ -2678,7 +2678,7 @@ object Infer {
               )(err)
             }
         )
-      } yield TypedExpr.Branch(pattern, tguard, tres)
+      } yield TypedExpr.Branch(pattern, tguard, tres)(using branch.patternRegion)
     }
 
     def inferBranch[A: HasRegion](
@@ -2693,7 +2693,10 @@ object Infer {
         )
         // inferRho returns a TypedExpr.Rho (which is only an alias)
         res <- extendEnvList(bindings)(inferRho(branch.expr))
-      } yield (TypedExpr.Branch(pattern, tguard, res._1), res._2)
+      } yield (
+        TypedExpr.Branch(pattern, tguard, res._1)(using branch.patternRegion),
+        res._2
+      )
     }
 
     /** patterns can be a sigma type, not neccesarily a rho/tau return a list of

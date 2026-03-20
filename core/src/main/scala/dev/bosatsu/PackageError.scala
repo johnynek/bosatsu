@@ -1614,16 +1614,16 @@ object PackageError {
     }
   }
 
-  case class TotalityCheckError(
+  case class TotalityCheckError[A: HasRegion](
       pack: PackageName,
-      err: TotalityCheck.ExprError[Declaration]
+      err: TotalityCheck.ExprError[A]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = err.matchExpr.tag.region
+      val region = HasRegion.region(err.matchExpr.tag)
       val context1 =
         lm.showRegion(region, 2, errColor)
           .getOrElse(Doc.str(region.show)) // we should highlight the whole region
@@ -1675,7 +1675,7 @@ object PackageError {
           given Document[Type] = Document.instance(showT)
 
           matchExpr.tag match {
-            case Declaration.Matches(_, pattern) =>
+            case Declaration.Matches(_, pattern, None) =>
               Doc.text("`matches` pattern covers all values of type ") +
                 Document[Type].document(scrutineeType) +
                 Doc.text(", so this expression is always `True`:") +

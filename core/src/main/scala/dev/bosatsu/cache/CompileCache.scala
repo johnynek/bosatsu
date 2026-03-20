@@ -21,7 +21,7 @@ import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
-  private val schemaVersion = 1
+  private val schemaVersion = 2
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
@@ -56,7 +56,7 @@ object CompileCache {
   def keyHashHex(key: FsKey): String =
     keyHashValue(key).hex
 
-  def outputHashHex(pack: Package.Inferred): Option[String] =
+  def outputHashHex(pack: Package.Compiled): Option[String] =
     outputHashValue(pack).toOption.map(_.hash.hex)
 
   private[cache] def keyHashValue(key: FsKey): HashValue[Algo.Blake3] = {
@@ -80,7 +80,7 @@ object CompileCache {
   }
 
   private[cache] def outputHashValue(
-      pack: Package.Inferred
+      pack: Package.Compiled
   ): Try[Hashed[Algo.Blake3, Array[Byte]]] =
     ProtoConverter
       .packagesToProto(pack :: Nil)
@@ -135,8 +135,7 @@ object CompileCache {
     private final class RefKey[A <: AnyRef](val ref: A) {
       override def equals(that: Any): Boolean =
         that match {
-          case other: RefKey[_] =>
-            (ref.asInstanceOf[AnyRef] eq other.ref.asInstanceOf[AnyRef])
+          case other: RefKey[_] => (ref eq other.ref)
           case _                => false
         }
 
@@ -267,7 +266,7 @@ object CompileCache {
       .flatMap(moduleIOMonad.fromTry(_))
     }
 
-    def get(key: Key): F[Option[Package.Inferred]] = {
+    def get(key: Key): F[Option[Package.Compiled]] = {
       statsUpdate { getCalls.incrementAndGet(); () }
       val keyHash = keyHashValue(key)
       val linkPath = keyPath(keyHash)
@@ -310,8 +309,7 @@ object CompileCache {
               } yield decoded._2
             }.map {
               case pack :: Nil if pack.name == key.packageName =>
-                // Serialized package artifacts are tag-erased to Unit.
-                Some(pack.asInstanceOf[Package.Inferred])
+                Some(pack)
               case _ =>
                 statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
                 None
@@ -341,7 +339,7 @@ object CompileCache {
       }
     }
 
-    def put(key: Key, value: Package.Inferred): F[Unit] =
+    def put(key: Key, value: Package.Compiled): F[Unit] =
       outputHashValue(value) match {
         case Failure(_)            =>
           statsUpdate {

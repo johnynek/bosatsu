@@ -805,9 +805,11 @@ object LegacyDefRecursionCheck {
                 }
               }
           }
-        case Matches(a, _) =>
-          // patterns don't use values
-          checkDecl(a)
+        case Matches(a, pat, guard) =>
+          // Guarded `matches` keeps pattern bindings scoped to the guard only.
+          checkDecl(a) *>
+            checkForIllegalBindsSt(pat.names, decl) *>
+            filterNames(pat.names)(guard.parTraverse_(checkDecl))
         case Parens(p) =>
           checkDecl(p)
         case TupleCons(tups) =>

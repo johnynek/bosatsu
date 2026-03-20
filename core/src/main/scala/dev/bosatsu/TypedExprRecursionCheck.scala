@@ -1045,7 +1045,12 @@ object TypedExprRecursionCheck {
       Identifier.Name("div"),
       Identifier.Name("mod_Int"),
       Identifier.Name("cmp_Int"),
-      Identifier.Name("eq_Int")
+      Identifier.Name("eq_Int"),
+      Identifier.Name("and"),
+      Identifier.Name("or"),
+      Identifier.Name("not"),
+      Identifier.Name("xor"),
+      Identifier.Name("implies")
     )
 
     private def resolvedPredefFnName(
@@ -1129,10 +1134,39 @@ object TypedExprRecursionCheck {
     )(
         fn: (SmtExpr.IntExpr, SmtExpr.IntExpr) => A
     ): (Option[A], SmtBranchState) =
-      args.toList match {
-        case left :: right :: Nil =>
+      args match {
+        case NonEmptyList(left, right :: Nil) =>
           val (leftExpr, state1) = lowerIntExpr(left, state)
           val (rightExpr, state2) = lowerIntExpr(right, state1)
+          ((leftExpr, rightExpr).mapN(fn), state2)
+        case _ =>
+          (None, state)
+      }
+
+    private def lowerUnaryBool[A](
+        args: NonEmptyList[TypedExpr[Declaration]],
+        state: SmtBranchState
+    )(
+        fn: SmtExpr.BoolExpr => A
+    ): (Option[A], SmtBranchState) =
+      args match {
+        case NonEmptyList(arg, Nil) =>
+          val (argExpr, state1) = lowerBoolExpr(arg, state)
+          (argExpr.map(fn), state1)
+        case _ =>
+          (None, state)
+      }
+
+    private def lowerBinaryBool[A](
+        args: NonEmptyList[TypedExpr[Declaration]],
+        state: SmtBranchState
+    )(
+        fn: (SmtExpr.BoolExpr, SmtExpr.BoolExpr) => A
+    ): (Option[A], SmtBranchState) =
+      args match {
+        case NonEmptyList(left, right :: Nil) =>
+          val (leftExpr, state1) = lowerBoolExpr(left, state)
+          val (rightExpr, state2) = lowerBoolExpr(right, state1)
           ((leftExpr, rightExpr).mapN(fn), state2)
         case _ =>
           (None, state)
@@ -1236,6 +1270,15 @@ object TypedExprRecursionCheck {
       )
     }
 
+    private def canUseFinalBranchAsFallback(
+        branch: TypedExpr.Branch[Declaration],
+        condOpt: Option[SmtExpr.BoolExpr]
+    ): Boolean =
+      // Totality makes the final branch the default fallback arm. If we
+      // cannot lower its condition, only use that fallback when the pattern
+      // itself contributes no bound names that would need SMT bindings.
+      condOpt.nonEmpty || branch.pattern.names.isEmpty
+
     private def lowerIntIfExpr(
         arg: TypedExpr[Declaration],
         branches: NonEmptyList[TypedExpr.Branch[Declaration]],
@@ -1271,13 +1314,13 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
           val (lastExprOpt, state2) = lowerIntExpr(last.expr, stateForLastExpr)
-          (lastCondOpt, lastExprOpt) match {
+          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
             // Totality checking guarantees match exhaustiveness, so once every
-            // branch condition/result lowers we can use the final branch as the
-            // default arm in the ite chain.
+            // earlier branch condition/result lowers we can use the final
+            // branch as the default arm in the ite chain.
             // We lower branch expressions with bindPatternNames so aliases such
             // as `case 12 as twelve:` are available while building SMT terms.
-            case (Some(_), Some(lastExpr)) =>
+            case (Some(lastExpr), true) =>
               val initState = (
                 lastExpr,
                 SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
@@ -1378,8 +1421,8 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
           val (lastExprOpt, state2) = lowerComparisonExpr(last.expr, stateForLastExpr)
-          (lastCondOpt, lastExprOpt) match {
-            case (Some(_), Some(lastExpr)) =>
+          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
+            case (Some(lastExpr), true) =>
               val initState = (
                 lastExpr,
                 SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
@@ -1521,8 +1564,8 @@ object TypedExprRecursionCheck {
           val (lastCondOpt, state1) = lowerMatchBranchCondition(argExpr, last, state)
           val stateForLastExpr = bindPatternNames(argExpr, last.pattern, state1)
           val (lastExprOpt, state2) = lowerBoolExpr(last.expr, stateForLastExpr)
-          (lastCondOpt, lastExprOpt) match {
-            case (Some(_), Some(lastExpr)) =>
+          (lastExprOpt, canUseFinalBranchAsFallback(last, lastCondOpt)) match {
+            case (Some(lastExpr), true) =>
               val initState = (
                 lastExpr,
                 SmtExpr.BoolConst.True: SmtExpr.BoolExpr,
@@ -1565,6 +1608,33 @@ object TypedExprRecursionCheck {
           resolvedPredefFnName(fn, state) match {
             case Some(Identifier.Name("eq_Int")) =>
               lowerBinaryInt(args, state)(SmtExpr.EqInt(_, _))
+            case Some(Identifier.Name("and")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(mkAnd(Vector(left, right)))
+              )
+            case Some(Identifier.Name("or")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(mkOr(Vector(left, right)))
+              )
+            case Some(Identifier.Name("not")) =>
+              lowerUnaryBool(args, state)(arg =>
+                simplifyBoolExpr(SmtExpr.Not(arg))
+              )
+            case Some(Identifier.Name("xor")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(
+                  mkOr(
+                    Vector(
+                      mkAnd(Vector(left, SmtExpr.Not(right))),
+                      mkAnd(Vector(SmtExpr.Not(left), right))
+                    )
+                  )
+                )
+              )
+            case Some(Identifier.Name("implies")) =>
+              lowerBinaryBool(args, state)((left, right) =>
+                simplifyBoolExpr(mkOr(Vector(SmtExpr.Not(left), right)))
+              )
             case _ =>
               inlinedTopLevelAliasApp(fn, args, state) match {
                 case Some(inlined) => lowerBoolExpr(inlined, state)

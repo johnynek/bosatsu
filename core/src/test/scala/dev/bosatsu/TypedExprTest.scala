@@ -1148,6 +1148,73 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites terminal guarded bool branches to branch expressions"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops terminal False fallback when its pattern is a subset"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, None, bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(falsePat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, bool(true))
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected subset-pruned terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
     "normalization rewrites leading wildcard guards to a bool selector match"
   ) {
     val x = varTE("x", intTpe)
@@ -1245,6 +1312,171 @@ foo = _ -> 1
         }
       case other =>
         fail(s"expected rewritten bool selector match, got: $other")
+    }
+  }
+
+  test(
+    "normalization rewrites terminal guarded bool branches for deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, suffixPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewritten trailing bool match, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops redundant terminal False fallback after rewriting deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val emptyPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(Nil)
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(emptyPat, None, bool(false)),
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(suffixPat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.toList.count(_.pattern == suffixPat), 1)
+        assertEquals(branches1.last.pattern, suffixPat)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected redundant False fallback to be removed, got: $other")
+    }
+  }
+
+  test(
+    "normalization keeps terminal guarded bool branches when search bindings are ambiguous"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val ambiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(ambiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    val normalized =
+      TypedExprNormalization.normalize(guardedTail).getOrElse(guardedTail)
+
+    normalized match {
+      case TypedExpr.Match(arg1, branches1, _) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, ambiguousPat)
+        assertEquals(branches1.head.guard, Some(guardExpr))
+        assertEquals(branches1.head.expr, bool(true))
+      case other =>
+        fail(s"expected guarded ambiguous search match to stay ordered, got: $other")
+    }
+  }
+
+  test(
+    "normalization rewrites terminal guarded bool branches when the guard ignores ambiguous bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val partiallyAmbiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(yName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val expectedPat = partiallyAmbiguousPat.filterVars(Set(xName))
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(partiallyAmbiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, expectedPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewrite when guard ignores ambiguous bindings, got: $other")
     }
   }
 
@@ -4285,7 +4517,9 @@ def makeLoop(fn):
               branch.pattern.traverseType(fn),
               branch.guard.traverse(traverse(_)(fn)),
               traverse(branch.expr)(fn)
-            ).mapN(TypedExpr.Branch(_, _, _))
+            ).mapN { (pattern, guard, expr1) =>
+              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+            }
           }
           (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
       }
@@ -4342,10 +4576,16 @@ def makeLoop(fn):
               branch.guard.traverse(guard => traverse(guard)(fn)),
               traverse(branch.expr)(fn)
             ).mapN { (guard, expr1) =>
-              branch.copy(guard = guard, expr = expr1)
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
             }
           }
-          (traverse(expr)(fn), tbranch, fn(tag)).mapN(TypedExpr.Match(_, _, _))
+          (traverse(expr)(fn), tbranch, fn(tag)).mapN { (expr1, branches1, tag1) =>
+            TypedExpr.Match(expr1, branches1, tag1)
+          }
       }
 
     def traverseUp[F[_]: Monad, A](
@@ -4402,7 +4642,11 @@ def makeLoop(fn):
               branch.guard.traverse(loop(_)),
               loop(branch.expr)
             ) { (guard, expr1) =>
-              branch.copy(guard = guard, expr = expr1)
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
             }
           }
           mon
@@ -4522,10 +4766,11 @@ def makeLoop(fn):
           TypedExpr.Match(
             map(arg)(fn),
             branches.map { branch =>
-              branch.copy(
-                guard = branch.guard.map(map(_)(fn)),
-                expr = map(branch.expr)(fn)
-              )
+              TypedExpr.Branch(
+                branch.pattern,
+                branch.guard.map(map(_)(fn)),
+                map(branch.expr)(fn)
+              )(using branch.patternRegion)
             },
             fn(tag)
           )

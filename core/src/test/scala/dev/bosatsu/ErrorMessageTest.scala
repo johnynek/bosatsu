@@ -246,7 +246,7 @@ main = int_to_String(42) matches str
       val msg = sce.message(Map.empty, Colorize.None)
       assert(
         msg.contains(
-          "`matches` uses pattern matching and this pattern introduces bindings:"
+          "`matches` only allows pattern bindings when they are scoped to an `if` guard:"
         ),
         msg
       )
@@ -257,6 +257,42 @@ main = int_to_String(42) matches str
         msg
       )
       assert(msg.contains("use explicit equality"), msg)
+      ()
+    }
+  }
+
+  test("guarded matches bindings stay scoped to the guard") {
+    val source =
+      """package GuardScope
+        |
+        |main = [1] matches [x] if x matches 1 else x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("nested guarded matches in a guard require parentheses") {
+    evalFail(List("""
+package GuardAmbiguity
+
+main = [0] matches [1] if [0] matches [1] if True else True
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "`matches` guards cannot be another guarded `matches` without parentheses:"
+        ),
+        msg
+      )
+      assert(
+        msg.contains(
+          "add parentheses around the inner guarded `matches` to choose the grouping explicitly."
+        ),
+        msg
+      )
       ()
     }
   }

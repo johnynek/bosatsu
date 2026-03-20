@@ -309,10 +309,16 @@ message LiteralExpr {
   int32 typeOf = 2;
 }
 
+message Region {
+  int32 start = 1;
+  int32 end = 2;
+}
+
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
   int32 guardExpr = 3;
+  Region patternRegion = 4;
 }
 
 message MatchExpr {
@@ -333,6 +339,7 @@ message TypedExpr {
     LoopExpr loopExpr = 9;
     RecurExpr recurExpr = 10;
   }
+  Region region = 11;
 }
 
 message Let {

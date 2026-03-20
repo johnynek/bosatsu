@@ -10,7 +10,7 @@ class PackageTest extends munit.FunSuite with ParTest {
   def resolveThenInfer(
       ps: Iterable[Package.Parsed],
       compileOptions: CompileOptions
-  ): ValidatedNel[PackageError, PackageMap.Inferred] = {
+  ): ValidatedNel[PackageError, PackageMap.Compiled] = {
     implicit val showInt: Show[Int] = Show.fromToString
     PackageMap
       .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, compileOptions)
@@ -19,7 +19,7 @@ class PackageTest extends munit.FunSuite with ParTest {
 
   def resolveThenInfer(
       ps: Iterable[Package.Parsed]
-  ): ValidatedNel[PackageError, PackageMap.Inferred] =
+  ): ValidatedNel[PackageError, PackageMap.Compiled] =
     resolveThenInfer(ps, CompileOptions.Default)
 
   def parse(s: String): Package.Parsed =
@@ -31,7 +31,7 @@ class PackageTest extends munit.FunSuite with ParTest {
   def typeCheckParsed(
       ps: List[Package.Parsed],
       compileOptions: CompileOptions
-  ): ValidatedNel[PackageError, PackageMap.Inferred] = {
+  ): ValidatedNel[PackageError, PackageMap.Compiled] = {
     val withPaths = ps.zipWithIndex.map { case (pack, idx) =>
       ((idx.toString, LocationMap("")), pack)
     }
@@ -350,7 +350,7 @@ main = helper
     val noOpt = resolveThenInfer(List(pack), CompileOptions.NoOptimize)
 
     def defsOf(
-        inferred: ValidatedNel[PackageError, PackageMap.Inferred]
+        inferred: ValidatedNel[PackageError, PackageMap.Compiled]
     ): List[String] =
       inferred match {
         case Validated.Invalid(errs) =>

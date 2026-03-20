@@ -48,7 +48,7 @@ main = parse_value(" null")
   private val capturedBName = Identifier.synthetic("b")
 
   private def withRepro[A](
-      fn: (PackageMap.Inferred, PackageName) => A
+      fn: (PackageMap.Compiled, PackageName) => A
   ): A = {
     var out: Option[A] = None
     TestUtils.testInferred(

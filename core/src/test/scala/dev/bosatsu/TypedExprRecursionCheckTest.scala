@@ -35,8 +35,8 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     val stmts = TestUtils.statementsOf(source)
     val parsed = Package.fromStatements(packageName, stmts)
     given Show[String] = Show.fromToString
-    PackageMap
-      .typeCheckParsed(
+    TestUtils
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",
@@ -127,8 +127,8 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     val stmts = TestUtils.statementsOf(source)
     val parsed = Package.fromStatements(pack, stmts)
     given Show[String] = Show.fromToString
-    PackageMap
-      .typeCheckParsed(
+    TestUtils
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",
@@ -537,6 +537,62 @@ def ok(i: Int) -> Int:
       ok(i.sub(2))
     case _:
       i
+""")
+  }
+
+  test("Int recursion lowers predef and/or/not aliases into SMT guard facts") {
+    allowed("""#
+both = and
+either = or
+neg = not
+
+def ok(i: Int) -> Int:
+  recur i:
+    case _ if both(
+      neg(cmp_Int(i, 0) matches LT | EQ),
+      either(cmp_Int(i, 2) matches GT, cmp_Int(i, 2) matches EQ)
+    ):
+      ok(i.sub(2))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers predef xor/implies aliases into SMT guard facts") {
+    allowed("""#
+both = and
+exclusive = xor
+follows = implies
+
+def ok(i: Int) -> Int:
+  recur i:
+    case _ if both(
+      follows(cmp_Int(i, 0) matches LT, False),
+      follows(
+        exclusive(
+          cmp_Int(i, 0) matches LT,
+          cmp_Int(i, 0) matches LT | EQ
+        ),
+        False
+      )
+    ):
+      ok(i.sub(1))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers total string-pattern guard matches via final fallback") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  recur idx:
+    case _ if (
+      match txt:
+        case "${_}": cmp_Int(idx, 0) matches GT
+    ):
+      walk(idx.sub(1), txt)
+    case _:
+      idx
 """)
   }
 

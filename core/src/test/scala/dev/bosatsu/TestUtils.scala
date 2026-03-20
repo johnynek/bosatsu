@@ -1,12 +1,15 @@
 package dev.bosatsu
 
-import cats.Order
+import cats.{Order, Show}
 import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec}
 import java.nio.file.{Files, Paths}
+import dev.bosatsu.cache.{InferCache, InferPhases}
 import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
 import munit.Assertions.{assertEquals, fail}
 import IorMethods.IorExtension
+import scala.collection.mutable
+import scala.collection.immutable.SortedMap
 
 import cats.syntax.all._
 
@@ -213,7 +216,7 @@ object TestUtils {
         val pack: Package.Typed[Declaration] =
           Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
-          PackageMap.empty + pack + PackageMap.predefCompiled
+          PackageMap.empty + pack + PackageMap.predefInferred
         assertPackageMapTypeConnections(pm, "optimized")
         fn(pm)
     }
@@ -259,6 +262,69 @@ object TestUtils {
     val pm = res.right.get
     assertPackageMapTypeConnections(pm, "optimized")
     pm
+  }
+
+  // Test-only helper for cases that need Declaration-tagged packages after
+  // finish phases. Production code should use the compiled artifact boundary.
+  def typeCheckParsedInferred[A: Show](
+      packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
+      ifs: List[Package.Interface],
+      predefKey: A,
+      compileOptions: CompileOptions
+  )(implicit
+      cpuEC: Par.EC
+  ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
+    import Par.F
+
+    val capturedLock = new AnyRef
+    val captured = mutable.HashMap.empty[PackageName, Package.Inferred]
+    val defaultPhases = InferPhases.default
+    val capturePhases = new InferPhases {
+      val id: String = defaultPhases.id
+
+      def dependencyInterface(pack: Package.Typed[Any]): Package.Interface =
+        defaultPhases.dependencyInterface(pack)
+
+      def finishPackage(
+          pack: Package.Inferred,
+          depIfaces: SortedMap[PackageName, Package.Interface],
+          compileOptions: CompileOptions
+      ): Package.Inferred = {
+        val finished =
+          defaultPhases.finishPackage(pack, depIfaces, compileOptions)
+        capturedLock.synchronized {
+          captured.update(finished.name, finished)
+        }
+        finished
+      }
+    }
+
+    def toInferredMap(compiled: PackageMap.Compiled): PackageMap.Inferred =
+      PackageMap(
+        SortedMap.from(
+          compiled.toMap.keysIterator.map { name =>
+            name -> capturedLock.synchronized {
+              captured.getOrElse(
+                name,
+                sys.error(
+                  s"invariant violation: missing captured inferred package for $name"
+                )
+              )
+            }
+          }
+        )
+      )
+
+    Par.await(
+      PackageMap.typeCheckParsed[F, A](
+        packs,
+        ifs,
+        predefKey,
+        compileOptions,
+        InferCache.noop[F],
+        capturePhases
+      )
+    ).map(toInferredMap)
   }
 
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
@@ -373,7 +439,7 @@ object TestUtils {
   def testInferred(
       packages: List[String],
       mainPackS: String,
-      inferredHandler: (PackageMap.Inferred, PackageName) => Unit
+      inferredHandler: (PackageMap.Compiled, PackageName) => Unit
   )(implicit ec: Par.EC) = {
     val mainPack = PackageName.parse(mainPackS).get
 

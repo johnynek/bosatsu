@@ -577,6 +577,17 @@ main = 1
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, add)
 """),
       "Foo",
@@ -587,6 +598,17 @@ main = range_fold(0, 10, 0, add)
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, (_, y) -> y)
 """),
       "Foo",
@@ -596,6 +618,17 @@ main = range_fold(0, 10, 0, (_, y) -> y)
     evalTest(
       List("""
 package Foo
+
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
 
 main = range_fold(0, 10, 100, (x, _) -> x)
 """),
@@ -639,6 +672,92 @@ test = TestSuite("exists", [
 """),
       "Foo",
       5
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatches
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+test = TestSuite("guarded matches", [
+  Assertion(exists([2], x -> x matches 2), "guarded true"),
+  Assertion(exists([2], x -> x matches 4) matches False, "guarded false"),
+  Assertion([3] matches [*_, x, *_] if x matches 3, "direct true"),
+  Assertion(([3] matches [*_, x, *_] if x matches 9) matches False, "direct false"),
+  ])
+"""),
+      "GuardedMatches",
+      4
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedListSearch
+
+def not(x): False if x else True
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+def forall(as, pred):
+  match as:
+    case [*_, x, *_] if not(pred(x)): False
+    case _: True
+
+test = TestSuite("guarded list search", [
+  Assertion(exists([1, 2, 3], x -> x matches 2), "exists middle hit"),
+  Assertion(exists([2, 1, 3], x -> x matches 2), "exists head hit"),
+  Assertion(not(exists([1, 3], x -> x matches 2)), "exists miss"),
+  Assertion(forall([1, 2, 3], x -> x matches (1 | 2 | 3)), "forall all true"),
+  Assertion(forall([], _ -> False), "forall empty"),
+  Assertion(not(forall([1, 2, 3], x -> x matches (1 | 3))), "forall middle failure"),
+  ])
+"""),
+      "GuardedListSearch",
+      6
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesCoherence
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+test = TestSuite("guarded matches coherence", [
+  Assertion(eq_Bool(2 matches 2 if True else False, (2 matches 2) if True else False), "binding-free guard groups like ternary"),
+  Assertion(eq_Bool(2 matches 3 if True else False, (2 matches 3) if True else False), "binding-free guard groups like ternary no match"),
+  Assertion(eq_Bool(True if (2 matches 2) else False, (2 matches 2) if True else False), "commuted and when both true"),
+  Assertion(eq_Bool(True if (2 matches 3) else False, (2 matches 3) if True else False), "commuted and when match is false"),
+  Assertion(eq_Bool(False if (2 matches 2) else False, (2 matches 2) if False else False), "commuted and when pred is false"),
+  Assertion(eq_Bool([1] matches [x] if x matches 1 else True, True if ([1] matches [x] if x matches 1) else True), "normalized form with bindings true"),
+  Assertion(eq_Bool([2] matches [x] if x matches 1 else False, True if ([2] matches [x] if x matches 1) else False), "normalized form with bindings false"),
+  ])
+"""),
+      "GuardedMatchesCoherence",
+      7
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesParens
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+p1 = [0] matches [1] if ([0] matches [1] if True) else True
+p2 = [0] matches [1] if ([0] matches [1] if True else True)
+
+test = TestSuite("guarded matches parens", [
+  Assertion(p1, "outer else grouping"),
+  Assertion(p2 matches False, "inner else grouping"),
+  Assertion(not(eq_Bool(p1, p2)), "explicit parens pick different meanings"),
+  ])
+"""),
+      "GuardedMatchesParens",
+      3
     )
 
     evalTest(
@@ -1407,6 +1526,9 @@ package A
 
 struct TwoVar(one, two)
 
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  (x1, x2) -> f(x1)(x2)
+
 constructed = uncurry2(x -> y -> TwoVar(x, y))(1, "two")
 
 main = match constructed:
@@ -1423,6 +1545,9 @@ main = match constructed:
 package A
 
 struct ThreeVar(one, two, three)
+
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  (x1, x2, x3) -> f(x1)(x2)(x3)
 
 constructed = uncurry3(x -> y -> z -> ThreeVar(x, y, z))(1, "two", 3)
 

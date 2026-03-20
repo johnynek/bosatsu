@@ -45,7 +45,7 @@ class LibConfigTest extends munit.FunSuite {
     )
   }
 
-  private def typeCheckOne(src: String): PackageMap.Inferred =
+  private def typeCheckOne(src: String): PackageMap.Compiled =
     Par.noParallelism {
       val pack = dev.bosatsu.Parser.unsafeParse(Package.parser, src)
       val nel =

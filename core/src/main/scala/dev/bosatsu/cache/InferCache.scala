@@ -19,8 +19,8 @@ trait InferCache[F[_]] {
       phaseIdentity: String
   ): F[Key]
 
-  def get(key: Key): F[Option[Package.Inferred]]
-  def put(key: Key, value: Package.Inferred): F[Unit]
+  def get(key: Key): F[Option[Package.Compiled]]
+  def put(key: Key, value: Package.Compiled): F[Unit]
   def dependencyHash(interface: Package.Interface): F[DepHash]
 
   def statsSnapshot: Option[String] = None
@@ -38,7 +38,7 @@ object InferCache {
       type Key = Unit
       type DepHash = Unit
       private val statsEnabled = InferCache.statsEnabled
-      private val noneF: F[Option[Package.Inferred]] =
+      private val noneF: F[Option[Package.Compiled]] =
         Applicative[F].pure(None)
       private val generateKeyCalls = new AtomicLong(0L)
       private val getCalls = new AtomicLong(0L)
@@ -69,7 +69,7 @@ object InferCache {
         Applicative[F].unit
       }
 
-      def get(key: Key): F[Option[Package.Inferred]] = {
+      def get(key: Key): F[Option[Package.Compiled]] = {
         if (statsEnabled) {
           getCalls.incrementAndGet()
           ()
@@ -77,7 +77,7 @@ object InferCache {
         noneF
       }
 
-      def put(key: Key, value: Package.Inferred): F[Unit] = {
+      def put(key: Key, value: Package.Compiled): F[Unit] = {
         if (statsEnabled) {
           putCalls.incrementAndGet()
           ()

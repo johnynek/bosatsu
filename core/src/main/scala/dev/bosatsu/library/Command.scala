@@ -623,7 +623,7 @@ object Command {
             compileOptions: CompileOptions,
             lintMode: LintMode,
             compileCacheDirOpt: Option[P] = None
-        ): F[PackageMap.Inferred] =
+        ): F[PackageMap.Compiled] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
@@ -914,7 +914,7 @@ object Command {
 
       private def decodedWithDepsFromPackages(
           cs: CheckState,
-          allPacks: PackageMap.Inferred,
+          allPacks: PackageMap.Compiled,
           unusedTransitiveDeps: List[proto.LibDependency]
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {

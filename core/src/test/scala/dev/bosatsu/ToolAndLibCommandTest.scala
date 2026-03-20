@@ -227,10 +227,11 @@ class ToolAndLibCommandTest extends FunSuite {
       compileOptions: CompileOptions,
       lintMode: LintMode,
       compileCacheDirOpt: Option[Chain[String]]
-  ): ErrorOr[(MemoryMain.State, (PackageMap.Inferred, NonEmptyList[
+  ): ErrorOr[(MemoryMain.State, (PackageMap.Compiled, NonEmptyList[
     (Chain[String], PackageName)
   ]))] =
     Par.noParallelism {
+      given Par.EC = summon[Par.EC]
       CompilerApi
         .typeCheckWithLintMode[StateIO, Chain[String]](
           module.platformIO,
@@ -2052,14 +2053,20 @@ class ToolAndLibCommandTest extends FunSuite {
 |  "\"${pad3(i)}\""
 |
 |def make_csv(n: Int) -> String:
-|  int_loop(n, "", (i, acc) ->
-|    part = quoted(i)
-|    next =
-|      if acc matches "":
-|        part
-|      else:
-|        "${part},${acc}"
-|    (i.sub(1), next))
+|  def go(i: Int, acc: String) -> String:
+|    loop i:
+|      case _ if cmp_Int(i, 0) matches GT:
+|        part = quoted(i)
+|        next =
+|          if acc matches "":
+|            part
+|          else:
+|            "${part},${acc}"
+|        go(i.sub(1), next)
+|      case _:
+|        acc
+|
+|  go(n, "")
 |
 |names_csv = make_csv(178)
 |computed = list_len(sort_names(parse_names(names_csv)), 0)
@@ -4030,9 +4037,7 @@ main = 1
           !indexSection.contains("[`Fn2[i0, i1, z]`](#type-fn2)"),
           predefDoc
         )
-        assert(predefDoc.contains("[`int_loop`](#value-int-loop)"), predefDoc)
         assert(predefDoc.contains("<a id=\"type-bool\"></a>"), predefDoc)
-        assert(predefDoc.contains("<a id=\"value-int-loop\"></a>"), predefDoc)
         assert(predefDoc.contains("type Dict[k: *, v: +*]"), predefDoc)
         assert(predefDoc.contains("type Int"), predefDoc)
         assert(!predefDoc.contains("type Int: *"), predefDoc)
@@ -4071,18 +4076,19 @@ main = 1
           ),
           predefDoc
         )
-        assert(
-          predefDoc.contains("returned Int is <= 0"),
-          predefDoc
-        )
-        assert(
-          predefDoc.contains("intValue"),
-          predefDoc
-        )
-        assert(predefDoc.contains("def int_loop[a]("), predefDoc)
-        assert(predefDoc.contains("intValue: Int"), predefDoc)
-        assert(predefDoc.contains("state: a"), predefDoc)
-        assert(predefDoc.contains("fn: (Int, a) -> (Int, a)"), predefDoc)
+        List(
+          "[`int_loop`](#value-int-loop)",
+          "[`range_fold`](#value-range-fold)",
+          "[`uncurry2`](#value-uncurry2)",
+          "[`uncurry3`](#value-uncurry3)",
+          "<a id=\"value-int-loop\"></a>",
+          "def int_loop",
+          "def range_fold",
+          "def uncurry2",
+          "def uncurry3"
+        ).foreach { removed =>
+          assert(!predefDoc.contains(removed), predefDoc)
+        }
         def containsAny(strs: List[String]): Boolean =
           strs.exists(predefDoc.contains)
         assert(
@@ -5361,7 +5367,22 @@ main = depBox
                 Output.CompileOut(packs1, _, _),
                 Output.CompileOut(packs2, _, _)
               ) =>
+            val appName = PackageName.parts("Cache", "App")
+            def appPack(packs: List[Package.Compiled]): Package.Compiled =
+              packs.find(_.name == appName).getOrElse {
+                fail(s"missing Cache/App in ${packs.map(_.name)}")
+              }
+
+            def mainRegion(pack: Package.Compiled): Region =
+              pack.lets
+                .collectFirst {
+                  case (Identifier.Name("main"), _, expr) =>
+                    HasRegion.region(expr)
+                }
+                .getOrElse(fail(s"missing Cache/App::main in ${pack.name}"))
+
             assertEquals(packs2.map(_.name), packs1.map(_.name))
+            assertEquals(mainRegion(appPack(packs2)), mainRegion(appPack(packs1)))
           case other =>
             fail(s"unexpected outputs: $other")
         }
@@ -5420,8 +5441,13 @@ main = depBox
       case Right((state1, state2)) =>
         val keyPrefix = Chain("cache", "keys", "blake3")
         val casPrefix = Chain("cache", "cas", "blake3")
-        assertNotEquals(filePathsUnder(state2, keyPrefix), filePathsUnder(state1, keyPrefix))
-        assertEquals(filePathsUnder(state2, casPrefix), filePathsUnder(state1, casPrefix))
+        val keyFiles1 = filePathsUnder(state1, keyPrefix)
+        val keyFiles2 = filePathsUnder(state2, keyPrefix)
+        val casFiles1 = filePathsUnder(state1, casPrefix)
+        val casFiles2 = filePathsUnder(state2, casPrefix)
+        assertNotEquals(keyFiles2, keyFiles1)
+        assert(casFiles1.subsetOf(casFiles2), (casFiles1, casFiles2).toString)
+        assert(casFiles2.size > casFiles1.size, (casFiles1, casFiles2).toString)
     }
   }
 
