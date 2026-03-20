@@ -117,10 +117,14 @@ message2 = "this has 'single quotes'"
 
 There is string interpolation syntax:
 ```
-profile = "my favorite animal is ${animal}"
-first = "first letter: $.{letter}"
+profile = "my favorite animal is $animal"
+first = "first letter: $.letter"
+full = "longer form: ${favorite_animal(profile)}"
+price = "$$19.99"
 ```
-Where `animal` would be any expression that has type `String`, and `letter` has
+`$name` and `$.name` are short forms when the suffix is exactly one bindable.
+Use `${...}` and `$.{...}` for larger expressions. `$$` inserts a literal `$`.
+In the examples above, `animal` must have type `String` and `letter` must have
 type `Char`.
 
 ### Character literals
@@ -546,9 +550,11 @@ case (_: Int) as last: last
 These annotations only guide type inference; they are not runtime checks.
 Bosatsu has no runtime type checks—types are fully determined at compile time.
 
-In string patterns, `${name}` binds a substring and `$.{name}` binds a single
-`Char`. Use `_` to ignore the matched part:
+In string patterns, `$name` or `${name}` binds a substring and `$.name` or
+`$.{name}` binds a single `Char`. Use `$_`, `$._`, or the braced `_` forms to
+ignore the matched part:
 ```
+case "$_$.c": c
 case "${_}$.{c}": c
 ```
 

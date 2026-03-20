@@ -7,11 +7,15 @@ import org.typelevel.paiges.Doc
 /** Heuristics to surface actionable hints for common parse mistakes.
   */
 object ParserHints {
+  private val rawInterpolationFailMessage =
+    "raw interpolation only accepts a single bindable; use braces for larger expressions or $$ for a literal $"
+
   type ParseFailure = Parser.Error.ParseFailure
   type Rule = (String, LocationMap, ParseFailure) => Option[Doc]
 
   private val rules: List[Rule] =
     interpolationStartInStringRule ::
+      rawInterpolationRule ::
     elseIfRule ::
       elseifSpellingRule ::
       assignmentInConditionRule ::
@@ -69,46 +73,90 @@ object ParserHints {
     if (pos < 0 || pos > source.length || locations.toLineCol(pos).isEmpty) {
       None
     } else {
-      unescapedInterpolationStartBefore(source, pos).map { _ =>
+      unescapedInterpolationStartBefore(source, pos).map { case (_, start) =>
         Doc.text(
-          """hint: parse failed after '${', which starts string interpolation (`${x}`). If you intended a literal '${', write `\${`."""
+          "hint: parse failed after '" + start + "', which starts string interpolation. Use `$foo` and `$.foo` for single bindables, `${...}` and `$.{...}` for larger expressions, and `$$` for a literal `$`."
         )
       }
     }
   }
 
+  private def rawInterpolationRule(
+      source: String,
+      locations: LocationMap,
+      error: ParseFailure
+  ): Option[Doc] = {
+    val _ = source
+    Option.when(
+      locations.toLineCol(error.position).nonEmpty &&
+        expectsFailWithMessage(
+          error.expected,
+          rawInterpolationFailMessage
+        )
+    )(
+      Doc.text(
+        "hint: `$foo` and `$.foo` are short forms for a single bindable. Use `${...}` or `$.{...}` for larger expressions, and `$$` for a literal `$`."
+      )
+    )
+  }
+
   private def unescapedInterpolationStartBefore(
       source: String,
       pos: Int
-  ): Option[Int] = {
+  ): Option[(Int, String)] = {
     if (source.isEmpty) {
       None
     } else {
       val searchFrom = if (pos >= source.length) source.length - 1 else pos
+      val starts = "${" :: "$.{" :: Nil
 
       @annotation.tailrec
-      def loop(from: Int): Option[Int] =
+      def loop(from: Int): Option[(Int, String)] =
         if (from < 0) {
           None
         } else {
-          val start = source.lastIndexOf("${", from)
-          if (start < 0) {
-            None
-          } else if (start > 0 && source.charAt(start - 1) == '\\') {
-            loop(start - 1)
-          } else {
-            val close = source.indexOf('}', start + 2)
-            if (close >= 0 && close < pos) {
-              loop(start - 1)
-            } else {
-              Some(start)
+          val start = starts
+            .flatMap { token =>
+              val idx = source.lastIndexOf(token, from)
+              Option.when(idx >= 0)((idx, token))
             }
+            .sortBy(_._1)
+            .lastOption
+
+          start match {
+            case None =>
+              None
+            case Some((idx, _)) if idx > 0 && source.charAt(idx - 1) == '\\' =>
+              loop(idx - 1)
+            case Some((idx, token)) =>
+              val close = source.indexOf('}', idx + token.length)
+              if (close >= 0 && close < pos) loop(idx - 1)
+              else Some((idx, token))
           }
         }
 
       loop(searchFrom)
     }
   }
+
+  private def expectsFailWithMessage(
+      expected: NonEmptyList[P.Expectation],
+      message: String
+  ): Boolean =
+    expected.exists(expectationHasFailWithMessage(_, message))
+
+  private def expectationHasFailWithMessage(
+      expectation: P.Expectation,
+      message: String
+  ): Boolean =
+    expectation match {
+      case P.Expectation.FailWith(_, msg) =>
+        msg == message
+      case P.Expectation.WithContext(_, inner) =>
+        expectationHasFailWithMessage(inner, message)
+      case _ =>
+        false
+    }
 
   private def elseifSpellingRule(
       source: String,

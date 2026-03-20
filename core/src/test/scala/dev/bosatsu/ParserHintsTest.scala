@@ -212,7 +212,7 @@ class ParserHintsTest extends munit.FunSuite {
     )
   }
 
-  test("literal github actions expression in string suggests escaping '${'") {
+  test("literal github actions expression in string suggests $$ for a literal dollar") {
     val source =
       """package Foo
         |
@@ -226,16 +226,16 @@ class ParserHintsTest extends munit.FunSuite {
       hints.mkString("\n")
     )
     assert(
-      hints.exists(_.contains("""which starts string interpolation (`${x}`)""")),
+      hints.exists(_.contains("`$foo` and `$.foo`")),
       hints.mkString("\n")
     )
     assert(
-      hints.exists(_.contains("""write `\${`""")),
+      hints.exists(_.contains("`$$`")),
       hints.mkString("\n")
     )
   }
 
-  test("invalid interpolation expression suggests maybe literal '${'") {
+  test("invalid interpolation expression suggests $$ for a literal dollar") {
     val source =
       """package Foo
         |
@@ -249,9 +249,39 @@ class ParserHintsTest extends munit.FunSuite {
       hints.mkString("\n")
     )
     assert(
-      hints.exists(_.contains("""write `\${`""")),
+      hints.exists(_.contains("`$$`")),
       hints.mkString("\n")
     )
+  }
+
+  test("ambiguous raw interpolation suggests braces or $$") {
+    List(
+      """package Foo
+        |
+        |s = '$foo(bar)'
+        |""".stripMargin,
+      """package Foo
+        |
+        |s = '$.foo(bar)'
+        |""".stripMargin
+    ).foreach { source =>
+      val pf = parseFailure(source)
+      val hints = ParserHints.hints(source, pf.locations, pf).map(_.render(120))
+      val shown = pf.showContext(LocationMap.Colorize.None).render(120)
+
+      assert(
+        hints.exists(_.contains("single bindable")),
+        hints.mkString("\n") + "\n" + shown
+      )
+      assert(
+        hints.exists(h => h.contains("`${...}`") && h.contains("`$.{...}`")),
+        hints.mkString("\n") + "\n" + shown
+      )
+      assert(
+        hints.exists(_.contains("`$$`")),
+        hints.mkString("\n") + "\n" + shown
+      )
+    }
   }
 
   test("missing trailing expression after nested def gets hint") {
