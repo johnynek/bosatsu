@@ -69,6 +69,18 @@ Run typecheck continuously while editing:
 ./bosatsu lib check
 ```
 
+If you want a looser edit loop while sketching code, use:
+
+```sh
+./bosatsu lib check --warn
+./bosatsu lib check --lax
+```
+
+`--warn` keeps going on unused values/imports, shadowed-binding type changes,
+and unreachable branches, but still prints them. `--lax` suppresses that same
+lint set entirely. Non-total matches, recursion errors, import/type failures,
+and other hard errors still stop the run in every mode.
+
 When you know types but not implementation, use `todo` to keep moving:
 
 ```bosatsu
@@ -90,13 +102,18 @@ Once placeholders are removed, run:
 ./bosatsu lib test
 ```
 
+`lib test` accepts the same `--warn` and `--lax` flags, which is useful when
+you want to keep running tests while postponing non-fatal lint cleanup.
+
 ## 5) Practical 5-minute loop
 
 1. Create one package with one exported function.
 2. Add a tiny `tests` value immediately.
-3. Iterate with `lib check`, using `todo` for unfinished branches.
+3. Iterate with `lib check`, `lib check --warn`, or `lib check --lax`,
+   using `todo` for unfinished branches.
 4. Replace `todo` incrementally.
-5. Finish with `lib test`.
+5. Finish with `lib test` (or `lib test --warn` if you are still cleaning up
+   unused definitions/imports).
 
 That loop matches how most code in `test_workspace` evolves: explicit data
 models, explicit imports/exports, and constant typechecked feedback.

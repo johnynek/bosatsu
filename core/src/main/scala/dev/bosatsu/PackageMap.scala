@@ -802,15 +802,31 @@ object PackageMap {
           s"invariant violation: missing inference results for: ${missingKeys.mkString(", ")}"
         )
       } else {
-        dedupeErrors(resultMap.sequence.map { compiledByName =>
-          PackageMap(
-            SortedMap.from(
-              compiledByName.iterator.map { case (name, compiledPack) =>
-                name -> compiledPack.compiled
-              }
+        val sequenced =
+          resultMap.traverse {
+            case Ior.Left(errs)          =>
+              Ior.both(errs, Option.empty[CompiledPack[CacheDepHash]])
+            case Ior.Right(compiledPack) =>
+              Ior.right(Some(compiledPack))
+            case Ior.Both(errs, compiledPack) =>
+              Ior.both(errs, Some(compiledPack))
+          }
+
+        dedupeErrors(sequenced)
+          .map { entries =>
+            PackageMap(
+              SortedMap.from(
+                entries.iterator.collect { case (name, Some(compiledPack)) =>
+                  name -> compiledPack.compiled
+                }
+              )
             )
-          )
-        })
+          } match {
+          case Ior.Both(errs, compiled) if compiled.toMap.isEmpty =>
+            Ior.left(errs)
+          case other                                              =>
+            other
+        }
       }
     }
   }

@@ -236,6 +236,25 @@ object PackageError {
       }
   }
 
+  // These are the non-soundness diagnostics that `lib check` / `lib test`
+  // may demote to warnings (`--warn`) or silence (`--lax`) during local
+  // iteration. Everything else remains a hard correctness error.
+  def isPostponable(err: PackageError): Boolean =
+    err match {
+      case _: PackageError.UnusedImport           => true
+      case _: PackageError.UnusedLetError         => true
+      case _: PackageError.UnusedLets             => true
+      case _: PackageError.ShadowedBindingTypeError =>
+        true
+      case PackageError.TotalityCheckError(
+            _,
+            _: TotalityCheck.UnreachableBranches[?]
+          ) =>
+        true
+      case _ =>
+        false
+    }
+
   private val importWithRegionParser: P[
     (
         (Region, PackageName),
@@ -2098,7 +2117,7 @@ object PackageError {
   case class UnusedLets(
       inPack: PackageName,
       unusedLets: NonEmptyList[
-        (Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)
+        (Identifier.Bindable, RecursionKind, Region)
       ]
   ) extends PackageError {
     def message(
@@ -2107,7 +2126,7 @@ object PackageError {
     ) =
       unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) },
+        unusedLets.map { case (b, _, r) => (b, r) },
         sourceMap,
         errColor,
         if (unusedLets.tail.isEmpty) {
