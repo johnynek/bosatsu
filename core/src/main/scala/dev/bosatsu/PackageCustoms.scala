@@ -491,30 +491,39 @@ object PackageCustoms {
   private def noUselessBinds[A: HasRegion](
       pack: Package.Typed[A],
       sourceStatements: Option[List[Statement]]
-  ): ValidatedNec[PackageError, Unit] = {
-    val sourceStmts: List[Statement] =
-      sourceStatements.getOrElse {
-        pack.program._1.from match {
-          case stmts: List[?] =>
-            stmts.collect { case stmt: Statement => stmt }
-          case _              =>
-            Nil
-        }
-      }
+  ): ValidatedNec[PackageError, Unit] =
+    sourceStatements.orElse(maybeStatements(pack)) match {
+      case Some(sourceStmts) =>
+        noUselessBindsFromLets(
+          pack.name,
+          pack.exports,
+          pack.lets,
+          sourceStmts,
+          Package.testRootBindables(pack).toList ::: Package
+            .mainValue(pack)
+            .map(_._1)
+            .toList,
+          te =>
+            TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
+              case (pn, i: Identifier.Bindable) if pn == pack.name => i
+            }
+        )
+      case None              =>
+        // Compiled/cache-only packages erase Program.from, so this lint can
+        // only run when the caller supplied source statements explicitly.
+        Validated.unit
+    }
 
-    noUselessBindsFromLets(
-      pack.name,
-      pack.exports,
-      pack.lets,
-      sourceStmts,
-      Package.testRootBindables(pack).toList ::: Package
-        .mainValue(pack)
-        .map(_._1)
-        .toList,
-      te =>
-        TypedExpr.usedGlobals(te).runS(Set.empty).value.collect {
-          case (pn, i: Identifier.Bindable) if pn == pack.name => i
+  private def maybeStatements[A](
+      pack: Package.Typed[A]
+  ): Option[List[Statement]] =
+    pack.program._1.from match {
+      case stmts: List[?] =>
+        stmts.traverse {
+          case stmt: Statement => Some(stmt)
+          case _               => None
         }
-    )
-  }
+      case _              =>
+        None
+    }
 }

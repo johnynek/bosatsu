@@ -803,42 +803,29 @@ object PackageMap {
         )
       } else {
         val sequenced =
-          resultMap.traverse { result =>
-            result match {
-              case Ior.Left(errs)          =>
-                Ior.both(errs, Option.empty[CompiledPack[CacheDepHash]])
-              case Ior.Right(compiledPack) =>
-                Ior.right(Some(compiledPack))
-              case Ior.Both(errs, compiledPack) =>
-                Ior.both(errs, Some(compiledPack))
-            }
+          resultMap.traverse {
+            case Ior.Left(errs)          =>
+              Ior.both(errs, Option.empty[CompiledPack[CacheDepHash]])
+            case Ior.Right(compiledPack) =>
+              Ior.right(Some(compiledPack))
+            case Ior.Both(errs, compiledPack) =>
+              Ior.both(errs, Some(compiledPack))
           }
 
-        dedupeErrors(sequenced) match {
-          case Ior.Right(entries)    =>
-            Ior.right(
-              PackageMap(
-                SortedMap.from(
-                  entries.iterator.collect { case (name, Some(compiledPack)) =>
-                    name -> compiledPack.compiled
-                  }
-                )
+        dedupeErrors(sequenced)
+          .map { entries =>
+            PackageMap(
+              SortedMap.from(
+                entries.iterator.collect { case (name, Some(compiledPack)) =>
+                  name -> compiledPack.compiled
+                }
               )
             )
-          case Ior.Both(errs, entries) =>
-            val compiled =
-              PackageMap(
-                SortedMap.from(
-                  entries.iterator.collect { case (name, Some(compiledPack)) =>
-                    name -> compiledPack.compiled
-                  }
-                )
-              )
-
-            if (compiled.toMap.isEmpty) Ior.left(errs)
-            else Ior.both(errs, compiled)
-          case Ior.Left(errs)         =>
+          } match {
+          case Ior.Both(errs, compiled) if compiled.toMap.isEmpty =>
             Ior.left(errs)
+          case other                                              =>
+            other
         }
       }
     }
