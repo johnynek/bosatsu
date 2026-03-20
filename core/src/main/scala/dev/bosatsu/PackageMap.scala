@@ -881,12 +881,19 @@ object PackageMap {
   ): List[SourceUnit[F, A]] =
     sources.map(_.withImport(predefImports))
 
-  private def withEffectivePredefSources[F[_]: Monad, A](
+  private[bosatsu] final case class EffectiveSourceUnits[F[_], A](
+      sourceUnits: List[SourceUnit[F, A]],
+      usesInternalPredefSource: Boolean
+  )
+
+  // A user-supplied `Bosatsu/Predef` interface suppresses the internal predef
+  // source, but we still inject the same implicit import surface either way.
+  private[bosatsu] def effectivePredefSources[F[_]: Applicative, A](
       sources: NonEmptyList[SourceUnit[F, A]],
       ifs: List[Package.Interface],
       predefKey: A,
       mode: CompileOptions.Mode
-  ): List[SourceUnit[F, A]] = {
+  ): EffectiveSourceUnits[F, A] = {
     val predefIface = ifs.find(_.name == PackageName.PredefName)
     val withPredefImports =
       withPredefImportsSourceUnits(
@@ -897,8 +904,16 @@ object PackageMap {
       )
 
     predefIface match {
-      case None       => SourceUnit.predef(predefKey, mode) :: withPredefImports
-      case Some(_)    => withPredefImports
+      case None       =>
+        EffectiveSourceUnits(
+          SourceUnit.predef(predefKey, mode) :: withPredefImports,
+          usesInternalPredefSource = true
+        )
+      case Some(_)    =>
+        EffectiveSourceUnits(
+          withPredefImports,
+          usesInternalPredefSource = false
+        )
     }
   }
 
@@ -911,12 +926,12 @@ object PackageMap {
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Compiled]] =
     PackageMap.resolveThenInferSourceUnits[F, A](
-      withEffectivePredefSources(
+      effectivePredefSources(
         sources,
         ifs,
         predefKey,
         compileOptions.mode
-      ),
+      ).sourceUnits,
       ifs,
       compileOptions,
       cache,

@@ -5273,7 +5273,7 @@ main = depBox
     }
   }
 
-  test("tool check accepts todo but tool show rejects it") {
+  test("tool check rejects todo and tool show still rejects it") {
     val src =
       """package Todo/Foo
 |
@@ -5291,9 +5291,13 @@ main = depBox
         "src/Todo/Foo.bosatsu"
       )
     ) match {
-      case Right(Output.CompileOut(_, _, _)) => ()
-      case Right(other)                      => fail(s"unexpected output: $other")
-      case Left(err)                         => fail(err.getMessage)
+      case Right(out) =>
+        fail(s"expected strict todo rejection, got: $out")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("Unknown name"), msg)
+        assert(msg.contains("todo"), msg)
+        assert(msg.contains("lib check --warn"), msg)
     }
 
     runWithFiles(files)(
@@ -5311,7 +5315,7 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
-        assert(msg.contains("only available in type-check mode"), msg)
+        assert(msg.contains("lib check --warn"), msg)
     }
   }
 
@@ -5729,6 +5733,70 @@ main = depBox
     }
   }
 
+  test("lib check --warn keeps todo warnings stable on cache hits") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles("main = todo(1)\n"))
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val err1 = state1.stdErr.render(400)
+        val err2 = state2.stdErr.render(400)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assert(err1.contains("temporary `todo` placeholder used here"), err1)
+        assert(err1.contains("1 warning: 1 todo usage"), err1)
+        assert(err1.contains("lib check --warn"), err1)
+        assertEquals(err2, err1)
+    }
+  }
+
+  test("lib check --lax allows todo without warnings") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--lax"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles("main = todo(1)\n"))
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assertEquals(state1.stdErr.render(200), "")
+        assertEquals(state2.stdErr.render(200), "")
+    }
+  }
+
   test("lib check strict mode still fails on lint after a prior --lax cache hit") {
     val laxCmd = List(
       "lib",
@@ -5763,6 +5831,44 @@ main = depBox
         assert(rendered.contains("unused value 'unused'"), rendered)
       case Left(err) =>
         fail(err.getMessage)
+    }
+  }
+
+  test("lib check strict mode still rejects todo after a prior --warn cache hit") {
+    val warnCmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+    val strictCmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles("main = todo(1)\n"))
+      s1 <- runWithState(warnCmd, s0)
+      (state1, _) = s1
+      s2 <- runAndReportWithState(strictCmd, resetLogs(state1))
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        val errOutput = state.stdErr.render(400)
+        assertEquals(exitCode, ExitCode.Error)
+        assert(errOutput.contains("Unknown name"), errOutput)
+        assert(errOutput.contains("todo"), errOutput)
+        assert(errOutput.contains("lib check --warn"), errOutput)
     }
   }
 
@@ -6027,7 +6133,7 @@ main = depBox
     }
   }
 
-  test("lib test --warn still rejects todo") {
+  test("lib test strict, warn, and lax modes still reject todo") {
     val ccConfJson =
       """{
         |  "cc_path": "cc",
@@ -6043,25 +6149,32 @@ main = depBox
         |test_one = todo(Assertion(True, "later"))
         |""".stripMargin
 
-    runWithFiles(
+    val files =
       baseLibFiles(todoTestSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
-    )(
-      List(
-        "lib",
-        "test",
-        "--repo_root",
-        "repo",
-        "--cc_conf",
-        "repo/cc_conf.json",
-        "--warn"
-      )
-    ) match {
-      case Right(out) =>
-        fail(s"expected todo failure, got: $out")
-      case Left(err) =>
-        val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("`todo` is only available"), msg)
+
+    List(
+      "strict" -> Nil,
+      "warn" -> List("--warn"),
+      "lax" -> List("--lax")
+    ).foreach { case (modeLabel, modeFlags) =>
+      runWithFiles(files)(
+        List(
+          "lib",
+          "test",
+          "--repo_root",
+          "repo",
+          "--cc_conf",
+          "repo/cc_conf.json"
+        ) ::: modeFlags
+      ) match {
+        case Right(out) =>
+          fail(s"expected todo failure in $modeLabel mode, got: $out")
+        case Left(err) =>
+          val msg = Option(err.getMessage).getOrElse(err.toString)
+          assert(msg.contains("todo"), msg)
+          assert(msg.contains("lib check --warn"), msg)
       }
+    }
   }
 
   test("lib deps list text output includes public and private sections") {
@@ -7087,10 +7200,10 @@ main = 0
     }
   }
 
-  test("lib check accepts todo but lib show rejects it") {
+  test("lib check --warn accepts todo but lib show rejects it") {
     val files = baseLibFiles("main = todo(1)\n")
 
-    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("lib", "check", "--repo_root", "repo", "--warn")) match {
       case Right(Output.Basic(_, _)) => ()
       case Right(other)              => fail(s"unexpected output: $other")
       case Left(err)                 => fail(err.getMessage)
@@ -7104,7 +7217,40 @@ main = 0
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
-        assert(msg.contains("only available in type-check mode"), msg)
+        assert(msg.contains("lib check --warn"), msg)
+    }
+  }
+
+  test("lib check --warn only warns on built-in todo") {
+    val src =
+      """from MyLib/Helper import todo as imported_todo
+        |
+        |todo = (x) -> x.add(1)
+        |main = todo(1).add(imported_todo(2))
+        |""".stripMargin
+    val helperSrc =
+      """export todo
+        |
+        |todo = (x) -> x.add(2)
+        |""".stripMargin
+    val files =
+      baseLibFiles(src) :+
+        (Chain("repo", "src", "MyLib", "Helper.bosatsu") -> helperSrc)
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List("lib", "check", "--repo_root", "repo", "--warn"),
+        s0
+      )
+    } yield s1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, out)) =>
+        assertEquals(out, Output.Basic(Doc.text(""), None))
+        assertEquals(state.stdErr.render(200), "")
     }
   }
 

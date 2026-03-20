@@ -53,7 +53,7 @@ object CheckCommand {
         interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
         errColor,
         packageResolver,
-        CompileOptions.TypeCheckOnly,
+        CompileOptions.NoOptimize,
         compileCacheDirOpt
       )
     } yield packPath._1

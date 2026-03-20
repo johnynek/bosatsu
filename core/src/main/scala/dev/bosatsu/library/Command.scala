@@ -1635,10 +1635,16 @@ object Command {
             for {
               cc <- fcc
               cacheDir = cacheDirFn(cc.gitRoot)
+              compileOptions =
+                lintMode match {
+                  case LintMode.Strict          => CompileOptions.NoOptimize
+                  case LintMode.Warn | LintMode.Lax =>
+                    CompileOptions.TypeCheckOnly
+                }
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.TypeCheckOnly,
+                compileOptions,
                 lintMode,
                 cacheDir
               )
