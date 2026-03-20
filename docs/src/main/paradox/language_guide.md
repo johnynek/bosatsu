@@ -990,10 +990,12 @@ def big_hard_function(a: Arg1, b: Arg2) -> Result:
 This is useful for an "always-be-compiling" workflow: keep moving from one
 typechecking state to the next, then remove placeholders incrementally.
 
-`todo` is intentionally unsound, so it is only available in check-only commands
-(`tool check` and `lib check`). Commands that emit or execute outputs
-(`show`/`json`/`eval`/`build`/`transpile`/`test`) do not include `todo`, so
-those commands fail until all `todo` calls are removed.
+`todo` is intentionally unsound, so strict `tool check` and strict `lib check`
+reject it. For a relaxed edit loop, `lib check --warn` accepts built-in `todo`
+and reports each use as a warning, while `lib check --lax` accepts it without
+running that warning pass. Commands that emit or execute outputs
+(`show`/`json`/`eval`/`build`/`transpile`/`test`) still do not include `todo`,
+so those commands fail until all `todo` calls are removed.
 
 ## Testing
 Bosatsu supports two test entrypoint styles:

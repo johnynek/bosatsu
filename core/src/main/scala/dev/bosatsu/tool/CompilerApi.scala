@@ -75,7 +75,8 @@ object CompilerApi {
         extends LintCategory("shadowed binding", "shadowed bindings", 1)
     case UnreachableBranch
         extends LintCategory("unreachable branch", "unreachable branches", 2)
-    case UnusedImport extends LintCategory("unused import", "unused imports", 3)
+    case TodoUsage extends LintCategory("todo usage", "todo usages", 3)
+    case UnusedImport extends LintCategory("unused import", "unused imports", 4)
   }
 
   private sealed trait RenderedDiagnostic {
@@ -194,6 +195,8 @@ object CompilerApi {
       case e: PackageError.DuplicatedPackageError =>
         val count = e.dups.length
         renderedError(ErrorCategory.PackageError, count, body)
+      case e: PackageError.TodoUsage =>
+        renderedError(ErrorCategory.PackageError, e.regions.length, body)
     }
 
   // This classifier assumes `err` is already known to be postponable. Passing
@@ -231,6 +234,8 @@ object CompilerApi {
           ) =>
         val count = branches.length
         renderedLint(LintCategory.UnreachableBranch, count, body)
+      case e: PackageError.TodoUsage =>
+        renderedLint(LintCategory.TodoUsage, e.regions.length, body)
       case _ =>
         sys.error(s"unexpected non-lint warning: $err")
     }
@@ -382,7 +387,8 @@ object CompilerApi {
 
   private def replaySourceLintDiagnostics(
       pack: Package.Compiled,
-      parsed: Package.Parsed
+      parsed: Package.Parsed,
+      includeTodoUsageWarnings: Boolean
   ): List[PackageError] = {
     // Cached compiled packages can drop the source-level statement/region
     // detail needed for unused-let replay, so reusing the parsed source here
@@ -413,6 +419,9 @@ object CompilerApi {
             parsed.exports,
             program0
           ) :::
+            (if (includeTodoUsageWarnings)
+               PackageCustoms.todoUsageLintFromSource(pack.name, program0)
+             else Nil) :::
             replayUnusedLets(parsed.name, program0.lets)
         ).filter(PackageError.isPostponable)
       case Ior.Both(_, program0) =>
@@ -424,6 +433,9 @@ object CompilerApi {
             parsed.exports,
             program0
           ) :::
+            (if (includeTodoUsageWarnings)
+               PackageCustoms.todoUsageLintFromSource(pack.name, program0)
+             else Nil) :::
             replayUnusedLets(parsed.name, program0.lets)
         ).filter(PackageError.isPostponable)
     }
@@ -434,6 +446,7 @@ object CompilerApi {
       sourceFiles: NonEmptyList[PackageResolver.SourceFile[IO, Path]],
       packs: PackageMap.Compiled,
       allowedPackages: Set[PackageName],
+      includeTodoUsageWarnings: Boolean,
       errColor: Colorize
   ): IO[List[PackageError]] = {
     import platformIO.moduleIOMonad
@@ -450,7 +463,11 @@ object CompilerApi {
             sourceFile.loadParsed
               .flatMap(parsed0 => fromParse(platformIO, parsed0, errColor))
               .map(parsed =>
-                replaySourceLintDiagnostics(pack, parsed) :::
+                replaySourceLintDiagnostics(
+                  pack,
+                  parsed,
+                  includeTodoUsageWarnings
+                ) :::
                   replayTypedLintDiagnostics(pack)
               )
         }
@@ -560,6 +577,13 @@ object CompilerApi {
           source.loadParsed.flatMap(parsed => fromParse(platformIO, parsed, errColor))
         )
       }
+      effectiveSources =
+        PackageMap.effectivePredefSources(
+          sources,
+          ifs,
+          "predef",
+          compileOptions.mode
+        )
       cache: InferCache[IO] = compileCacheDirOpt match {
         case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
         case None           => InferCache.noop[IO]
@@ -576,6 +600,12 @@ object CompilerApi {
       sourceMap = PackageMap.buildSourceMapFromSources(sources)
       pathToName = sourceFiles.map(source => (source.path, source.packageName))
       sourcePackageNames = pathToName.iterator.map(_._2).toSet
+      // Only the built-in type-check predef should trigger the warn-only todo
+      // lint. An explicit `Bosatsu/Predef` interface can define its own `todo`.
+      includeTodoUsageWarnings =
+        lintMode == LintMode.Warn &&
+          compileOptions.mode == CompileOptions.Mode.TypeCheckOnly &&
+          effectiveSources.usesInternalPredefSource
       (compileDiagnostics, compiled) = checked match {
         case Ior.Left(errs)      => (errs.toList, None)
         case Ior.Right(packs)    => (Nil, Some(packs))
@@ -594,6 +624,7 @@ object CompilerApi {
               sourceFiles,
               packs,
               sourcePackageNames,
+              includeTodoUsageWarnings,
               errColor
             )
           case _ =>

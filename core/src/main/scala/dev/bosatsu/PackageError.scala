@@ -176,9 +176,17 @@ object PackageError {
   private def checkModeTodoHint(name: Identifier): Doc =
     name match {
       case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
-        Doc.hardLine + Doc.text(
-          "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
-        )
+        Doc.hardLine + (
+          Doc.text(
+            "hint: built-in `todo` is only available in relaxed `lib check` modes."
+          ) + Doc.lineOrSpace +
+            Doc.text(
+              "`lib check --warn` warns and `lib check --lax` allows it silently."
+            ) + Doc.lineOrSpace +
+            Doc.text(
+              "Strict `tool check`, strict `lib check`, and emit/run commands do not include `todo`."
+            )
+        ).grouped
       case _ =>
         Doc.empty
     }
@@ -244,6 +252,7 @@ object PackageError {
       case _: PackageError.UnusedImport           => true
       case _: PackageError.UnusedLetError         => true
       case _: PackageError.UnusedLets             => true
+      case _: PackageError.TodoUsage              => true
       case _: PackageError.ShadowedBindingTypeError =>
         true
       case PackageError.TotalityCheckError(
@@ -1772,6 +1781,56 @@ object PackageError {
       .render(80)
   }
 
+  private def todoUsageMessage(
+      pack: PackageName,
+      regions: NonEmptyList[Region],
+      sourceMap: Map[PackageName, (LocationMap, String)],
+      errColor: Colorize
+  ): String = {
+    val (lm, _) = sourceMap.getMapSrc(pack)
+    val sorted = regions.toList.distinct.sorted
+    val occurrenceDocs = sorted.map { region =>
+      val context = lm
+        .showRegion(region, 2, errColor)
+        .getOrElse(Doc.str(region.show))
+      Doc.text("temporary `todo` placeholder used here") +
+        Doc.hardLine +
+        context
+    }
+
+    val countDoc =
+      if (sorted.tail.isEmpty) None
+      else Some(Doc.text(s"found ${sorted.length} `todo` placeholders."))
+
+    val hintDoc =
+      Doc.text("How to resolve:") +
+        Doc.hardLine +
+        Doc.intercalate(
+          Doc.hardLine,
+          List(
+            Doc.text("- replace each `todo` with the real implementation"),
+            Doc.text(
+              "- keep using `lib check --warn` or `lib check --lax` only while iterating"
+            ),
+            Doc.text(
+              "- remove all `todo` calls before strict `tool check` / `lib check` or any emit/run command"
+            )
+          )
+        )
+
+    val line2 = Doc.hardLine + Doc.hardLine
+    val packDoc = sourceMap.headLine(pack, Some(sorted.head))
+    val intro =
+      Doc.text(
+        "`todo` is a temporary placeholder. It is only accepted during relaxed `lib check` runs."
+      )
+
+    (packDoc + (line2 + Doc.intercalate(
+      line2,
+      intro :: occurrenceDocs ::: List(countDoc, Some(hintDoc)).flatten
+    )).nested(2)).render(80)
+  }
+
   case class UnusedLetError(
       pack: PackageName,
       errs: NonEmptyList[(Identifier.Bindable, Region)]
@@ -1790,6 +1849,17 @@ object PackageError {
           "if intentional, ignore it with `_` (for example: `_ = <expr>`)"
         )
       )
+  }
+
+  case class TodoUsage(
+      pack: PackageName,
+      regions: NonEmptyList[Region]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) =
+      todoUsageMessage(pack, regions, sourceMap, errColor)
   }
 
   case class RecursionError(

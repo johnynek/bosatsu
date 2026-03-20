@@ -23,6 +23,8 @@ import dev.bosatsu.graph.Dag
   * are valid
   */
 object PackageCustoms {
+  private val todoGlobalName: Identifier = Identifier.Name("todo")
+
   def apply[A: HasRegion](
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
@@ -72,6 +74,26 @@ object PackageCustoms {
             }
         )
       )
+
+  private[bosatsu] def todoUsageLintFromSource(
+      packName: PackageName,
+      sourceProgram: Program[?, Expr[Declaration], List[Statement]]
+  ): List[PackageError] =
+    NonEmptyList
+      .fromList(
+        sourceProgram.lets.iterator
+          .flatMap { case (_, _, expr) =>
+            expr.globals.iterator.collect {
+              case Expr.Global(PackageName.PredefName, `todoGlobalName`, tag) =>
+                HasRegion.region(tag)
+            }
+          }
+          .toSet
+          .toList
+          .sorted
+      )
+      .map(PackageError.TodoUsage(packName, _): PackageError)
+      .toList
 
   /** Build the exports and check the customs, and then return the Typed package
     */

@@ -1,6 +1,6 @@
 package dev.bosatsu
 
-import cats.Show
+import cats.{Id, Show}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import IorMethods.IorExtension
@@ -393,5 +393,43 @@ main = todo(42)
 
     assert(!emitExports.contains("todo"), emitExports.toString)
     assert(typeCheckExports.contains("todo"), typeCheckExports.toString)
+  }
+
+  test("effective predef sources respect explicit Predef interfaces") {
+    val pack = parse("""
+package Foo
+
+main = 1
+""")
+    val predefIface =
+      Package.interfaceOf(PackageMap.predefCompiledForMode(CompileOptions.Mode.Emit))
+
+    val source =
+      PackageMap.SourceUnit.fromParsedWithoutLocation[Id, Int]((0, pack))
+    val withoutIface =
+      PackageMap.effectivePredefSources(
+        NonEmptyList.one(source),
+        Nil,
+        -1,
+        CompileOptions.Mode.TypeCheckOnly
+      )
+    val withIface =
+      PackageMap.effectivePredefSources(
+        NonEmptyList.one(source),
+        predefIface :: Nil,
+        -1,
+        CompileOptions.Mode.TypeCheckOnly
+      )
+
+    assert(withoutIface.usesInternalPredefSource)
+    assertEquals(
+      withoutIface.sourceUnits.count(_.packageName == PackageName.PredefName),
+      1
+    )
+    assert(!withIface.usesInternalPredefSource)
+    assertEquals(
+      withIface.sourceUnits.count(_.packageName == PackageName.PredefName),
+      0
+    )
   }
 }

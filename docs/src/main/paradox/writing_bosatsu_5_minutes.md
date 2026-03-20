@@ -90,10 +90,12 @@ def hard_part(a: String, b: Int) -> Bool:
 
 Rules:
 
-1. `todo` is only available in check-only commands (`tool check` / `lib check`).
-2. Commands that emit or run code (`lib test`, `lib build`, `tool eval`, etc.)
+1. Strict `tool check` and strict `lib check` reject built-in `todo`.
+2. `lib check --warn` accepts built-in `todo` and prints a warning for each use.
+3. `lib check --lax` accepts built-in `todo` without that warning pass.
+4. Commands that emit or run code (`lib test`, `lib build`, `tool eval`, etc.)
    fail until `todo` is removed.
-3. Keep `todo` arguments meaningful (usually tuple all planned inputs) so you do
+5. Keep `todo` arguments meaningful (usually tuple all planned inputs) so you do
    not lose type information during refactors.
 
 Once placeholders are removed, run:
