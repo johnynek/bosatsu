@@ -116,18 +116,17 @@ lazy val docs = (project in file("docs"))
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
 
-      val fetchCmd = Seq("./bosatsuj", "lib", "fetch")
+      val fetchCmd = Seq("./bosatsuj", "fetch")
       log.info(fetchCmd.mkString("running: ", " ", ""))
       val fetchExit = Process(fetchCmd, repoRoot).!
       if (fetchExit != 0) {
         sys.error(
-          s"lib fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
+          s"fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
         )
       }
 
       val docCmd = Seq(
         "./bosatsuj",
-        "lib",
         "doc",
         "--outdir",
         "core_alpha_docs",
@@ -183,7 +182,7 @@ lazy val docs = (project in file("docs"))
         s"""# Core Alpha API
            |
            |This section is generated from `test_workspace` using:
-           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
+           |`./bosatsuj doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
            |
            |@@@ index
            |${tocLinkLines.mkString("\n")}

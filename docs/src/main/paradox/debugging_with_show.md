@@ -1,6 +1,6 @@
-# Inspecting Compiled Output with `lib show`
+# Inspecting Compiled Output with `show`
 
-`lib show` prints fully typechecked package data as EDN. It is useful when you
+`show` prints fully typechecked package data as EDN. It is useful when you
 want to inspect what Bosatsu inferred and what the compiler is lowering.
 Use `--json` when you want machine-readable output for tooling.
 
@@ -11,7 +11,7 @@ All commands below assume running from this repository root.
 ### Show a whole package
 
 ```bash
-./bosatsuj lib show --name core_alpha --package Bosatsu/Char --color none
+./bosatsuj show --name core_alpha --package Bosatsu/Char --color none
 ```
 
 This prints one `(package ...)` form with sections like `:imports`, `:types`,
@@ -20,7 +20,7 @@ This prints one `(package ...)` form with sections like `:imports`, `:types`,
 ### Emit JSON instead of EDN
 
 ```bash
-./bosatsuj lib show --name core_alpha --package Bosatsu/Char --json
+./bosatsuj show --name core_alpha --package Bosatsu/Char --json
 ```
 
 `--json` emits a deterministic JSON projection of the same `show` data. The
@@ -30,7 +30,7 @@ top-level value is an object with `"$form": "show"` and fields such as
 ### Show a single type
 
 ```bash
-./bosatsuj lib show --name core_alpha --type Bosatsu/Option::Option --color none
+./bosatsuj show --name core_alpha --type Bosatsu/Option::Option --color none
 ```
 
 Use `--type <package::Type>` when you only want one type definition instead of
@@ -39,7 +39,7 @@ the full package.
 ### Show a single value
 
 ```bash
-./bosatsuj lib show --name core_alpha --value Bosatsu/Num/Binary::not --color none
+./bosatsuj show --name core_alpha --value Bosatsu/Num/Binary::not --color none
 ```
 
 Use `--value <package::value>` to focus on one top-level value.
@@ -49,14 +49,14 @@ fully inlined or otherwise eliminated, it will not be available by name.
 You can mix selectors:
 
 ```bash
-./bosatsuj lib show --name core_alpha \
+./bosatsuj show --name core_alpha \
   --package Bosatsu/Char \
   --type Bosatsu/Option::Option \
   --value Bosatsu/Num/Binary::not \
   --color none
 ```
 
-If no `--package`, `--type`, or `--value` is given, `lib show` shows all local
+If no `--package`, `--type`, or `--value` is given, `show` shows all local
 library packages (the existing default behavior).
 
 ## Why this helps
@@ -68,11 +68,11 @@ type information attached to each value.
 
 ### See tail-recursive lowering shape
 
-When tail recursion is optimized, `lib show` exposes loop-like forms such as
+When tail recursion is optimized, `show` exposes loop-like forms such as
 `loop`/`recur` in the typed expression. For example:
 
 ```bash
-./bosatsuj lib show --name core_alpha --package Bosatsu/FibBench --color none
+./bosatsuj show --name core_alpha --package Bosatsu/FibBench --color none
 ```
 
 In that package, the source helper `list_len` is inlined into another compiled

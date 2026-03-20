@@ -307,7 +307,6 @@ class ToolAndLibCommandTest extends FunSuite {
       depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
       s3 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -425,7 +424,6 @@ class ToolAndLibCommandTest extends FunSuite {
       depBLib = readLibraryFile(state4, Chain("out", "dep_b.bosatsu_lib"))
       s5 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -446,7 +444,6 @@ class ToolAndLibCommandTest extends FunSuite {
       (state5, _) = s5
       s6 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -986,7 +983,6 @@ class ToolAndLibCommandTest extends FunSuite {
   ): Int = {
     val cmd =
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1079,7 +1075,6 @@ class ToolAndLibCommandTest extends FunSuite {
     for {
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -1181,10 +1176,12 @@ class ToolAndLibCommandTest extends FunSuite {
     } yield state4
   }
 
-  test("root eval command moved under tool") {
+  test("root eval parses to library mode") {
     module.run(List("eval", "--main", "MyLib/Foo")) match {
-      case Left(_)  => ()
-      case Right(_) => fail("expected parse failure without `tool` prefix")
+      case Left(help) =>
+        fail(s"expected root eval to parse, got help: $help")
+      case Right(_) =>
+        ()
     }
   }
 
@@ -1259,14 +1256,14 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval/json/show use library context") {
+  test("eval/json/show use library context") {
     val src =
       """main = 42
 """
     val files = baseLibFiles(src)
 
     runWithFiles(files)(
-      List("lib", "eval", "--repo_root", "repo", "--main", "MyLib/Foo")
+      List("eval", "--repo_root", "repo", "--main", "MyLib/Foo")
     ) match {
       case Right(Output.EvaluationResult(_, _, _)) => ()
       case Right(other) => fail(s"unexpected output: $other")
@@ -1274,7 +1271,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
 
     runWithFiles(files)(
-      List("lib", "json", "write", "--repo_root", "repo", "--main", "MyLib/Foo")
+      List("json", "write", "--repo_root", "repo", "--main", "MyLib/Foo")
     ) match {
       case Right(Output.JsonOutput(Json.JNumberStr("42"), _)) => ()
       case Right(other) => fail(s"unexpected output: $other")
@@ -1282,7 +1279,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
 
     runWithFiles(files)(
-      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+      List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
@@ -1292,7 +1289,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1310,7 +1306,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show --package-names only emits package names") {
+  test("show --package-names only emits package names") {
     val src =
       """main = 42
 """
@@ -1318,7 +1314,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1343,7 +1338,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1364,7 +1358,7 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   test(
-    "lib eval --main scopes local typechecking to selected package roots and transitive deps"
+    "eval --main scopes local typechecking to selected package roots and transitive deps"
   ) {
     val mainSrc =
       """from MyLib/Dep import dep
@@ -1387,7 +1381,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "eval",
         "--repo_root",
         "repo",
@@ -1405,7 +1398,7 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   test(
-    "lib show --package scopes local typechecking to selected package roots and transitive deps"
+    "show --package scopes local typechecking to selected package roots and transitive deps"
   ) {
     val mainSrc =
       """from MyLib/Dep import dep
@@ -1428,7 +1421,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1447,14 +1439,14 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show invalid package name parse error includes package hint") {
+  test("show invalid package name parse error includes package hint") {
     val src =
       """main = 42
 """
     val files = baseLibFiles(src)
 
     runWithFiles(files)(
-      List("lib", "show", "--repo_root", "repo", "--package", "euler1")
+      List("show", "--repo_root", "repo", "--package", "euler1")
     ) match {
       case Left(err) =>
         val msg = err.getMessage
@@ -1467,7 +1459,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show includes original and local import names") {
+  test("show includes original and local import names") {
     val src =
       """from Bosatsu/Predef import add as operator +, mul as operator *
 |
@@ -1476,7 +1468,7 @@ class ToolAndLibCommandTest extends FunSuite {
     val files = baseLibFiles(src)
 
     runWithFiles(files)(
-      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+      List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
         val pack = packs.headOption.getOrElse(fail("expected one package"))
@@ -1493,7 +1485,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show separates exported types and values to avoid name collisions") {
+  test("show separates exported types and values to avoid name collisions") {
     val src =
       """export Opt(), Pair(), main
 |
@@ -1508,7 +1500,7 @@ class ToolAndLibCommandTest extends FunSuite {
     val files = baseLibFiles(src)
 
     runWithFiles(files)(
-      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+      List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(Output.ShowOutput(packs, _, _)) =>
         val pack = packs.headOption.getOrElse(fail("expected one package"))
@@ -1532,7 +1524,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show supports --type and --value selectors") {
+  test("show supports --type and --value selectors") {
     val src =
       """export Box(), helper, other, main
 |
@@ -1546,7 +1538,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1568,7 +1559,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show --value validates that the selected value exists") {
+  test("show --value validates that the selected value exists") {
     val src =
       """main = 42
 |""".stripMargin
@@ -1576,7 +1567,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1599,7 +1589,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show --no-opt retains values removed by optimization") {
+  test("show --no-opt retains values removed by optimization") {
     val src =
       """helper = 1
 |main = helper
@@ -1608,7 +1598,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1625,7 +1614,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1644,7 +1632,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show avoids exploding repeated non-lambda global calls") {
+  test("show avoids exploding repeated non-lambda global calls") {
     val ranges = List(
       (0, 10),
       (20, 30),
@@ -1690,7 +1678,7 @@ class ToolAndLibCommandTest extends FunSuite {
     )
   }
 
-  test("lib show --value includes local value dependencies and only needed imports") {
+  test("show --value includes local value dependencies and only needed imports") {
     val src =
       """from Bosatsu/Predef import add, mul
 |
@@ -1701,7 +1689,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1726,7 +1713,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show --value includes local types required by constructor usage") {
+  test("show --value includes local types required by constructor usage") {
     val src =
       """struct Box(value: Int)
 |
@@ -1737,7 +1724,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1755,7 +1741,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib show --externals only includes external values with types") {
+  test("show --externals only includes external values with types") {
     val src =
       """external struct Box
 |
@@ -1769,7 +1755,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -1977,7 +1962,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval missing value reports CliException without stack trace") {
+  test("eval missing value reports CliException without stack trace") {
     val src =
       """main = 42
 """
@@ -1985,7 +1970,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "eval",
         "--repo_root",
         "repo",
@@ -2003,7 +1987,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval handles parse/sort repro without StackOverflowError") {
+  test("eval handles parse/sort repro without StackOverflowError") {
     val src =
       """package MyLib/Repro22EvalStack2
 |
@@ -2087,7 +2071,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -2563,7 +2546,7 @@ class ToolAndLibCommandTest extends FunSuite {
   }
 
   test(
-    "lib eval --run executes Bosatsu/Prog::Main and includes synthetic argv[0]"
+    "eval --run executes Bosatsu/Prog::Main and includes synthetic argv[0]"
   ) {
     val progSrc =
       """package Bosatsu/Prog
@@ -2593,7 +2576,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -2619,7 +2601,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run merges positional and -- passthrough args in order") {
+  test("eval --run merges positional and -- passthrough args in order") {
     val appSrc =
       """from Bosatsu/Prog import Main, pure
 |
@@ -2639,7 +2621,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -2666,7 +2647,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval without --run rejects -- passthrough args") {
+  test("eval without --run rejects -- passthrough args") {
     val src =
       """main = 42
 """
@@ -2674,7 +2655,6 @@ class ToolAndLibCommandTest extends FunSuite {
 
     runWithFiles(files)(
       List(
-        "lib",
         "eval",
         "--repo_root",
         "repo",
@@ -2694,7 +2674,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run supports Bosatsu/Prog observe in Main") {
+  test("eval --run supports Bosatsu/Prog observe in Main") {
     val appSrc =
       """from Bosatsu/Prog import Main, await, observe, pure
 |
@@ -2712,7 +2692,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -2736,7 +2715,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run supports Bosatsu/Prog Var in Main") {
+  test("eval --run supports Bosatsu/Prog Var in Main") {
     val files =
       baseLibFiles(progVarMainBody) :+ (
         Chain("repo", "src", "Bosatsu", "Prog.bosatsu") -> fullProgModuleSrc
@@ -2746,7 +2725,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -2770,7 +2748,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run reads stdin for IO/Std read_line and read_all_stdin") {
+  test("eval --run reads stdin for IO/Std read_line and read_all_stdin") {
     val ioCoreSrc =
       """package Bosatsu/IO/Core
 |
@@ -2876,7 +2854,6 @@ class ToolAndLibCommandTest extends FunSuite {
         s0 <- stateFromFiles(files)
         s1 <- runWithStateAndExit(
           List(
-            "lib",
             "eval",
             "--repo_root",
             "repo",
@@ -2902,7 +2879,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run handles now_mono duration_to_nanos newtype representation") {
+  test("eval --run handles now_mono duration_to_nanos newtype representation") {
     val progSrc =
       """package Bosatsu/Prog
 |
@@ -2994,7 +2971,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -3019,7 +2995,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run handles now_wall instant newtype representation") {
+  test("eval --run handles now_wall instant newtype representation") {
     val ioCoreSrc =
       """package Bosatsu/IO/Core
 |
@@ -3060,7 +3036,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -3085,7 +3060,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval --run handles list_dir path newtype representation") {
+  test("eval --run handles list_dir path newtype representation") {
     val ioCoreSrc =
       """package Bosatsu/IO/Core
 |
@@ -3134,7 +3109,6 @@ class ToolAndLibCommandTest extends FunSuite {
       s0 <- stateFromFiles(files)
       s1 <- runWithStateAndExit(
         List(
-          "lib",
           "eval",
           "--repo_root",
           "repo",
@@ -3186,7 +3160,7 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
-  test("lib eval constructor main reports actionable parse error") {
+  test("eval constructor main reports actionable parse error") {
     val src =
       """enum Flag: True, False
 main = 42
@@ -3195,7 +3169,6 @@ main = 42
 
     runWithFiles(files)(
       List(
-        "lib",
         "eval",
         "--repo_root",
         "repo",
@@ -3213,7 +3186,7 @@ main = 42
     }
   }
 
-  test("lib json constructor main reports actionable parse error") {
+  test("json constructor main reports actionable parse error") {
     val src =
       """enum Flag: True, False
 main = 42
@@ -3222,7 +3195,6 @@ main = 42
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -3514,7 +3486,7 @@ dep_main = depBox
     }
   }
 
-  test("lib doc writes markdown in package directory layout") {
+  test("doc writes markdown in package directory layout") {
     val src =
       """export Thing(), mk
 
@@ -3528,7 +3500,6 @@ mk = (x) -> Thing(x)
 
     runWithFiles(files)(
       List(
-        "lib",
         "doc",
         "--repo_root",
         "repo",
@@ -3553,7 +3524,6 @@ mk = (x) -> Thing(x)
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -3590,7 +3560,7 @@ mk = (x) -> Thing(x)
     }
   }
 
-  test("lib doc --source_repo_url includes source code links") {
+  test("doc --source_repo_url includes source code links") {
     val src =
       """export Thing(), mk
 
@@ -3606,7 +3576,6 @@ mk = (x) -> Thing(x)
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -3637,7 +3606,7 @@ mk = (x) -> Thing(x)
     }
   }
 
-  test("lib doc --remote_doc_links_html rewrites dependency links to .html") {
+  test("doc --remote_doc_links_html rewrites dependency links to .html") {
     val depSrc =
       """export DepBox(), depBox
 |
@@ -3662,7 +3631,6 @@ mk = (x) -> Thing(x)
       )
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -3697,7 +3665,7 @@ mk = (x) -> Thing(x)
     }
   }
 
-  test("lib doc keeps dependency links as .md when html rewrite flag is off") {
+  test("doc keeps dependency links as .md when html rewrite flag is off") {
     val depSrc =
       """export DepBox(), depBox
 |
@@ -3722,7 +3690,6 @@ mk = (x) -> Thing(x)
       )
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -3756,7 +3723,7 @@ mk = (x) -> Thing(x)
     }
   }
 
-  test("lib doc prefers local Predef links when included and remote when not") {
+  test("doc prefers local Predef links when included and remote when not") {
     val depSrc =
       """export dep_value
 |
@@ -3777,7 +3744,6 @@ mk = (x) -> Thing(x)
       )
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -3791,7 +3757,6 @@ mk = (x) -> Thing(x)
       (state1, _) = s1
       s2 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -4116,7 +4081,7 @@ main = 1
     }
   }
 
-  test("lib doc --include_predef includes Bosatsu/Predef markdown") {
+  test("doc --include_predef includes Bosatsu/Predef markdown") {
     val src =
       """export main,
 main = 1
@@ -4127,7 +4092,6 @@ main = 1
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -4163,7 +4127,7 @@ main = 1
     }
   }
 
-  test("lib doc labels private packages and can exclude them") {
+  test("doc labels private packages and can exclude them") {
     val publicPack = PackageName.parts("MyLib", "Public")
     val privatePack = PackageName.parts("MyLib", "Private")
     val conf = LibConfig(
@@ -4210,7 +4174,6 @@ main = 1
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -4224,7 +4187,6 @@ main = 1
       (stateAll, outAll) = s1
       s2 <- runWithState(
         List(
-          "lib",
           "doc",
           "--repo_root",
           "repo",
@@ -5297,7 +5259,7 @@ main = depBox
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("Unknown name"), msg)
         assert(msg.contains("todo"), msg)
-        assert(msg.contains("lib check --warn"), msg)
+        assert(msg.contains("check --warn"), msg)
     }
 
     runWithFiles(files)(
@@ -5315,7 +5277,7 @@ main = depBox
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
-        assert(msg.contains("lib check --warn"), msg)
+        assert(msg.contains("check --warn"), msg)
     }
   }
 
@@ -5550,10 +5512,9 @@ main = depBox
     }
   }
 
-  test("lib check --cache_dir writes cache artifacts and reuses them") {
+  test("check --cache_dir writes cache artifacts and reuses them") {
     val files = baseLibFiles("main = 1\n")
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5588,11 +5549,10 @@ main = depBox
   }
 
   test(
-    "lib check without cache flags writes default cache artifacts and reuses them"
+    "check without cache flags writes default cache artifacts and reuses them"
   ) {
     val files = baseLibFiles("main = 1\n")
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo"
@@ -5625,10 +5585,9 @@ main = depBox
     }
   }
 
-  test("lib check --no_cache does not write infer cache artifacts") {
+  test("check --no_cache does not write infer cache artifacts") {
     val files = baseLibFiles("main = 1\n")
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5652,9 +5611,8 @@ main = depBox
     }
   }
 
-  test("lib check rejects --cache_dir with --no_cache") {
+  test("check rejects --cache_dir with --no_cache") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5670,9 +5628,8 @@ main = depBox
     }
   }
 
-  test("lib check --warn reports lint warnings on cache hits") {
+  test("check --warn reports lint warnings on cache hits") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5703,9 +5660,8 @@ main = depBox
     }
   }
 
-  test("lib check --lax suppresses lint warnings on cache hits") {
+  test("check --lax suppresses lint warnings on cache hits") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5733,9 +5689,8 @@ main = depBox
     }
   }
 
-  test("lib check --warn keeps todo warnings stable on cache hits") {
+  test("check --warn keeps todo warnings stable on cache hits") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5762,14 +5717,13 @@ main = depBox
         assertEquals(out2, Output.Basic(Doc.text(""), None))
         assert(err1.contains("temporary `todo` placeholder used here"), err1)
         assert(err1.contains("1 warning: 1 todo usage"), err1)
-        assert(err1.contains("lib check --warn"), err1)
+        assert(err1.contains("check --warn"), err1)
         assertEquals(err2, err1)
     }
   }
 
-  test("lib check --lax allows todo without warnings") {
+  test("check --lax allows todo without warnings") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5797,9 +5751,8 @@ main = depBox
     }
   }
 
-  test("lib check strict mode still fails on lint after a prior --lax cache hit") {
+  test("check strict mode still fails on lint after a prior --lax cache hit") {
     val laxCmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5808,7 +5761,6 @@ main = depBox
       "--lax"
     )
     val strictCmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5834,9 +5786,8 @@ main = depBox
     }
   }
 
-  test("lib check strict mode still rejects todo after a prior --warn cache hit") {
+  test("check strict mode still rejects todo after a prior --warn cache hit") {
     val warnCmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5845,7 +5796,6 @@ main = depBox
       "--warn"
     )
     val strictCmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5868,14 +5818,13 @@ main = depBox
         assertEquals(exitCode, ExitCode.Error)
         assert(errOutput.contains("Unknown name"), errOutput)
         assert(errOutput.contains("todo"), errOutput)
-        assert(errOutput.contains("lib check --warn"), errOutput)
+        assert(errOutput.contains("check --warn"), errOutput)
     }
   }
 
-  test("lib check rejects --warn with --lax") {
+  test("check rejects --warn with --lax") {
     module.run(
       List(
-        "lib",
         "check",
         "--repo_root",
         "repo",
@@ -5889,9 +5838,8 @@ main = depBox
     }
   }
 
-  test("lib check --warn postpones unreachable branch diagnostics") {
+  test("check --warn postpones unreachable branch diagnostics") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -5914,9 +5862,9 @@ main = depBox
     }
   }
 
-  test("lib check --warn keeps non-total matches fatal") {
+  test("check --warn keeps non-total matches fatal") {
     runWithFiles(baseLibFiles(nonTotalLibSrc))(
-      List("lib", "check", "--repo_root", "repo", "--warn")
+      List("check", "--repo_root", "repo", "--warn")
     ) match {
       case Right(out) =>
         fail(s"expected non-total match failure, got: $out")
@@ -5928,12 +5876,12 @@ main = depBox
     }
   }
 
-  test("lib check --warn prints lint warnings before failing on hard errors") {
+  test("check --warn prints lint warnings before failing on hard errors") {
     val result =
       for {
         s0 <- stateFromFiles(baseLibFiles(mixedLintAndHardLibSrc))
         s1 <- runAndReportWithState(
-          List("lib", "check", "--repo_root", "repo", "--warn"),
+          List("check", "--repo_root", "repo", "--warn"),
           s0
         )
       } yield s1
@@ -5952,9 +5900,9 @@ main = depBox
     }
   }
 
-  test("lib check --lax keeps invalid-pattern totality errors fatal") {
+  test("check --lax keeps invalid-pattern totality errors fatal") {
     runWithFiles(baseLibFiles(invalidPatternLibSrc))(
-      List("lib", "check", "--repo_root", "repo", "--lax")
+      List("check", "--repo_root", "repo", "--lax")
     ) match {
       case Right(out) =>
         fail(s"expected invalid pattern failure, got: $out")
@@ -5966,9 +5914,9 @@ main = depBox
     }
   }
 
-  test("lib check --lax keeps recursion errors fatal") {
+  test("check --lax keeps recursion errors fatal") {
     runWithFiles(baseLibFiles(recursionErrorLibSrc))(
-      List("lib", "check", "--repo_root", "repo", "--lax")
+      List("check", "--repo_root", "repo", "--lax")
     ) match {
       case Right(out) =>
         fail(s"expected recursion failure, got: $out")
@@ -5980,7 +5928,7 @@ main = depBox
     }
   }
 
-  test("lib test warn and lax modes continue past lint-only compile diagnostics") {
+  test("test warn and lax modes continue past lint-only compile diagnostics") {
     val ccConfJson =
       """{
         |  "cc_path": "cc",
@@ -5994,7 +5942,7 @@ main = depBox
       baseLibFiles(lintOnlyLibTestSrc) :+ (Chain("repo", "cc_conf.json") -> ccConfJson)
 
     runWithFiles(files)(
-      List("lib", "test", "--repo_root", "repo", "--cc_conf", "repo/cc_conf.json")
+      List("test", "--repo_root", "repo", "--cc_conf", "repo/cc_conf.json")
     ) match {
       case Right(out) =>
         fail(s"expected strict lint failure, got: $out")
@@ -6005,7 +5953,6 @@ main = depBox
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -6024,7 +5971,6 @@ main = depBox
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -6042,7 +5988,7 @@ main = depBox
     }
   }
 
-  test("warn lint replay stays stable across optimize cache hits used by lib test") {
+  test("warn lint replay stays stable across optimize cache hits used by test") {
     val inputs = NonEmptyList.of(
       Chain("repo", "src", "MyLib", "Foo.bosatsu"),
       Chain("repo", "src", "MyLib", "Dep.bosatsu")
@@ -6090,9 +6036,8 @@ main = depBox
     }
   }
 
-  test("lib check --warn still prints cached lint when another package fails hard") {
+  test("check --warn still prints cached lint when another package fails hard") {
     val cmd = List(
-      "lib",
       "check",
       "--repo_root",
       "repo",
@@ -6133,7 +6078,7 @@ main = depBox
     }
   }
 
-  test("lib test strict, warn, and lax modes still reject todo") {
+  test("test strict, warn, and lax modes still reject todo") {
     val ccConfJson =
       """{
         |  "cc_path": "cc",
@@ -6159,7 +6104,6 @@ main = depBox
     ).foreach { case (modeLabel, modeFlags) =>
       runWithFiles(files)(
         List(
-          "lib",
           "test",
           "--repo_root",
           "repo",
@@ -6172,19 +6116,18 @@ main = depBox
         case Left(err) =>
           val msg = Option(err.getMessage).getOrElse(err.toString)
           assert(msg.contains("todo"), msg)
-          assert(msg.contains("lib check --warn"), msg)
+          assert(msg.contains("check --warn"), msg)
       }
     }
   }
 
-  test("lib deps list text output includes public and private sections") {
+  test("deps list text output includes public and private sections") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -6205,7 +6148,6 @@ main = depBox
       (state1, _) = s1
       s2 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -6225,7 +6167,7 @@ main = depBox
       )
       (state2, _) = s2
       s3 <- runWithState(
-        List("lib", "deps", "list", "--repo_root", "repo"),
+        List("deps", "list", "--repo_root", "repo"),
         state2
       )
       (_, out3) = s3
@@ -6245,7 +6187,7 @@ main = depBox
     }
   }
 
-  test("lib json apply and traverse use CliException paths") {
+  test("json apply and traverse use CliException paths") {
     val src =
       """main = (x) -> x.add(1)
 """
@@ -6253,7 +6195,6 @@ main = depBox
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6271,7 +6212,6 @@ main = depBox
 
     val applyWrongArity = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6292,7 +6232,6 @@ main = depBox
 
     val applyInvalidData = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6313,7 +6252,6 @@ main = depBox
 
     val applyParseError = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6334,7 +6272,6 @@ main = depBox
 
     val traverseInvalidData = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "traverse",
         "--repo_root",
@@ -6355,7 +6292,6 @@ main = depBox
 
     val traverseWrongArity = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "traverse",
         "--repo_root",
@@ -6376,7 +6312,6 @@ main = depBox
 
     val traverseNonArray = runWithFiles(files)(
       List(
-        "lib",
         "json",
         "traverse",
         "--repo_root",
@@ -6396,7 +6331,7 @@ main = depBox
     }
   }
 
-  test("lib json write/apply/traverse support --yaml output") {
+  test("json write/apply/traverse support --yaml output") {
     val writeSrc =
       """main = [1, 2]
 """
@@ -6408,7 +6343,6 @@ main = depBox
 
     runWithFiles(writeFiles)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6428,7 +6362,6 @@ main = depBox
 
     runWithFiles(fnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6450,7 +6383,6 @@ main = depBox
 
     runWithFiles(fnFiles)(
       List(
-        "lib",
         "json",
         "traverse",
         "--repo_root",
@@ -6471,7 +6403,7 @@ main = depBox
     }
   }
 
-  test("lib json write rejects unsupported function output") {
+  test("json write rejects unsupported function output") {
     val src =
       """main = (x: Int) -> x
 """
@@ -6479,7 +6411,6 @@ main = depBox
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6497,7 +6428,7 @@ main = depBox
     }
   }
 
-  test("lib json write supports Char, Array, and Bytes external values") {
+  test("json write supports Char, Array, and Bytes external values") {
     val charSrc =
       """main = match int_to_Char(127):
   case Some(c): c
@@ -6507,7 +6438,6 @@ main = depBox
 
     runWithFiles(charFiles)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6544,7 +6474,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(arrayFiles)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6590,7 +6519,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(bytesFiles)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6619,7 +6547,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json write/apply supports Bosatsu/Json::Json directly") {
+  test("json write/apply supports Bosatsu/Json::Json directly") {
     val src =
       """from Bosatsu/Json import (
 |  Json,
@@ -6645,7 +6573,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6672,7 +6599,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6700,7 +6626,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6718,7 +6643,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json apply accepts Float64 encoded as strings") {
+  test("json apply accepts Float64 encoded as strings") {
     val src =
       """main = (x: Float64) -> x
 |""".stripMargin
@@ -6726,7 +6651,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6747,7 +6671,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6767,7 +6690,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json Optional fields omit absent keys and decode missing keys") {
+  test("json Optional fields omit absent keys and decode missing keys") {
     val src =
       """from Bosatsu/Json import Optional, Missing, Set
 |
@@ -6783,7 +6706,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6802,7 +6724,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6826,7 +6747,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6846,7 +6766,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json Nullable flattens nested nullability") {
+  test("json Nullable flattens nested nullability") {
     val src =
       """from Bosatsu/Json import Nullable, Null, NonNull
 |
@@ -6859,7 +6779,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -6877,7 +6796,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6897,7 +6815,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6916,7 +6833,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json apply supports Char, Array, and Bytes arguments") {
+  test("json apply supports Char, Array, and Bytes arguments") {
     val charFnSrc =
       """main = (c: Char) -> (c, c)
 """
@@ -6924,7 +6841,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(charFnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6948,7 +6864,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     val charInvalid = runWithFiles(charFnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -6987,7 +6902,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(arrayFnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -7026,7 +6940,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     runWithFiles(bytesFnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -7056,7 +6969,6 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     val bytesInvalid = runWithFiles(bytesFnFiles)(
       List(
-        "lib",
         "json",
         "apply",
         "--repo_root",
@@ -7076,12 +6988,11 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json write reports unknown package clearly") {
+  test("json write reports unknown package clearly") {
     val files = baseLibFiles("main = 1\n")
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -7099,12 +7010,11 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib show reports unknown package clearly") {
+  test("show reports unknown package clearly") {
     val files = baseLibFiles("main = 1\n")
 
     runWithFiles(files)(
       List(
-        "lib",
         "show",
         "--repo_root",
         "repo",
@@ -7122,12 +7032,11 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json write reports missing value in a known package") {
+  test("json write reports missing value in a known package") {
     val files = baseLibFiles("main = 1\n")
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -7146,7 +7055,7 @@ external def size_Array[a](ary: Array[a]) -> Int
     }
   }
 
-  test("lib json write missing-value suggestions are filtered and sorted") {
+  test("json write missing-value suggestions are filtered and sorted") {
     val src =
       """export alpha, zeta, fn, main
 
@@ -7159,7 +7068,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "json",
         "write",
         "--repo_root",
@@ -7179,7 +7087,7 @@ main = 0
   }
 
   test(
-    "lib check renders previous descriptor details when previous is missing"
+    "check renders previous descriptor details when previous is missing"
   ) {
     val previousDesc = proto.LibDescriptor(
       version = Some(Version(0, 0, 0).toProto),
@@ -7191,7 +7099,7 @@ main = 0
       .copy(previous = Some(previousDesc))
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
-    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("check", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected missing-previous failure, got: $out")
       case Left(err) =>
@@ -7200,28 +7108,28 @@ main = 0
     }
   }
 
-  test("lib check --warn accepts todo but lib show rejects it") {
+  test("check --warn accepts todo but show rejects it") {
     val files = baseLibFiles("main = todo(1)\n")
 
-    runWithFiles(files)(List("lib", "check", "--repo_root", "repo", "--warn")) match {
+    runWithFiles(files)(List("check", "--repo_root", "repo", "--warn")) match {
       case Right(Output.Basic(_, _)) => ()
       case Right(other)              => fail(s"unexpected output: $other")
       case Left(err)                 => fail(err.getMessage)
     }
 
     runWithFiles(files)(
-      List("lib", "show", "--repo_root", "repo", "--package", "MyLib/Foo")
+      List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
       case Right(out) =>
         fail(s"expected emit-mode rejection, got: $out")
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("todo"), msg)
-        assert(msg.contains("lib check --warn"), msg)
+        assert(msg.contains("check --warn"), msg)
     }
   }
 
-  test("lib check --warn only warns on built-in todo") {
+  test("check --warn only warns on built-in todo") {
     val src =
       """from MyLib/Helper import todo as imported_todo
         |
@@ -7240,7 +7148,7 @@ main = 0
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
-        List("lib", "check", "--repo_root", "repo", "--warn"),
+        List("check", "--repo_root", "repo", "--warn"),
         s0
       )
     } yield s1
@@ -7254,7 +7162,7 @@ main = 0
     }
   }
 
-  test("lib check malformed bosatsu_libs.json reports parse error without stack trace") {
+  test("check malformed bosatsu_libs.json reports parse error without stack trace") {
     val files = List(
       Chain("repo", "bosatsu_libs.json") -> "{ bad json"
     )
@@ -7262,7 +7170,7 @@ main = 0
     val result = for {
       state0 <- stateFromFiles(files)
       stateAndExit <- runAndReportWithState(
-        List("lib", "check", "--color", "none", "--repo_root", "repo"),
+        List("check", "--color", "none", "--repo_root", "repo"),
         state0
       )
     } yield stateAndExit
@@ -7284,7 +7192,7 @@ main = 0
     }
   }
 
-  test("lib check malformed <lib>_conf.json reports parse error without stack trace") {
+  test("check malformed <lib>_conf.json reports parse error without stack trace") {
     val libs = Libraries(SortedMap(Name("qa") -> "src"))
     val files = List(
       Chain("repo", "bosatsu_libs.json") -> renderJson(libs),
@@ -7299,7 +7207,7 @@ main = 0
     val result = for {
       state0 <- stateFromFiles(files)
       stateAndExit <- runAndReportWithState(
-        List("lib", "check", "--color", "none", "--repo_root", "repo"),
+        List("check", "--color", "none", "--repo_root", "repo"),
         state0
       )
     } yield stateAndExit
@@ -7321,10 +7229,10 @@ main = 0
     }
   }
 
-  test("lib fetch reports total fetched objects by default") {
+  test("fetch reports total fetched objects by default") {
     val files = baseLibFiles("main = 1\n")
 
-    runWithFiles(files)(List("lib", "fetch", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("fetch", "--repo_root", "repo")) match {
       case Right(Output.Basic(doc, None)) =>
         val rendered = doc.render(120)
         assert(rendered.contains("fetched 0 objects."), rendered)
@@ -7335,11 +7243,11 @@ main = 0
     }
   }
 
-  test("lib fetch --quiet suppresses successful output") {
+  test("fetch --quiet suppresses successful output") {
     val files = baseLibFiles("main = 1\n")
 
     runWithFiles(files)(
-      List("lib", "fetch", "--repo_root", "repo", "--quiet")
+      List("fetch", "--repo_root", "repo", "--quiet")
     ) match {
       case Right(Output.Basic(doc, None)) =>
         assertEquals(doc.render(120), "")
@@ -7350,11 +7258,11 @@ main = 0
     }
   }
 
-  test("lib fetch accepts matching descriptor on cached dependency hit") {
+  test("fetch accepts matching descriptor on cached dependency hit") {
     val result = for {
       setup <- stateWithConfiguredCachedDep("main = 1\n", "dep", "0.0.1")
       (state, _) = setup
-      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+      fetched <- runWithState(List("fetch", "--repo_root", "repo"), state)
     } yield fetched
 
     result match {
@@ -7368,16 +7276,16 @@ main = 0
     }
   }
 
-  test("lib fetch fails on cached dependency version mismatch") {
+  test("fetch fails on cached dependency version mismatch") {
     val result = for {
       setup <- stateWithConfiguredCachedDep("main = 1\n", "dep", "5.0.0")
       (state, _) = setup
-      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+      fetched <- runWithState(List("fetch", "--repo_root", "repo"), state)
     } yield fetched
 
     result match {
       case Right((_, out)) =>
-        fail(s"expected lib fetch failure, got: $out")
+        fail(s"expected fetch failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
         assert(rendered.contains("dep 5.0.0:"), rendered)
@@ -7387,16 +7295,16 @@ main = 0
     }
   }
 
-  test("lib fetch fails on cached dependency name mismatch") {
+  test("fetch fails on cached dependency name mismatch") {
     val result = for {
       setup <- stateWithConfiguredCachedDep("main = 1\n", "not_dep", "0.0.1")
       (state, _) = setup
-      fetched <- runWithState(List("lib", "fetch", "--repo_root", "repo"), state)
+      fetched <- runWithState(List("fetch", "--repo_root", "repo"), state)
     } yield fetched
 
     result match {
       case Right((_, out)) =>
-        fail(s"expected lib fetch failure, got: $out")
+        fail(s"expected fetch failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
         assert(rendered.contains("not_dep 0.0.1:"), rendered)
@@ -7406,7 +7314,7 @@ main = 0
     }
   }
 
-  test("lib check fails on cached dependency version mismatch") {
+  test("check fails on cached dependency version mismatch") {
     val appSrc =
       """from Dep/Foo import dep
 |
@@ -7416,12 +7324,12 @@ main = 0
     val result = for {
       setup <- stateWithConfiguredCachedDep(appSrc, "dep", "5.0.0")
       (state, _) = setup
-      checked <- runWithState(List("lib", "check", "--repo_root", "repo"), state)
+      checked <- runWithState(List("check", "--repo_root", "repo"), state)
     } yield checked
 
     result match {
       case Right((_, out)) =>
-        fail(s"expected lib check failure, got: $out")
+        fail(s"expected check failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
         assert(
@@ -7434,7 +7342,7 @@ main = 0
     }
   }
 
-  test("lib check reports both cached dependency version mismatches") {
+  test("check reports both cached dependency version mismatches") {
     val appSrc =
       """from DepA/Foo import depA
 |
@@ -7445,12 +7353,12 @@ main = 0
 
     val result = for {
       state <- stateWithTwoVersionMismatchedCachedDeps(appSrc)
-      checked <- runWithState(List("lib", "check", "--repo_root", "repo"), state)
+      checked <- runWithState(List("check", "--repo_root", "repo"), state)
     } yield checked
 
     result match {
       case Right((_, out)) =>
-        fail(s"expected lib check failure, got: $out")
+        fail(s"expected check failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
         assert(
@@ -7466,14 +7374,13 @@ main = 0
     }
   }
 
-  test("lib fetch reports network failures with detailed reason") {
+  test("fetch reports network failures with detailed reason") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7493,7 +7400,7 @@ main = 0
       )
       (state1, _) = s1
       s2 <- runAndReportWithState(
-        List("lib", "fetch", "--repo_root", "repo"),
+        List("fetch", "--repo_root", "repo"),
         state1
       )
     } yield s2
@@ -7512,14 +7419,13 @@ main = 0
     }
   }
 
-  test("lib fetch reports hash mismatch with expected and found hashes") {
+  test("fetch reports hash mismatch with expected and found hashes") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7539,7 +7445,7 @@ main = 0
       )
       (state1, _) = s1
       s2 <- runAndReportWithState(
-        List("lib", "fetch", "--repo_root", "repo"),
+        List("fetch", "--repo_root", "repo"),
         state1
       )
     } yield s2
@@ -7560,14 +7466,13 @@ main = 0
     }
   }
 
-  test("lib fetch reports http status failures") {
+  test("fetch reports http status failures") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7587,7 +7492,7 @@ main = 0
       )
       (state1, _) = s1
       s2 <- runAndReportWithState(
-        List("lib", "fetch", "--repo_root", "repo"),
+        List("fetch", "--repo_root", "repo"),
         state1
       )
     } yield s2
@@ -7603,14 +7508,13 @@ main = 0
     }
   }
 
-  test("lib fetch uses grammatical singular and plural failure wording") {
+  test("fetch uses grammatical singular and plural failure wording") {
     val files = baseLibFiles("main = 1\n")
 
     val result = for {
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7631,7 +7535,6 @@ main = 0
       (state1, _) = s1
       s2 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7653,7 +7556,7 @@ main = 0
       )
       (state2, _) = s2
       s3 <- runAndReportWithState(
-        List("lib", "fetch", "--repo_root", "repo"),
+        List("fetch", "--repo_root", "repo"),
         state2
       )
     } yield s3
@@ -7669,7 +7572,7 @@ main = 0
     }
   }
 
-  test("lib fetch reports previous fetch failures") {
+  test("fetch reports previous fetch failures") {
     val previousDesc = proto.LibDescriptor(
       version = Some(Version(0, 0, 0).toProto),
       hashes = validHash3 :: Nil,
@@ -7680,7 +7583,7 @@ main = 0
       .copy(previous = Some(previousDesc))
     val files = baseLibFilesWithConf("main = 1\n", conf)
 
-    runWithFiles(files)(List("lib", "fetch", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("fetch", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected previous fetch failure, got: $out")
       case Left(err) =>
@@ -7689,7 +7592,7 @@ main = 0
     }
   }
 
-  test("lib publish --dry-run validates without mutating config, CAS, or default cache") {
+  test("publish --dry-run validates without mutating config, CAS, or default cache") {
     val conf =
       LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
     val files = baseLibFilesWithConf("main = 1\n", conf)
@@ -7698,7 +7601,6 @@ main = 0
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "publish",
           "--repo_root",
           "repo",
@@ -7741,7 +7643,7 @@ main = 0
     }
   }
 
-  test("lib publish updates config and CAS when not in dry-run mode") {
+  test("publish updates config and CAS when not in dry-run mode") {
     val conf =
       LibConfig.init(Name("mylib"), "https://example.com", Version(0, 0, 1))
     val files = baseLibFilesWithConf("main = 1\n", conf)
@@ -7750,7 +7652,6 @@ main = 0
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "publish",
           "--repo_root",
           "repo",
@@ -7786,11 +7687,11 @@ main = 0
     }
   }
 
-  test("lib build without --main_pack reports missing main") {
+  test("build without --main_pack reports missing main") {
     val files = baseLibFiles("main = 1\n")
 
     runWithFiles(files)(
-      List("lib", "build", "--repo_root", "repo", "--outdir", "out")
+      List("build", "--repo_root", "repo", "--outdir", "out")
     ) match {
       case Right(out) =>
         fail(s"expected no-main build failure, got: $out")
@@ -7801,7 +7702,7 @@ main = 0
   }
 
   test(
-    "lib build succeeds when importing package from private dependency in CAS"
+    "build succeeds when importing package from private dependency in CAS"
   ) {
     val depSrc =
       """package Dep/Foo
@@ -7870,7 +7771,6 @@ main = 0
       depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
       s3 <- runWithState(
         List(
-          "lib",
           "deps",
           "add",
           "--repo_root",
@@ -7899,11 +7799,10 @@ main = 0
             new Exception("failed to inject dependency library into repo CAS")
           )
       }
-      s4 <- runWithState(List("lib", "check", "--repo_root", "repo"), state4)
+      s4 <- runWithState(List("check", "--repo_root", "repo"), state4)
       (state5, _) = s4
       s5 <- runWithState(
         List(
-          "lib",
           "build",
           "--repo_root",
           "repo",
@@ -7927,7 +7826,7 @@ main = 0
     }
   }
 
-  test("lib build defaults to tree-shaking unused external packages") {
+  test("build defaults to tree-shaking unused external packages") {
     val progSrc =
       """package Bosatsu/Prog
 |
@@ -7966,7 +7865,6 @@ main = 0
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "build",
           "--repo_root",
           "repo",
@@ -7980,7 +7878,6 @@ main = 0
       (state1, _) = s1
       s2 <- runWithState(
         List(
-          "lib",
           "build",
           "--repo_root",
           "repo",
@@ -8020,7 +7917,7 @@ main = 0
   }
 
   test(
-    "lib test runs runtime readiness preflight before executing tests"
+    "test runs runtime readiness preflight before executing tests"
   ) {
     val targetSrc =
       """test_one = Assertion(True, "ok")
@@ -8031,7 +7928,7 @@ main = 0
       )
 
     runWithFiles(files)(
-      List("lib", "test", "--repo_root", "repo")
+      List("test", "--repo_root", "repo")
     ) match {
       case Right(out) =>
         fail(s"expected preflight failure, got: $out")
@@ -8039,7 +7936,7 @@ main = 0
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(
           msg.contains(
-            "runtime readiness preflight failed before running `lib test`"
+            "runtime readiness preflight failed before running `test`"
           ),
           msg
         )
@@ -8051,7 +7948,7 @@ main = 0
   }
 
   test(
-    "lib test with missing --cc_conf reports a concise validation error"
+    "test with missing --cc_conf reports a concise validation error"
   ) {
     val targetSrc =
       """test_one = Assertion(True, "ok")
@@ -8060,7 +7957,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8074,7 +7970,7 @@ main = 0
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(
           msg.contains(
-            "runtime readiness preflight failed before running `lib test`"
+            "runtime readiness preflight failed before running `test`"
           ),
           msg
         )
@@ -8093,10 +7989,9 @@ main = 0
     }
   }
 
-  test("lib test rejects --value with --filter") {
+  test("test rejects --value with --filter") {
     module.run(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8112,7 +8007,7 @@ main = 0
     }
   }
 
-  test("lib test --value accepts exported plain Test values") {
+  test("test --value accepts exported plain Test values") {
     val targetSrc =
       """export test_one
 |
@@ -8143,7 +8038,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8163,7 +8057,7 @@ main = 0
     }
   }
 
-  test("lib test --value accepts exported ProgTest values") {
+  test("test --value accepts exported ProgTest values") {
     val targetSrc =
       """from Bosatsu/Prog import ProgTest, pure
 |
@@ -8197,7 +8091,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8217,7 +8110,7 @@ main = 0
     }
   }
 
-  test("lib test --value rejects non-exported test values") {
+  test("test --value rejects non-exported test values") {
     val targetSrc =
       """export visible
 |
@@ -8238,7 +8131,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8258,7 +8150,7 @@ main = 0
     }
   }
 
-  test("lib test --value rejects exported values that are not test values") {
+  test("test --value rejects exported values that are not test values") {
     val targetSrc =
       """export not_test
 |
@@ -8278,7 +8170,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8298,7 +8189,7 @@ main = 0
     }
   }
 
-  test("lib test --value reports unknown package with a clear error") {
+  test("test --value reports unknown package with a clear error") {
     val targetSrc =
       """export test_one
 |
@@ -8318,7 +8209,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8337,7 +8227,7 @@ main = 0
     }
   }
 
-  test("lib test --value reports packages with no exported test values") {
+  test("test --value reports packages with no exported test values") {
     val targetSrc =
       """export main
 |
@@ -8357,7 +8247,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8377,7 +8266,7 @@ main = 0
   }
 
   test(
-    "lib test --filter reports no matching packages and suggests package typo fixes"
+    "test --filter reports no matching packages and suggests package typo fixes"
   ) {
     val targetSrc =
       """export hedgehog_tests
@@ -8406,7 +8295,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8428,7 +8316,7 @@ main = 0
   }
 
   test(
-    "lib test --filter fails when any source header fails to parse"
+    "test --filter fails when any source header fails to parse"
   ) {
     val noTestsSrc =
       """value = 1
@@ -8461,7 +8349,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8482,7 +8369,7 @@ main = 0
   }
 
   test(
-    "lib test --filter scopes local typechecking to matching package roots"
+    "test --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
       """test_one = Assertion(True, "ok")
@@ -8513,7 +8400,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "test",
         "--repo_root",
         "repo",
@@ -8533,7 +8419,7 @@ main = 0
   }
 
   test(
-    "lib check --filter scopes local typechecking to matching package roots"
+    "check --filter scopes local typechecking to matching package roots"
   ) {
     val targetSrc =
       """one = 1
@@ -8552,7 +8438,7 @@ main = 0
       Chain("repo", "src", "MyLib", "ReproMin8.bosatsu") -> unrelatedBrokenSrc
     )
 
-    runWithFiles(files)(List("lib", "check", "--repo_root", "repo")) match {
+    runWithFiles(files)(List("check", "--repo_root", "repo")) match {
       case Right(out) =>
         fail(s"expected unfiltered check failure, got: $out")
       case Left(err) =>
@@ -8562,7 +8448,6 @@ main = 0
 
     runWithFiles(files)(
       List(
-        "lib",
         "check",
         "--repo_root",
         "repo",
@@ -8577,10 +8462,9 @@ main = 0
     }
   }
 
-  test("lib check rejects --value") {
+  test("check rejects --value") {
     module.run(
       List(
-        "lib",
         "check",
         "--repo_root",
         "repo",
@@ -8590,7 +8474,7 @@ main = 0
     ) match {
       case Left(_)  => ()
       case Right(_) =>
-        fail("expected parser error for unsupported --value on lib check")
+        fail("expected parser error for unsupported --value on check")
     }
   }
 

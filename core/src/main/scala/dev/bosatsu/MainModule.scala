@@ -18,7 +18,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
   private def isEvalCommandPath(args: List[String]): Boolean =
     args match {
-      case "lib" :: "eval" :: _  => true
+      case "eval" :: _           => true
       case "tool" :: "eval" :: _ => true
       case _                     => false
     }
@@ -88,15 +88,14 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
   }
 
   def opts(evalPassthroughArgs: List[String]): Opts[IO[Output[Path]]] =
-    Opts
-      .subcommand("lib", "tools for working with bosatsu libraries")(
-        library.Command
-          .opts(platformIO, evalPassthroughArgs)
-      )
+    // Root help follows the left-to-right parser construction order, so keep
+    // library-mode commands first and leave file-based compiler flows under tool.
+    library.Command
+      .opts(platformIO, evalPassthroughArgs)
       .orElse {
         Opts.subcommand(
           "tool",
-          "lower-level file-based commands for build tool integration"
+          "lower-level file-based compiler commands for build tool integration"
         )(
           tool_command.ToolCommand
             .opts(platformIO, evalPassthroughArgs)
@@ -122,7 +121,10 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     Command(
       "bosatsu",
-      s"a total and functional programming language\n\n$versionInfo"
+      s"a total and functional programming language\n\n" +
+        "top-level commands are the default repo/library workflows.\n" +
+        "use `tool` for lower-level file-based compiler commands.\n\n" +
+        versionInfo
     )(opts(evalPassthroughArgs))
   }
 

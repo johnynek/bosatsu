@@ -17,11 +17,11 @@ time ./bosatsuj tool test \
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu
 
-time ./bosatsuj lib fetch \
+time ./bosatsuj fetch \
   --repo_root . \
   --name core_alpha
 
-ls_output=$(./bosatsuj lib eval \
+ls_output=$(./bosatsuj eval \
   --repo_root . \
   --name core_alpha \
   --main Bosatsu/LsExample \

@@ -177,7 +177,7 @@ tool_test_workspace_node_cmd =
   "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu"
 
 node_lib_eval_run_create_mode_cmd =
-  "./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run"
+  "./bosatsu_node eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run"
 
 node_tool_eval_run_create_mode_cmd =
   "./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace"
@@ -318,27 +318,27 @@ run_c_runtime_ci =
 
 run_lib_test_c =
   cat_lines([
-    "./bosatsuj lib fetch",
+    "./bosatsuj fetch",
     "mkdir c_out_lib",
-    "./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
     "echo \"now test without a given outdir\"",
-    "./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj test --cc_flag=-O0 --cc_lib=-lm",
     "",
   ])
 
 run_lib_build_c =
   cat_lines([
     "mkdir c_out_build",
-    "./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
     "./c_out_build/fib_bench 10",
-    "./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
     "./fib_bench_no_outdir 10",
     "",
   ])
 
 run_lib_build_node_c =
   cat_lines([
-    "./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsu_node build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm",
     "./fib_bench_node 10",
     "",
   ])

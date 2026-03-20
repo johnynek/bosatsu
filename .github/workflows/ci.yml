@@ -251,22 +251,22 @@ jobs:
       - name: "install c runtime"
         run: |
           make -C c_runtime install VERSION=$(git rev-parse HEAD)
-      - name: "run lib test"
+      - name: "run test"
         run: |
-          ./bosatsu_node lib fetch
-          lib_eval_out=$(./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
+          ./bosatsu_node fetch
+          lib_eval_out=$(./bosatsu_node eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
           echo "$lib_eval_out"
           echo "$lib_eval_out" | grep -q "create_mode_test:ok"
           tool_eval_out=$(./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace)
           echo "$tool_eval_out"
           echo "$tool_eval_out" | grep -q "create_mode_test:ok"
           mkdir node_out_lib
-          ./bosatsu_node lib test --outdir node_out_lib
+          ./bosatsu_node test --outdir node_out_lib
           echo "now test without a given outdir"
-          ./bosatsu_node lib test
-      - name: "run lib build"
+          ./bosatsu_node test
+      - name: "run build"
         run: |
-          ./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsu_node build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_node 10
     strategy:
       matrix:
@@ -332,19 +332,19 @@ jobs:
           issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
           grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
           grep -Eq '^    passed: .*1' issue1642_repro/output.txt
-      - name: "run lib test"
+      - name: "run test"
         run: |
-          ./bosatsuj lib fetch
+          ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
-      - name: "run lib build"
+          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   testC-sanitizers:
@@ -441,19 +441,19 @@ jobs:
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
-      - name: "run lib test"
+      - name: "run test"
         run: |
-          ./bosatsuj lib fetch
+          ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
-      - name: "run lib build"
+          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   libPublishDryRun:
@@ -481,7 +481,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "dry run bosatsu lib publish"
+      - name: "dry run bosatsu publish"
         env:
           REPO_ROOT: ${{ github.workspace }}
           OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish

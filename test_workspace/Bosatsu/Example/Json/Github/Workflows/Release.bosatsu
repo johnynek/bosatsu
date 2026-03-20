@@ -514,7 +514,7 @@ workflow =
             )),
           },
           Step {
-            name: Set("Build assembly for lib publish"),
+            name: Set("Build assembly for library publish"),
             run: Set("sbt \"cli/assembly\""),
             env: Set(StepEnv {
               `BOSATSU_C_RUNTIME_HASH`: Set("\${{ needs.prepare.outputs.c_runtime_hash }}"),
@@ -551,7 +551,7 @@ workflow =
             name: Set("Create PR for core_conf.json changes"),
             run: Set(cat_lines([
               "set -euo pipefail",
-              "echo \"Changes after bosatsu lib publish:\"",
+              "echo \"Changes after bosatsu publish:\"",
               "git status",
               "git diff",
               "",
@@ -567,7 +567,7 @@ workflow =
               "",
               "branch=\"release/conf-\${GITHUB_REF_NAME}\"",
               "git checkout -B \"$branch\"",
-              "git commit -m \"Update lib conf.jsons for \${GITHUB_REF_NAME}\"",
+              "git commit -m \"Update library conf.jsons for \${GITHUB_REF_NAME}\"",
               "git push -u --force-with-lease origin \"$branch\"",
               "",
               "if gh pr view \"$branch\" >/dev/null 2>&1; then",
@@ -578,7 +578,7 @@ workflow =
               "gh pr create \\",
               "  --base main \\",
               "  --head \"$branch\" \\",
-              "  --title \"Update lib conf.jsons for \${GITHUB_REF_NAME}\" \\",
+              "  --title \"Update library conf.jsons for \${GITHUB_REF_NAME}\" \\",
               "  --body \"Automated updates for \${GITHUB_REF_NAME} release.\"",
               "",
             ])),

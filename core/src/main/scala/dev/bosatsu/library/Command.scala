@@ -321,7 +321,7 @@ object Command {
                 } else {
                   val msg =
                     if (libSize == 0) {
-                      "no libraries configured. Run `lib init`"
+                      "no libraries configured. Run `init`"
                     } else {
                       show"more than one library, select one: ${libs.toMap.keys.toList.sorted.mkString(", ")}"
                     }
@@ -404,7 +404,7 @@ object Command {
         Some(platformIO.resolve(root, ".bosatsuc" :: "infer-cache" :: Nil))
       val noCacheFn: P => Option[P] = (_: P) => None
 
-      // Shared across all lib commands that invoke compiler inference/typechecking.
+      // Shared across top-level library commands that invoke inference/typechecking.
       // --cache_dir and --no_cache are mutually exclusive via orElse branches.
       Opts
         .option[P](
@@ -431,7 +431,7 @@ object Command {
         .flag(
           "warn",
           help =
-            "treat postponable lint diagnostics as warnings for `lib check` and `lib test`"
+            "treat postponable lint diagnostics as warnings for `check` and `test`"
         )
         .as(LintMode.Warn)
         .orElse(
@@ -439,7 +439,7 @@ object Command {
             .flag(
               "lax",
               help =
-                "suppress postponable lint diagnostics for `lib check` and `lib test`"
+                "suppress postponable lint diagnostics for `check` and `test`"
             )
             .as(LintMode.Lax)
         )
@@ -461,7 +461,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `lib fetch`."
+                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `fetch`."
                 )
               )
             )
@@ -498,7 +498,7 @@ object Command {
                         desc
                       )).nested(2)).grouped +
                       Doc.line +
-                      Doc.text("run `lib fetch` to download it.")
+                      Doc.text("run `fetch` to download it.")
                   )
                 )
             }
@@ -958,7 +958,7 @@ object Command {
                           Doc.text(
                             s"missing ${dep.name} $version"
                           ) + Doc.line + Doc.text(
-                            "run `lib fetch` to insert these libraries into the cas."
+                            "run `fetch` to insert these libraries into the cas."
                           )
                         )
                       )
@@ -1065,7 +1065,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing public dependency $name $version in CAS, run `lib fetch`."
+                  show"missing public dependency $name $version in CAS, run `fetch`."
                 )
               )
             )
@@ -1506,7 +1506,7 @@ object Command {
                             DecodedLibrary[Algo.Blake3]
                           ]](
                             CliException.Basic(
-                              "missing previous public deps from CAS; run `lib fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
+                              "missing previous public deps from CAS; run `fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
                             )
                           )
                         }
@@ -1599,7 +1599,7 @@ object Command {
                 case None =>
                   moduleIOMonad.raiseError[List[proto.LibDependency]](
                     CliException.Basic(
-                      show"previous library ${dep.name} not found in CAS, run `lib fetch`."
+                      show"previous library ${dep.name} not found in CAS, run `fetch`."
                     )
                   )
               }
@@ -2560,7 +2560,7 @@ object Command {
                       val detail = Option(err.getMessage).getOrElse(err.toString)
                       moduleIOMonad.raiseError(
                         CliException.Basic(
-                          show"runtime readiness preflight failed before running `lib test`.\n\n$detail"
+                          show"runtime readiness preflight failed before running `test`.\n\n$detail"
                         )
                       )
                   }
@@ -2735,19 +2735,21 @@ object Command {
         }
       }
 
+    // Decline help preserves the left-to-right construction order, so keep this
+    // list aligned with the canonical top-level command surface.
     MonoidK[Opts].combineAllK(
-      initCommand ::
-        listCommand ::
-        depsCommand ::
+      checkCommand ::
+        testCommand ::
+        buildCommand ::
         evalCommand ::
         jsonCommand ::
         showCommand ::
         docCommand ::
-        assembleCommand ::
+        depsCommand ::
         fetchCommand ::
-        checkCommand ::
-        buildCommand ::
-        testCommand ::
+        initCommand ::
+        listCommand ::
+        assembleCommand ::
         publishCommand ::
         Nil
     )
@@ -2921,7 +2923,7 @@ object Command {
                       Doc.text(
                         "missing "
                       ) + pubDoc + Doc.line + privDoc + Doc.line + Doc.text(
-                        "run `lib fetch` to insert these libraries into the cas."
+                        "run `fetch` to insert these libraries into the cas."
                       )
                     )
                   )
