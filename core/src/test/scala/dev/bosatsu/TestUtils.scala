@@ -8,6 +8,7 @@ import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
 import munit.Assertions.{assertEquals, fail}
 import IorMethods.IorExtension
+import scala.collection.mutable
 import scala.collection.immutable.SortedMap
 
 import cats.syntax.all._
@@ -275,8 +276,8 @@ object TestUtils {
   ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
     import Par.F
 
-    val captured =
-      scala.collection.concurrent.TrieMap.empty[PackageName, Package.Inferred]
+    val capturedLock = new AnyRef
+    val captured = mutable.HashMap.empty[PackageName, Package.Inferred]
     val defaultPhases = InferPhases.default
     val capturePhases = new InferPhases {
       val id: String = defaultPhases.id
@@ -291,7 +292,9 @@ object TestUtils {
       ): Package.Inferred = {
         val finished =
           defaultPhases.finishPackage(pack, depIfaces, compileOptions)
-        captured.update(finished.name, finished)
+        capturedLock.synchronized {
+          captured.update(finished.name, finished)
+        }
         finished
       }
     }
@@ -300,12 +303,14 @@ object TestUtils {
       PackageMap(
         SortedMap.from(
           compiled.toMap.keysIterator.map { name =>
-            name -> captured.getOrElse(
-              name,
-              sys.error(
-                s"invariant violation: missing captured inferred package for $name"
+            name -> capturedLock.synchronized {
+              captured.getOrElse(
+                name,
+                sys.error(
+                  s"invariant violation: missing captured inferred package for $name"
+                )
               )
-            )
+            }
           }
         )
       )
