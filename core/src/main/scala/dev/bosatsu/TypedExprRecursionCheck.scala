@@ -901,7 +901,7 @@ object TypedExprRecursionCheck {
           fnname: Bindable,
           expr: TypedExpr[Region]
       ): SelfCallKind =
-        replaySelfCallKind(fnname, expr)
+        SelfCallKind.afterLoopRecurLowering(fnname, expr)
 
       def recursiveHeader(
           currentPackage: PackageName,
@@ -912,17 +912,6 @@ object TypedExprRecursionCheck {
           Some(LintHeader(m.matchKind, m.tag, m.branches))
         else None
     }
-
-    private def mergeCallCounts(
-        left: Map[Bindable, Int],
-        right: Map[Bindable, Int]
-    ): Map[Bindable, Int] =
-      right.foldLeft(left) { case (acc, (name, count)) =>
-        acc.updatedWith(name) {
-          case None        => Some(count)
-          case Some(prior) => Some(prior + count)
-        }
-      }
 
     def replayLints(
         currentPackage: PackageName,
@@ -939,32 +928,27 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         fnname: Bindable,
         expr: TypedExpr[A]
-    ): List[RecursionCheck.Lint] = {
-      val selfCallKind = syntax.selfCallKind(fnname, expr)
-      val ownLint =
-        findRecursiveHeader(syntax, currentPackage, expr).toList.flatMap { header =>
-          selfCallKind match {
-            case SelfCallKind.NoCall =>
-              RecursionCheck
-                .NoRecursiveCall(
+    ): List[RecursionCheck.Lint] =
+      findRecursiveHeader(syntax, currentPackage, expr).toList.flatMap { header =>
+        syntax.selfCallKind(fnname, expr) match {
+          case SelfCallKind.NoCall =>
+            RecursionCheck
+              .NoRecursiveCall(
+                fnname,
+                header.kind,
+                header.region,
+                likelyRenameCall(
                   fnname,
-                  header.kind,
-                  header.region,
-                  likelyRenameCall(
-                    fnname,
-                    calledNamesInBranches(currentPackage, header.branches)
-                  )
-                ) :: Nil
-            case SelfCallKind.TailCall
-                if header.kind == Declaration.MatchKind.Recur =>
-              RecursionCheck.TailRecursiveRecur(fnname, header.region) :: Nil
-            case _ =>
-              Nil
-          }
+                  calledNamesInBranches(currentPackage, header.branches)
+                )
+              ) :: Nil
+          case SelfCallKind.TailCall
+              if header.kind == Declaration.MatchKind.Recur =>
+            RecursionCheck.TailRecursiveRecur(fnname, header.region) :: Nil
+          case _ =>
+            Nil
         }
-
-      ownLint
-    }
+      }
 
     private def bindingAndNestedLints[A](
         syntax: LintSyntax[A],
@@ -974,82 +958,6 @@ object TypedExprRecursionCheck {
     ): List[RecursionCheck.Lint] =
       bindingOwnLints(syntax, currentPackage, fnname, expr) :::
         nestedBindingLints(syntax, currentPackage, expr)
-
-    private def replaySelfCallKind(
-        fnname: Bindable,
-        expr: TypedExpr[Region]
-    ): SelfCallKind = {
-      def loop(expr: TypedExpr[Region], loopDepth: Int): SelfCallKind =
-        expr match {
-          case TypedExpr.Generic(_, in)       =>
-            loop(in, loopDepth)
-          case TypedExpr.Annotation(in, _, _) =>
-            loop(in, loopDepth)
-          case TypedExpr.AnnotatedLambda(args, body, _) =>
-            if (args.exists(_._1 == fnname)) SelfCallKind.NoCall
-            else loop(body, loopDepth)
-          case TypedExpr.Global(_, _, _, _)   =>
-            SelfCallKind.NoCall
-          case TypedExpr.Local(vn, _, _)      =>
-            if (vn == fnname) SelfCallKind.NonTailCall
-            else SelfCallKind.NoCall
-          case TypedExpr.App(fn, args, _, _)  =>
-            val argCalls =
-              args.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, arg) =>
-                acc.merge(loop(arg, loopDepth).callNotTail)
-              }
-
-            argCalls.ifNoCallThen(
-              if (localNameOf(fn).contains(fnname)) SelfCallKind.TailCall
-              else loop(fn, loopDepth).callNotTail
-            )
-          case TypedExpr.Let(arg, rhs, in, rec, _) =>
-            if (arg == fnname) {
-              if (rec.isRecursive) SelfCallKind.NoCall
-              else loop(rhs, loopDepth).callNotTail
-            } else {
-              loop(rhs, loopDepth).callNotTail.merge(loop(in, loopDepth))
-            }
-          case TypedExpr.Loop(args, body, _) =>
-            val argCalls =
-              args.foldLeft(SelfCallKind.NoCall: SelfCallKind) {
-                case (acc, (_, initExpr)) =>
-                  acc.merge(loop(initExpr, loopDepth).callNotTail)
-              }
-
-            if (args.exists(_._1 == fnname)) argCalls
-            else argCalls.merge(loop(body, loopDepth + 1))
-          case TypedExpr.Recur(args, _, _)   =>
-            val argCalls =
-              args.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, arg) =>
-                acc.merge(loop(arg, loopDepth).callNotTail)
-              }
-            argCalls.ifNoCallThen {
-              if (loopDepth == 1) SelfCallKind.TailCall
-              else SelfCallKind.NoCall
-            }
-          case TypedExpr.Literal(_, _, _)    =>
-            SelfCallKind.NoCall
-          case TypedExpr.Match(arg, branches, _) =>
-            loop(arg, loopDepth).callNotTail.ifNoCallThen {
-              branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) {
-                case (acc, branch) =>
-                  val branchCalls =
-                    if (branch.pattern.names.contains(fnname)) SelfCallKind.NoCall
-                    else {
-                      val guardCalls =
-                        branch.guard.fold(SelfCallKind.NoCall: SelfCallKind) {
-                          loop(_, loopDepth).callNotTail
-                        }
-                      guardCalls.merge(loop(branch.expr, loopDepth))
-                    }
-                  acc.merge(branchCalls)
-              }
-            }
-        }
-
-      loop(expr, 0)
-    }
 
     private def nestedBindingLints[A](
         syntax: LintSyntax[A],
@@ -1146,13 +1054,7 @@ object TypedExprRecursionCheck {
           branch.guard.fold(Map.empty[Bindable, Int])(
             calledNamesInExpr(currentPackage, _, blocked)
           )
-        mergeCallCounts(
-          acc,
-          mergeCallCounts(
-            guardCalls,
-            calledNamesInExpr(currentPackage, branch.expr, blocked)
-          )
-        )
+        acc |+| guardCalls |+| calledNamesInExpr(currentPackage, branch.expr, blocked)
       }
 
     private def calledNamesInExpr[A](
@@ -1174,34 +1076,29 @@ object TypedExprRecursionCheck {
         case TypedExpr.App(fn, args, _, _)  =>
           val fnCalls = calledNamesInExpr(currentPackage, fn, blocked)
           val argCalls = args.foldLeft(Map.empty[Bindable, Int]) { (acc, arg) =>
-            mergeCallCounts(acc, calledNamesInExpr(currentPackage, arg, blocked))
+            acc |+| calledNamesInExpr(currentPackage, arg, blocked)
           }
           val headCall =
             localOrLocalPackageGlobalNameOf(currentPackage, fn)
               .filterNot(blocked)
               .fold(Map.empty[Bindable, Int])(nm => Map(nm -> 1))
-          mergeCallCounts(fnCalls, mergeCallCounts(argCalls, headCall))
+          fnCalls |+| argCalls |+| headCall
         case TypedExpr.Let(arg, rhs, in, rec, _) =>
           val rhsBlocked =
             if (rec.isRecursive) blocked + arg
             else blocked
-          mergeCallCounts(
-            calledNamesInExpr(currentPackage, rhs, rhsBlocked),
+          calledNamesInExpr(currentPackage, rhs, rhsBlocked) |+|
             calledNamesInExpr(currentPackage, in, blocked + arg)
-          )
         case TypedExpr.Loop(args, body, _) =>
           val blocked1 = blocked ++ args.iterator.map(_._1)
           val argCalls = args.foldLeft(Map.empty[Bindable, Int]) {
             case (acc, (_, initExpr)) =>
-              mergeCallCounts(
-                acc,
-                calledNamesInExpr(currentPackage, initExpr, blocked1)
-              )
+              acc |+| calledNamesInExpr(currentPackage, initExpr, blocked1)
           }
-          mergeCallCounts(argCalls, calledNamesInExpr(currentPackage, body, blocked1))
+          argCalls |+| calledNamesInExpr(currentPackage, body, blocked1)
         case TypedExpr.Recur(args, _, _)   =>
           args.foldLeft(Map.empty[Bindable, Int]) { (acc, arg) =>
-            mergeCallCounts(acc, calledNamesInExpr(currentPackage, arg, blocked))
+            acc |+| calledNamesInExpr(currentPackage, arg, blocked)
           }
         case TypedExpr.Match(arg, branches, _) =>
           val argCalls = calledNamesInExpr(currentPackage, arg, blocked)
@@ -1212,15 +1109,13 @@ object TypedExprRecursionCheck {
                 guard.fold(Map.empty[Bindable, Int])(
                   calledNamesInExpr(currentPackage, _, blocked1)
                 )
-              mergeCallCounts(
-                acc,
-                mergeCallCounts(
-                  guardCalls,
-                  calledNamesInExpr(currentPackage, branchExpr, blocked1)
-                )
+              acc |+| guardCalls |+| calledNamesInExpr(
+                currentPackage,
+                branchExpr,
+                blocked1
               )
           }
-          mergeCallCounts(argCalls, branchCalls)
+          argCalls |+| branchCalls
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
             TypedExpr.Literal(_, _, _) =>
           Map.empty
