@@ -73,7 +73,7 @@ digit = one_of([expect_int(i) for i in range(10)])
 enum Rec[a, b]: Cont(next_input: a), Done(output: b)
 
 def recur_max(n: Nat, fn: a -> Rec[a, b], in: a) -> Option[b]:
-    recur n:
+    loop n:
         case Z: None
         case S(prev):
             match fn(in):
