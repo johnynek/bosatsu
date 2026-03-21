@@ -807,10 +807,10 @@ object TypedExprRecursionCheck {
 
     private type FinalDefState = InDef | InDefRecurred
 
-    private def finalDefState(state: State): Res[FinalDefState] =
+    private def finalDefState(state: State): FinalDefState =
       state match {
-        case in: InDef          => Validated.valid(in)
-        case in: InDefRecurred  => Validated.valid(in)
+        case in: InDef          => in
+        case in: InDefRecurred  => in
         case unreachable        =>
           // $COVERAGE-OFF$ this should be unreachable
           sys.error(
@@ -3897,21 +3897,24 @@ object TypedExprRecursionCheck {
             inheritedTotalityCheck
           )
           checkForIllegalBinds(state, fnname :: nameArgs, body.tag.region) {
-            val st = setSt(state1) *> checkExpr(
-              currentPackage,
-              body,
-              WrapperScope.Empty
-            )
-            // Note a def can't change the state:
-            // we either have a valid nested def, or we don't,
-            // but that can't change the state of the outer def
-            // that is calling this. We use Either in St for sequential state,
-            // then convert to ValidatedNec at this boundary.
-            Validated.fromEither(st.run(state).value).andThen { case (finalState, _) =>
-              finalDefState(finalState).andThen(
-                successfulDefResult(currentPackage, fnname, body, _)
+            // We start the body checker in `InDef`, and a successful run must
+            // return to either `InDef` or `InDefRecurred` after any recur branch.
+            Validated
+              .fromEither(
+                checkExpr(
+                  currentPackage,
+                  body,
+                  WrapperScope.Empty
+                ).run(state1).value
               )
-            }
+              .andThen { case (state2, _) =>
+                successfulDefResult(
+                  currentPackage,
+                  fnname,
+                  body,
+                  finalDefState(state2)
+                )
+              }
           }
       }
 
