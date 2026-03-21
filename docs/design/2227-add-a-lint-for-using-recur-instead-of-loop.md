@@ -161,8 +161,9 @@ Persisting the finalized lint result is the lowest-risk way to keep behavior cor
 6. Extend `PackageError.isPostponable` and `CompilerApi` warning rendering to classify the new lint cleanly in strict, warn, and lax modes.
 7. Persist recursion-form lint metadata through compiled-package serialization and bump the compile-cache schema version.
 8. Replay the stored recursion-form lints from cached compiled packages in `CompilerApi.replayTypedLintDiagnostics`.
-9. Add regression tests for strict, warn, lax, cache-hit replay, and serialization.
-10. Update recursion and edit-loop docs so the recommended forms are explicit.
+9. Do a mechanical cleanup pass over in-repo code and convert any existing tail-recursive `recur` sites to `loop`, so normal repository builds stay strict-clean and only targeted warning tests exercise the new lint.
+10. Add regression tests for strict, warn, lax, cache-hit replay, and serialization.
+11. Update recursion and edit-loop docs so the recommended forms are explicit.
 
 ## Acceptance Criteria
 1. A `recur` or `loop` block with no effective recursion is no longer a hard recursion soundness error; it is a postponable lint.
@@ -196,6 +197,7 @@ Persisting the finalized lint result is the lowest-risk way to keep behavior cor
 
 ## Rollout Notes
 1. This change is source-breaking in strict modes for code that currently uses non-recursive `recur` / `loop` or tail-recursive `recur`. The immediate migration path is to rewrite to `match` or `loop`, or temporarily use `lib check --warn` / `--lax`.
-2. The compile-cache schema should be bumped in the same PR so old cache entries cannot hide or drop the new lint metadata.
-3. `tool check` remains strict because it still has no relaxed lint mode; that is unchanged by this issue.
-4. Docs and command-level tests should land with the implementation so the relaxed workflow is discoverable the same day the strict behavior changes.
+2. The implementation should also update existing in-repo tail-recursive `recur` uses to `loop` before the lint lands broadly, so the repository does not require `--warn` or `--lax` outside tests that intentionally exercise warning behavior.
+3. The compile-cache schema should be bumped in the same PR so old cache entries cannot hide or drop the new lint metadata.
+4. `tool check` remains strict because it still has no relaxed lint mode; that is unchanged by this issue.
+5. Docs and command-level tests should land with the implementation so the relaxed workflow is discoverable the same day the strict behavior changes.
