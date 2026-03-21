@@ -7,30 +7,12 @@ import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
-import scala.collection.mutable.ListBuffer
 
 import Identifier.Bindable
 
 object TypedExprRecursionCheck {
 
-  type Res[+A] = ValidatedNec[RecursionCheck.Error, A]
-
-  final case class Result(
-      errors: List[RecursionCheck.Error],
-      lints: List[RecursionCheck.Lint]
-  ) {
-    def validated: Res[Unit] =
-      NonEmptyChain.fromSeq(errors) match {
-        case Some(errs) => Validated.invalid(errs)
-        case None       => Validated.valid(())
-      }
-
-    def ++(that: Result): Result =
-      Result(errors ::: that.errors, lints ::: that.lints)
-  }
-  object Result {
-    val empty: Result = Result(Nil, Nil)
-  }
+  type Res[+A] = ValidatedNec[RecursionCheck.Issue, A]
 
   private def normalizedDefArgs(
       groups: NonEmptyList[List[Pattern.Parsed]]
@@ -51,7 +33,7 @@ object TypedExprRecursionCheck {
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
-  ): Result =
+  ): Res[Unit] =
     checkLets(pack, fullTypeEnv, lets, Map.empty)
 
   def checkLets(
@@ -59,14 +41,14 @@ object TypedExprRecursionCheck {
       fullTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       topLevelDefs: Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]]
-  ): Result = {
+  ): Res[Unit] = {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
     val totalityCheck = TotalityCheck(fullTypeEnv)
     val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
     val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
-    lets.foldLeft(Result.empty) { case (acc, (name, rec, expr)) =>
-      acc ++ Impl.checkTopLevelLet(
+    lets.traverse_ { case (name, rec, expr) =>
+      Impl.checkTopLevelLet(
         pack,
         name,
         rec,
@@ -821,40 +803,37 @@ object TypedExprRecursionCheck {
         fnname: Bindable,
         body: TypedExpr[Declaration],
         finalState: State
-    ): Result =
+    ): Res[Unit] =
       finalState match {
         case InDef(_, _, _, _, _, _, _, _, _) =>
-          Result.empty
+          unitValid
         case InDefRecurred(_, _, recur, 0, calledNames) =>
-          Result(
-            Nil,
+          Validated.invalidNec(
             RecursionCheck.NoRecursiveCall(
               fnname,
               recur.kind,
               recur.region,
               likelyRenameCall(fnname, calledNames)
-            ) :: Nil
+            )
           )
         case InDefRecurred(_, _, recur, _, _) =>
           val selfCallKind = SelfCallKind(fnname, body)
           recur.kind match {
             case Declaration.MatchKind.Loop
                 if selfCallKind == SelfCallKind.NonTailCall =>
-              Result(
+              Validated.invalidNec(
                 RecursionCheck.LoopRequiresTailRecursion(
                   fnname,
                   recur.region
-                ) :: Nil,
-                Nil
+                )
               )
             case Declaration.MatchKind.Recur
                 if selfCallKind == SelfCallKind.TailCall =>
-              Result(
-                Nil,
-                RecursionCheck.TailRecursiveRecur(fnname, recur.region) :: Nil
+              Validated.invalidNec(
+                RecursionCheck.TailRecursiveRecur(fnname, recur.region)
               )
             case _ =>
-              Result.empty
+              unitValid
           }
         case unreachable =>
           // $COVERAGE-OFF$ this should be unreachable
@@ -2683,7 +2662,7 @@ object TypedExprRecursionCheck {
      * to a sequential (Monadic) State tracking, and can only accumulate errors
      * until we hit the first one.
      */
-    type ErrorOr[+A] = Either[NonEmptyChain[RecursionCheck.Error], A]
+    type ErrorOr[+A] = Either[NonEmptyChain[RecursionCheck.Issue], A]
 
     sealed trait St[+A] { self =>
       def run(state: State): Eval[ErrorOr[(State, A)]]
@@ -2802,7 +2781,7 @@ object TypedExprRecursionCheck {
 
     // Scala has trouble inferring types like St, so we make these typed
     // helper functions to use below.
-    private def failSt[A](err: RecursionCheck.Error): St[A] =
+    private def failSt[A](err: RecursionCheck.Issue): St[A] =
       St.liftEither(Left(NonEmptyChain.one(err)))
     private val getSt: St[State] = St.get
     private def setSt(s: State): St[Unit] = St.set(s)
@@ -2996,7 +2975,7 @@ object TypedExprRecursionCheck {
         region: Region
     )(
         updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
-    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] = {
+    ): St[Unit] = {
       val newBinds = args.toList.map(_._1)
       val bareBodyCheck = checkExpr(currentPackage, body, wrappers)
       val bodyCheck =
@@ -3024,7 +3003,7 @@ object TypedExprRecursionCheck {
         body: TypedExpr[Declaration],
         wrappers: WrapperScope,
         lambdaTag: Declaration
-    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
+    ): St[Unit] =
       deferSt {
         body match {
         case TypedExpr.Match(arg, branches, tag)
@@ -3071,7 +3050,7 @@ object TypedExprRecursionCheck {
         args: NonEmptyList[TypedExpr[Declaration]],
         region: Region,
         wrappers: WrapperScope
-    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
+    ): St[Unit] =
       deferSt {
         getSt.flatMap {
         case TopLevel(_) =>
@@ -3197,7 +3176,7 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         expr: TypedExpr[Declaration],
         wrappers: WrapperScope
-    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
+    ): St[Unit] =
       deferSt {
         expr match {
         case TypedExpr.Generic(q, in) =>
@@ -3236,9 +3215,19 @@ object TypedExprRecursionCheck {
                 case _                          => None
               }
             getSt.flatMap { state =>
-              val defn = toSt(checkDef(currentPackage, state, arg, ex, fromSource))
-              val nextRes = checkExpr(currentPackage, in, wrappers)
-              defn *> nextRes
+              val checkedDef =
+                checkDef(currentPackage, state, arg, ex, fromSource)
+              val checkedIn =
+                Validated.fromEither(
+                  checkExpr(currentPackage, in, wrappers).run(state).value
+                ).map(_._1)
+
+              (checkedDef, checkedIn).mapN((_, nextState) => nextState) match {
+                case Validated.Valid(nextState) =>
+                  setSt(nextState)
+                case Validated.Invalid(errs)    =>
+                  St.liftEither(Left(errs))
+              }
             }
           } else {
             val inCheck =
@@ -3486,7 +3475,7 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         state: State,
         expr: TypedExpr[Declaration]
-    )(using ListBuffer[RecursionCheck.Lint]): Res[Unit] =
+    ): Res[Unit] =
       // Expression traversal uses StateT[Either, ...] because recur-state updates
       // are sequential; convert back to ValidatedNec at this API boundary.
       Validated.fromEither(
@@ -3592,7 +3581,7 @@ object TypedExprRecursionCheck {
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
         topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
         topLevelPredefAliases: TopLevelPredefAliases = Map.empty
-    )(using lintAcc: ListBuffer[RecursionCheck.Lint]): Res[Unit] =
+    ): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>
           checkExprV(currentPackage, state, expr)
@@ -3640,14 +3629,9 @@ object TypedExprRecursionCheck {
             // but that can't change the state of the outer def
             // that is calling this. We use Either in St for sequential state,
             // then convert to ValidatedNec at this boundary.
-            Validated.fromEither(st.run(state).value)
-          } match {
-            case Validated.Valid((finalState, _)) =>
-              val result = successfulDefResult(fnname, body, finalState)
-              lintAcc ++= result.lints
-              result.validated
-            case Validated.Invalid(errs)         =>
-              Validated.invalid(errs)
+            Validated.fromEither(st.run(state).value).andThen { case (finalState, _) =>
+              successfulDefResult(fnname, body, finalState)
+            }
           }
       }
 
@@ -3660,28 +3644,19 @@ object TypedExprRecursionCheck {
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases,
         totalityCheck: TotalityCheck
-    ): Result = {
-      given ListBuffer[RecursionCheck.Lint] = ListBuffer.empty
+    ): Res[Unit] = {
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
-      val validated =
-        if (shouldCheckAsDef)
-          checkDef(
-            currentPackage,
-            TopLevel(totalityCheck),
-            name,
-            expr,
-            sourceArgs,
-            topLevelLowerableAliases,
-            topLevelPredefAliases
-          )
-        else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
-
-      validated match {
-        case Validated.Valid(_)     =>
-          Result.empty.copy(lints = summon[ListBuffer[RecursionCheck.Lint]].toList)
-        case Validated.Invalid(errs) =>
-          Result(errs.toChain.toList, summon[ListBuffer[RecursionCheck.Lint]].toList)
-      }
+      if (shouldCheckAsDef)
+        checkDef(
+          currentPackage,
+          TopLevel(totalityCheck),
+          name,
+          expr,
+          sourceArgs,
+          topLevelLowerableAliases,
+          topLevelPredefAliases
+        )
+      else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
     }
   }
 }

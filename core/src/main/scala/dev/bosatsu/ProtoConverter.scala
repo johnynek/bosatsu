@@ -63,12 +63,6 @@ object ProtoConverter {
   @unused private given canEqualExportKind
       : CanEqual[proto.ExportKind, proto.ExportKind] =
     CanEqual.derived
-  @unused private given canEqualRecursiveMatchKind
-      : CanEqual[proto.RecursiveMatchKind, proto.RecursiveMatchKind] =
-    CanEqual.derived
-  @unused private given canEqualRecursionLintValue
-      : CanEqual[proto.RecursionLint.Value, proto.RecursionLint.Value] =
-    CanEqual.derived
   case class NameParseError(name: String, message: String, error: P.Error)
       extends Exception(message)
 
@@ -958,33 +952,6 @@ object ProtoConverter {
         Success(Region.empty)
     }
 
-  private def recursionMatchKindToProto(
-      kind: Declaration.MatchKind
-  ): Try[proto.RecursiveMatchKind] =
-    kind match {
-      case Declaration.MatchKind.Recur =>
-        Success(proto.RecursiveMatchKind.Recur)
-      case Declaration.MatchKind.Loop  =>
-        Success(proto.RecursiveMatchKind.Loop)
-      case Declaration.MatchKind.Match =>
-        Failure(new Exception("cannot serialize non-recursive match as recursion lint"))
-    }
-
-  private def recursionMatchKindFromProto(
-      kind: proto.RecursiveMatchKind,
-      context: => String
-  ): Try[Declaration.MatchKind] =
-    kind match {
-      case proto.RecursiveMatchKind.Recur =>
-        Success(Declaration.MatchKind.Recur)
-      case proto.RecursiveMatchKind.Loop  =>
-        Success(Declaration.MatchKind.Loop)
-      case other                          =>
-        Failure(
-          new Exception(s"invalid recursive match kind: $other, in $context")
-        )
-    }
-
   def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
     ProtoState
       .get
@@ -1862,61 +1829,6 @@ object ProtoConverter {
         (getId(nm.sourceCodeRepr), typeToProto(t)).mapN(proto.ExternalDef(_, _))
     }
 
-  def recursionLintToProto(
-      lint: RecursionCheck.Lint
-  ): Tab[proto.RecursionLint] =
-    lint match {
-      case RecursionCheck.NoRecursiveCall(
-            fnname,
-            recurKind,
-            recurRegion,
-            likelyRenamedCall
-          ) =>
-        val kindTab =
-          recursionMatchKindToProto(recurKind) match {
-            case Success(kind) =>
-              tabPure(kind)
-            case Failure(err)  =>
-              tabFail(err match {
-                case ex: Exception => ex
-                case other         => new Exception(other.getMessage, other)
-              })
-          }
-
-        for {
-          fnId <- getId(fnname.sourceCodeRepr)
-          kind <- kindTab
-          rename <- likelyRenamedCall match {
-            case Some((calledName, count)) =>
-              getId(calledName.sourceCodeRepr).map(id => (id, count))
-            case None                      =>
-              tabPure((0, 0))
-          }
-        } yield proto.RecursionLint(
-          proto.RecursionLint.Value.NoRecursiveCall(
-            proto.NoRecursiveCallLint(
-              fnName = fnId,
-              matchKind = kind,
-              region = Some(regionToProto(recurRegion)),
-              likelyRenamedCallName = rename._1,
-              likelyRenamedCallCount = rename._2
-            )
-          )
-        )
-
-      case RecursionCheck.TailRecursiveRecur(fnname, recurRegion) =>
-        getId(fnname.sourceCodeRepr).map { fnId =>
-          proto.RecursionLint(
-            proto.RecursionLint.Value.TailRecursiveRecur(
-              proto.TailRecursiveRecurLint(
-                fnName = fnId,
-                region = Some(regionToProto(recurRegion))
-              )
-            )
-          )
-        }
-    }
-
   def packageToProto[A: HasRegion](cpack: Package.Typed[A]): Try[proto.Package] = {
     // the Int is in index in the list of definedTypes:
     val allDts
@@ -1933,7 +1845,6 @@ object ProtoConverter {
         exdefs <- cpack.externalDefs.traverse { nm =>
           extDefToProto(nm, cpack.types.getValue(cpack.name, nm))
         }
-        recursionLints <- Package.recursionLints(cpack).traverse(recursionLintToProto)
         dts <- dtVect.traverse(definedTypeToProto)
       } yield { (ss: SerState) =>
         proto.Package(
@@ -1946,8 +1857,7 @@ object ProtoConverter {
           imports = imps,
           exports = exps,
           lets = lets,
-          externalDefs = exdefs,
-          recursionLints = recursionLints
+          externalDefs = exdefs
         )
       }
 
@@ -2068,60 +1978,11 @@ object ProtoConverter {
       lookupType(ed.typeOf, ed.toString)
     ).tupled
 
-  def recursionLintFromProto(
-      lint: proto.RecursionLint
-  ): DTab[RecursionCheck.Lint] = {
-    import proto.RecursionLint.Value
-
-    lint.value match {
-      case Value.Empty =>
-        ReaderT.liftF(Failure(new Exception("invalid empty recursion lint")))
-      case Value.NoRecursiveCall(noRecursiveCall) =>
-        val renamedCall =
-          if (noRecursiveCall.likelyRenamedCallName == 0)
-            ReaderT.pure[Try, DecodeState, Option[(Bindable, Int)]](None)
-          else
-            lookupBindable(
-              noRecursiveCall.likelyRenamedCallName,
-              noRecursiveCall.toString
-            ).map { calledName =>
-              Some((calledName, noRecursiveCall.likelyRenamedCallCount))
-            }
-
-        for {
-          fnname <- lookupBindable(noRecursiveCall.fnName, noRecursiveCall.toString)
-          recurKind <- ReaderT.liftF(
-            recursionMatchKindFromProto(
-              noRecursiveCall.matchKind,
-              noRecursiveCall.toString
-            )
-          )
-          recurRegion <- ReaderT.liftF(regionFromProto(noRecursiveCall.region))
-          likelyRenamedCall <- renamedCall
-        } yield RecursionCheck.NoRecursiveCall(
-          fnname,
-          recurKind,
-          recurRegion,
-          likelyRenamedCall
-        )
-
-      case Value.TailRecursiveRecur(tailRecursiveRecur) =>
-        for {
-          fnname <- lookupBindable(
-            tailRecursiveRecur.fnName,
-            tailRecursiveRecur.toString
-          )
-          recurRegion <- ReaderT.liftF(regionFromProto(tailRecursiveRecur.region))
-        } yield RecursionCheck.TailRecursiveRecur(fnname, recurRegion)
-    }
-  }
-
   def buildProgram(
       pack: PackageName,
       lets: List[(Bindable, RecursionKind, TypedExpr[Region])],
-      exts: List[(Bindable, Type)],
-      recursionLints: List[RecursionCheck.Lint]
-  ): DTab[Program[TypeEnv[Kind.Arg], TypedExpr[Region], Any]] =
+      exts: List[(Bindable, Type)]
+  ): DTab[Program[TypeEnv[Kind.Arg], TypedExpr[Region], Unit]] =
     ReaderT
       .ask[Try, DecodeState]
       .map { ds =>
@@ -2133,12 +1994,7 @@ object ProtoConverter {
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
           te.addExternalValue(pack, b, t)
         }
-        Program(
-          te,
-          lets,
-          exts.map(_._1),
-          Program.Metadata.Compiled(recursionLints)
-        )
+        Program(te, lets, exts.map(_._1), ())
       }
 
   def iname(p: proto.Interface): String =
@@ -2330,10 +2186,7 @@ object ProtoConverter {
                 )
                 lets <- pack.lets.toList.traverse(letsFromProto)
                 eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
-                recursionLints <- pack.recursionLints.toList.traverse(
-                  recursionLintFromProto
-                )
-                prog <- buildProgram(packageName, lets, eds, recursionLints)
+                prog <- buildProgram(packageName, lets, eds)
               } yield Package(packageName, imps, exps, (prog, impMap))
 
             // build up the decoding state by decoding the tables in order

@@ -446,20 +446,6 @@ bar = 1
     }
   }
 
-  private def compilePackageAllowingLints(source: String): Package.Compiled = {
-    val parsed = Parser.unsafeParse(Package.parser, source)
-    val withPath =
-      NonEmptyList.one((("proto-roundtrip", LocationMap(source)), parsed))
-
-    Par.noParallelism {
-      PackageMap
-        .typeCheckParsed(withPath, Nil, "<predef>", CompileOptions.Default)
-        .toOption
-        .flatMap(_.toMap.get(parsed.name))
-        .getOrElse(fail(s"missing package ${parsed.name}"))
-    }
-  }
-
   @annotation.tailrec
   private def stripWrappers(
       expr: TypedExpr[Region]
@@ -505,26 +491,6 @@ bar = 1
 
     val compiled = compilePackage(source)
     assertEquals(roundTrip(compiled), compiled)
-  }
-
-  test("compiled package roundtrip preserves recursion lint metadata") {
-    val source =
-      """package Proto/RecLint
-        |
-        |export main
-        |
-        |def fn(x):
-        |  recur x:
-        |    case y: 0
-        |
-        |main = fn(1)
-        |""".stripMargin
-
-    val compiled = compilePackageAllowingLints(source)
-    val roundTripped = roundTrip(compiled)
-
-    assertEquals(Package.recursionLints(roundTripped), Package.recursionLints(compiled))
-    assertEquals(Package.recursionLints(roundTripped).length, 1)
   }
 
   test("compiled package roundtrip preserves branch pattern regions") {

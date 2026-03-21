@@ -157,12 +157,9 @@ object Package {
 
   def toCompiled[A: HasRegion](pack: Typed[A]): Compiled = {
     val withRegions = typedFunctor.map(pack)(tag => HasRegion.region(tag))
-    // Compiled artifacts drop the source statements, but keep finalized
-    // recursion-form lint metadata so warn/lax cache hits can replay it.
-    setProgramFrom(
-      withRegions,
-      Program.Metadata.Compiled(recursionLints(withRegions))
-    )
+    // Serialized compiled artifacts never retain the parsed-source payload in
+    // Program.from, so drop it before crossing the cache/compiler boundary.
+    setProgramFrom(withRegions, ())
   }
 
   sealed trait TestEntry[+A] {
@@ -361,9 +358,6 @@ object Package {
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
 
-  def recursionLints[A](pack: Typed[A]): List[RecursionCheck.Lint] =
-    Program.recursionLints(pack.program._1.from)
-
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =
     Document.instance[Package.Parsed] {
@@ -441,7 +435,7 @@ object Package {
       stmts: List[Statement]
   ): Ior[NonEmptyList[PackageError], Program[TypeEnv[Kind.Arg], TypedExpr[
     Declaration
-  ], Any]] =
+  ], List[Statement]]] =
     inferBodyUnopt(p, imps, Nil, stmts).map { case (fullTypeEnv, prog) =>
       val lowered = TypedExprLoopRecurLowering.lowerProgram(prog)
       TypedExprNormalization.normalizeProgram(p, fullTypeEnv, lowered)
@@ -659,7 +653,7 @@ object Package {
     ],
     (
         TypeEnv[Kind.Arg],
-        Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], Any]
+        Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]
     )
   ] = {
 
@@ -802,7 +796,7 @@ object Package {
                 Program[
                   TypeEnv[Kind.Arg],
                   TypedExpr[Declaration],
-                  Any
+                  List[Statement]
                 ]
             )
           ] = Infer
@@ -830,20 +824,18 @@ object Package {
             .flatMap { typedLets =>
               val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
 
-              val recursionCheck =
-                TypedExprRecursionCheck
-                  .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-
-              val recursionErrors: Chain[PackageError] =
-                Chain.fromSeq(
-                  recursionCheck.errors.map(err =>
-                    PackageError.RecursionError(p, err): PackageError
-                  )
-                )
-
-              val recursionLints: List[PackageError] =
-                recursionCheck.lints.map(lint =>
-                  PackageError.RecursionLint(p, lint): PackageError
+              val recursionIssues: Chain[PackageError] =
+                toErrsChain(
+                  TypedExprRecursionCheck
+                    .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                    .leftMap(
+                      _.map {
+                        case err: RecursionCheck.Error =>
+                          PackageError.RecursionError(p, err): PackageError
+                        case lint: RecursionCheck.Lint =>
+                          PackageError.RecursionLint(p, lint): PackageError
+                      }
+                    )
                 )
 
               val shadowedBindingErrors: Chain[PackageError] =
@@ -876,16 +868,10 @@ object Package {
               // keep the typed program on the success path when every
               // diagnostic is postponable.
               diagnosticsToIor(
-                (recursionErrors ++ shadowedBindingErrors).toList :::
-                  totalityErrors ::: recursionLints,
+                (recursionIssues ++ shadowedBindingErrors).toList ::: totalityErrors,
                 (
                   fullTypeEnv,
-                  Program(
-                    typeEnv,
-                    typedLets,
-                    extDefs,
-                    Program.Metadata.WithSource(stmts, recursionCheck.lints)
-                  )
+                  Program(typeEnv, typedLets, extDefs, stmts)
                 )
               )
             }

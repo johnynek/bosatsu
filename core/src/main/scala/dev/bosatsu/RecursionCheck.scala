@@ -58,6 +58,8 @@ object RecursionCheck {
     def message: String
   }
 
+  type Issue = Error | Lint
+
   case class InvalidRecursion(name: Bindable, illegalPosition: Region)
       extends Error {
     def region = illegalPosition

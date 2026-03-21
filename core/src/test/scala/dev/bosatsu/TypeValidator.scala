@@ -1197,9 +1197,9 @@ object TypeValidator {
       unoptimized: Program[
         TypeEnv[Kind.Arg],
         TypedExpr[Declaration],
-        Any
+        List[Statement]
       ]
-  ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], Any] = {
+  ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]] = {
     val unoptGlobals =
       globalValuesFromTypeEnv(fullTypeEnv) ++ letGlobalValues(pack, unoptimized.lets)
     assertTypeValidationResult(

@@ -1744,7 +1744,7 @@ main = vals
       val (fullTypeEnv, lets, stmts) = typedLetsOf(source)
       val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
       var failure: Option[Throwable] = None
-      var result: Option[TypedExprRecursionCheck.Result] = None
+      var result: Option[TypedExprRecursionCheck.Res[Unit]] = None
 
       val thread = new Thread(
         null,
@@ -1778,9 +1778,8 @@ main = vals
           throw other
         case None =>
           result match {
-            case Some(res) if res.validated.isValid => ()
-            case Some(res) =>
-              val errs = res.validated.swap.toOption.get
+            case Some(Validated.Valid(_)) => ()
+            case Some(Validated.Invalid(errs)) =>
               fail(
                 s"expected recursion checker success, got:\n${errs.iterator.mkString("\n")}"
               )
