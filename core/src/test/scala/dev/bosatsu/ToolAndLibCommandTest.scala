@@ -590,13 +590,24 @@ class ToolAndLibCommandTest extends FunSuite {
       |    "still bad"
       |""".stripMargin
 
-  private val recursionErrorLibSrc =
+  private val recursionLintLibSrc =
     """def fn(x):
       |  recur x:
-      |    case y:
+      |    case _:
       |      0
       |
       |main = fn(1)
+      |""".stripMargin
+
+  private val hardRecursionErrorLibSrc =
+    """enum Nat: Zero, Succ(prev: Nat)
+      |
+      |def len(lst):
+      |  loop lst:
+      |    case []: Zero
+      |    case [_, *tail]: Succ(len(tail))
+      |
+      |main = len([])
       |""".stripMargin
 
   private val lintOnlyLibTestSrc =
@@ -2037,7 +2048,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |  names.foldl_List([], (acc, name) -> insert_sorted(name, acc))
 |
 |def list_len(xs: List[String], acc: Int) -> Int:
-|  recur xs:
+|  loop xs:
 |    case []:
 |      acc
 |    case [_, *t]:
@@ -5733,6 +5744,69 @@ main = depBox
     }
   }
 
+  test("lib check --warn reports recursion-form warnings on cache hits") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles(recursionLintLibSrc))
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val err1 = state1.stdErr.render(400)
+        val err2 = state2.stdErr.render(400)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assert(err1.contains("recur but no recursive call to fn."), err1)
+        assert(err1.contains("1 warning: 1 recursion form"), err1)
+        assertEquals(err2, err1)
+    }
+  }
+
+  test("lib check --lax suppresses recursion-form warnings on cache hits") {
+    val cmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--lax"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles(recursionLintLibSrc))
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assertEquals(state1.stdErr.render(200), "")
+        assertEquals(state2.stdErr.render(200), "")
+    }
+  }
+
   test("lib check --warn keeps todo warnings stable on cache hits") {
     val cmd = List(
       "lib",
@@ -5831,6 +5905,43 @@ main = depBox
         assert(rendered.contains("unused value 'unused'"), rendered)
       case Left(err) =>
         fail(err.getMessage)
+    }
+  }
+
+  test("lib check strict mode still fails on recursion-form lint after a prior --warn cache hit") {
+    val warnCmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+    val strictCmd = List(
+      "lib",
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache"
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(baseLibFiles(recursionLintLibSrc))
+      s1 <- runWithState(warnCmd, s0)
+      (state1, _) = s1
+      s2 <- runAndReportWithState(strictCmd, resetLogs(state1))
+    } yield s2
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, exitCode)) =>
+        val errOutput = state.stdErr.render(400)
+        assertEquals(exitCode, ExitCode.Error)
+        assert(errOutput.contains("recur but no recursive call to fn."), errOutput)
+        assert(errOutput.contains("Use `match` for non-recursive branching."), errOutput)
     }
   }
 
@@ -5967,14 +6078,17 @@ main = depBox
   }
 
   test("lib check --lax keeps recursion errors fatal") {
-    runWithFiles(baseLibFiles(recursionErrorLibSrc))(
+    runWithFiles(baseLibFiles(hardRecursionErrorLibSrc))(
       List("lib", "check", "--repo_root", "repo", "--lax")
     ) match {
       case Right(out) =>
         fail(s"expected recursion failure, got: $out")
       case Left(err: CliException) =>
         val rendered = err.errDoc.render(120)
-        assert(rendered.contains("recur x"), rendered)
+        assert(
+          rendered.contains("loop requires all recursive calls to len to be in tail position."),
+          rendered
+        )
       case Left(err) =>
         fail(err.getMessage)
     }

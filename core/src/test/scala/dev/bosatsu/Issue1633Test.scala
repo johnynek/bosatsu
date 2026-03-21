@@ -9,7 +9,7 @@ package MyLib/ReproMin8
 export ParseStep, main
 
 def drop_ws(s: String) -> String:
-  recur s:
+  loop s:
     case " ${tail}":
       drop_ws(tail)
     case "\n${tail}":

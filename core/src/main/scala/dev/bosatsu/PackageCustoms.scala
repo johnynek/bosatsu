@@ -102,9 +102,7 @@ object PackageCustoms {
       ilist: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
       imap: ImportMap[Package.Interface, NonEmptyList[Referant[Kind.Arg]]],
       exports: List[ExportedName[Unit]],
-      program: Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[
-        Statement
-      ]]
+      program: Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], Any]
   ): Ior[NonEmptyList[PackageError], Package.Typed[Declaration]] = {
 
     val Program(types, lets, _, _) = program
@@ -540,6 +538,11 @@ object PackageCustoms {
       pack: Package.Typed[A]
   ): Option[List[Statement]] =
     pack.program._1.from match {
+      case Program.Metadata.WithSource(stmts: List[?], _) =>
+        stmts.traverse {
+          case stmt: Statement => Some(stmt)
+          case _               => None
+        }
       case stmts: List[?] =>
         stmts.traverse {
           case stmt: Statement => Some(stmt)

@@ -396,7 +396,8 @@ def len(lst):
 ```
 
 `loop` enforces that all recursive self-calls are in tail position. `recur`
-keeps the same termination checks but allows valid non-tail recursion.
+keeps the same termination checks but allows valid non-tail recursion. Use
+`match` when the branch structure is not recursive at all.
 
 `recur` can also follow trusted delayed-value projections. If a branch binds
 `th: () -> T` or `l: Lazy[T]`, then `th()` and trusted
@@ -410,7 +411,7 @@ enum Stream[a]:
   More(next: () -> Stream[a])
 
 def consume(s: Stream[a]) -> Stream[a]:
-  recur s:
+  loop s:
     case End:
       End
     case More(th):
@@ -447,7 +448,8 @@ Most loops are either:
 1. explicit fuel recursion on a decreasing `Nat`.
 
 Choose `loop` when you want the compiler to require tail recursion. Choose
-`recur` when the algorithm is terminating but not tail-recursive.
+`recur` when the algorithm is terminating but not tail-recursive. Use `match`
+when there is no recursive self-call.
 
 See [Recursion in Bosatsu](recursion.html) for detailed examples from
 `test_workspace`.

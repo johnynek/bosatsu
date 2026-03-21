@@ -50,9 +50,9 @@ object TestUtils {
       unoptimized: Program[
         TypeEnv[Kind.Arg],
         TypedExpr[Declaration],
-        List[Statement]
+        Any
       ]
-  ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]] =
+  ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], Any] =
     TypeValidator.normalizeWithRewriteValidation(pack, fullTypeEnv, unoptimized)
 
   type SourceConvertedProgram = Program[

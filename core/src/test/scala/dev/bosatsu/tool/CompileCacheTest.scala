@@ -379,6 +379,29 @@ class CompileCacheTest extends FunSuite {
     assertEquals(patternRegions(warmPack), originalRegions)
   }
 
+  test("warm hits preserve recursion lint metadata") {
+    val source =
+      """package Cache/RecLint
+        |export main
+        |
+        |def fn(x):
+        |  recur x:
+        |    case y: 0
+        |
+        |main = fn(1)
+        |""".stripMargin
+
+    val parsed = parsePackage(source)
+    val compiled = compilePackage(source)
+    val key = compileKey(parsed)
+    val (stateWithCache, _) = runF(cache.put(key, compiled))
+    val (_, warmHit) = runF(cache.get(key), stateWithCache)
+    val warmPack = warmHit.getOrElse(fail("expected warm cache hit"))
+
+    assertEquals(Package.recursionLints(warmPack), Package.recursionLints(compiled))
+    assertEquals(Package.recursionLints(warmPack).length, 1)
+  }
+
   test("old schema entries are ignored after the cache schema bump") {
     val source =
       """package Cache/Foo

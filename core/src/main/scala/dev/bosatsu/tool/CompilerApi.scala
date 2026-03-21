@@ -48,17 +48,19 @@ object CompilerApi {
     case TypeError extends ErrorCategory("type error", "type errors", 1)
     case RecursionError
         extends ErrorCategory("recursion error", "recursion errors", 2)
+    case RecursionForm
+        extends ErrorCategory("recursion form", "recursion forms", 3)
     case TotalityError
-        extends ErrorCategory("totality error", "totality errors", 3)
+        extends ErrorCategory("totality error", "totality errors", 4)
     case SourceConversionError
         extends ErrorCategory(
           "source conversion error",
           "source conversion errors",
-          4
+          5
         )
-    case ImportError extends ErrorCategory("import error", "import errors", 5)
+    case ImportError extends ErrorCategory("import error", "import errors", 6)
     case PackageError
-        extends ErrorCategory("package error", "package errors", 6)
+        extends ErrorCategory("package error", "package errors", 7)
   }
 
   private enum LintCategory(
@@ -75,8 +77,10 @@ object CompilerApi {
         extends LintCategory("shadowed binding", "shadowed bindings", 1)
     case UnreachableBranch
         extends LintCategory("unreachable branch", "unreachable branches", 2)
-    case TodoUsage extends LintCategory("todo usage", "todo usages", 3)
-    case UnusedImport extends LintCategory("unused import", "unused imports", 4)
+    case RecursionForm
+        extends LintCategory("recursion form", "recursion forms", 3)
+    case TodoUsage extends LintCategory("todo usage", "todo usages", 4)
+    case UnusedImport extends LintCategory("unused import", "unused imports", 5)
   }
 
   private sealed trait RenderedDiagnostic {
@@ -168,6 +172,8 @@ object CompilerApi {
         renderedError(ErrorCategory.TypeError, 1, body)
       case _: PackageError.RecursionError =>
         renderedError(ErrorCategory.RecursionError, 1, body)
+      case _: PackageError.RecursionLint =>
+        renderedError(ErrorCategory.RecursionForm, 1, body)
       case _: PackageError.TotalityCheckError[?] =>
         renderedError(ErrorCategory.TotalityError, 1, body)
       case e: PackageError.SourceConverterErrorsIn =>
@@ -236,6 +242,8 @@ object CompilerApi {
         renderedLint(LintCategory.UnreachableBranch, count, body)
       case e: PackageError.TodoUsage =>
         renderedLint(LintCategory.TodoUsage, e.regions.length, body)
+      case _: PackageError.RecursionLint =>
+        renderedLint(LintCategory.RecursionForm, 1, body)
       case _ =>
         sys.error(s"unexpected non-lint warning: $err")
     }
@@ -337,6 +345,11 @@ object CompilerApi {
   private def replayTypedLintDiagnostics(
       pack: Package.Compiled
   ): List[PackageError] = {
+    val recursionLints =
+      Package
+        .recursionLints(pack)
+        .map(lint => PackageError.RecursionLint(pack.name, lint): PackageError)
+
     val shadowedBindings =
       ShadowedBindingTypeCheck
         .checkLets(pack.name, pack.lets) match {
@@ -367,7 +380,7 @@ object CompilerApi {
             .filter(PackageError.isPostponable)
       }
 
-    (shadowedBindings ::: totalityLint)
+    (recursionLints ::: shadowedBindings ::: totalityLint)
       .filter(PackageError.isPostponable)
   }
 

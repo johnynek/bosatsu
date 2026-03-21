@@ -314,6 +314,31 @@ message Region {
   int32 end = 2;
 }
 
+enum RecursiveMatchKind {
+  Recur = 0;
+  Loop = 1;
+}
+
+message NoRecursiveCallLint {
+  int32 fnName = 1;
+  RecursiveMatchKind matchKind = 2;
+  Region region = 3;
+  int32 likelyRenamedCallName = 4;
+  int32 likelyRenamedCallCount = 5;
+}
+
+message TailRecursiveRecurLint {
+  int32 fnName = 1;
+  Region region = 2;
+}
+
+message RecursionLint {
+  oneof value {
+    NoRecursiveCallLint noRecursiveCall = 1;
+    TailRecursiveRecurLint tailRecursiveRecur = 2;
+  }
+}
+
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
@@ -365,6 +390,7 @@ message Package {
   repeated ExportedName exports = 8;
   repeated Let lets = 9;
   repeated ExternalDef externalDefs = 10;
+  repeated RecursionLint recursionLints = 11;
 }
 
 message Packages {

@@ -105,7 +105,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
          |
          |def count_chars(s):
          |  def loop(s, acc: Nat):
-         |    recur s:
+         |    loop s:
          |      case "": acc
          |      case "$.{_}${tail}": loop(tail, Succ(acc))
          |

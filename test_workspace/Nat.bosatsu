@@ -8,7 +8,7 @@ export Nat(), mul2, add, sub_Nat, mult, exp, to_Int, to_Nat, is_even, div2, cmp_
 enum Nat: Zero, Succ(prev: Nat)
 
 def cmp_Nat(a: Nat, b: Nat) -> Comparison:
-    recur (a, b):
+    loop (a, b):
         case (Zero, Zero): EQ
         case (Zero, _): LT
         case (Succ(_), Zero): GT
@@ -17,7 +17,7 @@ def cmp_Nat(a: Nat, b: Nat) -> Comparison:
 # This is an O(n) operation
 def mul2(n: Nat) -> Nat:
   def loop(n: Nat, acc: Nat):
-      recur n:
+      loop n:
         case Zero: acc
         case Succ(prev):
           # 2*(n + 1) = 2*n + 1 + 1
@@ -26,7 +26,7 @@ def mul2(n: Nat) -> Nat:
 
 def add(n1: Nat, n2: Nat) -> Nat:
   def loop(n1: Nat, n2: Nat):
-    recur n1:
+    loop n1:
       case Zero: n2
       case Succ(prev_n1): loop(prev_n1, Succ(n2))
 
@@ -34,7 +34,7 @@ def add(n1: Nat, n2: Nat) -> Nat:
   else: loop(n1, n2)
 
 def sub_Nat(n1: Nat, n2: Nat) -> Nat:
-  recur n2:
+  loop n2:
     case Zero: n1
     case Succ(prev_n2):
       # (n1 + 1) - (n2 + 1) == (n1 - n2)
@@ -48,7 +48,7 @@ def mult(n1: Nat, n2: Nat) -> Nat:
   # note: (n1 + 1) * (n2 + 1) + c ==
   # n1 * n2 + (n1 + n2 + 1 + c)
   def loop(n1: Nat, n2: Nat, c: Nat):
-    recur n1:
+    loop n1:
       case Zero: c
       case Succ(n1):
         match n2:
@@ -66,14 +66,14 @@ def mult(n1: Nat, n2: Nat) -> Nat:
 
 def is_even(n: Nat) -> Bool:
     def loop(n: Nat, res: Bool) -> Bool:
-        recur n:
+        loop n:
             case Zero: res
             case Succ(n): loop(n, False if res else True)
     loop(n, True)
 
 def div2(n: Nat) -> Nat:
     def loop(n: Nat, acc: Nat, is_even):
-        recur n:
+        loop n:
             case Zero: acc
             case Succ(n):
                 # (n + 1) / 2 = n/2 if n is even, else n/2 + 1
@@ -83,7 +83,7 @@ def div2(n: Nat) -> Nat:
 
 def divmod(numerator: Nat, divisor: Nat) -> (Nat, Nat):
   def loop(numerator: Nat, d: Nat, m: Nat) -> (Nat, Nat):
-    recur numerator:
+    loop numerator:
       case Zero: (d, m)
       case Succ(n):
         m1 = Succ(m)
@@ -104,7 +104,7 @@ def exp(base: Nat, power: Nat) -> Nat:
         case Succ(Zero): one
         case two_or_more:
           def loop(power, acc):
-              recur power:
+              loop power:
                   case Zero: acc
                   case Succ(prev):
                       # b^(n + 1) = (b^n) * b
@@ -114,7 +114,7 @@ def exp(base: Nat, power: Nat) -> Nat:
 
 def to_Int(n: Nat) -> Int:
     def loop(acc: Int, n: Nat):
-      recur n:
+      loop n:
         case Zero: acc
         case Succ(n): loop(acc + 1, n)
     loop(0, n)

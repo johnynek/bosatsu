@@ -3277,7 +3277,7 @@ enum Many:
   E
 
 def loop(v, n):
-  recur n:
+  loop n:
     case Z: Z
     case S(prev):
       match v:

@@ -64,7 +64,7 @@ def if_Some(o: Option[a], fn: a -> Option[b]) -> Option[b]:
 
 def drop_ws(s: String) -> String:
   def trim_chars(chars: List[Char]) -> String:
-    recur chars:
+    loop chars:
       case [.' ', *tail]:
         trim_chars(tail)
       case [.'\n', *tail]:
@@ -79,7 +79,7 @@ def drop_ws(s: String) -> String:
   trim_chars(string_to_Char_List(s))
 
 def take_digits(s: String, rev_digits: List[String]) -> (String, String):
-  recur s:
+  loop s:
     case "$.{c}${tail}" if is_ascii_digit(c):
       take_digits(tail, [char_to_String(c), *rev_digits])
     case _:
@@ -351,7 +351,7 @@ def parse_return(input: String, value: Json, stack: List[ParseFrame]) -> ParseSt
           ParseDone(None)
 
 def parse_mode_with_fuel(fuel: Nat, mode: ParseMode) -> Option[(String, Json)]:
-  recur fuel:
+  loop fuel:
     case Zero:
       None
     case Succ(prev):
@@ -419,7 +419,7 @@ def render_escaped_char(c: Char) -> String:
 
 def render_escaped_string(s: String) -> String:
   def loop(chars: List[Char], rev_parts: List[String]) -> String:
-    recur chars:
+    loop chars:
       case []:
         concat_String(rev_parts.reverse())
       case [h, *tail]:
@@ -485,7 +485,7 @@ def render_tasks_with_fuel(
   tasks: List[RenderTask],
   rev_parts: List[String],
 ) -> Option[List[String]]:
-  recur fuel:
+  loop fuel:
     case Zero:
       None
     case Succ(prev):

@@ -14,3 +14,24 @@ case class Program[+T, +D, +S](
 
   def getLet(name: Bindable): Option[(RecursionKind, D)] = letMap.get(name)
 }
+
+object Program {
+  sealed trait Metadata derives CanEqual
+  object Metadata {
+    final case class WithSource[+A](
+        source: A,
+        recursionLints: List[RecursionCheck.Lint]
+    ) extends Metadata
+
+    final case class Compiled(
+        recursionLints: List[RecursionCheck.Lint]
+    ) extends Metadata
+  }
+
+  def recursionLints(from: Any): List[RecursionCheck.Lint] =
+    from match {
+      case Metadata.WithSource(_, lints) => lints
+      case Metadata.Compiled(lints)      => lints
+      case _                             => Nil
+    }
+}

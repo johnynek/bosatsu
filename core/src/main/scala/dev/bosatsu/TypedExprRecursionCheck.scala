@@ -7,12 +7,30 @@ import dev.bosatsu.pattern.NameMap
 import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 import dev.bosatsu.scalawasiz3.{Z3Platform, Z3Result}
 import dev.bosatsu.smt.{SExpr, SmtCommand, SmtExpr, SmtLibRender, SmtScript, SmtScriptScope, SmtSort, Z3Api}
+import scala.collection.mutable.ListBuffer
 
 import Identifier.Bindable
 
 object TypedExprRecursionCheck {
 
   type Res[+A] = ValidatedNec[RecursionCheck.Error, A]
+
+  final case class Result(
+      errors: List[RecursionCheck.Error],
+      lints: List[RecursionCheck.Lint]
+  ) {
+    def validated: Res[Unit] =
+      NonEmptyChain.fromSeq(errors) match {
+        case Some(errs) => Validated.invalid(errs)
+        case None       => Validated.valid(())
+      }
+
+    def ++(that: Result): Result =
+      Result(errors ::: that.errors, lints ::: that.lints)
+  }
+  object Result {
+    val empty: Result = Result(Nil, Nil)
+  }
 
   private def normalizedDefArgs(
       groups: NonEmptyList[List[Pattern.Parsed]]
@@ -33,7 +51,7 @@ object TypedExprRecursionCheck {
       pack: PackageName,
       fullTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
-  ): ValidatedNec[RecursionCheck.Error, Unit] =
+  ): Result =
     checkLets(pack, fullTypeEnv, lets, Map.empty)
 
   def checkLets(
@@ -41,14 +59,14 @@ object TypedExprRecursionCheck {
       fullTypeEnv: TypeEnv[Kind.Arg],
       lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])],
       topLevelDefs: Map[Bindable, NonEmptyList[NonEmptyList[Pattern.Parsed]]]
-  ): ValidatedNec[RecursionCheck.Error, Unit] = {
+  ): Result = {
     // This checker enforces structural recursion plus type-directed Int
     // decrease obligations in typed IR.
     val totalityCheck = TotalityCheck(fullTypeEnv)
     val topLevelLowerableAliases = Impl.topLevelLowerableAliases(pack, lets)
     val topLevelPredefAliases = Impl.topLevelPredefAliases(pack, lets)
-    lets.traverse_ { case (name, rec, expr) =>
-      Impl.checkTopLevelLet(
+    lets.foldLeft(Result.empty) { case (acc, (name, rec, expr)) =>
+      acc ++ Impl.checkTopLevelLet(
         pack,
         name,
         rec,
@@ -799,21 +817,51 @@ object TypedExprRecursionCheck {
           None
       }
 
-    private def checkLoopTailRecursion(
+    private def successfulDefResult(
         fnname: Bindable,
         body: TypedExpr[Declaration],
-        recur: Declaration.Match
-    ): St[Unit] =
-      recur.kind match {
-        case Declaration.MatchKind.Loop =>
-          SelfCallKind(fnname, body) match {
-            case SelfCallKind.NonTailCall =>
-              failSt(RecursionCheck.LoopRequiresTailRecursion(fnname, recur.region))
+        finalState: State
+    ): Result =
+      finalState match {
+        case InDef(_, _, _, _, _, _, _, _, _) =>
+          Result.empty
+        case InDefRecurred(_, _, recur, 0, calledNames) =>
+          Result(
+            Nil,
+            RecursionCheck.NoRecursiveCall(
+              fnname,
+              recur.kind,
+              recur.region,
+              likelyRenameCall(fnname, calledNames)
+            ) :: Nil
+          )
+        case InDefRecurred(_, _, recur, _, _) =>
+          val selfCallKind = SelfCallKind(fnname, body)
+          recur.kind match {
+            case Declaration.MatchKind.Loop
+                if selfCallKind == SelfCallKind.NonTailCall =>
+              Result(
+                RecursionCheck.LoopRequiresTailRecursion(
+                  fnname,
+                  recur.region
+                ) :: Nil,
+                Nil
+              )
+            case Declaration.MatchKind.Recur
+                if selfCallKind == SelfCallKind.TailCall =>
+              Result(
+                Nil,
+                RecursionCheck.TailRecursiveRecur(fnname, recur.region) :: Nil
+              )
             case _ =>
-              unitSt
+              Result.empty
           }
-        case _ =>
-          unitSt
+        case unreachable =>
+          // $COVERAGE-OFF$ this should be unreachable
+          sys.error(
+            s"we would like to prove in the types we can't get here: $unreachable, $fnname"
+          )
+        // $COVERAGE-ON$
       }
 
     @annotation.tailrec
@@ -2948,7 +2996,7 @@ object TypedExprRecursionCheck {
         region: Region
     )(
         updateProofs: NonEmptyList[TargetProof] => NonEmptyList[TargetProof]
-    ): St[Unit] = {
+    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] = {
       val newBinds = args.toList.map(_._1)
       val bareBodyCheck = checkExpr(currentPackage, body, wrappers)
       val bodyCheck =
@@ -2976,7 +3024,7 @@ object TypedExprRecursionCheck {
         body: TypedExpr[Declaration],
         wrappers: WrapperScope,
         lambdaTag: Declaration
-    ): St[Unit] =
+    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
       deferSt {
         body match {
         case TypedExpr.Match(arg, branches, tag)
@@ -3023,7 +3071,7 @@ object TypedExprRecursionCheck {
         args: NonEmptyList[TypedExpr[Declaration]],
         region: Region,
         wrappers: WrapperScope
-    ): St[Unit] =
+    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
       deferSt {
         getSt.flatMap {
         case TopLevel(_) =>
@@ -3149,7 +3197,7 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         expr: TypedExpr[Declaration],
         wrappers: WrapperScope
-    ): St[Unit] =
+    )(using ListBuffer[RecursionCheck.Lint]): St[Unit] =
       deferSt {
         expr match {
         case TypedExpr.Generic(q, in) =>
@@ -3438,7 +3486,7 @@ object TypedExprRecursionCheck {
         currentPackage: PackageName,
         state: State,
         expr: TypedExpr[Declaration]
-    ): Res[Unit] =
+    )(using ListBuffer[RecursionCheck.Lint]): Res[Unit] =
       // Expression traversal uses StateT[Either, ...] because recur-state updates
       // are sequential; convert back to ValidatedNec at this API boundary.
       Validated.fromEither(
@@ -3544,7 +3592,7 @@ object TypedExprRecursionCheck {
         sourceArgPatterns: Option[NonEmptyList[NonEmptyList[Pattern.Parsed]]],
         topLevelLowerableAliases: TopLevelLowerableAliases = Map.empty,
         topLevelPredefAliases: TopLevelPredefAliases = Map.empty
-    ): Res[Unit] =
+    )(using lintAcc: ListBuffer[RecursionCheck.Lint]): Res[Unit] =
       collectArgGroupsAndBody(expr) match {
         case None =>
           checkExprV(currentPackage, state, expr)
@@ -3586,38 +3634,20 @@ object TypedExprRecursionCheck {
               currentPackage,
               body,
               WrapperScope.Empty
-            ) *> (
-              getSt.flatMap {
-                case InDef(_, _, _, _, _, _, _, _, _) =>
-                  // we never hit a recur
-                  unitSt
-                case InDefRecurred(_, _, recur, cnt, _) if cnt > 0 =>
-                  // we did hit a recur
-                  checkLoopTailRecursion(fnname, body, recur)
-                case InDefRecurred(_, _, recur, 0, calledNames) =>
-                  // we hit a recur, but we didn't recurse
-                  failSt[Unit](
-                    RecursionCheck.RecursiveDefNoRecur(
-                      fnname,
-                      recur.region,
-                      recur.kind,
-                      likelyRenameCall(fnname, calledNames)
-                    )
-                  )
-                case unreachable =>
-                  // $COVERAGE-OFF$ this should be unreachable
-                  sys.error(
-                    s"we would like to prove in the types we can't get here: $unreachable, $fnname"
-                  ): St[Unit]
-                // $COVERAGE-ON$
-              }
             )
             // Note a def can't change the state:
             // we either have a valid nested def, or we don't,
             // but that can't change the state of the outer def
             // that is calling this. We use Either in St for sequential state,
             // then convert to ValidatedNec at this boundary.
-            Validated.fromEither(st.runA(state))
+            Validated.fromEither(st.run(state).value)
+          } match {
+            case Validated.Valid((finalState, _)) =>
+              val result = successfulDefResult(fnname, body, finalState)
+              lintAcc ++= result.lints
+              result.validated
+            case Validated.Invalid(errs)         =>
+              Validated.invalid(errs)
           }
       }
 
@@ -3630,19 +3660,28 @@ object TypedExprRecursionCheck {
         topLevelLowerableAliases: TopLevelLowerableAliases,
         topLevelPredefAliases: TopLevelPredefAliases,
         totalityCheck: TotalityCheck
-    ): Res[Unit] = {
+    ): Result = {
+      given ListBuffer[RecursionCheck.Lint] = ListBuffer.empty
       val shouldCheckAsDef = sourceArgs.nonEmpty || rec.isRecursive
-      if (shouldCheckAsDef)
-        checkDef(
-          currentPackage,
-          TopLevel(totalityCheck),
-          name,
-          expr,
-          sourceArgs,
-          topLevelLowerableAliases,
-          topLevelPredefAliases
-        )
-      else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
+      val validated =
+        if (shouldCheckAsDef)
+          checkDef(
+            currentPackage,
+            TopLevel(totalityCheck),
+            name,
+            expr,
+            sourceArgs,
+            topLevelLowerableAliases,
+            topLevelPredefAliases
+          )
+        else checkExprV(currentPackage, TopLevel(totalityCheck), expr)
+
+      validated match {
+        case Validated.Valid(_)     =>
+          Result.empty.copy(lints = summon[ListBuffer[RecursionCheck.Lint]].toList)
+        case Validated.Invalid(errs) =>
+          Result(errs.toChain.toList, summon[ListBuffer[RecursionCheck.Lint]].toList)
+      }
     }
   }
 }

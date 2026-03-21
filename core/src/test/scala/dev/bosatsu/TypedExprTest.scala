@@ -3117,7 +3117,7 @@ enum Nat: Z, S(prev: Nat)
 def inc(n: Nat) -> Nat: S(n)
 
 def len[a](list: List[a], acc: Nat) -> Nat:
-  recur list:
+  loop list:
     case EmptyList: acc
     case NonEmptyList(_, tail): len(tail, inc(acc))
     """) { pm =>
@@ -3139,7 +3139,7 @@ enum Nat: Z, S(prev: Nat)
 enum Box[a]: Box(value: a)
 
 def poly[a](n: Nat, x: a) -> Nat:
-  recur n:
+  loop n:
     case Z: Z
     case S(prev): poly(prev, Box(x))
     """) { pm =>
@@ -3979,7 +3979,7 @@ def f(x):
 package Test
 
 def loop(n, cnt):
-  recur n:
+  loop n:
     case _ if cmp_Int(n, 0) matches GT:
       loop(n.div(2), cnt.add(1))
     case _:
@@ -4041,7 +4041,7 @@ def loop(n, cnt):
 package Test
 
 def loop(n, cnt):
-  recur n:
+  loop n:
     case _ if cmp_Int(n, 0) matches LT | EQ:
       cnt
     case _:
@@ -4134,7 +4134,7 @@ enum L[a]: E, NE(head: a, tail: L[a])
 x = (
   def go(y, z):
     def loop(z):
-      recur z:
+      loop z:
         case E: y
         case NE(_, t): loop(t)
 
@@ -4150,7 +4150,7 @@ enum L[a]: E, NE(head: a, tail: L[a])
 x = (
   def go(y, z):
     def loop(z):
-      recur z:
+      loop z:
         case E: y
         case NE(_, t): loop(t)
 

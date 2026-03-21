@@ -21,7 +21,7 @@ import scala.collection.immutable.SortedMap
 import scala.util.{Failure, Success, Try}
 
 object CompileCache {
-  private val schemaVersion = 2
+  private val schemaVersion = 3
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo

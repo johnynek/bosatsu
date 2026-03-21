@@ -1884,7 +1884,8 @@ object Generators {
       genTypeEnv(pn, imps)
         .runS((rankn.TypeEnv.empty, Set.empty))
         .flatMap { case (te, b) =>
-          genLets(te, b).map(Program(te, _, b.toList.sorted, ()))
+          genLets(te, b)
+            .map(Program(te, _, b.toList.sorted, Program.Metadata.Compiled(Nil)))
         }
 
     /*
