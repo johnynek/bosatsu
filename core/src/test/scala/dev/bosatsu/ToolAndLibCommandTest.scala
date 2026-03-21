@@ -4481,7 +4481,6 @@ main = 1
       s0 <- stateFromFiles(files)
       s1 <- runWithState(
         List(
-          "lib",
           "publish",
           "--repo_root",
           "repo",
