@@ -142,7 +142,7 @@ def cmp_char(left: Char, right: Char) -> Comparison:
   cmp_Int(char_to_Int(left), char_to_Int(right))
 
 def cmp_string_model(left: String, right: String) -> Comparison:
-  recur (left, right):
+  loop (left, right):
     case ("", ""): EQ
     case ("", _): LT
     case (_, ""): GT
@@ -160,7 +160,7 @@ def cmp_string_matches_model(left: String, right: String) -> Bool:
   ) matches EQ
 
 def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
-  recur rights:
+  loop rights:
     case []: True
     case [right, *tail]:
       if cmp_string_matches_model(left, right):
@@ -169,7 +169,7 @@ def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
         False
 
 def cmp_string_matrix_law(lefts: List[String], rights: List[String]) -> Bool:
-  recur lefts:
+  loop lefts:
     case []: True
     case [left, *tail]:
       if cmp_string_row_law(left, rights):
@@ -302,7 +302,7 @@ def eqb(a, b):
     notb(b)
 
 def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
-  recur (left, right):
+  loop (left, right):
     case ([], []): True
     case ([lh, *lt], [rh, *rt]) if eqi(lh, rh):
       eq_int_list(lt, rt)
@@ -310,7 +310,7 @@ def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
 
 def split_last_loop(items: List[Int]) -> Option[(List[Int], Int)]:
   def loop_split(rem: List[Int], rev_init: List[Int]) -> Option[(List[Int], Int)]:
-    recur rem:
+    loop rem:
       case []:
         None
       case [last]:

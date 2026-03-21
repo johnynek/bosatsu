@@ -81,7 +81,7 @@ def from_List(list: List[a]) -> TreeList[a]:
 
 def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   def loop(trees, init):
-    recur trees:
+    loop trees:
       case []: init
       case [h, *t]:
         loop(t, h.fold_Tree(init, fn))

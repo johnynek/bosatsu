@@ -26,7 +26,7 @@ def max_opt(o1, o2):
 # if the starting number is <= 0, we return None
 def max_of(n: Int, fn: Int -> Option[Int]) -> Option[Int]:
     def loop(nat: Nat, n: Int, max: Option[Int]):
-        recur nat:
+        loop nat:
             case Zero: max_opt(max, fn(n))
             case Succ(prev_nat):
               next_max = max_opt(max, fn(n))
@@ -38,7 +38,7 @@ def max_of(n: Int, fn: Int -> Option[Int]) -> Option[Int]:
 # of the given function, if it is defined
 def first_of(n: Int, fn: Int -> Option[a]) -> Option[a]:
     def loop(nat, n):
-        recur nat:
+        loop nat:
             case Zero: fn(n)
             case Succ(prev_nat):
                 match fn(n):
