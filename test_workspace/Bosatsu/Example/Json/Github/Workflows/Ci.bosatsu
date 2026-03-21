@@ -257,7 +257,7 @@ workflow =
           Step {
             name: Set("run coreJS tests"),
             run: Set(cat_lines([
-              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/compile\"",
+              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure\"",
               "sbt \"jsuiJS/testOnly * -- --log=failure\"",
               "",
             ])),

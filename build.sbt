@@ -443,6 +443,7 @@ lazy val jsapi =
         Seq(
           cats.value,
           decline.value,
+          munit.value % Test,
           scalaCheck.value % Test
         )
     )
