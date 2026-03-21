@@ -20,7 +20,6 @@ from Bosatsu/Num/Float64 import (
   neg_inf,
   string_to_Float64,
 )
-from Bosatsu/Num/Nat import Nat, Zero, Succ, to_Nat
 
 export Json(), parse_Json, render_Json, eq_Json, Optional(), Nullable()
 
@@ -195,36 +194,36 @@ def parse_unicode_escape(tail_after_u: String) -> Option[(String, String)]:
     case _:
       None
 
-def parse_string_tail_with_fuel(fuel: Nat, s: String, rev_parts: List[String]) -> Option[(String, String)]:
-  recur fuel:
-    case Zero:
+def parse_string_tail_with_budget(budget: Int, s: String, rev_parts: List[String]) -> Option[(String, String)]:
+  recur budget:
+    case _ if cmp_Int(budget, 0) matches (LT | EQ):
       None
-    case Succ(prev):
+    case _:
       match s:
         case "":
           None
         case "\"${tail}":
           Some((tail, concat_String(rev_parts.reverse())))
         case "\\\"${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\"", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\"", *rev_parts])
         case "\\\\${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\\", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\\", *rev_parts])
         case "\\/${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["/", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["/", *rev_parts])
         case "\\b${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\b", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\b", *rev_parts])
         case "\\f${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\f", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\f", *rev_parts])
         case "\\n${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\n", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\n", *rev_parts])
         case "\\r${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\r", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\r", *rev_parts])
         case "\\t${tail}":
-          parse_string_tail_with_fuel(prev, tail, ["\t", *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, ["\t", *rev_parts])
         case "\\u${tail}":
           parsed <- parse_unicode_escape(tail).if_Some()
           (tail1, value) = parsed
-          parse_string_tail_with_fuel(prev, tail1, [value, *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail1, [value, *rev_parts])
         case "\\":
           None
         case "\\${_}":
@@ -232,13 +231,13 @@ def parse_string_tail_with_fuel(fuel: Nat, s: String, rev_parts: List[String]) -
         case "$.{ch}${_}" if is_ascii_control(ch):
           None
         case "$.{ch}${tail}":
-          parse_string_tail_with_fuel(prev, tail, [char_to_String(ch), *rev_parts])
+          parse_string_tail_with_budget(budget.sub(1), tail, [char_to_String(ch), *rev_parts])
 
 def parse_string(s: String) -> Option[(String, String)]:
   match s:
     case "\"${tail}":
-      fuel = to_Nat(length_String(tail).add(1))
-      parse_string_tail_with_fuel(fuel, tail, [])
+      budget = length_String(tail).add(1)
+      parse_string_tail_with_budget(budget, tail, [])
     case _:
       None
 
@@ -350,11 +349,11 @@ def parse_return(input: String, value: Json, stack: List[ParseFrame]) -> ParseSt
         case _:
           ParseDone(None)
 
-def parse_mode_with_fuel(fuel: Nat, mode: ParseMode) -> Option[(String, Json)]:
-  recur fuel:
-    case Zero:
+def parse_mode_with_budget(budget: Int, mode: ParseMode) -> Option[(String, Json)]:
+  recur budget:
+    case _ if cmp_Int(budget, 0) matches (LT | EQ):
       None
-    case Succ(prev):
+    case _:
       step = match mode:
         case ParseValueMode(input, stack):
           parse_value(input, stack)
@@ -363,7 +362,7 @@ def parse_mode_with_fuel(fuel: Nat, mode: ParseMode) -> Option[(String, Json)]:
 
       match step:
         case ParseContinue(next_mode):
-          parse_mode_with_fuel(prev, next_mode)
+          parse_mode_with_budget(budget.sub(1), next_mode)
         case ParseDone(result):
           result
 
@@ -371,8 +370,8 @@ def parse_Json(s: String) -> Option[Json]:
   len = length_String(s)
   # Each parser transition consumes input or closes one pending frame; 8*len + 32
   # is a conservative upper bound for valid/invalid JSON in this parser state machine.
-  fuel = to_Nat(len.mul(8).add(32))
-  parsed <- parse_mode_with_fuel(fuel, ParseValueMode(s, [TopFrame])).if_Some()
+  budget = len.mul(8).add(32)
+  parsed <- parse_mode_with_budget(budget, ParseValueMode(s, [TopFrame])).if_Some()
   (rest, value) = parsed
   if drop_ws(rest) matches "":
     Some(value)
@@ -480,28 +479,28 @@ def render_value_tasks(value: Json) -> List[RenderTask]:
     case JObject(items):
       [Emit("{"), *render_object_items_tasks(items), Emit("}")]
 
-def render_tasks_with_fuel(
-  fuel: Nat,
+def render_tasks_with_budget(
+  budget: Int,
   tasks: List[RenderTask],
   rev_parts: List[String],
 ) -> Option[List[String]]:
-  recur fuel:
-    case Zero:
+  recur budget:
+    case _ if cmp_Int(budget, 0) matches (LT | EQ):
       None
-    case Succ(prev):
+    case _:
       match tasks:
         case []:
           Some(rev_parts)
         case [Emit(text), *tail]:
-          render_tasks_with_fuel(prev, tail, [text, *rev_parts])
+          render_tasks_with_budget(budget.sub(1), tail, [text, *rev_parts])
         case [EmitValue(value), *tail]:
           expanded = render_value_tasks(value)
-          render_tasks_with_fuel(prev, [*expanded, *tail], rev_parts)
+          render_tasks_with_budget(budget.sub(1), [*expanded, *tail], rev_parts)
 
 def render_Json(j: Json) -> String:
   # This is intentionally generous; each step emits output or expands one value.
-  fuel = to_Nat(1000000)
-  match render_tasks_with_fuel(fuel, [EmitValue(j)], []):
+  budget = 1000000
+  match render_tasks_with_budget(budget, [EmitValue(j)], []):
     case Some(rev_parts):
       concat_String(rev_parts.reverse())
     case None:

@@ -35,6 +35,9 @@ class ToolAndLibCommandTest extends FunSuite {
   private def renderJson[A: Json.Writer](value: A): String =
     Json.Writer.write(value).render
 
+  private def packageName(str: String): PackageName =
+    PackageName.parse(str).getOrElse(fail(s"invalid package name: $str"))
+
   private def withSystemStdin[A](stdin: String)(fn: => A): A = {
     val previous: InputStream = System.in
     val next =
@@ -4342,6 +4345,237 @@ main = 1
             assertEquals(packs.map(_.name.asString), List("Dep/Foo"))
           case other =>
             fail(s"unexpected show output: $other")
+        }
+    }
+  }
+
+  test("trimmed core_alpha exports stay visible through dependency interfaces") {
+    val exportedPackages = List(
+      "Bosatsu/Char",
+      "Bosatsu/Collection/Array",
+      "Bosatsu/Eval",
+      "Bosatsu/IO/Bytes",
+      "Bosatsu/IO/Core",
+      "Bosatsu/IO/Error",
+      "Bosatsu/IO/Std",
+      "Bosatsu/Json",
+      "Bosatsu/Lazy",
+      "Bosatsu/Num/Float64",
+      "Bosatsu/Prog"
+    ).map(packageName)
+
+    val conf = LibConfig
+      .init(Name("core_alpha"), "https://example.com", Version(6, 0, 0))
+      .copy(
+        exportedPackages = exportedPackages.map(LibConfig.PackageFilter.Name(_))
+      )
+
+    val allowedSrc =
+      """package App/Allowed
+|
+|from Bosatsu/IO/Core import core_error
+|from Bosatsu/IO/Std import std_summary
+|from Bosatsu/Json import JNull
+|from Bosatsu/Prog import Main
+|
+|_ = JNull
+|_ = std_summary
+|_ = core_error
+|main = Main(1)
+|""".stripMargin
+    val blockedSrc =
+      """package App/Blocked
+|
+|from Bosatsu/Num/Nat import Nat, Zero
+|
+|bad: Nat = Zero
+|main = bad
+|""".stripMargin
+    val files = List(
+      Chain("app", "App", "Allowed.bosatsu") -> allowedSrc,
+      Chain("app", "App", "Blocked.bosatsu") -> blockedSrc,
+      Chain("repo", "bosatsu_libs.json") -> renderJson(
+        Libraries(SortedMap(Name("core_alpha") -> "src"))
+      ),
+      Chain("repo", "src", "core_alpha_conf.json") -> renderJson(conf),
+      Chain("repo", "src", "Bosatsu", "Char.bosatsu") ->
+        """package Bosatsu/Char
+|
+|export char_tag
+|
+|char_tag = .'x'
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") ->
+        """package Bosatsu/Collection/Array
+|
+|from Bosatsu/Char import char_tag
+|
+|export array_char
+|
+|array_char = char_tag
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Eval.bosatsu") ->
+        """package Bosatsu/Eval
+|
+|export EvalInt(), eval_value
+|
+|struct EvalInt(value: Int)
+|
+|eval_value = EvalInt(1)
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "IO", "Bytes.bosatsu") ->
+        """package Bosatsu/IO/Bytes
+|
+|export Bytes(), bytes_value
+|
+|struct Bytes(size: Int)
+|
+|bytes_value = Bytes(1)
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "IO", "Core.bosatsu") ->
+        """package Bosatsu/IO/Core
+|
+|from Bosatsu/Char import char_tag
+|from Bosatsu/IO/Error import IOError, sample_error
+|
+|export core_char, core_error
+|
+|core_char = char_tag
+|core_error: IOError = sample_error
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "IO", "Error.bosatsu") ->
+        """package Bosatsu/IO/Error
+|
+|export IOError(), sample_error
+|
+|enum IOError:
+|  Sample
+|
+|sample_error = Sample
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "IO", "Std.bosatsu") ->
+        """package Bosatsu/IO/Std
+|
+|from Bosatsu/IO/Core import core_char, core_error
+|
+|export std_summary
+|
+|std_summary = (core_char, core_error)
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Json.bosatsu") ->
+        """package Bosatsu/Json
+|
+|from Bosatsu/Char import char_tag
+|
+|export Json(), Optional(), Nullable(), json_char
+|
+|enum Json:
+|  JNull
+|
+|enum Optional[a]:
+|  Missing
+|  Set(value: a)
+|
+|enum Nullable[a]:
+|  Null
+|  NonNull(value: a)
+|
+|json_char = char_tag
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Lazy.bosatsu") ->
+        """package Bosatsu/Lazy
+|
+|export LazyInt(), lazy_value
+|
+|struct LazyInt(value: Int)
+|
+|lazy_value = LazyInt(1)
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Num", "Float64.bosatsu") ->
+        """package Bosatsu/Num/Float64
+|
+|export float_tag
+|
+|float_tag = 1.0
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Num", "Nat.bosatsu") ->
+        """package Bosatsu/Num/Nat
+|
+|export Nat()
+|
+|enum Nat:
+|  Zero
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Prog.bosatsu") ->
+        """package Bosatsu/Prog
+|
+|export Main()
+|
+|struct Main(value: Int)
+|""".stripMargin
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "lib",
+          "publish",
+          "--repo_root",
+          "repo",
+          "--outdir",
+          "out",
+          "--git_sha",
+          "deadbeef",
+          "--dry-run"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      depPath = Chain("out", "core_alpha-v6.0.0.bosatsu_lib")
+      s2 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "app/App/Allowed.bosatsu",
+          "--pub_dep",
+          "out/core_alpha-v6.0.0.bosatsu_lib",
+          "--output",
+          "out/App.Allowed.bosatsu_package"
+        ),
+        state1
+      )
+      (state2, _) = s2
+    } yield (state2, depPath)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state, depPath)) =>
+        val _ = readLibraryFile(state, depPath)
+
+        runWithState(
+          List(
+            "tool",
+            "check",
+            "--input",
+            "app/App/Blocked.bosatsu",
+            "--pub_dep",
+            "out/core_alpha-v6.0.0.bosatsu_lib",
+            "--output",
+            "out/App.Blocked.bosatsu_package"
+          ),
+          state
+        ) match {
+          case Right((_, out)) =>
+            fail(
+              s"expected dependency interface to hide Bosatsu/Num/Nat, got: $out"
+            )
+          case Left(err) =>
+            val msg = Option(err.getMessage).getOrElse(err.toString)
+            assert(msg.contains("Bosatsu/Num/Nat"), msg)
+            assert(msg.toLowerCase.contains("unknown package"), msg)
         }
     }
   }
