@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -184,7 +184,7 @@ EOF
 <h2><a href="#9-initialize-a-library-config" name="9-initialize-a-library-config" class="anchor"><span class="anchor-link"></span></a>9) Initialize a library config</h2>
 <p>Pick a source root for your Bosatsu packages (e.g. <code>src</code>) and initialize the library config:</p>
 <pre class="prettyprint"><code class="language-sh">mkdir -p src
-./bosatsu lib init \
+./bosatsu init \
   --name mylib \
   --repo_uri &lt;your repo URL&gt; \
   --src_root src \
@@ -192,7 +192,7 @@ EOF
 </code></pre>
 <p>Notes:</p>
 <ul>
-  <li><code>lib init</code> searches for <code>.git</code> to find the repo root. If you need to override  that, add <code>--repo_root &lt;path&gt;</code>.</li>
+  <li><code>init</code> searches for <code>.git</code> to find the repo root. If you need to override  that, add <code>--repo_root &lt;path&gt;</code>.</li>
   <li>It writes <code>bosatsu_libs.json</code> in the repo root and <code>src/mylib_conf.json</code> in the  source root you selected.</li>
 </ul>
 <h2><a href="#10-add-code" name="10-add-code" class="anchor"><span class="anchor-link"></span></a>10) Add code</h2>
@@ -208,14 +208,14 @@ def greet(m: Mood) -&gt; String:
 
 test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet Happy&quot;)
 </code></pre>
-<p>Use <code>./bosatsu --help</code> to explore the available commands (<code>lib</code>, <code>tool</code>, <code>c-runtime</code>, etc.). Most language-level operations now live under <code>tool</code>, for example: <code>./bosatsu tool check</code>, <code>./bosatsu tool eval</code>, and <code>./bosatsu tool transpile</code>.</p>
+<p>Use <code>./bosatsu --help</code> to explore the available commands. The default repo and library workflows now live at the top level, for example: <code>./bosatsu check</code>, <code>./bosatsu test</code>, and <code>./bosatsu eval</code>. Use <code>./bosatsu tool ...</code> for the lower-level file-based compiler commands such as <code>./bosatsu tool transpile</code>.</p>
 <h2><a href="#11-run-tests" name="11-run-tests" class="anchor"><span class="anchor-link"></span></a>11) Run tests</h2>
 <p>From the repo root:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+<pre class="prettyprint"><code class="language-sh">./bosatsu test
 </code></pre>
 <p>To override compile/link flags for a single invocation, use repeatable flags:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test --cc_flag=-O0 --cc_lib=-lm
-./bosatsu lib build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
+<pre class="prettyprint"><code class="language-sh">./bosatsu test --cc_flag=-O0 --cc_lib=-lm
+./bosatsu build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/getting_started.md">here</a>.
@@ -298,7 +298,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

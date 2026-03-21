@@ -2,7 +2,7 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Debugging with lib eval · Bosatsu Documentation</title>
+<title>Debugging with eval · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="active page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -111,7 +111,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Debugging with <code>lib eval</code></li>
+  <li>Debugging with <code>eval</code></li>
 </ul>
 </div>
 </div>
@@ -119,22 +119,22 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#debugging-with-lib-eval" name="debugging-with-lib-eval" class="anchor"><span class="anchor-link"></span></a>Debugging with <code>lib eval</code></h1>
-<p><code>lib eval</code> is for inspecting values while iterating on Bosatsu code.</p>
+<h1><a href="#debugging-with-eval" name="debugging-with-eval" class="anchor"><span class="anchor-link"></span></a>Debugging with <code>eval</code></h1>
+<p><code>eval</code> is for inspecting values while iterating on Bosatsu code.</p>
 <p>It is intended for debugging and exploration (and future REPL-like workflows), not for machine parsing or stable serialization.</p>
 <h2><a href="#quick-start" name="quick-start" class="anchor"><span class="anchor-link"></span></a>Quick start</h2>
 <ol>
   <li>Typecheck while iterating:</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib check --name core_alpha
+<pre class="prettyprint"><code class="language-bash">./bosatsuj check --name core_alpha
 </code></pre>
 <ol>
   <li>Evaluate a value:</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --main Bosatsu/Char::delete_char
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --main Bosatsu/Char::delete_char
 </code></pre>
 <h2><a href="#command-reference" name="command-reference" class="anchor"><span class="anchor-link"></span></a>Command reference</h2>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] [--cas_dir &lt;path&gt;] --main &lt;valueIdent&gt; [--color &lt;color&gt;]
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] [--cas_dir &lt;path&gt;] --main &lt;valueIdent&gt; [--color &lt;color&gt;]
 </code></pre>
 <p>Common flags:</p>
 <ul>
@@ -147,39 +147,39 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>Use <code>--</code> to separate bosatsu CLI flags from program args.</li>
   <li>This is required when a program arg starts with <code>-</code>.</li>
 </ul>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --main MyLib/Foo --run -- --compact
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --main MyLib/Foo --run -- --compact
 </code></pre>
 <h2><a href="#finding-values-to-inspect" name="finding-values-to-inspect" class="anchor"><span class="anchor-link"></span></a>Finding values to inspect</h2>
-<p>Use <code>lib show</code> to discover exported values in a package:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/Collection/Array --color none
+<p>Use <code>show</code> to discover exported values in a package:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/Collection/Array --color none
 </code></pre>
 <p>Then pass a package or package value to <code>--main</code>.</p>
 <h2><a href="#examples-from-this-repo" name="examples-from-this-repo" class="anchor"><span class="anchor-link"></span></a>Examples from this repo</h2>
 <p>All examples below were run from this repository root.</p>
 <h3><a href="#1-small-scalar-like-value-char-" name="1-small-scalar-like-value-char-" class="anchor"><span class="anchor-link"></span></a>1) Small scalar-like value (<code>Char</code>)</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::delete_char --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::delete_char --color none
 </code></pre>
 <pre class="prettyprint"><code class="nocode">.&#39;&#39;: Bosatsu/Predef::Char
 </code></pre>
 <h3><a href="#2-function-values" name="2-function-values" class="anchor"><span class="anchor-link"></span></a>2) Function values</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::char_to_Int --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::char_to_Int --color none
 </code></pre>
 <pre class="prettyprint"><code class="nocode">&lt;fn arity=1&gt;: Bosatsu/Predef::Char -&gt; Bosatsu/Predef::Int
 </code></pre>
-<p><code>lib eval</code> shows function arity and type, not function body.</p>
+<p><code>eval</code> shows function arity and type, not function body.</p>
 <h3><a href="#3-external-array-values" name="3-external-array-values" class="anchor"><span class="anchor-link"></span></a>3) External <code>Array</code> values</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array::a5 --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array::a5 --color none
 </code></pre>
 <pre class="prettyprint"><code class="nocode">[0, 1, 2, 3, 4]: Bosatsu/Collection/Array::Array[Bosatsu/Predef::Int]
 </code></pre>
 <h3><a href="#4-prog-values-opaque-" name="4-prog-values-opaque-" class="anchor"><span class="anchor-link"></span></a>4) <code>Prog</code> values (opaque)</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Prog::unit --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Prog::unit --color none
 </code></pre>
 <pre class="prettyprint"><code class="nocode">Prog(...): forall a: *, b: *. Bosatsu/Prog::Prog[a, b, ()]
 </code></pre>
 <p><code>Prog</code> is an external effectful representation, so eval prints an opaque form.</p>
 <h3><a href="#5-larger-structured-values" name="5-larger-structured-values" class="anchor"><span class="anchor-link"></span></a>5) Larger structured values</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --color none
 </code></pre>
 <p>Excerpt:</p>
 <pre class="prettyprint"><code class="nocode">Workflow {
@@ -190,18 +190,18 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
                     ...
 </code></pre>
 <p>You can also evaluate package mains that are large test structures:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array --color none
 </code></pre>
 <h2><a href="#common-gotchas" name="common-gotchas" class="anchor"><span class="anchor-link"></span></a>Common gotchas</h2>
 <h3><a href="#constructors-are-not-valid-main-values" name="constructors-are-not-valid-main-values" class="anchor"><span class="anchor-link"></span></a>Constructors are not valid <code>--main</code> values</h3>
 <p>This fails:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Bool::True --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Bool::True --color none
 </code></pre>
 <p>With:</p>
 <pre class="prettyprint"><code class="nocode">Bosatsu/Bool::True is a constructor or type name, not a value. A top-level value is required.
 </code></pre>
 <h3><a href="#missing-values-are-reported-directly" name="missing-values-are-reported-directly" class="anchor"><span class="anchor-link"></span></a>Missing values are reported directly</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::missing --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::missing --color none
 </code></pre>
 <pre class="prettyprint"><code class="nocode">value Bosatsu/Char::missing not found
 </code></pre>
@@ -209,19 +209,19 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <ul>
   <li>It is intended for debugging readability.</li>
   <li>It is not a stable parse/serialization format.</li>
-  <li>If you need JSON output for tooling, use <code>lib json</code>.</li>
+  <li>If you need JSON output for tooling, use <code>json</code>.</li>
 </ul>
 <h3><a href="#large-values-can-be-noisy" name="large-values-can-be-noisy" class="anchor"><span class="anchor-link"></span></a>Large values can be noisy</h3>
 <p>Use shell tools for workflow:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib eval ... --color none | less
-./bosatsuj lib eval ... --color none &gt; /tmp/eval.txt
+<pre class="prettyprint"><code class="language-bash">./bosatsuj eval ... --color none | less
+./bosatsuj eval ... --color none &gt; /tmp/eval.txt
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/debugging_with_eval.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="debugging_with_show.html">Inspecting Compiled Output with <code>lib show</code></a></p>
+<p><strong>Next:</strong> <a href="debugging_with_show.html">Inspecting Compiled Output with <code>show</code></a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -230,7 +230,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="debugging_with_eval.html#debugging-with-lib-eval" class="header">Debugging with <code>lib eval</code></a></li>
+  <li><a href="debugging_with_eval.html#debugging-with-eval" class="header">Debugging with <code>eval</code></a></li>
 </ul>
 </div>
 </div>
@@ -297,7 +297,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

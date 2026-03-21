@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="active page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="active page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -120,26 +120,26 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#generating-json-from-bosatsu-values" name="generating-json-from-bosatsu-values" class="anchor"><span class="anchor-link"></span></a>Generating JSON from Bosatsu Values</h1>
-<p>Bosatsu can be used as a typed configuration language and then rendered to JSON with <code>lib json</code>.</p>
-<p>This page focuses on <code>lib json</code> (not <code>tool json</code>).</p>
+<p>Bosatsu can be used as a typed configuration language and then rendered to JSON with <code>json</code>.</p>
+<p>This page focuses on <code>json</code> (not <code>tool json</code>).</p>
 <h2><a href="#quick-start" name="quick-start" class="anchor"><span class="anchor-link"></span></a>Quick start</h2>
 <ol>
   <li>Typecheck as you iterate:</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib check --name core_alpha
+<pre class="prettyprint"><code class="language-bash">./bosatsuj check --name core_alpha
 </code></pre>
 <ol>
   <li>Generate JSON for a value:</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+<pre class="prettyprint"><code class="language-bash">./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
 </code></pre>
 <ol>
   <li>Generate YAML output for the same value (optional):</li>
 </ol>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
+<pre class="prettyprint"><code class="language-bash">./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
 </code></pre>
 <h2><a href="#command-reference" name="command-reference" class="anchor"><span class="anchor-link"></span></a>Command reference</h2>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--yaml] [--output &lt;path&gt;]
+<pre class="prettyprint"><code class="language-bash">./bosatsuj json write [--repo_root &lt;path&gt;] [--name &lt;lib_name&gt;] --main &lt;valueIdent&gt; [--yaml] [--output &lt;path&gt;]
 </code></pre>
 <p>Common flags:</p>
 <ul>
@@ -148,9 +148,9 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><code>--yaml</code>: emit YAML output (default remains JSON)</li>
   <li><code>--output</code>: write JSON/YAML to a file instead of stdout</li>
 </ul>
-<p>When <code>--yaml</code> is not set, <code>lib json</code> still emits JSON exactly as before.</p>
+<p>When <code>--yaml</code> is not set, <code>json</code> still emits JSON exactly as before.</p>
 <h2><a href="#encoding-shape" name="encoding-shape" class="anchor"><span class="anchor-link"></span></a>Encoding shape</h2>
-<p><code>lib json</code> uses type-directed encoding:</p>
+<p><code>json</code> uses type-directed encoding:</p>
 <ul>
   <li><code>Int</code> -&gt; JSON number</li>
   <li><code>Float64</code> -&gt; JSON number</li>
@@ -203,25 +203,25 @@ run_tests = Step { name: Some(&quot;run tests&quot;), run: Some(&quot;sbt test&q
 </ul>
 <h2><a href="#practical-gotchas" name="practical-gotchas" class="anchor"><span class="anchor-link"></span></a>Practical gotchas</h2>
 <ul>
-  <li>Keep running <code>lib check</code> while editing models; it catches most mistakes before JSON generation.</li>
+  <li>Keep running <code>check</code> while editing models; it catches most mistakes before JSON generation.</li>
   <li>JSON field names come from your Bosatsu field names exactly.</li>
   <li><code>Float64</code> JSON encoding requires finite values; <code>.NaN</code>, <code>∞</code>, and <code>-∞</code> are not valid JSON numbers.</li>
   <li>If your consumer treats absent and <code>null</code> differently, model that intentionally and test it.</li>
-  <li><code>lib json write</code> requires a serializable value. Function-typed mains are rejected.</li>
+  <li><code>json write</code> requires a serializable value. Function-typed mains are rejected.</li>
 </ul>
 <h2><a href="#full-commands-used-in-this-workflow-example" name="full-commands-used-in-this-workflow-example" class="anchor"><span class="anchor-link"></span></a>Full commands used in this workflow example</h2>
 <p>These are the exact commands used to generate the four workflow values modeled in this example:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
+<pre class="prettyprint"><code class="language-bash">./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
 </code></pre>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/generating_json.md">here</a>.
 </div>
 
 <div class="nav-next">
-<p><strong>Next:</strong> <a href="debugging_with_eval.html">Debugging with <code>lib eval</code></a></p>
+<p><strong>Next:</strong> <a href="debugging_with_eval.html">Debugging with <code>eval</code></a></p>
 </div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
@@ -297,7 +297,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

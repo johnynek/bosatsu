@@ -2,7 +2,7 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Inspecting Compiled Output with lib show · Bosatsu Documentation</title>
+<title>Inspecting Compiled Output with show · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="active page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -111,7 +111,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Inspecting Compiled Output with <code>lib show</code></li>
+  <li>Inspecting Compiled Output with <code>show</code></li>
 </ul>
 </div>
 </div>
@@ -119,40 +119,40 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#inspecting-compiled-output-with-lib-show" name="inspecting-compiled-output-with-lib-show" class="anchor"><span class="anchor-link"></span></a>Inspecting Compiled Output with <code>lib show</code></h1>
-<p><code>lib show</code> prints fully typechecked package data as EDN. It is useful when you want to inspect what Bosatsu inferred and what the compiler is lowering. Use <code>--json</code> when you want machine-readable output for tooling.</p>
+<h1><a href="#inspecting-compiled-output-with-show" name="inspecting-compiled-output-with-show" class="anchor"><span class="anchor-link"></span></a>Inspecting Compiled Output with <code>show</code></h1>
+<p><code>show</code> prints fully typechecked package data as EDN. It is useful when you want to inspect what Bosatsu inferred and what the compiler is lowering. Use <code>--json</code> when you want machine-readable output for tooling.</p>
 <h2><a href="#quick-examples" name="quick-examples" class="anchor"><span class="anchor-link"></span></a>Quick examples</h2>
 <p>All commands below assume running from this repository root.</p>
 <h3><a href="#show-a-whole-package" name="show-a-whole-package" class="anchor"><span class="anchor-link"></span></a>Show a whole package</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/Char --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/Char --color none
 </code></pre>
 <p>This prints one <code>(package ...)</code> form with sections like <code>:imports</code>, <code>:types</code>, <code>:externals</code>, and <code>:defs</code>.</p>
 <h3><a href="#emit-json-instead-of-edn" name="emit-json-instead-of-edn" class="anchor"><span class="anchor-link"></span></a>Emit JSON instead of EDN</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/Char --json
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/Char --json
 </code></pre>
 <p><code>--json</code> emits a deterministic JSON projection of the same <code>show</code> data. The top-level value is an object with <code>&quot;$form&quot;: &quot;show&quot;</code> and fields such as <code>interfaces</code> and <code>packages</code>.</p>
 <h3><a href="#show-a-single-type" name="show-a-single-type" class="anchor"><span class="anchor-link"></span></a>Show a single type</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --type Bosatsu/Option::Option --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --type Bosatsu/Option::Option --color none
 </code></pre>
 <p>Use <code>--type &lt;package::Type&gt;</code> when you only want one type definition instead of the full package.</p>
 <h3><a href="#show-a-single-value" name="show-a-single-value" class="anchor"><span class="anchor-link"></span></a>Show a single value</h3>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --value Bosatsu/Num/Binary::not --color none
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --value Bosatsu/Num/Binary::not --color none
 </code></pre>
 <p>Use <code>--value &lt;package::value&gt;</code> to focus on one top-level value. This selects values that exist in compiled package output. If a helper value is fully inlined or otherwise eliminated, it will not be available by name.</p>
 <p>You can mix selectors:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha \
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
   --package Bosatsu/Char \
   --type Bosatsu/Option::Option \
   --value Bosatsu/Num/Binary::not \
   --color none
 </code></pre>
-<p>If no <code>--package</code>, <code>--type</code>, or <code>--value</code> is given, <code>lib show</code> shows all local library packages (the existing default behavior).</p>
+<p>If no <code>--package</code>, <code>--type</code>, or <code>--value</code> is given, <code>show</code> shows all local library packages (the existing default behavior).</p>
 <h2><a href="#why-this-helps" name="why-this-helps" class="anchor"><span class="anchor-link"></span></a>Why this helps</h2>
 <h3><a href="#see-inferred-types-on-values" name="see-inferred-types-on-values" class="anchor"><span class="anchor-link"></span></a>See inferred types on values</h3>
 <p>Entries in <code>:defs</code> include typed expressions, so you can inspect the inferred type information attached to each value.</p>
 <h3><a href="#see-tail-recursive-lowering-shape" name="see-tail-recursive-lowering-shape" class="anchor"><span class="anchor-link"></span></a>See tail-recursive lowering shape</h3>
-<p>When tail recursion is optimized, <code>lib show</code> exposes loop-like forms such as <code>loop</code>/<code>recur</code> in the typed expression. For example:</p>
-<pre class="prettyprint"><code class="language-bash">./bosatsuj lib show --name core_alpha --package Bosatsu/FibBench --color none
+<p>When tail recursion is optimized, <code>show</code> exposes loop-like forms such as <code>loop</code>/<code>recur</code> in the typed expression. For example:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/FibBench --color none
 </code></pre>
 <p>In that package, the source helper <code>list_len</code> is inlined into another compiled definition, and you can still see the loop-like lowered shape there. This is a practical way to confirm code that should compile to loops in backends.</p>
 <div class="source-github">
@@ -169,7 +169,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <div class="nav-title">On this page:</div>
 <div class="nav-toc">
 <ul>
-  <li><a href="debugging_with_show.html#inspecting-compiled-output-with-lib-show" class="header">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_show.html#inspecting-compiled-output-with-show" class="header">Inspecting Compiled Output with <code>show</code></a></li>
 </ul>
 </div>
 </div>
@@ -236,7 +236,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

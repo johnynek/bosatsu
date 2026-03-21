@@ -5,7 +5,7 @@ github.base_url=
 # Core Alpha API
 
 This section is generated from `test_workspace` using:
-`./bosatsuj lib doc --outdir core_alpha_docs --include_predef --source_repo_url https://github.com/johnynek/bosatsu/blob/main`
+`./bosatsuj doc --outdir core_alpha_docs --include_predef --source_repo_url https://github.com/johnynek/bosatsu/blob/main`
 
 @@@ index
 * [Ackermann](Ackermann.md)

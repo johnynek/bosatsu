@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -169,13 +169,13 @@ tests = TestSuite(&quot;hello tests&quot;, [
   <li>Use <code>matches</code> for concise checks in tests and conditionals.</li>
   <li>Keep package APIs intentional with <code>export</code> and <code>Type()</code> (export constructors).</li>
 </ol>
-<h2><a href="#4-always-be-compiling-with-lib-check-todo" name="4-always-be-compiling-with-lib-check-todo" class="anchor"><span class="anchor-link"></span></a>4) Always-be-compiling with <code>lib check</code> + <code>todo</code></h2>
+<h2><a href="#4-always-be-compiling-with-check-todo" name="4-always-be-compiling-with-check-todo" class="anchor"><span class="anchor-link"></span></a>4) Always-be-compiling with <code>check</code> + <code>todo</code></h2>
 <p>Run typecheck continuously while editing:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib check
+<pre class="prettyprint"><code class="language-sh">./bosatsu check
 </code></pre>
 <p>If you want a looser edit loop while sketching code, use:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib check --warn
-./bosatsu lib check --lax
+<pre class="prettyprint"><code class="language-sh">./bosatsu check --warn
+./bosatsu check --lax
 </code></pre>
 <p><code>--warn</code> keeps going on unused values/imports, shadowed-binding type changes, and unreachable branches, but still prints them. <code>--lax</code> suppresses that same lint set entirely. Non-total matches, recursion errors, import/type failures, and other hard errors still stop the run in every mode.</p>
 <p>When you know types but not implementation, use <code>todo</code> to keep moving:</p>
@@ -184,23 +184,23 @@ tests = TestSuite(&quot;hello tests&quot;, [
 </code></pre>
 <p>Rules:</p>
 <ol>
-  <li>Strict <code>tool check</code> and strict <code>lib check</code> reject built-in <code>todo</code>.</li>
-  <li><code>lib check --warn</code> accepts built-in <code>todo</code> and prints a warning for each use.</li>
-  <li><code>lib check --lax</code> accepts built-in <code>todo</code> without that warning pass.</li>
-  <li>Commands that emit or run code (<code>lib test</code>, <code>lib build</code>, <code>tool eval</code>, etc.)  fail until <code>todo</code> is removed.</li>
+  <li>Strict <code>tool check</code> and strict <code>check</code> reject built-in <code>todo</code>.</li>
+  <li><code>check --warn</code> accepts built-in <code>todo</code> and prints a warning for each use.</li>
+  <li><code>check --lax</code> accepts built-in <code>todo</code> without that warning pass.</li>
+  <li>Commands that emit or run code (<code>test</code>, <code>build</code>, <code>tool eval</code>, etc.)  fail until <code>todo</code> is removed.</li>
   <li>Keep <code>todo</code> arguments meaningful (usually tuple all planned inputs) so you do  not lose type information during refactors.</li>
 </ol>
 <p>Once placeholders are removed, run:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+<pre class="prettyprint"><code class="language-sh">./bosatsu test
 </code></pre>
-<p><code>lib test</code> accepts the same <code>--warn</code> and <code>--lax</code> flags, which is useful when you want to keep running tests while postponing non-fatal lint cleanup.</p>
+<p><code>test</code> accepts the same <code>--warn</code> and <code>--lax</code> flags, which is useful when you want to keep running tests while postponing non-fatal lint cleanup.</p>
 <h2><a href="#5-practical-5-minute-loop" name="5-practical-5-minute-loop" class="anchor"><span class="anchor-link"></span></a>5) Practical 5-minute loop</h2>
 <ol>
   <li>Create one package with one exported function.</li>
   <li>Add a tiny <code>tests</code> value immediately.</li>
-  <li>Iterate with <code>lib check</code>, <code>lib check --warn</code>, or <code>lib check --lax</code>,  using <code>todo</code> for unfinished branches.</li>
+  <li>Iterate with <code>check</code>, <code>check --warn</code>, or <code>check --lax</code>,  using <code>todo</code> for unfinished branches.</li>
   <li>Replace <code>todo</code> incrementally.</li>
-  <li>Finish with <code>lib test</code> (or <code>lib test --warn</code> if you are still cleaning up  unused definitions/imports).</li>
+  <li>Finish with <code>test</code> (or <code>test --warn</code> if you are still cleaning up  unused definitions/imports).</li>
 </ol>
 <p>That loop matches how most code in <code>test_workspace</code> evolves: explicit data models, explicit imports/exports, and constant typechecked feedback.</p>
 <div class="source-github">
@@ -284,7 +284,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -44,8 +44,8 @@
   <li><a href="language_guide.html" class="active page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-3aa06bab*
+0.0.0+1-5a8eca0b*
 </div>
 </div>
 <div class="nav-toc">
@@ -91,8 +91,8 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li><a href="language_guide.html" class="active page">Language Guide</a></li>
   <li><a href="recursion.html" class="page">Recursion in Bosatsu</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>lib eval</code></a></li>
-  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>lib show</code></a></li>
+  <li><a href="debugging_with_eval.html" class="page">Debugging with <code>eval</code></a></li>
+  <li><a href="debugging_with_show.html" class="page">Inspecting Compiled Output with <code>show</code></a></li>
   <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
   <li><a href="generated/core_alpha/index.html" class="page">Core Alpha API</a></li>
 </ul>
@@ -154,7 +154,7 @@ def greet(m: Mood) -&gt; String:
 test = Assertion(greet(Happy) matches &quot;hello&quot;, &quot;greet&quot;)
 </code></pre>
 <p>Run tests from the repo root:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+<pre class="prettyprint"><code class="language-sh">./bosatsu test
 </code></pre>
 <h2><a href="#source-files-and-packages" name="source-files-and-packages" class="anchor"><span class="anchor-link"></span></a>Source files and packages</h2>
 <p>Each file declares exactly one package at the top:</p>
@@ -747,7 +747,7 @@ def foldO(oo, if_none, if_some):
   todo((a, b))
 </code></pre>
 <p>This is useful for an &ldquo;always-be-compiling&rdquo; workflow: keep moving from one typechecking state to the next, then remove placeholders incrementally.</p>
-<p><code>todo</code> is intentionally unsound, so strict <code>tool check</code> and strict <code>lib check</code> reject it. For a relaxed edit loop, <code>lib check --warn</code> accepts built-in <code>todo</code> and reports each use as a warning, while <code>lib check --lax</code> accepts it without running that warning pass. Commands that emit or execute outputs (<code>show</code>/<code>json</code>/<code>eval</code>/<code>build</code>/<code>transpile</code>/<code>test</code>) still do not include <code>todo</code>, so those commands fail until all <code>todo</code> calls are removed.</p>
+<p><code>todo</code> is intentionally unsound, so strict <code>tool check</code> and strict <code>check</code> reject it. For a relaxed edit loop, <code>check --warn</code> accepts built-in <code>todo</code> and reports each use as a warning, while <code>check --lax</code> accepts it without running that warning pass. Commands that emit or execute outputs (<code>show</code>/<code>json</code>/<code>eval</code>/<code>build</code>/<code>transpile</code>/<code>test</code>) still do not include <code>todo</code>, so those commands fail until all <code>todo</code> calls are removed.</p>
 <h2><a href="#testing" name="testing" class="anchor"><span class="anchor-link"></span></a>Testing</h2>
 <p>Bosatsu supports two test entrypoint styles:</p>
 <ol>
@@ -785,7 +785,7 @@ def foldO(oo, if_none, if_some):
 <ol>
   <li><code>ProgTest(test_fn: List[String] -&gt; forall e. Prog[e, Test])</code></li>
 </ol>
-<p>Test discovery rules (<code>tool test</code> and <code>lib test</code>) are:</p>
+<p>Test discovery rules (<code>tool test</code> and <code>test</code>) are:</p>
 <ol>
   <li>If no <code>ProgTest</code> exists, run the final top-level <code>Test</code> value in source  order.</li>
   <li>If one or more <code>ProgTest</code> values exist, run the final top-level <code>ProgTest</code>  value in source order.</li>
@@ -793,10 +793,10 @@ def foldO(oo, if_none, if_some):
 </ol>
 <p>Current argument behavior: runners pass <code>[]</code> into <code>ProgTest.test_fn</code>.</p>
 <p>From the repo root, run tests with:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test
+<pre class="prettyprint"><code class="language-sh">./bosatsu test
 </code></pre>
 <p>When iterating, you can run only matching package tests with a regular expression filter:</p>
-<pre class="prettyprint"><code class="language-sh">./bosatsu lib test --filter &quot;MyLib/.*&quot;
+<pre class="prettyprint"><code class="language-sh">./bosatsu test --filter &quot;MyLib/.*&quot;
 </code></pre>
 <p><code>--filter</code> matches package names and can be provided more than once.</p>
 <h2><a href="#purity-effects-and-prog" name="purity-effects-and-prog" class="anchor"><span class="anchor-link"></span></a>Purity, Effects, and <code>Prog</code></h2>
@@ -926,7 +926,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3aa06bab-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-5a8eca0b-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
