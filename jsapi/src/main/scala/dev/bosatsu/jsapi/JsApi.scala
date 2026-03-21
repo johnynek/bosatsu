@@ -12,6 +12,7 @@ import cats.implicits._
 
 @JSExportTopLevel("Bosatsu")
 object JsApi {
+  private val toolPrefix = List("tool")
 
   private def splitPath(p: String): List[String] =
     p.split("/", -1).toList.map(_.toLowerCase.capitalize)
@@ -24,6 +25,9 @@ object JsApi {
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap(key => "--input" :: normalize(key) :: Nil).toList
+
+  private def toolCommandArgs(args: List[String]): List[String] =
+    toolPrefix ::: args
 
   class Error(val error_message: String) extends js.Object
 
@@ -47,7 +51,7 @@ object JsApi {
     }.toMap
 
     module.runWith(filePaths)(
-      "eval" :: main ::: makeInputArgs(files.keys)
+      toolCommandArgs("eval" :: main ::: makeInputArgs(files.keys))
     ) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
@@ -103,8 +107,10 @@ object JsApi {
     }.toMap
 
     module.runWith(filePaths)(
-      "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(
-        files.keys
+      toolCommandArgs(
+        "json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(
+          files.keys
+        )
       )
     ) match {
       case Left(err) =>

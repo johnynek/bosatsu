@@ -178,7 +178,7 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(names, List(helloPack.name))
   }
 
-  test("lib init defaults all_packages to .*") {
+  test("init defaults all_packages to .*") {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     assertEquals(conf.allPackages.map(_.asString), List(".*"))
   }

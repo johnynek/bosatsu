@@ -56,7 +56,7 @@ test = Assertion(greet(Happy) matches "hello", "greet")
 Run tests from the repo root:
 
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
 ## Source files and packages
@@ -990,9 +990,9 @@ def big_hard_function(a: Arg1, b: Arg2) -> Result:
 This is useful for an "always-be-compiling" workflow: keep moving from one
 typechecking state to the next, then remove placeholders incrementally.
 
-`todo` is intentionally unsound, so strict `tool check` and strict `lib check`
-reject it. For a relaxed edit loop, `lib check --warn` accepts built-in `todo`
-and reports each use as a warning, while `lib check --lax` accepts it without
+`todo` is intentionally unsound, so strict `tool check` and strict `check`
+reject it. For a relaxed edit loop, `check --warn` accepts built-in `todo`
+and reports each use as a warning, while `check --lax` accepts it without
 running that warning pass. Commands that emit or execute outputs
 (`show`/`json`/`eval`/`build`/`transpile`/`test`) still do not include `todo`,
 so those commands fail until all `todo` calls are removed.
@@ -1035,7 +1035,7 @@ tests = TestSuite("all tests", [
 
 1. `ProgTest(test_fn: List[String] -> forall e. Prog[e, Test])`
 
-Test discovery rules (`tool test` and `lib test`) are:
+Test discovery rules (`tool test` and `test`) are:
 
 1. If no `ProgTest` exists, run the final top-level `Test` value in source
    order.
@@ -1048,13 +1048,13 @@ Current argument behavior: runners pass `[]` into `ProgTest.test_fn`.
 
 From the repo root, run tests with:
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
 When iterating, you can run only matching package tests with a regular
 expression filter:
 ```sh
-./bosatsu lib test --filter "MyLib/.*"
+./bosatsu test --filter "MyLib/.*"
 ```
 
 `--filter` matches package names and can be provided more than once.

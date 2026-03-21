@@ -145,7 +145,7 @@ if [ ! -f "$artifact_path" ]; then
 fi
 
 # `./bosatsu --fetch` is used as a setup step; auto-install c runtime so
-# subsequent `lib test` commands don't fail on missing cc_conf.
+# subsequent `test` commands don't fail on missing cc_conf.
 if [ "$fetch" -eq 1 ] && [ "${#args[@]}" -eq 0 ]; then
   args=("c-runtime" "install")
 fi

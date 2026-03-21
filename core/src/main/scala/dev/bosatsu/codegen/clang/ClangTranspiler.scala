@@ -904,7 +904,7 @@ case object ClangTranspiler extends Transpiler {
                 )
               case Some((exe, fcc)) =>
                 val exeOutName =
-                  // lib build can compile in a temp outdir while still targeting a cwd-relative exe path.
+                  // build can compile in a temp outdir while still targeting a cwd-relative exe path.
                   if (args.output.exeOutRelativeToOutDir)
                     resolve(args.outDir, exe)
                   else exe
