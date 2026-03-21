@@ -71,7 +71,6 @@ class LibConfigTest extends munit.FunSuite {
         fail(show"failed to decode config json: $msg, got=$got at $jp")
     }
   }
-
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
 
