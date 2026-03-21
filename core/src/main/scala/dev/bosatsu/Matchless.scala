@@ -3171,7 +3171,7 @@ object Matchless {
             val fn = TypedExpr.Local(loopName, loopType, tag)
             TypedExpr.App(fn, args1, tpe, tag)
           }
-        case TypedExpr.Match(arg, branches, tag) =>
+        case m @ TypedExpr.Match(arg, branches, tag) =>
           TypedExpr.Match(
             recurToSelfCall(loopName, loopType, arg, inNestedLoop),
             branches.map { branch =>
@@ -3186,7 +3186,8 @@ object Matchless {
                 )
               )
             },
-            tag
+            tag,
+            m.matchKind
           )
         case n @ (TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
             TypedExpr.Literal(_, _, _)) =>

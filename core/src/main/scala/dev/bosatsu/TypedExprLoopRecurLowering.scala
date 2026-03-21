@@ -123,7 +123,7 @@ object TypedExprLoopRecurLowering {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(arg1, branches1, tag, m.matchKind)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -420,7 +420,7 @@ object TypedExprLoopRecurLowering {
               else let
             RewriteResult(expr1, changed, sawSelf)
           }
-        case Match(arg, branches, tag) =>
+        case m @ Match(arg, branches, tag) =>
           map2(
             recur(arg, canRecur),
             branches.traverse { branch =>
@@ -447,7 +447,11 @@ object TypedExprLoopRecurLowering {
           ) { (arg1, branches1) =>
             val changed = arg1.changed || branches1.exists(_._2)
             val sawSelf = arg1.sawSelfRef || branches1.exists(_._3)
-            RewriteResult(Match(arg1.expr, branches1.map(_._1), tag), changed, sawSelf)
+            RewriteResult(
+              Match(arg1.expr, branches1.map(_._1), tag, m.matchKind),
+              changed,
+              sawSelf
+            )
           }
         case Loop(_, _, _) | Recur(_, _, _) =>
           // Conservative fallback: these should not appear in pre-lowered
@@ -791,7 +795,7 @@ object TypedExprLoopRecurLowering {
           else branch.copy(guard = guard1, expr = expr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(arg1, branches1, tag, m.matchKind)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }

@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
+import java.util.Comparator
 import dev.bosatsu.tool.{ExitCode => ToolExitCode, Output}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
@@ -10,6 +11,80 @@ import cats.effect.unsafe.implicits.global
 
 class PathModuleTest extends munit.FunSuite {
   override def munitTimeout: Duration = 6.minutes
+
+  private def writeFile(path: Path, content: String): Unit = {
+    Files.createDirectories(path.getParent)
+    Files.writeString(path, content): Unit
+  }
+
+  private def deleteRecursively(path: Path): Unit = {
+    val walk = Files.walk(path)
+    try {
+      walk.sorted(Comparator.reverseOrder()).forEach { p =>
+        Files.deleteIfExists(p)
+        ()
+      }
+    } finally walk.close()
+  }
+
+  private def withLibraryRepo[A](fn: Path => A): A = {
+    val repo = Files.createTempDirectory("bosatsu-path-module-")
+    try {
+      Files.createDirectories(repo.resolve(".git"))
+      val initExit =
+        runAndReport(
+          "init",
+          "--repo_root",
+          repo.toString,
+        "--name",
+        "mylib",
+        "--repo_uri",
+        "https://example.com/mylib",
+          "--src_root",
+          "src",
+          "--version",
+          "0.0.1"
+        )
+      assertEquals(initExit, ToolExitCode.Success)
+
+      writeFile(
+        repo.resolve("src/Bosatsu/Prog.bosatsu"),
+        """package Bosatsu/Prog
+          |
+          |export Main(), Prog(), pure
+          |
+          |enum Prog[e, a]:
+          |  Pure(value: a)
+          |  Raise(err: e)
+          |
+          |struct Main(run: List[String] -> Prog[String, Int])
+          |
+          |def pure(a):
+          |  Pure(a)
+          |""".stripMargin
+      )
+      writeFile(
+        repo.resolve("src/MyLib/Foo.bosatsu"),
+        """package MyLib/Foo
+          |
+          |from Bosatsu/Prog import Main, pure
+          |
+          |export main, runner
+          |
+          |main = 42
+          |
+          |runner = Main(args -> match args:
+          |  case [_, "--compact"]:
+          |    pure(0)
+          |  case _:
+          |    pure(1)
+          |)
+          |""".stripMargin
+      )
+
+      fn(repo)
+    } finally deleteRecursively(repo)
+  }
 
   def run(args: String*): Output[Path] =
     PathModule.run(args.toList) match {
@@ -34,6 +109,74 @@ class PathModuleTest extends munit.FunSuite {
             fail(s"${err.getMessage}\ncommand: ${args.toList.mkString(" ")}")
         }
     }
+
+  test("root help lists top-level library commands before tool") {
+    PathModule.run(List("--help")) match {
+      case Left(help) =>
+        val msg = help.toString
+        val checkIdx = msg.indexOf("    check")
+        val toolIdx = msg.indexOf("    tool")
+        assert(checkIdx >= 0, msg)
+        assert(toolIdx >= 0, msg)
+        assert(checkIdx < toolIdx, msg)
+        assert(!msg.contains("\n  lib"), msg)
+      case Right(_) =>
+        fail("expected help output")
+    }
+  }
+
+  test("top-level library commands use repo mode") {
+    withLibraryRepo { repo =>
+      assertEquals(
+        runAndReport("check", "--repo_root", repo.toString),
+        ToolExitCode.Success
+      )
+
+      run(
+        "json",
+        "write",
+        "--repo_root",
+        repo.toString,
+        "--main",
+        "MyLib/Foo::main"
+      ) match {
+        case Output.JsonOutput(Json.JNumberStr("42"), _) => ()
+        case other                                       =>
+          fail(s"expected json output, got: $other")
+      }
+
+      run(
+        "show",
+        "--repo_root",
+        repo.toString,
+        "--package",
+        "MyLib/Foo"
+      ) match {
+        case Output.ShowOutput(packs, _, _) =>
+          assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+        case other =>
+          fail(s"expected show output, got: $other")
+      }
+    }
+  }
+
+  test("top-level eval --run accepts delimiter-separated args") {
+    withLibraryRepo { repo =>
+      assertEquals(
+        runAndReport(
+          "eval",
+          "--repo_root",
+          repo.toString,
+          "--main",
+          "MyLib/Foo::runner",
+          "--run",
+          "--",
+          "--compact"
+        ),
+        ToolExitCode.Success
+      )
+    }
+  }
 
   test("tool subcommands reject removed package-root options") {
     val badCommands = List(

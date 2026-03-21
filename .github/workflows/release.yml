@@ -291,7 +291,7 @@ jobs:
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
         run: sbt ci-release
-      - name: Build assembly for lib publish
+      - name: Build assembly for library publish
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
         run: sbt "cli/assembly"
@@ -363,7 +363,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Changes after bosatsu lib publish:"
+          echo "Changes after bosatsu publish:"
           git status
           git diff
 
@@ -379,7 +379,7 @@ jobs:
 
           branch="release/conf-${GITHUB_REF_NAME}"
           git checkout -B "$branch"
-          git commit -m "Update lib conf.jsons for ${GITHUB_REF_NAME}"
+          git commit -m "Update library conf.jsons for ${GITHUB_REF_NAME}"
           git push -u --force-with-lease origin "$branch"
 
           if gh pr view "$branch" >/dev/null 2>&1; then
@@ -390,5 +390,5 @@ jobs:
           gh pr create \
             --base main \
             --head "$branch" \
-            --title "Update lib conf.jsons for ${GITHUB_REF_NAME}" \
+            --title "Update library conf.jsons for ${GITHUB_REF_NAME}" \
             --body "Automated updates for ${GITHUB_REF_NAME} release."

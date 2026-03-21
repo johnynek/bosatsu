@@ -71,7 +71,6 @@ class LibConfigTest extends munit.FunSuite {
         fail(show"failed to decode config json: $msg, got=$got at $jp")
     }
   }
-
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
 
@@ -179,7 +178,7 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(names, List(helloPack.name))
   }
 
-  test("lib init defaults all_packages to .*") {
+  test("init defaults all_packages to .*") {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     assertEquals(conf.allPackages.map(_.asString), List(".*"))
   }

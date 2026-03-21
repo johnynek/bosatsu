@@ -697,10 +697,10 @@ object ShowEdn {
         )
       case TypedExpr.Literal(lit, tpe, ()) =>
         EList(List(sym("lit"), encodeLit(lit), encodeType(tpe)))
-      case TypedExpr.Match(arg, branches, ()) =>
+      case m @ TypedExpr.Match(arg, branches, ()) =>
         EList(
           List(
-            sym("match"),
+            sym(m.matchKind.keyword),
             encodeTypedExpr(arg),
             EVector(branches.toList.map { branch =>
               branch.guard match {
@@ -807,7 +807,8 @@ object ShowEdn {
         } yield TypedExpr.Recur(nel, tpe, ())
       case EList(ESymbol("lit") :: litEdn :: typeEdn :: Nil) =>
         (decodeLit(litEdn), decodeType(typeEdn)).mapN(TypedExpr.Literal(_, _, ()))
-      case EList(ESymbol("match") :: argEdn :: branchesEdn :: Nil) =>
+      case EList(ESymbol(matchKeyword) :: argEdn :: branchesEdn :: Nil)
+          if Set("match", "recur", "loop")(matchKeyword) =>
         for {
           arg <- decodeTypedExpr(argEdn)
           branchesRaw <- asVector(branchesEdn)
@@ -827,7 +828,13 @@ object ShowEdn {
               err[TypedExpr.Branch[Unit]](s"invalid branch: ${rendered(other)}")
           }
           nel <- NonEmptyList.fromList(branches).toRight("match branches cannot be empty")
-        } yield TypedExpr.Match(arg, nel, ())
+          matchKind <- matchKeyword match {
+            case "match" => Right(_root_.dev.bosatsu.Declaration.MatchKind.Match)
+            case "recur" => Right(_root_.dev.bosatsu.Declaration.MatchKind.Recur)
+            case "loop"  => Right(_root_.dev.bosatsu.Declaration.MatchKind.Loop)
+            case other   => Left(s"invalid match keyword: $other")
+          }
+        } yield TypedExpr.Match(arg, nel, (), matchKind)
       case other =>
         err(s"invalid typed expression: ${rendered(other)}")
     }

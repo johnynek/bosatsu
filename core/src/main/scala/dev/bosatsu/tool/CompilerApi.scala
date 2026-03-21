@@ -18,6 +18,7 @@ import dev.bosatsu.{
   ShadowedBindingTypeCheck,
   SourceConverter,
   TotalityCheck,
+  TypedExprRecursionCheck,
   TypeName,
   UnusedLetCheck
 }
@@ -343,22 +344,12 @@ object CompilerApi {
     }.toSet
 
   private def replayTypedLintDiagnostics(
-      pack: Package.Compiled,
-      parsed: Package.Parsed
+      pack: Package.Compiled
   ): List[PackageError] = {
-    // Recursion-form warnings depend on source `recur`/`loop` shape, so
-    // cache replay re-runs that typed check from parsed source instead of
-    // serializing finalized lint payloads into compiled packages.
     val recursionLints =
-      Package
-        .inferBodyUnopt(pack.name, pack.imports, Nil, parsed.program) match {
-        case Ior.Left(errs)      =>
-          errs.toList.collect { case lint: PackageError.RecursionLint => lint: PackageError }
-        case Ior.Right(_)        =>
-          Nil
-        case Ior.Both(errs, _)   =>
-          errs.toList.collect { case lint: PackageError.RecursionLint => lint: PackageError }
-      }
+      TypedExprRecursionCheck
+        .replayLints(pack.name, pack.lets)
+        .map(lint => PackageError.RecursionLint(pack.name, lint): PackageError)
 
     val shadowedBindings =
       ShadowedBindingTypeCheck
@@ -486,8 +477,8 @@ object CompilerApi {
             sourceFile.loadParsed
               .flatMap(parsed0 => fromParse(platformIO, parsed0, errColor))
               .map(parsed =>
-                replaySourceLintDiagnostics(pack, parsed, includeTodoUsageWarnings) :::
-                  replayTypedLintDiagnostics(pack, parsed)
+                  replaySourceLintDiagnostics(pack, parsed, includeTodoUsageWarnings) :::
+                  replayTypedLintDiagnostics(pack)
               )
         }
       }

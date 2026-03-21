@@ -61,19 +61,19 @@ main = (
 4. Use `matches` for concise checks in tests and conditionals.
 5. Keep package APIs intentional with `export` and `Type()` (export constructors).
 
-## 4) Always-be-compiling with `lib check` + `todo`
+## 4) Always-be-compiling with `check` + `todo`
 
 Run typecheck continuously while editing:
 
 ```sh
-./bosatsu lib check
+./bosatsu check
 ```
 
 If you want a looser edit loop while sketching code, use:
 
 ```sh
-./bosatsu lib check --warn
-./bosatsu lib check --lax
+./bosatsu check --warn
+./bosatsu check --lax
 ```
 
 `--warn` keeps going on unused values/imports, shadowed-binding type changes,
@@ -91,10 +91,10 @@ def hard_part(a: String, b: Int) -> Bool:
 
 Rules:
 
-1. Strict `tool check` and strict `lib check` reject built-in `todo`.
-2. `lib check --warn` accepts built-in `todo` and prints a warning for each use.
-3. `lib check --lax` accepts built-in `todo` without that warning pass.
-4. Commands that emit or run code (`lib test`, `lib build`, `tool eval`, etc.)
+1. Strict `tool check` and strict `check` reject built-in `todo`.
+2. `check --warn` accepts built-in `todo` and prints a warning for each use.
+3. `check --lax` accepts built-in `todo` without that warning pass.
+4. Commands that emit or run code (`test`, `build`, `tool eval`, etc.)
    fail until `todo` is removed.
 5. Keep `todo` arguments meaningful (usually tuple all planned inputs) so you do
    not lose type information during refactors.
@@ -102,20 +102,20 @@ Rules:
 Once placeholders are removed, run:
 
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
-`lib test` accepts the same `--warn` and `--lax` flags, which is useful when
+`test` accepts the same `--warn` and `--lax` flags, which is useful when
 you want to keep running tests while postponing non-fatal lint cleanup.
 
 ## 5) Practical 5-minute loop
 
 1. Create one package with one exported function.
 2. Add a tiny `tests` value immediately.
-3. Iterate with `lib check`, `lib check --warn`, or `lib check --lax`,
+3. Iterate with `check`, `check --warn`, or `check --lax`,
    using `todo` for unfinished branches.
 4. Replace `todo` incrementally.
-5. Finish with `lib test` (or `lib test --warn` if you are still cleaning up
+5. Finish with `test` (or `test --warn` if you are still cleaning up
    unused definitions/imports or recursion-form lints).
 
 That loop matches how most code in `test_workspace` evolves: explicit data

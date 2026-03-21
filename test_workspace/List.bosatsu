@@ -73,10 +73,13 @@ def set_List[a](xs: List[a], idx: Int, value: a) -> Option[List[a]]:
         loop(xs, idx, [])
 
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
-  recur (a, b):
-    case ([ah, *at], [bh, *bt]) if fn(ah, bh): eq_List(fn)(at, bt)
-    case ([], []): True
-    case _: False
+  def loop_eq(left: List[a], right: List[a]) -> Bool:
+    loop (left, right):
+      case ([ah, *at], [bh, *bt]) if fn(ah, bh): loop_eq(at, bt)
+      case ([], []): True
+      case _: False
+
+  loop_eq(a, b)
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     def prepend_reversed_pairs(rev_prefix, suffix):

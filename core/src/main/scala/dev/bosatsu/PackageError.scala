@@ -178,13 +178,13 @@ object PackageError {
       case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
         Doc.hardLine + (
           Doc.text(
-            "hint: built-in `todo` is only available in relaxed `lib check` modes."
+            "hint: built-in `todo` is only available in relaxed `check` modes."
           ) + Doc.lineOrSpace +
             Doc.text(
-              "`lib check --warn` warns and `lib check --lax` allows it silently."
+              "`check --warn` warns and `check --lax` allows it silently."
             ) + Doc.lineOrSpace +
             Doc.text(
-              "Strict `tool check`, strict `lib check`, and emit/run commands do not include `todo`."
+              "Strict `tool check`, strict `check`, and emit/run commands do not include `todo`."
             )
         ).grouped
       case _ =>
@@ -244,7 +244,7 @@ object PackageError {
       }
   }
 
-  // These are the non-soundness diagnostics that `lib check` / `lib test`
+  // These are the non-soundness diagnostics that `check` / `test`
   // may demote to warnings (`--warn`) or silence (`--lax`) during local
   // iteration. Everything else remains a hard correctness error.
   def isPostponable(err: PackageError): Boolean =
@@ -1811,10 +1811,10 @@ object PackageError {
           List(
             Doc.text("- replace each `todo` with the real implementation"),
             Doc.text(
-              "- keep using `lib check --warn` or `lib check --lax` only while iterating"
+              "- keep using `check --warn` or `check --lax` only while iterating"
             ),
             Doc.text(
-              "- remove all `todo` calls before strict `tool check` / `lib check` or any emit/run command"
+              "- remove all `todo` calls before strict `tool check` / `check` or any emit/run command"
             )
           )
         )
@@ -1823,7 +1823,7 @@ object PackageError {
     val packDoc = sourceMap.headLine(pack, Some(sorted.head))
     val intro =
       Doc.text(
-        "`todo` is a temporary placeholder. It is only accepted during relaxed `lib check` runs."
+        "`todo` is a temporary placeholder. It is only accepted during relaxed `check` runs."
       )
 
     (packDoc + (line2 + Doc.intercalate(

@@ -2500,6 +2500,12 @@ object Infer {
           }
 
         case Match(term, branches, tag) =>
+          val matchKind: _root_.dev.bosatsu.Declaration.MatchKind =
+            tag match {
+              case _root_.dev.bosatsu.Declaration.Match(kind, _, _) => kind
+              case _                                                =>
+                _root_.dev.bosatsu.Declaration.MatchKind.Match
+            }
           // We always infer the scrutinee once because pattern typing is a check:
           // typeCheckPattern consumes a scrutinee type and refines/unifies it
           // against the pattern. The Expected here does not affect scrutinee
@@ -2550,7 +2556,7 @@ object Infer {
                             } yield tbranches.map(_._1)
                           }
                       } yield unskol(
-                        TypedExpr.Rho.Match(tsigma, tbranches, tag)
+                        TypedExpr.Rho.Match(tsigma, tbranches, tag, matchKind)
                       )
                     case infer @ Expected.Inf(_) =>
                       for {
@@ -2560,7 +2566,7 @@ object Infer {
                         (rho, regRho, resBranches) <- widenBranches(tbranches)
                         _ <- infer.set((rho, regRho))
                       } yield unskol(
-                        TypedExpr.Rho.Match(tsigma, resBranches, tag)
+                        TypedExpr.Rho.Match(tsigma, resBranches, tag, matchKind)
                       )
                   }
               }
