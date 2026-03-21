@@ -202,7 +202,7 @@ def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
 def foldl_List(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
-    recur lst:
+    loop lst:
       case []: item
       case [head, *tail]: loop(tail, fn(item, head))
   loop(lst, item)
@@ -361,7 +361,7 @@ external def concat_String(items: List[String]) -> String
 # Count Unicode code points in a string.
 def length_String(s: String) -> Int:
   def loop(rest: String, acc: Int) -> Int:
-    recur rest:
+    loop rest:
       case "":
         acc
       case "$.{_}${tail}":
@@ -506,7 +506,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Option[a]:
-        recur tree:
+        loop tree:
             case Empty: None
             case Branch { key, left, right, ... }:
                 match fn(item, key):
