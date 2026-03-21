@@ -240,7 +240,7 @@ object Expr {
       expr: Expr[T]
   )(using val patternRegion: Region)
   final case class MatchExpr[T](
-      matchKind: MatchKind = MatchKind.Match,
+      matchKind: MatchKind,
       arg: Expr[T],
       branches: NonEmptyList[Branch[T]],
       tag: T

@@ -820,6 +820,7 @@ object TypedExprRecursionCheck {
       }
 
     private def successfulDefResult(
+        currentPackage: PackageName,
         fnname: Bindable,
         body: TypedExpr[Declaration],
         finalState: FinalDefState
@@ -827,15 +828,6 @@ object TypedExprRecursionCheck {
       finalState match {
         case InDef(_, _, _, _, _, _, _, _, _) =>
           unitValid
-        case InDefRecurred(_, _, recur, 0, calledNames) =>
-          Validated.invalidNec(
-            RecursionCheck.NoRecursiveCall(
-              fnname,
-              recur.kind,
-              recur.region,
-              likelyRenameCall(fnname, calledNames)
-            )
-          )
         case InDefRecurred(_, _, recur, _, _) =>
           val selfCallKind = SelfCallKind(fnname, body)
           recur.kind match {
@@ -853,15 +845,73 @@ object TypedExprRecursionCheck {
                 RecursionCheck.TailRecursiveRecur(fnname, recur.region)
               )
             case _ =>
-              unitValid
+              NonEmptyChain
+                .fromSeq(bindingOwnLints(SourceLintSyntax, currentPackage, fnname, body))
+                .fold(unitValid)(Validated.invalid)
           }
       }
 
-    private case class ReplayHeader(
+    private case class LintHeader[A](
         kind: Declaration.MatchKind,
         region: Region,
-        branches: NonEmptyList[TypedExpr.Branch[Region]]
+        branches: NonEmptyList[TypedExpr.Branch[A]]
     )
+
+    private trait LintSyntax[A] {
+      def isDefLike(rec: RecursionKind, expr: TypedExpr[A]): Boolean
+      def selfCallKind(fnname: Bindable, expr: TypedExpr[A]): SelfCallKind
+      def recursiveHeader(
+          currentPackage: PackageName,
+          arg: TypedExpr[A],
+          m: TypedExpr.MatchExpr[A]
+      ): Option[LintHeader[A]]
+    }
+
+    private object SourceLintSyntax extends LintSyntax[Declaration] {
+      def isDefLike(
+          rec: RecursionKind,
+          expr: TypedExpr[Declaration]
+      ): Boolean =
+        Impl.isDefLike(rec, expr.tag)
+
+      def selfCallKind(
+          fnname: Bindable,
+          expr: TypedExpr[Declaration]
+      ): SelfCallKind =
+        SelfCallKind(fnname, expr)
+
+      def recursiveHeader(
+          currentPackage: PackageName,
+          arg: TypedExpr[Declaration],
+          m: TypedExpr.MatchExpr[Declaration]
+      ): Option[LintHeader[Declaration]] =
+        recurTag(currentPackage, arg, m.tag).map { recur =>
+          LintHeader(recur.kind, recur.region, m.branches)
+        }
+    }
+
+    private object ReplayLintSyntax extends LintSyntax[Region] {
+      def isDefLike(
+          rec: RecursionKind,
+          expr: TypedExpr[Region]
+      ): Boolean =
+        rec.isRecursive || asAnnotatedLambda(expr).nonEmpty
+
+      def selfCallKind(
+          fnname: Bindable,
+          expr: TypedExpr[Region]
+      ): SelfCallKind =
+        replaySelfCallKind(fnname, expr)
+
+      def recursiveHeader(
+          currentPackage: PackageName,
+          arg: TypedExpr[Region],
+          m: TypedExpr.MatchExpr[Region]
+      ): Option[LintHeader[Region]] =
+        if (m.matchKind.isRecursive)
+          Some(LintHeader(m.matchKind, m.tag, m.branches))
+        else None
+    }
 
     private def mergeCallCounts(
         left: Map[Bindable, Int],
@@ -879,19 +929,20 @@ object TypedExprRecursionCheck {
         lets: List[(Bindable, RecursionKind, TypedExpr[Region])]
     ): List[RecursionCheck.Lint] =
       lets.flatMap { case (name, rec, expr) =>
-        if (isReplayDefLike(rec, expr))
-          replayBindingLints(currentPackage, name, expr)
-        else replayNestedBindingLints(currentPackage, expr)
+        if (ReplayLintSyntax.isDefLike(rec, expr))
+          bindingAndNestedLints(ReplayLintSyntax, currentPackage, name, expr)
+        else nestedBindingLints(ReplayLintSyntax, currentPackage, expr)
       }
 
-    private def replayBindingLints(
+    private def bindingOwnLints[A](
+        syntax: LintSyntax[A],
         currentPackage: PackageName,
         fnname: Bindable,
-        expr: TypedExpr[Region]
+        expr: TypedExpr[A]
     ): List[RecursionCheck.Lint] = {
-      val selfCallKind = replaySelfCallKind(fnname, expr)
+      val selfCallKind = syntax.selfCallKind(fnname, expr)
       val ownLint =
-        findRecursiveHeader(expr).toList.flatMap { header =>
+        findRecursiveHeader(syntax, currentPackage, expr).toList.flatMap { header =>
           selfCallKind match {
             case SelfCallKind.NoCall =>
               RecursionCheck
@@ -912,8 +963,17 @@ object TypedExprRecursionCheck {
           }
         }
 
-      ownLint ::: replayNestedBindingLints(currentPackage, expr)
+      ownLint
     }
+
+    private def bindingAndNestedLints[A](
+        syntax: LintSyntax[A],
+        currentPackage: PackageName,
+        fnname: Bindable,
+        expr: TypedExpr[A]
+    ): List[RecursionCheck.Lint] =
+      bindingOwnLints(syntax, currentPackage, fnname, expr) :::
+        nestedBindingLints(syntax, currentPackage, expr)
 
     private def replaySelfCallKind(
         fnname: Bindable,
@@ -991,78 +1051,84 @@ object TypedExprRecursionCheck {
       loop(expr, 0)
     }
 
-    private def replayNestedBindingLints(
+    private def nestedBindingLints[A](
+        syntax: LintSyntax[A],
         currentPackage: PackageName,
-        expr: TypedExpr[Region]
+        expr: TypedExpr[A]
     ): List[RecursionCheck.Lint] =
       expr match {
         case TypedExpr.Generic(_, in)       =>
-          replayNestedBindingLints(currentPackage, in)
+          nestedBindingLints(syntax, currentPackage, in)
         case TypedExpr.Annotation(in, _, _) =>
-          replayNestedBindingLints(currentPackage, in)
+          nestedBindingLints(syntax, currentPackage, in)
         case TypedExpr.AnnotatedLambda(_, body, _) =>
-          replayNestedBindingLints(currentPackage, body)
+          nestedBindingLints(syntax, currentPackage, body)
         case TypedExpr.App(fn, args, _, _)  =>
-          replayNestedBindingLints(currentPackage, fn) ::: args.toList.flatMap(
-            replayNestedBindingLints(currentPackage, _)
+          nestedBindingLints(syntax, currentPackage, fn) ::: args.toList.flatMap(
+            nestedBindingLints(syntax, currentPackage, _)
           )
         case TypedExpr.Let(arg, rhs, in, rec, _) =>
           val nestedDefLints =
-            if (isReplayDefLike(rec, rhs))
-              replayBindingLints(currentPackage, arg, rhs)
-            else replayNestedBindingLints(currentPackage, rhs)
+            if (syntax.isDefLike(rec, rhs))
+              bindingAndNestedLints(syntax, currentPackage, arg, rhs)
+            else nestedBindingLints(syntax, currentPackage, rhs)
 
-          nestedDefLints ::: replayNestedBindingLints(currentPackage, in)
+          nestedDefLints ::: nestedBindingLints(syntax, currentPackage, in)
         case TypedExpr.Loop(args, body, _) =>
           args.toList.flatMap { case (_, initExpr) =>
-            replayNestedBindingLints(currentPackage, initExpr)
-          } ::: replayNestedBindingLints(currentPackage, body)
+            nestedBindingLints(syntax, currentPackage, initExpr)
+          } ::: nestedBindingLints(syntax, currentPackage, body)
         case TypedExpr.Recur(args, _, _)   =>
-          args.toList.flatMap(replayNestedBindingLints(currentPackage, _))
+          args.toList.flatMap(nestedBindingLints(syntax, currentPackage, _))
         case TypedExpr.Match(arg, branches, _) =>
-          replayNestedBindingLints(currentPackage, arg) ::: branches.toList.flatMap {
+          nestedBindingLints(syntax, currentPackage, arg) ::: branches.toList.flatMap {
             branch =>
-              branch.guard.toList.flatMap(replayNestedBindingLints(currentPackage, _)) :::
-                replayNestedBindingLints(currentPackage, branch.expr)
+              branch.guard.toList.flatMap(
+                nestedBindingLints(syntax, currentPackage, _)
+              ) ::: nestedBindingLints(syntax, currentPackage, branch.expr)
           }
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
             TypedExpr.Literal(_, _, _) =>
           Nil
       }
 
-    private def findRecursiveHeader(
-        expr: TypedExpr[Region]
-    ): Option[ReplayHeader] =
+    private def findRecursiveHeader[A](
+        syntax: LintSyntax[A],
+        currentPackage: PackageName,
+        expr: TypedExpr[A]
+    ): Option[LintHeader[A]] =
       expr match {
         case TypedExpr.Generic(_, in)       =>
-          findRecursiveHeader(in)
+          findRecursiveHeader(syntax, currentPackage, in)
         case TypedExpr.Annotation(in, _, _) =>
-          findRecursiveHeader(in)
+          findRecursiveHeader(syntax, currentPackage, in)
         case TypedExpr.AnnotatedLambda(_, body, _) =>
-          findRecursiveHeader(body)
+          findRecursiveHeader(syntax, currentPackage, body)
         case TypedExpr.App(fn, args, _, _)  =>
-          findRecursiveHeader(fn).orElse(
-            args.toList.collectFirstSome(findRecursiveHeader(_))
+          findRecursiveHeader(syntax, currentPackage, fn).orElse(
+            args.toList.collectFirstSome(findRecursiveHeader(syntax, currentPackage, _))
           )
         case TypedExpr.Let(_, rhs, in, rec, _) =>
           val rhsHeader =
-            if (isReplayDefLike(rec, rhs)) None
-            else findRecursiveHeader(rhs)
-          rhsHeader.orElse(findRecursiveHeader(in))
+            if (syntax.isDefLike(rec, rhs)) None
+            else findRecursiveHeader(syntax, currentPackage, rhs)
+          rhsHeader.orElse(findRecursiveHeader(syntax, currentPackage, in))
         case TypedExpr.Loop(args, body, _) =>
           args.toList.collectFirstSome { case (_, initExpr) =>
-            findRecursiveHeader(initExpr)
-          }.orElse(findRecursiveHeader(body))
+            findRecursiveHeader(syntax, currentPackage, initExpr)
+          }.orElse(findRecursiveHeader(syntax, currentPackage, body))
         case TypedExpr.Recur(args, _, _)   =>
-          args.toList.collectFirstSome(findRecursiveHeader(_))
+          args.toList.collectFirstSome(findRecursiveHeader(syntax, currentPackage, _))
         case m @ TypedExpr.Match(arg, branches, _) =>
-          if (m.matchKind.isRecursive)
-            Some(ReplayHeader(m.matchKind, m.tag, branches))
-          else
-            findRecursiveHeader(arg).orElse(
+          syntax
+            .recursiveHeader(currentPackage, arg, m)
+            .orElse(
+              findRecursiveHeader(syntax, currentPackage, arg)
+            )
+            .orElse(
               branches.toList.collectFirstSome { branch =>
-                branch.guard.flatMap(findRecursiveHeader(_))
-                  .orElse(findRecursiveHeader(branch.expr))
+                branch.guard.flatMap(findRecursiveHeader(syntax, currentPackage, _))
+                  .orElse(findRecursiveHeader(syntax, currentPackage, branch.expr))
               }
             )
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
@@ -1070,9 +1136,9 @@ object TypedExprRecursionCheck {
           None
       }
 
-    private def calledNamesInBranches(
+    private def calledNamesInBranches[A](
         currentPackage: PackageName,
-        branches: NonEmptyList[TypedExpr.Branch[Region]]
+        branches: NonEmptyList[TypedExpr.Branch[A]]
     ): Map[Bindable, Int] =
       branches.foldLeft(Map.empty[Bindable, Int]) { (acc, branch) =>
         val blocked = branch.pattern.names.toSet
@@ -1089,9 +1155,9 @@ object TypedExprRecursionCheck {
         )
       }
 
-    private def calledNamesInExpr(
+    private def calledNamesInExpr[A](
         currentPackage: PackageName,
-        expr: TypedExpr[Region],
+        expr: TypedExpr[A],
         blocked: Set[Bindable]
     ): Map[Bindable, Int] =
       expr match {
@@ -1196,12 +1262,6 @@ object TypedExprRecursionCheck {
         case TypedExpr.Annotation(in, _, _)           => asAnnotatedLambda(in)
         case _                                        => None
       }
-
-    private def isReplayDefLike[A](
-        rec: RecursionKind,
-        rhs: TypedExpr[A]
-    ): Boolean =
-      rec.isRecursive || asAnnotatedLambda(rhs).nonEmpty
 
     private case class LexStep(
         order: ArgLexOrder,
@@ -3953,7 +4013,9 @@ object TypedExprRecursionCheck {
             // that is calling this. We use Either in St for sequential state,
             // then convert to ValidatedNec at this boundary.
             Validated.fromEither(st.run(state).value).andThen { case (finalState, _) =>
-              finalDefState(finalState).andThen(successfulDefResult(fnname, body, _))
+              finalDefState(finalState).andThen(
+                successfulDefResult(currentPackage, fnname, body, _)
+              )
             }
           }
       }
