@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Collection/TreeList`
 
+private package
+
 source code:
 - [`test_workspace/TreeList.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/TreeList.bosatsu)
 

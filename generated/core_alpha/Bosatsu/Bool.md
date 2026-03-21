@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Bool`
 
+private package
+
 source code:
 - [`test_workspace/Bool.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Bool.bosatsu)
 

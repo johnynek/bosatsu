@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Dict`
 
+private package
+
 source code:
 - [`test_workspace/Dict.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Dict.bosatsu)
 

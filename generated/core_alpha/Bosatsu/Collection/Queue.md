@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Collection/Queue`
 
+private package
+
 source code:
 - [`test_workspace/Queue.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Queue.bosatsu)
 

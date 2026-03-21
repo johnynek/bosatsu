@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Rand`
 
+private package
+
 source code:
 - [`test_workspace/Rand.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Rand.bosatsu)
 

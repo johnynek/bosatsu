@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Num/BinNat`
 
+private package
+
 source code:
 - [`test_workspace/BinNat.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/BinNat.bosatsu)
 

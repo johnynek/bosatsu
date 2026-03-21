@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Testing/Properties`
 
+private package
+
 source code:
 - [`test_workspace/Properties.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Properties.bosatsu)
 

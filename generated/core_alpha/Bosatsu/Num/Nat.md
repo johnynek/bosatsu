@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Num/Nat`
 
+private package
+
 source code:
 - [`test_workspace/Nat.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/Nat.bosatsu)
 

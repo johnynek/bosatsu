@@ -4,6 +4,8 @@ github.base_url=
 
 # `Bosatsu/Num/Binary`
 
+private package
+
 source code:
 - [`test_workspace/BinInt.bosatsu`](https://github.com/johnynek/bosatsu/blob/main/test_workspace/BinInt.bosatsu)
 
