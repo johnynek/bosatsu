@@ -110,19 +110,64 @@ class PathModuleTest extends munit.FunSuite {
         }
     }
 
-  test("root help lists top-level library commands before tool") {
-    PathModule.run(List("--help")) match {
-      case Left(help) =>
-        val msg = help.toString
-        val checkIdx = msg.indexOf("    check")
-        val toolIdx = msg.indexOf("    tool")
-        assert(checkIdx >= 0, msg)
-        assert(toolIdx >= 0, msg)
-        assert(checkIdx < toolIdx, msg)
-        assert(!msg.contains("\n  lib"), msg)
-      case Right(_) =>
-        fail("expected help output")
+  private def helpText(args: String*): String =
+    PathModule.run(args.toList) match {
+      case Left(help) => help.toString
+      case Right(_)   =>
+        fail(s"expected help output for command: ${args.toList.mkString(" ")}")
     }
+
+  private def subcommands(helpText: String): List[String] =
+    helpText.linesIterator
+      .dropWhile(_ != "Subcommands:")
+      .drop(1)
+      .collect { case line if line.startsWith("    ") && !line.startsWith("        ") =>
+        line.trim
+      }
+      .toList
+
+  test("root help lists top-level commands in the intended order") {
+    val msg = helpText("--help")
+    assertEquals(
+      subcommands(msg),
+      List(
+        "check",
+        "test",
+        "build",
+        "json",
+        "doc",
+        "publish",
+        "eval",
+        "fetch",
+        "deps",
+        "list",
+        "show",
+        "assemble",
+        "init",
+        "tool",
+        "version",
+        "c-runtime"
+      )
+    )
+    assert(!msg.contains("\n  lib"), msg)
+  }
+
+  test("tool help lists subcommands in the intended order") {
+    assertEquals(
+      subcommands(helpText("tool", "--help")),
+      List(
+        "check",
+        "test",
+        "transpile",
+        "json",
+        "doc",
+        "eval",
+        "deps",
+        "show",
+        "assemble",
+        "extract-iface"
+      )
+    )
   }
 
   test("top-level library commands use repo mode") {
