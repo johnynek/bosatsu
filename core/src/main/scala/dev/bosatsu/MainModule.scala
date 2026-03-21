@@ -121,7 +121,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
 
     Command(
       "bosatsu",
-      s"a total and functional programming language\n\n" +
+      "a total and functional programming language\n\n" +
         "top-level commands are the default repo/library workflows.\n" +
         "use `tool` for lower-level file-based compiler commands.\n\n" +
         versionInfo
