@@ -3173,6 +3173,7 @@ object Matchless {
           }
         case m @ TypedExpr.Match(arg, branches, tag) =>
           TypedExpr.Match(
+            m.matchKind,
             recurToSelfCall(loopName, loopType, arg, inNestedLoop),
             branches.map { branch =>
               branch.copy(
@@ -3186,8 +3187,7 @@ object Matchless {
                 )
               )
             },
-            tag,
-            m.matchKind
+            tag
           )
         case n @ (TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
             TypedExpr.Literal(_, _, _)) =>

@@ -262,6 +262,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     val intType = rankn.Type.IntType
     val x = Identifier.Name("x")
     val expr = TypedExpr.Match(
+      Declaration.MatchKind.Recur,
       TypedExpr.Local(x, intType, Region(1, 2)),
       NonEmptyList.one(
         TypedExpr.Branch(
@@ -270,8 +271,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           TypedExpr.Literal(Lit.fromInt(0), intType, Region(2, 3))
         )(using Region(3, 4))
       ),
-      Region(4, 5),
-      Declaration.MatchKind.Recur
+      Region(4, 5)
     )
 
     val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {

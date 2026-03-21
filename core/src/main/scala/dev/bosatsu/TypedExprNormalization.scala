@@ -338,7 +338,7 @@ object TypedExprNormalization {
                   else branch.copy(guard = guard1, expr = expr1)
                 }
                 if ((arg1 eq arg) && (branches1 eq branches)) m
-                else Match(arg1, branches1, tag, m.matchKind)
+                else Match(m.matchKind, arg1, branches1, tag)
               case n @ (Local(_, _, _) | Global(_, _, _, _) |
                   Literal(_, _, _)) =>
                 n
@@ -524,7 +524,7 @@ object TypedExprNormalization {
             else inner.copy(expr = selected)
           }
         }.map { mapped =>
-          Match(innerArg, mapped, tag, inner.matchKind)
+          Match(inner.matchKind, innerArg, mapped, tag)
         }
       case _ =>
         None
@@ -744,7 +744,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag, m.matchKind)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -968,7 +968,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag, m.matchKind)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -1215,7 +1215,7 @@ object TypedExprNormalization {
                   if ((m eq expr) && (lamArgs === lamArgs0)) None
                   else Some(AnnotatedLambda(lamArgs, m, tag))
                 case Some(bs) =>
-                  val m1 = Match(arg1, bs, tag1, m.matchKind)
+                  val m1 = Match(m.matchKind, arg1, bs, tag1)
                   normalize1(namerec, m1, scope, typeEnv)
               }
             case notApp =>
@@ -1406,7 +1406,7 @@ object TypedExprNormalization {
                       }
                       normalize1(
                         namerec,
-                        Match(marg, b1, mtag, m.matchKind),
+                        Match(m.matchKind, marg, b1, mtag),
                         scope,
                         typeEnv
                       )
@@ -1666,7 +1666,7 @@ object TypedExprNormalization {
             case Branch(p, Some(g), e1) :: tail
                 if totalityCheck.isWildLike(p) =>
               NonEmptyList.fromList(tail).map { tailNel =>
-                val fallback = Match(arg1, tailNel, tag, m.matchKind)
+                val fallback = Match(m.matchKind, arg1, tailNel, tag)
                 Match(
                   g,
                   NonEmptyList.of(
@@ -1715,7 +1715,7 @@ object TypedExprNormalization {
             normalize1(namerec, rewritten, scope, typeEnv)
           case None =>
             if (changed1 == 0) {
-              val m1 = Match(a1, branches, tag, m.matchKind)
+              val m1 = Match(m.matchKind, a1, branches, tag)
               Impl.maybeEvalMatch(m1, scope, totalityCheck) match {
                 case None =>
                   // if only the arg changes, there
@@ -1733,7 +1733,7 @@ object TypedExprNormalization {
             } else {
               // there has been some change, so
               // see if that unlocked any new changes
-              normalize1(namerec, Match(a1, branches1a, tag, m.matchKind), scope, typeEnv)
+              normalize1(namerec, Match(m.matchKind, a1, branches1a, tag), scope, typeEnv)
             }
         }
     }
@@ -2183,10 +2183,10 @@ object TypedExprNormalization {
                         case _ =>
                           // This will get simplified later
                           Match(
+                            m.matchKind,
                             a,
                             NonEmptyList.one(Branch(p, None, tr)),
-                            m.tag,
-                            m.matchKind
+                            m.tag
                           )
                       }
                   }
@@ -2255,12 +2255,12 @@ object TypedExprNormalization {
                   case h :: t =>
                     // more than one branch might match, wait till runtime
                     val m1 = Match(
+                      m.matchKind,
                       m.arg,
                       NonEmptyList(h, t).map { case (pat, rhs) =>
                         Branch(pat, None, rhs)
                       },
-                      m.tag,
-                      m.matchKind
+                      m.tag
                     )
                     if ((m1: TypedExpr[A]) === m) None
                     else Some(m1)

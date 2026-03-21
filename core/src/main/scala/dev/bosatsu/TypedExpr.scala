@@ -9,6 +9,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.{SortedMap, SortedSet}
 import scala.util.hashing.MurmurHash3
 
+import Declaration.MatchKind
 import Identifier.{Bindable, Constructor}
 import dev.bosatsu.rankn.Type.Var.Skolem
 
@@ -539,10 +540,10 @@ object TypedExpr {
             eqType(lt, rt) &&
             eqA.eqv(ltag, rtag)
           case (lm @ Match(larg, lbranches, ltag), rm @ Match(rarg, rbranches, rtag)) =>
+            (lm.matchKind == rm.matchKind) &&
             loop(larg, rarg) &&
             eqBranches(lbranches, rbranches) &&
-            eqA.eqv(ltag, rtag) &&
-            (lm.matchKind == rm.matchKind)
+            eqA.eqv(ltag, rtag)
           case _ => false
         }
 
@@ -969,10 +970,10 @@ object TypedExpr {
       Branch(pattern, guard, expr)(using patternRegion)
   }
   final case class MatchExpr[+T](
+      matchKind: MatchKind = MatchKind.Match,
       arg: TypedExpr[T],
       branches: NonEmptyList[Branch[T]],
-      tag: T,
-      matchKind: Declaration.MatchKind = Declaration.MatchKind.Match
+      tag: T
   ) extends TypedExpr[T]
 
   type Match[+T] = MatchExpr[T]
@@ -982,15 +983,15 @@ object TypedExpr {
         branches: NonEmptyList[Branch[T]],
         tag: T
     ): MatchExpr[T] =
-      MatchExpr(arg, branches, tag)
+      MatchExpr(MatchKind.Match, arg, branches, tag)
 
     def apply[T](
+        matchKind: MatchKind,
         arg: TypedExpr[T],
         branches: NonEmptyList[Branch[T]],
-        tag: T,
-        matchKind: Declaration.MatchKind
+        tag: T
     ): MatchExpr[T] =
-      MatchExpr(arg, branches, tag, matchKind)
+      MatchExpr(matchKind, arg, branches, tag)
 
     def unapply[T](
         m: MatchExpr[T]
@@ -1164,13 +1165,13 @@ object TypedExpr {
       TypedExpr.Let(name, rhs, body, recursive, tag)
 
     def Match[A](
+        matchKind: MatchKind = MatchKind.Match,
         arg: TypedExpr[A],
         branches: NonEmptyList[Branch[A]],
-        tag: A,
-        matchKind: Declaration.MatchKind = Declaration.MatchKind.Match
+        tag: A
     ): Rho[A] =
       // if all branches are Rho this is Rho
-      TypedExpr.Match(arg, branches, tag, matchKind)
+      TypedExpr.Match(matchKind, arg, branches, tag)
 
     // Throw illegal argument exception if this isn't true,
     // should always be true by construction, but this runtime check is to detect compiler bugs
@@ -1307,7 +1308,7 @@ object TypedExpr {
 
         argSetO.flatMap { argSet =>
           if (argSet.map(_._1).toList.toSet.size == 1) {
-            Some((argSet.head._1, Match(arg, argSet.map(_._2), tag, m.matchKind)))
+            Some((argSet.head._1, Match(m.matchKind, arg, argSet.map(_._2), tag)))
           } else {
             None
           }
@@ -1435,7 +1436,7 @@ object TypedExpr {
     ): F[Branch[B]]
     def mtch(
         tag: A,
-        matchKind: Declaration.MatchKind,
+        matchKind: MatchKind,
         ctx: C,
         argF: F[TypedExpr[B]],
         branchesF: F[NonEmptyList[Branch[B]]]
@@ -1485,7 +1486,7 @@ object TypedExpr {
     case class RebuildMatch(
         branches: NonEmptyList[(BranchPattern, Boolean, Region)],
         tag: A,
-        matchKind: Declaration.MatchKind,
+        matchKind: MatchKind,
         ctx: C
     ) extends Work
 
@@ -2089,12 +2090,12 @@ object TypedExpr {
 
           def mtch(
               tag: A,
-              matchKind: Declaration.MatchKind,
+              matchKind: MatchKind,
               ctx: Set[Type.Var.Bound],
               argF: F[TypedExpr[A]],
               branchesF: F[NonEmptyList[Branch[A]]]
           ): F[TypedExpr[A]] =
-            (argF, branchesF).mapN(Match(_, _, tag, matchKind))
+            (argF, branchesF).mapN(Match(matchKind, _, _, tag))
         }
 
       stackTraverseExpr(self, Set.empty[Type.Var.Bound], handler)
@@ -2218,14 +2219,14 @@ object TypedExpr {
 
         def mtch(
             tag: A,
-            matchKind: Declaration.MatchKind,
+            matchKind: MatchKind,
             ctx: Unit,
             argF: F[TypedExpr[A]],
             branchesF: F[NonEmptyList[Branch[A]]]
         ): F[TypedExpr[A]] =
           mon
             .map2(argF, branchesF)((arg1, branches1) =>
-              Match(arg1, branches1, tag, matchKind)
+              Match(matchKind, arg1, branches1, tag)
             )
             .flatMap(fn)
       }
@@ -2503,14 +2504,14 @@ object TypedExpr {
           val noArg = for {
             br1 <- branches.traverse(handleBranch(_))
             ms <- allMatchMetas
-            quant <- quantifyMetas(env1.toList, ms, Match(arg, br1, tag, m.matchKind))
+            quant <- quantifyMetas(env1.toList, ms, Match(m.matchKind, arg, br1, tag))
           } yield quant
 
           def finish(te: TypedExpr[A]): F[TypedExpr[A]] =
             te match {
               case m1 @ Match(arg, branches, tag) =>
                 // we still need to recurse on arg
-                deepQuantify(env1, arg).map(Match(_, branches, tag, m1.matchKind))
+                deepQuantify(env1, arg).map(Match(m1.matchKind, _, branches, tag))
               case Generic(quants, expr) =>
                 finish(expr).map(
                   quantVars(quants.forallList, quants.existList, _)
@@ -2652,13 +2653,13 @@ object TypedExpr {
 
           def mtch(
               tag: T,
-              matchKind: Declaration.MatchKind,
+              matchKind: MatchKind,
               ctx: Unit,
               argF: F[TypedExpr[S]],
               branchesF: F[NonEmptyList[Branch[S]]]
           ): F[TypedExpr[S]] =
             (argF, branchesF, fn(tag)).mapN((arg1, branches1, tag1) =>
-              Match(arg1, branches1, tag1, matchKind)
+              Match(matchKind, arg1, branches1, tag1)
             )
         }
 
@@ -2977,7 +2978,7 @@ object TypedExpr {
             val gb1 = pushGeneric(gb).getOrElse(gb)
             branch.copy(guard = g1, expr = gb1)
           }
-          Some(Match(arg, b1, tag, m.matchKind))
+          Some(Match(m.matchKind, arg, b1, tag))
         }
       case let @ Let(_, _, _, RecursionKind.NonRecursive, _) =>
         val (lets, tail) = flattenLets(let)
@@ -3090,10 +3091,10 @@ object TypedExpr {
                 // embedded in patterns, this does not seem to happen since we would
                 // error if metas escape typechecking
                 Match(
+                  m.matchKind,
                   arg,
                   branches.map(branch => branch.copy(expr = self(branch.expr))),
-                  tag,
-                  m.matchKind
+                  tag
                 )
             }
         }
@@ -3320,7 +3321,7 @@ object TypedExpr {
               branch1.copy(guard = guard, expr = expr)
             }
           }
-          (arg1, b1).mapN(Match(_, _, tag, m.matchKind))
+          (arg1, b1).mapN(Match(m.matchKind, _, _, tag))
       }
 
     loop(table, in)
@@ -3492,7 +3493,7 @@ object TypedExpr {
             branch.copy(pattern = p1, guard = g1, expr = t1)
           }
           val expr1 = substituteTypeVar(expr, env)
-          Match(expr1, branches1, tag, m.matchKind)
+          Match(m.matchKind, expr1, branches1, tag)
       }
 
   private def replaceVarType[A](
@@ -3568,6 +3569,7 @@ object TypedExpr {
       case lit @ Literal(_, _, _)    => lit
       case m @ Match(arg, branches, tag) =>
         Match(
+          m.matchKind,
           recur(arg),
           branches.map { branch =>
             if (branch.pattern.names.contains(name)) branch
@@ -3576,8 +3578,7 @@ object TypedExpr {
               branch.copy(guard = g1, expr = recur(branch.expr))
             }
           },
-          tag,
-          m.matchKind
+          tag
         )
     }
   }
@@ -3660,10 +3661,10 @@ object TypedExpr {
             // embedded in patterns, this does not seem to happen since we would
             // error if metas escape typechecking
             Match(
+              m.matchKind,
               arg,
               branches.map(branch => branch.copy(expr = self(branch.expr))),
-              tag,
-              m.matchKind
+              tag
             )
           case App(AnnotatedLambda(lamArgs, body, _), aArgs, _, tag) =>
             // (\x - res)(y) == let x = y in res

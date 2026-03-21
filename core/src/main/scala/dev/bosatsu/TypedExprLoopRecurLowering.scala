@@ -123,7 +123,7 @@ object TypedExprLoopRecurLowering {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag, m.matchKind)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -448,7 +448,7 @@ object TypedExprLoopRecurLowering {
             val changed = arg1.changed || branches1.exists(_._2)
             val sawSelf = arg1.sawSelfRef || branches1.exists(_._3)
             RewriteResult(
-              Match(arg1.expr, branches1.map(_._1), tag, m.matchKind),
+              Match(m.matchKind, arg1.expr, branches1.map(_._1), tag),
               changed,
               sawSelf
             )
@@ -795,7 +795,7 @@ object TypedExprLoopRecurLowering {
           else branch.copy(guard = guard1, expr = expr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag, m.matchKind)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }

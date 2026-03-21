@@ -9,6 +9,7 @@ import cats.data.NonEmptyList
 import cats.Applicative
 import scala.collection.immutable.SortedSet
 import dev.bosatsu.rankn.Type
+import dev.bosatsu.Declaration.MatchKind
 
 import Identifier.{Bindable, Constructor}
 
@@ -171,8 +172,9 @@ sealed abstract class Expr[T] derives CanEqual {
         Let(arg, expr.eraseTags, in.eraseTags, recursive, ())
       case Literal(lit, _) =>
         Literal(lit, ())
-      case Match(arg, branches, _) =>
+      case m @ Match(arg, branches, _) =>
         Match(
+          m.matchKind,
           arg.eraseTags,
           branches.map { b =>
             Branch(
@@ -237,11 +239,33 @@ object Expr {
       guard: Option[Expr[T]],
       expr: Expr[T]
   )(using val patternRegion: Region)
-  case class Match[T](
+  final case class MatchExpr[T](
+      matchKind: MatchKind = MatchKind.Match,
       arg: Expr[T],
       branches: NonEmptyList[Branch[T]],
       tag: T
   ) extends Expr[T]
+
+  type Match[T] = MatchExpr[T]
+  object Match {
+    def apply[T](
+        arg: Expr[T],
+        branches: NonEmptyList[Branch[T]],
+        tag: T
+    ): MatchExpr[T] =
+      MatchExpr(MatchKind.Match, arg, branches, tag)
+
+    def apply[T](
+        matchKind: MatchKind,
+        arg: Expr[T],
+        branches: NonEmptyList[Branch[T]],
+        tag: T
+    ): MatchExpr[T] =
+      MatchExpr(matchKind, arg, branches, tag)
+
+    def unapply[T](m: MatchExpr[T]): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
+      Some((m.arg, m.branches, m.tag))
+  }
 
   // Inverse of `Let.flatten`
   def lets[T](
@@ -464,7 +488,7 @@ object Expr {
         (traverseType[T, F](exp, bound)(fn), traverseType[T, F](in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
       case l @ Literal(_, _)         => F.pure(l)
-      case Match(arg, branches, tag) =>
+      case m @ Match(arg, branches, tag) =>
         val argB = traverseType[T, F](arg, bound)(fn)
         type B = Branch[T]
         def branchFn(b: B): F[B] =
@@ -476,7 +500,7 @@ object Expr {
             Branch(pat, guard, expr)(using b.patternRegion)
           }
         val branchB = branches.traverse(branchFn)
-        (argB, branchB).mapN(Match(_, _, tag))
+        (argB, branchB).mapN(Match(m.matchKind, _, _, tag))
     }
 
   private def substExpr[A](

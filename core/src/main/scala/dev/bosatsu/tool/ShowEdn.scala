@@ -3,6 +3,7 @@ package dev.bosatsu.tool
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import cats.syntax.all._
+import dev.bosatsu.Declaration.MatchKind
 import dev.bosatsu.edn.{Edn, EdnCodec}
 import dev.bosatsu.rankn.{
   ConstructorFn,
@@ -829,12 +830,12 @@ object ShowEdn {
           }
           nel <- NonEmptyList.fromList(branches).toRight("match branches cannot be empty")
           matchKind <- matchKeyword match {
-            case "match" => Right(_root_.dev.bosatsu.Declaration.MatchKind.Match)
-            case "recur" => Right(_root_.dev.bosatsu.Declaration.MatchKind.Recur)
-            case "loop"  => Right(_root_.dev.bosatsu.Declaration.MatchKind.Loop)
+            case "match" => Right(MatchKind.Match)
+            case "recur" => Right(MatchKind.Recur)
+            case "loop"  => Right(MatchKind.Loop)
             case other   => Left(s"invalid match keyword: $other")
           }
-        } yield TypedExpr.Match(arg, nel, (), matchKind)
+        } yield TypedExpr.Match(matchKind, arg, nel, ())
       case other =>
         err(s"invalid typed expression: ${rendered(other)}")
     }

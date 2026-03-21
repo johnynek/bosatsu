@@ -804,7 +804,9 @@ object ProtoConverter {
                   nel.traverse(buildBranch),
                   exprRegion,
                   matchKindFromProto(matchKind0, ex.toString)
-                ).mapN(TypedExpr.Match(_, _, _, _))
+                ).mapN { (arg, builtBranches, region, matchKind) =>
+                  TypedExpr.Match(matchKind, arg, builtBranches, region)
+                }
               case None =>
                 Failure(new Exception(s"invalid empty branches in $ex"))
             }
