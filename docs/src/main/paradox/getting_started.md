@@ -128,8 +128,9 @@ mkdir -p src
 
 Notes:
 
-- `init` searches for `.git` to find the repo root. If you need to override
-  that, add `--repo_root <path>`.
+- `init` searches for a `.git` entry to find the repo root. This works for
+  standard checkouts and git worktrees. If you need to override that, add
+  `--repo_root <path>`.
 - It writes `bosatsu_libs.json` in the repo root and `src/mylib_conf.json` in the
   source root you selected.
 

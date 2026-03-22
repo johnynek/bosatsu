@@ -1,10 +1,12 @@
 package dev.bosatsu
 
 import cats.Eq
-import cats.implicits._
 import cats.effect.{IO, Resource}
+import cats.implicits._
+import cats.effect.unsafe.implicits.global
 import java.io.File
 import java.nio.file.{Files, Path, Paths}
+import java.util.Comparator
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 
@@ -26,6 +28,22 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
         l.sortBy(_.name.asString) === r
     }
 
+  private def deleteRecursively(path: Path): Unit = {
+    val walk = Files.walk(path)
+    try {
+      walk.sorted(Comparator.reverseOrder()).forEach { p =>
+        Files.deleteIfExists(p)
+        ()
+      }
+    } finally walk.close()
+  }
+
+  private def withTempDir[A](fn: Path => A): A = {
+    val dir = Files.createTempDirectory("bosatsu-io-platform-")
+    try fn(dir)
+    finally deleteRecursively(dir)
+  }
+
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
     val tempRes = Resource.make(IO.blocking {
       val f = File.createTempFile("proto_test", ".proto")
@@ -37,8 +55,6 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
       }
     }
 
-    // allow us to unsafeRunSync
-    import cats.effect.unsafe.implicits.global
     tempRes.use(fn).unsafeRunSync()
   }
 
@@ -89,4 +105,38 @@ class IOPlatformIOTest extends munit.ScalaCheckSuite {
     )
   }
 
+  test("gitTopLevelFrom finds a checkout root with a .git directory") {
+    withTempDir { root =>
+      Files.createDirectories(root.resolve(".git"))
+      val nested = Files.createDirectories(root.resolve("a/b"))
+
+      assertEquals(
+        IOPlatformIO.gitTopLevelFrom(nested).unsafeRunSync(),
+        Some(root)
+      )
+    }
+  }
+
+  test("gitTopLevelFrom finds a checkout root with a .git worktree file") {
+    withTempDir { root =>
+      Files.writeString(root.resolve(".git"), "gitdir: /tmp/worktree\n")
+      val nested = Files.createDirectories(root.resolve("a/b"))
+
+      assertEquals(
+        IOPlatformIO.gitTopLevelFrom(nested).unsafeRunSync(),
+        Some(root)
+      )
+    }
+  }
+
+  test("gitTopLevelFrom stops at filesystem root when no .git entry exists") {
+    withTempDir { root =>
+      val nested = Files.createDirectories(root.resolve("a/b"))
+
+      assertEquals(
+        IOPlatformIO.gitTopLevelFrom(nested).unsafeRunSync(),
+        None
+      )
+    }
+  }
 }

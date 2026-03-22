@@ -85,6 +85,13 @@ trait PlatformIO[F[_], Path] {
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
   def relativize(prefix: Path, deeper: Path): Option[Path]
+  def parent(p: Path): Option[Path]
+
+  final def hasGitMetadataEntry(dir: Path): F[Boolean] =
+    fsDataType(resolve(dir, ".git")).map {
+      case Some(_) => true
+      case None    => false
+    }
 
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)
@@ -111,20 +118,29 @@ trait PlatformIO[F[_], Path] {
 
   def gitShaHead: F[String]
 
-  def gitTopLevel: F[Option[Path]] = {
+  final def gitTopLevelFrom(start: Path): F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
         case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
+          hasGitMetadataEntry(current).map {
+            case true => Right(Some(current))
+            case false =>
+              parent(current) match {
+                case Some(next) if !pathOrdering.equiv(next, current) =>
+                  Left(next)
+                case _ =>
+                  Right(None)
+              }
+          }
         case _ => moduleIOMonad.pure(Right(None))
       }
 
+    moduleIOMonad.tailRecM(start)(searchStep)
+  }
+
+  def gitTopLevel: F[Option[Path]] = {
     path(".") match {
-      case Valid(a)   => moduleIOMonad.tailRecM(a)(searchStep)
+      case Valid(a)   => gitTopLevelFrom(a)
       case Invalid(e) =>
         moduleIOMonad.raiseError(
           new Exception(s"could not find current directory: $e")

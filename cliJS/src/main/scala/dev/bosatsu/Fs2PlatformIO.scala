@@ -59,19 +59,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def pathToString(p: Path): String = p.toString
 
   override def gitTopLevel: IO[Option[Path]] = {
-    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
-      fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
-        case _ => moduleIOMonad.pure(Right(None))
-      }
-
     val start = Path(js.Dynamic.global.process.cwd().asInstanceOf[String])
-    moduleIOMonad.tailRecM(start)(searchStep)
+    gitTopLevelFrom(start)
   }
 
   def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
@@ -202,6 +191,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
               case false => Some(PlatformIO.FSDataType.File)
             }
       }
+
+  def parent(p: Path): Option[Path] =
+    p.parent
 
   private def read[A <: GeneratedMessage](
       path: Path
