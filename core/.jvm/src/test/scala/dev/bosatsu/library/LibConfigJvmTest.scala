@@ -56,7 +56,11 @@ class LibConfigJvmTest extends munit.FunSuite {
         .map(Version.fromProto)
         .getOrElse(fail("expected core_alpha to declare a previous version"))
 
-    assertEquals(previousVersion.diffKindTo(conf.nextVersion), Version.DiffKind.Major)
-    assertEquals(conf.nextVersion, previousVersion.nextMajor)
+    // Release PRs advance this config over time, so keep the regression on the
+    // exported package surface while only requiring a valid adjacent version bump.
+    assert(
+      previousVersion.justBefore(conf.nextVersion),
+      s"expected ${conf.nextVersion} to be an adjacent version after $previousVersion"
+    )
   }
 }
