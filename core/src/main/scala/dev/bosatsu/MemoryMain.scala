@@ -251,6 +251,12 @@ object MemoryMain {
               Validated.valid(Chain.fromSeq(string.split("/", -1).toIndexedSeq))
         }
       def pathToString(path: Chain[String]): String = path.mkString_("/")
+      def parent(p: Path): Option[Path] =
+        p.toList match {
+          case Nil      => None
+          case _ :: Nil => None
+          case items    => Some(Chain.fromSeq(items.init))
+        }
       def system(command: String, args: List[String]) =
         moduleIOMonad.raiseError(
           new Exception(

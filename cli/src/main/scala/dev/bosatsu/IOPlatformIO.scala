@@ -100,19 +100,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     cats.effect.IO.asyncForIO
 
   override def gitTopLevel: IO[Option[Path]] = {
-    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
-      fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
-        case _ => moduleIOMonad.pure(Right(None))
-      }
-
     val start = Paths.get(".").toAbsolutePath.normalize
-    moduleIOMonad.tailRecM(start)(searchStep)
+    gitTopLevelFrom(start)
   }
 
   private def deleteRecursively(path: Path): IO[Unit] =
@@ -211,6 +200,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       root.relativize(pf)
     }
     else None
+  def parent(p: Path): Option[Path] =
+    Option(p.getParent)
 
   def read[A <: GeneratedMessage](
       path: Path
