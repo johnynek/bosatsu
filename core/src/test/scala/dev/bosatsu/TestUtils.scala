@@ -3,7 +3,7 @@ package dev.bosatsu
 import cats.{Order, Show}
 import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec}
 import java.nio.file.{Files, Paths}
-import dev.bosatsu.cache.{InferCache, InferPhases}
+import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
 import munit.Assertions.{assertEquals, fail}
@@ -321,7 +321,7 @@ object TestUtils {
         ifs,
         predefKey,
         compileOptions,
-        InferCache.noop[F],
+        InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
         capturePhases
       )
     ).map(toInferredMap)

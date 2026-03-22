@@ -594,10 +594,12 @@ object CompilerApi {
           "predef",
           compileOptions.mode
         )
-      cache: InferCache[IO] = compileCacheDirOpt match {
-        case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
-        case None           => InferCache.noop[IO]
-      }
+      cache: InferCache[IO, CompileCache.GenerateKeyInput, Package.Compiled] =
+        compileCacheDirOpt match {
+          case Some(cacheDir) => CompileCache.filesystem(cacheDir, platformIO)
+          case None           =>
+            InferCache.noop[IO, CompileCache.GenerateKeyInput, Package.Compiled]
+        }
       checked <- PackageMap.typeCheckSources[IO, String](
         sources,
         ifs,

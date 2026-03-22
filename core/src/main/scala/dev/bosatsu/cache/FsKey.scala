@@ -8,7 +8,8 @@ import scala.collection.immutable.SortedMap
   *
   * We keep both dependency hashes and dependency interfaces on purpose:
   * - `depInterfaceHashes` are part of cache identity and are what `keyHashValue`
-  *   hashes for stable key lookup.
+  *   hashes for stable key lookup. `CompileCache.generateKey` computes them from
+  *   the provided dependency interfaces.
   * - `depInterfaces` are required when reading cached package bytes back, because
   *   package decoding needs dependency interfaces in scope.
   *

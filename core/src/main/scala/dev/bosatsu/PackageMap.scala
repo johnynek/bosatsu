@@ -510,7 +510,7 @@ object PackageMap {
   private def inferAllSourceUnits[F[_]: Monad: Parallel: CanPromise, A](
       ps: ResolvedSource[F, A],
       compileOptions: CompileOptions,
-      cache: InferCache[F],
+      cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Compiled]] = {
     type SourceProgram = (SourceUnit[F, A], ImportMap[PackageName, Unit])
@@ -522,12 +522,10 @@ object PackageMap {
       SourceProgram
     ]
     type ErrorOr[A1] = Ior[NonEmptyList[PackageError], A1]
-    type CacheDepHash = cache.DepHash
 
-    final case class CompiledPack[H](
+    final case class CompiledPack(
         compiled: Package.Compiled,
-        depInterface: Package.Interface,
-        depInterfaceHash: H
+        depInterface: Package.Interface
     )
 
     val resolvedByName: SortedMap[PackageName, ResolvedU] = ps.toMap
@@ -547,32 +545,27 @@ object PackageMap {
       sys.error("invariant violation: resolved package graph has a cycle")
     }
 
-    def toCompiledPack(compiled: Package.Compiled): F[CompiledPack[CacheDepHash]] = {
-      val depInterface = phases.dependencyInterface(compiled)
-      cache.dependencyHash(depInterface).map { depInterfaceHash =>
-        CompiledPack(compiled, depInterface, depInterfaceHash)
-      }
-    }
+    def toCompiledPack(compiled: Package.Compiled): CompiledPack =
+      CompiledPack(compiled, phases.dependencyInterface(compiled))
 
-    val inferPack: ResolvedU => F[ErrorOr[CompiledPack[CacheDepHash]]] =
-      Memoize.memoizeDag[F, ResolvedU, ErrorOr[CompiledPack[CacheDepHash]]] {
+    val inferPack: ResolvedU => F[ErrorOr[CompiledPack]] =
+      Memoize.memoizeDag[F, ResolvedU, ErrorOr[CompiledPack]] {
         case (pack, recurse) =>
           pack match {
             case Package(nm, imports, exports, (source, imps)) =>
-              val depResultsF
-                  : F[ErrorOr[SortedMap[PackageName, CompiledPack[CacheDepHash]]]] =
+              val depResultsF: F[ErrorOr[SortedMap[PackageName, CompiledPack]]] =
                 imports.foldLeft(
                   Monad[F].pure(
                     Ior.right[NonEmptyList[PackageError], SortedMap[
                       PackageName,
-                      CompiledPack[CacheDepHash]
+                      CompiledPack
                     ]](SortedMap.empty)
                   )
                 ) { (accF, imp) =>
                   Package.unfix(imp.pack) match {
                     case Left(_)        => accF
                     case Right(depPack) =>
-                      val nextF: F[ErrorOr[(PackageName, CompiledPack[CacheDepHash])]] =
+                      val nextF: F[ErrorOr[(PackageName, CompiledPack)]] =
                         recurse(depPack).map(_.map(dep => dep.compiled.name -> dep))
                       (accF, nextF).parMapN { (acc, next) =>
                         (acc, next).parMapN { (deps, dep) =>
@@ -591,7 +584,7 @@ object PackageMap {
 
                   def depPackMeta(
                       depPack: ResolvedU
-                  ): ErrorOr[CompiledPack[CacheDepHash]] =
+                  ): ErrorOr[CompiledPack] =
                     Ior.right(depResults.get(depPack.name).expect {
                       s"invariant violation: missing dependency result for ${depPack.name}"
                     })
@@ -616,37 +609,6 @@ object PackageMap {
 
                       (acc, next).parMapN { (ifaces, iface) =>
                         ifaces.updated(iface._1, iface._2)
-                      }
-                    }
-
-                  val depInterfaceHashesF
-                      : F[ErrorOr[SortedMap[PackageName, CacheDepHash]]] =
-                    imports.foldLeft(
-                      Monad[F].pure(
-                        Ior.right[NonEmptyList[PackageError], SortedMap[
-                          PackageName,
-                          CacheDepHash
-                        ]](SortedMap.empty)
-                      )
-                    ) { (accF, imp) =>
-                      val nextF: F[ErrorOr[(PackageName, CacheDepHash)]] =
-                        Package.unfix(imp.pack) match {
-                          case Right(depPack) =>
-                            Monad[F].pure(
-                              depPackMeta(depPack).map { inferredDep =>
-                                inferredDep.compiled.name -> inferredDep.depInterfaceHash
-                              }
-                            )
-                          case Left(iface)    =>
-                            cache
-                              .dependencyHash(iface)
-                              .map(hash => Ior.right(iface.name -> hash))
-                        }
-
-                      (accF, nextF).parMapN { (acc, next) =>
-                        (acc, next).parMapN { (hashes, hash) =>
-                          hashes.updated(hash._1, hash._2)
-                        }
                       }
                     }
 
@@ -754,15 +716,17 @@ object PackageMap {
                   import IorT.{fromIor, liftF}
 
                   (for {
-                    depIfaceHashes <- IorT(depInterfaceHashesF)
+                    depIfaces <- fromIor[F](depInterfaces)
                     key <- liftF(
                       cache.generateKey(
-                        nm,
-                        source.sourceHash,
-                        depIfaceHashes,
-                        compileOptions,
-                        CompileCache.compilerIdentity,
-                        phases.id
+                        (
+                          nm,
+                          source.sourceHash,
+                          depIfaces,
+                          compileOptions,
+                          CompileCache.compilerIdentity,
+                          phases.id
+                        )
                       )
                     )
                     getRes <- liftF(cache.get(key))
@@ -771,19 +735,18 @@ object PackageMap {
                         IorT.rightT[F, NonEmptyList[PackageError]](hit)
                       case None      =>
                         for {
-                          depIfaces <- fromIor[F](depInterfaces)
                           compiled <- IorT(inferOnMiss(depIfaces))
                           _ <- liftF(cache.put(key, compiled))
                         } yield compiled
                     }
-                    compiledPack <- liftF(toCompiledPack(res))
+                    compiledPack = toCompiledPack(res)
                   } yield compiledPack)
                 }
                 .value
           }
       }
 
-    val allResults: F[SortedMap[PackageName, ErrorOr[CompiledPack[CacheDepHash]]]] =
+    val allResults: F[SortedMap[PackageName, ErrorOr[CompiledPack]]] =
       resolvedByName.values.toList
         .parTraverse { pack =>
           inferPack(pack).map(pack.name -> _)
@@ -805,7 +768,7 @@ object PackageMap {
         val sequenced =
           resultMap.traverse {
             case Ior.Left(errs)          =>
-              Ior.both(errs, Option.empty[CompiledPack[CacheDepHash]])
+              Ior.both(errs, Option.empty[CompiledPack])
             case Ior.Right(compiledPack) =>
               Ior.right(Some(compiledPack))
             case Ior.Both(errs, compiledPack) =>
@@ -835,7 +798,7 @@ object PackageMap {
       ps: List[SourceUnit[F, A]],
       ifs: List[Package.Interface],
       compileOptions: CompileOptions,
-      cache: InferCache[F],
+      cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Compiled]] =
     IorT(
@@ -922,7 +885,7 @@ object PackageMap {
       ifs: List[Package.Interface],
       predefKey: A,
       compileOptions: CompileOptions,
-      cache: InferCache[F],
+      cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Compiled]] =
     PackageMap.resolveThenInferSourceUnits[F, A](
@@ -943,7 +906,7 @@ object PackageMap {
       ifs: List[Package.Interface],
       predefKey: A,
       compileOptions: CompileOptions,
-      cache: InferCache[F],
+      cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], PackageMap.Compiled]] =
     typeCheckSources(
@@ -961,7 +924,7 @@ object PackageMap {
       ps: List[(A, Package.Parsed)],
       ifs: List[Package.Interface],
       compileOptions: CompileOptions,
-      cache: InferCache[F],
+      cache: InferCache[F, CompileCache.GenerateKeyInput, Package.Compiled],
       phases: InferPhases
   ): F[Ior[NonEmptyList[PackageError], Compiled]] =
     resolveThenInferSourceUnits(
@@ -983,7 +946,7 @@ object PackageMap {
         ps,
         ifs,
         compileOptions,
-        InferCache.noop[F],
+        InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
         InferPhases.default
       )
     )
@@ -1004,7 +967,7 @@ object PackageMap {
         ifs,
         predefKey,
         compileOptions,
-        InferCache.noop[F],
+        InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
         InferPhases.default
       )
     )
