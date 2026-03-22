@@ -2741,16 +2741,16 @@ object Command {
       checkCommand ::
         testCommand ::
         buildCommand ::
-        evalCommand ::
         jsonCommand ::
-        showCommand ::
         docCommand ::
-        depsCommand ::
-        fetchCommand ::
-        initCommand ::
-        listCommand ::
-        assembleCommand ::
         publishCommand ::
+        evalCommand ::
+        fetchCommand ::
+        depsCommand ::
+        listCommand ::
+        showCommand ::
+        assembleCommand ::
+        initCommand ::
         Nil
     )
   }
