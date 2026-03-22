@@ -263,7 +263,7 @@ struct Box[a](box: a)
 enum Nat: Z, S(n: Nat)
 
 def box_more[a](n: Nat, b: Box[a]) -> Nat:
-  recur n:
+  loop n:
     case Z: Z
     case S(n): box_more(n, Box(b))
 """) { binds =>
@@ -292,7 +292,7 @@ def branch_blowup(args: L) -> Nat:
     case _:
       (
         def loop(lst: L, acc: Nat) -> Nat:
-          recur lst:
+          loop lst:
             case E: acc
             case M(tail): loop(tail, S(acc))
         loop(args, Z)

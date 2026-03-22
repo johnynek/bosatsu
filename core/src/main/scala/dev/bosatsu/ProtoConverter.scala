@@ -591,6 +591,25 @@ object ProtoConverter {
         Failure(new Exception(s"invalid recursion kind: $other, in $context"))
     }
 
+  inline def matchKindFromProto(
+      kind: proto.MatchKind,
+      inline context: => String
+  ): Try[Declaration.MatchKind] =
+    kind.value match {
+      case 0 => Success(Declaration.MatchKind.Match)
+      case 1 => Success(Declaration.MatchKind.Recur)
+      case 2 => Success(Declaration.MatchKind.Loop)
+      case other =>
+        Failure(new Exception(s"invalid match kind: $other, in $context"))
+    }
+
+  def matchKindToProto(kind: Declaration.MatchKind): proto.MatchKind =
+    kind match {
+      case Declaration.MatchKind.Match => proto.MatchKind.Match
+      case Declaration.MatchKind.Recur => proto.MatchKind.Recur
+      case Declaration.MatchKind.Loop  => proto.MatchKind.Loop
+    }
+
   def buildExprs(exprs: Seq[proto.TypedExpr]): DTab[Array[TypedExpr[Region]]] =
     ReaderT[Try, DecodeState, Array[TypedExpr[Region]]] { ds =>
       def expressionFromProto(
@@ -764,7 +783,7 @@ object ProtoConverter {
                 (litFromProto(lit), typeOf(tpe), exprRegion)
                   .mapN(TypedExpr.Literal(_, _, _))
             }
-          case Value.MatchExpr(proto.MatchExpr(argId, branches, _)) =>
+          case Value.MatchExpr(proto.MatchExpr(argId, branches, matchKind0, _)) =>
             def buildBranch(b: proto.Branch): Try[
               TypedExpr.Branch[Region]
             ] =
@@ -780,8 +799,14 @@ object ProtoConverter {
 
             NonEmptyList.fromList(branches.toList) match {
               case Some(nel) =>
-                (exprOf(argId), nel.traverse(buildBranch), exprRegion)
-                  .mapN(TypedExpr.Match(_, _, _))
+                (
+                  exprOf(argId),
+                  nel.traverse(buildBranch),
+                  exprRegion,
+                  matchKindFromProto(matchKind0, ex.toString)
+                ).mapN { (arg, builtBranches, region, matchKind) =>
+                  TypedExpr.Match(matchKind, arg, builtBranches, region)
+                }
               case None =>
                 Failure(new Exception(s"invalid empty branches in $ex"))
             }
@@ -1275,7 +1300,7 @@ object ProtoConverter {
               recurse(argE)
                 .product(branches.toList.traverse(encodeBranch))
                 .flatMap { case (argId, branches) =>
-                  val ex = proto.MatchExpr(argId, branches)
+                  val ex = proto.MatchExpr(argId, branches, matchKindToProto(m.matchKind))
                   writeTypedExpr(m, proto.TypedExpr.Value.MatchExpr(ex))
                 }
           }

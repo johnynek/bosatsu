@@ -338,7 +338,7 @@ object TypedExprNormalization {
                   else branch.copy(guard = guard1, expr = expr1)
                 }
                 if ((arg1 eq arg) && (branches1 eq branches)) m
-                else Match(arg1, branches1, tag)
+                else Match(m.matchKind, arg1, branches1, tag)
               case n @ (Local(_, _, _) | Global(_, _, _, _) |
                   Literal(_, _, _)) =>
                 n
@@ -516,7 +516,7 @@ object TypedExprNormalization {
       }
 
     (stripTypeWrappers(arg), asBoolSelector(branches)) match {
-      case (Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
+      case (inner @ Match(innerArg, innerBranches, _), Some((ifTrue, ifFalse))) =>
         innerBranches.traverse { inner =>
           boolConst(inner.expr).map { cond =>
             val selected = if (cond) ifTrue else ifFalse
@@ -524,7 +524,7 @@ object TypedExprNormalization {
             else inner.copy(expr = selected)
           }
         }.map { mapped =>
-          Match(innerArg, mapped, tag)
+          Match(inner.matchKind, innerArg, mapped, tag)
         }
       case _ =>
         None
@@ -744,7 +744,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -968,7 +968,7 @@ object TypedExprNormalization {
           else branch.copy(guard = guard1, expr = branchExpr1)
         }
         if ((arg1 eq arg) && (branches1 eq branches)) m
-        else Match(arg1, branches1, tag)
+        else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
         n
     }
@@ -1215,7 +1215,7 @@ object TypedExprNormalization {
                   if ((m eq expr) && (lamArgs === lamArgs0)) None
                   else Some(AnnotatedLambda(lamArgs, m, tag))
                 case Some(bs) =>
-                  val m1 = Match(arg1, bs, tag1)
+                  val m1 = Match(m.matchKind, arg1, bs, tag1)
                   normalize1(namerec, m1, scope, typeEnv)
               }
             case notApp =>
@@ -1365,7 +1365,7 @@ object TypedExprNormalization {
                   normalize1(namerec, rewritten, scope, typeEnv)
                 case None =>
                   in1 match {
-                    case Match(marg, branches, mtag)
+                    case m @ Match(marg, branches, mtag)
                         if !rec1.isRecursive && marg.notFree(arg) && branches
                           .exists { case Branch(p, guard, r) =>
                             p.names.contains(arg) ||
@@ -1404,7 +1404,12 @@ object TypedExprNormalization {
                           branch.copy(guard = guard1, expr = r1)
                         }
                       }
-                      normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
+                      normalize1(
+                        namerec,
+                        Match(m.matchKind, marg, b1, mtag),
+                        scope,
+                        typeEnv
+                      )
                     case _ =>
                       val cnt = in1.freeVarsDup.count(_ == arg)
                       if (cnt > 0) {
@@ -1577,7 +1582,7 @@ object TypedExprNormalization {
           scope,
           typeEnv
         )
-      case Match(arg, branches, tag) =>
+      case m @ Match(arg, branches, tag) =>
         def ncount(
             shadows: Iterable[Bindable],
             e: TypedExpr[A]
@@ -1661,7 +1666,7 @@ object TypedExprNormalization {
             case Branch(p, Some(g), e1) :: tail
                 if totalityCheck.isWildLike(p) =>
               NonEmptyList.fromList(tail).map { tailNel =>
-                val fallback = Match(arg1, tailNel, tag)
+                val fallback = Match(m.matchKind, arg1, tailNel, tag)
                 Match(
                   g,
                   NonEmptyList.of(
@@ -1710,7 +1715,7 @@ object TypedExprNormalization {
             normalize1(namerec, rewritten, scope, typeEnv)
           case None =>
             if (changed1 == 0) {
-              val m1 = Match(a1, branches, tag)
+              val m1 = Match(m.matchKind, a1, branches, tag)
               Impl.maybeEvalMatch(m1, scope, totalityCheck) match {
                 case None =>
                   // if only the arg changes, there
@@ -1728,7 +1733,7 @@ object TypedExprNormalization {
             } else {
               // there has been some change, so
               // see if that unlocked any new changes
-              normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
+              normalize1(namerec, Match(m.matchKind, a1, branches1a, tag), scope, typeEnv)
             }
         }
     }
@@ -2177,7 +2182,12 @@ object TypedExprNormalization {
                           Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
                         case _ =>
                           // This will get simplified later
-                          Match(a, NonEmptyList.one(Branch(p, None, tr)), m.tag)
+                          Match(
+                            m.matchKind,
+                            a,
+                            NonEmptyList.one(Branch(p, None, tr)),
+                            m.tag
+                          )
                       }
                   }
 
@@ -2245,6 +2255,7 @@ object TypedExprNormalization {
                   case h :: t =>
                     // more than one branch might match, wait till runtime
                     val m1 = Match(
+                      m.matchKind,
                       m.arg,
                       NonEmptyList(h, t).map { case (pat, rhs) =>
                         Branch(pat, None, rhs)

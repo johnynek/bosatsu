@@ -7,7 +7,7 @@ class Issue1654Test extends munit.FunSuite with ParTest {
 package Repro/PolyTestDrop3
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
+  loop xs:
     case []: True
     case [h, *t] if fn(h):
       for_all(t, fn)

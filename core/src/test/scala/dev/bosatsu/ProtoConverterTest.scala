@@ -258,6 +258,38 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     testFn(loopExpr)
   }
 
+  test("we can roundtrip Match kind through proto") {
+    val intType = rankn.Type.IntType
+    val x = Identifier.Name("x")
+    val expr = TypedExpr.Match(
+      Declaration.MatchKind.Recur,
+      TypedExpr.Local(x, intType, Region(1, 2)),
+      NonEmptyList.one(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, Region(2, 3))
+        )(using Region(3, 4))
+      ),
+      Region(4, 5)
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          decoded = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
+          res <- decoded.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(expr)
+  }
+
   test("we can roundtrip guarded match branches through proto") {
     val intType = rankn.Type.IntType
     val boolType = rankn.Type.BoolType

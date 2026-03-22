@@ -7,6 +7,7 @@ import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 import cats.syntax.all._
 
 import dev.bosatsu.{
+  Declaration,
   Expr,
   HasRegion,
   Identifier,
@@ -27,6 +28,7 @@ import HasRegion.region
 
 import Identifier.{Bindable, Constructor}
 import scala.collection.immutable.SortedMap
+import Declaration.MatchKind
 
 /** The type inference/checking effect for Bosatsu's rank-n system.
   *
@@ -2402,11 +2404,12 @@ object Infer {
           }
         case Annotation(term, tpe, tag) =>
           val inner = term match {
-            case Match(arg, branches, mtag) =>
+            case m @ Match(arg, branches, mtag) =>
               // We push the Annotation down to help with
               // existential type checking where each branch
               // has a different type
               Match(
+                m.matchKind,
                 arg,
                 branches.map { branch =>
                   // we have to put the tag to be r.tag
@@ -2499,7 +2502,8 @@ object Infer {
               default
           }
 
-        case Match(term, branches, tag) =>
+        case m @ Match(term, branches, tag) =>
+          val matchKind: MatchKind = m.matchKind
           // We always infer the scrutinee once because pattern typing is a check:
           // typeCheckPattern consumes a scrutinee type and refines/unifies it
           // against the pattern. The Expected here does not affect scrutinee
@@ -2550,7 +2554,7 @@ object Infer {
                             } yield tbranches.map(_._1)
                           }
                       } yield unskol(
-                        TypedExpr.Rho.Match(tsigma, tbranches, tag)
+                        TypedExpr.Rho.Match(matchKind, tsigma, tbranches, tag)
                       )
                     case infer @ Expected.Inf(_) =>
                       for {
@@ -2560,7 +2564,7 @@ object Infer {
                         (rho, regRho, resBranches) <- widenBranches(tbranches)
                         _ <- infer.set((rho, regRho))
                       } yield unskol(
-                        TypedExpr.Rho.Match(tsigma, resBranches, tag)
+                        TypedExpr.Rho.Match(matchKind, tsigma, resBranches, tag)
                       )
                   }
               }

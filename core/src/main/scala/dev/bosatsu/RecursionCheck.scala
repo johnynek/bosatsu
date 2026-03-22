@@ -58,6 +58,8 @@ object RecursionCheck {
     def message: String
   }
 
+  type Issue = Error | Lint
+
   case class InvalidRecursion(name: Bindable, illegalPosition: Region)
       extends Error {
     def region = illegalPosition
@@ -153,40 +155,56 @@ object RecursionCheck {
       s"loop requires all recursive calls to ${fnname.sourceCodeRepr} to be in tail position."
   }
 
-  case class RecursiveDefNoRecur(
+  sealed abstract class Lint {
+    def region: Region
+    def message: String
+  }
+
+  private def likelyRenameMessage(
       fnname: Bindable,
-      recurRegion: Region,
+      calledName: Bindable,
+      count: Int
+  ): String = {
+    val occurrenceWord = if (count == 1) "occurrence" else "occurrences"
+    s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count $occurrenceWord)"
+  }
+
+  case class NoRecursiveCall(
+      fnname: Bindable,
       recurKind: Declaration.MatchKind,
+      recurRegion: Region,
       likelyRenamedCall: Option[(Bindable, Int)]
-  ) extends Error {
+  ) extends Lint {
     def region = recurRegion
-    private def missingRecursiveCallMessage =
-      s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}"
 
-    private def likelyRenameMessage(calledName: Bindable, count: Int) = {
-      val occurrenceWord = if (count == 1) "occurrence" else "occurrences"
-      s"Function name looks renamed: declared `${fnname.sourceCodeRepr}`, but recursive calls use `${calledName.sourceCodeRepr}`.\nDid you mean `${fnname.sourceCodeRepr}` in recursive calls? ($count $occurrenceWord)"
-    }
+    private val missingRecursiveCallMessage =
+      s"${recurKind.keyword} but no recursive call to ${fnname.sourceCodeRepr}."
 
-    private val nonRecursiveRecurHint =
-      "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
-
-    def message =
+    private val nonRecursiveHint =
       recurKind match {
         case Declaration.MatchKind.Recur =>
-          likelyRenamedCall match {
-            case Some((calledName, count)) =>
-              s"$missingRecursiveCallMessage\n$nonRecursiveRecurHint\n${likelyRenameMessage(calledName, count)}"
-            case None =>
-              s"$missingRecursiveCallMessage\n$nonRecursiveRecurHint"
-          }
-        case _ =>
-          likelyRenamedCall match {
-            case Some((calledName, count)) =>
-              likelyRenameMessage(calledName, count)
-            case None =>
-              missingRecursiveCallMessage
-          }
+          "Use `match` for non-recursive branching."
+        case Declaration.MatchKind.Loop  =>
+          "Use `match` if this code is not recursive."
+        case Declaration.MatchKind.Match =>
+          sys.error("unexpected non-recursive match kind in recursion lint")
       }
+
+    def message =
+      likelyRenamedCall match {
+        case Some((calledName, count)) =>
+          s"$missingRecursiveCallMessage\n$nonRecursiveHint\n${likelyRenameMessage(fnname, calledName, count)}"
+        case None                      =>
+          s"$missingRecursiveCallMessage\n$nonRecursiveHint"
+      }
+  }
+
+  case class TailRecursiveRecur(
+      fnname: Bindable,
+      recurRegion: Region
+  ) extends Lint {
+    def region = recurRegion
+    def message =
+      s"recursive calls to ${fnname.sourceCodeRepr} are all tail-position; use `loop` to make the stack-safety guarantee explicit."
   }
 }

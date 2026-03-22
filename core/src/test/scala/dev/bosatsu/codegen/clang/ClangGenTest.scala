@@ -230,7 +230,7 @@ enum Nat:
   S(prev: Nat)
 
 def source(n):
-  recur n:
+  loop n:
     case Z: 0
     case S(prev): source(prev)
 
@@ -297,7 +297,7 @@ enum MaybeL:
   None
 
 def mk(n):
-  recur n:
+  loop n:
     case Z: Some(N(D0, N(D1, N(D2, N(D3, N(D4, E))))))
     case S(prev): mk(prev)
 
