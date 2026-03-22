@@ -253,6 +253,7 @@ object PackageError {
       case _: PackageError.UnusedLetError         => true
       case _: PackageError.UnusedLets             => true
       case _: PackageError.TodoUsage              => true
+      case _: PackageError.RecursionLint          => true
       case _: PackageError.ShadowedBindingTypeError =>
         true
       case PackageError.TotalityCheckError(
@@ -1878,6 +1879,26 @@ object PackageError {
       // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
       val doc = packDoc + Doc.hardLine + Doc.text(errMessage) +
+        Doc.hardLine + ctx + Doc.hardLine
+
+      doc.render(80)
+    }
+  }
+
+  case class RecursionLint(
+      pack: PackageName,
+      lint: RecursionCheck.Lint
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val ctx = lm
+        .showRegion(lint.region, 2, errColor)
+        .getOrElse(Doc.str(lint.region.show))
+      val packDoc = sourceMap.headLine(pack, Some(lint.region))
+      val doc = packDoc + Doc.hardLine + Doc.text(lint.message) +
         Doc.hardLine + ctx + Doc.hardLine
 
       doc.render(80)

@@ -720,7 +720,7 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
         assert(
           te.message(Map.empty, Colorize.None).contains(
             "recur but no recursive call to fn"
@@ -878,13 +878,13 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       assertEquals(
         te.message(
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur but no recursive call to fn\nFor non-recursive branching, replace `recur <expr>:` with `match <expr>:`.\n[25, 47)\n"
+        "in file: <unknown source>, package A\nrecur but no recursive call to fn.\nUse `match` for non-recursive branching.\n[25, 47)\n"
       )
       ()
     }
@@ -897,13 +897,33 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       assertEquals(
         te.message(
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nloop but no recursive call to fn\n[25, 46)\n"
+        "in file: <unknown source>, package A\nloop but no recursive call to fn.\nUse `match` if this code is not recursive.\n[25, 46)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+def len(lst, acc):
+  recur lst:
+    case []: acc
+    case [_, *tail]: len(tail, acc)
+
+main = len
+""")) { case te @ PackageError.RecursionLint(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "recursive calls to len are all tail-position; use `loop` to make the stack-safety guarantee explicit."
+        ),
+        msg
       )
       ()
     }
@@ -941,11 +961,11 @@ def parse_loopTypo(x):
     case _: parse_loop(x)
 
 main = parse_loopTypo
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(
         msg.contains(
-          "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
+          "Use `match` for non-recursive branching."
         )
       )
       assert(

@@ -1324,7 +1324,7 @@ main = 1
 enum Nat: Zero, Succ(prev: Nat)
 
 def len(l):
-  recur l:
+  loop l:
     case Zero: 0
     case Succ(p): len(p)
 
@@ -1340,7 +1340,7 @@ enum Nat: Zero, Succ(prev: Nat)
 
 def len(l):
   def len0(l):
-    recur l:
+    loop l:
       case Zero: 0
       case Succ(p): len0(p)
   len0(l)

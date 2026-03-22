@@ -167,6 +167,12 @@ enum RecursionKind {
   IsRec = 1;
 }
 
+enum MatchKind {
+  Match = 0;
+  Recur = 1;
+  Loop = 2;
+}
+
 message GenericExpr {
   repeated VarKind forAlls = 1;
   repeated VarKind exists = 2;
@@ -324,6 +330,7 @@ message Branch {
 message MatchExpr {
   int32 argExpr = 1;
   repeated Branch branches = 2;
+  MatchKind matchKind = 3;
 }
 
 message TypedExpr {

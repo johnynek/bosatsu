@@ -824,12 +824,17 @@ object Package {
             .flatMap { typedLets =>
               val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
 
-              val recursionErrors: Chain[PackageError] =
+              val recursionIssues: Chain[PackageError] =
                 toErrsChain(
                   TypedExprRecursionCheck
                     .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
                     .leftMap(
-                      _.map(err => PackageError.RecursionError(p, err): PackageError)
+                      _.map {
+                        case err: RecursionCheck.Error =>
+                          PackageError.RecursionError(p, err): PackageError
+                        case lint: RecursionCheck.Lint =>
+                          PackageError.RecursionLint(p, lint): PackageError
+                      }
                     )
                 )
 
@@ -863,7 +868,7 @@ object Package {
               // keep the typed program on the success path when every
               // diagnostic is postponable.
               diagnosticsToIor(
-                (recursionErrors ++ shadowedBindingErrors).toList ::: totalityErrors,
+                (recursionIssues ++ shadowedBindingErrors).toList ::: totalityErrors,
                 (
                   fullTypeEnv,
                   Program(typeEnv, typedLets, extDefs, stmts)

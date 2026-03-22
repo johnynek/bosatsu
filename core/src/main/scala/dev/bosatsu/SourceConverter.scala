@@ -525,7 +525,7 @@ final class SourceConverter(
         loop(p).map(_.replaceTag(decl))
       case Var(ident) =>
         success(resolveToVar(ident, decl, bound, topBound))
-      case Match(_, arg, branches) =>
+      case Match(kind, arg, branches) =>
         /*
          * The source match mode (`match`/`recur`/`loop`) on tags is used by
          * TypedExprRecursionCheck before lowering/normalization.
@@ -543,7 +543,7 @@ final class SourceConverter(
             Expr.Branch(pat, guard1, body)(using branchPatternRegion)
           }
         }
-        (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
+        (loop(arg), expBranches).parMapN(Expr.Match(kind, _, _, decl))
       case m @ Matches(a, p, guard) =>
         // x matches p ==
         // match x:

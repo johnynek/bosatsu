@@ -1193,7 +1193,7 @@ main = plus(1, 2)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1299,7 +1299,7 @@ main = sum(Succ(Succ(Succ(Zero))))
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case EmptyList: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1313,7 +1313,7 @@ main = len([1, 2, 3], 0)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case NonEmptyList(_, tail): len(tail, acc.add(1))
 
@@ -1380,7 +1380,7 @@ main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldl_List(0, add)
 package A
 
 def eq_List(lst1, lst2):
-  recur lst1:
+  loop lst1:
     case []:
       match lst2:
         case []: True
@@ -2550,7 +2550,7 @@ enum Thing:
   Thing1, Thing2(a: Int, t: Thing)
 
 def bar(y, _: String, x):
-  recur x:
+  loop x:
     case Thing1: y
     case Thing2(i, t): bar(i, "boom", t)
 """),
@@ -2740,7 +2740,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last(nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 
@@ -2760,7 +2760,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last[a](nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 

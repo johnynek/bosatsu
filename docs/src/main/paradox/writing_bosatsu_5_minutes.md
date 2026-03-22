@@ -38,7 +38,7 @@ Top-order bits:
 
 1. Everything is immutable. You can shadow names, but not mutate values.
 2. Blocks are expressions: the last line is the return value.
-3. No `while`/mutation loops; use `recur`, direct recursion on `Int`, folds, or comprehensions.
+3. No `while`/mutation loops; use `match` for non-recursive branching, `loop` for tail recursion, `recur` only when non-tail recursion is required, plus direct recursion on `Int`, folds, or comprehensions.
 4. No exceptions as control flow in normal code. Model errors in types.
 5. Side effects are explicit `Prog[...]` values, not implicit execution.
 
@@ -77,9 +77,10 @@ If you want a looser edit loop while sketching code, use:
 ```
 
 `--warn` keeps going on unused values/imports, shadowed-binding type changes,
-and unreachable branches, but still prints them. `--lax` suppresses that same
-lint set entirely. Non-total matches, recursion errors, import/type failures,
-and other hard errors still stop the run in every mode.
+unreachable branches, and recursion-form lints (`recur`/`loop` used in the
+wrong source form), but still prints them. `--lax` suppresses that same lint
+set entirely. Non-total matches, recursion soundness errors, import/type
+failures, and other hard errors still stop the run in every mode.
 
 When you know types but not implementation, use `todo` to keep moving:
 
@@ -115,7 +116,7 @@ you want to keep running tests while postponing non-fatal lint cleanup.
    using `todo` for unfinished branches.
 4. Replace `todo` incrementally.
 5. Finish with `test` (or `test --warn` if you are still cleaning up
-   unused definitions/imports).
+   unused definitions/imports or recursion-form lints).
 
 That loop matches how most code in `test_workspace` evolves: explicit data
 models, explicit imports/exports, and constant typechecked feedback.
