@@ -206,6 +206,11 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
+      - name: "verify graalvm native image pin"
+        run: |
+          sbt -Dsbt.log.noformat=true "show cli / nativeImageJvm" "show cli / nativeImageVersion" | tee native-image-toolchain.txt
+          grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
+          grep -q "\[info\] 23.0.2" native-image-toolchain.txt
       - name: "build native image"
         run: |
           sbt "cli/nativeImage"

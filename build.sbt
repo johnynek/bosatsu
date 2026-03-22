@@ -339,8 +339,8 @@ lazy val cli = (project in file("cli"))
           .map(p => s"-H:CLibraryPath=$p")
       staticOpt ++ muslOpt ++ clibPaths
     },
-    nativeImageJvm := "graalvm-java21",
-    nativeImageVersion := "21.0.2"
+    nativeImageJvm := "graalvm-java23",
+    nativeImageVersion := "23.0.2"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
