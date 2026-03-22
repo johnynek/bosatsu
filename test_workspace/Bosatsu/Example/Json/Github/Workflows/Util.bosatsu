@@ -17,6 +17,8 @@ export (
   OnPushBranches(),
   OnPush(),
   github_token_secret,
+  graalvm_java_23,
+  graalvm_version_23_0_2,
   install_sbt_step_name,
   install_sbt_step_name_title,
   java_17_setup_name,
@@ -69,6 +71,7 @@ export (
   transpile_python_cmd,
   upload_artifact_step,
   timeout_minutes_default,
+  verify_graalvm_native_image_pin_cmd,
 )
 
 struct OnPushBranches(branches: List[String])
@@ -141,6 +144,8 @@ action_upload_artifact = "actions/upload-artifact@v4"
 
 java_distribution_temurin = "temurin"
 java_version_17 = "17"
+graalvm_java_23 = "graalvm-java23"
+graalvm_version_23_0_2 = "23.0.2"
 java_version_matrix = "\${{matrix.java}}"
 python_version_matrix = "\${{matrix.python}}"
 python_version_3_9 = "3.9"
@@ -190,6 +195,14 @@ def cat_lines(lines: List[String]) -> String:
     case []: ""
     case [line]: line
     case [line, *rest]: "${line}\n${cat_lines(rest)}"
+
+verify_graalvm_native_image_pin_cmd =
+  cat_lines([
+    "sbt -Dsbt.log.noformat=true \"show cli / nativeImageJvm\" \"show cli / nativeImageVersion\" | tee native-image-toolchain.txt",
+    "grep -q \"\\[info\\] ${graalvm_java_23}\" native-image-toolchain.txt",
+    "grep -q \"\\[info\\] ${graalvm_version_23_0_2}\" native-image-toolchain.txt",
+    "",
+  ])
 
 checkout_v2_step = Step { uses: Set(action_checkout_v2) }
 

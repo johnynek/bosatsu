@@ -26,6 +26,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   StepEnv,
   run_publish_bosatsu_libs,
   upload_artifact_step,
+  verify_graalvm_native_image_pin_cmd,
 )
 
 struct WorkflowOnPush(tags: List[String])
@@ -417,6 +418,10 @@ workflow =
         [
           *release_java17_bootstrap_steps,
           Step {
+            name: Set("Verify GraalVM native image pin"),
+            run: Set(verify_graalvm_native_image_pin_cmd),
+          },
+          Step {
             name: Set("Install musl toolchain"),
             run: Set("sudo apt-get update && sudo apt-get install -y musl-tools build-essential"),
           },
@@ -466,6 +471,10 @@ workflow =
         needs_prepare,
         [
           *native_macos_bootstrap_steps,
+          Step {
+            name: Set("Verify GraalVM native image pin"),
+            run: Set(verify_graalvm_native_image_pin_cmd),
+          },
           Step {
             name: Set("Build native image (macos)"),
             run: Set(cat_lines([
