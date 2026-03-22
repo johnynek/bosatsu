@@ -70,30 +70,19 @@ class CompileCacheTest extends FunSuite {
       pack: Package.Parsed,
       deps: SortedMap[PackageName, Package.Interface] = SortedMap.empty,
       compileOptions: CompileOptions = CompileOptions.Default
-  ): FsKey = {
-    val (stateAfterDepHashes, depHashes) =
-      deps.iterator.foldLeft(
-        (
-          MemoryMain.State.empty,
-          SortedMap.empty[PackageName, cache.DepHash]
-        )
-      ) { case ((state, hashes), (depName, depIface)) =>
-        val (nextState, depHash) = runF(cache.dependencyHash(depIface), state)
-        (nextState, hashes.updated(depName, depHash))
-      }
-
+  ): FsKey =
     runF(
       cache.generateKey(
-        pack.name,
-        CompileCache.sourceExprHash(pack),
-        depHashes,
-        compileOptions,
-        "compiler-id",
-        "phase-id"
-      ),
-      stateAfterDepHashes
+        (
+          pack.name,
+          CompileCache.sourceExprHash(pack),
+          deps,
+          compileOptions,
+          "compiler-id",
+          "phase-id"
+        )
+      )
     )._2
-  }
 
   private def keyPathFor(key: FsKey): Chain[String] = {
     val keyHex = CompileCache.keyHashHex(key)
@@ -227,7 +216,7 @@ class CompileCacheTest extends FunSuite {
     )
   }
 
-  test("generateKey requires dependencyHash lookup for dependency interfaces") {
+  test("generateKey hashes dependency interfaces directly") {
     val consumerSource =
       """package Cache/App
         |from Cache/Dep import dep
@@ -242,45 +231,38 @@ class CompileCacheTest extends FunSuite {
     val consumer = parsePackage(consumerSource)
     val depIface = Package.interfaceOf(compilePackage(depSource))
     val isolatedCache = CompileCache.filesystem(cacheDir, platform)
-    val depHashes = SortedMap(
-      depIface.name -> CompileCache.interfaceHash(depIface).getOrElse {
-        fail("failed to compute dependency interface hash")
-      }
-    )
-
-    val missingLookup =
-      isolatedCache
-        .generateKey(
-          consumer.name,
-          CompileCache.sourceExprHash(consumer),
-          depHashes,
-          CompileOptions.Default,
-          "compiler-id",
-          "phase-id"
-        )
-        .run(MemoryMain.State.empty)
-    assert(missingLookup.isLeft)
-
-    val (stateWithLookup, _) = runF(isolatedCache.dependencyHash(depIface))
-    val seededKey =
+    val directKey =
       runF(
         isolatedCache.generateKey(
-          consumer.name,
-          CompileCache.sourceExprHash(consumer),
-          depHashes,
-          CompileOptions.Default,
-          "compiler-id",
-          "phase-id"
-        ),
-        stateWithLookup
+          (
+            consumer.name,
+            CompileCache.sourceExprHash(consumer),
+            SortedMap(depIface.name -> depIface),
+            CompileOptions.Default,
+            "compiler-id",
+            "phase-id"
+          )
+        )
       )._2
 
     val helperKey =
       compileKey(consumer, SortedMap(depIface.name -> depIface))
 
     assertEquals(
-      CompileCache.keyHashHex(seededKey),
+      CompileCache.keyHashHex(directKey),
       CompileCache.keyHashHex(helperKey)
+    )
+    assertEquals(
+      directKey.depInterfaces,
+      SortedMap(depIface.name -> depIface)
+    )
+    assertEquals(
+      directKey.depInterfaceHashes,
+      SortedMap(
+        depIface.name -> CompileCache.interfaceHash(depIface).getOrElse {
+          fail("failed to compute dependency interface hash")
+        }
+      )
     )
   }
 
