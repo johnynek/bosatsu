@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e49a301*
+0.0.0+1-efa203da*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e49a301*
+0.0.0+1-efa203da*
 </div>
 </div>
 <div class="nav-toc">
@@ -143,6 +143,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
     case []: 0
     case [_, *tail]: len(tail).add(1)
 </code></pre>
+<p>Use <code>recur</code> only when the recursive algorithm is genuinely non-tail. If every valid self-call is tail-position, Bosatsu warns and asks for <code>loop</code>. If there is no self-call at all, use <code>match</code> instead.</p>
 <p>At a high level:</p>
 <ol>
   <li>
@@ -174,7 +175,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   More(next: () -&gt; Stream[a])
 
 def consume(s: Stream[a]) -&gt; Stream[a]:
-  recur s:
+  loop s:
     case End:
       End
     case More(th):
@@ -195,15 +196,13 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 </code></pre>
 <p>Prefer <code>loop</code> whenever possible so stack exhaustion is ruled out by the type checker/compiler. Use <code>recur</code> when recursion is terminating but intentionally non-tail (for example, <code>Succ(len(tail))</code> style code).</p>
 <h2><a href="#pattern-1-structural-recursion-on-lists" name="pattern-1-structural-recursion-on-lists" class="anchor"><span class="anchor-link"></span></a>Pattern 1: Structural Recursion On Lists</h2>
-<p>This is the most common pattern. Recur directly on the list and call the same function on a tail.</p>
+<p>This is the most common pattern. Recur directly on the list when the result is built after the recursive call.</p>
 <p>In terminology above, this is structural/well-founded recursion where list shape gives the decreasing measure for free.</p>
-<p>From <code>List.bosatsu</code>:</p>
-<pre class="prettyprint"><code class="language-bosatsu">def for_all(xs: List[a], fn: a -&gt; Bool) -&gt; Bool:
-  recur xs:
-    case []: True
-    case [head, *tail]:
-      if fn(head): for_all(tail, fn)
-      else: False
+<p>Simple example:</p>
+<pre class="prettyprint"><code class="language-bosatsu">def size(list: List[a]) -&gt; Nat:
+  recur list:
+    case []: Zero
+    case [_, *tail]: Succ(size(tail))
 </code></pre>
 <p>Other examples:</p>
 <ol>
@@ -244,7 +243,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 <p>From <code>BinNat.bosatsu</code>:</p>
 <pre class="prettyprint"><code class="language-bosatsu">def fib(b: BinNat) -&gt; BinNat:
   def loop(n: Nat, cur: BinNat, next: BinNat) -&gt; BinNat:
-    recur n:
+    loop n:
       case NatZero: cur
       case NatSucc(n):
         sum = add_BinNat(cur, next)
@@ -282,7 +281,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 <p>From <code>BinNat.bosatsu</code>:</p>
 <pre class="prettyprint"><code class="language-bosatsu">def fold_left_BinNat(fn: (a, BinNat) -&gt; a, init: a, cnt: BinNat) -&gt; a:
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -&gt; a:
-    recur cnt_Nat:
+    loop cnt_Nat:
       case NatZero: init
       case NatSucc(prev_nat):
         cnt = prev(cnt)
@@ -306,7 +305,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
 <p>Sketch:</p>
 <ol>
   <li><code>len = to_Nat(length_String(input))</code></li>
-  <li><code>loop(len, input)</code> with <code>recur len</code></li>
+  <li><code>loop(len, input)</code> with <code>loop len</code></li>
   <li>consume string as you go, and always recurse with the predecessor fuel</li>
 </ol>
 <p>This is the same fuel pattern as Pattern 4, but with a string-derived bound.</p>
@@ -351,6 +350,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
   <li>If not, compute a bound and recurse on that fuel (<code>Nat</code> is usually easiest).</li>
   <li>If recursion uses multiple arguments, prefer <code>recur (a, b, ...)</code> and check  lexicographic decrease in that order.</li>
   <li>Prefer <code>loop</code> whenever the algorithm can be tail-recursive, so stack  exhaustion is impossible by construction. Use <code>recur</code> only when non-tail  recursion is required.</li>
+  <li>Use <code>match</code> for non-recursive branching instead of <code>recur</code> or <code>loop</code>.</li>
   <li>
   <p>For parsing-like string scans, either recurse on string tail directly or use  length-derived fuel.</p></li>
 </ol>
@@ -454,7 +454,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7e49a301-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-efa203da-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>

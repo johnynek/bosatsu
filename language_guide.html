@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e49a301*
+0.0.0+1-efa203da*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-7e49a301*
+0.0.0+1-efa203da*
 </div>
 </div>
 <div class="nav-toc">
@@ -362,14 +362,14 @@ y = 1 == 1
 
   loop(0, lst)
 </code></pre>
-<p><code>loop</code> enforces that all recursive self-calls are in tail position. <code>recur</code> keeps the same termination checks but allows valid non-tail recursion.</p>
+<p><code>loop</code> enforces that all recursive self-calls are in tail position. <code>recur</code> keeps the same termination checks but allows valid non-tail recursion. Use <code>match</code> when the branch structure is not recursive at all.</p>
 <p><code>recur</code> can also follow trusted delayed-value projections. If a branch binds <code>th: () -&gt; T</code> or <code>l: Lazy[T]</code>, then <code>th()</code> and trusted <code>Bosatsu/Lazy.get_Lazy(l)</code> are treated like smaller children of the current value. Those facts compose through <code>let</code> bindings and nested <code>match</code> destructuring.</p>
 <pre class="prettyprint"><code class="language-bosatsu">enum Stream[a]:
   End
   More(next: () -&gt; Stream[a])
 
 def consume(s: Stream[a]) -&gt; Stream[a]:
-  recur s:
+  loop s:
     case End:
       End
     case More(th):
@@ -392,7 +392,7 @@ def consume(s: Stream[a]) -&gt; Stream[a]:
   <li>structural recursion on subvalues (like a list tail or tree branch), or</li>
   <li>explicit fuel recursion on a decreasing <code>Nat</code>.</li>
 </ol>
-<p>Choose <code>loop</code> when you want the compiler to require tail recursion. Choose <code>recur</code> when the algorithm is terminating but not tail-recursive.</p>
+<p>Choose <code>loop</code> when you want the compiler to require tail recursion. Choose <code>recur</code> when the algorithm is terminating but not tail-recursive. Use <code>match</code> when there is no recursive self-call.</p>
 <p>See <a href="recursion.html">Recursion in Bosatsu</a> for detailed examples from <code>test_workspace</code>.</p>
 <h2><a href="#pattern-matching" name="pattern-matching" class="anchor"><span class="anchor-link"></span></a>Pattern Matching</h2>
 <p>Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in addition to user defined types as discussed later. Use <code>case</code> in every match branch.</p>
@@ -926,7 +926,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-7e49a301-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-efa203da-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
