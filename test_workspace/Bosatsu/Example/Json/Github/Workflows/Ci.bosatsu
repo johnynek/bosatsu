@@ -37,6 +37,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   transpile_python_cmd,
   sbt_cache_fetch_step,
   timeout_minutes_default,
+  verify_graalvm_native_image_pin_cmd,
 )
 
 struct WorkflowJobsTest(
@@ -300,6 +301,10 @@ workflow =
         runner_ubuntu_latest,
         [
           *java_matrix_bootstrap_steps,
+          Step {
+            name: Set("verify graalvm native image pin"),
+            run: Set(verify_graalvm_native_image_pin_cmd),
+          },
           Step {
             name: Set("build native image"),
             run: Set(cat_lines([

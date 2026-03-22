@@ -171,6 +171,11 @@ jobs:
           java-version: "17"
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Verify GraalVM native image pin
+        run: |
+          sbt -Dsbt.log.noformat=true "show cli / nativeImageJvm" "show cli / nativeImageVersion" | tee native-image-toolchain.txt
+          grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
+          grep -q "\[info\] 23.0.2" native-image-toolchain.txt
       - name: Install musl toolchain
         run: sudo apt-get update && sudo apt-get install -y musl-tools build-essential
       - name: Build musl zlib
@@ -231,6 +236,11 @@ jobs:
           architecture: "aarch64"
       - name: Install sbt
         uses: sbt/setup-sbt@v1
+      - name: Verify GraalVM native image pin
+        run: |
+          sbt -Dsbt.log.noformat=true "show cli / nativeImageJvm" "show cli / nativeImageVersion" | tee native-image-toolchain.txt
+          grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
+          grep -q "\[info\] 23.0.2" native-image-toolchain.txt
       - name: Build native image (macos)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
