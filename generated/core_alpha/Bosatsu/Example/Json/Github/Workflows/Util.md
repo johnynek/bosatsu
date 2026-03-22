@@ -29,7 +29,8 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`checkout_v4_fetch_depth_0_step`](#value-checkout-v4-fetch-depth-0-step),
 [`checkout_v4_step`](#value-checkout-v4-step),
 [`codecov_token_secret`](#value-codecov-token-secret),
-[`github_token_secret`](#value-github-token-secret),
+[`github_token_secret`](#value-github-token-secret), [`graalvm_java_23`](#value-graalvm-java-23),
+[`graalvm_version_23_0_2`](#value-graalvm-version-23-0-2),
 [`install_b3sum_step`](#value-install-b3sum-step),
 [`install_sbt_step_name`](#value-install-sbt-step-name),
 [`install_sbt_step_name_title`](#value-install-sbt-step-name-title),
@@ -59,7 +60,8 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`tool_test_workspace_cmd`](#value-tool-test-workspace-cmd),
 [`tool_test_workspace_node_cmd`](#value-tool-test-workspace-node-cmd),
 [`transpile_c_cmd`](#value-transpile-c-cmd), [`transpile_python_cmd`](#value-transpile-python-cmd),
-[`upload_artifact_step`](#value-upload-artifact-step)
+[`upload_artifact_step`](#value-upload-artifact-step),
+[`verify_graalvm_native_image_pin_cmd`](#value-verify-graalvm-native-image-pin-cmd)
 
 ## Types
 
@@ -367,6 +369,26 @@ references: [`String`](../../../../Predef.html#type-string)
 
 ```bosatsu
 github_token_secret: String
+```
+
+<a id="value-graalvm-java-23"></a>
+
+### `graalvm_java_23`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+graalvm_java_23: String
+```
+
+<a id="value-graalvm-version-23-0-2"></a>
+
+### `graalvm_version_23_0_2`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+graalvm_version_23_0_2: String
 ```
 
 <a id="value-install-b3sum-step"></a>
@@ -777,4 +799,14 @@ references: [`FetchJavaWith`](#type-fetchjavawith), [`Step`](#type-step), [`Stri
 
 ```bosatsu
 def upload_artifact_step(step_name: String, artifact_name: String, path: String) -> Step[FetchJavaWith]
+```
+
+<a id="value-verify-graalvm-native-image-pin-cmd"></a>
+
+### `verify_graalvm_native_image_pin_cmd`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+verify_graalvm_native_image_pin_cmd: String
 ```
