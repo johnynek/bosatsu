@@ -2,7 +2,7 @@ package dev.bosatsu
 
 import cats.{Apply, Foldable}
 import cats.data.{Validated, ValidatedNec, Ior, IorNec}
-import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
+import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Ref, RefSpace, Type, TypeAlias}
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
@@ -138,6 +138,14 @@ object Shape {
           }
     }
 
+    implicit def typeAliasShapeOf[S: ShapeOf]: ShapeOf[TypeAlias[S]] = {
+      (ta: TypeAlias[S]) =>
+        ta.annotatedTypeParams
+          .foldRight(Type: KnownShape) { (s, ks) =>
+            KnownCons(ShapeOf(s._2), ks)
+          }
+    }
+
     implicit def eitherShapeOf[A: ShapeOf, B: ShapeOf]
         : ShapeOf[Either[A, B]] = { (e: Either[A, B]) =>
       e match {
@@ -176,6 +184,16 @@ object Shape {
           else None
       }
 
+    implicit def typeAliasShapeEnv[S: ShapeOf]: IsShapeEnv[TypeAlias[S]] =
+      new IsShapeEnv[TypeAlias[S]] {
+        def getShape(
+            ta: TypeAlias[S],
+            tc: rankn.Type.Const
+        ): Option[KnownShape] =
+          if ((ta.toTypeConst: rankn.Type.Const) == tc) Some(ShapeOf(ta))
+          else None
+      }
+
     implicit def foldableShapeEnv[F[_]: Foldable, E: IsShapeEnv]
         : IsShapeEnv[F[E]] =
       new IsShapeEnv[F[E]] {
@@ -202,6 +220,48 @@ object Shape {
             case Validated.Valid(good)   => Ior.Right(good :: acc)
             case Validated.Invalid(errs) => Ior.Both(errs, acc)
           }
+      }
+      .map(_.reverse)
+
+  private def aliasStub(
+      alias: TypeAlias[Option[Kind.Arg]]
+  ): DefinedType[Option[Kind.Arg]] =
+    DefinedType(
+      packageName = alias.packageName,
+      name = alias.name,
+      annotatedTypeParams = alias.annotatedTypeParams,
+      constructors = List(
+        ConstructorFn(
+          name = alias.name.ident,
+          args = List(
+            ConstructorParam(
+              dev.bosatsu.Identifier.Name("value"),
+              alias.rhs,
+              None
+            )
+          )
+        )
+      )
+    )
+
+  def solveAlias[E: IsShapeEnv](
+      imports: E,
+      alias: TypeAlias[Option[Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Either[KnownShape, Kind.Arg]]] =
+    solveShape(imports, aliasStub(alias)).map { solved =>
+      alias.copy(annotatedTypeParams = solved.annotatedTypeParams)
+    }
+
+  def solveAliases[E: IsShapeEnv](
+      imports: E,
+      aliases: List[TypeAlias[Option[Kind.Arg]]]
+  ): IorNec[Error, List[TypeAlias[Either[KnownShape, Kind.Arg]]]] =
+    aliases
+      .foldM(List.empty[TypeAlias[Either[KnownShape, Kind.Arg]]]) { (acc, alias) =>
+        solveAlias((imports, acc), alias) match {
+          case Validated.Valid(good)   => Ior.Right(good :: acc)
+          case Validated.Invalid(errs) => Ior.Both(errs, acc)
+        }
       }
       .map(_.reverse)
 

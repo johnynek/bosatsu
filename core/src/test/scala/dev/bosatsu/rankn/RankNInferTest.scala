@@ -7,7 +7,7 @@ import Expr._
 import Type.Var.Bound
 import Type.forAll
 
-import TestUtils.{checkLast, testPackage}
+import TestUtils.{checkEnvExpr, checkLast, testPackage}
 
 import Identifier.Constructor
 
@@ -931,6 +931,69 @@ def optBind(opt, bindFn):
 main = Monad(Some, optBind)
 """,
       "Monad[Opt]"
+    )
+
+    parseProgram(
+      """#
+Foo = Option[Int]
+
+main: Foo = Some(1)
+""",
+      "Option[Int]"
+    )
+
+    parseProgram(
+      """#
+Result = Option[Int]
+
+struct Box(item: Result)
+
+def read(box: Box) -> Result:
+  match box:
+    case Box(item): item
+
+main = read(Box(Some(1)))
+""",
+      "Option[Int]"
+    )
+
+    parseProgram(
+      """#
+struct Quux(first, second)
+
+Alias[a] = Quux[a, Int]
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
+
+def alias_bind(value, bind_fn):
+  match value:
+    case Quux(a, _): bind_fn(a)
+
+main = Monad((a) -> Quux(a, 0), alias_bind)
+""",
+      "Monad[Alias]"
+    )
+
+    checkEnvExpr(
+      """#
+Contra[a] = a -> Int
+
+main = 1
+"""
+    ) { (typeEnv, _) =>
+      val alias =
+        typeEnv
+          .getTypeAlias(testPackage, TypeName(Identifier.Constructor("Contra")))
+          .getOrElse(fail("expected Contra alias"))
+      assertEquals(alias.kindOf, Kind(Kind.Arg(Variance.contra, Kind.Type)))
+    }
+
+    parseProgramIllTyped(
+      """#
+Bad[a: +*] = a -> Int
+
+main = 1
+"""
     )
 
     parseProgram(

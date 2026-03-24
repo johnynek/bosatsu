@@ -6,7 +6,7 @@ import cats.data.{NonEmptyList, ReaderT}
 import cats.parse.{Parser => P}
 //import cats.effect.IO
 import dev.bosatsu.graph.Memoize
-import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeEnv}
+import dev.bosatsu.rankn.{ConstructorParam, DefinedType, Type, TypeAlias, TypeEnv}
 import dev.bosatsu.tool.CliException
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
@@ -50,6 +50,11 @@ object ProtoConverter {
   @unused private given canEqualDefinedTypeRefValue: CanEqual[
     proto.DefinedTypeReference.Value,
     proto.DefinedTypeReference.Value
+  ] =
+    CanEqual.derived
+  @unused private given canEqualTypeAliasRefValue: CanEqual[
+    proto.TypeAliasReference.Value,
+    proto.TypeAliasReference.Value
   ] =
     CanEqual.derived
   @unused private given canEqualConstructorRefValue: CanEqual[
@@ -286,6 +291,7 @@ object ProtoConverter {
       strings: Array[String],
       types: Array[Type],
       dts: Array[DefinedType[Kind.Arg]],
+      tas: Array[TypeAlias[Kind.Arg]],
       patterns: Array[Pattern[(PackageName, Constructor), Type]],
       expr: Array[TypedExpr[Region]]
   ) {
@@ -319,29 +325,40 @@ object ProtoConverter {
     def getDefinedTypes: List[DefinedType[Kind.Arg]] =
       dts.toList
 
+    def getTypeAlias(idx: Int): Option[TypeAlias[Kind.Arg]] =
+      if ((0 <= idx) && (idx < tas.length)) Some(tas(idx))
+      else None
+
+    def getTypeAliases: List[TypeAlias[Kind.Arg]] =
+      tas.toList
+
     def getExpr(idx: Int): Option[TypedExpr[Region]] =
       if ((0 <= idx) && (idx < expr.length)) Some(expr(idx))
       else None
 
     def withDefinedTypes(vdts: Seq[DefinedType[Kind.Arg]]): DecodeState =
-      new DecodeState(strings, types, vdts.toArray, patterns, expr)
+      new DecodeState(strings, types, vdts.toArray, tas, patterns, expr)
+
+    def withTypeAliases(vtas: Seq[TypeAlias[Kind.Arg]]): DecodeState =
+      new DecodeState(strings, types, dts, vtas.toArray, patterns, expr)
 
     def withTypes(ary: Array[Type]): DecodeState =
-      new DecodeState(strings, ary, dts, patterns, expr)
+      new DecodeState(strings, ary, dts, tas, patterns, expr)
 
     def withPatterns(
         ary: Array[Pattern[(PackageName, Constructor), Type]]
     ): DecodeState =
-      new DecodeState(strings, types, dts, ary, expr)
+      new DecodeState(strings, types, dts, tas, ary, expr)
 
     def withExprs(ary: Array[TypedExpr[Region]]): DecodeState =
-      new DecodeState(strings, types, dts, patterns, ary)
+      new DecodeState(strings, types, dts, tas, patterns, ary)
   }
 
   object DecodeState {
     def init(strings: Seq[String]): DecodeState =
       new DecodeState(
         strings.toArray,
+        Array.empty,
         Array.empty,
         Array.empty,
         Array.empty,
@@ -386,6 +403,18 @@ object ProtoConverter {
       }
 
     ReaderT[Try, DecodeState, DefinedType[Kind.Arg]](run)
+
+  private inline def lookupTypeAlias(
+      idx: Int,
+      inline context: => String
+  ): DTab[TypeAlias[Kind.Arg]] =
+    def run(decodeState: DecodeState): Try[TypeAlias[Kind.Arg]] =
+      decodeState.getTypeAlias(idx - 1) match {
+        case Some(ta) => Success(ta)
+        case None     => Failure(new Exception(s"invalid index: $idx in $context"))
+      }
+
+    ReaderT[Try, DecodeState, TypeAlias[Kind.Arg]](run)
 
   private inline def lookupExpr(
       idx: Int,
@@ -1363,21 +1392,41 @@ object ProtoConverter {
         Failure(new Exception("missing Kind"))
     }
 
+  private def typeParamToProto(
+      tv: (Type.Var.Bound, Kind.Arg)
+  ): Tab[proto.TypeParam] =
+    typeVarBoundToProto(tv._1)
+      .map { tvb =>
+        val Kind.Arg(variance, kind) = tv._2
+        proto.TypeParam(
+          Some(tvb),
+          varianceToProto(variance),
+          Some(kindToProto(kind))
+        )
+      }
+
+  private def typeParamFromProto(
+      tp: proto.TypeParam
+  ): DTab[(Type.Var.Bound, Kind.Arg)] =
+    tp.typeVar match {
+      case None =>
+        ReaderT.liftF(
+          Failure(new Exception(s"expected type variable in $tp"))
+        )
+      case Some(tv) =>
+        val ka = for {
+          v <- varianceFromProto(tp.variance)
+          k <- kindFromProto(tp.kind)
+        } yield Kind.Arg(v, k)
+
+        typeVarBoundFromProto(tv)
+          .product(ReaderT.liftF(ka))
+    }
+
   def definedTypeToProto(d: DefinedType[Kind.Arg]): Tab[proto.DefinedType] =
     typeConstToProto(d.toTypeConst).flatMap { tc =>
-      def paramToProto(tv: (Type.Var.Bound, Kind.Arg)): Tab[proto.TypeParam] =
-        typeVarBoundToProto(tv._1)
-          .map { tvb =>
-            val Kind.Arg(variance, kind) = tv._2
-            proto.TypeParam(
-              Some(tvb),
-              varianceToProto(variance),
-              Some(kindToProto(kind))
-            )
-          }
-
       val protoTypeParams: Tab[List[proto.TypeParam]] =
-        d.annotatedTypeParams.traverse(paramToProto)
+        d.annotatedTypeParams.traverse(typeParamToProto)
 
       val constructors: Tab[List[proto.ConstructorFn]] =
         d.constructors.traverse { cf =>
@@ -1406,7 +1455,7 @@ object ProtoConverter {
                   defaultTypeOf = defaultTypeIdx
                 )
               },
-            cf.exists.traverse(paramToProto)
+            cf.exists.traverse(typeParamToProto)
           ).flatMapN { (params, exists) =>
             getId(cf.name.asString)
               .map { id =>
@@ -1422,22 +1471,6 @@ object ProtoConverter {
   def definedTypeFromProto(
       pdt: proto.DefinedType
   ): DTab[DefinedType[Kind.Arg]] = {
-    def paramFromProto(tp: proto.TypeParam): DTab[(Type.Var.Bound, Kind.Arg)] =
-      tp.typeVar match {
-        case None =>
-          ReaderT.liftF(
-            Failure(new Exception(s"expected type variable in $tp"))
-          )
-        case Some(tv) =>
-          val ka = for {
-            v <- varianceFromProto(tp.variance)
-            k <- kindFromProto(tp.kind)
-          } yield Kind.Arg(v, k)
-
-          typeVarBoundFromProto(tv)
-            .product(ReaderT.liftF(ka))
-      }
-
     def fnParamFromProto(p: proto.FnParam): DTab[ConstructorParam] =
       for {
         name <- lookup(p.name, p.toString)
@@ -1471,7 +1504,7 @@ object ProtoConverter {
             .flatMap { cname =>
               (
                 c.params.toList.traverse(fnParamFromProto),
-                c.exists.toList.traverse(paramFromProto)
+                c.exists.toList.traverse(typeParamFromProto)
               ).mapN { (fnParams, exists) =>
                 rankn.ConstructorFn(cname, fnParams, exists)
               }
@@ -1484,14 +1517,38 @@ object ProtoConverter {
       case Some(tc) =>
         for {
           tconst <- typeConstFromProto(tc)
-          tparams <- pdt.typeParams.toList.traverse(paramFromProto)
+          tparams <- pdt.typeParams.toList.traverse(typeParamFromProto)
           cons <- pdt.constructors.toList.traverse(consFromProto)
         } yield DefinedType(tconst.packageName, tconst.name, tparams, cons)
     }
   }
 
+  def typeAliasToProto(ta: TypeAlias[Kind.Arg]): Tab[proto.TypeAlias] =
+    (
+      typeConstToProto(ta.toTypeConst),
+      ta.annotatedTypeParams.traverse(typeParamToProto),
+      typeToProto(ta.rhs)
+    ).mapN { (tc, params, rhs) =>
+      proto.TypeAlias(Some(tc), params, rhs)
+    }
+
+  def typeAliasFromProto(
+      pta: proto.TypeAlias
+  ): DTab[TypeAlias[Kind.Arg]] =
+    pta.typeConst match {
+      case None =>
+        ReaderT.liftF(Failure(new Exception(s"missing typeConst: $pta")))
+      case Some(tc) =>
+        for {
+          tconst <- typeConstFromProto(tc)
+          tparams <- pta.typeParams.toList.traverse(typeParamFromProto)
+          rhs <- lookupType(pta.rhs, s"invalid type alias rhs in $pta")
+        } yield TypeAlias(tconst.packageName, tconst.name, tparams, rhs)
+    }
+
   def referantToProto[V](
       allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+      allAliases: Map[(PackageName, TypeName), (TypeAlias[Any], Int)],
       r: Referant[V]
   ): Tab[proto.Referant] =
     r match {
@@ -1521,6 +1578,30 @@ object ProtoConverter {
                 proto.Referant.Referant.DefinedType(
                   proto.DefinedTypeReference(
                     proto.DefinedTypeReference.Value.ImportedDefinedType(tc)
+                  )
+                )
+              )
+            }
+        }
+      case Referant.TypeAliasT(ta) =>
+        val key = (ta.packageName, ta.name)
+        allAliases.get(key) match {
+          case Some((_, idx)) =>
+            tabPure(
+              proto.Referant(
+                proto.Referant.Referant.TypeAlias(
+                  proto.TypeAliasReference(
+                    proto.TypeAliasReference.Value.LocalTypeAliasPtr(idx + 1)
+                  )
+                )
+              )
+            )
+          case None =>
+            typeConstToProto(ta.toTypeConst).map { tc =>
+              proto.Referant(
+                proto.Referant.Referant.TypeAlias(
+                  proto.TypeAliasReference(
+                    proto.TypeAliasReference.Value.ImportedTypeAlias(tc)
                   )
                 )
               )
@@ -1570,9 +1651,10 @@ object ProtoConverter {
 
   def expNameToProto[V](
       allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+      allAliases: Map[(PackageName, TypeName), (TypeAlias[Any], Int)],
       e: ExportedName[Referant[V]]
   ): Tab[proto.ExportedName] = {
-    val protoRef: Tab[proto.Referant] = referantToProto(allDts, e.tag)
+    val protoRef: Tab[proto.Referant] = referantToProto(allDts, allAliases, e.tag)
     val exKind: Tab[(Int, proto.ExportKind)] = e match {
       case ExportedName.Binding(b, _) =>
         getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
@@ -1629,30 +1711,41 @@ object ProtoConverter {
           .filter(_.packageName == iface.name)
       })
       .mapWithIndex((dt, idx) => (dt, idx))
+    val allAliases = TypeAlias
+      .listToMap(iface.exports.flatMap { ex =>
+        ex.tag.typeAlias
+          .filter(_.packageName == iface.name)
+      })
+      .mapWithIndex((ta, idx) => (ta, idx))
 
     val tryProtoDts = allDts
       .traverse { case (dt, _) => definedTypeToProto(dt) }
       .map(_.iterator.map(_._2).toList)
+    val tryProtoAliases = allAliases
+      .traverse { case (ta, _) => typeAliasToProto(ta) }
+      .map(_.iterator.map(_._2).toList)
 
-    val tryExports = iface.exports.traverse(expNameToProto(allDts, _))
+    val tryExports = iface.exports.traverse(expNameToProto(allDts, allAliases, _))
 
     val packageId = getId(iface.name.asString)
 
-    val last = packageId.product(tryProtoDts).product(tryExports)
+    val last = packageId.product(tryProtoDts).product(tryProtoAliases).product(tryExports)
 
-    runTab(last).map { case (serstate, ((nm, dts), exps)) =>
+    runTab(last).map { case (serstate, (((nm, dts), tas), exps)) =>
       proto.Interface(
         serstate.strings.inOrder,
         serstate.types.inOrder,
         dts,
         nm,
-        exps
+        exps,
+        tas
       )
     }
   }
 
   private def referantFromProto(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+      loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
       ref: proto.Referant
   ): DTab[Referant[Kind.Arg]] =
     ref.referant match {
@@ -1713,16 +1806,30 @@ object ProtoConverter {
           case proto.ConstructorReference.Value.Empty =>
             ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
         }
+      case proto.Referant.Referant
+            .TypeAlias(proto.TypeAliasReference(aliasRef, _)) =>
+        aliasRef match {
+          case proto.TypeAliasReference.Value.LocalTypeAliasPtr(idx) =>
+            lookupTypeAlias(idx, s"invalid type alias in $ref")
+              .map(Referant.TypeAliasT(_))
+          case proto.TypeAliasReference.Value.ImportedTypeAlias(tc) =>
+            typeConstFromProto(tc)
+              .flatMapF(loadTA)
+              .map(Referant.TypeAliasT(_))
+          case proto.TypeAliasReference.Value.Empty =>
+            ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
+        }
       case proto.Referant.Referant.Empty =>
         ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
     }
 
   private def exportedNameFromProto(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+      loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
       en: proto.ExportedName
   ): DTab[ExportedName[Referant[Kind.Arg]]] = {
     val tryRef: DTab[Referant[Kind.Arg]] = en.referant match {
-      case Some(r) => referantFromProto(loadDT, r)
+      case Some(r) => referantFromProto(loadDT, loadTA, r)
       case None    =>
         ReaderT.liftF(Failure(new Exception(s"missing referant in $en")))
     }
@@ -1771,6 +1878,7 @@ object ProtoConverter {
 
   private def interfaceFromProto0(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+      loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
       protoIface: proto.Interface
   ): Try[Package.Interface] = {
     val tab: DTab[Package.Interface] =
@@ -1778,7 +1886,7 @@ object ProtoConverter {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
         pn <- ReaderT.liftF(parsePack(packageName, s"interface: $protoIface"))
         exports <- protoIface.exports.toList.traverse(
-          exportedNameFromProto(loadDT, _)
+          exportedNameFromProto(loadDT, loadTA, _)
         )
       } yield Package(pn, Nil, exports, ())
 
@@ -1788,6 +1896,9 @@ object ProtoConverter {
         Scoped(buildTypes(protoIface.types))(_.withTypes(_)),
         Scoped(protoIface.definedTypes.toVector.traverse(definedTypeFromProto))(
           _.withDefinedTypes(_)
+        ),
+        Scoped(protoIface.typeAliases.toVector.traverse(typeAliasFromProto))(
+          _.withTypeAliases(_)
         )
       )(tab)
       .run(DecodeState.init(protoIface.strings))
@@ -1812,6 +1923,7 @@ object ProtoConverter {
 
   def importedNameToProto(
       allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+      allAliases: Map[(PackageName, TypeName), (TypeAlias[Any], Int)],
       in: ImportedName[NonEmptyList[Referant[Kind.Arg]]]
   ): Tab[proto.ImportedName] = {
 
@@ -1823,17 +1935,18 @@ object ProtoConverter {
     for {
       orig <- getId(in.originalName.sourceCodeRepr)
       local <- locName.traverse(ln => getId(ln.sourceCodeRepr))
-      refs <- in.tag.toList.traverse(referantToProto(allDts, _))
+      refs <- in.tag.toList.traverse(referantToProto(allDts, allAliases, _))
     } yield proto.ImportedName(orig, local.getOrElse(0), refs)
   }
 
   def importToProto(
       allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+      allAliases: Map[(PackageName, TypeName), (TypeAlias[Any], Int)],
       i: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
   ): Tab[proto.Imports] =
     for {
       nm <- getId(i.pack.name.asString)
-      imps <- i.items.toList.traverse(importedNameToProto(allDts, _))
+      imps <- i.items.toList.traverse(importedNameToProto(allDts, allAliases, _))
     } yield proto.Imports(nm, imps)
 
   def letToProto[A: HasRegion](
@@ -1859,18 +1972,24 @@ object ProtoConverter {
     val allDts
         : SortedMap[(PackageName, TypeName), (DefinedType[Kind.Arg], Int)] =
       cpack.types.definedTypes.mapWithIndex((dt, idx) => (dt, idx))
+    val allAliases
+        : SortedMap[(PackageName, TypeName), (TypeAlias[Kind.Arg], Int)] =
+      cpack.types.typeAliases.mapWithIndex((ta, idx) => (ta, idx))
     val dtVect: Vector[DefinedType[Kind.Arg]] =
       allDts.values.iterator.map(_._1).toVector
+    val taVect: Vector[TypeAlias[Kind.Arg]] =
+      allAliases.values.iterator.map(_._1).toVector
     val tab =
       for {
         nmId <- getId(cpack.name.asString)
-        imps <- cpack.imports.traverse(importToProto(allDts, _))
-        exps <- cpack.exports.traverse(expNameToProto(allDts, _))
+        imps <- cpack.imports.traverse(importToProto(allDts, allAliases, _))
+        exps <- cpack.exports.traverse(expNameToProto(allDts, allAliases, _))
         lets <- cpack.lets.traverse(letToProto)
         exdefs <- cpack.externalDefs.traverse { nm =>
           extDefToProto(nm, cpack.types.getValue(cpack.name, nm))
         }
         dts <- dtVect.traverse(definedTypeToProto)
+        tas <- taVect.traverse(typeAliasToProto)
       } yield { (ss: SerState) =>
         proto.Package(
           strings = ss.strings.inOrder,
@@ -1882,7 +2001,8 @@ object ProtoConverter {
           imports = imps,
           exports = exps,
           lets = lets,
-          externalDefs = exdefs
+          externalDefs = exdefs,
+          typeAliases = tas
         )
       }
 
@@ -1943,6 +2063,7 @@ object ProtoConverter {
 
   def importedNameFromProto(
       loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+      loadTA: Type.Const => Try[TypeAlias[Kind.Arg]],
       iname: proto.ImportedName
   ): DTab[ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
     def build[A](orig: Identifier, ref: A): DTab[ImportedName[A]] =
@@ -1961,7 +2082,7 @@ object ProtoConverter {
       case Some(refs) =>
         for {
           orig <- lookupIdentifier(iname.originalName, iname.toString)
-          rs <- refs.traverse(referantFromProto(loadDT, _))
+          rs <- refs.traverse(referantFromProto(loadDT, loadTA, _))
           in <- build(orig, rs)
         } yield in
     }
@@ -1970,7 +2091,8 @@ object ProtoConverter {
   def importsFromProto(
       imp: proto.Imports,
       lookupIface: PackageName => Try[Package.Interface],
-      loadDT: Type.Const => Try[DefinedType[Kind.Arg]]
+      loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+      loadTA: Type.Const => Try[TypeAlias[Kind.Arg]]
   ): DTab[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]] =
     NonEmptyList.fromList(imp.names.toList) match {
       case None =>
@@ -1982,7 +2104,7 @@ object ProtoConverter {
           pnameStr <- lookup(imp.packageName, imp.toString)
           pname <- ReaderT.liftF(parsePack(pnameStr, imp.toString))
           iface <- ReaderT.liftF(lookupIface(pname))
-          inames <- nei.traverse(importedNameFromProto(loadDT, _))
+          inames <- nei.traverse(importedNameFromProto(loadDT, loadTA, _))
         } yield Import(iface, inames)
     }
 
@@ -2014,7 +2136,7 @@ object ProtoConverter {
         // this adds all the types and contructors
         // from the given defined types
         val te0: TypeEnv[Kind.Arg] =
-          TypeEnv.fromDefinitions(ds.getDefinedTypes)
+          TypeEnv.fromDefinitionsAndAliases(ds.getDefinedTypes, ds.getTypeAliases)
         // we need to also add all the external defs
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
           te.addExternalValue(pack, b, t)
@@ -2163,6 +2285,27 @@ object ProtoConverter {
               }
           }
 
+          def makeLoadTA(
+              load: String => Try[Either[
+                (Package.Interface, TypeEnv[Kind.Arg]),
+                Package.Compiled
+              ]]
+          ): Type.Const => Try[TypeAlias[Kind.Arg]] = {
+            case tc @ Type.Const.Defined(p, _) =>
+              val res = load(p.asString).map {
+                case Left((_, dt)) =>
+                  dt.toTypeAlias(tc)
+                case Right(comp) =>
+                  comp.types.toTypeAlias(tc)
+              }
+
+              res.flatMap {
+                case None =>
+                  Failure(new Exception(s"unknown type alias $tc not present"))
+                case Some(ta) => Success(ta)
+              }
+          }
+
           /*
            * We know we have a dag now, so we can just go through
            * loading them.
@@ -2185,6 +2328,7 @@ object ProtoConverter {
             }
 
             val loadDT = makeLoadDT(load)
+            val loadTA = makeLoadTA(load)
 
             val tab: DTab[Package.Compiled] =
               for {
@@ -2193,7 +2337,7 @@ object ProtoConverter {
                   parsePack(packageNameStr, pack.toString)
                 )
                 imps <- pack.imports.toList.traverse(
-                  importsFromProto(_, loadIface, loadDT)
+                  importsFromProto(_, loadIface, loadDT, loadTA)
                 )
                 impMap <- ReaderT.liftF(
                   ImportMap.fromImports(imps)((_, _) =>
@@ -2207,7 +2351,7 @@ object ProtoConverter {
                   }
                 )
                 exps <- pack.exports.toList.traverse(
-                  exportedNameFromProto(loadDT, _)
+                  exportedNameFromProto(loadDT, loadTA, _)
                 )
                 lets <- pack.lets.toList.traverse(letsFromProto)
                 eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
@@ -2219,6 +2363,9 @@ object ProtoConverter {
               Scoped(buildTypes(pack.types))(_.withTypes(_)),
               Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(
                 _.withDefinedTypes(_)
+              ),
+              Scoped(pack.typeAliases.toVector.traverse(typeAliasFromProto))(
+                _.withTypeAliases(_)
               ),
               Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
               Scoped(buildExprs(pack.expressions))(_.withExprs(_))
@@ -2241,7 +2388,8 @@ object ProtoConverter {
               ifacePackMap.get(pack) match {
                 case Some((Some(iface), Some(p))) =>
                   val loadDT = makeLoadDT(rec)
-                  val ifaceRes = interfaceFromProto0(loadDT, iface)
+                  val loadTA = makeLoadTA(rec)
+                  val ifaceRes = interfaceFromProto0(loadDT, loadTA, iface)
                   packFromProtoUncached(p, rec).flatMap { pack0 =>
                     ifaceRes.flatMap { iface0 =>
                       val derived = Package.interfaceOf(pack0)
@@ -2255,7 +2403,7 @@ object ProtoConverter {
                     }
                   }
                 case Some((Some(iface), None)) =>
-                  interfaceFromProto0(makeLoadDT(rec), iface)
+                  interfaceFromProto0(makeLoadDT(rec), makeLoadTA(rec), iface)
                     .map { iface =>
                       Left(
                         (

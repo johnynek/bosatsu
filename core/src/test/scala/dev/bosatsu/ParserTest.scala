@@ -2103,6 +2103,11 @@ struct Monad[f](
 """
     )
 
+    roundTrip(Statement.parser, "Foo = Bar[Int]")
+    roundTrip(Statement.parser, "Baz[a] = List[a]")
+    roundTrip(Statement.parser, "Baz[a: +*] = List[a]")
+    assert(Statement.parser.parseAll("Foo =").isLeft)
+
     // we can put new-lines in defs
     roundTrip(
       Statement.parser,

@@ -15,7 +15,9 @@ import dev.bosatsu.rankn.{
   RefSpace,
   Type => RankNType,
   TypeEnv,
-  DefinedType
+  DefinedType,
+  ParsedTypeEnv,
+  TypeAlias
 }
 import dev.bosatsu.graph.Dag
 import dev.bosatsu.Shape.KnownShape
@@ -193,15 +195,12 @@ object KindFormula {
   }
 
   trait IsTypeEnv[E] {
-    def getDefinedType(
-        env: E,
-        tc: rankn.Type.Const
-    ): Option[DefinedType[Kind.Arg]]
+    def getKind(env: E, tc: rankn.Type.Const): Option[Kind]
 
     final def toShapeEnv: Shape.IsShapeEnv[E] =
       new Shape.IsShapeEnv[E] {
         def getShape(e: E, tc: rankn.Type.Const): Option[Shape.KnownShape] =
-          getDefinedType(e, tc).map(Shape.ShapeOf(_))
+          getKind(e, tc).map(Shape.shapeOf)
       }
   }
 
@@ -210,47 +209,60 @@ object KindFormula {
 
     implicit val typeEnvIsTypeEnv: IsTypeEnv[TypeEnv[Kind.Arg]] =
       new IsTypeEnv[TypeEnv[Kind.Arg]] {
-        def getDefinedType(
+        def getKind(
             env: TypeEnv[Kind.Arg],
             tc: rankn.Type.Const
-        ): Option[DefinedType[Kind.Arg]] =
-          env.toDefinedType(tc)
+        ): Option[Kind] =
+          env
+            .toDefinedType(tc)
+            .map(_.kindOf)
+            .orElse(env.toTypeAlias(tc).map(_.kindOf))
       }
 
     implicit def tuple2TypeEnv[A: IsTypeEnv, B: IsTypeEnv]: IsTypeEnv[(A, B)] =
       new IsTypeEnv[(A, B)] {
-        def getDefinedType(
+        def getKind(
             env: (A, B),
             tc: rankn.Type.Const
-        ): Option[DefinedType[Kind.Arg]] =
+        ): Option[Kind] =
           IsTypeEnv[A]
-            .getDefinedType(env._1, tc)
-            .orElse(IsTypeEnv[B].getDefinedType(env._2, tc))
+            .getKind(env._1, tc)
+            .orElse(IsTypeEnv[B].getKind(env._2, tc))
       }
 
     implicit val singleTypeEnv: IsTypeEnv[DefinedType[Kind.Arg]] =
       new IsTypeEnv[DefinedType[Kind.Arg]] {
-        def getDefinedType(
+        def getKind(
             dt: DefinedType[Kind.Arg],
             tc: rankn.Type.Const
-        ) =
-          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt)
+        ): Option[Kind] =
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt.kindOf)
+          else None
+      }
+
+    implicit val singleAliasTypeEnv: IsTypeEnv[TypeAlias[Kind.Arg]] =
+      new IsTypeEnv[TypeAlias[Kind.Arg]] {
+        def getKind(
+            ta: TypeAlias[Kind.Arg],
+            tc: rankn.Type.Const
+        ): Option[Kind] =
+          if ((ta.toTypeConst: rankn.Type.Const) == tc) Some(ta.kindOf)
           else None
       }
 
     implicit def foldableTypeEnv[F[_]: Foldable, E: IsTypeEnv]
         : IsTypeEnv[F[E]] =
       new IsTypeEnv[F[E]] {
-        def getDefinedType(env: F[E], tc: rankn.Type.Const) =
-          env.collectFirstSomeM[cats.Id, DefinedType[Kind.Arg]](
-            IsTypeEnv[E].getDefinedType(_, tc)
+        def getKind(env: F[E], tc: rankn.Type.Const) =
+          env.collectFirstSomeM[cats.Id, Kind](
+            IsTypeEnv[E].getKind(_, tc)
           )
       }
 
     implicit val emptyTypeEnv: IsTypeEnv[Unit] =
       new IsTypeEnv[Unit] {
-        def getDefinedType(env: Unit, tc: rankn.Type.Const) =
-          Option.empty[DefinedType[Kind.Arg]]
+        def getKind(env: Unit, tc: rankn.Type.Const) =
+          Option.empty[Kind]
       }
   }
 
@@ -263,6 +275,156 @@ object KindFormula {
       .solveAll(imports, dts)
       .leftMap(_.map(Error.FromShapeError(_)))
       .flatMap(solveAll(imports, _))
+  }
+
+  private def aliasStub[A](
+      alias: TypeAlias[A]
+  ): DefinedType[A] =
+    DefinedType(
+      packageName = alias.packageName,
+      name = alias.name,
+      annotatedTypeParams = alias.annotatedTypeParams,
+      constructors = List(
+        ConstructorFn(
+          name = alias.name.ident,
+          args = List(
+            rankn.ConstructorParam(
+              dev.bosatsu.Identifier.Name("value"),
+              alias.rhs,
+              None
+            )
+          )
+        )
+      )
+    )
+
+  def solveAliasShapes[E: IsTypeEnv](
+      imports: E,
+      alias: TypeAlias[Option[Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Either[KnownShape, Kind.Arg]]] = {
+    implicit val shapeEnv: Shape.IsShapeEnv[E] = IsTypeEnv[E].toShapeEnv
+    Shape.solveAlias(imports, alias).leftMap(_.map(Error.FromShapeError(_)))
+  }
+
+  def solveAliasKinds[E: IsTypeEnv](
+      imports: E,
+      alias: TypeAlias[Either[KnownShape, Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Kind.Arg]] = {
+    import Impl._
+
+    val aliasDt = aliasStub(alias)
+    val aliasCfn = aliasDt.constructors.head
+
+    (for {
+      state <- Impl.newState(imports, aliasDt)
+      params <- alias.annotatedTypeParams.zipWithIndex.traverse {
+        case ((v, Left(ks)), _)    =>
+          state.shapeToArg(Direction.PhantomUp, ks).map(v -> _)
+        case ((v, Right(ka)), idx) =>
+          state.kindArgToArg(ka)(Constraint.DeclaredParam(idx, _)).map(v -> _)
+      }
+      aliasFormula = alias.copy(annotatedTypeParams = params)
+      kindMap = aliasFormula.annotatedTypeParams.iterator.map { case (k, v) =>
+        (k, Impl.BoundState.IsArg(v))
+      }.toMap
+      thisKind = aliasFormula.annotatedTypeParams.foldRight(Type: KindFormula) {
+        case ((_, a), t) => Cons(a, t)
+      }
+      view <- state.nextVar(Direction.PhantomUp)
+      _ <- state.addCons(
+        view,
+        Constraint.UnifyVariance(aliasCfn, 0, alias.rhs, Variance.co)
+      )
+      _ <- state.addTypeConstraints(
+        Direction.PhantomUp,
+        thisKind,
+        aliasCfn,
+        0,
+        view,
+        alias.rhs,
+        Type,
+        kindMap
+      )
+      constraints <- state.getConstraints
+      dirs <- state.getDirections
+      varCount <- state.nextId
+      topo = Impl.combineTopo(varCount, constraints)
+      maybeRes = Impl.go(aliasDt, constraints, dirs, topo).map { vars =>
+        aliasFormula.copy(
+          annotatedTypeParams =
+            aliasFormula.annotatedTypeParams.map { case (tv, arg) =>
+              (tv, Impl.unformula(arg, vars))
+            }
+        )
+      }
+    } yield maybeRes).run.value
+  }
+
+  def solveShapesAndKinds[E: IsTypeEnv](
+      imports: E,
+      parsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]]
+  ): IorNec[Error, ParsedTypeEnv[Kind.Arg]] = {
+    val _ = IsTypeEnv[E]
+    parsedTypeEnv.orderedTypes.reverse
+      .foldM((List.empty[DefinedType[Kind.Arg]], List.empty[TypeAlias[Kind.Arg]], List.empty[
+        ParsedTypeEnv.TypeStatement[Kind.Arg]
+      ])) {
+        case ((dtsAcc, aliasAcc, orderedAcc), stmt) =>
+          val priorEnv = (imports, dtsAcc, aliasAcc)
+          stmt match {
+            case ParsedTypeEnv.TypeStatement.Defined(dt) =>
+              val res =
+                Shape
+                  .solveShape(priorEnv, dt)
+                  .leftMap(_.map(Error.FromShapeError(_)))
+                  .andThen(solveKind(priorEnv, _))
+              res match {
+                case Validated.Valid(good)   =>
+                  Ior.Right(
+                    (
+                      good :: dtsAcc,
+                      aliasAcc,
+                      ParsedTypeEnv.TypeStatement.Defined(good) :: orderedAcc
+                    )
+                  )
+                case Validated.Invalid(errs) =>
+                  Ior.Both(
+                    errs,
+                    (
+                      dtsAcc,
+                      aliasAcc,
+                      orderedAcc
+                    )
+                  )
+              }
+            case ParsedTypeEnv.TypeStatement.Alias(alias) =>
+              val res =
+                Shape
+                  .solveAlias(priorEnv, alias)
+                  .leftMap(_.map(Error.FromShapeError(_)))
+                  .andThen(solveAliasKinds(priorEnv, _))
+              res match {
+                case Validated.Valid(good)   =>
+                  Ior.Right(
+                    (
+                      dtsAcc,
+                      good :: aliasAcc,
+                      ParsedTypeEnv.TypeStatement.Alias(good) :: orderedAcc
+                    )
+                  )
+                case Validated.Invalid(errs) =>
+                  Ior.Both(errs, (dtsAcc, aliasAcc, orderedAcc))
+              }
+          }
+      }
+      .map { case (dts, aliases, ordered) =>
+        ParsedTypeEnv(
+          allDefinedTypes = dts.reverse,
+          typeAliases = aliases.reverse,
+          orderedTypes = ordered.reverse,
+          externalDefs = parsedTypeEnv.externalDefs
+        )
+      }
   }
 
   def solveAll[E: IsTypeEnv](
@@ -700,19 +862,15 @@ object KindFormula {
                 consts.get(c) match {
                   case Some(kf) => RefSpace.pure(kf)
                   case None     =>
-                    val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
-                      case Some(thisDt) => thisDt.kindOf
-                      case None         =>
-                        // some test code relies on syntax but doesn't import predef
-                        // TODO remove the built ins here
-                        rankn.Type.builtInKinds.get(c.toDefined) match {
-                          case Some(kind) => kind
-                          // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
-                          case None =>
-                            sys.error(
-                              s"invariant violation (line 674): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
-                            )
-                        }
+                    val kind = IsTypeEnv[E]
+                      .getKind(imports, c)
+                      .orElse(rankn.Type.builtInKinds.get(c.toDefined)) match {
+                      case Some(kind) => kind
+                      // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
+                      case None =>
+                        sys.error(
+                          s"invariant violation (line 674): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                        )
                       // $COVERAGE-ON$
                     }
                     // we reset direct direction for a constant type
@@ -848,8 +1006,7 @@ object KindFormula {
             } else {
               // Has to be in the imports
               val kind = IsTypeEnv[E]
-                .getDefinedType(imports, c)
-                .map(_.kindOf)
+                .getKind(imports, c)
                 .orElse(rankn.Type.builtInKinds.get(c.toDefined)) match {
                 case Some(k) => k
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first

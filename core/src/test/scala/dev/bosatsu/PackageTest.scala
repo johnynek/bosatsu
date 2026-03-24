@@ -469,4 +469,57 @@ main = 1
       0
     )
   }
+
+  test("exported type aliases can be imported transparently") {
+    val exported = parse("""
+package Alias/Export
+export Foo, mkFoo
+
+struct Box(item)
+
+Foo = Box[Int]
+
+mkFoo: Foo = Box(1)
+""")
+
+    val imported = parse("""
+package Alias/Import
+from Alias/Export import Foo, mkFoo
+export main
+
+main: Foo = mkFoo
+""")
+
+    valid(resolveThenInfer(List(exported, imported)))
+  }
+
+  test("alias and type name collisions are rejected") {
+    invalid(resolveThenInfer(List(parse("""
+package Alias/Collision
+
+Foo = Int
+struct Foo
+
+main = 1
+"""))))
+  }
+
+  test("type aliases may only reference prior local type definitions") {
+    invalid(resolveThenInfer(List(parse("""
+package Alias/Forward
+
+Foo = Bar
+Bar = Int
+
+main = 1
+"""))))
+
+    invalid(resolveThenInfer(List(parse("""
+package Alias/Self
+
+Foo = Foo
+
+main = 1
+"""))))
+  }
 }

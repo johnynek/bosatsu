@@ -64,17 +64,21 @@ sealed abstract class Statement {
         ExternalDef(name, ta, args, res)(r)
       case ExternalStruct(nm, targs) =>
         ExternalStruct(nm, targs)(r)
+      case TypeAlias(nm, typeArgs, body) =>
+        TypeAlias(nm, typeArgs, body)(r)
     }
   }
 }
 
-sealed abstract class TypeDefinitionStatement extends Statement {
+sealed abstract class TypeStatement extends Statement {
+  def name: Constructor
+}
+
+sealed abstract class TypeDefinitionStatement extends TypeStatement {
   import Statement.{Struct, Enum, ExternalStruct}
 
   /** This is the name of the type being defined
     */
-  def name: Constructor
-
   /** here are the names of the constructors for this type
     */
   def constructors: List[Constructor] =
@@ -87,6 +91,13 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 }
 
 object Statement {
+
+  def typeStatementsOf(
+      stmts: Iterable[Statement]
+  ): LazyList[TypeStatement] =
+    stmts.iterator
+      .collect { case ts: TypeStatement => ts }
+      .to(LazyList)
 
   def definitionsOf(
       stmts: Iterable[Statement]
@@ -207,6 +218,12 @@ object Statement {
       args: List[ConstructorArg]
   )(val region: Region)
       extends TypeDefinitionStatement
+  case class TypeAlias(
+      name: Constructor,
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      body: TypeRef
+  )(val region: Region)
+      extends TypeStatement
 
   ////
   // These have no effect on the semantics of the Statement linked list
@@ -340,6 +357,13 @@ object Statement {
           Struct(name, typeArgs, argsList)(region)
         }
 
+    val typeAlias =
+      (((Identifier.consParser ~ typeParams.? <* maybeSpace <* Declaration.eqP <* maybeSpace) ~
+        TypeRef.parser).region <* toEOL)
+        .map { case (region, ((name, typeArgs), body)) =>
+          TypeAlias(name, typeArgs, body)(region)
+        }
+
     val enumP = {
       val constructorP =
         (Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region
@@ -387,7 +411,15 @@ object Statement {
 
     // bindingP should come last so there is no ambiguity about identifiers
     P.oneOf(
-      commentP :: paddingSP :: defP :: struct :: enumP :: external :: bindingP :: Nil
+      commentP ::
+        paddingSP ::
+        defP ::
+        struct ::
+        enumP ::
+        external ::
+        typeAlias ::
+        bindingP ::
+        Nil
     )
   }
 
@@ -514,6 +546,12 @@ object Statement {
         Doc.text("external struct ") + Document[Constructor].document(
           nm
         ) + taDoc + Doc.line
+      case TypeAlias(nm, typeArgs, body) =>
+        val taDoc = typeArgs match {
+          case None     => Doc.empty
+          case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
+        }
+        Document[Constructor].document(nm) + taDoc + Doc.text(" = ") + body.toDoc + Doc.line
     }
   }
 

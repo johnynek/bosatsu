@@ -143,15 +143,11 @@ object TestUtils {
 
     val Program((importedTypeEnv, parsedTypeEnv0), lets, _, _) = sourceConverted
     val parsedTypeEnv =
-      KindFormula
-        .solveShapesAndKinds(
-          importedTypeEnv,
-          parsedTypeEnv0.allDefinedTypes.reverse
-        ) match {
+      KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0) match {
         case Ior.Right(inferred)   =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Both(_, inferred) =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Left(errs)        =>
           fail(s"kind inference failed: ${errs.toList.mkString(", ")}")
       }
@@ -182,7 +178,8 @@ object TestUtils {
         .runFully(
           withFqn,
           importedTypeEnv.typeConstructors ++ typeEnv.typeConstructors,
-          fullTypeEnv.toKindMap
+          fullTypeEnv.toKindMap,
+          fullTypeEnv.allTypeAliases.iterator.map(ta => ta.toTypeConst -> ta).toMap
         )
     val typedLets =
       typedLetsEither.fold(

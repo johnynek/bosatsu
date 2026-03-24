@@ -462,6 +462,40 @@ bar = 1
     }
   }
 
+  test("interface proto preserves exported type aliases") {
+    val compiled = compilePackage(
+      """package Proto/AliasIface
+        |
+        |export Foo, mkFoo
+        |
+        |struct Box(item)
+        |
+        |Foo = Box[Int]
+        |
+        |mkFoo: Foo = Box(1)
+        |""".stripMargin
+    )
+    val iface = Package.interfaceOf(compiled)
+    law(iface, ProtoConverter.interfaceToProto, ProtoConverter.interfaceFromProto)
+  }
+
+  test("compiled package roundtrip preserves local type aliases") {
+    val compiled = compilePackage(
+      """package Proto/AliasPack
+        |
+        |export Foo, main
+        |
+        |struct Box(item)
+        |
+        |Foo = Box[Int]
+        |
+        |main: Foo = Box(1)
+        |""".stripMargin
+    )
+
+    assertEquals(roundTrip(compiled), compiled)
+  }
+
   private def compilePackage(source: String): Package.Compiled = {
     val parsed = Parser.unsafeParse(Package.parser, source)
     val withPath =
