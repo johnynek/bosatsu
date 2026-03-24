@@ -308,14 +308,27 @@ lazy val cli = (project in file("cli"))
         munitScalaCheck.value % Test
       ),
     // static linking doesn't work with macos or with linux http4s on the path
-    nativeImageOptions ++= List(
-      "--no-fallback",
-      "--verbose",
-      "-O2",
-      "-J-Xmx12g",
-      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
-      "-H:+RemoveUnusedSymbols"
-    ) ++ {
+    nativeImageOptions ++= {
+      val nativeImageBuilderXmx =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX")
+          .filter(_.nonEmpty)
+          .getOrElse("12g")
+      val watchdogOpts =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES")
+          .filter(_.nonEmpty)
+          .toList
+          .map(minutes => s"-H:DeadlockWatchdogInterval=$minutes") ++
+          sys.env
+            .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_EXIT_ON_TIMEOUT")
+            .collect {
+              case value if value.equalsIgnoreCase("true") =>
+                "-H:+DeadlockWatchdogExitOnTimeout"
+              case value if value.equalsIgnoreCase("false") =>
+                "-H:-DeadlockWatchdogExitOnTimeout"
+            }
+            .toList
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
           List("--static")
@@ -337,7 +350,14 @@ lazy val cli = (project in file("cli"))
           .map(_.trim)
           .filter(_.nonEmpty)
           .map(p => s"-H:CLibraryPath=$p")
-      staticOpt ++ muslOpt ++ clibPaths
+      List(
+        "--no-fallback",
+        "--verbose",
+        "-O2",
+        s"-J-Xmx$nativeImageBuilderXmx",
+        "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
+        "-H:+RemoveUnusedSymbols"
+      ) ++ watchdogOpts ++ staticOpt ++ muslOpt ++ clibPaths
     },
     nativeImageJvm := "graalvm-java23",
     nativeImageVersion := "23.0.2"
