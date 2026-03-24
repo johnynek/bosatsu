@@ -61,7 +61,8 @@ That means aliases are not just a parser change. They affect name resolution, ki
 2. No value-level aliasing.
 3. No new constructor or value namespace entry for an alias name.
 4. No change to runtime data representation.
-5. No requirement that every user-facing rendered type preserve alias spelling if internal canonicalization prefers expanded types.
+5. No local type aliases inside `Declaration`; aliases are top-level statements only.
+6. No requirement that every user-facing rendered type preserve alias spelling if internal canonicalization prefers expanded types.
 
 ## Proposed Design
 ### 1. Add a dedicated top-level alias statement
@@ -72,6 +73,7 @@ Parsing rules:
 2. The right-hand side is parsed with `TypeRef.parser`, not `Declaration.parser`.
 3. The alias parser must run before the generic binding parser, because `Foo = ...` currently falls through to pattern binding.
 4. This intentionally reserves top-level uppercase `Foo = ...` for aliases rather than zero-argument constructor-pattern bindings. That is an acceptable compatibility tradeoff because the pattern form has an unambiguous `match` rewrite.
+5. Aliases are only added to `Statement`; this issue does not add a `Declaration`-level type binding form.
 
 Printing rules:
 1. Aliases render back to the same surface form.
@@ -133,19 +135,18 @@ Variance behavior:
 3. An alias parameter is covariant, contravariant, invariant, or phantom based on how it appears in the solved `rhs` kind formula.
 4. Explicit variance annotations remain checked, not trusted blindly.
 
-### 6. Reject recursive alias cycles explicitly
-Pure alias cycles should be illegal.
+### 6. Reuse Bosatsu's existing topological ordering rules
+Bosatsu already requires type statements in a file to be topologically ordered. Aliases should follow the same rule rather than introducing recursive type definitions.
 
-At minimum, reject:
-1. `Foo = Foo`
-2. `Foo = Bar` and `Bar = Foo`
-3. Cycles that pass through data constructors but return to an alias without adding new structure, e.g. `Foo = List[Foo]`
+Rules:
+1. An alias may reference imported types and aliases.
+2. Within the same file, an alias may reference only type names that were already defined earlier in source order.
+3. Self-reference, mutual recursion, forward references, and recursive definitions such as `Foo = List[Foo]` are all rejected. There are no recursive type aliases and no recursive type definitions of any kind added by this feature.
 
-A practical implementation is:
-1. After converting alias right-hand sides to `Type`, build a dependency graph over local alias names using `Type.constantsOf`.
-2. Topologically sort it.
-3. Emit a dedicated source-conversion or package error when a cycle is found.
-4. Only build the final alias environment from the acyclic portion so unrelated lets can still typecheck.
+Implementation:
+1. `SourceConverter.scala` should lower type statements in source order, extending the local type environment as each `struct`, `enum`, `external struct`, or alias is accepted.
+2. Alias right-hand sides are resolved against imports plus the already-built local type environment.
+3. There is no separate alias-cycle recovery pass or topo-sort for aliases. A local alias that mentions itself or a later local type name fails during ordinary type-name resolution, ideally with a direct "type aliases must refer only to prior type definitions" diagnostic.
 
 ### 7. Extend `Infer.scala` with alias-aware comparison rather than source-level type lambdas
 The issue’s hardest case is `Baz[a] = Quux[a, Int]`.
@@ -154,14 +155,22 @@ A fully saturated use such as `Baz[String]` can be expanded by substituting `Str
 
 The recommended design is:
 1. Add an alias table to `Infer.Env`.
-2. Add a helper that expands any saturated alias spine:
+2. Add a helper that normalizes an application spine before `Infer` recurses into `TyApply`:
    - collect `(head, args)` with `Type.unapplyAll`
    - if `head` is an alias and it has received enough arguments for its declared arity, substitute those arguments into the alias body
    - rebuild with any remaining arguments
    - repeat until the head is no longer an expandable alias
-3. When `Infer` must compare two types whose kind is not `Type`, eta-expand both sides with fresh rigid arguments until the comparison reaches kind `Type`, then run the existing subsumption and unification logic on the instantiated result types.
+3. Change the `Type.TyApply` branches in `unifyTau` and `unifyRho` so they normalize both sides at the current node before doing structural recursion. This is the critical change to the current algorithm: it must no longer recurse directly on `.on` and `.arg` for an unnormalized `TyApply`.
+4. If normalization leaves an unsaturated higher-kinded type on both sides, compare those heads extensionally by applying fresh rigid variables until the instantiated result has kind `Type`, then normalize that instantiated result and continue with the existing unification or subsumption logic.
 
-This solves the `Baz[a] = Quux[a, Int]` problem without requiring user-visible type-lambda syntax or a new public `Type` AST node in the same PR. The compiler learns higher-kinded alias equivalence internally by comparing aliases extensionally.
+Concretely, `Monad[Baz]` typechecks as follows:
+1. Kind-check `Baz` against the parameter kind expected by `Monad`, namely `* -> *`. No expansion is needed yet; only the alias kind matters at this point.
+2. Instantiate the `Monad` field types with `f := Baz`. That yields expected field types `forall a. a -> Baz[a]` and `forall a, b. (Baz[a], a -> Baz[b]) -> Baz[b]`.
+3. When `Infer` checks the provided `pure` and `flat_map` implementations, each occurrence of `Baz[a]` or `Baz[b]` is a saturated alias spine. The normalization step rewrites them to `Quux[a, Int]` and `Quux[b, Int]` before recursive unification descends further.
+4. The actual checks therefore happen against `forall a. a -> Quux[a, Int]` and `forall a, b. (Quux[a, Int], a -> Quux[b, Int]) -> Quux[b, Int]`.
+5. Progress comes from normalizing the whole application spine first. `Infer` never tries to recursively unify the unsaturated head `Baz` with `Quux` by walking into the raw `TyApply` tree. It either compares a saturated alias application, which expands immediately, or an unsaturated higher-kinded head, which is first instantiated with fresh rigid arguments and then normalized.
+
+This solves the `Baz[a] = Quux[a, Int]` problem without requiring user-visible type-lambda syntax or a new public `Type` AST node in the same PR. The compiler learns higher-kinded alias equivalence internally by normalizing saturated applications and using extensional comparison only for the remaining unsaturated higher-kinded case.
 
 ### 8. Normalize saturated aliases before downstream runtime-oriented passes
 Downstream passes such as totality, inhabitedness, and value or document rendering mostly care about concrete data-type heads, not alias spelling.
@@ -181,13 +190,13 @@ This keeps alias support localized to the front end, type environment, and inter
    - lower alias statements into `TypeAlias`
    - infer and validate explicit type parameters for aliases
    - detect duplicate alias and type-name collisions
-   - detect alias cycles
+   - enforce that aliases refer only to imported names or prior local type definitions
 4. Generalize `Shape.scala` and `KindFormula.scala` so alias bodies participate in shape, kind, and variance solving alongside structs, enums, and external structs.
 5. Update `Package.scala`, `ExportedName.scala`, `Referant.scala`, `PackageCustoms.scala`, and `PackageError.scala` for alias-aware export, import, customs, and diagnostics handling.
 6. Extend `Infer.scala` with:
    - alias environment input
-   - saturated alias expansion
-   - eta-expansion-based comparison for higher-kinded aliases
+   - application-spine normalization before `TyApply` recursion
+   - extensional comparison for remaining unsaturated higher-kinded aliases
 7. Add alias serialization and compatibility handling in `ProtoConverter.scala`, `proto/src/main/protobuf/bosatsu/TypedAst.proto`, and `core/src/main/scala/dev/bosatsu/library/ApiDiff.scala`.
 8. Add parser, package, inference, proto-roundtrip, and API-diff regression tests.
 9. Update the language guide after the compiler behavior is stable.
@@ -201,7 +210,7 @@ This keeps alias support localized to the front end, type environment, and inter
 2. Package and type-environment coverage in `core/src/test/scala/dev/bosatsu/PackageTest.scala`:
    - exported alias imported from another package
    - alias and type-name collision rejection
-   - alias cycle rejection
+   - self-reference and forward-reference rejection under source-ordering rules
 3. Inference coverage in `core/src/test/scala/dev/bosatsu/rankn/RankNInferTest.scala`:
    - ground alias expansion
    - alias inside constructor fields and function annotations
@@ -216,15 +225,16 @@ This keeps alias support localized to the front end, type environment, and inter
 
 ## Acceptance Criteria
 1. Bosatsu accepts top-level type aliases with the surface form `Foo = Bar[Int]` and `Baz[a] = List[a]`.
-2. Alias names occupy the type-name namespace only and do not introduce constructors or values.
-3. Exported aliases can be imported from another package and remain transparent there.
-4. Missing kind and variance annotations on alias parameters are inferred, and explicit annotations are validated.
-5. Higher-kinded aliases such as `Baz[a] = Quux[a, Int]` typecheck in positions that require `* -> *`.
-6. Alias cycles are rejected with a dedicated diagnostic.
-7. Internal inference and subsumption treat alias-expanded and non-alias-expanded types as equivalent where the alias definition says they are.
-8. Totality, codegen, and runtime representation require no new alias-specific runtime behavior.
-9. Package and interface protobuf round-trips preserve exported aliases.
-10. Public API diffing notices alias additions, removals, kind changes, and right-hand-side changes.
+2. Aliases are top-level statements only; no local `Declaration` form is added.
+3. Alias names occupy the type-name namespace only and do not introduce constructors or values.
+4. Exported aliases can be imported from another package and remain transparent there.
+5. Missing kind and variance annotations on alias parameters are inferred, and explicit annotations are validated.
+6. Higher-kinded aliases such as `Baz[a] = Quux[a, Int]` typecheck in positions that require `* -> *`, including `Monad[Baz]`-style uses where the instantiated field types contain `Baz[a]`.
+7. An alias may reference only imported types or prior local type definitions; self-reference, mutual recursion, and forward references are rejected.
+8. Internal inference and subsumption treat alias-expanded and non-alias-expanded types as equivalent where the alias definition says they are.
+9. Totality, codegen, and runtime representation require no new alias-specific runtime behavior.
+10. Package and interface protobuf round-trips preserve exported aliases.
+11. Public API diffing notices alias additions, removals, kind changes, and right-hand-side changes.
 
 ## Risks And Mitigations
 1. Risk: parsing `Foo = ...` as an alias steals a rarely-used constructor-pattern binding form.
@@ -234,7 +244,7 @@ Mitigation: give aliases precedence, document the tradeoff, and add regression t
 Mitigation: keep aliases in a separate model with their own export and import path.
 
 3. Risk: higher-kinded alias comparison in `Infer.scala` becomes incomplete or expensive.
-Mitigation: compare higher-kinded aliases extensionally with fresh rigid arguments, memoize saturated alias expansion per spine, and reject alias cycles before inference.
+Mitigation: normalize whole application spines before `TyApply` recursion, compare remaining higher-kinded heads extensionally with fresh rigid arguments, and enforce source-order restrictions before inference so recursive definitions never reach this code.
 
 4. Risk: old library or interface protobuf data becomes incompatible or loses alias metadata.
 Mitigation: land the schema and `ProtoConverter` changes in the same PR and cover them with round-trip tests.
