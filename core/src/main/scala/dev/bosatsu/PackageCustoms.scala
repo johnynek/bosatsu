@@ -314,15 +314,13 @@ object PackageCustoms {
       }
 
     val localDefinedTypes =
-      pack.program._1.types.allDefinedTypes.iterator
-        .collect { case dt if dt.packageName == pack.name => dt }
-        .flatMap { dt =>
-          dt.constructors.iterator.flatMap { constructor =>
-            constructor.args.iterator.flatMap { param =>
-              Type.constantsOf(param.tpe)
-            }
-          }
-        }
+      for {
+        dt <- pack.program._1.types.allDefinedTypes.iterator
+        if dt.packageName == pack.name
+        constructor <- dt.constructors.iterator
+        param <- constructor.args.iterator
+        tconst <- Type.constantsOf(param.tpe).iterator
+      } yield tconst
 
     (letTypes ++ externalTypes ++ localDefinedTypes).toSet
   }
