@@ -285,6 +285,43 @@ external def wrap(b: Bytes) -> Bytes
     valid(resolveThenInfer(List(p1, p2)))
   }
 
+  test("type-only packages can use imported types in local type declarations") {
+    val base = parse("""
+package Base
+export Foo()
+
+struct Foo
+""")
+
+    val typeOnly = parse("""
+package TypeOnly
+from Base import Foo
+export Bar()
+
+struct Bar(value: Foo)
+""")
+
+    val valueOnly = parse("""
+package ValueOnly
+from TypeOnly import Bar
+export main
+
+def main(value: Bar):
+  value
+""")
+
+    valid(resolveThenInfer(List(base, typeOnly, valueOnly)).map { pmap =>
+      assertEquals(
+        pmap.toMap(PackageName.parts("TypeOnly")).toIface.visibleDepPackages,
+        List(PackageName.parts("Base"), PackageName.parts("TypeOnly"))
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("ValueOnly")).toIface.visibleDepPackages,
+        List(PackageName.PredefName, PackageName.parts("TypeOnly"))
+      )
+    })
+  }
+
   test("default-backed record construction requires constructor export") {
     val typeOnly = parse("""
 package P1

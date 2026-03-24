@@ -298,6 +298,33 @@ object PackageCustoms {
     usedValuesSt.runS(Set.empty).value
   }
 
+  private def usedTypeConsts[A](
+      pack: Package.Typed[A]
+  ): Set[Type.Const] = {
+    val letTypes =
+      pack.program._1.lets.iterator
+        .flatMap(_._3.allTypes.flatMap(Type.constantsOf(_)))
+
+    val externalTypes =
+      pack.program._1.externalDefs.iterator.flatMap { nm =>
+        pack.program._1.types
+          .getExternalValue(pack.name, nm)
+          .iterator
+          .flatMap(Type.constantsOf(_))
+      }
+
+    val localDefinedTypes =
+      for {
+        dt <- pack.program._1.types.allDefinedTypes.iterator
+        if dt.packageName == pack.name
+        constructor <- dt.constructors.iterator
+        param <- constructor.args.iterator
+        tconst <- Type.constantsOf(param.tpe).iterator
+      } yield tconst
+
+    (letTypes ++ externalTypes ++ localDefinedTypes).toSet
+  }
+
   private def allImportsAreUsed[A](
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] = {
@@ -334,24 +361,7 @@ object PackageCustoms {
     if (impValues.isEmpty && impTypes.isEmpty) Validated.valid(pack)
     else {
       val usedValues = usedGlobals(pack)
-
-      val usedTypes: Set[Type.Const] = {
-        val letTypes =
-          pack.program._1.lets.iterator
-            .flatMap(
-              _._3.allTypes.flatMap(Type.constantsOf(_))
-            )
-
-        val externalTypes =
-          pack.program._1.externalDefs.iterator.flatMap { nm =>
-            pack.program._1.types
-              .getExternalValue(pack.name, nm)
-              .iterator
-              .flatMap(Type.constantsOf(_))
-          }
-
-        (letTypes ++ externalTypes).toSet
-      }
+      val usedTypes = usedTypeConsts(pack)
 
       val unusedValues = impValues.filterNot { tup =>
         tup match {
