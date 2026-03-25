@@ -164,25 +164,26 @@ object Infer {
       )
 
     @annotation.tailrec
-    final def normalizeAliasHead(t: Type): Type = {
-      val next =
-        Type.unapplyAll(t) match {
-          case (
-                Type.TyConst(tc @ Type.Const.Defined(_, _)),
-                args
-              ) =>
-            aliases.get(tc).flatMap(_.expandWith(args))
-          case _ =>
-            None
-        }
-
-      next match {
-        case Some(t1) if t1 != t =>
-          normalizeAliasHead(t1)
+    final def normalizeAliasHead(t: Type): Type =
+      Type.unapplyAll(t) match {
+        case (
+              Type.TyConst(tc @ Type.Const.Defined(_, _)),
+              args
+            ) =>
+          aliases.get(tc) match {
+            case Some(alias) =>
+              alias.expandWith(args) match {
+                case Some(t1) if t1 != t =>
+                  normalizeAliasHead(t1)
+                case _ =>
+                  t
+              }
+            case None =>
+              t
+          }
         case _ =>
           t
       }
-    }
 
     final def normalizeAliasesDeep(t: Type): Type = {
       val head = normalizeAliasHead(t)
@@ -913,6 +914,9 @@ object Infer {
         _ <- a2s.zip(a1s).parTraverse { case (a2, a1) =>
           subsCheck(a2, a1, right, left, direction.flip)
         }
+        // When the input types are only alias-equivalent, keep the destination
+        // alias spelling so we avoid dropping a transparent alias from the
+        // function type. Otherwise preserve the original source type a1.
         outArgs <- a1s.zip(a2s).traverse { case (a1, a2) =>
           aliasEquivalent(a1, a2).map { same =>
             if (same) a2 else a1

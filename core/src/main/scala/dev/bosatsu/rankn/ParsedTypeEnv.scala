@@ -31,19 +31,15 @@ case class ParsedTypeEnv[+A](
 }
 
 object ParsedTypeEnv {
-  sealed abstract class TypeStatement[+A] {
-    def toTypeConst: Type.Const.Defined
-  }
-  object TypeStatement {
-    final case class Defined[+A](definedType: DefinedType[A])
-        extends TypeStatement[A] {
-      def toTypeConst: Type.Const.Defined = definedType.toTypeConst
-    }
+  enum TypeStatement[+A] {
+    case Defined(definedType: DefinedType[A])
+    case Alias(typeAlias: TypeAlias[A])
 
-    final case class Alias[+A](typeAlias: dev.bosatsu.rankn.TypeAlias[A])
-        extends TypeStatement[A] {
-      def toTypeConst: Type.Const.Defined = typeAlias.toTypeConst
-    }
+    def toTypeConst: Type.Const.Defined =
+      this match {
+        case Defined(definedType) => definedType.toTypeConst
+        case Alias(typeAlias)     => typeAlias.toTypeConst
+      }
   }
 
   val Empty: ParsedTypeEnv[Nothing] = ParsedTypeEnv(Nil, Nil, Nil, Nil)

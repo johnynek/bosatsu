@@ -359,6 +359,42 @@ object KindFormula {
         case ParsedTypeEnv.TypeStatement.Alias(ta)   => ta.dependsOn
       }
 
+    def solvedStmt(
+        stmt: ParsedTypeEnv.TypeStatement[?],
+        res: ValidatedNec[Error, ParsedTypeEnv.TypeStatement[Kind.Arg]],
+        dtsAcc: List[DefinedType[Kind.Arg]],
+        aliasAcc: List[TypeAlias[Kind.Arg]],
+        orderedAcc: List[ParsedTypeEnv.TypeStatement[Kind.Arg]],
+        failed: Set[RankNType.TyConst]
+    ): IorNec[
+      Error,
+      (
+          List[DefinedType[Kind.Arg]],
+          List[TypeAlias[Kind.Arg]],
+          List[ParsedTypeEnv.TypeStatement[Kind.Arg]],
+          Set[RankNType.TyConst]
+      )
+    ] =
+      res match {
+        case Validated.Valid(good) =>
+          good match {
+            case d @ ParsedTypeEnv.TypeStatement.Defined(dt) =>
+              Ior.Right((dt :: dtsAcc, aliasAcc, d :: orderedAcc, failed))
+            case a @ ParsedTypeEnv.TypeStatement.Alias(ta) =>
+              Ior.Right((dtsAcc, ta :: aliasAcc, a :: orderedAcc, failed))
+          }
+        case Validated.Invalid(errs) =>
+          Ior.Both(
+            errs,
+            (
+              dtsAcc,
+              aliasAcc,
+              orderedAcc,
+              failed + stmtTyConst(stmt)
+            )
+          )
+      }
+
     parsedTypeEnv.orderedTypes.reverse
       .foldM((List.empty[DefinedType[Kind.Arg]], List.empty[TypeAlias[Kind.Arg]], List.empty[
         ParsedTypeEnv.TypeStatement[Kind.Arg]
@@ -373,59 +409,31 @@ object KindFormula {
           } else {
             stmt match {
               case ParsedTypeEnv.TypeStatement.Defined(dt) =>
-                val res =
+                solvedStmt(
+                  stmt,
                   Shape
                     .solveShape(priorEnv, dt)
                     .leftMap(_.map(Error.FromShapeError(_)))
                     .andThen(solveKind(priorEnv, _))
-                res match {
-                  case Validated.Valid(good)   =>
-                    Ior.Right(
-                      (
-                        good :: dtsAcc,
-                        aliasAcc,
-                        ParsedTypeEnv.TypeStatement.Defined(good) :: orderedAcc,
-                        failed
-                      )
-                    )
-                  case Validated.Invalid(errs) =>
-                    Ior.Both(
-                      errs,
-                      (
-                        dtsAcc,
-                        aliasAcc,
-                        orderedAcc,
-                        failed + stmtTyConst(stmt)
-                      )
-                    )
-                }
+                    .map(ParsedTypeEnv.TypeStatement.Defined(_)),
+                  dtsAcc,
+                  aliasAcc,
+                  orderedAcc,
+                  failed
+                )
               case ParsedTypeEnv.TypeStatement.Alias(alias) =>
-                val res =
+                solvedStmt(
+                  stmt,
                   Shape
                     .solveAlias(priorEnv, alias)
                     .leftMap(_.map(Error.FromShapeError(_)))
                     .andThen(solveAliasKinds(priorEnv, _))
-                res match {
-                  case Validated.Valid(good)   =>
-                    Ior.Right(
-                      (
-                        dtsAcc,
-                        good :: aliasAcc,
-                        ParsedTypeEnv.TypeStatement.Alias(good) :: orderedAcc,
-                        failed
-                      )
-                    )
-                  case Validated.Invalid(errs) =>
-                    Ior.Both(
-                      errs,
-                      (
-                        dtsAcc,
-                        aliasAcc,
-                        orderedAcc,
-                        failed + stmtTyConst(stmt)
-                      )
-                    )
-                }
+                    .map(ParsedTypeEnv.TypeStatement.Alias(_)),
+                  dtsAcc,
+                  aliasAcc,
+                  orderedAcc,
+                  failed
+                )
             }
           }
       }
