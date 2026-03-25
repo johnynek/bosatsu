@@ -19,7 +19,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   needs_prepare,
   Step,
   permission_write,
-  runner_macos_14,
+  runner_macos_14_xlarge,
   runner_ubuntu_latest,
   sbt_cache_fetch_step,
   setup_sbt_title_step,
@@ -79,6 +79,7 @@ struct WorkflowJobsNativeMacosStepsItemWith(
 struct WorkflowJobsNativeMacos(
   `runs-on`: String,
   needs: String,
+  `timeout-minutes`: Int,
   steps: List[Step[WorkflowJobsNativeMacosStepsItemWith]],
 )
 
@@ -160,6 +161,13 @@ def release_env_lib_publish(
     `OUTDIR`: Set(out_dir),
     `GIT_SHA`: Set(git_sha),
     `URI_BASE`: Set(uri_base),
+  }
+
+def native_macos_env(hash: String, xmx: String, watchdog_minutes: String) -> StepEnv:
+  StepEnv {
+    `BOSATSU_C_RUNTIME_HASH`: Set(hash),
+    `BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX`: Set(xmx),
+    `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Set(watchdog_minutes),
   }
 
 release_java17_bootstrap_steps = [
@@ -467,8 +475,9 @@ workflow =
         ],
       ),
       WorkflowJobsNativeMacos(
-        runner_macos_14,
+        runner_macos_14_xlarge,
         needs_prepare,
+        45,
         [
           *native_macos_bootstrap_steps,
           Step {
@@ -485,7 +494,11 @@ workflow =
               "file bosatsu-macos | grep -q \"arm64\" || { echo \"Expected arm64 binary\"; exit 1; }",
               "",
             ])),
-            env: Set(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
+            env: Set(native_macos_env(
+              "\${{ needs.prepare.outputs.c_runtime_hash }}",
+              "12g",
+              "30",
+            )),
           },
           Step {
             uses: Set(action_upload_artifact),
