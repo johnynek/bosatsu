@@ -2,7 +2,6 @@ package dev.bosatsu
 
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
-import dev.bosatsu.DirectEC.directEC
 import dev.bosatsu.IorMethods.IorExtension
 
 object DebugAliasPackage {
@@ -13,9 +12,11 @@ object DebugAliasPackage {
       ps: Iterable[Package.Parsed]
   ): Validated[NonEmptyList[PackageError], PackageMap.Compiled] = {
     implicit val showInt: Show[Int] = Show.fromToString
-    PackageMap
-      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, CompileOptions.Default)
-      .strictToValidated
+    Par.noParallelism {
+      PackageMap
+        .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, CompileOptions.Default)
+        .strictToValidated
+    }
   }
 
   private def runCase(
