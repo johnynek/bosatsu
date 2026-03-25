@@ -210,8 +210,9 @@ jobs:
           path: bosatsu-linux
 
   native_macos:
-    runs-on: macos-14
+    runs-on: macos-14-xlarge
     needs: prepare
+    timeout-minutes: 45
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -244,6 +245,8 @@ jobs:
       - name: Build native image (macos)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+          BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX: 12g
+          BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES: "30"
         run: |
           sbt "cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-macos
