@@ -20,6 +20,26 @@ class TypedExprTest extends munit.ScalaCheckSuite {
       if (Platform.isScalaJvm) 500 else 50
     )
 
+  private val predefInterface: Package.Interface =
+    Package.interfaceOf(PackageMap.predefCompiled)
+
+  private val predefResolvedImport
+      : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] = {
+    val items =
+      predefInterface.exports
+        .groupBy(_.name)
+        .iterator
+        .map { case (name, exports) =>
+          ImportedName.OriginalName(
+            name,
+            NonEmptyList.fromListUnsafe(exports.map(_.tag))
+          )
+        }
+        .toList
+
+    Import(predefInterface, NonEmptyList.fromListUnsafe(items))
+  }
+
   /** Assert two bits of code normalize to the same thing
     */
   def normSame(s1: String, s2: String) =
@@ -3889,7 +3909,12 @@ x = Foo
   ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val (fullTypeEnv, unoptProgram) =
-      Package.inferBodyUnopt(TestUtils.testPackage, Nil, Nil, stmts) match {
+      Package.inferBodyUnopt(
+        TestUtils.testPackage,
+        predefResolvedImport :: Nil,
+        Nil,
+        stmts
+      ) match {
         case cats.data.Ior.Right(res) =>
           res
         case cats.data.Ior.Both(errs, _) =>
