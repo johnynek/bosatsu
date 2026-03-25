@@ -723,17 +723,4 @@ object Shape {
 
     rf.run.value
   }
-
-  def solveAliases[E: IsShapeEnv](
-      imports: E,
-      aliases: List[TypeAlias[Option[Kind.Arg]]]
-  ): IorNec[Error, List[TypeAlias[Either[KnownShape, Kind.Arg]]]] =
-    aliases
-      .foldM(List.empty[TypeAlias[Either[KnownShape, Kind.Arg]]]) { (acc, alias) =>
-        solveAlias((imports, acc), alias) match {
-          case Validated.Valid(good)   => Ior.Right(good :: acc)
-          case Validated.Invalid(errs) => Ior.Both(errs, acc)
-        }
-      }
-      .map(_.reverse)
 }
