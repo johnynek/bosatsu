@@ -42,7 +42,7 @@ object DebugAliasPackage {
       List(
         """
 package Alias/Export
-export Foo, mkFoo
+export Box, Foo, mkFoo
 
 struct Box(item)
 
@@ -56,6 +56,23 @@ from Alias/Export import Foo, mkFoo
 export main
 
 main: Foo = mkFoo
+"""
+      )
+    )
+
+    runCase(
+      "alias private type escape",
+      expectValid = false,
+      List(
+        """
+package Alias/Private
+export Foo, mkFoo
+
+struct Box(item)
+
+type Foo = Box[Int]
+
+mkFoo: Foo = Box(1)
 """
       )
     )

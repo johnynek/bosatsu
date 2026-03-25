@@ -28,7 +28,7 @@ object PackageCustoms {
   def apply[A: HasRegion](
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
-    checkValuesHaveExportedTypes(pack.name, pack.exports) *>
+    checkExportsHaveNoPrivateTypes(pack.name, pack.exports) *>
       noUselessBinds(pack, None) *>
       allImportsAreUsed(pack)
 
@@ -434,7 +434,7 @@ object PackageCustoms {
     }
   }
 
-  private def checkValuesHaveExportedTypes[V](
+  private def checkExportsHaveNoPrivateTypes[V](
       pn: PackageName,
       exports: List[ExportedName[Referant[V]]]
   ): ValidatedNec[PackageError, Unit] = {
@@ -448,14 +448,19 @@ object PackageCustoms {
     val exportedTE = TypeEnv.fromDefinitionsAndAliases(exportedTypes, exportedAliases)
 
     type Exp = ExportedName[Referant[V]]
-    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports.iterator
+    val exposedTypes: Iterator[(Exp, Type)] = exports.iterator.flatMap {
+      case n @ ExportedName.Binding(_, Referant.Value(t)) =>
+        Iterator.single((n, t))
+      case n @ ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+        Iterator.single((n, ta.rhs))
+      case _ =>
+        Iterator.empty
+    }
+
+    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exposedTypes
       .flatMap { n =>
-        n.tag match {
-          case Referant.Value(t) => Iterator.single((t, n))
-          case _                 => Iterator.empty
-        }
+        Type.constantsOf(n._2).iterator.map((_, n._1, n._2))
       }
-      .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
       .filter { case (Type.Const.Defined(p, _), _, _) => p == pn }
 
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
@@ -463,7 +468,7 @@ object PackageCustoms {
       else PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
 
     NonEmptyChain.fromChain(
-      Chain.fromIterableOnce(usedTypes.flatMap(errorFor))
+      Chain.fromIterableOnce(usedTypes.flatMap(errorFor).toList.distinct)
     ) match {
       case None      => Validated.valid(())
       case Some(nel) => Validated.invalid(nel)

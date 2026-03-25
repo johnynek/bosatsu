@@ -484,7 +484,7 @@ main = 1
   test("exported type aliases can be imported transparently") {
     val exported = parse("""
 package Alias/Export
-export Foo, mkFoo
+export Box, Foo, mkFoo
 
 struct Box(item)
 
@@ -502,6 +502,19 @@ main: Foo = mkFoo
 """)
 
     valid(resolveThenInfer(PackageMap.withPredef(List(exported, imported))))
+  }
+
+  test("exported type aliases may not reference private local types") {
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/Export
+export Foo, mkFoo
+
+struct Box(item)
+
+type Foo = Box[Int]
+
+mkFoo: Foo = Box(1)
+""")))))
   }
 
   test("alias and type name collisions are rejected") {
