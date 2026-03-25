@@ -977,6 +977,25 @@ main: Monad[Alias] = Monad((a) -> Quux(a, 0), alias_bind)
       "Monad[Alias]"
     )
 
+    parseProgram(
+      """#
+enum Either[a, b]:
+  Left(left: a), Right(right: b)
+
+type EitherFlip[b, a] = Either[a, b]
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
+
+def either_flip_bind(value, bind_fn):
+  match value:
+    case Left(a): bind_fn(a)
+    case Right(b): Right(b)
+
+main: forall b. Monad[EitherFlip[b]] = Monad(Left, either_flip_bind)
+""",
+      "forall b. Monad[EitherFlip[b]]"
+    )
+
     checkEnvExpr(
       """#
 type Contra[a] = a -> Int
