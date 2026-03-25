@@ -114,8 +114,11 @@ class RankNInferTest extends munit.FunSuite {
       )
     )
 
+  private val predefKinds: Map[Type.Const.Defined, Kind] =
+    Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv.toKindMap
+
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
+    Infer.typeCheck(term).runFully(withBools, boolTypes, predefKinds) match {
       case Left(err)  => assert(false, err)
       case Right(tpe) => assert(tpe.getType.sameAs(ty), term.toString)
     }

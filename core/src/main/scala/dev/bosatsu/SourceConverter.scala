@@ -1167,7 +1167,6 @@ final class SourceConverter(
       paramIndex: Int,
       paramType: Type
   ): Bindable = {
-    val legacyParamType = legacyDefaultHashType(paramType)
     val digest = Hashable
       .hash(
         Algo.blake3Algo,
@@ -1177,62 +1176,12 @@ final class SourceConverter(
           typeName,
           constructorName,
           paramIndex,
-          legacyParamType
+          paramType
         )
       )
       .hash
       .hex
     Identifier.synthetic("default$" + digest)
-  }
-
-  private val legacyDefaultHashPredefTypes: Set[Type.Const.Defined] =
-    (Type.FnType.FnKinds ::: Type.Tuple.Kinds ::: List(
-      Type.BoolType -> Kind.Type,
-      Type.DictType -> Kind(Kind.Type.in, Kind.Type.co),
-      Type.IntType -> Kind.Type,
-      Type.Float64Type -> Kind.Type,
-      Type.ListType -> Kind(Kind.Type.co),
-      Type.StrType -> Kind.Type,
-      Type.CharType -> Kind.Type,
-      Type.UnitType -> Kind.Type
-    )).iterator.map(_._1.tpe.toDefined).toSet
-
-  private def legacyPredefHashFallback(
-      const: Type.Const.Defined
-  ): Type.Const.Defined =
-    const match {
-      case Type.Const.Predef(cons)
-          if legacyDefaultHashPredefTypes(const) &&
-            !localTypeNames(cons) &&
-            !importedTypes.contains(cons) =>
-        Type.Const.Defined(thisPackage, TypeName(cons))
-      case _ =>
-        const
-    }
-
-  private def legacyDefaultHashType(tpe: Type): Type = {
-    def loop(tpe: Type): Type =
-      tpe match {
-        case t @ Type.ForAll(vars, in) =>
-          val in1 = loop(in).asInstanceOf[Type.Rho]
-          if (in1 eq in) t else Type.ForAll(vars, in1)
-        case t @ Type.Exists(vars, in) =>
-          val in1 = loop(in).asInstanceOf[Type.Leaf | Type.TyApply]
-          if (in1 eq in) t else Type.Exists(vars, in1)
-        case t @ Type.TyApply(on, arg) =>
-          val on1 = loop(on).asInstanceOf[Type.Leaf | Type.TyApply]
-          val arg1 = loop(arg)
-          if ((on1 eq on) && (arg1 eq arg)) t
-          else Type.TyApply(on1, arg1)
-        case Type.TyConst(const @ Type.Const.Defined(_, _)) =>
-          val const1 = legacyPredefHashFallback(const)
-          if (const1 == const) tpe
-          else Type.TyConst(const1)
-        case t @ (Type.TyVar(_) | Type.TyMeta(_)) =>
-          t
-      }
-
-    loop(tpe)
   }
 
   private def closeDefaultParamType(

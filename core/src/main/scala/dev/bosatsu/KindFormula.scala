@@ -10,7 +10,6 @@ import cats.data.{
   ValidatedNec
 }
 import dev.bosatsu.rankn.{
-  ConstructorFn,
   Ref,
   RefSpace,
   Type => RankNType,
@@ -32,11 +31,8 @@ sealed abstract class KindFormula derives CanEqual
 object KindFormula {
   given cats.Eq[KindFormula] = cats.Eq.fromUniversalEquals
 
-  sealed trait Source
-  object Source {
-    final case class Constructor(cfn: ConstructorFn[?]) extends Source
-    case object AliasBody extends Source
-  }
+  type Source = Shape.Source
+  val Source: Shape.Source.type = Shape.Source
 
   case class Var(id: Long)
   object Var {
@@ -492,7 +488,12 @@ object KindFormula {
         val localKindMap = kindMap ++ cfn.exists.iterator.map { case (k, v) =>
           (k, Impl.BoundState.IsArg(v))
         }
-        state.addConstraints(thisKind, Source.Constructor(cfn), cfn.args.map(_.tpe), localKindMap)
+        state.addConstraints(
+          thisKind,
+          Source.ConstructorFn(cfn),
+          cfn.args.map(_.tpe),
+          localKindMap
+        )
       }
       constraints <- state.getConstraints
       dirs <- state.getDirections

@@ -2119,7 +2119,7 @@ object PackageError {
 
       def sourceDoc(source: Shape.Source): Doc =
         source match {
-          case Shape.Source.Constructor(cons) =>
+          case Shape.Source.ConstructorFn(cons) =>
             Doc.text(s" in the constructor ${cons.name.sourceCodeRepr}")
           case Shape.Source.AliasBody         =>
             Doc.text(" in the alias body")
@@ -2145,7 +2145,7 @@ object PackageError {
                 else tmap(outer)
 
               Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc
-                .text(" -> ?") + Doc.text(" but found * ") +
+                .text(" -> ?") + Doc.text(" but found *") +
                 sourceDoc(source) +
                 Doc.text(" inside type ") +
                 typeDoc +

@@ -539,10 +539,9 @@ object Package {
     val removedTypeStatements =
       parsedTypeEnv0.orderedTypes.iterator.filterNot(stmt =>
         parsedTypeConsts(stmt.toTypeConst)
-      )
-    val removedTypeConsts = removedTypeStatements.map(_.toTypeConst).toSet
-    val removedConstructors = parsedTypeEnv0.orderedTypes.iterator
-      .filterNot(stmt => parsedTypeConsts(stmt.toTypeConst))
+      ).toList
+    val removedTypeConsts = removedTypeStatements.iterator.map(_.toTypeConst).toSet
+    val removedConstructors = removedTypeStatements.iterator
       .collect { case ParsedTypeEnv.TypeStatement.Defined(dt) => dt }
       .flatMap(_.constructors.iterator.map(_.name))
       .toSet

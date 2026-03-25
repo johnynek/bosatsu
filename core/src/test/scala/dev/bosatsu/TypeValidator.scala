@@ -50,11 +50,66 @@ object TypeValidator {
       boundKinds: Map[Type.Var.Bound, Kind]
   ): Type => Option[Kind] = {
     case tc: Type.TyConst =>
-      env.getType(tc).map(_.kindOf).orElse(Type.builtInKinds.get(tc.tpe.toDefined))
+      env
+        .getType(tc)
+        .map(_.kindOf)
+        .orElse(env.getTypeAlias(tc).map(_.kindOf))
+        .orElse(Type.builtInKinds.get(tc.tpe.toDefined))
     case Type.TyVar(v: Type.Var.Bound) =>
       boundKinds.get(v)
     case _ =>
       None
+  }
+
+  private def normalizeTypeForValidation(
+      env: TypeEnv[Kind.Arg]
+  ): Type => Type = {
+    def normalizeAliasHead(tpe: Type): Type = {
+      val (root, args) = Type.unapplyAll(tpe)
+      root match {
+        case tc: Type.TyConst =>
+          env.getTypeAlias(tc) match {
+            case Some(alias) if alias.typeParams.lengthCompare(args.length) <= 0 =>
+              val (appliedArgs, tailArgs) = args.splitAt(alias.typeParams.length)
+              val subs =
+                alias.typeParams.iterator
+                  .zip(appliedArgs.iterator)
+                  .map { case (tv, arg) => (tv: Type.Var) -> arg }
+                  .toMap
+              val expanded =
+                Type.applyAll(Type.substituteVar(alias.rhs, subs), tailArgs)
+              if (expanded == tpe) tpe
+              else normalizeAliasHead(expanded)
+            case _ =>
+              tpe
+          }
+        case _ =>
+          tpe
+      }
+    }
+
+    def loop(tpe: Type): Type = {
+      val t0 = normalizeAliasHead(tpe)
+      t0 match {
+        case t @ Type.ForAll(vars, in) =>
+          val in1 = loop(in)
+          if (in1 eq in) t
+          else Type.ForAll(vars, in1.asInstanceOf[Type.Rho])
+        case t @ Type.Exists(vars, in) =>
+          val in1 = loop(in)
+          if (in1 eq in) t
+          else Type.Exists(vars, in1.asInstanceOf[Type.Leaf | Type.TyApply])
+        case t @ Type.TyApply(on, arg) =>
+          val on1 = loop(on).asInstanceOf[Type.Leaf | Type.TyApply]
+          val arg1 = loop(arg)
+          if ((on1 eq on) && (arg1 eq arg)) normalizeAliasHead(t)
+          else normalizeAliasHead(Type.TyApply(on1, arg1))
+        case other =>
+          other
+      }
+    }
+
+    loop
   }
 
   /** Directional type-connectivity check used by validation:
@@ -67,16 +122,17 @@ object TypeValidator {
       from: Type,
       to: Type,
       kindOf: Type => Option[Kind],
+      normalizeType: Type => Type,
       freeBoundKinds: Map[Type.Var.Bound, Kind],
       solvedFreeBounds: SolvedFreeBounds
   ): Either[List[Type.Var.Bound], (Boolean, SolvedFreeBounds)] = {
-    val from0 = Type.substituteVar(from, solvedFreeBounds)
-    val to0 = Type.substituteVar(to, solvedFreeBounds)
+    val from0 = normalizeType(Type.substituteVar(from, solvedFreeBounds))
+    val to0 = normalizeType(Type.substituteVar(to, solvedFreeBounds))
 
     if (from0.sameAs(to0)) Right((true, solvedFreeBounds))
     else {
-      val from1 = Type.hoistForAllCovariant(from0, kindOf)
-      val to1 = Type.hoistForAllCovariant(to0, kindOf)
+      val from1 = normalizeType(Type.hoistForAllCovariant(from0, kindOf))
+      val to1 = normalizeType(Type.hoistForAllCovariant(to0, kindOf))
       val unresolvedFrom =
         Type
           .freeBoundTyVars(from1 :: Nil)
@@ -163,12 +219,14 @@ object TypeValidator {
       from: Type,
       to: Type,
       kindOf: Type => Option[Kind],
+      normalizeType: Type => Type,
       freeBoundKinds: Map[Type.Var.Bound, Kind]
   ): Either[List[Type.Var.Bound], Boolean] =
     canWidenInScopeAndSolve(
       from,
       to,
       kindOf,
+      normalizeType,
       freeBoundKinds,
       Map.empty
     ).map(_._1)
@@ -177,12 +235,20 @@ object TypeValidator {
       from: Type,
       to: Type,
       kindOf: Type => Option[Kind],
+      normalizeType: Type => Type,
       freeBoundKinds: Map[Type.Var.Bound, Kind],
       solvedFreeBounds: SolvedFreeBounds,
       path: TypeValidation.Path,
       onMismatch: => String
   ): TypeValidation[SolvedFreeBounds] =
-    canWidenInScopeAndSolve(from, to, kindOf, freeBoundKinds, solvedFreeBounds) match {
+    canWidenInScopeAndSolve(
+      from,
+      to,
+      kindOf,
+      normalizeType,
+      freeBoundKinds,
+      solvedFreeBounds
+    ) match {
       case Right((true, solved1)) =>
         Validated.validNec(solved1)
       case Right((false, _)) =>
@@ -198,11 +264,12 @@ object TypeValidator {
       from: Type,
       to: Type,
       kindOf: Type => Option[Kind],
+      normalizeType: Type => Type,
       freeBoundKinds: Map[Type.Var.Bound, Kind],
       path: TypeValidation.Path,
       onMismatch: => String
   ): TypeValidation[Unit] =
-    canWidenInScope(from, to, kindOf, freeBoundKinds) match {
+    canWidenInScope(from, to, kindOf, normalizeType, freeBoundKinds) match {
       case Right(true) =>
         typeValidationPass
       case Right(false) =>
@@ -344,6 +411,7 @@ object TypeValidator {
   ): TypeValidation[Map[Identifier.Bindable, Type]] = {
     type Bindings = Map[Identifier.Bindable, Type]
     val kindOf = kindOfForValidation(env, boundKinds)
+    val normalizeType = normalizeTypeForValidation(env)
 
     def mergeBindings(
         at: TypeValidation.Path,
@@ -491,6 +559,7 @@ object TypeValidator {
             expectedType,
             annType,
             kindOf,
+            normalizeType,
             boundKinds,
             at / "annotation",
             s"pattern annotation type mismatch: expected scrutinee ${expectedType.show} to widen into ${summon[cats.Show[Type]].show(annType)}"
@@ -552,6 +621,7 @@ object TypeValidator {
     val (teForalls, teExists, _) = Type.splitQuantifiers(te.getType)
     val inScopeKinds = boundKinds ++ teForalls.iterator ++ teExists.iterator
     val kindOf = kindOfForValidation(env, inScopeKinds)
+    val normalizeType = normalizeTypeForValidation(env)
     // All checks are directional: left side widens into right side.
     te match {
       case TypedExpr.Generic(quant, in) =>
@@ -622,6 +692,7 @@ object TypeValidator {
                 tpe,
                 expected,
                 kindOf,
+                normalizeType,
                 inScopeKinds,
                 path,
                 s"local type mismatch for ${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
@@ -640,6 +711,7 @@ object TypeValidator {
               tpe,
               expected,
               kindOf,
+              normalizeType,
               inScopeKinds,
               path,
               s"global type mismatch for ${pack.asString}::${name.sourceCodeRepr}: expected ${expected.show}, got ${tpe.show}"
@@ -826,6 +898,7 @@ object TypeValidator {
                       expected,
                       got.getType,
                       kindOf,
+                      normalizeType,
                       appKinds,
                       solvedSoFar,
                       path / "app" / s"arg[$idx]",
@@ -848,6 +921,7 @@ object TypeValidator {
                   expectedResultSolved,
                   te.getType,
                   kindOf,
+                  normalizeType,
                   appKinds,
                   path,
                   s"application result type mismatch: expected ${expectedResultSolved.show}, got ${te.getType.show}"
@@ -957,6 +1031,7 @@ object TypeValidator {
                         expected,
                         got.getType,
                         kindOf,
+                        normalizeType,
                         inScopeKinds,
                         solvedSoFar,
                         path / "recur" / s"arg[$idx]",
@@ -976,6 +1051,7 @@ object TypeValidator {
                     solvedLoopType,
                     tpe,
                     kindOf,
+                    normalizeType,
                     inScopeKinds,
                     path,
                     s"recur result type mismatch: expected ${solvedLoopType.show}, got ${tpe.show}"
@@ -1021,6 +1097,7 @@ object TypeValidator {
               te.getType,
               branch.expr.getType,
               kindOf,
+              normalizeType,
               inScopeKinds,
               branchPath,
               s"branch result type mismatch: expected ${te.getType.show}, got ${branch.expr.getType.show}"

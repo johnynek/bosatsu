@@ -53,10 +53,9 @@ object Shape {
       ref: Ref[UnknownState]
   ) extends NotKnownShape
 
-  sealed trait Source derives CanEqual
-  object Source {
-    final case class Constructor(cfn: ConstructorFn[?]) extends Source
-    case object AliasBody extends Source
+  enum Source derives CanEqual {
+    case ConstructorFn(cfn: dev.bosatsu.rankn.ConstructorFn[?])
+    case AliasBody
   }
 
   def shapeDoc(s: Shape): Doc =
@@ -674,7 +673,7 @@ object Shape {
       checks <- dtShapes.constructors.traverse { cfn =>
         solver.constrainTypes(
           scope,
-          Source.Constructor(cfn),
+          Source.ConstructorFn(cfn),
           cfn.exists,
           cfn.args.map(_.tpe)
         )

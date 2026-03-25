@@ -552,7 +552,9 @@ object Statement {
           case None     => Doc.empty
           case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
         }
-        Document[Constructor].document(nm) + taDoc + Doc.text(" = ") + body.toDoc + Doc.line
+        Doc.text("type ") + Document[Constructor].document(
+          nm
+        ) + taDoc + Doc.text(" = ") + body.toDoc + Doc.line
     }
   }
 
