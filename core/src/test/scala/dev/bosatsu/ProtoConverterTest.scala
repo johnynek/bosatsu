@@ -470,7 +470,7 @@ bar = 1
         |
         |struct Box(item)
         |
-        |Foo = Box[Int]
+        |type Foo = Box[Int]
         |
         |mkFoo: Foo = Box(1)
         |""".stripMargin
@@ -487,7 +487,7 @@ bar = 1
         |
         |struct Box(item)
         |
-        |Foo = Box[Int]
+        |type Foo = Box[Int]
         |
         |main: Foo = Box(1)
         |""".stripMargin

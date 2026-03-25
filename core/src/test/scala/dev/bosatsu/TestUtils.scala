@@ -61,6 +61,35 @@ object TestUtils {
     List[Statement]
   ]
 
+  private val predefInterface: Package.Interface =
+    Package.interfaceOf(PackageMap.predefCompiled)
+
+  private def importAllPredef[A](
+      pack: A
+  ): Import[A, NonEmptyList[Referant[Kind.Arg]]] = {
+    val items =
+      predefInterface.exports
+        .groupBy(_.name)
+        .iterator
+        .map { case (name, exports) =>
+          ImportedName.OriginalName(
+            name,
+            NonEmptyList.fromListUnsafe(exports.map(_.tag))
+          )
+        }
+        .toList
+
+    Import(pack, NonEmptyList.fromListUnsafe(items))
+  }
+
+  private val predefResolvedImport
+      : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(predefInterface)
+
+  private val predefSourceImport
+      : Import[PackageName, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(PackageName.PredefName)
+
   def sourceConvertedProgramOf(
       pack: PackageName,
       str: String
@@ -106,7 +135,9 @@ object TestUtils {
       statement: String
   )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -134,7 +165,7 @@ object TestUtils {
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val sourceConverted =
-      SourceConverter.toProgram(testPackage, Nil, stmts) match {
+      SourceConverter.toProgram(testPackage, predefSourceImport :: Nil, stmts) match {
         case Ior.Right(prog)   => prog
         case Ior.Both(_, prog) => prog
         case Ior.Left(errs)    =>
@@ -196,7 +227,9 @@ object TestUtils {
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))

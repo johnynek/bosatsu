@@ -358,7 +358,8 @@ object Statement {
         }
 
     val typeAlias =
-      (((Identifier.consParser ~ typeParams.? <* maybeSpace <* Declaration.eqP <* maybeSpace) ~
+      // we use type to be soft here to make type a soft keyword and still allow type = 23 as syntax elsewhere
+      ((((keySpace("type").soft *> Identifier.consParser) ~ typeParams.? <* maybeSpace <* Declaration.eqP <* maybeSpace) ~
         TypeRef.parser).region <* toEOL)
         .map { case (region, ((name, typeArgs), body)) =>
           TypeAlias(name, typeArgs, body)(region)

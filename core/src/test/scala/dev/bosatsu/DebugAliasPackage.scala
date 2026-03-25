@@ -45,7 +45,7 @@ export Foo, mkFoo
 
 struct Box(item)
 
-Foo = Box[Int]
+type Foo = Box[Int]
 
 mkFoo: Foo = Box(1)
 """,
@@ -66,7 +66,7 @@ main: Foo = mkFoo
         """
 package Alias/Collision
 
-Foo = Int
+type Foo = Int
 struct Foo
 
 main = 1
@@ -81,8 +81,8 @@ main = 1
         """
 package Alias/Forward
 
-Foo = Bar
-Bar = Int
+type Foo = Bar
+type Bar = Int
 
 main = 1
 """
@@ -96,7 +96,7 @@ main = 1
         """
 package Alias/Self
 
-Foo = Foo
+type Foo = Foo
 
 main = 1
 """

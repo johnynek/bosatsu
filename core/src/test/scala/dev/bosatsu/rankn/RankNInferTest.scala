@@ -935,16 +935,16 @@ main = Monad(Some, optBind)
 
     parseProgram(
       """#
-Foo = Option[Int]
+type Foo = Option[Int]
 
 main: Foo = Some(1)
 """,
-      "Option[Int]"
+      "Foo"
     )
 
     parseProgram(
       """#
-Result = Option[Int]
+type Result = Option[Int]
 
 struct Box(item: Result)
 
@@ -954,14 +954,14 @@ def read(box: Box) -> Result:
 
 main = read(Box(Some(1)))
 """,
-      "Option[Int]"
+      "Result"
     )
 
     parseProgram(
       """#
 struct Quux(first, second)
 
-Alias[a] = Quux[a, Int]
+type Alias[a] = Quux[a, Int]
 
 struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
@@ -969,14 +969,14 @@ def alias_bind(value, bind_fn):
   match value:
     case Quux(a, _): bind_fn(a)
 
-main = Monad((a) -> Quux(a, 0), alias_bind)
+main: Monad[Alias] = Monad((a) -> Quux(a, 0), alias_bind)
 """,
       "Monad[Alias]"
     )
 
     checkEnvExpr(
       """#
-Contra[a] = a -> Int
+type Contra[a] = a -> Int
 
 main = 1
 """
@@ -990,7 +990,7 @@ main = 1
 
     parseProgramIllTyped(
       """#
-Bad[a: +*] = a -> Int
+type Bad[a: +*] = a -> Int
 
 main = 1
 """

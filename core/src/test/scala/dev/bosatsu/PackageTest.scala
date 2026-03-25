@@ -12,8 +12,17 @@ class PackageTest extends munit.FunSuite with ParTest {
       compileOptions: CompileOptions
   ): ValidatedNel[PackageError, PackageMap.Compiled] = {
     implicit val showInt: Show[Int] = Show.fromToString
+    val packs =
+      ps.toList
+    val withPredef =
+      if (packs.exists(_.name == PackageName.PredefName)) packs
+      else PackageMap.withPredef(packs, compileOptions.mode)
     PackageMap
-      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, compileOptions)
+      .resolveThenInfer(
+        withPredef.zipWithIndex.map(_.swap),
+        Nil,
+        compileOptions
+      )
       .strictToValidated
   }
 
@@ -86,6 +95,7 @@ main = 1
       assertEquals(
         pmap.toMap(PackageName.parts("Foo2")).allImportPacks,
         List(
+          PackageName.PredefName,
           PackageName.parts("Foo")
         )
       )
@@ -148,6 +158,7 @@ main = head(data)
       assertEquals(
         pmap.toMap(PackageName.parts("P6")).allImportPacks,
         List(
+          PackageName.PredefName,
           PackageName.parts("P5")
         )
       )
@@ -477,7 +488,7 @@ export Foo, mkFoo
 
 struct Box(item)
 
-Foo = Box[Int]
+type Foo = Box[Int]
 
 mkFoo: Foo = Box(1)
 """)
@@ -490,36 +501,36 @@ export main
 main: Foo = mkFoo
 """)
 
-    valid(resolveThenInfer(List(exported, imported)))
+    valid(resolveThenInfer(PackageMap.withPredef(List(exported, imported))))
   }
 
   test("alias and type name collisions are rejected") {
-    invalid(resolveThenInfer(List(parse("""
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
 package Alias/Collision
 
-Foo = Int
+type Foo = Int
 struct Foo
 
 main = 1
-"""))))
+""")))))
   }
 
   test("type aliases may only reference prior local type definitions") {
-    invalid(resolveThenInfer(List(parse("""
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
 package Alias/Forward
 
-Foo = Bar
-Bar = Int
+type Foo = Bar
+type Bar = Int
 
 main = 1
-"""))))
+""")))))
 
-    invalid(resolveThenInfer(List(parse("""
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
 package Alias/Self
 
-Foo = Foo
+type Foo = Foo
 
 main = 1
-"""))))
+""")))))
   }
 }
