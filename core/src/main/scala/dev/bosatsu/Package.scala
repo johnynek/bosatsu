@@ -176,7 +176,7 @@ object Package {
     val withRegions = typedFunctor.map(pack)(tag => HasRegion.region(tag))
     // Serialized compiled artifacts never retain the parsed-source payload in
     // Program.from, so drop it before crossing the cache/compiler boundary.
-    setProgramFrom(withRegions, ()).copy(exposes = Nil)
+    dropSourceOnlyExposes(setProgramFrom(withRegions, ()))
   }
 
   def normalizeExposedDepPackages(
@@ -379,8 +379,16 @@ object Package {
   def fromStatements(pn: PackageName, stmts: List[Statement]): Package.Parsed =
     Package(pn, Nil, Nil, stmts)
 
+  // `exposes` is a checked source declaration, but compiled/interfaces already
+  // carry the exported typed API it is derived from. Dropping it keeps those
+  // artifacts unchanged and avoids storing redundant header spelling.
+  private def dropSourceOnlyExposes[A, B, C, D](
+      pack: Package[A, B, C, D]
+  ): Package[A, B, C, D] =
+    pack.copy(exposes = Nil)
+
   def interfaceOf[A](inferred: Typed[A]): Interface =
-    inferred.mapProgram(_ => ()).replaceImports(Nil).copy(exposes = Nil)
+    dropSourceOnlyExposes(inferred.mapProgram(_ => ()).replaceImports(Nil))
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
@@ -417,18 +425,23 @@ object Package {
         val x = exposes match {
           case Nil               => Doc.empty
           case exposeDecls       =>
-            def exposeDoc(deps: List[PackageName]): Doc =
-              if (deps.isEmpty) Doc.text("exposes ()")
-              else {
-                Doc.text("exposes ") +
-                  Doc.intercalate(
-                    Doc.text(", "),
-                    deps.map(Document[PackageName].document)
+            val rendered =
+              exposeDecls.flatMap { deps =>
+                if (deps.isEmpty) Nil
+                else {
+                  List(
+                    Doc.text("exposes ") +
+                      Doc.intercalate(
+                        Doc.text(", "),
+                        deps.map(Document[PackageName].document)
+                      )
                   )
+                }
               }
-
+            if (rendered.isEmpty) Doc.empty
+            else
             Doc.line +
-              Doc.intercalate(Doc.line, exposeDecls.map(exposeDoc)) +
+              Doc.intercalate(Doc.line, rendered) +
               Doc.line
         }
         val b = statments.map(Document[Statement].document(_))

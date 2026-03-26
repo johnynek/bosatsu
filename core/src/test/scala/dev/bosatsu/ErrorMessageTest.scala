@@ -3558,7 +3558,7 @@ main = S {}
     val msg = duplicate.message(sourceMap, Colorize.None)
     assert(msg.contains("at most one `exposes` declaration is allowed"), msg)
     assert(msg.contains("exposes Dep/One"), msg)
-    assert(msg.contains("exposes ()"), msg)
+    assert(!msg.contains("exposes ()"), msg)
   }
 
 }

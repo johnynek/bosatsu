@@ -157,8 +157,11 @@ object PackageError {
           .grouped
     }
 
-  private def exposesLineDoc(packages: List[PackageName]): Doc =
-    Doc.text("exposes ") + exposesSetDoc(packages)
+  private def exposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil      => None
+      case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+    }
 
   private def suggestedName(
       ident: Identifier,
@@ -2008,20 +2011,25 @@ object PackageError {
     ) = {
       val prefix = sourceMap.headLine(pack, None)
       val declCount = declarations.length
-      val declWord = if (declCount == 1) "declaration" else "declarations"
+      val renderedDecls =
+        declarations.toList.flatMap(exposesLineDoc)
       val body =
         Doc.text("at most one `exposes` declaration is allowed, but found ") +
           Doc.text(declCount.toString) +
-          Doc.text(s" $declWord.") +
-          Doc.hardLine +
-          Doc.text("keep exactly one of:") +
-          Doc.hardLine +
-          Doc
-            .intercalate(
-              Doc.hardLine,
-              declarations.toList.map(exposesLineDoc)
-            )
-            .nested(2)
+          Doc.text(" declarations.") +
+          (
+            if (renderedDecls.isEmpty) Doc.empty
+            else
+              Doc.hardLine +
+                Doc.text("keep exactly one of:") +
+                Doc.hardLine +
+                Doc
+                  .intercalate(
+                    Doc.hardLine,
+                    renderedDecls
+                  )
+                  .nested(2)
+          )
 
       (prefix + Doc.hardLine + body).render(80)
     }
@@ -2044,7 +2052,7 @@ object PackageError {
         if (actual.isEmpty)
           Doc.text("canonical fix: omit `exposes` (equivalent to `exposes ()`).")
         else
-          Doc.text("canonical fix: ") + exposesLineDoc(actual) + Doc.char('.')
+          Doc.text("canonical fix: ") + exposesLineDoc(actual).get + Doc.char('.')
 
       val missingDoc =
         if (missing.isEmpty) Doc.empty
