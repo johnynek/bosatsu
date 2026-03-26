@@ -466,7 +466,7 @@ bar = 1
     val compiled = compilePackage(
       """package Proto/AliasIface
         |
-        |export Foo, mkFoo
+        |export Box, Foo, mkFoo
         |
         |struct Box(item)
         |
@@ -483,13 +483,19 @@ bar = 1
     val compiled = compilePackage(
       """package Proto/AliasPack
         |
-        |export Foo, main
+        |export main
         |
         |struct Box(item)
         |
         |type Foo = Box[Int]
         |
-        |main: Foo = Box(1)
+        |def unwrap(box: Foo) -> Int:
+        |  match box:
+        |    case Box(v): v
+        |
+        |foo: Foo = Box(1)
+        |
+        |main = unwrap(foo)
         |""".stripMargin
     )
 
