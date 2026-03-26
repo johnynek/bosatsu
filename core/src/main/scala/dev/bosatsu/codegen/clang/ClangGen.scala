@@ -560,6 +560,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
           case TrueConst               => pv(Code.TrueLit)
+          case LetBool(name @ Left(LocalAnon(_)), argV, in)
+              if !Matchless.BoolExpr.usesBinding(in, name) =>
+            (innerToValue(argV), boolToValue(in)).mapN { (value, result) =>
+              value.discardValue match {
+                case Some(effect) => effect +: result
+                case None         => result
+              }
+            }
           case LetBool(name, argV, in) =>
             handleLet(name, argV, boolToValue(in))
           case LetMutBool(LocalAnonMut(m), span) =>
@@ -785,6 +793,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def innerToValue(expr: Expr[K]): T[Code.ValueLike] =
         expr match {
           case fn @ Lambda(_, _, _, _) => innerFn(fn)
+          case Let(name @ Left(LocalAnon(_)), argV, in)
+              if !Expr.usesBinding(in, name) =>
+            (innerToValue(argV), innerToValue(in)).mapN { (value, result) =>
+              value.discardValue match {
+                case Some(effect) => effect +: result
+                case None         => result
+              }
+            }
           case Let(name, argV, in)     =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _)       => innerApp(app)

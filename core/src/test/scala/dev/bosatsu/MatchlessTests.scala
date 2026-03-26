@@ -3757,6 +3757,180 @@ def middle_suffix(xs):
     }
   }
 
+  test("segmented list search returns the leftmost candidate before a trailing suffix") {
+    TestUtils.checkMatchless("""
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("find_before_one"))
+      val evalExprs = Vector(
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 6 :: 1 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 1 :: 6 :: 1 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(5 :: 6 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.VInt(5), Value.VInt(5), Value.VInt(0)))
+    }
+  }
+
+  test("segmented list search preserves left-biased named decomposition") {
+    TestUtils.checkMatchless("""
+def segmented_prefix(xs):
+  match xs:
+    case [*prefix, 2, *_, 3]: prefix
+    case _: xs
+
+def segmented_mid(xs):
+  match xs:
+    case [*_, 2, *mid, 3, *_]: mid
+    case _: xs
+
+def segmented_pair(xs):
+  match xs:
+    case [*_, x, *_, y, *_]: [x, y]
+    case _: []
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val prefixExpr = byName(Identifier.Name("segmented_prefix"))
+      val midExpr = byName(Identifier.Name("segmented_mid"))
+      val pairExpr = byName(Identifier.Name("segmented_pair"))
+
+      val prefixEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(
+                prefixExpr,
+                NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 8 :: 3 :: Nil))
+              ),
+              Matchless.App(
+                prefixExpr,
+                NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 8 :: Nil))
+              )
+            )
+          )(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+      val midEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(
+                midExpr,
+                NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 8 :: 2 :: 7 :: 3 :: 6 :: Nil))
+              ),
+              Matchless.App(
+                midExpr,
+                NonEmptyList.one(matchlessListOfInts(9 :: 2 :: 8 :: Nil))
+              )
+            )
+          )(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+      val pairEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(
+                pairExpr,
+                NonEmptyList.one(matchlessListOfInts(0 :: 1 :: 2 :: Nil))
+              ),
+              Matchless.App(
+                pairExpr,
+                NonEmptyList.one(matchlessListOfInts(9 :: 1 :: 8 :: 2 :: 7 :: Nil))
+              )
+            )
+          )((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(
+        prefixEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(9))),
+          Value.VList(List(Value.VInt(9), Value.VInt(2), Value.VInt(8)))
+        )
+      )
+      assertEquals(
+        midEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(8), Value.VInt(2), Value.VInt(7))),
+          Value.VList(List(Value.VInt(9), Value.VInt(2), Value.VInt(8)))
+        )
+      )
+      assertEquals(
+        pairEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(0), Value.VInt(1))),
+          Value.VList(List(Value.VInt(9), Value.VInt(1)))
+        )
+      )
+    }
+  }
+
+  test("segmented list search keeps searching after guard failure") {
+    TestUtils.checkMatchless("""
+def guarded(xs):
+  match xs:
+    case [*_, x, *_, 1] if x matches 2: x
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("guarded"))
+      val evalExprs = Vector(
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(3 :: 2 :: 1 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(3 :: 4 :: 1 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.VInt(2), Value.VInt(0)))
+    }
+  }
+
+  test("segmented list search only stop-fails after the full exact block matches") {
+    TestUtils.checkMatchless("""
+def exact_block(xs):
+  match xs:
+    case [*_, 1, 2, *_, 3]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("exact_block"))
+      val evalExprs = Vector(
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 1 :: 2 :: 3 :: Nil))),
+        Matchless.App(expr, NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 4 :: Nil)))
+      )
+      val evaluated =
+        MatchlessToValue
+          .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
+    }
+  }
+
+  test("segmented multi-glob list search lowers to loop-based search without tuple reconstruction") {
+    TestUtils.checkMatchless("""
+def segmented_shape(xs):
+  match xs:
+    case [*_, 2, *_, 3]: 1
+    case _: 0
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("segmented_shape"))
+      assertEquals(Matchless.Expr.containsWhileExpr(expr), true, expr.toString)
+      assertEquals(countStructConstructorApps(expr, 2), 0, expr.toString)
+      assertEquals(countWhileListVariantChecks(expr) >= 1, true, expr.toString)
+    }
+  }
+
   test("ordered matcher visits simplified string patterns") {
     val out = Identifier.Name("ordered_str_simplify")
     val strType = rankn.Type.StrType

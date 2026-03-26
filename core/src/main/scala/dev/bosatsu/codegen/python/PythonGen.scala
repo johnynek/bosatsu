@@ -2636,6 +2636,14 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }
+          case LetBool(n @ Left(LocalAnon(_)), v, in)
+              if !Matchless.BoolExpr.usesBinding(in, n) =>
+            (
+              loop(v, slotName, inlineSlots),
+              boolExpr(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
+            }
           case LetBool(n, v, in) =>
             doLet(
               n,
@@ -2941,6 +2949,14 @@ object PythonGen {
                     val v = topFn(bi, fn, slotName, inlineSlots)
                     (v, inF).mapN(_.withValue(_))
                   }
+            }
+          case Let(localOrBind @ Left(LocalAnon(_)), notFn, in)
+              if !Expr.usesBinding(in, localOrBind) =>
+            (
+              loop(notFn, slotName, inlineSlots),
+              loop(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
             }
           case Let(localOrBind, notFn, in) =>
             // we know that notFn is not Lambda here
