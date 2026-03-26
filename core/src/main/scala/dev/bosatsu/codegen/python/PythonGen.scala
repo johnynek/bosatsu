@@ -2645,22 +2645,13 @@ object PythonGen {
               Code.always(value).withValue(result)
             }
           case LetBool(n, v, in) =>
-            if (Matchless.BoolExpr.usesBinding(in, n))
-              doLet(
-                n,
-                v,
-                boolExpr(in, slotName, inlineSlots),
-                slotName,
-                inlineSlots
-              )
-            else
-              doLet(
-                n,
-                v,
-                boolExpr(in, slotName, inlineSlots),
-                slotName,
-                inlineSlots
-              )
+            doLet(
+              n,
+              v,
+              boolExpr(in, slotName, inlineSlots),
+              slotName,
+              inlineSlots
+            )
           case LetMutBool(_, in) =>
             // in python we just ignore this
             boolExpr(in, slotName, inlineSlots)
@@ -2968,23 +2959,14 @@ object PythonGen {
               Code.always(value).withValue(result)
             }
           case Let(localOrBind, notFn, in) =>
-            if (Expr.usesBinding(in, localOrBind))
-              // we know that notFn is not Lambda here
-              doLet(
-                localOrBind,
-                notFn,
-                loop(in, slotName, inlineSlots),
-                slotName,
-                inlineSlots
-              )
-            else
-              doLet(
-                localOrBind,
-                notFn,
-                loop(in, slotName, inlineSlots),
-                slotName,
-                inlineSlots
-              )
+            // we know that notFn is not Lambda here
+            doLet(
+              localOrBind,
+              notFn,
+              loop(in, slotName, inlineSlots),
+              slotName,
+              inlineSlots
+            )
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to
