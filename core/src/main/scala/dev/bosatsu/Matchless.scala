@@ -334,25 +334,15 @@ object Matchless {
       loopExpr(expr)
     }
 
-    def referencesBindable[A](expr: Expr[A], target: Bindable): Boolean =
-      referencesBindable(expr, target, isShadowed = false)
-
-    private[Matchless] def referencesBindable[A](
-        expr: Expr[A],
-        target: Bindable,
-        isShadowed: Boolean
-    ): Boolean = {
-      def outerExpr(expr: Expr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopExpr(expr)
-
-      def outerBool(boolExpr: BoolExpr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopBool(boolExpr)
+    def referencesBindable[A](expr: Expr[A], target: Bindable): Boolean = {
+      def checkExpr(expr: Expr[A]): Boolean =
+        loopExpr(expr)
 
       @annotation.tailrec
       def loopExprList(todo: List[Expr[A]]): Boolean =
         todo match {
           case head :: tail =>
-            if (outerExpr(head, isShadowed = false)) true
+            if (checkExpr(head)) true
             else loopExprList(tail)
           case Nil          =>
             false
@@ -362,7 +352,7 @@ object Matchless {
       def loopBranches(todo: List[(Int, Expr[A])]): Boolean =
         todo match {
           case (_, branch) :: tail =>
-            if (outerExpr(branch, isShadowed = false)) true
+            if (checkExpr(branch)) true
             else loopBranches(tail)
           case Nil                 =>
             false
@@ -375,19 +365,16 @@ object Matchless {
             name == target
           case Lambda(captures, recName, args, body) =>
             if (loopExprList(captures)) true
-            else {
-              val bodyShadowed =
-                recName.contains(target) || args.exists(_ == target)
-              outerExpr(body, bodyShadowed)
-            }
+            else if (recName.contains(target) || args.exists(_ == target)) false
+            else loopExpr(body)
           case WhileExpr(cond, effectExpr, _) =>
-            if (loopBool(cond)) true
+            if (BoolExpr.referencesBindable(cond, target)) true
             else loopExpr(effectExpr)
           case App(fn, args) =>
-            if (outerExpr(fn, isShadowed = false)) true
+            if (checkExpr(fn)) true
             else loopExprList(args.toList)
           case Let(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
+            if (checkExpr(value)) true
             else
               arg match {
                 case Right(name) if name == target => false
@@ -396,11 +383,11 @@ object Matchless {
           case LetMut(_, in) =>
             loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
-            if (loopBool(cond)) true
-            else if (outerExpr(thenExpr, isShadowed = false)) true
+            if (BoolExpr.referencesBindable(cond, target)) true
+            else if (checkExpr(thenExpr)) true
             else loopExpr(elseExpr)
           case SwitchVariant(on, _, cases, default) =>
-            if (outerExpr(on, isShadowed = false)) true
+            if (checkExpr(on)) true
             else if (loopBranches(cases.toList)) true
             else
               default match {
@@ -408,7 +395,7 @@ object Matchless {
                 case None              => false
               }
           case Always(cond, thenExpr) =>
-            if (loopBool(cond)) true
+            if (BoolExpr.referencesBindable(cond, target)) true
             else loopExpr(thenExpr)
           case PrevNat(of) =>
             loopExpr(of)
@@ -422,59 +409,18 @@ object Matchless {
             false
         }
 
-      @annotation.tailrec
-      def loopBool(boolExpr: BoolExpr[A]): Boolean =
-        boolExpr match {
-          case EqualsLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case LtEqLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case EqualsNat(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case And(left, right) =>
-            if (outerBool(left, isShadowed = false)) true
-            else loopBool(right)
-          case CheckVariant(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case CheckVariantSet(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case SetMut(_, value) =>
-            outerExpr(value, isShadowed = false)
-          case LetBool(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
-            else
-              arg match {
-                case Right(name) if name == target => false
-                case _                             => loopBool(in)
-              }
-          case LetMutBool(_, in) =>
-            loopBool(in)
-          case TrueConst =>
-            false
-        }
-
-      outerExpr(expr, isShadowed)
+      loopExpr(expr)
     }
 
-    def referencesLocalAnon[A](expr: Expr[A], target: Long): Boolean =
-      referencesLocalAnon(expr, target, isShadowed = false)
-
-    private[Matchless] def referencesLocalAnon[A](
-        expr: Expr[A],
-        target: Long,
-        isShadowed: Boolean
-    ): Boolean = {
-      def outerExpr(expr: Expr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopExpr(expr)
-
-      def outerBool(boolExpr: BoolExpr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopBool(boolExpr)
+    def referencesLocalAnon[A](expr: Expr[A], target: Long): Boolean = {
+      def checkExpr(expr: Expr[A]): Boolean =
+        loopExpr(expr)
 
       @annotation.tailrec
       def loopExprList(todo: List[Expr[A]]): Boolean =
         todo match {
           case head :: tail =>
-            if (outerExpr(head, isShadowed = false)) true
+            if (checkExpr(head)) true
             else loopExprList(tail)
           case Nil          =>
             false
@@ -484,7 +430,7 @@ object Matchless {
       def loopBranches(todo: List[(Int, Expr[A])]): Boolean =
         todo match {
           case (_, branch) :: tail =>
-            if (outerExpr(branch, isShadowed = false)) true
+            if (checkExpr(branch)) true
             else loopBranches(tail)
           case Nil                 =>
             false
@@ -499,13 +445,13 @@ object Matchless {
             if (loopExprList(captures)) true
             else loopExpr(body)
           case WhileExpr(cond, effectExpr, _) =>
-            if (loopBool(cond)) true
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
             else loopExpr(effectExpr)
           case App(fn, args) =>
-            if (outerExpr(fn, isShadowed = false)) true
+            if (checkExpr(fn)) true
             else loopExprList(args.toList)
           case Let(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
+            if (checkExpr(value)) true
             else
               arg match {
                 case Left(LocalAnon(id)) if id == target => false
@@ -514,11 +460,11 @@ object Matchless {
           case LetMut(_, in) =>
             loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
-            if (loopBool(cond)) true
-            else if (outerExpr(thenExpr, isShadowed = false)) true
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
+            else if (checkExpr(thenExpr)) true
             else loopExpr(elseExpr)
           case SwitchVariant(on, _, cases, default) =>
-            if (outerExpr(on, isShadowed = false)) true
+            if (checkExpr(on)) true
             else if (loopBranches(cases.toList)) true
             else
               default match {
@@ -526,7 +472,7 @@ object Matchless {
                 case None              => false
               }
           case Always(cond, thenExpr) =>
-            if (loopBool(cond)) true
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
             else loopExpr(thenExpr)
           case PrevNat(of) =>
             loopExpr(of)
@@ -540,38 +486,7 @@ object Matchless {
             false
         }
 
-      @annotation.tailrec
-      def loopBool(boolExpr: BoolExpr[A]): Boolean =
-        boolExpr match {
-          case EqualsLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case LtEqLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case EqualsNat(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case And(left, right) =>
-            if (outerBool(left, isShadowed = false)) true
-            else loopBool(right)
-          case CheckVariant(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case CheckVariantSet(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case SetMut(_, value) =>
-            outerExpr(value, isShadowed = false)
-          case LetBool(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
-            else
-              arg match {
-                case Left(LocalAnon(id)) if id == target => false
-                case _                                   => loopBool(in)
-              }
-          case LetMutBool(_, in) =>
-            loopBool(in)
-          case TrueConst =>
-            false
-        }
-
-      outerExpr(expr, isShadowed)
+      loopExpr(expr)
     }
 
     def usesBinding[A](expr: Expr[A], arg: Either[LocalAnon, Bindable]): Boolean =
@@ -1919,88 +1834,30 @@ object Matchless {
         }
     }
 
-    def referencesBindable[A](boolExpr: BoolExpr[A], target: Bindable): Boolean =
-      referencesBindable(boolExpr, target, isShadowed = false)
-
-    def referencesLocalAnon[A](boolExpr: BoolExpr[A], target: Long): Boolean =
-      referencesLocalAnon(boolExpr, target, isShadowed = false)
-
-    private[Matchless] def referencesLocalAnon[A](
-        boolExpr: BoolExpr[A],
-        target: Long,
-        isShadowed: Boolean
-    ): Boolean = {
-      def outerExpr(expr: Expr[A], isShadowed: Boolean): Boolean =
-        Expr.referencesLocalAnon(expr, target, isShadowed)
-
-      def outerBool(boolExpr: BoolExpr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopBool(boolExpr)
+    def referencesBindable[A](boolExpr: BoolExpr[A], target: Bindable): Boolean = {
+      def checkBool(boolExpr: BoolExpr[A]): Boolean =
+        loopBool(boolExpr)
 
       @annotation.tailrec
       def loopBool(boolExpr: BoolExpr[A]): Boolean =
         boolExpr match {
           case EqualsLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
+            Expr.referencesBindable(expr, target)
           case LtEqLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
+            Expr.referencesBindable(expr, target)
           case EqualsNat(expr, _) =>
-            outerExpr(expr, isShadowed = false)
+            Expr.referencesBindable(expr, target)
           case And(left, right) =>
-            if (outerBool(left, isShadowed = false)) true
+            if (checkBool(left)) true
             else loopBool(right)
           case CheckVariant(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
+            Expr.referencesBindable(expr, target)
           case CheckVariantSet(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
+            Expr.referencesBindable(expr, target)
           case SetMut(_, value) =>
-            outerExpr(value, isShadowed = false)
+            Expr.referencesBindable(value, target)
           case LetBool(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
-            else
-              arg match {
-                case Left(LocalAnon(id)) if id == target => false
-                case _                                   => loopBool(in)
-              }
-          case LetMutBool(_, in) =>
-            loopBool(in)
-          case TrueConst =>
-            false
-        }
-
-      outerBool(boolExpr, isShadowed)
-    }
-
-    private[Matchless] def referencesBindable[A](
-        boolExpr: BoolExpr[A],
-        target: Bindable,
-        isShadowed: Boolean
-    ): Boolean = {
-      def outerExpr(expr: Expr[A], isShadowed: Boolean): Boolean =
-        Expr.referencesBindable(expr, target, isShadowed)
-
-      def outerBool(boolExpr: BoolExpr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false else loopBool(boolExpr)
-
-      @annotation.tailrec
-      def loopBool(boolExpr: BoolExpr[A]): Boolean =
-        boolExpr match {
-          case EqualsLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case LtEqLit(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case EqualsNat(expr, _) =>
-            outerExpr(expr, isShadowed = false)
-          case And(left, right) =>
-            if (outerBool(left, isShadowed = false)) true
-            else loopBool(right)
-          case CheckVariant(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case CheckVariantSet(expr, _, _, _) =>
-            outerExpr(expr, isShadowed = false)
-          case SetMut(_, value) =>
-            outerExpr(value, isShadowed = false)
-          case LetBool(arg, value, in) =>
-            if (outerExpr(value, isShadowed = false)) true
+            if (Expr.referencesBindable(value, target)) true
             else
               arg match {
                 case Right(name) if name == target => false
@@ -2012,7 +1869,45 @@ object Matchless {
             false
         }
 
-      outerBool(boolExpr, isShadowed)
+      loopBool(boolExpr)
+    }
+
+    def referencesLocalAnon[A](boolExpr: BoolExpr[A], target: Long): Boolean = {
+      def checkBool(boolExpr: BoolExpr[A]): Boolean =
+        loopBool(boolExpr)
+
+      @annotation.tailrec
+      def loopBool(boolExpr: BoolExpr[A]): Boolean =
+        boolExpr match {
+          case EqualsLit(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case LtEqLit(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case EqualsNat(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case And(left, right) =>
+            if (checkBool(left)) true
+            else loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case CheckVariantSet(expr, _, _, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case SetMut(_, value) =>
+            Expr.referencesLocalAnon(value, target)
+          case LetBool(arg, value, in) =>
+            if (Expr.referencesLocalAnon(value, target)) true
+            else
+              arg match {
+                case Left(LocalAnon(id)) if id == target => false
+                case _                                   => loopBool(in)
+              }
+          case LetMutBool(_, in) =>
+            loopBool(in)
+          case TrueConst =>
+            false
+        }
+
+      loopBool(boolExpr)
     }
 
     def usesBinding[A](
