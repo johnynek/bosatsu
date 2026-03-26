@@ -2297,6 +2297,60 @@ main = run(x)
     forAll(Generators.packageGen(4))(law(pp))
   }
 
+  test("we can parse exposes declarations") {
+    val inline = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes Dep/One, Dep/Two
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(
+      inline.exposes,
+      List(
+        List(
+          PackageName.parts("Dep", "One"),
+          PackageName.parts("Dep", "Two")
+        )
+      )
+    )
+
+    val multiline = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes (
+        |  Dep/One,
+        |  Dep/Two,
+        |)
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(
+      multiline.exposes,
+      List(
+        List(
+          PackageName.parts("Dep", "One"),
+          PackageName.parts("Dep", "Two")
+        )
+      )
+    )
+
+    val empty = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes ()
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(empty.exposes, List(List.empty[PackageName]))
+  }
+
   test("parse errors point near where they occur") {
     expectFail(
       Statement.parser,

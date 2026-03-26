@@ -149,6 +149,7 @@ def tail(list):
 package P6
 from P5 import Option, List, NonEmpty, Empty, head
 export data
+exposes P5
 
 data = NonEmpty(1, NonEmpty(2, Empty))
 
@@ -177,6 +178,7 @@ from P6 import data as p6_data
 from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head
 
 export data
+exposes P5
 
 data = Cons(1, Cons(2, Nil))
 data1 = Cons(0, p6_data)
@@ -288,6 +290,7 @@ external struct Bytes
 package UsesExternal
 from BytesPkg import Bytes
 export now, wrap
+exposes BytesPkg
 
 external now: Bytes
 external def wrap(b: Bytes) -> Bytes
@@ -308,6 +311,7 @@ struct Foo
 package TypeOnly
 from Base import Foo
 export Bar()
+exposes Base
 
 struct Bar(value: Foo)
 """)
@@ -316,6 +320,7 @@ struct Bar(value: Foo)
 package ValueOnly
 from TypeOnly import Bar
 export main
+exposes TypeOnly
 
 def main(value: Bar):
   value
@@ -346,6 +351,7 @@ struct Rec(a: Marker = Marker)
 package P2
 from P1 import Rec
 export main
+exposes P1
 
 main = Rec {}
 """)
@@ -366,6 +372,7 @@ struct Rec(a: Marker = Marker)
 package P2
 from P1 import Rec
 export main
+exposes P1
 
 main = Rec {}
 """)
@@ -497,6 +504,7 @@ mkFoo: Foo = Box(1)
 package Alias/Import
 from Alias/Export import Foo, mkFoo
 export main
+exposes Alias/Export
 
 main: Foo = mkFoo
 """)
@@ -566,5 +574,120 @@ type Foo = Foo
 
 main = 1
 """)))))
+  }
+
+  test("exposed dependency normalization follows the exported API") {
+    val dep = parse("""
+package Dep/Types
+export Dep(), Alias, ext
+
+struct Dep
+type Alias = Dep
+external ext: Dep
+""")
+
+    val opaque = parse("""
+package Main/Opaque
+from Dep/Types import Dep
+export Wrapped
+
+struct Wrapped(value: Dep)
+""")
+
+    val constructors = parse("""
+package Main/Open
+from Dep/Types import Dep
+export Wrapped()
+exposes Dep/Types
+
+struct Wrapped(value: Dep)
+""")
+
+    val alias = parse("""
+package Main/Alias
+from Dep/Types import Alias
+export AliasBox
+exposes Dep/Types
+
+type AliasBox = Alias
+""")
+
+    val inferred = parse("""
+package Main/Inferred
+from Dep/Types import ext
+export exposed
+exposes Dep/Types
+
+exposed = ext
+""")
+
+    val external = parse("""
+package Main/External
+from Dep/Types import Dep
+export now
+exposes Dep/Types
+
+external now: Dep
+""")
+
+    val sameLibraryBase = parse("""
+package Same/Base
+export Shared()
+
+struct Shared
+""")
+
+    val sameLibraryUser = parse("""
+package Same/User
+from Same/Base import Shared
+export wrap
+exposes Same/Base
+
+def wrap(value: Shared) -> Shared:
+  value
+""")
+
+    valid(resolveThenInfer(
+      List(
+        dep,
+        opaque,
+        constructors,
+        alias,
+        inferred,
+        external,
+        sameLibraryBase,
+        sameLibraryUser
+      )
+    ).map { pmap =>
+      assertEquals(
+        pmap.toMap(PackageName.parts("Dep", "Types")).exposedDepPackages,
+        Nil
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Main", "Opaque")).exposedDepPackages,
+        Nil
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Main", "Open")).exposedDepPackages,
+        List(PackageName.parts("Dep", "Types"))
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Main", "Alias")).exposedDepPackages,
+        List(PackageName.parts("Dep", "Types"))
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Main", "Inferred")).exposedDepPackages,
+        List(PackageName.parts("Dep", "Types"))
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Main", "External")).exposedDepPackages,
+        List(PackageName.parts("Dep", "Types"))
+      )
+      assertEquals(
+        pmap.toMap(PackageName.parts("Same", "User")).exposedDepPackages,
+        List(PackageName.parts("Same", "Base"))
+      )
+      assertEquals(PackageMap.predefCompiled.exposedDepPackages, Nil)
+    })
   }
 }

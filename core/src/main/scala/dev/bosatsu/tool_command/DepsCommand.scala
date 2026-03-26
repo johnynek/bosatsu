@@ -85,7 +85,7 @@ object DepsCommand {
                 parsed,
                 errColor
               )
-            } yield validated.map { case (path, (pn, imps, _)) =>
+            } yield validated.map { case (path, (pn, imps, _, _)) =>
               (
                 path,
                 pn,

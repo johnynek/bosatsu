@@ -59,6 +59,21 @@ class LibConfigTest extends munit.FunSuite {
         )
     }
 
+  private def typeCheckAll(srcs: List[String]): PackageMap.Compiled =
+    Par.noParallelism {
+      val parsed = cats.data.NonEmptyList.fromList(srcs.zipWithIndex.map { case (src, idx) =>
+        ((idx.toString, LocationMap(src)), dev.bosatsu.Parser.unsafeParse(Package.parser, src))
+      }).getOrElse(fail("expected at least one source"))
+
+      PackageMap
+        .typeCheckParsed(parsed, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(
+          errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
+          identity
+        )
+    }
+
   private def decodeConfig(jsonStr: String): LibConfig = {
     val json = Json.parserFile.parseAll(jsonStr) match {
       case Right(value) => value
@@ -237,5 +252,63 @@ class LibConfigTest extends munit.FunSuite {
     }
 
     assertEquals(assembled.docBaseUrl, conf.docBaseUrl)
+  }
+
+  test("validatePacks rejects exposed private same-library packages") {
+    val compiled = typeCheckAll(
+      List(
+        """package Same/Base
+          |export Shared()
+          |
+          |struct Shared
+          |""".stripMargin,
+        """package Same/User
+          |from Same/Base import Shared
+          |export wrap
+          |exposes Same/Base
+          |
+          |def wrap(value: Shared) -> Shared:
+          |  value
+          |""".stripMargin
+      )
+    )
+
+    val basePack = compiled.toMap(PackageName.parts("Same", "Base"))
+    val userPack = compiled.toMap(PackageName.parts("Same", "User"))
+
+    val conf = LibConfig(
+      name = Name("root"),
+      repoUri = "repo",
+      nextVersion = Version(0, 0, 1),
+      previous = None,
+      exportedPackages = List(LibConfig.PackageFilter.Name(userPack.name)),
+      allPackages = List(
+        LibConfig.PackageFilter.Name(basePack.name),
+        LibConfig.PackageFilter.Name(userPack.name)
+      ),
+      publicDeps = Nil,
+      privateDeps = Nil,
+      defaultMain = None
+    )
+
+    val res = conf.validatePacks(
+      previous = None,
+      packs = List(basePack, userPack),
+      deps = Nil,
+      publicDepClosureLibs = Nil,
+      prevPublicDepLibs = Nil
+    )
+
+    val err =
+      res match {
+        case cats.data.Validated.Invalid(nec) =>
+          nec.toList
+            .collectFirst { case e: LibConfig.Error.IllegalVisibleDep => e }
+            .getOrElse(fail("missing IllegalVisibleDep error"))
+        case cats.data.Validated.Valid(_) =>
+          fail("expected IllegalVisibleDep error")
+      }
+
+    assertEquals(err.invalid, basePack.name)
   }
 }

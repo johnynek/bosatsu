@@ -4,6 +4,7 @@ from Bosatsu/Num/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_
 
 export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, mul2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
+exposes Bosatsu/Num/Nat
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1

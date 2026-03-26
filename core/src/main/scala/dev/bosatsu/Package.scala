@@ -19,7 +19,8 @@ final case class Package[A, B, C, +D](
     name: PackageName,
     imports: List[Import[A, B]],
     exports: List[ExportedName[C]],
-    program: D
+    program: D,
+    exposes: List[List[PackageName]] = Nil
 ) {
 
   // It is really important to cache the hashcode and these large dags if
@@ -34,7 +35,8 @@ final case class Package[A, B, C, +D](
           name.equals(p.name) &&
           imports.equals(p.imports) &&
           exports.equals(p.exports) &&
-          program.equals(p.program)
+          program.equals(p.program) &&
+          exposes.equals(p.exposes)
         }
       case _ => false
     }
@@ -43,12 +45,12 @@ final case class Package[A, B, C, +D](
     copy(imports = i :: imports)
 
   def mapProgram[D1](fn: D => D1): Package[A, B, C, D1] =
-    Package(name, imports, exports, fn(program))
+    Package(name, imports, exports, fn(program), exposes)
 
   def replaceImports[A1, B1](
       newImports: List[Import[A1, B1]]
   ): Package[A1, B1, C, D] =
-    Package(name, newImports, exports, program)
+    Package(name, newImports, exports, program, exposes)
 
   def getExport[T](
       i: ImportedName[T]
@@ -65,6 +67,9 @@ final case class Package[A, B, C, +D](
       }
       .distinct
       .sorted
+
+  def exposedDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
+    Package.normalizeExposedDepPackages(name, visibleDepPackages)
 
   /** These are all the types that are exported with constructors deleted for
     * opaque types
@@ -149,7 +154,12 @@ object Package {
   type Compiled = Typed[Region]
 
   type Header =
-    (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
+    (
+        PackageName,
+        List[Import[PackageName, Unit]],
+        List[ExportedName[Unit]],
+        List[List[PackageName]]
+    )
 
   val typedFunctor: Functor[Typed] =
     new Functor[Typed] {
@@ -166,8 +176,18 @@ object Package {
     val withRegions = typedFunctor.map(pack)(tag => HasRegion.region(tag))
     // Serialized compiled artifacts never retain the parsed-source payload in
     // Program.from, so drop it before crossing the cache/compiler boundary.
-    setProgramFrom(withRegions, ())
+    setProgramFrom(withRegions, ()).copy(exposes = Nil)
   }
+
+  def normalizeExposedDepPackages(
+      packageName: PackageName,
+      deps: Iterable[PackageName]
+  ): List[PackageName] =
+    deps.iterator
+      .filterNot(pn => (pn == packageName) || (pn == PackageName.PredefName))
+      .toSet
+      .toList
+      .sorted
 
   sealed trait TestEntry[+A] {
     def bindable: Identifier.Bindable
@@ -360,7 +380,7 @@ object Package {
     Package(pn, Nil, Nil, stmts)
 
   def interfaceOf[A](inferred: Typed[A]): Interface =
-    inferred.mapProgram(_ => ()).replaceImports(Nil)
+    inferred.mapProgram(_ => ()).replaceImports(Nil).copy(exposes = Nil)
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
@@ -368,7 +388,7 @@ object Package {
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =
     Document.instance[Package.Parsed] {
-      case Package(name, imports, exports, statments) =>
+      case Package(name, imports, exports, statments, exposes) =>
         val p =
           Doc.text("package ") + Document[PackageName].document(name) + Doc.line
         val i = imports match {
@@ -394,8 +414,25 @@ object Package {
               ) +
               Doc.line
         }
+        val x = exposes match {
+          case Nil               => Doc.empty
+          case exposeDecls       =>
+            def exposeDoc(deps: List[PackageName]): Doc =
+              if (deps.isEmpty) Doc.text("exposes ()")
+              else {
+                Doc.text("exposes ") +
+                  Doc.intercalate(
+                    Doc.text(", "),
+                    deps.map(Document[PackageName].document)
+                  )
+              }
+
+            Doc.line +
+              Doc.intercalate(Doc.line, exposeDecls.map(exposeDoc)) +
+              Doc.line
+        }
         val b = statments.map(Document[Statement].document(_))
-        Doc.intercalate(Doc.empty, p :: i :: e :: b)
+        Doc.intercalate(Doc.empty, p :: i :: e :: x :: b)
     }
 
   def headerParser: P[Header] = {
@@ -419,16 +456,26 @@ object Package {
         spaceComment
       )
       .map(_.padded)
+    val exposeItems =
+      PackageName.parser.parensLines0Cut.backtrack.orElse(
+        PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
+      )
+    val exposes = Padding
+      .parser(
+        (P.string("exposes").soft ~ spaces) *> exposeItems <* eol,
+        spaceComment
+      )
+      .map(_.padded)
 
-    ((parsePack ~ im) ~ Parser.nonEmptyListToList(ex)).map {
-      case ((p, i), e) => (p, i, e)
+    (((parsePack ~ im) ~ Parser.nonEmptyListToList(ex)) ~ exposes.rep0).map {
+      case (((p, i), e), x) => (p, i, e, x)
     }
   }
 
   def parser: P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     val body: P0[List[Statement]] = Statement.parser
     (headerParser, body)
-      .mapN { case ((p, i, e), b) => Package(p, i, e, b) }
+      .mapN { case ((p, i, e, x), b) => Package(p, i, e, b, x) }
   }
 
   /** After having type checked the imports, we now type check the body in order

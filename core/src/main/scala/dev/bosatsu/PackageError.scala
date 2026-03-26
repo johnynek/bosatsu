@@ -144,6 +144,22 @@ object PackageError {
   private def quotedPackageName(pn: PackageName): Doc =
     Doc.char('`') + Doc.text(pn.asString) + Doc.char('`')
 
+  private def exposesSetDoc(packages: List[PackageName]): Doc =
+    packages match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        Doc
+          .intercalate(
+            Doc.text(",") + Doc.lineOrSpace,
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )
+          .grouped
+    }
+
+  private def exposesLineDoc(packages: List[PackageName]): Doc =
+    Doc.text("exposes ") + exposesSetDoc(packages)
+
   private def suggestedName(
       ident: Identifier,
       label: Option[String]
@@ -254,6 +270,7 @@ object PackageError {
       case _: PackageError.UnusedLets             => true
       case _: PackageError.TodoUsage              => true
       case _: PackageError.RecursionLint          => true
+      case _: PackageError.ExposesMismatch        => true
       case _: PackageError.ShadowedBindingTypeError =>
         true
       case PackageError.TotalityCheckError(
@@ -1978,6 +1995,98 @@ object PackageError {
         }
 
       Doc.intercalate(Doc.line, dupMessages).render(80)
+    }
+  }
+
+  case class DuplicateExposes(
+      pack: PackageName,
+      declarations: NonEmptyList[List[PackageName]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val declCount = declarations.length
+      val declWord = if (declCount == 1) "declaration" else "declarations"
+      val body =
+        Doc.text("at most one `exposes` declaration is allowed, but found ") +
+          Doc.text(declCount.toString) +
+          Doc.text(s" $declWord.") +
+          Doc.hardLine +
+          Doc.text("keep exactly one of:") +
+          Doc.hardLine +
+          Doc
+            .intercalate(
+              Doc.hardLine,
+              declarations.toList.map(exposesLineDoc)
+            )
+            .nested(2)
+
+      (prefix + Doc.hardLine + body).render(80)
+    }
+  }
+
+  case class ExposesMismatch(
+      pack: PackageName,
+      declared: List[PackageName],
+      actual: List[PackageName],
+      missingCauses: Map[PackageName, NonEmptyList[String]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val missing = actual.filterNot(declared.toSet)
+      val extra = declared.filterNot(actual.toSet)
+      val fixDoc =
+        if (actual.isEmpty)
+          Doc.text("canonical fix: omit `exposes` (equivalent to `exposes ()`).")
+        else
+          Doc.text("canonical fix: ") + exposesLineDoc(actual) + Doc.char('.')
+
+      val missingDoc =
+        if (missing.isEmpty) Doc.empty
+        else {
+          val lines = missing.flatMap { dep =>
+            missingCauses.get(dep).map { exports =>
+              val exportWord =
+                if (exports.tail.isEmpty) "export" else "exports"
+              val exportDocs =
+                exports.toList.map(name =>
+                  Doc.char('`') + Doc.text(name) + Doc.char('`')
+                )
+
+              Doc.text(dep.asString) + Doc.text(" escapes via ") +
+                Doc.text(exportWord) + Doc.space +
+                Doc
+                  .intercalate(Doc.text(",") + Doc.lineOrSpace, exportDocs)
+                  .grouped
+            }
+          }
+
+          Doc.hardLine + Doc.text("missing declarations:") + Doc.hardLine +
+            Doc.intercalate(Doc.hardLine, lines).nested(2)
+        }
+
+      val extraDoc =
+        if (extra.isEmpty) Doc.empty
+        else
+          Doc.hardLine + Doc.text("extra declarations: ") + exposesSetDoc(extra)
+
+      val body =
+        Doc.text("declared `exposes` does not match the exported API.") +
+          Doc.hardLine +
+          Doc.text("declared: ") + exposesSetDoc(declared) +
+          Doc.hardLine +
+          Doc.text("actual: ") + exposesSetDoc(actual) +
+          Doc.hardLine +
+          fixDoc +
+          missingDoc +
+          extraDoc
+
+      (prefix + Doc.hardLine + body).render(80)
     }
   }
 

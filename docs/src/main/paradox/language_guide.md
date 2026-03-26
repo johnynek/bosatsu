@@ -74,6 +74,7 @@ package Animals/Report
 
 from Animals/Favorites import mammals
 export most_fav
+exposes ()
 
 most_fav = match mammals:
   case [head, *tail]: head
@@ -85,6 +86,7 @@ should be able to answer:
 
 1. which packages this file depends on
 1. what values and types this package exposes
+1. which package dependencies its exported API exposes
 1. where each external name used below came from
 
 Bosatsu is stricter about names than about type annotations. If source
@@ -96,6 +98,22 @@ is required.
 `Bosatsu/Predef` is the standard exception: its names are available by default,
 though you can still import or rename predef names explicitly when that is
 clearer.
+
+If a package header includes `export`, it may also include one `exposes`
+declaration after the exports:
+
+```bosatsu
+package Animals/Public
+
+from Animals/Favorites import mammals
+export most_fav
+exposes Animals/Favorites
+
+most_fav = mammals
+```
+
+`exposes` is checked against the typed exported API. Omitting it is the same as
+writing `exposes ()`.
 
 ## Literals
 

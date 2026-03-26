@@ -3460,6 +3460,8 @@ tests = ProgTest(_ -> (
 
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
+      // These fixtures are embedded at compile time so exposes-header updates
+      // in test_workspace must flow through this source file as well.
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
       val ioErrorPack =
