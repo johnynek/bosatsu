@@ -165,47 +165,52 @@ object Infer {
 
     @annotation.tailrec
     final def normalizeAliasHead(t: Type): Type =
-      Type.unapplyAll(t) match {
-        case (
-              Type.TyConst(tc @ Type.Const.Defined(_, _)),
-              args
-            ) =>
-          aliases.get(tc) match {
-            case Some(alias) =>
-              alias.expandWith(args) match {
-                case Some(t1) if t1 != t =>
-                  normalizeAliasHead(t1)
-                case _ =>
-                  t
-              }
-            case None =>
-              t
-          }
-        case _ =>
-          t
-      }
+      if (aliases.isEmpty) t
+      else
+        Type.unapplyAll(t) match {
+          case (
+                Type.TyConst(tc @ Type.Const.Defined(_, _)),
+                args
+              ) =>
+            aliases.get(tc) match {
+              case Some(alias) =>
+                alias.expandWith(args) match {
+                  case Some(t1) if t1 != t =>
+                    normalizeAliasHead(t1)
+                  case _ =>
+                    t
+                }
+              case None =>
+                t
+            }
+          case _ =>
+            t
+        }
 
     final def normalizeAliasesDeep(t: Type): Type = {
-      val head = normalizeAliasHead(t)
-      if (head != t) normalizeAliasesDeep(head)
-      else
-        t match {
-          case t0 @ Type.ForAll(vars, in) =>
-            val in1 = normalizeAliasesDeep(in).asInstanceOf[Type.Rho]
-            if (in1 eq in) t0 else Type.ForAll(vars, in1)
-          case t0 @ Type.Exists(vars, in) =>
-            val in1 =
-              normalizeAliasesDeep(in).asInstanceOf[Type.Leaf | Type.TyApply]
-            if (in1 eq in) t0 else Type.Exists(vars, in1)
-          case t0 @ Type.TyApply(on, arg) =>
-            val on1 =
-              normalizeAliasesDeep(on).asInstanceOf[Type.Leaf | Type.TyApply]
-            val arg1 = normalizeAliasesDeep(arg)
-            if ((on1 eq on) && (arg1 eq arg)) t0
-            else Type.TyApply(on1, arg1)
-          case other =>
-            other
-        }
+      if (aliases.isEmpty) t
+      else {
+        val head = normalizeAliasHead(t)
+        if (head ne t) normalizeAliasesDeep(head)
+        else
+          t match {
+            case t0 @ Type.ForAll(vars, in) =>
+              val in1 = normalizeAliasesDeep(in).asInstanceOf[Type.Rho]
+              if (in1 eq in) t0 else Type.ForAll(vars, in1)
+            case t0 @ Type.Exists(vars, in) =>
+              val in1 =
+                normalizeAliasesDeep(in).asInstanceOf[Type.Leaf | Type.TyApply]
+              if (in1 eq in) t0 else Type.Exists(vars, in1)
+            case t0 @ Type.TyApply(on, arg) =>
+              val on1 =
+                normalizeAliasesDeep(on).asInstanceOf[Type.Leaf | Type.TyApply]
+              val arg1 = normalizeAliasesDeep(arg)
+              if ((on1 eq on) && (arg1 eq arg)) t0
+              else Type.TyApply(on1, arg1)
+            case other =>
+              other
+          }
+      }
     }
 
     private val kindCache: Type => Either[Region => Error, Kind] =
@@ -631,18 +636,12 @@ object Infer {
         right: Type
     ): Infer[(Type, Type)] =
       GetEnv.map { env =>
-        (
-          env.normalizeAliasHead(left),
-          env.normalizeAliasHead(right)
-        )
-      }
-
-    private def aliasEquivalent(
-        left: Type,
-        right: Type
-    ): Infer[Boolean] =
-      GetEnv.map { env =>
-        env.normalizeAliasesDeep(left).sameAs(env.normalizeAliasesDeep(right))
+        if (env.aliases.isEmpty) (left, right)
+        else
+          (
+            env.normalizeAliasHead(left),
+            env.normalizeAliasHead(right)
+          )
       }
 
     // on t[a] we know t: k -> *, what is the variance
@@ -917,10 +916,14 @@ object Infer {
         // When the input types are only alias-equivalent, keep the destination
         // alias spelling so we avoid dropping a transparent alias from the
         // function type. Otherwise preserve the original source type a1.
-        outArgs <- a1s.zip(a2s).traverse { case (a1, a2) =>
-          aliasEquivalent(a1, a2).map { same =>
-            if (same) a2 else a1
-          }
+        outArgs <- GetEnv.map { env =>
+          if (env.aliases.isEmpty) a1s
+          else
+            a1s.zip(a2s).map { case (a1, a2) =>
+              val same =
+                env.normalizeAliasesDeep(a1).sameAs(env.normalizeAliasesDeep(a2))
+              if (same) a2 else a1
+            }
         }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right, direction)
@@ -983,7 +986,7 @@ object Infer {
         idRhoCoerce
       } else
         normalizeAliasPair(t, rho).flatMap { case (t1, rho1) =>
-          if ((t1 != t) || (rho1 != rho)) {
+          if ((t1 ne t) || (rho1 ne rho)) {
             for {
               tRho <- assertRho(
                 t1,
@@ -998,7 +1001,7 @@ object Infer {
               coerce <- subsCheckRho2(tRho, rhoRho, left, right, direction)
               kinds <- checkedKinds
             } yield {
-              if (rhoRho == rho) coerce
+              if (rhoRho eq rho) coerce
               else {
                 val widenToAlias = new FunctionK[TypedExpr.Rho, TypedExpr.Rho] {
                   def apply[A](te: TypedExpr.Rho[A]): TypedExpr.Rho[A] =
@@ -1362,7 +1365,7 @@ object Infer {
         direction: Error.Direction
     ): Infer[Unit] =
       normalizeAliasPair(t1, t2).flatMap { case (t1n, t2n) =>
-        if ((t1n != t1) || (t2n != t2)) unifyType(t1n, t2n, r1, r2, direction)
+        if ((t1n ne t1) || (t2n ne t2)) unifyType(t1n, t2n, r1, r2, direction)
         else
           (t1, t2) match {
             case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
@@ -1399,7 +1402,7 @@ object Infer {
         direction: Error.Direction
     ): Infer[Unit] =
       normalizeAliasPair(t1, t2).flatMap { case (t1n, t2n) =>
-        if ((t1n != t1) || (t2n != t2)) unifyType(t1n, t2n, r1, r2, direction)
+        if ((t1n ne t1) || (t2n ne t2)) unifyType(t1n, t2n, r1, r2, direction)
         else
           (t1, t2) match {
             case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
