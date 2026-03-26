@@ -480,7 +480,7 @@ case class LibConfig(
       val validSet = validDepPacks.toSet
 
       exportedPacks.traverse_ { p =>
-        val depOn = p.visibleDepPackages
+        val depOn = p.exposedDepPackages
         val invalidDeps = depOn.filterNot(validSet)
         invalidDeps.traverse_ { badPn =>
           val msg =
@@ -514,7 +514,7 @@ case class LibConfig(
       val prop5 = {
         val exportedLibs = (for {
           p <- exportedPacks
-          visPack <- p.visibleDepPackages
+          visPack <- p.exposedDepPackages
           libName = packToLibName.get(visPack)
         } yield libName).toSet
 

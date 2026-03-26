@@ -74,6 +74,7 @@ export (
   timeout_minutes_default,
   verify_graalvm_native_image_pin_cmd,
 )
+exposes Bosatsu/Json
 
 struct OnPushBranches(branches: List[String])
 

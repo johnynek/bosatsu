@@ -56,6 +56,7 @@ export (
   now_mono,
   sleep,
 )
+exposes Bosatsu/IO/Bytes, Bosatsu/IO/Error, Bosatsu/Prog
 
 external path_sep: String
 

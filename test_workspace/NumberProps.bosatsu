@@ -21,6 +21,7 @@ from Bosatsu/Rand import (Rand, from_pair, geometric_Int, int_range, map_Rand, p
 from Bosatsu/Loops import range_foldr
 
 export (rand_Int, rand_Nat, rand_BinNat)
+exposes Bosatsu/Num/BinNat, Bosatsu/Num/Nat, Bosatsu/Rand
 
 # Property checks for Nat, BinNat, Int
 

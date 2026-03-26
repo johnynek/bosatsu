@@ -3508,4 +3508,57 @@ main = S {}
     assertEquals(suggestions.map(_.value), List("local"))
   }
 
+  test("exposes mismatch message shows canonical fix and causes") {
+    val dep =
+      """package Dep/Api
+        |export Dep()
+        |
+        |struct Dep
+        |""".stripMargin
+
+    val bad =
+      """package App/Main
+        |from Dep/Api import Dep
+        |export Wrapped()
+        |
+        |struct Wrapped(value: Dep)
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(dep, bad))
+    val mismatch =
+      errs.toList
+        .collectFirst { case e: PackageError.ExposesMismatch => e }
+        .getOrElse(fail(s"missing exposes mismatch error: $errs"))
+
+    val msg = mismatch.message(sourceMap, Colorize.None)
+    assert(
+      msg.contains("declared `exposes` does not match the exported API."),
+      msg
+    )
+    assert(msg.contains("canonical fix: exposes Dep/Api."), msg)
+    assert(msg.contains("Dep/Api escapes via export `Wrapped()`"), msg)
+  }
+
+  test("duplicate exposes message lists both declarations") {
+    val bad =
+      """package App/Main
+        |export main
+        |exposes Dep/One
+        |exposes ()
+        |
+        |main = 1
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(bad))
+    val duplicate =
+      errs.toList
+        .collectFirst { case e: PackageError.DuplicateExposes => e }
+        .getOrElse(fail(s"missing duplicate exposes error: $errs"))
+
+    val msg = duplicate.message(sourceMap, Colorize.None)
+    assert(msg.contains("at most one `exposes` declaration is allowed"), msg)
+    assert(msg.contains("exposes Dep/One"), msg)
+    assert(!msg.contains("exposes ()"), msg)
+  }
+
 }

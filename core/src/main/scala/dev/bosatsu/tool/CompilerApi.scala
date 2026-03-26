@@ -82,6 +82,8 @@ object CompilerApi {
         extends LintCategory("recursion form", "recursion forms", 3)
     case TodoUsage extends LintCategory("todo usage", "todo usages", 4)
     case UnusedImport extends LintCategory("unused import", "unused imports", 5)
+    case ExposesMismatch
+        extends LintCategory("exposes mismatch", "exposes mismatches", 6)
   }
 
   private sealed trait RenderedDiagnostic {
@@ -202,6 +204,10 @@ object CompilerApi {
       case e: PackageError.DuplicatedPackageError =>
         val count = e.dups.length
         renderedError(ErrorCategory.PackageError, count, body)
+      case _: PackageError.DuplicateExposes =>
+        renderedError(ErrorCategory.PackageError, 1, body)
+      case _: PackageError.ExposesMismatch =>
+        renderedError(ErrorCategory.PackageError, 1, body)
       case e: PackageError.TodoUsage =>
         renderedError(ErrorCategory.PackageError, e.regions.length, body)
     }
@@ -245,6 +251,8 @@ object CompilerApi {
         renderedLint(LintCategory.TodoUsage, e.regions.length, body)
       case _: PackageError.RecursionLint =>
         renderedLint(LintCategory.RecursionForm, 1, body)
+      case _: PackageError.ExposesMismatch =>
+        renderedLint(LintCategory.ExposesMismatch, 1, body)
       case _ =>
         sys.error(s"unexpected non-lint warning: $err")
     }
@@ -426,6 +434,12 @@ object CompilerApi {
         Nil
       case Ior.Right(program0) =>
         (
+          PackageCustoms
+            .exposesDiagnostics(
+              pack,
+              parsed.exports,
+              parsed.exposes
+            ) :::
           PackageCustoms.lintDiagnosticsFromSource(
             pack.name,
             roots,
@@ -440,6 +454,12 @@ object CompilerApi {
         ).filter(PackageError.isPostponable)
       case Ior.Both(_, program0) =>
         (
+          PackageCustoms
+            .exposesDiagnostics(
+              pack,
+              parsed.exports,
+              parsed.exposes
+            ) :::
           PackageCustoms.lintDiagnosticsFromSource(
             pack.name,
             roots,

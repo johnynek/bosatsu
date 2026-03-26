@@ -2,6 +2,7 @@ package Bosatsu/List
 
 from Bosatsu/Num/Nat import Nat, Zero, Succ
 export any, eq_List, exists, get_List, head, for_all, set_List, size, sum, sort, uncons, zip
+exposes Bosatsu/Num/Nat
 
 def any(as: List[Bool]) -> Bool:
     loop as:

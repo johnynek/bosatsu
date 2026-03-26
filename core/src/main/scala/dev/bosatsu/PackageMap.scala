@@ -191,6 +191,7 @@ object PackageMap {
       packageName: PackageName,
       imports: List[Import[PackageName, Unit]],
       exports: List[ExportedName[Unit]],
+      exposes: List[List[PackageName]],
       sourceHash: HashValue[Algo.Blake3],
       loadParsed: F[Package.Parsed]
   ) {
@@ -209,6 +210,7 @@ object PackageMap {
         packageName = parsed.name,
         imports = parsed.imports,
         exports = parsed.exports,
+        exposes = parsed.exposes,
         sourceHash = CompileCache.sourceExprHash(parsed),
         loadParsed = Applicative[F].pure(parsed)
       )
@@ -388,7 +390,7 @@ object PackageMap {
                   }
                 }
                 .map { imports =>
-                  Package(p.name, imports, p.exports, p.program)
+                  Package(p.name, imports, p.exports, p.program, p.exposes)
                 }
           }
       }
@@ -463,7 +465,13 @@ object PackageMap {
 
       (
         errs,
-        Package(source.packageName, source.imports, source.exports, (source, imap))
+        Package(
+          source.packageName,
+          source.imports,
+          source.exports,
+          (source, imap),
+          source.exposes
+        )
       )
     }
 
@@ -552,7 +560,7 @@ object PackageMap {
       Memoize.memoizeDag[F, ResolvedU, ErrorOr[CompiledPack]] {
         case (pack, recurse) =>
           pack match {
-            case Package(nm, imports, exports, (source, imps)) =>
+            case Package(nm, imports, exports, (source, imps), exposes) =>
               val depResultsF: F[ErrorOr[SortedMap[PackageName, CompiledPack]]] =
                 imports.foldLeft(
                   Monad[F].pure(
@@ -703,7 +711,8 @@ object PackageMap {
                               ilist,
                               impMap,
                               exports,
-                              program
+                              program,
+                              exposes
                             )
                             finished =
                               phases.finishPackage(asm, depIfaces, compileOptions)
@@ -999,7 +1008,8 @@ object PackageMap {
             Nil,
             ImportMap.empty,
             parsed.exports,
-            program
+            program,
+            parsed.exposes
           )
         } yield InferPhases.default.finishPackage(
           assembled,

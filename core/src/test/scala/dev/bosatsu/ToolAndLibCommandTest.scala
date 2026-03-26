@@ -599,6 +599,19 @@ class ToolAndLibCommandTest extends FunSuite {
       |main = fn(1)
       |""".stripMargin
 
+  private val exposedDepLibSrc =
+    """export Dep()
+      |
+      |struct Dep
+      |""".stripMargin
+
+  private val exposesMismatchLibSrc =
+    """from Dep/Api import Dep
+      |export Wrapped()
+      |
+      |struct Wrapped(value: Dep)
+      |""".stripMargin
+
   private val hardRecursionErrorLibSrc =
     """enum Nat: Zero, Succ(prev: Nat)
       |
@@ -2364,6 +2377,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Error import IOError
 |
 |export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |external struct Handle
 |external stdin: Handle
@@ -2380,6 +2394,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Core import stdin, stdout, read_utf8, write_utf8, flush
 |
 |export (println, read_line, read_all_stdin)
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |def println(str: String) -> Prog[IOError, Unit]:
 |  (
@@ -2770,6 +2785,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Error import IOError
 |
 |export (Handle, stdin, stdout, read_utf8, write_utf8, flush)
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |external struct Handle
 |external stdin: Handle
@@ -2786,6 +2802,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Core import stdin, stdout, read_utf8, write_utf8, flush
 |
 |export (println, read_line, read_all_stdin)
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |def println(str: String) -> Prog[IOError, Unit]:
 |  (
@@ -2946,6 +2963,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Error import IOError
 |
 |export Duration, now_mono, duration_to_nanos
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |struct Duration(to_nanos: Int)
 |
@@ -3017,6 +3035,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Error import IOError
 |
 |export Instant, now_wall, instant_to_nanos
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |struct Instant(epoch_nanos: Int)
 |
@@ -3082,6 +3101,7 @@ class ToolAndLibCommandTest extends FunSuite {
 |from Bosatsu/IO/Error import IOError
 |
 |export Path, string_to_Path, path_to_String, list_dir
+|exposes Bosatsu/IO/Error, Bosatsu/Prog
 |
 |struct Path(to_String: String)
 |
@@ -3241,6 +3261,7 @@ depBox = DepBox(7)
       """from Dep/Util import depBox
 
 export Box(), run, dep_main
+exposes Dep/Util
 
 # Box docs.
 struct Box(v: Int)
@@ -3342,6 +3363,7 @@ dep_main = depBox
       """from Dep/Util import depBox
 |
 |export dep_main
+|exposes Dep/Util
 |
 |dep_main = depBox
 |""".stripMargin
@@ -3430,6 +3452,7 @@ dep_main = depBox
       """from Dep/Util import depBox
 |
 |export dep_main
+|exposes Dep/Util
 |
 |dep_main = depBox
 |""".stripMargin
@@ -3632,6 +3655,7 @@ mk = (x) -> Thing(x)
       """from Dep/Util import depBox
 |
 |export dep_main
+|exposes Dep/Util
 |
 |dep_main = depBox
 |""".stripMargin
@@ -3691,6 +3715,7 @@ mk = (x) -> Thing(x)
       """from Dep/Util import depBox
 |
 |export dep_main
+|exposes Dep/Util
 |
 |dep_main = depBox
 |""".stripMargin
@@ -4412,6 +4437,7 @@ main = 1
 |from Bosatsu/IO/Error import IOError, sample_error
 |
 |export core_char, core_error
+|exposes Bosatsu/IO/Error
 |
 |core_char = char_tag
 |core_error: IOError = sample_error
@@ -4427,11 +4453,12 @@ main = 1
 |sample_error = Sample
 |""".stripMargin,
       Chain("repo", "src", "Bosatsu", "IO", "Std.bosatsu") ->
-        """package Bosatsu/IO/Std
+      """package Bosatsu/IO/Std
 |
 |from Bosatsu/IO/Core import core_char, core_error
 |
 |export std_summary
+|exposes Bosatsu/IO/Error
 |
 |std_summary = (core_char, core_error)
 |""".stripMargin,
@@ -5011,6 +5038,7 @@ depBox = DepBox(1)
       """from Dep/Foo import depBox
 
 export main,
+exposes Dep/Foo
 
 main = depBox
 """
@@ -5962,6 +5990,75 @@ main = depBox
         assert(err1.contains("recur but no recursive call to fn."), err1)
         assert(err1.contains("1 warning: 1 recursion form"), err1)
         assertEquals(err2, err1)
+    }
+  }
+
+  test("check --warn reports exposes mismatches on cache hits") {
+    val cmd = List(
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--warn"
+    )
+
+    val files =
+      baseLibFiles(exposesMismatchLibSrc) :+
+        (Chain("repo", "src", "Dep", "Api.bosatsu") -> exposedDepLibSrc)
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        val err1 = state1.stdErr.render(400)
+        val err2 = state2.stdErr.render(400)
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assert(err1.contains("declared `exposes` does not match"), err1)
+        assert(err1.contains("canonical fix: exposes Dep/Api."), err1)
+        assertEquals(err2, err1)
+    }
+  }
+
+  test("check --lax suppresses exposes mismatch warnings on cache hits") {
+    val cmd = List(
+      "check",
+      "--repo_root",
+      "repo",
+      "--cache_dir",
+      "cache",
+      "--lax"
+    )
+
+    val files =
+      baseLibFiles(exposesMismatchLibSrc) :+
+        (Chain("repo", "src", "Dep", "Api.bosatsu") -> exposedDepLibSrc)
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(cmd, s0)
+      (state1, out1) = s1
+      s2 <- runWithState(cmd, resetLogs(state1))
+      (state2, out2) = s2
+    } yield (state1, state2, out1, out2)
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right((state1, state2, out1, out2)) =>
+        assertEquals(out1, Output.Basic(Doc.text(""), None))
+        assertEquals(out2, Output.Basic(Doc.text(""), None))
+        assertEquals(state1.stdErr.render(200), "")
+        assertEquals(state2.stdErr.render(200), "")
     }
   }
 
@@ -6920,6 +7017,7 @@ external def size_Array[a](ary: Array[a]) -> Int
 |)
 |
 |export main, id_json, nan_json
+|exposes Bosatsu/Json
 |
 |id_json = (j: Json) -> j
 |nan_json = JFloat(.NaN)
@@ -7055,6 +7153,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       """from Bosatsu/Json import Optional, Missing, Set
 |
 |export Payload(), absent_payload, present_payload, echo
+|exposes Bosatsu/Json
 |
 |struct Payload(name: String, note: Optional[String])
 |
@@ -7131,6 +7230,7 @@ external def size_Array[a](ary: Array[a]) -> Int
       """from Bosatsu/Json import Nullable, Null, NonNull
 |
 |export flat_null, echo
+|exposes Bosatsu/Json
 |
 |flat_null: Nullable[Nullable[Int]] = NonNull(Null)
 |echo = (n: Nullable[Nullable[Int]]) -> n
@@ -8422,6 +8522,7 @@ main = 0
       """from Bosatsu/Prog import ProgTest, pure
 |
 |export prog_tests
+|exposes Bosatsu/Prog
 |
 |prog_tests = ProgTest(_ -> pure(Assertion(True, "ok")))
 |""".stripMargin

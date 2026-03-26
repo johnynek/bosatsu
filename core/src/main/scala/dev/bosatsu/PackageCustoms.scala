@@ -39,6 +39,21 @@ object PackageCustoms {
         errs.toChain.toList
     }
 
+  def exposesDiagnostics[A](
+      pack: Package.Typed[A],
+      sourceExports: List[ExportedName[Unit]],
+      exposesDecls: List[List[PackageName]]
+  ): List[PackageError] =
+    errorsOf(
+      checkDeclaredExposes(
+        pack.name,
+        sourceExports,
+        pack.types,
+        pack.lets,
+        exposesDecls
+      )
+    )
+
   // Replay only the postponable customs on successful packages so cache hits
   // surface the same lint diagnostics as cache misses. Use the source-level
   // lets/import graph here so optimized cached packages do not change the
@@ -104,19 +119,26 @@ object PackageCustoms {
       exports: List[ExportedName[Unit]],
       program: Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[
         Statement
-      ]]
+      ]],
+      exposesDecls: List[List[PackageName]]
   ): Ior[NonEmptyList[PackageError], Package.Typed[Declaration]] = {
 
     val Program(types, lets, _, _) = program
     val letRegions = letBindableRegions(lets)
     ExportedName
       .buildExports(nm, exports, types, lets) match {
-      case Validated.Valid(exports) =>
+      case Validated.Valid(builtExports) =>
         // We have a result, which we can continue to check
-        val pack = Package(nm, ilist, exports, (program, imap))
+        val pack = Package(nm, ilist, builtExports, (program, imap), exposesDecls)
         // We have to check the "customs" before any normalization
         // or optimization
-        PackageCustoms(pack) match {
+        (PackageCustoms(pack), checkDeclaredExposes(
+          nm,
+          exports,
+          types,
+          lets,
+          exposesDecls
+        )).mapN((p, _) => p) match {
           case Validated.Valid(p1)     => Ior.right(p1)
           case Validated.Invalid(errs) =>
             Ior.both(errs.toNonEmptyList, pack)
@@ -127,6 +149,90 @@ object PackageCustoms {
         })
     }
   }
+
+  private def normalizeDeclaredExposes(
+      deps: List[PackageName]
+  ): List[PackageName] =
+    deps.distinct.sorted
+
+  private def renderSourceExport(exported: ExportedName[Unit]): String =
+    exported match {
+      case ExportedName.Binding(name, _)     => name.sourceCodeRepr
+      case ExportedName.TypeName(name, _)    => name.sourceCodeRepr
+      case ExportedName.Constructor(name, _) => s"${name.sourceCodeRepr}()"
+    }
+
+  // Rebuild one source export at a time so diagnostics can blame the source
+  // header item the user actually wrote instead of the expanded constructor set.
+  private def exposesCauseMap[A](
+      packName: PackageName,
+      sourceExports: List[ExportedName[Unit]],
+      types: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[A])]
+  ): Map[PackageName, NonEmptyList[String]] = {
+    val grouped =
+      sourceExports.foldLeft(Map.empty[PackageName, List[String]]) { (acc, sourceExport) =>
+        ExportedName
+          .buildExports(packName, sourceExport :: Nil, types, lets)
+          .toOption match {
+          case None        => acc
+          case Some(built) =>
+            val exportName = renderSourceExport(sourceExport)
+            Package
+              .normalizeExposedDepPackages(
+                packName,
+                built.iterator.flatMap(_.tag.depPackages).toList
+              )
+              .foldLeft(acc) { (acc1, dep) =>
+                acc1.updated(dep, exportName :: acc1.getOrElse(dep, Nil))
+              }
+        }
+      }
+
+    grouped.iterator.map { case (dep, names) =>
+      dep -> NonEmptyList.fromListUnsafe(names.distinct.sorted)
+    }.toMap
+  }
+
+  private def checkDeclaredExposes[A](
+      packName: PackageName,
+      sourceExports: List[ExportedName[Unit]],
+      types: TypeEnv[Kind.Arg],
+      lets: List[(Bindable, RecursionKind, TypedExpr[A])],
+      exposesDecls: List[List[PackageName]]
+  ): ValidatedNec[PackageError, Unit] =
+    NonEmptyList.fromList(exposesDecls) match {
+      case Some(decls) if decls.tail.nonEmpty =>
+        Validated.invalidNec(
+          PackageError.DuplicateExposes(
+            packName,
+            decls.map(normalizeDeclaredExposes)
+          )
+        )
+      case _                                  =>
+        val declared =
+          exposesDecls match {
+            case decl :: Nil => normalizeDeclaredExposes(decl)
+            case _           => Nil
+          }
+        val causeMap =
+          exposesCauseMap(packName, sourceExports, types, lets)
+        val actual = causeMap.keys.toList.sorted
+
+        if (declared == actual) Validated.unit
+        else {
+          val missing = actual.filterNot(declared.toSet)
+          val missingCauses = missing.flatMap(dep => causeMap.get(dep).map(dep -> _)).toMap
+          Validated.invalidNec(
+            PackageError.ExposesMismatch(
+              packName,
+              declared,
+              actual,
+              missingCauses
+            )
+          )
+        }
+    }
 
   private def letBindableRegions[A: HasRegion](
       lets: List[(Bindable, RecursionKind, A)]

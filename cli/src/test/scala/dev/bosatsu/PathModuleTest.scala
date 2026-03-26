@@ -70,6 +70,7 @@ class PathModuleTest extends munit.FunSuite {
           |from Bosatsu/Prog import Main, pure
           |
           |export main, runner
+          |exposes Bosatsu/Prog
           |
           |main = 42
           |

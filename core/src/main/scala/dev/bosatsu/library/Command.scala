@@ -537,7 +537,7 @@ object Command {
             platformIO
           )
           .map(
-            _.map { case (_, (packageName, imports, _)) =>
+            _.map { case (_, (packageName, imports, _, _)) =>
               (packageName, imports.map(_.pack))
             }
           )
