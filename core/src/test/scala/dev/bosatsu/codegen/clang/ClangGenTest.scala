@@ -58,6 +58,24 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     code.slice(headerStart, end)
   }
 
+  private def deadCTemps(code: String): Set[String] = {
+    val tempRe = raw"__bsts_(?:a_\d+|l_branch__res\d+|l_cond\d+)".r
+    val names = tempRe.findAllIn(code).toSet
+
+    def lineReads(name: String, line: String): Boolean = {
+      val trimmed = line.trim
+      if (trimmed.startsWith(s"BValue $name") || trimmed.startsWith(s"_Bool $name")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else if (trimmed.startsWith(s"$name =")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else line.contains(name)
+    }
+
+    names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
+  }
+
   def assertPredefFns(
       fns: String*
   )(matches: String)(implicit loc: munit.Location) =
@@ -220,6 +238,52 @@ main = has_two
           """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*BValue __bsts_a_\d+ = alloc_enum0\(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\);\s*if \(get_variant_value\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
 
         assert(loopPattern.findFirstIn(hasTwo).nonEmpty, hasTwo)
+        assertEquals(deadCTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("segmented end-anchored list search lowers to one suffix-positioning loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+
+main = find_before_one
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("find_before_one"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val findBeforeOne = extractCFunction(rendered, "_l_find__before__one(BValue")
+        val whileCount = "while \\(".r.findAllMatchIn(findBeforeOne).length
+
+        assertEquals(whileCount, 2, findBeforeOne)
+        assert(
+          findBeforeOne.contains("__bsts_a_3 = get_enum_index(__bsts_a_3, 1);"),
+          findBeforeOne
+        )
+        assert(
+          findBeforeOne.contains("__bsts_a_2 = get_enum_index(__bsts_a_2, 1);"),
+          findBeforeOne
+        )
+        assert(
+          findBeforeOne.contains(
+            "bsts_integer_equals(__bsts_a_6,\n                        bsts_integer_from_int(1)) && (get_variant(__bsts_a_7) == 0);"
+          ),
+          findBeforeOne
+        )
+        assertEquals(deadCTemps(findBeforeOne), Set.empty, findBeforeOne)
     }
   }
 
@@ -382,15 +446,16 @@ main = pick
             if (mainStart > pickStart) rendered.slice(pickStart, mainStart)
             else rendered.drop(pickStart)
 
-          val firstIf = pickFn.indexOf("if (")
-          assert(firstIf >= 0, pickFn)
+          val firstDiscriminatingCheck =
+            pickFn.indexOf("bsts_integer_equals(__bsts_a_1")
+          assert(firstDiscriminatingCheck >= 0, pickFn)
           val firstWideProj =
             "get_struct_index\\([^\\n]*, 2\\)".r
               .findFirstMatchIn(pickFn)
               .map(_.start)
               .getOrElse(-1)
           assert(firstWideProj >= 0, pickFn)
-          assert(firstWideProj > firstIf, pickFn)
+          assert(firstWideProj > firstDiscriminatingCheck, pickFn)
       }
     }
   }

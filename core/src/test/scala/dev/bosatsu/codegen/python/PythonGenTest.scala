@@ -52,6 +52,24 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     if (end >= 0) code.slice(start, end) else code.drop(start)
   }
 
+  private def deadPythonTemps(code: String): Set[String] = {
+    val assignRe = raw"^\s*(___v\d+)\s*=".r
+    val names =
+      code.linesIterator
+        .flatMap(line => assignRe.findFirstMatchIn(line).map(_.group(1).nn))
+        .toSet
+
+    def lineReads(name: String, line: String): Boolean = {
+      val trimmed = line.trim
+      if (trimmed.startsWith(s"$name =")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else line.contains(name)
+    }
+
+    names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
+  }
+
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
     val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
@@ -167,6 +185,32 @@ main = has_two
       assert(whileIdx >= 0, hasTwo)
       assert(guardIdx > whileIdx, hasTwo)
       assert(advanceIdx > guardIdx, hasTwo)
+      assertEquals(deadPythonTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("segmented end-anchored list search lowers to one suffix-positioning loop in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+
+main = find_before_one
+""")
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val findBeforeOne = normalizeGeneratedTemps(extractPythonDef(code, "find_before_one"))
+      val whileCount = "while ___v".r.findAllMatchIn(findBeforeOne).length
+
+      assertEquals(whileCount, 2, findBeforeOne)
+      assert(findBeforeOne.contains("___v6 = ___v6[2]"), findBeforeOne)
+      assert(findBeforeOne.contains("___v5 = ___v5[2]"), findBeforeOne)
+      assert(findBeforeOne.contains("(___v5[1] == 1) and (___v5[2][0] == 0)"), findBeforeOne)
+      assertEquals(deadPythonTemps(findBeforeOne), Set.empty, findBeforeOne)
     }
   }
 

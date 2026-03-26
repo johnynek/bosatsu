@@ -2636,14 +2636,31 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }
+          case LetBool(n @ Left(LocalAnon(_)), v, in)
+              if !Matchless.BoolExpr.usesBinding(in, n) =>
+            (
+              loop(v, slotName, inlineSlots),
+              boolExpr(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
+            }
           case LetBool(n, v, in) =>
-            doLet(
-              n,
-              v,
-              boolExpr(in, slotName, inlineSlots),
-              slotName,
-              inlineSlots
-            )
+            if (Matchless.BoolExpr.usesBinding(in, n))
+              doLet(
+                n,
+                v,
+                boolExpr(in, slotName, inlineSlots),
+                slotName,
+                inlineSlots
+              )
+            else
+              doLet(
+                n,
+                v,
+                boolExpr(in, slotName, inlineSlots),
+                slotName,
+                inlineSlots
+              )
           case LetMutBool(_, in) =>
             // in python we just ignore this
             boolExpr(in, slotName, inlineSlots)
@@ -2942,15 +2959,32 @@ object PythonGen {
                     (v, inF).mapN(_.withValue(_))
                   }
             }
+          case Let(localOrBind @ Left(LocalAnon(_)), notFn, in)
+              if !Expr.usesBinding(in, localOrBind) =>
+            (
+              loop(notFn, slotName, inlineSlots),
+              loop(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
+            }
           case Let(localOrBind, notFn, in) =>
-            // we know that notFn is not Lambda here
-            doLet(
-              localOrBind,
-              notFn,
-              loop(in, slotName, inlineSlots),
-              slotName,
-              inlineSlots
-            )
+            if (Expr.usesBinding(in, localOrBind))
+              // we know that notFn is not Lambda here
+              doLet(
+                localOrBind,
+                notFn,
+                loop(in, slotName, inlineSlots),
+                slotName,
+                inlineSlots
+              )
+            else
+              doLet(
+                localOrBind,
+                notFn,
+                loop(in, slotName, inlineSlots),
+                slotName,
+                inlineSlots
+              )
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to
