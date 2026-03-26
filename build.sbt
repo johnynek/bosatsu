@@ -356,7 +356,9 @@ lazy val cli = (project in file("cli"))
         "-O2",
         s"-J-Xmx$nativeImageBuilderXmx",
         "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
-        "-H:+RemoveUnusedSymbols"
+        "-H:+RemoveUnusedSymbols",
+        "-H:CompilationExpirationPeriod=0",
+        "-H:CompilationNoProgressPeriod=0"
       ) ++ watchdogOpts ++ staticOpt ++ muslOpt ++ clibPaths
     },
     nativeImageJvm := "graalvm-java23",
