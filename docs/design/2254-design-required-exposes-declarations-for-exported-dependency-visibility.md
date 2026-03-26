@@ -28,7 +28,7 @@ _Issue: #2254 (https://github.com/johnynek/bosatsu/issues/2254)_
 
 ## Summary
 
-Require a checked header-level `exposes` declaration for every exported package, define it as the normalized set of dependency packages visible from typed exports, and align source checking with existing library public/private dependency validation without changing runtime or interface serialization.
+Require a checked header-level `exposes` set for exported packages, treat an omitted `exposes` declaration as the empty set, and align source checking with existing library public/private dependency validation without changing runtime or interface serialization.
 
 ## Context
 
@@ -38,8 +38,8 @@ The design should make exported dependency visibility part of the source interfa
 
 ## Goals
 
-1. Require every package with any `export` declaration to declare the dependency packages visible from its exported API.
-2. Make the declaration exact and checked: missing packages and extra packages are both hard errors.
+1. Make the exposed dependency set part of the checked source interface for exported packages, with omission meaning the empty set.
+2. Make the declaration exact and checked: missing packages and extra packages are both package errors.
 3. Reuse current compiler visibility semantics wherever possible so library assembly and source checking stay aligned.
 4. Keep the declaration package-level and header-local.
 5. Keep migration mechanical for existing code.
@@ -62,17 +62,17 @@ Accepted surface forms:
 - `exposes Foo/Bar, Baz/Qux`
 - `exposes (...)` using the same parenthesized multiline list style Bosatsu already uses for `import` and `export`
 - `exposes ()` for an explicitly empty set
+- no `exposes` declaration, which is treated as the empty set and is therefore a synonym for `exposes ()`
 
 This matches Bosatsu's existing header vocabulary: `package`, `from ... import ...`, `export`, and now `exposes`. It keeps the public surface recoverable from the top of the file without tying exposure to a specific import or export item.
 
 ### Placement rules
 
 - `exposes` is a top-level header declaration, not a statement in the body.
-- There is exactly one `exposes` declaration per package.
-- It appears after the last `export` line and before the first body statement.
-- If a package has at least one `export` declaration, it must have exactly one `exposes` declaration.
-- If a package has no `export` declarations, `exposes` is rejected.
-- Multiple `export` lines still mean one package-level `exposes` declaration whose meaning is the union of all exports.
+- There may be at most one `exposes` declaration per package.
+- If present, it appears after the last `export` line and before the first body statement.
+- Omitting `exposes` is equivalent to declaring the empty set.
+- Multiple `export` lines still mean one optional package-level `exposes` declaration whose meaning is the union of all exports.
 
 ### Why not the alternatives?
 
@@ -114,19 +114,19 @@ The compiler should check `exposes` after export assembly, when `ExportedName.bu
 
 Rules:
 
-1. No exports and no `exposes`: valid.
-2. No exports and any `exposes`: error.
-3. Exports present and no `exposes`: error.
-4. Exports present and `exposes` present: compare declared and actual sets exactly.
-5. Any missing package is an error.
-6. Any extra package is an error.
+1. The declared set is the parsed `exposes` set when present, or the empty set when absent.
+2. More than one `exposes` declaration is a package error.
+3. Compare the declared set to the actual set exactly after exports are built.
+4. Any missing package is an error.
+5. Any extra package is an error.
+6. Missing and extra `exposes` mismatches should be postponable package errors for `--warn` and `--lax`, because this is a newly introduced source-level requirement.
 
 Comparison should use canonical sorted distinct sets so diagnostics and suggested fixes are stable even if source order differs.
 
-Diagnostics should be one hard error class with enough detail to fix the header quickly:
+Diagnostics should be one package-error family with enough detail to fix the header quickly:
 
 - show the declared set and the actual set
-- show a canonical replacement line such as `exposes Foo/Bar, Baz/Qux` or `exposes ()`
+- show a canonical replacement line such as `exposes Foo/Bar, Baz/Qux`; when the actual set is empty, the diagnostic can say that omitting `exposes` is equivalent to `exposes ()`
 - for each missing package, list the exported names that cause that package to escape
 
 The last point matters for inferred cases. If `Dep/Api` appears only because an exported value's inferred type mentions it, the error should still say which exported binding exposed it.
@@ -153,7 +153,7 @@ No interface protobuf or API-diff schema change is required for this feature. Th
 ## Implementation Plan
 
 1. Extend header parsing and header data flow.
-- Update `core/src/main/scala/dev/bosatsu/Package.scala` to parse one optional `exposes` declaration in the header, including `exposes ()`.
+- Update `core/src/main/scala/dev/bosatsu/Package.scala` to parse zero or more `exposes` declarations in the header, including `exposes ()`, while leaving cardinality enforcement to package checking rather than the parser.
 - Thread the parsed declaration through source-package loading in `core/src/main/scala/dev/bosatsu/PackageMap.scala` and `core/src/main/scala/dev/bosatsu/tool/PackageResolver.scala`.
 - Update header-only consumers such as `core/src/main/scala/dev/bosatsu/tool_command/DepsCommand.scala` for the richer header shape.
 - Update in-repo source files with exported headers, especially `core/src/main/resources/bosatsu/predef.bosatsu`.
@@ -164,32 +164,32 @@ No interface protobuf or API-diff schema change is required for this feature. Th
 - Switch `core/src/main/scala/dev/bosatsu/library/LibConfig.scala` to the same helper so package-level source checking and library-level validation are definitionally aligned.
 
 3. Add the post-typecheck `exposes` check.
-- Extend `core/src/main/scala/dev/bosatsu/PackageCustoms.scala` so `assemble` receives the declared `exposes` set and compares it to the actual set after exports are built.
-- Add new hard diagnostics in `core/src/main/scala/dev/bosatsu/PackageError.scala` for:
-  - missing required `exposes`
-  - `exposes` on a package with no exports
+- Extend `core/src/main/scala/dev/bosatsu/PackageCustoms.scala` so `assemble` receives the parsed `exposes` declarations, interprets absence as the empty set, enforces at-most-one at package-check time, and compares the declared set to the actual set after exports are built.
+- Add new package diagnostics in `core/src/main/scala/dev/bosatsu/PackageError.scala` for:
+  - multiple `exposes` declarations
   - declared or actual mismatch
+- Mark missing and extra mismatch diagnostics as postponable so they participate correctly in `--warn` and `--lax`.
 - Include canonical fix text and exported-name causes in the error message.
 
 4. Add regression coverage.
 - Parser coverage in `core/src/test/scala/dev/bosatsu/ParserTest.scala` for inline, multiline, and empty `exposes` syntax.
 - Semantic coverage in `core/src/test/scala/dev/bosatsu/PackageTest.scala` for opaque exported types, exported constructors, inferred exported values, type aliases, `external` declarations, same-library packages, self, and `Bosatsu/Predef`.
-- Error-message coverage in `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala` for missing and mismatched declarations.
+- Error-message coverage in `core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala` for duplicate and mismatched declarations, including omission-as-empty behavior.
 - Library integration coverage in `core/src/test/scala/dev/bosatsu/library/LibConfigTest.scala` and `core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala` to confirm the new source feature and existing public or private dependency validation stay aligned.
 
 5. Document the new header rule.
-- Update `docs/src/main/paradox/language_guide.md` to describe `exposes` as part of the package interface header and to document `exposes ()` for exported packages with no exposed dependencies.
+- Update `docs/src/main/paradox/language_guide.md` to describe `exposes` as part of the package interface header and to document that omitting `exposes` is equivalent to `exposes ()`.
 
 ## Acceptance Criteria
 
-1. Bosatsu accepts a new header declaration `exposes` with inline, parenthesized multiline, and empty-set spellings.
-2. Any package with at least one `export` declaration must also declare exactly one `exposes` declaration.
-3. A package with no exports cannot declare `exposes`.
+1. Bosatsu accepts a new header declaration `exposes` with inline, parenthesized multiline, and explicit empty spellings, and absence is treated the same as `exposes ()`.
+2. A package may have at most one `exposes` declaration.
+3. The checker, not the parser, enforces `exposes` cardinality and declared-vs-actual mismatch rules.
 4. The checked set is the compiler's exported visible-package computation, normalized by removing self and `Bosatsu/Predef`.
 5. Exported inferred value types, transparent type aliases, exported constructors, and `external` value types all participate in the check.
 6. Exporting only a local type name does not force dependencies from hidden constructor fields to appear in `exposes`.
-7. Missing declarations and extra declarations are hard errors.
-8. Diagnostics show the canonical expected `exposes` line and name the exported bindings or types that caused a missing package to escape.
+7. Missing and extra declared packages are package errors, and those mismatch errors are postponable under `--warn` and `--lax`.
+8. Diagnostics show the canonical expected `exposes` line, or say that omission is equivalent to `exposes ()`, and name the exported bindings or types that caused a missing package to escape.
 9. Different same-library packages count when they appear in exported APIs; the package itself does not.
 10. Existing library assembly checks continue to reject exposure of private dependencies or private same-library packages, using the same normalized exposed-dependency helper.
 
