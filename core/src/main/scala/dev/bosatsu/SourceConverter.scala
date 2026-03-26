@@ -27,7 +27,7 @@ import SourceConverter.{success, Result}
 final class SourceConverter(
     thisPackage: PackageName,
     imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
-    localDefs: List[TypeDefinitionStatement]
+    localDefs: List[TypeStatement]
 ) {
   /*
    * We should probably error for non-predef name collisions.
@@ -35,7 +35,10 @@ final class SourceConverter(
    * are not renamed
    */
   private val localTypeNames = localDefs.map(_.name).toSet
-  private val localConstructors = localDefs.flatMap(_.constructors).toSet
+  private val localConstructors =
+    localDefs.collect { case tds: TypeDefinitionStatement => tds }
+      .flatMap(_.constructors)
+      .toSet
 
   private val typeCache: MMap[Constructor, Type.Const] = MMap.empty
   private val consCache: MMap[Constructor, (PackageName, Constructor)] =
@@ -1084,6 +1087,34 @@ final class SourceConverter(
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
 
+  private def validateAliasTypeScope(
+      rhs: Type,
+      region: Region,
+      scopeEnv: TypeEnv[Any]
+  ): Result[Type] = {
+    // Resolve names with the normal type converter first so imports and predef
+    // behave exactly like data declarations. Then enforce the alias-specific
+    // source-order rule by rejecting local references that are not yet in scope.
+    val missingLocalRefs =
+      Type
+        .allConsts(rhs :: Nil)
+        .collect {
+          case Type.TyConst(Type.Const.Defined(`thisPackage`, tn))
+              if localTypeNames(tn.ident) &&
+                scopeEnv.getType(thisPackage, tn).isEmpty &&
+                scopeEnv.getTypeAlias(thisPackage, tn).isEmpty =>
+            tn.ident
+        }
+        .distinct
+
+    missingLocalRefs.foldLeft(success(rhs): Result[Type]) { (acc, name) =>
+      SourceConverter.addErrorKeepGoing(
+        acc,
+        SourceConverter.UnknownTypeName(name, region)
+      )
+    }
+  }
+
   private def defStatementTypeVars[B](
       ds: DefStatement[Pattern.Parsed, B]
   ): Set[Type.Var.Bound] = {
@@ -1139,7 +1170,14 @@ final class SourceConverter(
     val digest = Hashable
       .hash(
         Algo.blake3Algo,
-        ("DefaultNameV1", thisPackage, typeName, constructorName, paramIndex, paramType)
+        (
+          "DefaultNameV1",
+          thisPackage,
+          typeName,
+          constructorName,
+          paramIndex,
+          paramType
+        )
       )
       .hash
       .hex
@@ -1167,7 +1205,7 @@ final class SourceConverter(
   private def updateInferredWithDeclaredTypeArgs(
       typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
       typeParams0: List[Type.Var.Bound],
-      tds: TypeDefinitionStatement
+      tds: TypeStatement
   ): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
     typeArgs match {
       case None       => success(typeParams0.map((_, None)))
@@ -1291,6 +1329,32 @@ final class SourceConverter(
         )
     }
   }
+
+  def toTypeAlias(
+      pname: PackageName,
+      scopeEnv: TypeEnv[Any],
+      tas: Statement.TypeAlias
+  ): Result[rankn.TypeAlias[Option[Kind.Arg]]] =
+    toType(tas.body, tas.region)
+      .flatMap(validateAliasTypeScope(_, tas.region, scopeEnv))
+      .flatMap { rhs =>
+      val discovered =
+        Type.freeTyVars(rhs :: Nil).collect { case b @ Type.Var.Bound(_) => b }
+          .foldLeft(List.empty[Type.Var.Bound]) { (acc, tv) =>
+            if (acc.contains(tv)) acc
+            else acc :+ tv
+          }
+
+      updateInferredWithDeclaredTypeArgs(tas.typeArgs, discovered, tas).map {
+        typeParams =>
+          rankn.TypeAlias(
+            pname,
+            TypeName(tas.name),
+            typeParams,
+            rhs
+          )
+      }
+    }
 
   private def toEnumDefinition(
       pname: PackageName,
@@ -1898,6 +1962,7 @@ final class SourceConverter(
       }
 
     val dupCons = localDefs
+      .collect { case ts: TypeDefinitionStatement => ts }
       .flatMap(ts => ts.constructors.map(c => (c, ts)))
       .groupByNel(_._1)
       .toList
@@ -1919,8 +1984,13 @@ final class SourceConverter(
 
     val pd = localDefs
       .foldM(ParsedTypeEnv.empty[Option[Kind.Arg]]) { (te, d) =>
-        toDefinition(thisPackage, d)
-          .map(te.addDefinedType(_))
+        d match {
+          case td: TypeDefinitionStatement =>
+            toDefinition(thisPackage, td).map(te.addDefinedType(_))
+          case ta: Statement.TypeAlias     =>
+            val scopeEnv = importedTypeEnv ++ TypeEnv.fromParsed(te)
+            toTypeAlias(thisPackage, scopeEnv, ta).map(te.addTypeAlias(_))
+        }
       }
 
     dupTypes >> dupCons >> pd
@@ -2589,7 +2659,7 @@ object SourceConverter {
     (new SourceConverter(
       thisPackage,
       imports,
-      Statement.definitionsOf(stmts).toList
+      Statement.typeStatementsOf(stmts).toList
     )).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
@@ -3002,7 +3072,7 @@ object SourceConverter {
   final case class InvalidTypeParameters(
       declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])],
       discoveredTypes: List[Type.Var.Bound],
-      statement: TypeDefinitionStatement
+      statement: TypeStatement
   ) extends Error {
 
     def region = statement.region

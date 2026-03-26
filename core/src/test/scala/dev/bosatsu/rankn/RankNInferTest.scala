@@ -7,7 +7,7 @@ import Expr._
 import Type.Var.Bound
 import Type.forAll
 
-import TestUtils.{checkLast, testPackage}
+import TestUtils.{checkEnvExpr, checkLast, testPackage}
 
 import Identifier.Constructor
 
@@ -114,8 +114,11 @@ class RankNInferTest extends munit.FunSuite {
       )
     )
 
+  private val predefKinds: Map[Type.Const.Defined, Kind] =
+    Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv.toKindMap
+
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
+    Infer.typeCheck(term).runFully(withBools, boolTypes, predefKinds) match {
       case Left(err)  => assert(false, err)
       case Right(tpe) => assert(tpe.getType.sameAs(ty), term.toString)
     }
@@ -931,6 +934,88 @@ def optBind(opt, bindFn):
 main = Monad(Some, optBind)
 """,
       "Monad[Opt]"
+    )
+
+    parseProgram(
+      """#
+type Foo = Option[Int]
+
+main: Foo = Some(1)
+""",
+      "Foo"
+    )
+
+    parseProgram(
+      """#
+type Result = Option[Int]
+
+struct Box(item: Result)
+
+def read(box: Box) -> Result:
+  match box:
+    case Box(item): item
+
+main = read(Box(Some(1)))
+""",
+      "Result"
+    )
+
+    parseProgram(
+      """#
+struct Quux(first, second)
+
+type Alias[a] = Quux[a, Int]
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
+
+def alias_bind(value, bind_fn):
+  match value:
+    case Quux(a, _): bind_fn(a)
+
+main: Monad[Alias] = Monad((a) -> Quux(a, 0), alias_bind)
+""",
+      "Monad[Alias]"
+    )
+
+    parseProgram(
+      """#
+enum Either[a, b]:
+  Left(left: a), Right(right: b)
+
+type EitherFlip[b, a] = Either[a, b]
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
+
+def either_flip_bind(value, bind_fn):
+  match value:
+    case Left(a): bind_fn(a)
+    case Right(b): Right(b)
+
+main: forall b. Monad[EitherFlip[b]] = Monad(Left, either_flip_bind)
+""",
+      "forall b. Monad[EitherFlip[b]]"
+    )
+
+    checkEnvExpr(
+      """#
+type Contra[a] = a -> Int
+
+main = 1
+"""
+    ) { (typeEnv, _) =>
+      val alias =
+        typeEnv
+          .getTypeAlias(testPackage, TypeName(Identifier.Constructor("Contra")))
+          .getOrElse(fail("expected Contra alias"))
+      assertEquals(alias.kindOf, Kind(Kind.Arg(Variance.contra, Kind.Type)))
+    }
+
+    parseProgramIllTyped(
+      """#
+type Bad[a: +*] = a -> Int
+
+main = 1
+"""
     )
 
     parseProgram(

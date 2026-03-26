@@ -11,6 +11,7 @@ import dev.bosatsu.rankn.{
   DefinedType,
   RefSpace,
   Type,
+  TypeAlias,
   TypeEnv
 }
 import dev.bosatsu.Pattern.{ListPart, StrPart}
@@ -981,12 +982,56 @@ object ShowEdn {
         err(s"invalid defined type: ${rendered(other)}")
     }
 
+  private def encodeTypeAlias(ta: TypeAlias[Kind.Arg]): Edn = {
+    val base = List(
+      sym("type-alias"),
+      nameAtom(ta.packageName.asString),
+      nameAtom(ta.name.asString)
+    )
+    val attrs =
+      List(
+        if (ta.annotatedTypeParams.isEmpty) None
+        else
+          Some(
+            kw("params") -> EVector(ta.annotatedTypeParams.map(encodeKindArgBinder))
+          ),
+        Some(kw("rhs") -> encodeType(ta.rhs))
+      ).flatten
+
+    EList(base ++ attrs.flatMap { case (k, v) => List(k, v) })
+  }
+
+  private def decodeTypeAlias(edn: Edn): ErrorOr[TypeAlias[Kind.Arg]] =
+    edn match {
+      case EList(ESymbol("type-alias") :: packageEdn :: nameEdn :: rest) =>
+        for {
+          packageName <- decodePackageName(packageEdn)
+          name <- decodeTypeName(nameEdn)
+          kv <- decodeKeywordArgs(rest)
+          params <- optionalField(kv, "params") match {
+            case None => Right(Nil)
+            case Some(value) =>
+              asVector(value).flatMap(_.traverse(decodeKindArgBinder))
+          }
+          rhs <- requiredField(kv, "rhs").flatMap(decodeType)
+        } yield TypeAlias(
+          packageName = packageName,
+          name = name,
+          annotatedTypeParams = params,
+          rhs = rhs
+        )
+      case other =>
+        err(s"invalid type alias: ${rendered(other)}")
+    }
+
   private def encodeReferant(ref: Referant[Kind.Arg]): Edn =
     ref match {
       case Referant.Value(tpe) =>
         EList(List(sym("ref-value"), encodeType(tpe)))
       case Referant.DefinedT(dt) =>
         EList(List(sym("ref-defined"), encodeDefinedType(dt)))
+      case Referant.TypeAliasT(ta) =>
+        EList(List(sym("ref-alias"), encodeTypeAlias(ta)))
       case Referant.Constructor(dt, fn) =>
         EList(List(sym("ref-constructor"), encodeDefinedType(dt), encodeConstructorFn(fn)))
     }
@@ -997,6 +1042,8 @@ object ShowEdn {
         decodeType(typeEdn).map(Referant.Value(_))
       case EList(ESymbol("ref-defined") :: dtEdn :: Nil) =>
         decodeDefinedType(dtEdn).map(Referant.DefinedT(_))
+      case EList(ESymbol("ref-alias") :: taEdn :: Nil) =>
+        decodeTypeAlias(taEdn).map(Referant.TypeAliasT(_))
       case EList(ESymbol("ref-constructor") :: dtEdn :: fnEdn :: Nil) =>
         (decodeDefinedType(dtEdn), decodeConstructorFn(fnEdn)).mapN {
           (dt, fn) => Referant.Constructor(dt, fn)
@@ -1432,6 +1479,7 @@ object ShowEdn {
   private def importRefBucket(ref: Referant[Kind.Arg]): String =
     ref match {
       case Referant.DefinedT(_)       => "types"
+      case Referant.TypeAliasT(_)     => "types"
       case Referant.Constructor(_, _) => "ctors"
       case Referant.Value(_)          => "values"
     }

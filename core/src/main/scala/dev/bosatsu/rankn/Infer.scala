@@ -62,16 +62,18 @@ sealed abstract class Infer[+A] {
   final def runVar(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
-      kinds: Map[Type.Const.Defined, Kind]
+      kinds: Map[Type.Const.Defined, Kind],
+      aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]] = Map.empty
   ): RefSpace[Either[Error, A]] =
-    Infer.Env.init(v, tpes, kinds).flatMap(run(_))
+    Infer.Env.init(v, tpes, kinds, aliases).flatMap(run(_))
 
   final def runFully(
       v: Map[Infer.Name, Type],
       tpes: Map[(PackageName, Constructor), Infer.Cons],
-      kinds: Map[Type.Const.Defined, Kind]
+      kinds: Map[Type.Const.Defined, Kind],
+      aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]] = Map.empty
   ): Either[Error, A] =
-    runVar(v, tpes, kinds).run.value
+    runVar(v, tpes, kinds, aliases).run.value
 }
 
 /** Companion for the inference engine.
@@ -145,13 +147,71 @@ object Infer {
       val uniq: Ref[Long],
       val vars: Map[Name, Type],
       val typeCons: Map[(PackageName, Constructor), Cons],
-      val variances: Map[Type.Const.Defined, Kind]
+      val variances: Map[Type.Const.Defined, Kind],
+      val aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
   ) {
 
-    override def toString() = s"Env($uniq, $vars, $typeCons, $variances)"
+    override def toString() =
+      s"Env($uniq, $vars, $typeCons, $variances, $aliases)"
 
     def addVars(vt: NonEmptyList[(Name, Type)]): Env =
-      new Env(uniq, vars = (vars + vt.head) ++ vt.tail, typeCons, variances)
+      new Env(
+        uniq,
+        vars = (vars + vt.head) ++ vt.tail,
+        typeCons,
+        variances,
+        aliases
+      )
+
+    @annotation.tailrec
+    final def normalizeAliasHead(t: Type): Type =
+      if (aliases.isEmpty) t
+      else
+        Type.unapplyAll(t) match {
+          case (
+                Type.TyConst(tc @ Type.Const.Defined(_, _)),
+                args
+              ) =>
+            aliases.get(tc) match {
+              case Some(alias) =>
+                alias.expandWith(args) match {
+                  case Some(t1) if t1 != t =>
+                    normalizeAliasHead(t1)
+                  case _ =>
+                    t
+                }
+              case None =>
+                t
+            }
+          case _ =>
+            t
+        }
+
+    final def normalizeAliasesDeep(t: Type): Type = {
+      if (aliases.isEmpty) t
+      else {
+        val head = normalizeAliasHead(t)
+        if (head ne t) normalizeAliasesDeep(head)
+        else
+          t match {
+            case t0 @ Type.ForAll(vars, in) =>
+              val in1 = normalizeAliasesDeep(in).asInstanceOf[Type.Rho]
+              if (in1 eq in) t0 else Type.ForAll(vars, in1)
+            case t0 @ Type.Exists(vars, in) =>
+              val in1 =
+                normalizeAliasesDeep(in).asInstanceOf[Type.Leaf | Type.TyApply]
+              if (in1 eq in) t0 else Type.Exists(vars, in1)
+            case t0 @ Type.TyApply(on, arg) =>
+              val on1 =
+                normalizeAliasesDeep(on).asInstanceOf[Type.Leaf | Type.TyApply]
+              val arg1 = normalizeAliasesDeep(arg)
+              if ((on1 eq on) && (arg1 eq arg)) t0
+              else Type.TyApply(on1, arg1)
+            case other =>
+              other
+          }
+      }
+    }
 
     private val kindCache: Type => Either[Region => Error, Kind] =
       Type.kindOf[Region => Error](
@@ -166,9 +226,7 @@ object Infer {
         },
         { case Type.TyConst(const) =>
           val d = const.toDefined
-          // some tests rely on syntax without importing
-          // TODO remove this
-          variances.get(d).orElse(Type.builtInKinds.get(d)) match {
+          variances.get(d) match {
             case Some(ks) => Right(ks)
             case None     => Left(region => Error.UnknownDefined(d, region))
           }
@@ -188,9 +246,10 @@ object Infer {
     def init(
         vars: Map[Name, Type],
         tpes: Map[(PackageName, Constructor), Cons],
-        kinds: Map[Type.Const.Defined, Kind]
+        kinds: Map[Type.Const.Defined, Kind],
+        aliases: Map[Type.Const.Defined, TypeAlias[Kind.Arg]]
     ): RefSpace[Env] =
-      RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds))
+      RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds, aliases))
   }
 
   def getEnv: Infer[Map[Name, Type]] = GetEnv.map(_.vars)
@@ -572,6 +631,19 @@ object Infer {
       GetEnv.map(env => tpe => env.getKind(tpe, emptyRegion).toOption)
     }
 
+    private def normalizeAliasPair(
+        left: Type,
+        right: Type
+    ): Infer[(Type, Type)] =
+      GetEnv.map { env =>
+        if (env.aliases.isEmpty) (left, right)
+        else
+          (
+            env.normalizeAliasHead(left),
+            env.normalizeAliasHead(right)
+          )
+      }
+
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
     def varianceOfCons(ta: Type.TyApply, region: Region): Infer[Variance] =
@@ -841,10 +913,22 @@ object Infer {
         _ <- a2s.zip(a1s).parTraverse { case (a2, a1) =>
           subsCheck(a2, a1, right, left, direction.flip)
         }
+        // When the input types are only alias-equivalent, keep the destination
+        // alias spelling so we avoid dropping a transparent alias from the
+        // function type. Otherwise preserve the original source type a1.
+        outArgs <- GetEnv.map { env =>
+          if (env.aliases.isEmpty) a1s
+          else
+            a1s.zip(a2s).map { case (a1, a2) =>
+              val same =
+                env.normalizeAliasesDeep(a1).sameAs(env.normalizeAliasesDeep(a2))
+              if (same) a2 else a1
+            }
+        }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right, direction)
         ks <- checkedKinds
-      } yield TypedExpr.coerceFn(a1s, r2, cores, ks)
+      } yield TypedExpr.coerceFn(outArgs, r2, cores, ks)
 
     /*
      * If t <:< rho then coerce to rho
@@ -901,7 +985,33 @@ object Infer {
         // is the expected type
         idRhoCoerce
       } else
-        (t, rho) match {
+        normalizeAliasPair(t, rho).flatMap { case (t1, rho1) =>
+          if ((t1 ne t) || (rho1 ne rho)) {
+            for {
+              tRho <- assertRho(
+                t1,
+                s"subsCheckRho2 alias normalization left($t, $rho, $left, $right)",
+                left
+              )
+              rhoRho <- assertRho(
+                rho1,
+                s"subsCheckRho2 alias normalization right($t, $rho, $left, $right)",
+                right
+              )
+              coerce <- subsCheckRho2(tRho, rhoRho, left, right, direction)
+              kinds <- checkedKinds
+            } yield {
+              if (rhoRho eq rho) coerce
+              else {
+                val widenToAlias = new FunctionK[TypedExpr.Rho, TypedExpr.Rho] {
+                  def apply[A](te: TypedExpr.Rho[A]): TypedExpr.Rho[A] =
+                    TypedExpr.coerceRho(rho, kinds)(te)
+                }
+                coerce.andThen(widenToAlias)
+              }
+            }
+          } else
+            (t, rho) match {
           case (Type.Exists(vars, in), rho2) =>
             // Exists on the left: skolemize bound vars (rigid) and continue.
             vars
@@ -1032,6 +1142,7 @@ object Infer {
               t1,
               ck
             ) // TODO this coerce seems right, since we have unified
+        }
         }
 
     /*
@@ -1253,30 +1364,34 @@ object Infer {
         r2: Region,
         direction: Error.Direction
     ): Infer[Unit] =
-      (t1, t2) match {
-        case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
-        case (meta @ Type.TyMeta(_), Type.Tau(tau))               =>
-          // We can only assign a Tau type into a MetaVar
-          unifyVar(meta, tau, r1, r2, direction)
-        case (Type.Tau(tau), meta @ Type.TyMeta(_)) =>
-          // We can only assign a Tau type into a MetaVar
-          unifyVar(meta, tau, r2, r1, direction.flip)
-        case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
-          validateKinds(t1, r1) &>
-            validateKinds(t2, r2) &>
-            unifyRho(a1, a2, r1, r2, direction) &>
-            unifyType(b1, b2, r1, r2, direction)
-        case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
-        case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
-          fail(Error.UnexpectedBound(b, t2, r1, r2))
-        case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
-          fail(Error.UnexpectedBound(b, t1, r2, r1))
-        case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          subsCheckRho2(t1, t2, r1, r2, direction) &>
-            subsCheckRho2(t2, t1, r2, r1, direction.flip).void
-        case (left, right) =>
-          fail(Error.NotUnifiable(left, right, r1, r2, direction))
+      normalizeAliasPair(t1, t2).flatMap { case (t1n, t2n) =>
+        if ((t1n ne t1) || (t2n ne t2)) unifyType(t1n, t2n, r1, r2, direction)
+        else
+          (t1, t2) match {
+            case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
+            case (meta @ Type.TyMeta(_), Type.Tau(tau))               =>
+              // We can only assign a Tau type into a MetaVar
+              unifyVar(meta, tau, r1, r2, direction)
+            case (Type.Tau(tau), meta @ Type.TyMeta(_)) =>
+              // We can only assign a Tau type into a MetaVar
+              unifyVar(meta, tau, r2, r1, direction.flip)
+            case (t1 @ Type.TyApply(a1, b1), t2 @ Type.TyApply(a2, b2)) =>
+              validateKinds(t1, r1) &>
+                validateKinds(t2, r2) &>
+                unifyRho(a1, a2, r1, r2, direction) &>
+                unifyType(b1, b2, r1, r2, direction)
+            case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
+            case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
+            case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
+              fail(Error.UnexpectedBound(b, t2, r1, r2))
+            case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
+              fail(Error.UnexpectedBound(b, t1, r2, r1))
+            case (_: Type.Exists, _) | (_, _: Type.Exists) =>
+              subsCheckRho2(t1, t2, r1, r2, direction) &>
+                subsCheckRho2(t2, t1, r2, r1, direction.flip).void
+            case (left, right) =>
+              fail(Error.NotUnifiable(left, right, r1, r2, direction))
+          }
       }
 
     def unifyTau(
@@ -1286,28 +1401,32 @@ object Infer {
         r2: Region,
         direction: Error.Direction
     ): Infer[Unit] =
-      (t1, t2) match {
-        case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
-        case (meta @ Type.TyMeta(_), tau)                         =>
-          unifyVar(meta, tau, r1, r2, direction)
-        case (tau, meta @ Type.TyMeta(_)) =>
-          unifyVar(meta, tau, r2, r1, direction.flip)
-        case (Type.Tau.TauApply(t1), Type.Tau.TauApply(t2)) =>
-          validateKinds(t1.toTyApply, r1) &>
-            validateKinds(t2.toTyApply, r2) &>
-            unifyTau(t1.on, t2.on, r1, r2, direction) &>
-            unifyTau(t1.arg, t2.arg, r1, r2, direction)
-        case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
-        case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
-          fail(Error.UnexpectedBound(b, t2, r1, r2))
-        case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
-          fail(Error.UnexpectedBound(b, t1, r2, r1))
-        case (_: Type.Exists, _) | (_, _: Type.Exists) =>
-          subsCheckRho2(t1, t2, r1, r2, direction) &>
-            subsCheckRho2(t2, t1, r2, r1, direction.flip).void
-        case (left, right) =>
-          fail(Error.NotUnifiable(left, right, r1, r2, direction))
+      normalizeAliasPair(t1, t2).flatMap { case (t1n, t2n) =>
+        if ((t1n ne t1) || (t2n ne t2)) unifyType(t1n, t2n, r1, r2, direction)
+        else
+          (t1, t2) match {
+            case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
+            case (meta @ Type.TyMeta(_), tau)                         =>
+              unifyVar(meta, tau, r1, r2, direction)
+            case (tau, meta @ Type.TyMeta(_)) =>
+              unifyVar(meta, tau, r2, r1, direction.flip)
+            case (Type.Tau.TauApply(t1), Type.Tau.TauApply(t2)) =>
+              validateKinds(t1.toTyApply, r1) &>
+                validateKinds(t2.toTyApply, r2) &>
+                unifyTau(t1.on, t2.on, r1, r2, direction) &>
+                unifyTau(t1.arg, t2.arg, r1, r2, direction)
+            case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
+            case (Type.TyVar(v1), Type.TyVar(v2)) if v1 === v2    => unit
+            case (Type.TyVar(b @ Type.Var.Bound(_)), _)           =>
+              fail(Error.UnexpectedBound(b, t2, r1, r2))
+            case (_, Type.TyVar(b @ Type.Var.Bound(_))) =>
+              fail(Error.UnexpectedBound(b, t1, r2, r1))
+            case (_: Type.Exists, _) | (_, _: Type.Exists) =>
+              subsCheckRho2(t1, t2, r1, r2, direction) &>
+                subsCheckRho2(t2, t1, r2, r1, direction.flip).void
+            case (left, right) =>
+              fail(Error.NotUnifiable(left, right, r1, r2, direction))
+          }
       }
 
     /** for a type to be unified, we mean we can substitute in either direction

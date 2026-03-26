@@ -2,7 +2,15 @@ package dev.bosatsu
 
 import cats.{Apply, Foldable}
 import cats.data.{Validated, ValidatedNec, Ior, IorNec}
-import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  DefinedType,
+  Ref,
+  RefSpace,
+  Type,
+  TypeAlias,
+  TypeDecl
+}
 import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
@@ -45,6 +53,11 @@ object Shape {
       ref: Ref[UnknownState]
   ) extends NotKnownShape
 
+  enum Source derives CanEqual {
+    case ConstructorFn(cfn: dev.bosatsu.rankn.ConstructorFn[?])
+    case AliasBody
+  }
+
   def shapeDoc(s: Shape): Doc =
     s match {
       case Type           => Doc.char('*')
@@ -68,43 +81,43 @@ object Shape {
     }
 
   sealed abstract class Error {
-    def dt: DefinedType[Option[Kind.Arg]]
+    def typeDecl: TypeDecl[Option[Kind.Arg]]
   }
 
   case class ShapeLoop(
-      dt: DefinedType[Option[Kind.Arg]],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
       bound: Either[rankn.Type.TyApply, rankn.Type.Var.Bound],
       path: Set[Shape]
   ) extends Error
 
   case class UnificationError(
-      dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn[?],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
+      source: Source,
       left: Shape,
       right: Shape
   ) extends Error
 
   case class FinishFailure(
-      dt: DefinedType[Option[Kind.Arg]],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
       left: Shape,
       right: Shape
   ) extends Error
 
   case class UnknownConst(
-      dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn[?],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
+      source: Source,
       const: rankn.Type.Const
   ) extends Error
 
   case class UnboundVar(
-      dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn[?],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
+      source: Source,
       bound: rankn.Type.Var.Bound
   ) extends Error
 
   case class ShapeMismatch(
-      dt: DefinedType[Option[Kind.Arg]],
-      cfn: ConstructorFn[?],
+      typeDecl: TypeDecl[Option[Kind.Arg]],
+      source: Source,
       outer: rankn.Type,
       tapply: rankn.Type.TyApply,
       rightShape: Shape
@@ -133,6 +146,14 @@ object Shape {
     implicit def definedTypeShapeOf[S: ShapeOf]: ShapeOf[DefinedType[S]] = {
       (dt: DefinedType[S]) =>
         dt.annotatedTypeParams
+          .foldRight(Type: KnownShape) { (s, ks) =>
+            KnownCons(ShapeOf(s._2), ks)
+          }
+    }
+
+    implicit def typeAliasShapeOf[S: ShapeOf]: ShapeOf[TypeAlias[S]] = {
+      (ta: TypeAlias[S]) =>
+        ta.annotatedTypeParams
           .foldRight(Type: KnownShape) { (s, ks) =>
             KnownCons(ShapeOf(s._2), ks)
           }
@@ -176,6 +197,16 @@ object Shape {
           else None
       }
 
+    implicit def typeAliasShapeEnv[S: ShapeOf]: IsShapeEnv[TypeAlias[S]] =
+      new IsShapeEnv[TypeAlias[S]] {
+        def getShape(
+            ta: TypeAlias[S],
+            tc: rankn.Type.Const
+        ): Option[KnownShape] =
+          if ((ta.toTypeConst: rankn.Type.Const) == tc) Some(ShapeOf(ta))
+          else None
+      }
+
     implicit def foldableShapeEnv[F[_]: Foldable, E: IsShapeEnv]
         : IsShapeEnv[F[E]] =
       new IsShapeEnv[F[E]] {
@@ -205,19 +236,18 @@ object Shape {
       }
       .map(_.reverse)
 
-  private val builtIns: Map[rankn.Type.Const.Defined, Shape] =
-    rankn.Type.builtInKinds.map { case (t, k) => (t, ShapeOf(k)) }
-
-  def solveShape[E: IsShapeEnv](
+  private final class Solver[E: IsShapeEnv](
       imports: E,
-      dt: DefinedType[Option[Kind.Arg]]
-  ): ValidatedNec[Error, DefinedType[Either[KnownShape, Kind.Arg]]] = {
-
+      typeDecl: TypeDecl[Option[Kind.Arg]],
+      allowSelfReference: Boolean
+  ) {
     type Env = Type => Option[Shape]
 
-    val cache = scala.collection.mutable.Map.empty[Type, Option[Shape]]
+    private val cache = scala.collection.mutable.Map.empty[Type, Option[Shape]]
+    private val validUnit = Validated.valid(())
+    private val pureUnit = RefSpace.pure(validUnit)
 
-    def thisScope(
+    def scopeFor(
         lst: List[(rankn.Type.Var.Bound, Either[Shape, Kind.Arg])]
     ): Env = {
       val smap: Map[rankn.Type.Var.Bound, Shape] =
@@ -226,12 +256,14 @@ object Shape {
           case (v, Left(s))   => (v, s)
         }.toMap
 
-      val thisShape: Shape =
-        lst.foldRight(Shape.Type: Shape) {
-          case ((_, Right(k)), res) =>
-            Shape.cons(ShapeOf(k), res)
-          case ((_, Left(s)), res) =>
-            Shape.cons(s, res)
+      val selfShape =
+        Option.when(allowSelfReference) {
+          lst.foldRight(Shape.Type: Shape) {
+            case ((_, Right(k)), res) =>
+              Shape.cons(ShapeOf(k), res)
+            case ((_, Left(s)), res)  =>
+              Shape.cons(s, res)
+          }
         }
 
       { (t: Type) =>
@@ -240,18 +272,15 @@ object Shape {
           t match {
             case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
             case rankn.Type.TyConst(const)                     =>
-              if (const == (dt.toTypeConst: rankn.Type.Const)) Some(thisShape)
+              if (allowSelfReference && (const == (typeDecl.toTypeConst: rankn.Type.Const)))
+                selfShape
               else IsShapeEnv[E].getShape(imports, const)
             case _ =>
-              // nothing else is in-scope
               None
           }
         )
       }
     }
-
-    val validUnit = Validated.valid(())
-    val pureUnit = RefSpace.pure(validUnit)
 
     def shapeToKnown(s: Shape): RefSpace[ValidatedNec[Error, KnownShape]] = {
       def maybeKnownShape(
@@ -307,7 +336,6 @@ object Shape {
         s match {
           case h :: tail if checked(h)  => generalize(tail, checked, shape)
           case (c @ Cons(a, s)) :: tail =>
-            // we have to be wide enough to handle * -> *
             val (in, out) = shape match {
               case Type            => (Type, Type)
               case KnownCons(i, o) => (i, o)
@@ -334,15 +362,14 @@ object Shape {
         case ks: KnownShape =>
           RefSpace.pure(Validated.valid(ks))
         case not: NotKnownShape =>
-          // TODO: this mayb be too simplistic...
           maybeKnownShape(not, Set.empty).flatMap {
             case Some(known) =>
-              unifyShape(known, not)(FinishFailure(dt, _, _))
+              unifyShape(known, not)(FinishFailure(typeDecl, _, _))
                 .map(_.as(known))
             case None =>
               generalize(not :: Nil, Set.empty, Type)
                 .flatMap { known =>
-                  unifyShape(known, s)(FinishFailure(dt, _, _))
+                  unifyShape(known, s)(FinishFailure(typeDecl, _, _))
                     .map(_.as(known))
                 }
           }
@@ -372,18 +399,15 @@ object Shape {
       ): RefSpace[ValidatedNec[Error, Unit]] =
         u.ref.get.flatMap {
           case UnknownState.Free =>
-            // we can update
             u.ref.set(UnknownState.Fixed(ks)).as(validUnit)
           case UnknownState.Fixed(ks1) =>
             loop(ks, ks1, visited)
           case UnknownState.Linked(notKnown) =>
-            // all these unknowns must unify with ks
             notKnown.toList
               .traverse(loop(ks, _, visited))
               .map(combineError(_))
               .flatMap {
                 case v @ Validated.Valid(_) =>
-                  // we now this is value
                   u.ref.set(UnknownState.Fixed(ks)).map(_ => v)
                 case invalid => RefSpace.pure(invalid)
               }
@@ -425,7 +449,6 @@ object Shape {
                 case Unknown(_, ref) =>
                   ref.get.flatMap {
                     case UnknownState.Free =>
-                      // we can update
                       ref.set(UnknownState.Linked(Set(c))).as(validUnit)
                     case UnknownState.Fixed(ks) =>
                       loop(ks, c, visited)
@@ -438,7 +461,6 @@ object Shape {
                 case ks: KnownShape =>
                   unifyKnown(ks, u1, visited)
                 case cons @ Cons(_, _) =>
-                  // reverse
                   loop(cons, u1, visited)
                 case u2 @ Unknown(_, ref2) =>
                   if (ref1 eq ref2) pureUnit
@@ -447,7 +469,6 @@ object Shape {
                       case UnknownState.Free =>
                         ref2.get.flatMap {
                           case UnknownState.Free =>
-                            // both are unset, link them
                             val set = ref1.set(UnknownState.Linked(Set(u2))) *>
                               ref2.set(UnknownState.Linked(Set(u1)))
                             set.as(validUnit)
@@ -463,7 +484,6 @@ object Shape {
                           case UnknownState.Fixed(f2) =>
                             loop(u1, f2, visited)
                           case UnknownState.Linked(l2) =>
-                            // both are unset, link them
                             val set = ref1.set(UnknownState.Linked(l1 + u2)) *>
                               ref2.set(UnknownState.Linked(l2 + u1))
                             set.as(validUnit)
@@ -476,32 +496,25 @@ object Shape {
       loop(s1, s2, Set.empty)
     }
 
-    // we can only apply s1(s2) if s1 is (k1 -> k2)k1
     def applyShape(
-        cfn: ConstructorFn[?],
+        source: Source,
         outer: rankn.Type,
-        inner: rankn.Type.TyApply, // has unknown shape
+        inner: rankn.Type.TyApply,
         s1: Shape,
         s2: Shape
     ): RefSpace[ValidatedNec[Error, Shape]] = {
-
-      val mkErr = (s1: Shape, s2: Shape) => UnificationError(dt, cfn, s1, s2)
+      val mkErr = (s1: Shape, s2: Shape) =>
+        UnificationError(typeDecl, source, s1, s2)
       s1 match {
         case Type =>
-          // kind mismatch
           RefSpace.pure(
-            Validated.invalidNec(ShapeMismatch(dt, cfn, outer, inner, s2))
+            Validated.invalidNec(ShapeMismatch(typeDecl, source, outer, inner, s2))
           )
         case Cons(arg, res) =>
-          // s1 == (arg -> res)
-          // s1(s2) => res
           unifyShape(arg, s2)(mkErr).map(_.as(res))
         case KnownCons(arg, res) =>
-          // s1 == (arg -> res)
-          // s1(s2) => res
           unifyShape(arg, s2)(mkErr).map(_.as(res))
         case u1 @ Unknown(_, _) =>
-          // we allocate a new unknown u, and unify s1 with s2 -> u and return u
           RefSpace
             .newRef(UnknownState.free)
             .flatMap { ref =>
@@ -512,13 +525,13 @@ object Shape {
     }
 
     def shapeOfType(
-        cfn: ConstructorFn[Either[Shape, Kind.Arg]],
+        source: Source,
         scope: Env,
         initialLocal: Map[rankn.Type.Var.Bound, Shape],
-        tpe: rankn.Type // has Kind = Type which will be unified later
+        tpe: rankn.Type
     ): RefSpace[ValidatedNec[Error, Shape]] = {
       def loop(
-          inner: rankn.Type, // has unknown Kind
+          inner: rankn.Type,
           local: Map[rankn.Type.Var.Bound, Shape]
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {
@@ -538,22 +551,19 @@ object Shape {
               v2 <- loop(arg, local)
               res <- (v1, v2).tupled match {
                 case Validated.Valid((s1, s2)) =>
-                  applyShape(cfn, tpe, ta, s1, s2)
+                  applyShape(source, tpe, ta, s1, s2)
                 case Validated.Invalid(err) =>
                   RefSpace.pure(Validated.invalid(err))
               }
             } yield res
           case const @ rankn.Type.TyConst(c) =>
-            // some tests work without imports, but need Fn
-            // TODO remove the built ins here
-            scope(const).orElse(builtIns.get(c.toDefined)) match {
+            scope(const) match {
               case Some(shape) =>
                 RefSpace.pure(Validated.valid(shape))
               case None =>
-                // Unknown type name
                 RefSpace.pure(
                   Validated.invalidNec(
-                    UnknownConst(dt, cfn, c)
+                    UnknownConst(typeDecl, source, c)
                   )
                 )
             }
@@ -568,10 +578,9 @@ object Shape {
                   case Some(shape) =>
                     RefSpace.pure(Validated.valid(shape))
                   case None =>
-                    // Unbound var
                     RefSpace.pure(
                       Validated.invalidNec(
-                        UnboundVar(dt, cfn, v)
+                        UnboundVar(typeDecl, source, v)
                       )
                     )
                 }
@@ -588,41 +597,33 @@ object Shape {
     ): ValidatedNec[Error, Unit] =
       errs.foldLeft(Validated.valid(()): ValidatedNec[Error, Unit])(_ *> _)
 
-    def constrainFn(
+    def constrainTypes(
         scope: Env,
-        cfn: ConstructorFn[Either[Shape, Kind.Arg]]
+        source: Source,
+        binders: List[(rankn.Type.Var.Bound, Either[Shape, Kind.Arg])],
+        tpes: List[rankn.Type]
     ): RefSpace[ValidatedNec[Error, Unit]] = {
       val local: Map[rankn.Type.Var.Bound, Shape] =
-        cfn.exists.iterator.map {
+        binders.iterator.map {
           case (b, Left(s))   => (b, s)
           case (b, Right(ka)) => (b, shapeOf(ka.kind))
         }.toMap
 
-      cfn.args
-        .traverse { param => shapeOfType(cfn, scope, local, param.tpe) }
+      tpes
+        .traverse { tpe => shapeOfType(source, scope, local, tpe) }
         .flatMap {
           _.sequence match {
             case Validated.Valid(shapeList) =>
-              // all the args to a function arg kind Type
               shapeList
                 .traverse(unifyShape(_, Type) { (s1, s2) =>
-                  UnificationError(dt, cfn, s1, s2)
+                  UnificationError(typeDecl, source, s1, s2)
                 })
                 .map(combineError(_))
             case Validated.Invalid(errs) =>
-              // we are changing the right type here from List[Shape] to Unit
               RefSpace.pure(Validated.Invalid(errs))
           }
         }
     }
-
-    def constrainAll(
-        scope: Env,
-        constructors: List[ConstructorFn[Either[Shape, Kind.Arg]]]
-    ): RefSpace[ValidatedNec[Error, Unit]] =
-      constructors
-        .traverse(constrainFn(scope, _))
-        .map(combineError[List](_))
 
     def shapeOrKnown(
         v: rankn.Type.Var.Bound,
@@ -637,14 +638,30 @@ object Shape {
           RefSpace.pure((v, Right(ka)))
       }
 
+    def knownParam(
+        item: (rankn.Type.Var.Bound, Either[Shape, Kind.Arg])
+    ): RefSpace[ValidatedNec[Error, (rankn.Type.Var.Bound, Either[KnownShape, Kind.Arg])]] =
+      item match {
+        case (v, Left(s))   =>
+          shapeToKnown(s).map(_.map(k => (v, Left(k))))
+        case (v, Right(ka)) =>
+          RefSpace.pure(Validated.valid((v, Right(ka))))
+      }
+  }
+
+  def solveShape[E: IsShapeEnv](
+      imports: E,
+      dt: DefinedType[Option[Kind.Arg]]
+  ): ValidatedNec[Error, DefinedType[Either[KnownShape, Kind.Arg]]] = {
+    val solver = new Solver(imports, dt, allowSelfReference = true)
     val rf = for {
       topShapes <- dt.annotatedTypeParams.traverse { case (v, optK) =>
-        shapeOrKnown(v, optK)
+        solver.shapeOrKnown(v, optK)
       }
       consShapes <- dt.constructors.traverse { cfn =>
         cfn.exists
           .traverse { case (v, optK) =>
-            shapeOrKnown(v, optK)
+            solver.shapeOrKnown(v, optK)
           }
           .map(exists => cfn.copy(exists = exists))
       }
@@ -652,24 +669,22 @@ object Shape {
         annotatedTypeParams = topShapes,
         constructors = consShapes
       )
-      check <- constrainAll(
-        thisScope(dtShapes.annotatedTypeParams),
-        dtShapes.constructors
-      )
+      scope = solver.scopeFor(dtShapes.annotatedTypeParams)
+      checks <- dtShapes.constructors.traverse { cfn =>
+        solver.constrainTypes(
+          scope,
+          Source.ConstructorFn(cfn),
+          cfn.exists,
+          cfn.args.map(_.tpe)
+        )
+      }
+      check = solver.combineError(checks)
       topKnowns <- dtShapes.annotatedTypeParams.traverse {
-        case (v, Left(s)) =>
-          shapeToKnown(s).map(_.map(k => (v, Left(k))))
-        case (v, Right(ka)) =>
-          RefSpace.pure(Validated.valid((v, Right(ka))))
+        solver.knownParam(_)
       }
       consKnowns <- dtShapes.constructors.traverse { cfn =>
         cfn.exists
-          .traverse {
-            case (v, Left(s)) =>
-              shapeToKnown(s).map(_.map(k => (v, Left(k))))
-            case (v, Right(ka)) =>
-              RefSpace.pure(Validated.valid((v, Right(ka))))
-          }
+          .traverse(solver.knownParam(_))
           .map(_.sequence.map(ex => cfn.copy(exists = ex)))
       }
     } yield {
@@ -677,6 +692,32 @@ object Shape {
       val consKnown = consKnowns.sequence
       (check, topKnown, consKnown).mapN { (_, tparams, constructors) =>
         dt.copy(annotatedTypeParams = tparams, constructors = constructors)
+      }
+    }
+
+    rf.run.value
+  }
+
+  def solveAlias[E: IsShapeEnv](
+      imports: E,
+      alias: TypeAlias[Option[Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Either[KnownShape, Kind.Arg]]] = {
+    val solver = new Solver(imports, alias, allowSelfReference = false)
+    val rf = for {
+      topShapes <- alias.annotatedTypeParams.traverse { case (v, optK) =>
+        solver.shapeOrKnown(v, optK)
+      }
+      scope = solver.scopeFor(topShapes)
+      check <- solver.constrainTypes(
+        scope,
+        Source.AliasBody,
+        Nil,
+        alias.rhs :: Nil
+      )
+      topKnowns <- topShapes.traverse(solver.knownParam(_))
+    } yield {
+      (check, topKnowns.sequence).mapN { (_, tparams) =>
+        alias.copy(annotatedTypeParams = tparams)
       }
     }
 

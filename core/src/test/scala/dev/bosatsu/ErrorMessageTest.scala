@@ -3071,6 +3071,7 @@ x = 1.0 + 2.0
             .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
+      Map.empty,
       Map.empty
     )
     val err = PackageError.TypeErrorIn(
@@ -3103,6 +3104,7 @@ x = 1.0 + 2.0
             .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
+      Map.empty,
       Map.empty
     )
     val err = PackageError.TypeErrorIn(

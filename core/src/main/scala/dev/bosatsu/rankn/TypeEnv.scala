@@ -11,7 +11,8 @@ class TypeEnv[+A] private (
       (PackageName, Constructor),
       (DefinedType[A], ConstructorFn[A])
     ],
-    val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]
+    val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]],
+    val typeAliases: SortedMap[(PackageName, TypeName), TypeAlias[A]]
 ) {
 
   override def equals(that: Any): Boolean =
@@ -19,7 +20,8 @@ class TypeEnv[+A] private (
       case te: TypeEnv[?] =>
         values.equals(te.values) &&
         constructors.equals(te.constructors) &&
-        definedTypes.equals(te.definedTypes)
+        definedTypes.equals(te.definedTypes) &&
+        typeAliases.equals(te.typeAliases)
       case _ => false
     }
 
@@ -27,17 +29,22 @@ class TypeEnv[+A] private (
     def keys1[K, B](k: SortedMap[(PackageName, K), B]): Iterator[PackageName] =
       k.keys.iterator.map(_._1)
 
-    (keys1(values) ++ keys1(constructors) ++ keys1(definedTypes)).toSet
+    (keys1(values) ++ keys1(constructors) ++ keys1(definedTypes) ++ keys1(
+      typeAliases
+    )).toSet
   }
 
   override def hashCode: Int =
-    (getClass, values, constructors, definedTypes).hashCode
+    (getClass, values, constructors, definedTypes, typeAliases).hashCode
 
   override def toString: String =
-    s"TypeEnv($values, $constructors, $definedTypes)"
+    s"TypeEnv($values, $constructors, $definedTypes, $typeAliases)"
 
   def allDefinedTypes: List[DefinedType[A]] =
     definedTypes.values.toList.sortBy(dt => (dt.packageName, dt.name))
+
+  def allTypeAliases: List[TypeAlias[A]] =
+    typeAliases.values.toList.sortBy(ta => (ta.packageName, ta.name))
 
   def getConstructor(
       p: PackageName,
@@ -54,9 +61,17 @@ class TypeEnv[+A] private (
   def getType(p: PackageName, t: TypeName): Option[DefinedType[A]] =
     definedTypes.get((p, t))
 
+  def getTypeAlias(p: PackageName, t: TypeName): Option[TypeAlias[A]] =
+    typeAliases.get((p, t))
+
   def getType(t: Type.TyConst): Option[DefinedType[A]] = {
     val d = t.tpe.toDefined
     getType(d.packageName, d.name)
+  }
+
+  def getTypeAlias(t: Type.TyConst): Option[TypeAlias[A]] = {
+    val d = t.tpe.toDefined
+    getTypeAlias(d.packageName, d.name)
   }
 
   def getExternalValue(p: PackageName, n: Identifier): Option[Type] =
@@ -105,7 +120,12 @@ class TypeEnv[+A] private (
   ): TypeEnv[A1] = {
     val nec = constructors.updated((pack, cf.name), (dt, cf))
     val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
-    new TypeEnv(values = values, constructors = nec, definedTypes = dt1)
+    new TypeEnv(
+      values = values,
+      constructors = nec,
+      definedTypes = dt1,
+      typeAliases = typeAliases
+    )
   }
 
   /** only add the type, do not add any of the constructors used when importing
@@ -116,7 +136,18 @@ class TypeEnv[+A] private (
     new TypeEnv(
       constructors = constructors,
       definedTypes = dt1,
-      values = values
+      values = values,
+      typeAliases = typeAliases
+    )
+  }
+
+  def addTypeAlias[A1 >: A](ta: TypeAlias[A1]): TypeEnv[A1] = {
+    val ta1 = typeAliases.updated((ta.packageName, ta.name), ta)
+    new TypeEnv(
+      constructors = constructors,
+      definedTypes = definedTypes,
+      values = values,
+      typeAliases = ta1
     )
   }
 
@@ -138,7 +169,12 @@ class TypeEnv[+A] private (
           cons0.updated((dt.packageName, cf.name), (dt, cf))
         }
 
-    new TypeEnv(constructors = cons1, definedTypes = dt1, values = values)
+    new TypeEnv(
+      constructors = cons1,
+      definedTypes = dt1,
+      values = values,
+      typeAliases = typeAliases
+    )
   }
 
   /** External values cannot be inferred and have to be fully annotated
@@ -151,7 +187,8 @@ class TypeEnv[+A] private (
     new TypeEnv(
       constructors = constructors,
       definedTypes = definedTypes,
-      values = values.updated((pack, name), t)
+      values = values.updated((pack, name), t),
+      typeAliases = typeAliases
     )
 
   lazy val typeConstructors: SortedMap[
@@ -183,17 +220,29 @@ class TypeEnv[+A] private (
       case Type.Const.Defined(p, n) => getType(p, n)
     }
 
+  def toTypeAlias(t: Type.Const): Option[TypeAlias[A]] =
+    t match {
+      case Type.Const.Defined(p, n) => getTypeAlias(p, n)
+    }
+
+  def hasTypeConst(t: Type.Const): Boolean =
+    toDefinedType(t).nonEmpty || toTypeAlias(t).nonEmpty
+
   def ++[A1 >: A](that: TypeEnv[A1]): TypeEnv[A1] =
     new TypeEnv(
       values ++ that.values,
       constructors ++ that.constructors,
-      definedTypes ++ that.definedTypes
+      definedTypes ++ that.definedTypes,
+      typeAliases ++ that.typeAliases
     )
 
   def toKindMap(implicit ev: A <:< Kind.Arg): Map[Type.Const.Defined, Kind] = {
     type F[+Z] = List[DefinedType[Z]]
+    type FA[+Z] = List[TypeAlias[Z]]
     val dts: List[DefinedType[Kind.Arg]] = ev.substituteCo[F](allDefinedTypes)
-    DefinedType.toKindMap(dts)
+    val aliases: List[TypeAlias[Kind.Arg]] =
+      ev.substituteCo[FA](allTypeAliases)
+    DefinedType.toKindMap(dts) ++ TypeAlias.toKindMap(aliases)
   }
 }
 
@@ -272,13 +321,47 @@ object TypeEnv {
     listDoc(typed.map(definedTypeDoc))
   }
 
+  private def typeAliasDoc(ta: TypeAlias[Kind.Arg]): Doc = {
+    val typeParams = ta.annotatedTypeParams.map(kindArgDoc)
+    val attrs =
+      List(
+        if (typeParams.isEmpty) None
+        else Some(Doc.text("(params") + Doc.line + listDoc(typeParams) + Doc.char(')')),
+        Some(
+          Doc.text("(rhs") + Doc.line + tyDoc.document(ta.rhs) + Doc.char(')')
+        )
+      ).flatten
+
+    block(
+      Doc.text("(alias") + Doc.line + Doc.text(
+        ta.name.ident.sourceCodeRepr
+      ) + Doc.line + Doc.intercalate(Doc.line, attrs) + Doc.char(')')
+    )
+  }
+
+  private def typeAliasesDoc[A](
+      aliases: List[TypeAlias[A]]
+  )(implicit ev: A <:< Kind.Arg): Doc = {
+    type TAs[+X] = List[TypeAlias[X]]
+    val typed = ev.substituteCo[TAs](aliases)
+    listDoc(typed.map(typeAliasDoc))
+  }
+
   def reprDoc[A](env: TypeEnv[A])(implicit ev: A <:< Kind.Arg): Doc =
-    definedTypesDoc(env.allDefinedTypes)
+    listDoc(
+      definedTypesDoc(env.allDefinedTypes) ::
+        typeAliasesDoc(env.allTypeAliases) ::
+        Nil
+    )
 
   def reprDocForPackage[A](env: TypeEnv[A], p: PackageName)(implicit
       ev: A <:< Kind.Arg
   ): Doc =
-    definedTypesDoc(env.allDefinedTypes.filter(_.packageName == p))
+    listDoc(
+      definedTypesDoc(env.allDefinedTypes.filter(_.packageName == p)) ::
+        typeAliasesDoc(env.allTypeAliases.filter(_.packageName == p)) ::
+        Nil
+    )
 
   val empty: TypeEnv[Nothing] =
     new TypeEnv(
@@ -287,7 +370,8 @@ object TypeEnv {
         (PackageName, Constructor),
         (DefinedType[Nothing], ConstructorFn[Nothing])
       ],
-      SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]]
+      SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]],
+      SortedMap.empty[(PackageName, TypeName), TypeAlias[Nothing]]
     )
 
   /** Adds all the types and all the constructors from the given types
@@ -295,11 +379,18 @@ object TypeEnv {
   def fromDefinitions[A](defs: List[DefinedType[A]]): TypeEnv[A] =
     defs.foldLeft(empty: TypeEnv[A])(_.addDefinedTypeAndConstructors(_))
 
+  def fromDefinitionsAndAliases[A](
+      defs: List[DefinedType[A]],
+      aliases: List[TypeAlias[A]]
+  ): TypeEnv[A] =
+    aliases.foldLeft(fromDefinitions(defs))(_.addTypeAlias(_))
+
   def fromParsed[A](p: ParsedTypeEnv[A]): TypeEnv[A] = {
     val t1 = p.allDefinedTypes.foldLeft(empty: TypeEnv[A])(
       _.addDefinedTypeAndConstructors(_)
     )
-    p.externalDefs.foldLeft(t1) { case (t1, (p, n, t)) =>
+    val t2 = p.typeAliases.foldLeft(t1)(_.addTypeAlias(_))
+    p.externalDefs.foldLeft(t2) { case (t1, (p, n, t)) =>
       t1.addExternalValue(p, n, t)
     }
   }

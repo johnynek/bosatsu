@@ -12,8 +12,17 @@ class PackageTest extends munit.FunSuite with ParTest {
       compileOptions: CompileOptions
   ): ValidatedNel[PackageError, PackageMap.Compiled] = {
     implicit val showInt: Show[Int] = Show.fromToString
+    val packs =
+      ps.toList
+    val withPredef =
+      if (packs.exists(_.name == PackageName.PredefName)) packs
+      else PackageMap.withPredef(packs, compileOptions.mode)
     PackageMap
-      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil, compileOptions)
+      .resolveThenInfer(
+        withPredef.zipWithIndex.map(_.swap),
+        Nil,
+        compileOptions
+      )
       .strictToValidated
   }
 
@@ -86,6 +95,7 @@ main = 1
       assertEquals(
         pmap.toMap(PackageName.parts("Foo2")).allImportPacks,
         List(
+          PackageName.PredefName,
           PackageName.parts("Foo")
         )
       )
@@ -148,6 +158,7 @@ main = head(data)
       assertEquals(
         pmap.toMap(PackageName.parts("P6")).allImportPacks,
         List(
+          PackageName.PredefName,
           PackageName.parts("P5")
         )
       )
@@ -468,5 +479,92 @@ main = 1
       withIface.sourceUnits.count(_.packageName == PackageName.PredefName),
       0
     )
+  }
+
+  test("exported type aliases can be imported transparently") {
+    val exported = parse("""
+package Alias/Export
+export Box, Foo, mkFoo
+
+struct Box(item)
+
+type Foo = Box[Int]
+
+mkFoo: Foo = Box(1)
+""")
+
+    val imported = parse("""
+package Alias/Import
+from Alias/Export import Foo, mkFoo
+export main
+
+main: Foo = mkFoo
+""")
+
+    valid(resolveThenInfer(PackageMap.withPredef(List(exported, imported))))
+  }
+
+  test("exported type aliases may not reference private local types") {
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/Export
+export Foo, mkFoo
+
+struct Box(item)
+
+type Foo = Box[Int]
+
+mkFoo: Foo = Box(1)
+""")))))
+  }
+
+  test("exported values may not reference private higher-kinded aliases") {
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/HiddenHK
+export Either, Monad, main
+
+enum Either[a, b]:
+  Left(left: a), Right(right: b)
+
+type EitherFlip[b, a] = Either[a, b]
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
+
+def either_flip_bind(value, bind_fn):
+  match value:
+    case Left(a): bind_fn(a)
+    case Right(b): Right(b)
+
+main: forall b. Monad[EitherFlip[b]] = Monad(Left, either_flip_bind)
+""")))))
+  }
+
+  test("alias and type name collisions are rejected") {
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/Collision
+
+type Foo = Int
+struct Foo
+
+main = 1
+""")))))
+  }
+
+  test("type aliases may only reference prior local type definitions") {
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/Forward
+
+type Foo = Bar
+type Bar = Int
+
+main = 1
+""")))))
+
+    invalid(resolveThenInfer(PackageMap.withPredef(List(parse("""
+package Alias/Self
+
+type Foo = Foo
+
+main = 1
+""")))))
   }
 }

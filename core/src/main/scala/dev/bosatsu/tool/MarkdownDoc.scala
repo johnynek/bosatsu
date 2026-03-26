@@ -254,6 +254,17 @@ object MarkdownDoc {
                 }
 
             loop(tail, Nil, valueDocs, nextTypes)
+
+          case Statement.TypeAlias(name, _, _) :: tail =>
+            val nextTypes =
+              if (pending.isEmpty) typeDocs
+              else
+                typeDocs.updatedWith(name) {
+                  case Some(existing) => Some(existing)
+                  case None           => Some(pending)
+                }
+
+            loop(tail, Nil, valueDocs, nextTypes)
         }
 
       loop(statements, Nil, Map.empty, Map.empty)

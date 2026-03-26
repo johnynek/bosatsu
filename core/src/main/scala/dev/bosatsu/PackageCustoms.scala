@@ -10,7 +10,7 @@ import cats.data.{
   Validated,
   ValidatedNec
 }
-import dev.bosatsu.rankn.{Type, TypeEnv, DefinedType}
+import dev.bosatsu.rankn.{DefinedType, Type, TypeAlias, TypeEnv}
 import scala.collection.immutable.SortedSet
 
 import cats.syntax.all._
@@ -28,7 +28,7 @@ object PackageCustoms {
   def apply[A: HasRegion](
       pack: Package.Typed[A]
   ): ValidatedNec[PackageError, Package.Typed[A]] =
-    checkValuesHaveExportedTypes(pack.name, pack.exports) *>
+    checkExportsHaveNoPrivateTypes(pack.name, pack.exports) *>
       noUselessBinds(pack, None) *>
       allImportsAreUsed(pack)
 
@@ -275,6 +275,8 @@ object PackageCustoms {
                 !unV((pack.name, item.originalName))
               case DefinedT(dt) =>
                 !unT((pack.name, dt.toTypeConst))
+              case Referant.TypeAliasT(ta) =>
+                !unT((pack.name, ta.toTypeConst))
             }
             NonEmptyList.fromList(t1).map(item.withTag(_))
           }
@@ -322,7 +324,14 @@ object PackageCustoms {
         tconst <- Type.constantsOf(param.tpe).iterator
       } yield tconst
 
-    (letTypes ++ externalTypes ++ localDefinedTypes).toSet
+    val localAliases =
+      for {
+        ta <- pack.program._1.types.allTypeAliases.iterator
+        if ta.packageName == pack.name
+        tconst <- Type.constantsOf(ta.rhs).iterator
+      } yield tconst
+
+    (letTypes ++ externalTypes ++ localDefinedTypes ++ localAliases).toSet
   }
 
   private def allImportsAreUsed[A](
@@ -340,7 +349,8 @@ object PackageCustoms {
         name <- ref match {
           case Constructor(_, _) | Referant.Value(_) =>
             item.originalName :: Nil
-          case DefinedT(_) => Nil
+          case DefinedT(_) | Referant.TypeAliasT(_) =>
+            Nil
         }
       } yield (impPack, name)).to(SortedSet)
 
@@ -355,6 +365,8 @@ object PackageCustoms {
             Nil
           case DefinedT(dt) =>
             dt.toTypeConst :: Nil
+          case Referant.TypeAliasT(ta) =>
+            ta.toTypeConst :: Nil
         }
       } yield (impPack, tpe)).to(SortedSet)
 
@@ -422,36 +434,41 @@ object PackageCustoms {
     }
   }
 
-  private def checkValuesHaveExportedTypes[V](
+  private def checkExportsHaveNoPrivateTypes[V](
       pn: PackageName,
       exports: List[ExportedName[Referant[V]]]
   ): ValidatedNec[PackageError, Unit] = {
     val exportedTypes: List[DefinedType[V]] = exports
       .flatMap(_.tag.definedType)
       .distinct
+    val exportedAliases: List[TypeAlias[V]] = exports
+      .flatMap(_.tag.typeAlias)
+      .distinct
 
-    val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
+    val exportedTE = TypeEnv.fromDefinitionsAndAliases(exportedTypes, exportedAliases)
 
     type Exp = ExportedName[Referant[V]]
-    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports.iterator
+    val exposedTypes: Iterator[(Exp, Type)] = exports.iterator.flatMap {
+      case n @ ExportedName.Binding(_, Referant.Value(t)) =>
+        Iterator.single((n, t))
+      case n @ ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+        Iterator.single((n, ta.rhs))
+      case _ =>
+        Iterator.empty
+    }
+
+    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exposedTypes
       .flatMap { n =>
-        n.tag match {
-          case Referant.Value(t) => Iterator.single((t, n))
-          case _                 => Iterator.empty
-        }
+        Type.constantsOf(n._2).iterator.map((_, n._1, n._2))
       }
-      .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
       .filter { case (Type.Const.Defined(p, _), _, _) => p == pn }
 
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
-      exportedTE.toDefinedType(t._1) match {
-        case None =>
-          PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
-        case Some(_) => Nil
-      }
+      if (exportedTE.hasTypeConst(t._1)) Nil
+      else PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
 
     NonEmptyChain.fromChain(
-      Chain.fromIterableOnce(usedTypes.flatMap(errorFor))
+      Chain.fromIterableOnce(usedTypes.flatMap(errorFor).toList.distinct)
     ) match {
       case None      => Validated.valid(())
       case Some(nel) => Validated.invalid(nel)

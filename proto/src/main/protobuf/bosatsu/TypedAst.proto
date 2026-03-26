@@ -92,10 +92,23 @@ message DefinedType {
   repeated ConstructorFn constructors = 3;
 }
 
+message TypeAlias {
+  TypeConst typeConst = 1;
+  repeated TypeParam typeParams = 2;
+  int32 rhs = 3;
+}
+
 message DefinedTypeReference {
   oneof value {
     int32 localDefinedTypePtr = 1; /* a 1-based pointer into the list of local defined types */
     TypeConst importedDefinedType = 2; /* a string-based reference to a type defined in another package */
+  }
+}
+
+message TypeAliasReference {
+  oneof value {
+    int32 localTypeAliasPtr = 1; /* a 1-based pointer into the list of local type aliases */
+    TypeConst importedTypeAlias = 2; /* a string-based reference to a type alias defined in another package */
   }
 }
 
@@ -122,6 +135,7 @@ message Referant {
     int32 value = 1; /* an exported value which has a given type, the index is the into the type table */
     DefinedTypeReference definedType = 2;
     ConstructorReference constructor = 3;
+    TypeAliasReference typeAlias = 4;
   }
 }
 
@@ -145,6 +159,7 @@ message Interface {
   repeated DefinedType definedTypes = 3;
   int32 packageName = 4;
   repeated ExportedName exports = 5;
+  repeated TypeAlias typeAliases = 6;
 }
 
 message Interfaces {
@@ -372,6 +387,7 @@ message Package {
   repeated ExportedName exports = 8;
   repeated Let lets = 9;
   repeated ExternalDef externalDefs = 10;
+  repeated TypeAlias typeAliases = 11;
 }
 
 message Packages {

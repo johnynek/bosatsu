@@ -1793,6 +1793,7 @@ object Generators {
       i.items.toList.flatMap { in =>
         in.tag.toList.flatMap {
           case Referant.DefinedT(dt)       => dt.toTypeConst :: Nil
+          case Referant.TypeAliasT(ta)     => ta.toTypeConst :: Nil
           case Referant.Constructor(dt, _) => dt.toTypeConst :: Nil
           case Referant.Value(_)           => Nil
         }

@@ -73,12 +73,13 @@ final case class Package[A, B, C, +D](
     type ListEN[+Z] = List[ExportedName[Z]]
     val expRef: List[ExportedName[Referant[K]]] =
       ev.substituteCo[ListEN](exports)
-    TypeEnv.fromDefinitions(
+    val definedTypes =
       expRef
         .groupByNel { e =>
           e.tag match {
             case Referant.DefinedT(dt)       => Some(dt.toTypeConst)
             case Referant.Constructor(dt, _) => Some(dt.toTypeConst)
+            case Referant.TypeAliasT(_)      => None
             case Referant.Value(_)           => None
           }
         }
@@ -92,7 +93,7 @@ final case class Package[A, B, C, +D](
           val dt = exps.head.tag match {
             case Referant.Constructor(dt, _) => dt
             case Referant.DefinedT(dt)       => dt
-            case Referant.Value(_)           =>
+            case _                           =>
               sys.error("impossible since we have Some(tc)")
           }
 
@@ -100,7 +101,13 @@ final case class Package[A, B, C, +D](
           else dt
         }
         .toList
-    )
+
+    val aliases =
+      expRef.iterator.collect { case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+        ta
+      }.toList.distinct
+
+    TypeEnv.fromDefinitionsAndAliases(definedTypes, aliases)
   }
 }
 
@@ -527,13 +534,15 @@ object Package {
   ): RemovedKindRefs = {
     val parsedTypeConsts = parsedTypeEnv.allDefinedTypes.iterator
       .map(_.toTypeConst)
+      .concat(parsedTypeEnv.typeAliases.iterator.map(_.toTypeConst))
       .toSet
-    val removedTypeDefs =
-      parsedTypeEnv0.allDefinedTypes.filterNot { dt =>
-        parsedTypeConsts(dt.toTypeConst)
-      }
-    val removedTypeConsts = removedTypeDefs.iterator.map(_.toTypeConst).toSet
-    val removedConstructors = removedTypeDefs.iterator
+    val removedTypeStatements =
+      parsedTypeEnv0.orderedTypes.iterator.filterNot(stmt =>
+        parsedTypeConsts(stmt.toTypeConst)
+      ).toList
+    val removedTypeConsts = removedTypeStatements.iterator.map(_.toTypeConst).toSet
+    val removedConstructors = removedTypeStatements.iterator
+      .collect { case ParsedTypeEnv.TypeStatement.Defined(dt) => dt }
       .flatMap(_.constructors.iterator.map(_.name))
       .toSet
 
@@ -671,7 +680,7 @@ object Package {
       }
 
     lazy val typeDefRegions: Map[Type.Const.Defined, Region] =
-      stmts.iterator.collect { case tds: TypeDefinitionStatement =>
+      stmts.iterator.collect { case tds: TypeStatement =>
         Type.Const.Defined(p, TypeName(tds.name)) -> tds.region
       }.toMap
 
@@ -685,16 +694,13 @@ object Package {
         val inferVarianceParsed
             : Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
           KindFormula
-            .solveShapesAndKinds(
-              importedTypeEnv,
-              parsedTypeEnv0.allDefinedTypes.reverse
-            )
+            .solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0)
             .bimap(
               necError =>
                 necError
                   .map(PackageError.KindInferenceError(p, _, typeDefRegions))
                   .toNonEmptyList,
-              infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv0.externalDefs)
+              identity
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
@@ -749,7 +755,8 @@ object Package {
               .toMap
 
           val localTypeNames: Set[TypeName] =
-            fullTypeEnv.definedTypes.keysIterator.collect { case (`p`, tn) =>
+            (fullTypeEnv.definedTypes.keysIterator ++
+              fullTypeEnv.typeAliases.keysIterator).collect { case (`p`, tn) =>
               tn
             }.toSet
 
@@ -806,7 +813,10 @@ object Package {
             .runFully(
               withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
-              (fullTypeEnv ++ dependencyTypeEnv).toKindMap
+              (fullTypeEnv ++ dependencyTypeEnv).toKindMap,
+              (fullTypeEnv ++ dependencyTypeEnv).allTypeAliases.iterator
+                .map(ta => ta.toTypeConst -> ta)
+                .toMap
             )
             .leftMap { tpeErr =>
               NonEmptyList.one[PackageError](

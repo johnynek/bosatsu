@@ -61,6 +61,35 @@ object TestUtils {
     List[Statement]
   ]
 
+  private val predefInterface: Package.Interface =
+    Package.interfaceOf(PackageMap.predefCompiled)
+
+  private def importAllPredef[A](
+      pack: A
+  ): Import[A, NonEmptyList[Referant[Kind.Arg]]] = {
+    val items =
+      predefInterface.exports
+        .groupBy(_.name)
+        .iterator
+        .map { case (name, exports) =>
+          ImportedName.OriginalName(
+            name,
+            NonEmptyList.fromListUnsafe(exports.map(_.tag))
+          )
+        }
+        .toList
+
+    Import(pack, NonEmptyList.fromListUnsafe(items))
+  }
+
+  private val predefResolvedImport
+      : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(predefInterface)
+
+  private val predefSourceImport
+      : Import[PackageName, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(PackageName.PredefName)
+
   def sourceConvertedProgramOf(
       pack: PackageName,
       str: String
@@ -106,7 +135,9 @@ object TestUtils {
       statement: String
   )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -134,7 +165,7 @@ object TestUtils {
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val sourceConverted =
-      SourceConverter.toProgram(testPackage, Nil, stmts) match {
+      SourceConverter.toProgram(testPackage, predefSourceImport :: Nil, stmts) match {
         case Ior.Right(prog)   => prog
         case Ior.Both(_, prog) => prog
         case Ior.Left(errs)    =>
@@ -143,15 +174,11 @@ object TestUtils {
 
     val Program((importedTypeEnv, parsedTypeEnv0), lets, _, _) = sourceConverted
     val parsedTypeEnv =
-      KindFormula
-        .solveShapesAndKinds(
-          importedTypeEnv,
-          parsedTypeEnv0.allDefinedTypes.reverse
-        ) match {
+      KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0) match {
         case Ior.Right(inferred)   =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Both(_, inferred) =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Left(errs)        =>
           fail(s"kind inference failed: ${errs.toList.mkString(", ")}")
       }
@@ -182,7 +209,8 @@ object TestUtils {
         .runFully(
           withFqn,
           importedTypeEnv.typeConstructors ++ typeEnv.typeConstructors,
-          fullTypeEnv.toKindMap
+          fullTypeEnv.toKindMap,
+          fullTypeEnv.allTypeAliases.iterator.map(ta => ta.toTypeConst -> ta).toMap
         )
     val typedLets =
       typedLetsEither.fold(
@@ -199,7 +227,9 @@ object TestUtils {
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))

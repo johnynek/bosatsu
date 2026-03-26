@@ -2102,11 +2102,28 @@ object PackageError {
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = regions(kindError.dt.toTypeConst)
+      val region = regions(kindError.typeDecl.toTypeConst)
       val ctx = lm
         .showRegion(region, 2, errColor)
         .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val prefix = sourceMap.headLine(pack, Some(region))
+      def typeDeclPrefix(td: rankn.TypeDecl[?], body: String): Doc = {
+        val tdoc = showTypes(pack, td.toTypeTyConst :: Nil)(td.toTypeTyConst)
+        val lead =
+          td match {
+            case _: rankn.TypeAlias[?] => Doc.text("in type alias ")
+            case _                     => Doc.text("in type ")
+          }
+        lead + tdoc + Doc.text(body)
+      }
+
+      def sourceDoc(source: Shape.Source): Doc =
+        source match {
+          case Shape.Source.ConstructorFn(cons) =>
+            Doc.text(s" in the constructor ${cons.name.sourceCodeRepr}")
+          case Shape.Source.AliasBody         =>
+            Doc.text(" in the alias body")
+        }
       val message = kindError match {
         case unsat @ KindFormula.Error.Unsatisfiable(_, _, _, _) =>
           val base = Doc.text("could not solve for valid variances")
@@ -2116,13 +2133,11 @@ object PackageError {
           }
         case KindFormula.Error.FromShapeError(se) =>
           se match {
-            case Shape.UnificationError(_, cons, left, right) =>
+            case Shape.UnificationError(_, source, left, right) =>
               Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc
                 .text(" and ") + Shape.shapeDoc(right) +
-                Doc.text(
-                  s" to match in the constructor ${cons.name.sourceCodeRepr}"
-                ) + Doc.hardLine
-            case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
+                Doc.text(" to match") + sourceDoc(source) + Doc.hardLine
+            case Shape.ShapeMismatch(_, source, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
               val typeDoc =
                 if (outer != (tyApp: Type))
@@ -2130,52 +2145,34 @@ object PackageError {
                 else tmap(outer)
 
               Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc
-                .text(" -> ?") + Doc.text(" but found * ") +
-                Doc.text(
-                  s"in the constructor ${cons.name.sourceCodeRepr} inside type "
-                ) +
+                .text(" -> ?") + Doc.text(" but found *") +
+                sourceDoc(source) +
+                Doc.text(" inside type ") +
                 typeDoc +
                 Doc.hardLine
-            case Shape.FinishFailure(dt, left, right) =>
-              val tdoc =
-                showTypes(pack, dt.toTypeTyConst :: Nil)(dt.toTypeTyConst)
-              Doc.text("in type ") + tdoc + Doc.text(
-                " could not unify shapes: "
-              ) + Shape.shapeDoc(left) + Doc.text(" and ") +
+            case Shape.FinishFailure(td, left, right) =>
+              typeDeclPrefix(td, " could not unify shapes: ") +
+                Shape.shapeDoc(left) + Doc.text(" and ") +
                 Shape.shapeDoc(right)
-            case Shape.ShapeLoop(dt, tpe, _) =>
+            case Shape.ShapeLoop(td, tpe, _) =>
               val tpe2 = tpe match {
                 case Left(ap) => ap
                 case Right(v) => Type.TyVar(v)
               }
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
 
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) + Doc.text(
-                " cyclic dependency encountered in "
-              ) +
+              typeDeclPrefix(td, " cyclic dependency encountered in ") +
                 tdocs(tpe2)
-            case Shape.UnboundVar(dt, cfn, v) =>
+            case Shape.UnboundVar(td, source, v) =>
               val tpe2 = Type.TyVar(v)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unbound type variable ") + tdocs(tpe2) + cfnMsg
-            case Shape.UnknownConst(dt, cfn, c) =>
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unbound type variable ") + tdocs(tpe2) +
+                sourceDoc(source)
+            case Shape.UnknownConst(td, source, c) =>
               val tpe2 = Type.TyConst(c)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unknown type ") + tdocs(tpe2) + cfnMsg
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unknown type ") + tdocs(tpe2) +
+                sourceDoc(source)
           }
       }
       (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)

@@ -1510,21 +1510,25 @@ object Pattern {
       case MaybeTupleOrParens.Tuple(p)  => tuple(p)
     }
 
-  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
-    val recurse = P.defer(bindParser)
-
-    val positional =
-      (Identifier.consParser ~ (parseTupleStruct(recurse) <+> parseRecordStruct(
-        recurse
-      )).?)
-        .map {
-          case (n, None) =>
+  /**
+   * After we have parsed a constructor, if this succeeds then we have parsed a pattern
+   */
+  val structAfterCons: P0[Constructor => PositionalStruct[StructKind, TypeRef]] =
+    (parseTupleStruct(bindParser) <+> parseRecordStruct(bindParser)).?
+      .map {
+        case None =>
+          (n: Constructor) =>
             PositionalStruct(
               StructKind.Named(n, StructKind.Style.TupleLike),
               Nil
             )
-          case (n, Some(fn)) => fn(n)
-        }
+        case Some(fn) => fn
+      }
+
+  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
+    val recurse = P.defer(bindParser)
+
+    val positional = (Identifier.consParser ~ structAfterCons).map { case (c, fn) => fn(c) }
 
     val tupleOrParens = recurse.tupleOrParens.map(fromTupleOrParens)
 
