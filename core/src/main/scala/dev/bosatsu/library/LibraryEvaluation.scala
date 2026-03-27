@@ -4,12 +4,14 @@ import cats.Eval
 import cats.Functor
 import cats.Order
 import cats.implicits._
+import dev.bosatsu.graph.Toposort
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{DefinedType, Type}
 import dev.bosatsu.{
   Externals,
   Identifier,
   Matchless,
+  MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
   MatchlessToValue,
   Package,
@@ -36,10 +38,36 @@ case class LibraryEvaluation[K] private (
 )(implicit keyOrder: Ordering[K], ec: Par.EC) {
   given Order[K] = Order.fromOrdering(using keyOrder)
 
-  private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
-    scopes.transform { case (scope, data) =>
-      MatchlessFromTypedExpr.compile(scope, data.packages)
+  private lazy val topoSort: Toposort.Result[(K, PackageName)] = {
+    val allPackages = for {
+      (scope, data) <- scopes
+      pack <- data.packages.toMap.keySet
+    } yield (scope, pack)
+    val allPackageSet = allPackages.toSet
+
+    Toposort.sort(allPackages) { case (scope, pack) =>
+      for {
+        data <- scopes.get(scope).toList
+        thisPack <- data.packages.toMap.get(pack).toList
+        depPack <- thisPack.allImportPacks
+        depScope <- data.depForPackage(depPack).toList
+        // Interfaces can resolve to a scope even when that scope does not ship
+        // an implementation body for this package; only implementation nodes
+        // participate in Matchless compilation.
+        depNode = (depScope, depPack)
+        if allPackageSet(depNode)
+      } yield depNode
     }
+  }
+
+  private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
+    MatchlessGlobalInlining.optimize(
+      scopes.transform { case (scope, data) =>
+        MatchlessFromTypedExpr.compileRaw(scope, data.packages)
+      },
+      topoSort,
+      depFor
+    )
 
   private lazy val envCache
       : MMap[(K, PackageName), Map[Identifier, Eval[Value]]] =

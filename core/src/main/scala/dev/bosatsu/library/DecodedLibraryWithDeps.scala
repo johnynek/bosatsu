@@ -7,6 +7,7 @@ import cats.syntax.all._
 import dev.bosatsu.{
   ExportedName,
   Identifier,
+  MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
   Package,
   PackageName,
@@ -52,6 +53,18 @@ case class DecodedLibraryWithDeps[A](
       )
     )
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
+  }
+
+  def compileRaw(implicit
+      ec: Par.EC
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] = {
+    given Order[(Name, Version)] = Order.fromOrdering(using
+      Ordering.Tuple2(using
+        summon[Ordering[Name]],
+        summon[Ordering[Version]]
+      )
+    )
+    MatchlessFromTypedExpr.compileRaw(nameVersion, lib.implementations)
   }
 
   def filterLets(
@@ -221,12 +234,16 @@ object DecodedLibraryWithDeps {
 
           lazy val compiled
               : SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
-            allDeps
+            MatchlessGlobalInlining.optimize(
+              allDeps
               .map { dep =>
-                (dep.nameVersion, Par.start(dep.compile))
+                (dep.nameVersion, Par.start(dep.compileRaw))
               }
               .to(SortedMap)
-              .transform((_, p) => Par.await(p))
+              .transform((_, p) => Par.await(p)),
+              topoSort,
+              depFor
+            )
 
           def exportedValues(
               packageName: PackageName

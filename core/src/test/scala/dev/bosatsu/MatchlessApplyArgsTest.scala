@@ -5,6 +5,77 @@ import cats.data.NonEmptyList
 import Identifier.Bindable
 
 class MatchlessApplyArgsTest extends munit.FunSuite {
+  test("Matchless.inlineApplyArgs keeps non-cheap arguments inside If branches") {
+    val deferred = Identifier.Name("deferred")
+    val expensive = Identifier.Name("expensive")
+    val actual: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(expensive),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(deferred),
+        body = Matchless.If(
+          Matchless.TrueConst,
+          Matchless.Local(deferred),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    Matchless.inlineApplyArgs(lam, NonEmptyList.one(actual)) match {
+      case Matchless.If(Matchless.TrueConst, thenExpr, Matchless.Literal(lit)) =>
+        assertEquals(thenExpr, actual)
+        assertEquals(lit, Lit.fromInt(0))
+      case Matchless.Let(_, `actual`, _) =>
+        fail("expected deferred argument to stay in the branch body")
+      case other =>
+        fail(s"expected inlined If branch, found: $other")
+    }
+  }
+
+  test("Matchless.inlineApplyArgs keeps non-cheap arguments inside SwitchVariant branches") {
+    val selector = Identifier.Name("selector")
+    val deferred = Identifier.Name("deferred")
+    val actual: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.of(selector, deferred),
+        body = Matchless.SwitchVariant(
+          Matchless.Local(selector),
+          0 :: 0 :: Nil,
+          NonEmptyList.of(
+            (0, Matchless.Literal(Lit.fromInt(0))),
+            (1, Matchless.Local(deferred))
+          ),
+          None
+        )
+      )
+
+    Matchless.inlineApplyArgs(
+      lam,
+      NonEmptyList.of(Matchless.Local(Identifier.Name("sel")), actual)
+    ) match {
+      case Matchless.SwitchVariant(_, _, cases, None) =>
+        assertEquals(cases.toList.last._2, actual)
+        assertEquals(cases.toList.head._2, Matchless.Literal(Lit.fromInt(0)))
+      case Matchless.Let(_, `actual`, _) =>
+        fail("expected deferred argument to stay inside the switch branch")
+      case Matchless.SwitchVariant(_, _, _, Some(_)) =>
+        fail("expected switch branches without a default case")
+      case other =>
+        fail(s"expected inlined SwitchVariant branch, found: $other")
+    }
+  }
+
   test(
     "Matchless.recoverTopLevelLambda beta-reduces let-bound lambda aliases"
   ) {
