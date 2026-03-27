@@ -214,6 +214,48 @@ main = find_before_one
     }
   }
 
+  test("segmented string search lowers cleanly in Python") {
+    val hasFooPm = typeCheckPackage("""package Test
+
+def has_foo(s):
+  s matches "${_}foo${_}"
+
+main = has_foo
+""")
+    val fooBeforeBarPm = typeCheckPackage("""package Test
+
+def foo_before_bar(s):
+  s matches "${_}foo${_}bar"
+
+main = foo_before_bar
+    """)
+    Par.withEC {
+      val hasFooRendered = PythonGen.renderSource(hasFooPm, Map.empty, Map.empty)
+      val fooBeforeBarRendered =
+        PythonGen.renderSource(fooBeforeBarPm, Map.empty, Map.empty)
+      val hasFooCode =
+        hasFooRendered(())(TestUtils.testPackage)
+          ._2
+          .render(120)
+      val fooBeforeBarCode =
+        fooBeforeBarRendered(())(TestUtils.testPackage)
+          ._2
+          .render(120)
+      val hasFoo = normalizeGeneratedTemps(extractPythonDef(hasFooCode, "has_foo"))
+      val fooBeforeBar =
+        normalizeGeneratedTemps(extractPythonDef(fooBeforeBarCode, "foo_before_bar"))
+
+      assertEquals("while ___v".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
+      assert(hasFoo.contains("""partition("foo")"""), hasFoo)
+      assertEquals(deadPythonTemps(hasFoo), Set.empty, hasFoo)
+
+      assertEquals("while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2, true, fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition("foo")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition("bar")"""), fooBeforeBar)
+      assertEquals(deadPythonTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+    }
+  }
+
   test("CheckVariantSet guards compile to direct Python membership comparisons") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
