@@ -244,6 +244,7 @@ jobs:
       - name: Build native image (macos)
         env:
           BOSATSU_C_RUNTIME_HASH: ${{ needs.prepare.outputs.c_runtime_hash }}
+          BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES: "0"
         run: |
           sbt "cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu-macos

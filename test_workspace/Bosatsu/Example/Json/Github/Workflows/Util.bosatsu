@@ -96,6 +96,7 @@ struct StepEnv(
   `URI_BASE`: Optional[String] = Missing,
   `PUBLISH_DRY_RUN`: Optional[String] = Missing,
   `C_RUNTIME_ARCHIVE`: Optional[String] = Missing,
+  `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Optional[String] = Missing,
   `GITHUB_TOKEN`: Optional[String] = Missing,
   `GITHUB_REF_NAME`: Optional[String] = Missing,
   `GH_TOKEN`: Optional[String] = Missing,
