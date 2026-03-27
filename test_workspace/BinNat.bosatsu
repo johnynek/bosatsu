@@ -4,6 +4,7 @@ from Bosatsu/Num/Nat import Nat, Zero as NatZero, Succ as NatSucc, mul2 as mul2_
 
 export (BinNat(), to_Int, to_Nat, to_BinNat, next, add_BinNat, mul2, div2,
   prev, times_BinNat, exp, cmp_BinNat, is_even, sub_BinNat, sub_Option, eq_BinNat, divmod)
+exposes Bosatsu/Num/Nat
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -72,7 +73,7 @@ def cmp_BinNat(a: BinNat, b: BinNat) -> Comparison:
 # because at the first difference we can stop. In the worst
 # case of equality, the cost is the same.
 def eq_BinNat(a: BinNat, b: BinNat) -> Bool:
-  recur a:
+  loop a:
     case Zero: b matches Zero
     case Odd(n):
       match b:
@@ -288,7 +289,7 @@ def exp(base: BinNat, power: BinNat) -> BinNat:
 def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   # use the Nat as a trick to prove termination
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
-    recur cnt_Nat:
+    loop cnt_Nat:
       case NatZero: init
       case NatSucc(prev_nat):
         cnt = prev(cnt)
@@ -302,7 +303,7 @@ def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
 # fibonacci using the fuel pattern
 def fib(b: BinNat) -> BinNat:
     def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
-        recur n:
+        loop n:
             case NatZero: cur
             case NatSucc(n):
                 sum = add_BinNat(cur, next)

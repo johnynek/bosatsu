@@ -103,7 +103,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Option[a]:
-        recur tree:
+        loop tree:
             case Empty: None
             case Branch { key, left, right, ... }:
                 match fn(item, key):
@@ -114,7 +114,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     loop(tree)
 
 def min(tree: Tree[a]) -> Option[a]:
-    recur tree:
+    loop tree:
         case Empty: None
         case Branch { key, left: Empty, ... }: Some(key)
         case Branch { left, ... }: min(left)
@@ -189,8 +189,6 @@ def module(ord: Order[a]) -> Module[a]:
 Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i ...} = module(Order(cmp_Int))
 
 contains_i = (tree, i) -> (contains_i_opt(tree, i) matches Some(_))
-
-def not(x): False if x else True
 
 contains_test = (
     def add_law(t, i, msg):

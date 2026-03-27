@@ -27,7 +27,7 @@ import SourceConverter.{success, Result}
 final class SourceConverter(
     thisPackage: PackageName,
     imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
-    localDefs: List[TypeDefinitionStatement]
+    localDefs: List[TypeStatement]
 ) {
   /*
    * We should probably error for non-predef name collisions.
@@ -35,7 +35,10 @@ final class SourceConverter(
    * are not renamed
    */
   private val localTypeNames = localDefs.map(_.name).toSet
-  private val localConstructors = localDefs.flatMap(_.constructors).toSet
+  private val localConstructors =
+    localDefs.collect { case tds: TypeDefinitionStatement => tds }
+      .flatMap(_.constructors)
+      .toSet
 
   private val typeCache: MMap[Constructor, Type.Const] = MMap.empty
   private val consCache: MMap[Constructor, (PackageName, Constructor)] =
@@ -88,6 +91,17 @@ final class SourceConverter(
       if (localConstructors(c)) (thisPackage, c)
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     )
+
+  @annotation.tailrec
+  private def isUnparenthesizedGuardedMatches(
+      decl: Declaration.NonBinding
+  ): Boolean =
+    decl match {
+      case Annotation(of, _)      => isUnparenthesizedGuardedMatches(of)
+      case Matches(_, _, Some(_)) => true
+      case Parens(_)              => false
+      case _                      => false
+    }
 
   /*
    * This ignores the name completely and just returns the lambda expression here
@@ -239,6 +253,26 @@ final class SourceConverter(
 
   private val unitPat =
     success(Pattern.PositionalStruct((PackageName.PredefName, unitName), Nil))
+
+  private def stripGuardWrappers(
+      expr: Expr[Declaration]
+  ): Expr[Declaration] =
+    expr match {
+      case Expr.Annotation(in, _, _) => stripGuardWrappers(in)
+      case Expr.Generic(_, in)       => stripGuardWrappers(in)
+      case other                     => other
+    }
+
+  private def isPredefBoolConst(
+      expr: Expr[Declaration],
+      cons: Constructor
+  ): Boolean =
+    stripGuardWrappers(expr) match {
+      case Expr.Global(PackageName.PredefName, c: Constructor, _)
+          if c == cons =>
+        true
+      case _ => false
+    }
 
   def makeTuplePattern[A](
       args: List[Pattern[(PackageName, Constructor), A]],
@@ -402,7 +436,7 @@ final class SourceConverter(
             else RecursionKind.NonRecursive
           Expr.Let(boundName, lam, in, recursive = rec, decl)
         }
-      case IfElse(NonEmptyList((Matches(a, p), res), tail), elseCase)
+      case IfElse(NonEmptyList((Matches(a, p, None), res), tail), elseCase)
           if p.names.isEmpty =>
         // if x matches p: res
         // else: elseCase
@@ -494,30 +528,11 @@ final class SourceConverter(
         loop(p).map(_.replaceTag(decl))
       case Var(ident) =>
         success(resolveToVar(ident, decl, bound, topBound))
-      case Match(_, arg, branches) =>
+      case Match(kind, arg, branches) =>
         /*
          * The source match mode (`match`/`recur`/`loop`) on tags is used by
          * TypedExprRecursionCheck before lowering/normalization.
          */
-        def stripGuardWrappers(
-            expr: Expr[Declaration]
-        ): Expr[Declaration] =
-          expr match {
-            case Expr.Annotation(in, _, _) => stripGuardWrappers(in)
-            case Expr.Generic(_, in)       => stripGuardWrappers(in)
-            case other                     => other
-          }
-        def isPredefBoolConst(
-            expr: Expr[Declaration],
-            cons: Constructor
-        ): Boolean =
-          stripGuardWrappers(expr) match {
-            case Expr.Global(PackageName.PredefName, c: Constructor, _)
-                if c == cons =>
-              true
-            case _ => false
-          }
-
         val expBranches = branches.get.traverse { branch =>
           val pat = branch.pattern
           val branchDecl = branch.body.get
@@ -531,14 +546,23 @@ final class SourceConverter(
             Expr.Branch(pat, guard1, body)(using branchPatternRegion)
           }
         }
-        (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
-      case m @ Matches(a, p) =>
+        (loop(arg), expBranches).parMapN(Expr.Match(kind, _, _, decl))
+      case m @ Matches(a, p, guard) =>
         // x matches p ==
         // match x:
         //   p: True
         //   _: False
         val hasPatternBindings = p.names.nonEmpty
         val isDefinitelyTotal = p.definitelyTotal
+        val guardShapeCheck =
+          guard match {
+            case Some(g) if isUnparenthesizedGuardedMatches(g) =>
+              SourceConverter.failure(
+                SourceConverter.NestedGuardedMatchesInGuard(g, g.region)
+              )
+            case _ =>
+              SourceConverter.successUnit
+          }
         val True: Expr[Declaration] =
           Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
         val False: Expr[Declaration] = Expr.Global(
@@ -546,37 +570,63 @@ final class SourceConverter(
           Identifier.Constructor("False"),
           m
         )
-        val checkedPattern =
-          if (hasPatternBindings || isDefinitelyTotal) {
-            val p0 = convertPattern(p, m.region).map(_.unbind)
-            val withBindingErr =
-              if (hasPatternBindings) {
-                SourceConverter.addErrorKeepGoing(
-                  p0,
-                  SourceConverter.MatchesPatternBinding(p, m.region)
-                )
-              } else p0
-            if (isDefinitelyTotal) {
-              SourceConverter.addErrorKeepGoing(
-                withBindingErr,
-                SourceConverter.MatchesPatternAlwaysTrue(p, m.region)
-              )
-            } else withBindingErr
-          } else convertPattern(p, m.region)
+        val guardExpr =
+          guard
+            .traverse(withBound(_, p.names))
+            .map(_.filterNot(isPredefBoolConst(_, Constructor("True"))))
 
-        (loop(a), checkedPattern).mapN { (a, p) =>
-          val branches =
-            if (isDefinitelyTotal) {
-              NonEmptyList.one(
-                Expr.Branch(Pattern.WildCard, None, True)(using m.region)
-              )
-            } else {
-              NonEmptyList(
-                Expr.Branch(p, None, True)(using m.region),
-                Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
-              )
-            }
-          Expr.Match(a, branches, m)
+        // A syntactic guard keeps bindings local to the predicate even if the
+        // guard later fails to convert. Only a successfully-canonicalized
+        // `if True` is treated as effectively unguarded again.
+        val isEffectivelyUnguarded =
+          guard match {
+            case None => true
+            case Some(_) =>
+              guardExpr.toOption match {
+                case Some(None) => true
+                case _          => false
+              }
+          }
+
+        val rawPattern = convertPattern(p, m.region)
+        val checkedPattern =
+          if (isEffectivelyUnguarded && hasPatternBindings)
+            rawPattern.map(_.unbind)
+          else rawPattern
+        val withDiagnostics =
+          if (isEffectivelyUnguarded && hasPatternBindings) {
+            SourceConverter.addErrorKeepGoing(
+              checkedPattern,
+              SourceConverter.MatchesPatternBinding(p, m.region)
+            )
+          } else checkedPattern
+        val checkedPattern1 =
+          if (isEffectivelyUnguarded && isDefinitelyTotal) {
+            SourceConverter.addErrorKeepGoing(
+              withDiagnostics,
+              SourceConverter.MatchesPatternAlwaysTrue(p, m.region)
+            )
+          } else withDiagnostics
+
+        guardShapeCheck.flatMap { _ =>
+          (loop(a), checkedPattern1, guardExpr).mapN { (a, p, guard1) =>
+            val tag =
+              if (guard.nonEmpty && guard1.isEmpty)
+                Matches(m.arg, m.pattern, None)(using m.region)
+              else m
+            val branches =
+              if (isDefinitelyTotal && guard1.isEmpty) {
+                NonEmptyList.one(
+                  Expr.Branch(Pattern.WildCard, None, True)(using m.region)
+                )
+              } else {
+                NonEmptyList(
+                  Expr.Branch(p, guard1, True)(using m.region),
+                  Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
+                )
+              }
+            Expr.Match(a, branches, tag)
+          }
         }
       case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
       case s @ StringDecl(parts) =>
@@ -1037,6 +1087,34 @@ final class SourceConverter(
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
 
+  private def validateAliasTypeScope(
+      rhs: Type,
+      region: Region,
+      scopeEnv: TypeEnv[Any]
+  ): Result[Type] = {
+    // Resolve names with the normal type converter first so imports and predef
+    // behave exactly like data declarations. Then enforce the alias-specific
+    // source-order rule by rejecting local references that are not yet in scope.
+    val missingLocalRefs =
+      Type
+        .allConsts(rhs :: Nil)
+        .collect {
+          case Type.TyConst(Type.Const.Defined(`thisPackage`, tn))
+              if localTypeNames(tn.ident) &&
+                scopeEnv.getType(thisPackage, tn).isEmpty &&
+                scopeEnv.getTypeAlias(thisPackage, tn).isEmpty =>
+            tn.ident
+        }
+        .distinct
+
+    missingLocalRefs.foldLeft(success(rhs): Result[Type]) { (acc, name) =>
+      SourceConverter.addErrorKeepGoing(
+        acc,
+        SourceConverter.UnknownTypeName(name, region)
+      )
+    }
+  }
+
   private def defStatementTypeVars[B](
       ds: DefStatement[Pattern.Parsed, B]
   ): Set[Type.Var.Bound] = {
@@ -1092,7 +1170,14 @@ final class SourceConverter(
     val digest = Hashable
       .hash(
         Algo.blake3Algo,
-        ("DefaultNameV1", thisPackage, typeName, constructorName, paramIndex, paramType)
+        (
+          "DefaultNameV1",
+          thisPackage,
+          typeName,
+          constructorName,
+          paramIndex,
+          paramType
+        )
       )
       .hash
       .hex
@@ -1120,7 +1205,7 @@ final class SourceConverter(
   private def updateInferredWithDeclaredTypeArgs(
       typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
       typeParams0: List[Type.Var.Bound],
-      tds: TypeDefinitionStatement
+      tds: TypeStatement
   ): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
     typeArgs match {
       case None       => success(typeParams0.map((_, None)))
@@ -1244,6 +1329,32 @@ final class SourceConverter(
         )
     }
   }
+
+  def toTypeAlias(
+      pname: PackageName,
+      scopeEnv: TypeEnv[Any],
+      tas: Statement.TypeAlias
+  ): Result[rankn.TypeAlias[Option[Kind.Arg]]] =
+    toType(tas.body, tas.region)
+      .flatMap(validateAliasTypeScope(_, tas.region, scopeEnv))
+      .flatMap { rhs =>
+      val discovered =
+        Type.freeTyVars(rhs :: Nil).collect { case b @ Type.Var.Bound(_) => b }
+          .foldLeft(List.empty[Type.Var.Bound]) { (acc, tv) =>
+            if (acc.contains(tv)) acc
+            else acc :+ tv
+          }
+
+      updateInferredWithDeclaredTypeArgs(tas.typeArgs, discovered, tas).map {
+        typeParams =>
+          rankn.TypeAlias(
+            pname,
+            TypeName(tas.name),
+            typeParams,
+            rhs
+          )
+      }
+    }
 
   private def toEnumDefinition(
       pname: PackageName,
@@ -1851,6 +1962,7 @@ final class SourceConverter(
       }
 
     val dupCons = localDefs
+      .collect { case ts: TypeDefinitionStatement => ts }
       .flatMap(ts => ts.constructors.map(c => (c, ts)))
       .groupByNel(_._1)
       .toList
@@ -1872,8 +1984,13 @@ final class SourceConverter(
 
     val pd = localDefs
       .foldM(ParsedTypeEnv.empty[Option[Kind.Arg]]) { (te, d) =>
-        toDefinition(thisPackage, d)
-          .map(te.addDefinedType(_))
+        d match {
+          case td: TypeDefinitionStatement =>
+            toDefinition(thisPackage, td).map(te.addDefinedType(_))
+          case ta: Statement.TypeAlias     =>
+            val scopeEnv = importedTypeEnv ++ TypeEnv.fromParsed(te)
+            toTypeAlias(thisPackage, scopeEnv, ta).map(te.addTypeAlias(_))
+        }
       }
 
     dupTypes >> dupCons >> pd
@@ -2542,7 +2659,7 @@ object SourceConverter {
     (new SourceConverter(
       thisPackage,
       imports,
-      Statement.definitionsOf(stmts).toList
+      Statement.typeStatementsOf(stmts).toList
     )).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
@@ -2712,11 +2829,24 @@ object SourceConverter {
   ) extends Error {
     def message =
       (Doc.text(
-        "`matches` uses pattern matching and this pattern introduces bindings:"
+        "`matches` only allows pattern bindings when they are scoped to an `if` guard:"
       ) + Doc.line + Document[Pattern.Parsed].document(pattern) + Doc.line + Doc
         .text(
-          "use explicit equality (for example `eq_String`) if comparison was intended."
+          "add an `if` guard to use the bindings there, or use explicit equality if comparison was intended."
         ))
+        .render(80)
+  }
+
+  final case class NestedGuardedMatchesInGuard(
+      guard: Declaration.NonBinding,
+      region: Region
+  ) extends Error {
+    def message =
+      (Doc.text(
+        "`matches` guards cannot be another guarded `matches` without parentheses:"
+      ) + Doc.line + guard.toDoc + Doc.line + Doc.text(
+        "add parentheses around the inner guarded `matches` to choose the grouping explicitly."
+      ))
         .render(80)
   }
 
@@ -2942,7 +3072,7 @@ object SourceConverter {
   final case class InvalidTypeParameters(
       declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])],
       discoveredTypes: List[Type.Var.Bound],
-      statement: TypeDefinitionStatement
+      statement: TypeStatement
   ) extends Error {
 
     def region = statement.region

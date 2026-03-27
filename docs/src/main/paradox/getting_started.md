@@ -119,7 +119,7 @@ library config:
 
 ```sh
 mkdir -p src
-./bosatsu lib init \
+./bosatsu init \
   --name mylib \
   --repo_uri <your repo URL> \
   --src_root src \
@@ -128,8 +128,9 @@ mkdir -p src
 
 Notes:
 
-- `lib init` searches for `.git` to find the repo root. If you need to override
-  that, add `--repo_root <path>`.
+- `init` searches for a `.git` entry to find the repo root. This works for
+  standard checkouts and git worktrees. If you need to override that, add
+  `--repo_root <path>`.
 - It writes `bosatsu_libs.json` in the repo root and `src/mylib_conf.json` in the
   source root you selected.
 
@@ -151,22 +152,22 @@ def greet(m: Mood) -> String:
 test = Assertion(greet(Happy) matches "hello", "greet Happy")
 ```
 
-Use `./bosatsu --help` to explore the available commands (`lib`, `tool`,
-`c-runtime`, etc.). Most language-level operations now live under `tool`, for
-example: `./bosatsu tool check`, `./bosatsu tool eval`, and
-`./bosatsu tool transpile`.
+Use `./bosatsu --help` to explore the available commands. The default repo and
+library workflows now live at the top level, for example: `./bosatsu check`,
+`./bosatsu test`, and `./bosatsu eval`. Use `./bosatsu tool ...` for the
+lower-level file-based compiler commands such as `./bosatsu tool transpile`.
 
 ## 11) Run tests
 
 From the repo root:
 
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
 To override compile/link flags for a single invocation, use repeatable flags:
 
 ```sh
-./bosatsu lib test --cc_flag=-O0 --cc_lib=-lm
-./bosatsu lib build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
+./bosatsu test --cc_flag=-O0 --cc_lib=-lm
+./bosatsu build --main_pack MyLib/Hello --exe_out app --cc_flag=-O0
 ```

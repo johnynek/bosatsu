@@ -577,6 +577,17 @@ main = 1
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, add)
 """),
       "Foo",
@@ -587,6 +598,17 @@ main = range_fold(0, 10, 0, add)
       List("""
 package Foo
 
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
+
 main = range_fold(0, 10, 0, (_, y) -> y)
 """),
       "Foo",
@@ -596,6 +618,17 @@ main = range_fold(0, 10, 0, (_, y) -> y)
     evalTest(
       List("""
 package Foo
+
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
+  def go(diff0: Int, acc: a) -> a:
+    loop diff0:
+      case _ if cmp_Int(diff0, 0) matches GT:
+        idx = exclusiveUpper.sub(diff0)
+        go(diff0.sub(1), fn(acc, idx))
+      case _:
+        acc
+
+  go(exclusiveUpper.sub(inclusiveLower), init)
 
 main = range_fold(0, 10, 100, (x, _) -> x)
 """),
@@ -639,6 +672,92 @@ test = TestSuite("exists", [
 """),
       "Foo",
       5
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatches
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+test = TestSuite("guarded matches", [
+  Assertion(exists([2], x -> x matches 2), "guarded true"),
+  Assertion(exists([2], x -> x matches 4) matches False, "guarded false"),
+  Assertion([3] matches [*_, x, *_] if x matches 3, "direct true"),
+  Assertion(([3] matches [*_, x, *_] if x matches 9) matches False, "direct false"),
+  ])
+"""),
+      "GuardedMatches",
+      4
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedListSearch
+
+def not(x): False if x else True
+
+def exists(as, pred):
+  as matches [*_, x, *_] if pred(x)
+
+def forall(as, pred):
+  match as:
+    case [*_, x, *_] if not(pred(x)): False
+    case _: True
+
+test = TestSuite("guarded list search", [
+  Assertion(exists([1, 2, 3], x -> x matches 2), "exists middle hit"),
+  Assertion(exists([2, 1, 3], x -> x matches 2), "exists head hit"),
+  Assertion(not(exists([1, 3], x -> x matches 2)), "exists miss"),
+  Assertion(forall([1, 2, 3], x -> x matches (1 | 2 | 3)), "forall all true"),
+  Assertion(forall([], _ -> False), "forall empty"),
+  Assertion(not(forall([1, 2, 3], x -> x matches (1 | 3))), "forall middle failure"),
+  ])
+"""),
+      "GuardedListSearch",
+      6
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesCoherence
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+test = TestSuite("guarded matches coherence", [
+  Assertion(eq_Bool(2 matches 2 if True else False, (2 matches 2) if True else False), "binding-free guard groups like ternary"),
+  Assertion(eq_Bool(2 matches 3 if True else False, (2 matches 3) if True else False), "binding-free guard groups like ternary no match"),
+  Assertion(eq_Bool(True if (2 matches 2) else False, (2 matches 2) if True else False), "commuted and when both true"),
+  Assertion(eq_Bool(True if (2 matches 3) else False, (2 matches 3) if True else False), "commuted and when match is false"),
+  Assertion(eq_Bool(False if (2 matches 2) else False, (2 matches 2) if False else False), "commuted and when pred is false"),
+  Assertion(eq_Bool([1] matches [x] if x matches 1 else True, True if ([1] matches [x] if x matches 1) else True), "normalized form with bindings true"),
+  Assertion(eq_Bool([2] matches [x] if x matches 1 else False, True if ([2] matches [x] if x matches 1) else False), "normalized form with bindings false"),
+  ])
+"""),
+      "GuardedMatchesCoherence",
+      7
+    )
+
+    runBosatsuTest(
+      List("""
+package GuardedMatchesParens
+
+def not(x): False if x else True
+def eq_Bool(a, b): b if a else not(b)
+
+p1 = [0] matches [1] if ([0] matches [1] if True) else True
+p2 = [0] matches [1] if ([0] matches [1] if True else True)
+
+test = TestSuite("guarded matches parens", [
+  Assertion(p1, "outer else grouping"),
+  Assertion(p2 matches False, "inner else grouping"),
+  Assertion(not(eq_Bool(p1, p2)), "explicit parens pick different meanings"),
+  ])
+"""),
+      "GuardedMatchesParens",
+      3
     )
 
     evalTest(
@@ -1074,7 +1193,7 @@ main = plus(1, 2)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1180,7 +1299,7 @@ main = sum(Succ(Succ(Succ(Zero))))
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case EmptyList: acc
     case [_, *tail]: len(tail, acc.add(1))
 
@@ -1194,7 +1313,7 @@ main = len([1, 2, 3], 0)
 package A
 
 def len(lst, acc):
-  recur lst:
+  loop lst:
     case []: acc
     case NonEmptyList(_, tail): len(tail, acc.add(1))
 
@@ -1261,7 +1380,7 @@ main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldl_List(0, add)
 package A
 
 def eq_List(lst1, lst2):
-  recur lst1:
+  loop lst1:
     case []:
       match lst2:
         case []: True
@@ -1407,6 +1526,9 @@ package A
 
 struct TwoVar(one, two)
 
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  (x1, x2) -> f(x1)(x2)
+
 constructed = uncurry2(x -> y -> TwoVar(x, y))(1, "two")
 
 main = match constructed:
@@ -1423,6 +1545,9 @@ main = match constructed:
 package A
 
 struct ThreeVar(one, two, three)
+
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  (x1, x2, x3) -> f(x1)(x2)(x3)
 
 constructed = uncurry3(x -> y -> z -> ThreeVar(x, y, z))(1, "two", 3)
 
@@ -2425,7 +2550,7 @@ enum Thing:
   Thing1, Thing2(a: Int, t: Thing)
 
 def bar(y, _: String, x):
-  recur x:
+  loop x:
     case Thing1: y
     case Thing2(i, t): bar(i, "boom", t)
 """),
@@ -2615,7 +2740,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last(nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 
@@ -2635,7 +2760,7 @@ enum NEList[a: +*]:
   Many(head: a, tail: NEList[a])  
 
 def last[a](nel: NEList[a]) -> a:
-  recur nel:
+  loop nel:
     case One(a): a
     case Many(_, tail): last(tail)
 
@@ -3262,8 +3387,81 @@ tests = TestSuite("lazy eval", [
     assertEquals(PredefImpl.runProg(chained).result, Right(VInt(99)))
   }
 
+  test("prog var allocates on run and preserves sequential semantics") {
+    val alloc = PredefImpl.prog_new_var(VInt(1))
+
+    val firstCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating first var: $err")
+    }
+    val secondCell = PredefImpl.runProg(alloc).result match {
+      case Right(value) => value
+      case Left(err)    => fail(s"unexpected error allocating second var: $err")
+    }
+
+    assertNotEquals(firstCell.asExternal.toAny, secondCell.asExternal.toAny)
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(1)))
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_set(firstCell, VInt(2))).result,
+      Right(UnitValue)
+    )
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_swap(firstCell, VInt(5))).result,
+      Right(VInt(2))
+    )
+
+    val updateFn = FnValue { case NonEmptyList(current, _) =>
+      Tuple(PredefImpl.add(current, VInt(1)), PredefImpl.mul(current, VInt(10)))
+    }
+    assertEquals(
+      PredefImpl.runProg(PredefImpl.prog_var_update(firstCell, updateFn)).result,
+      Right(VInt(50))
+    )
+    assertEquals(PredefImpl.runProg(PredefImpl.prog_var_get(firstCell)).result, Right(VInt(6)))
+  }
+
+  test("prog var helper functions compose in Bosatsu code") {
+    val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+    val progVarPack = """
+package ProgVarEval
+
+from Bosatsu/Prog import ProgTest, await, get, get_and_update, modify, new_var, pure, set, swap, update, update_and_get
+
+tests = ProgTest(_ -> (
+    v <- new_var(1).await()
+    initial <- get(v).await()
+    _ <- set(v, 2).await()
+    after_set <- get(v).await()
+    swapped <- swap(v, 5).await()
+    update_result <- update(v, current -> (add(current, 1), mul(current, 10))).await()
+    old_value <- get_and_update(v, current -> add(current, 3)).await()
+    new_value <- update_and_get(v, current -> mul(current, 2)).await()
+    _ <- modify(v, current -> sub(current, 1)).await()
+    final <- get(v).await()
+    pure(
+      TestSuite(
+        "prog var",
+        [
+          Assertion(initial matches 1, "initial"),
+          Assertion(after_set matches 2, "get after set"),
+          Assertion(swapped matches 2, "swap returns old value"),
+          Assertion(update_result matches 50, "update returns projection"),
+          Assertion(old_value matches 6, "get_and_update returns old value"),
+          Assertion(new_value matches 18, "update_and_get returns new value"),
+          Assertion(final matches 17, "modify updates final state")
+        ]
+      )
+    )
+  ))
+"""
+
+    runBosatsuTest(List(progPack, progVarPack), "ProgVarEval", 7)
+  }
+
   if (Platform.isScalaJvm)
     test("prog and io/std externals evaluate and run recursively") {
+      // These fixtures are embedded at compile time so exposes-header updates
+      // in test_workspace must flow through this source file as well.
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
       val ioErrorPack =

@@ -13,6 +13,7 @@ import stat as _stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Optional, Tuple, Union
 
@@ -45,6 +46,69 @@ def observe(value):
     _observe_sink = ()
     return _pure_unit
   return effect(fn)
+
+class _BosatsuVar:
+    __slots__ = ("_value", "_lock")
+
+    def __init__(self, value):
+        self._value = value
+        self._lock = threading.Lock()
+
+def _as_bosatsu_var(value):
+    if isinstance(value, _BosatsuVar):
+        return value
+    return None
+
+def new_var(initial):
+    return effect(lambda: pure(_BosatsuVar(initial)))
+
+def get(var_value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            return pure(cell._value)
+
+    return effect(fn)
+
+def set(var_value, value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            cell._value = value
+            return _pure_unit
+
+    return effect(fn)
+
+def swap(var_value, new_value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            old_value = cell._value
+            cell._value = new_value
+            return pure(old_value)
+
+    return effect(fn)
+
+def update(var_value, callback):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            updated = callback(cell._value)
+            if not isinstance(updated, tuple) or len(updated) != 2:
+                raise ValueError(f"invalid Var update result: {updated!r}")
+            next_value, result = updated
+            cell._value = next_value
+            return pure(result)
+
+    return effect(fn)
 
 _IOERR_NOT_FOUND = 0
 _IOERR_ACCESS_DENIED = 1
@@ -337,12 +401,12 @@ def _bosatsu_list_to_pylist(lst):
 def _kind_from_lstat(st):
     mode = st.st_mode
     if _stat.S_ISREG(mode):
-        return (0,)  # File
+        return 0  # File
     if _stat.S_ISDIR(mode):
-        return (1,)  # Dir
+        return 1  # Dir
     if _stat.S_ISLNK(mode):
-        return (2,)  # Symlink
-    return (3,)      # Other
+        return 2  # Symlink
+    return 3      # Other
 
 # Bosatsu/Lazy externals
 def lazy(fn):

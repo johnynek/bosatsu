@@ -344,7 +344,7 @@ case object ClangTranspiler extends Transpiler {
         root <- platformIO.getOrError(
           rootOpt,
           CliException.Basic(
-            "could not find .git directory to locate default cc_conf.\n" +
+            "could not find a .git entry to locate default cc_conf.\n" +
               "Pass --cc_conf <path/to/cc_conf.json>, or run from a git checkout with .git available."
           )
         )
@@ -904,7 +904,7 @@ case object ClangTranspiler extends Transpiler {
                 )
               case Some((exe, fcc)) =>
                 val exeOutName =
-                  // lib build can compile in a temp outdir while still targeting a cwd-relative exe path.
+                  // build can compile in a temp outdir while still targeting a cwd-relative exe path.
                   if (args.output.exeOutRelativeToOutDir)
                     resolve(args.outDir, exe)
                   else exe

@@ -16,7 +16,7 @@ object Dependencies {
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.6.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.6.0")
   lazy val jacksonYaml = Def.setting(
-    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.1"
+    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.2"
   )
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
   lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.33")
@@ -28,6 +28,6 @@ object Dependencies {
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.4")
   lazy val scalaCheck =
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.19.0")
-  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.11")
+  lazy val scalawasiz3 = Def.setting("dev.bosatsu" %%% "scalawasiz3" % "0.0.12")
   lazy val slf4jNop = Def.setting("org.slf4j" % "slf4j-nop" % "2.0.17")
 }

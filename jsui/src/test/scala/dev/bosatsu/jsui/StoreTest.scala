@@ -24,7 +24,7 @@ class StoreTest extends munit.FunSuite {
   private def runWith(args: List[String]): Either[Throwable, Output[Chain[String]]] =
     Store.memoryMain.runWith(files = webDemoFiles)(args)
 
-  test("legacy root test argv fails with parse/help output") {
+  test("legacy root test argv fails in library-mode parser") {
     val legacyArgs = List(
       "test",
       "--input",
@@ -38,9 +38,9 @@ class StoreTest extends munit.FunSuite {
     runWith(legacyArgs) match {
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
-        assert(msg.contains("Unexpected argument: test"), msg)
-        assert(msg.contains("Subcommands:"), msg)
-        assert(msg.contains("tool"), msg)
+        assert(msg.contains("Unexpected option: --input"), msg)
+        assert(msg.contains("Usage: bosatsu test"), msg)
+        assert(msg.contains("test packages in a library"), msg)
       case Right(output) =>
         fail(s"expected parse/help failure, got output: $output")
     }

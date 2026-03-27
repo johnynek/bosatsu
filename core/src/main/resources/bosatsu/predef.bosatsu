@@ -47,11 +47,14 @@ export (
   Dict,
   add,
   addf,
+  and,
   add_key,
   build_List,
   char_to_Int,
   char_List_to_String,
   char_to_String,
+  cmp_Bool,
+  cmp_Comparison,
   cmp_Int,
   cmp_Float64,
   concat,
@@ -60,16 +63,22 @@ export (
   divf,
   clear_Dict,
   empty_Dict,
+  eq_Bool,
+  eq_Comparison,
   eq_Int,
+  eq_Float64,
   flat_map_List,
   foldl_List,
   foldr_List,
   gcd_Int,
+  implies,
   get_key,
-  int_loop,
   int_to_Char,
   int_to_String,
+  length_List,
   length_String,
+  not,
+  or,
   string_to_Int,
   tail_or_empty_String,
   uncons_String,
@@ -86,7 +95,6 @@ export (
   partition_String,
   rpartition_String,
   range,
-  range_fold,
   remove_key,
   replicate_List,
   reverse,
@@ -94,14 +102,13 @@ export (
   sub,
   subf,
   cmp_String,
+  eq_String,
   string_Order,
   mul,
   mulf,
   trace,
-  uncurry2,
-  uncurry3,
+  xor,
 )
-
 struct Unit
 struct Tuple1[a: +*](item1: a)
 struct Tuple2[a: +*, b: +*](item1: a, item2: b)
@@ -139,6 +146,35 @@ struct Tuple32[a: +*, b: +*, c: +*, d: +*, e: +*, f: +*, g: +*, h: +*, i: +*, j:
 enum Bool:
   False, True
 
+def cmp_Bool(left: Bool, right: Bool) -> Comparison:
+  match (left, right):
+    case (False, True): LT
+    case (True, False): GT
+    case _: EQ
+
+def eq_Bool(left: Bool, right: Bool) -> Bool:
+  cmp_Bool(left, right) matches EQ
+
+# Boolean conjunction.
+def and(x: Bool, y: Bool) -> Bool:
+  y if x else False
+
+# Boolean disjunction.
+def or(x: Bool, y: Bool) -> Bool:
+  True if x else y
+
+# Boolean negation.
+def not(x: Bool) -> Bool:
+  False if x else True
+
+# Boolean exclusive or.
+def xor(x: Bool, y: Bool) -> Bool:
+  (x, y) matches (True, False) | (False, True)
+
+# Boolean implication.
+def implies(x: Bool, y: Bool) -> Bool:
+  y if x else True
+
 #############
 # Support for built-in lists
 #############
@@ -165,7 +201,7 @@ def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
 def foldl_List(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
-    recur lst:
+    loop lst:
       case []: item
       case [head, *tail]: loop(tail, fn(item, head))
   loop(lst, item)
@@ -192,22 +228,31 @@ def map_List(lst: List[a], fn: a -> b) -> List[b]:
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldl_List([], (t, a) -> fn(a).reverse_concat(t)).reverse()
 
-#############
-# Some utilities for dealing with functions
-#############
+# Count the number of items in a list.
+def length_List(lst: List[a]) -> Int:
+  def loop(rem: List[a], acc: Int) -> Int:
+    loop rem:
+      case []: acc
+      case [_, *tail]: loop(tail, acc.add(1))
 
-def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
-  (x1, x2) -> f(x1)(x2)
-
-# Convert a curried 3-argument function into one that takes a tuple of 3 arguments.
-def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
-  (x1, x2, x3) -> f(x1)(x2)(x3)
+  loop(lst, 0)
 
 #############
 # Standardize notion of ordering
 #############
 enum Comparison:
     LT, EQ, GT
+
+def cmp_Comparison(left: Comparison, right: Comparison) -> Comparison:
+  match (left, right):
+    case (LT, LT) | (EQ, EQ) | (GT, GT): EQ
+    case (LT, _): LT
+    case (EQ, LT): GT
+    case (EQ, GT): LT
+    case (GT, _): GT
+
+def eq_Comparison(left: Comparison, right: Comparison) -> Bool:
+  cmp_Comparison(left, right) matches EQ
 
 struct Order(to_Fn: (a, a) -> Comparison)
 
@@ -261,20 +306,8 @@ external def divf(a: Float64, b: Float64) -> Float64
 # Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
 
-# Loop until the returned Int is <= 0 or >= intValue.
-def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  loop intValue:
-    case _ if cmp_Int(intValue, 0) matches GT:
-      (next_i, next_state) = fn(intValue, state)
-      if cmp_Int(next_i, 0) matches GT:
-        if cmp_Int(next_i, intValue) matches LT:
-          int_loop(next_i, next_state, fn)
-        else:
-          next_state
-      else:
-        next_state
-    case _:
-      state
+def eq_Float64(a: Float64, b: Float64) -> Bool:
+  cmp_Float64(a, b) matches EQ
 
 # Repeat `item` `cnt` times.
 def replicate_List[a](item: a, cnt: Int) -> List[a]:
@@ -299,18 +332,6 @@ def range(exclusiveUpper: Int) -> List[Int]:
 
   go(exclusiveUpper, [])
 
-# Fold over `[inclusiveLower, ..., exclusiveUpper - 1]`.
-def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
-  def go(diff0: Int, acc: a) -> a:
-    loop diff0:
-      case _ if cmp_Int(diff0, 0) matches GT:
-        idx = exclusiveUpper.sub(diff0)
-        go(diff0.sub(1), fn(acc, idx))
-      case _:
-        acc
-
-  go(exclusiveUpper.sub(inclusiveLower), init)
-
 #############
 # String functions
 #############
@@ -327,6 +348,10 @@ external def char_List_to_String(chars: List[Char]) -> String
 external def int_to_Char(code_point: Int) -> Option[Char]
 # Total string comparison.
 external def cmp_String(str0: String, str1: String) -> Comparison
+
+def eq_String(str0: String, str1: String) -> Bool:
+  cmp_String(str0, str1) matches EQ
+
 # Ordering instance for strings.
 string_Order = Order(cmp_String)
 # Concatenate a list of strings.
@@ -335,7 +360,7 @@ external def concat_String(items: List[String]) -> String
 # Count Unicode code points in a string.
 def length_String(s: String) -> Int:
   def loop(rest: String, acc: Int) -> Int:
-    recur rest:
+    loop rest:
       case "":
         acc
       case "$.{_}${tail}":
@@ -480,7 +505,7 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Option[a]:
-        recur tree:
+        loop tree:
             case Empty: None
             case Branch { key, left, right, ... }:
                 match fn(item, key):

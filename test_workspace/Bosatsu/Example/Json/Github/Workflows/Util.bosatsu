@@ -17,6 +17,8 @@ export (
   OnPushBranches(),
   OnPush(),
   github_token_secret,
+  graalvm_java_23,
+  graalvm_version_23_0_2,
   install_sbt_step_name,
   install_sbt_step_name_title,
   java_17_setup_name,
@@ -34,6 +36,7 @@ export (
   python_version_matrix,
   python_version_3_9,
   runner_macos_14,
+  runner_macos_14_xlarge,
   runner_macos_latest,
   runner_ubuntu_latest,
   Step(),
@@ -69,7 +72,9 @@ export (
   transpile_python_cmd,
   upload_artifact_step,
   timeout_minutes_default,
+  verify_graalvm_native_image_pin_cmd,
 )
+exposes Bosatsu/Json
 
 struct OnPushBranches(branches: List[String])
 
@@ -92,6 +97,8 @@ struct StepEnv(
   `URI_BASE`: Optional[String] = Missing,
   `PUBLISH_DRY_RUN`: Optional[String] = Missing,
   `C_RUNTIME_ARCHIVE`: Optional[String] = Missing,
+  `BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX`: Optional[String] = Missing,
+  `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Optional[String] = Missing,
   `GITHUB_TOKEN`: Optional[String] = Missing,
   `GITHUB_REF_NAME`: Optional[String] = Missing,
   `GH_TOKEN`: Optional[String] = Missing,
@@ -128,6 +135,7 @@ struct JavaStrategy(matrix: JavaStrategyMatrix)
 runner_ubuntu_latest = "ubuntu-latest"
 runner_macos_latest = "macos-latest"
 runner_macos_14 = "macos-14"
+runner_macos_14_xlarge = "macos-14-xlarge"
 
 action_checkout_v2 = "actions/checkout@v2.1.0"
 action_checkout_v4 = "actions/checkout@v4"
@@ -141,6 +149,8 @@ action_upload_artifact = "actions/upload-artifact@v4"
 
 java_distribution_temurin = "temurin"
 java_version_17 = "17"
+graalvm_java_23 = "graalvm-java23"
+graalvm_version_23_0_2 = "23.0.2"
 java_version_matrix = "\${{matrix.java}}"
 python_version_matrix = "\${{matrix.python}}"
 python_version_3_9 = "3.9"
@@ -177,7 +187,7 @@ tool_test_workspace_node_cmd =
   "./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu"
 
 node_lib_eval_run_create_mode_cmd =
-  "./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run"
+  "./bosatsu_node eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run"
 
 node_tool_eval_run_create_mode_cmd =
   "./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace"
@@ -190,6 +200,14 @@ def cat_lines(lines: List[String]) -> String:
     case []: ""
     case [line]: line
     case [line, *rest]: "${line}\n${cat_lines(rest)}"
+
+verify_graalvm_native_image_pin_cmd =
+  cat_lines([
+    "sbt -Dsbt.log.noformat=true \"show cli / nativeImageJvm\" \"show cli / nativeImageVersion\" | tee native-image-toolchain.txt",
+    "grep -q \"\\[info\\] ${graalvm_java_23}\" native-image-toolchain.txt",
+    "grep -q \"\\[info\\] ${graalvm_version_23_0_2}\" native-image-toolchain.txt",
+    "",
+  ])
 
 checkout_v2_step = Step { uses: Set(action_checkout_v2) }
 
@@ -318,27 +336,27 @@ run_c_runtime_ci =
 
 run_lib_test_c =
   cat_lines([
-    "./bosatsuj lib fetch",
+    "./bosatsuj fetch",
     "mkdir c_out_lib",
-    "./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
     "echo \"now test without a given outdir\"",
-    "./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj test --cc_flag=-O0 --cc_lib=-lm",
     "",
   ])
 
 run_lib_build_c =
   cat_lines([
     "mkdir c_out_build",
-    "./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
     "./c_out_build/fib_bench 10",
-    "./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
     "./fib_bench_no_outdir 10",
     "",
   ])
 
 run_lib_build_node_c =
   cat_lines([
-    "./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm",
+    "./bosatsu_node build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm",
     "./fib_bench_node 10",
     "",
   ])

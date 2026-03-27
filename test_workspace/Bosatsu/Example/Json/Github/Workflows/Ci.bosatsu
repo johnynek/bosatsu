@@ -37,6 +37,7 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   transpile_python_cmd,
   sbt_cache_fetch_step,
   timeout_minutes_default,
+  verify_graalvm_native_image_pin_cmd,
 )
 
 struct WorkflowJobsTest(
@@ -257,7 +258,7 @@ workflow =
           Step {
             name: Set("run coreJS tests"),
             run: Set(cat_lines([
-              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/compile\"",
+              "sbt \"coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure\"",
               "sbt \"jsuiJS/testOnly * -- --log=failure\"",
               "",
             ])),
@@ -301,6 +302,10 @@ workflow =
         [
           *java_matrix_bootstrap_steps,
           Step {
+            name: Set("verify graalvm native image pin"),
+            run: Set(verify_graalvm_native_image_pin_cmd),
+          },
+          Step {
             name: Set("build native image"),
             run: Set(cat_lines([
               "sbt \"cli/nativeImage\"",
@@ -337,9 +342,9 @@ workflow =
             ])),
           },
           Step {
-            name: Set("run lib test"),
+            name: Set("run test"),
             run: Set(cat_lines([
-              "./bosatsu_node lib fetch",
+              "./bosatsu_node fetch",
               "lib_eval_out=$(${node_lib_eval_run_create_mode_cmd})",
               "echo \"$lib_eval_out\"",
               "echo \"$lib_eval_out\" | grep -q \"create_mode_test:ok\"",
@@ -347,13 +352,13 @@ workflow =
               "echo \"$tool_eval_out\"",
               "echo \"$tool_eval_out\" | grep -q \"create_mode_test:ok\"",
               "mkdir node_out_lib",
-              "./bosatsu_node lib test --outdir node_out_lib",
+              "./bosatsu_node test --outdir node_out_lib",
               "echo \"now test without a given outdir\"",
-              "./bosatsu_node lib test",
+              "./bosatsu_node test",
               "",
             ])),
           },
-          Step { name: Set("run lib build"), run: Set(run_lib_build_node_c) },
+          Step { name: Set("run build"), run: Set(run_lib_build_node_c) },
         ],
         java_strategy_17,
       ),
@@ -387,8 +392,8 @@ workflow =
               "",
             ])),
           },
-          Step { name: Set("run lib test"), run: Set(run_lib_test_c) },
-          Step { name: Set("run lib build"), run: Set(run_lib_build_c) },
+          Step { name: Set("run test"), run: Set(run_lib_test_c) },
+          Step { name: Set("run build"), run: Set(run_lib_build_c) },
         ],
         timeout_minutes_default,
       ),
@@ -439,8 +444,8 @@ workflow =
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
           Step { name: Set("run generated c code"), run: Set("./c_out/test_exe") },
-          Step { name: Set("run lib test"), run: Set(run_lib_test_c) },
-          Step { name: Set("run lib build"), run: Set(run_lib_build_c) },
+          Step { name: Set("run test"), run: Set(run_lib_test_c) },
+          Step { name: Set("run build"), run: Set(run_lib_build_c) },
         ],
         timeout_minutes_default,
       ),
@@ -451,7 +456,7 @@ workflow =
           *java_matrix_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
-            name: Set("dry run bosatsu lib publish"),
+            name: Set("dry run bosatsu publish"),
             run: Set(run_publish_bosatsu_libs),
             env: Set(StepEnv {
               `REPO_ROOT`: Set("\${{ github.workspace }}"),

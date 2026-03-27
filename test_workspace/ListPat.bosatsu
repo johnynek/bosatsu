@@ -4,7 +4,7 @@ def any(as: List[Bool]) -> Bool:
     as matches [*_, True, *_]
 
 def one_count(is, acc):
-    recur is:
+    loop is:
         case [*_, 1, *rest]: one_count(rest, acc.add(1))
         case _: acc
 

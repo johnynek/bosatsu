@@ -20,11 +20,6 @@ from Bosatsu/IO/Core import (
 )
 from Bosatsu/IO/Std import println, show_error
 
-def list_size(items: List[a], acc: Int) -> Int:
-  recur items:
-    case []: acc
-    case [_, *tail]: list_size(tail, add(acc, 1))
-
 def file_kind_to_String(kind: FileKind) -> String:
   match kind:
     case File: "file"
@@ -68,7 +63,7 @@ run_ls: Prog[IOError, Unit] =
         _ <- print_entries(entries).await()
         end <- now_mono.await()
         elapsed = elapsed_nanos(start, end)
-        count = list_size(entries, 0)
+        count = length_List(entries)
         println("listed ${int_to_String(count)} entries in ${int_to_String(elapsed)} ns")
       )
 

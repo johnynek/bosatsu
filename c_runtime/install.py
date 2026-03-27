@@ -10,10 +10,10 @@ from argparse import ArgumentParser
 def find_git_directory(start_path):
     current_path = start_path
     while current_path != os.path.dirname(current_path):
-        if os.path.isdir(os.path.join(current_path, ".git")):
+        if os.path.exists(os.path.join(current_path, ".git")):
             return current_path
         current_path = os.path.dirname(current_path)
-    raise FileNotFoundError("No .git directory found in current or parent directories.")
+    raise FileNotFoundError("No .git entry found in current or parent directories.")
 
 
 def detect_os_type():
@@ -177,7 +177,7 @@ def main():
     parser.add_argument("--version", required=True, help="Version directory name.")
     parser.add_argument(
         "--root",
-        help="Path to the repo root where .bosatsuc should be installed; defaults to locating .git.",
+        help="Path to the repo root where .bosatsuc should be installed; defaults to locating a .git entry.",
     )
     parser.add_argument(
         "--cc",

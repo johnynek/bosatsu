@@ -67,30 +67,30 @@ run_memcheck 'single assertion test' issue1642_repro/out/test_exe | tee issue164
 grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
 grep -Eq '^    passed: .*1' issue1642_repro/output.txt
 
-./bosatsuj lib fetch
+./bosatsuj fetch
 rm -rf c_out_lib
 mkdir c_out_lib
-./bosatsuj lib test --outdir c_out_lib "${VALGRIND_CC_FLAGS[@]}"
-run_memcheck 'lib test outdir' ./c_out_lib/test
+./bosatsuj test --outdir c_out_lib "${VALGRIND_CC_FLAGS[@]}"
+run_memcheck 'test outdir' ./c_out_lib/test
 
 echo 'now test without a given outdir'
 rm -f ./test ./test_exe
-./bosatsuj lib test "${VALGRIND_CC_FLAGS[@]}"
+./bosatsuj test "${VALGRIND_CC_FLAGS[@]}"
 if [ -x ./test ]; then
-  run_memcheck 'lib test default outdir' ./test
+  run_memcheck 'test default outdir' ./test
 elif [ -x ./test_exe ]; then
-  run_memcheck 'lib test default outdir' ./test_exe
+  run_memcheck 'test default outdir' ./test_exe
 else
-  echo 'no standalone binary produced for default-outdir lib test'
+  echo 'no standalone binary produced for default-outdir test'
 fi
 
 rm -rf c_out_build
 mkdir c_out_build
-./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench "${VALGRIND_CC_FLAGS[@]}"
-run_memcheck 'lib build fib_bench' ./c_out_build/fib_bench 10
+./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench "${VALGRIND_CC_FLAGS[@]}"
+run_memcheck 'build fib_bench' ./c_out_build/fib_bench 10
 rm -f ./fib_bench_no_outdir
-./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir "${VALGRIND_CC_FLAGS[@]}"
-run_memcheck 'lib build fib_bench no outdir' ./fib_bench_no_outdir 10
+./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir "${VALGRIND_CC_FLAGS[@]}"
+run_memcheck 'build fib_bench no outdir' ./fib_bench_no_outdir 10
 
 rm -rf c_out_prog_assoc
 ./bosatsuj tool transpile --input test_workspace/ProgAssoc.bosatsu --input test_workspace/Loops.bosatsu --input test_workspace/Prog.bosatsu c --outdir c_out_prog_assoc --test --filter ProgAssoc --exe_out test_exe "${VALGRIND_CC_FLAGS[@]}"

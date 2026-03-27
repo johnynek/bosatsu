@@ -25,7 +25,7 @@ object Command {
       Opts
         .option[P](
           "repo_root",
-          "the path to the root of the repo, if not set, search for .git directory"
+          "the path to the root of the repo, if not set, search for a .git entry"
         )
         .orNone
         .map {
@@ -37,7 +37,7 @@ object Command {
                 case None        =>
                   moduleIOMonad.raiseError(
                     CliException
-                      .Basic("could not find .git directory in parents.")
+                      .Basic("could not find a .git entry in parents.")
                   )
               }
         }

@@ -334,150 +334,159 @@ object Matchless {
       loopExpr(expr)
     }
 
-    def referencesBindable[A](expr: Expr[A], target: Bindable): Boolean =
-      referencesBindable(expr, target, isShadowed = false)
+    def referencesBindable[A](expr: Expr[A], target: Bindable): Boolean = {
+      def checkExpr(expr: Expr[A]): Boolean =
+        loopExpr(expr)
 
-    private[Matchless] def referencesBindable[A](
-        expr: Expr[A],
-        target: Bindable,
-        isShadowed: Boolean
-    ): Boolean =
-      if (isShadowed) false
-      else
+      @annotation.tailrec
+      def loopExprList(todo: List[Expr[A]]): Boolean =
+        todo match {
+          case head :: tail =>
+            if (checkExpr(head)) true
+            else loopExprList(tail)
+          case Nil          =>
+            false
+        }
+
+      @annotation.tailrec
+      def loopBranches(todo: List[(Int, Expr[A])]): Boolean =
+        todo match {
+          case (_, branch) :: tail =>
+            if (checkExpr(branch)) true
+            else loopBranches(tail)
+          case Nil                 =>
+            false
+        }
+
+      @annotation.tailrec
+      def loopExpr(expr: Expr[A]): Boolean =
         expr match {
           case Local(name) =>
             name == target
           case Lambda(captures, recName, args, body) =>
-            captures.exists(referencesBindable(_, target, isShadowed)) || {
-              val bodyShadowed =
-                isShadowed || recName.contains(target) || args.exists(
-                  _ == target
-                )
-              referencesBindable(body, target, bodyShadowed)
-            }
+            if (loopExprList(captures)) true
+            else if (recName.contains(target) || args.exists(_ == target)) false
+            else loopExpr(body)
           case WhileExpr(cond, effectExpr, _) =>
-            BoolExpr.referencesBindable(cond, target, isShadowed) ||
-              referencesBindable(effectExpr, target, isShadowed)
+            if (BoolExpr.referencesBindable(cond, target)) true
+            else loopExpr(effectExpr)
           case App(fn, args) =>
-            referencesBindable(fn, target, isShadowed) ||
-              args.exists(referencesBindable(_, target, isShadowed))
+            if (checkExpr(fn)) true
+            else loopExprList(args.toList)
           case Let(arg, value, in) =>
-            referencesBindable(value, target, isShadowed) || {
-              val inShadowed =
-                arg match {
-                  case Right(name) if name == target => true
-                  case _                             => isShadowed
-                }
-              referencesBindable(in, target, inShadowed)
-            }
+            if (checkExpr(value)) true
+            else
+              arg match {
+                case Right(name) if name == target => false
+                case _                             => loopExpr(in)
+              }
           case LetMut(_, in) =>
-            referencesBindable(in, target, isShadowed)
+            loopExpr(in)
           case If(cond, thenExpr, elseExpr) =>
-            BoolExpr.referencesBindable(cond, target, isShadowed) ||
-              referencesBindable(thenExpr, target, isShadowed) ||
-              referencesBindable(elseExpr, target, isShadowed)
+            if (BoolExpr.referencesBindable(cond, target)) true
+            else if (checkExpr(thenExpr)) true
+            else loopExpr(elseExpr)
           case SwitchVariant(on, _, cases, default) =>
-            referencesBindable(on, target, isShadowed) ||
-              cases.exists { case (_, branch) =>
-                referencesBindable(branch, target, isShadowed)
-              } ||
-              default.exists(referencesBindable(_, target, isShadowed))
+            if (checkExpr(on)) true
+            else if (loopBranches(cases.toList)) true
+            else
+              default match {
+                case Some(defaultExpr) => loopExpr(defaultExpr)
+                case None              => false
+              }
           case Always(cond, thenExpr) =>
-            BoolExpr.referencesBindable(cond, target, isShadowed) ||
-              referencesBindable(thenExpr, target, isShadowed)
+            if (BoolExpr.referencesBindable(cond, target)) true
+            else loopExpr(thenExpr)
           case PrevNat(of) =>
-            referencesBindable(of, target, isShadowed)
+            loopExpr(of)
           case ge: GetEnumElement[?] =>
-            referencesBindable(ge.arg, target, isShadowed)
+            loopExpr(ge.arg)
           case gs: GetStructElement[?] =>
-            referencesBindable(gs.arg, target, isShadowed)
+            loopExpr(gs.arg)
           case ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
               Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) |
               MakeStruct(_) | SuccNat | ZeroNat =>
             false
         }
 
+      loopExpr(expr)
+    }
+
     def referencesLocalAnon[A](expr: Expr[A], target: Long): Boolean = {
-      def loopExpr(e: Expr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false
-        else
-          e match {
-            case LocalAnon(id) =>
-              id == target
-            case Lambda(captures, _, _, body) =>
-              captures.exists(loopExpr(_, isShadowed)) || loopExpr(body, isShadowed)
-            case WhileExpr(cond, effectExpr, _) =>
-              loopBool(cond, isShadowed) || loopExpr(effectExpr, isShadowed)
-            case App(fn, args) =>
-              loopExpr(fn, isShadowed) || args.exists(loopExpr(_, isShadowed))
-            case Let(arg, value, in) =>
-              loopExpr(value, isShadowed) || {
-                val inShadowed =
-                  arg match {
-                    case Left(LocalAnon(id)) if id == target => true
-                    case _                                   => isShadowed
-                  }
-                loopExpr(in, inShadowed)
-              }
-            case LetMut(_, in) =>
-              loopExpr(in, isShadowed)
-            case If(cond, thenExpr, elseExpr) =>
-              loopBool(cond, isShadowed) || loopExpr(
-                thenExpr,
-                isShadowed
-              ) || loopExpr(elseExpr, isShadowed)
-            case SwitchVariant(on, _, cases, default) =>
-              loopExpr(on, isShadowed) || cases.exists {
-                case (_, branch) => loopExpr(branch, isShadowed)
-              } || default.exists(loopExpr(_, isShadowed))
-            case Always(cond, thenExpr) =>
-              loopBool(cond, isShadowed) || loopExpr(thenExpr, isShadowed)
-            case PrevNat(of) =>
-              loopExpr(of, isShadowed)
-            case ge: GetEnumElement[?] =>
-              loopExpr(ge.arg, isShadowed)
-            case gs: GetStructElement[?] =>
-              loopExpr(gs.arg, isShadowed)
-            case Local(_) | ClosureSlot(_) | LocalAnonMut(_) | Global(_, _, _) |
-                Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
-                ZeroNat =>
-              false
-          }
+      def checkExpr(expr: Expr[A]): Boolean =
+        loopExpr(expr)
 
-      def loopBool(b: BoolExpr[A], isShadowed: Boolean): Boolean =
-        if (isShadowed) false
-        else
-          b match {
-            case EqualsLit(expr, _) =>
-              loopExpr(expr, isShadowed)
-            case LtEqLit(expr, _) =>
-              loopExpr(expr, isShadowed)
-            case EqualsNat(expr, _) =>
-              loopExpr(expr, isShadowed)
-            case And(left, right) =>
-              loopBool(left, isShadowed) || loopBool(right, isShadowed)
-            case CheckVariant(expr, _, _, _) =>
-              loopExpr(expr, isShadowed)
-            case CheckVariantSet(expr, _, _, _) =>
-              loopExpr(expr, isShadowed)
-            case SetMut(_, value) =>
-              loopExpr(value, isShadowed)
-            case LetBool(arg, value, in) =>
-              loopExpr(value, isShadowed) || {
-                val inShadowed =
-                  arg match {
-                    case Left(LocalAnon(id)) if id == target => true
-                    case _                                   => isShadowed
-                  }
-                loopBool(in, inShadowed)
-              }
-            case LetMutBool(_, in) =>
-              loopBool(in, isShadowed)
-            case TrueConst =>
-              false
-          }
+      @annotation.tailrec
+      def loopExprList(todo: List[Expr[A]]): Boolean =
+        todo match {
+          case head :: tail =>
+            if (checkExpr(head)) true
+            else loopExprList(tail)
+          case Nil          =>
+            false
+        }
 
-      loopExpr(expr, isShadowed = false)
+      @annotation.tailrec
+      def loopBranches(todo: List[(Int, Expr[A])]): Boolean =
+        todo match {
+          case (_, branch) :: tail =>
+            if (checkExpr(branch)) true
+            else loopBranches(tail)
+          case Nil                 =>
+            false
+        }
+
+      @annotation.tailrec
+      def loopExpr(expr: Expr[A]): Boolean =
+        expr match {
+          case LocalAnon(id) =>
+            id == target
+          case Lambda(captures, _, _, body) =>
+            if (loopExprList(captures)) true
+            else loopExpr(body)
+          case WhileExpr(cond, effectExpr, _) =>
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
+            else loopExpr(effectExpr)
+          case App(fn, args) =>
+            if (checkExpr(fn)) true
+            else loopExprList(args.toList)
+          case Let(arg, value, in) =>
+            if (checkExpr(value)) true
+            else
+              arg match {
+                case Left(LocalAnon(id)) if id == target => false
+                case _                                   => loopExpr(in)
+              }
+          case LetMut(_, in) =>
+            loopExpr(in)
+          case If(cond, thenExpr, elseExpr) =>
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
+            else if (checkExpr(thenExpr)) true
+            else loopExpr(elseExpr)
+          case SwitchVariant(on, _, cases, default) =>
+            if (checkExpr(on)) true
+            else if (loopBranches(cases.toList)) true
+            else
+              default match {
+                case Some(defaultExpr) => loopExpr(defaultExpr)
+                case None              => false
+              }
+          case Always(cond, thenExpr) =>
+            if (BoolExpr.referencesLocalAnon(cond, target)) true
+            else loopExpr(thenExpr)
+          case PrevNat(of) =>
+            loopExpr(of)
+          case ge: GetEnumElement[?] =>
+            loopExpr(ge.arg)
+          case gs: GetStructElement[?] =>
+            loopExpr(gs.arg)
+          case Local(_) | ClosureSlot(_) | LocalAnonMut(_) | Global(_, _, _) |
+              Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
+              ZeroNat =>
+            false
+        }
+
+      loopExpr(expr)
     }
 
     def usesBinding[A](expr: Expr[A], arg: Either[LocalAnon, Bindable]): Boolean =
@@ -1825,46 +1834,92 @@ object Matchless {
         }
     }
 
-    def referencesBindable[A](boolExpr: BoolExpr[A], target: Bindable): Boolean =
-      referencesBindable(boolExpr, target, isShadowed = false)
+    def referencesBindable[A](boolExpr: BoolExpr[A], target: Bindable): Boolean = {
+      def checkBool(boolExpr: BoolExpr[A]): Boolean =
+        loopBool(boolExpr)
 
-    private[Matchless] def referencesBindable[A](
-        boolExpr: BoolExpr[A],
-        target: Bindable,
-        isShadowed: Boolean
-    ): Boolean =
-      if (isShadowed) false
-      else
+      @annotation.tailrec
+      def loopBool(boolExpr: BoolExpr[A]): Boolean =
         boolExpr match {
           case EqualsLit(expr, _) =>
-            Expr.referencesBindable(expr, target, isShadowed)
+            Expr.referencesBindable(expr, target)
           case LtEqLit(expr, _) =>
-            Expr.referencesBindable(expr, target, isShadowed)
+            Expr.referencesBindable(expr, target)
           case EqualsNat(expr, _) =>
-            Expr.referencesBindable(expr, target, isShadowed)
+            Expr.referencesBindable(expr, target)
           case And(left, right) =>
-            referencesBindable(left, target, isShadowed) ||
-              referencesBindable(right, target, isShadowed)
+            if (checkBool(left)) true
+            else loopBool(right)
           case CheckVariant(expr, _, _, _) =>
-            Expr.referencesBindable(expr, target, isShadowed)
+            Expr.referencesBindable(expr, target)
           case CheckVariantSet(expr, _, _, _) =>
-            Expr.referencesBindable(expr, target, isShadowed)
+            Expr.referencesBindable(expr, target)
           case SetMut(_, value) =>
-            Expr.referencesBindable(value, target, isShadowed)
+            Expr.referencesBindable(value, target)
           case LetBool(arg, value, in) =>
-            Expr.referencesBindable(value, target, isShadowed) || {
-              val inShadowed =
-                arg match {
-                  case Right(name) if name == target => true
-                  case _                             => isShadowed
-                }
-              referencesBindable(in, target, inShadowed)
-            }
+            if (Expr.referencesBindable(value, target)) true
+            else
+              arg match {
+                case Right(name) if name == target => false
+                case _                             => loopBool(in)
+              }
           case LetMutBool(_, in) =>
-            referencesBindable(in, target, isShadowed)
+            loopBool(in)
           case TrueConst =>
             false
         }
+
+      loopBool(boolExpr)
+    }
+
+    def referencesLocalAnon[A](boolExpr: BoolExpr[A], target: Long): Boolean = {
+      def checkBool(boolExpr: BoolExpr[A]): Boolean =
+        loopBool(boolExpr)
+
+      @annotation.tailrec
+      def loopBool(boolExpr: BoolExpr[A]): Boolean =
+        boolExpr match {
+          case EqualsLit(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case LtEqLit(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case EqualsNat(expr, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case And(left, right) =>
+            if (checkBool(left)) true
+            else loopBool(right)
+          case CheckVariant(expr, _, _, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case CheckVariantSet(expr, _, _, _) =>
+            Expr.referencesLocalAnon(expr, target)
+          case SetMut(_, value) =>
+            Expr.referencesLocalAnon(value, target)
+          case LetBool(arg, value, in) =>
+            if (Expr.referencesLocalAnon(value, target)) true
+            else
+              arg match {
+                case Left(LocalAnon(id)) if id == target => false
+                case _                                   => loopBool(in)
+              }
+          case LetMutBool(_, in) =>
+            loopBool(in)
+          case TrueConst =>
+            false
+        }
+
+      loopBool(boolExpr)
+    }
+
+    def usesBinding[A](
+        boolExpr: BoolExpr[A],
+        arg: Either[LocalAnon, Bindable]
+    ): Boolean =
+      arg match {
+        case Right(name) =>
+          referencesBindable(boolExpr, name)
+        case Left(LocalAnon(id)) =>
+          referencesLocalAnon(boolExpr, id)
+      }
   }
   // returns 1 if it does, else 0
   case class EqualsLit[A](expr: CheapExpr[A], lit: Lit) extends BoolExpr[A]
@@ -2278,6 +2333,22 @@ object Matchless {
           }
       }
 
+    private inline def withCheapExpr[F[_]: Monad, A](
+        inline expr: Expr[A],
+        newConst: F[LocalAnon]
+    )(
+        inline fn: CheapExpr[A] => F[Expr[A]]
+    ): F[Expr[A]] =
+      expr match {
+        case cheap: CheapExpr[A] =>
+          fn(cheap)
+        case _ =>
+          for {
+            tmp <- newConst
+            body <- fn(tmp)
+          } yield Let(Left(tmp), expr, body)
+      }
+
     private def withSomeTuple2[F[_]: Monad, A](
         optionExpr: Expr[A],
         ctx: Ctx[F, A]
@@ -2294,6 +2365,38 @@ object Matchless {
           }
         }
       }
+
+    private def withSomeTuple2Expr[F[_]: Monad, A](
+        optionExpr: Expr[A],
+        ctx: Ctx[F, A]
+    )(
+        onSome: (CheapExpr[A], CheapExpr[A]) => F[Expr[A]],
+        onNone: => F[Expr[A]]
+    ): F[Expr[A]] =
+      withCheapExpr(optionExpr, ctx.newConst) { opt =>
+        for {
+          tuple <- ctx.newConst
+          left = ctx.getFromTuple2(tuple, 0)
+          right = ctx.getFromTuple2(tuple, 1)
+          someExpr <- onSome(left, right)
+          noneExpr <- onNone
+        } yield {
+          val someBody = Let(Left(tuple), ctx.optionGetSome(opt), someExpr)
+          If(ctx.optionIsSome(opt), someBody, noneExpr)
+        }
+      }
+
+    private type ExactStrPart = StrPart.CharPart | StrPart.LitStr
+
+    final private case class StringSearchSegment(
+        glob: StrPart.Glob,
+        parts: NonEmptyList[ExactStrPart]
+    )
+
+    final private case class StringSearchPlan(
+        segments: NonEmptyList[StringSearchSegment],
+        trailingGlob: Option[StrPart.Glob]
+    )
 
     private def bindAt(
         bindTargets: IndexedSeq[LocalAnonMut],
@@ -2314,6 +2417,100 @@ object Matchless {
     ): Expr[A] =
       ls.foldRight(ret) { case ((l, e), r) =>
         Always(SetMut(l, e), r)
+      }
+
+    private def exactBindCount(parts: NonEmptyList[ExactStrPart]): Int =
+      parts.toList.count {
+        case StrPart.IndexChar => true
+        case _                 => false
+      }
+
+    private def buildStringSearchPlan(
+        parts: List[StrPart]
+    ): Option[StringSearchPlan] =
+        parts match {
+        case (glob: StrPart.Glob) :: tail =>
+          var currentGlob: StrPart.Glob = glob
+          var currentItemsRev: List[ExactStrPart] = Nil
+          var segmentsRev: List[StringSearchSegment] = Nil
+
+          tail.foreach {
+            case nextGlob: StrPart.Glob =>
+              val currentItems =
+                NonEmptyList.fromList(currentItemsRev.reverse).getOrElse {
+                  throw new IllegalStateException(
+                    s"expected exact string items before trailing glob in string search pattern: $parts"
+                  )
+                }
+              segmentsRev = StringSearchSegment(currentGlob, currentItems) :: segmentsRev
+              currentGlob = nextGlob
+              currentItemsRev = Nil
+            case part: StrPart.CharPart =>
+              currentItemsRev = part :: currentItemsRev
+            case part: StrPart.LitStr =>
+              currentItemsRev = part :: currentItemsRev
+          }
+
+          val trailingGlob =
+            NonEmptyList.fromList(currentItemsRev.reverse) match {
+              case Some(lastItems) =>
+                segmentsRev = StringSearchSegment(currentGlob, lastItems) :: segmentsRev
+                None
+              case None            =>
+                Some(currentGlob)
+            }
+
+          NonEmptyList
+            .fromList(segmentsRev.reverse)
+            .map(StringSearchPlan(_, trailingGlob))
+            .filter(_.segments.tail.nonEmpty)
+        case _ =>
+          None
+      }
+
+    private def ifExactStringParts[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        parts: List[ExactStrPart],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        ctx: Ctx[F, A]
+    )(
+        onMatch: CheapExpr[A] => F[Expr[A]],
+        onMiss: => F[Expr[A]]
+    ): F[Expr[A]] =
+      parts match {
+        case Nil =>
+          onMatch(arg)
+        case StrPart.LitStr(expect) :: tail =>
+          withSomeTuple2Expr(
+            call2(ctx.from, partitionStringName, arg, Literal(Lit.Str(expect))),
+            ctx
+          )(
+            (left, right) =>
+              for {
+                missExpr <- onMiss
+                matchedExpr <- ifExactStringParts(right, tail, bindTargets, nextBind, ctx)(
+                  onMatch,
+                  onMiss
+                )
+              } yield If(EqualsLit(left, emptyStringLit), matchedExpr, missExpr),
+            onMiss
+          )
+        case (charPart: StrPart.CharPart) :: tail =>
+          withSomeTuple2Expr(call1(ctx.from, unconsStringName, arg), ctx)(
+            (head, rest) => {
+              val nextBind1 =
+                if (charPart.capture) nextBind + 1 else nextBind
+              ifExactStringParts(rest, tail, bindTargets, nextBind1, ctx)(
+                onMatch,
+                onMiss
+              ).map { matchedExpr =>
+                if (charPart.capture) Always(SetMut(bindAt(bindTargets, nextBind), head), matchedExpr)
+                else matchedExpr
+              }
+            },
+            onMiss
+          )
       }
 
     private def advanceCurrentByOneChar[F[_]: Monad, A](
@@ -2341,6 +2538,512 @@ object Matchless {
           setAll((current, emptyStringExpr) :: Nil, UnitExpr)
 
         Let(Left(splitTmp), splitCall, If(hasSome, onSome, onNone))
+      }
+
+    final private case class StringSearchLoopState(
+        runMut: LocalAnonMut,
+        resMut: LocalAnonMut
+    )
+
+    private def matchedStringSearchExpr[A](
+        state: StringSearchLoopState,
+        updates: List[(LocalAnonMut, Expr[A])]
+    ): Expr[A] =
+      setAll(
+        (state.runMut, FalseExpr) ::
+          (state.resMut, TrueExpr) ::
+          updates,
+        UnitExpr
+      )
+
+    private def stopStringSearchExpr[A](
+        state: StringSearchLoopState
+    ): Expr[A] =
+      setAll((state.runMut, FalseExpr) :: Nil, UnitExpr)
+
+    private def bindGlob[A](
+        glob: StrPart.Glob,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        value: Expr[A]
+    ): List[(LocalAnonMut, Expr[A])] =
+      if (glob.capture) (bindAt(bindTargets, nextBind), value) :: Nil
+      else Nil
+
+    private def compilePureStringSearchPlan[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        plan: StringSearchPlan,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] =
+      compileStringSearchPlan(
+        arg,
+        plan,
+        bindTargets,
+        nextBind,
+        Monad[F].pure(TrueConst),
+        ctx
+      )
+
+    private def compileLeadingStringSearchSegmentWithChars[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        restPlan: StringSearchPlan,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val segmentBindStart =
+        if (segment.glob.capture) nextBind + 1 else nextBind
+      val afterSegmentBinds = segmentBindStart + exactBindCount(segment.parts)
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        prefixMutOpt <- ctx.newMutOpt(segment.glob.capture)
+        loopRes <- ctx.newConst
+        state = StringSearchLoopState(runMut, resMut)
+        advance <- advanceCurrentByOneChar(currentMut, prefixMutOpt, ctx)
+        effect <- ifExactStringParts(
+          currentMut,
+          segment.parts.toList,
+          bindTargets,
+          segmentBindStart,
+          ctx
+        )(
+          right =>
+            for {
+              pureCheck <- compilePureStringSearchPlan(
+                right,
+                restPlan,
+                bindTargets,
+                afterSegmentBinds,
+                ctx
+              )
+              successCheck <- onPureMatch
+            } yield {
+              val matched =
+                matchedStringSearchExpr(
+                  state,
+                  prefixMutOpt.toList.map { prefix =>
+                    (bindAt(bindTargets, nextBind), prefix: Expr[A])
+                  }
+                )
+              If(
+                pureCheck,
+                If(successCheck, matched, advance),
+                stopStringSearchExpr(state)
+              )
+            },
+          Monad[F].pure(advance)
+        )
+      } yield {
+        val loopEffect =
+          If(
+            EqualsLit(currentMut, emptyStringLit),
+            stopStringSearchExpr(state),
+            effect
+          )
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            prefixMutOpt.toList.map { prefix =>
+              (prefix, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), loopEffect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: prefixMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(loopRes))
+        )
+      }
+    }
+
+    private def compileLeadingStringSearchSegmentWithLiteral[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        restPlan: StringSearchPlan,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val expect =
+        segment.parts.head match {
+          case StrPart.LitStr(s) => s
+          case _                 =>
+            throw new IllegalStateException(
+              s"expected literal-led string segment: ${segment.parts}"
+            )
+        }
+      val exactTail = segment.parts.tail
+      val segmentBindStart =
+        if (segment.glob.capture) nextBind + 1 else nextBind
+      val afterSegmentBinds = segmentBindStart + exactBindCount(segment.parts)
+      val splitIdx = expect.offsetByCodePoints(0, 1)
+      val expectHeadExpr = Literal(Lit.Str(expect.substring(0, splitIdx)))
+      val expectTailExprOpt =
+        if (splitIdx < expect.length)
+          Some(Literal(Lit.Str(expect.substring(splitIdx))))
+        else None
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        consumedMutOpt <- ctx.newMutOpt(segment.glob.capture)
+        loopRes <- ctx.newConst
+        state = StringSearchLoopState(runMut, resMut)
+        effect <- withSomeTuple2Expr(
+          call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
+          ctx
+        )(
+          (left, right) => {
+            val currentAdvance: Expr[A] =
+              expectTailExprOpt match {
+                case Some(tailExpr) =>
+                  concatString(ctx.from, tailExpr :: right :: Nil)
+                case None           =>
+                  right
+              }
+            val onCandidateMiss =
+              setAll(
+                (currentMut, currentAdvance) ::
+                  consumedMutOpt.toList.map { consumed =>
+                    val consumed1 =
+                      concatString(ctx.from, consumed :: left :: expectHeadExpr :: Nil)
+                    (consumed, consumed1)
+                  },
+                UnitExpr
+              )
+
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+              remainder =>
+                for {
+                  pureCheck <- compilePureStringSearchPlan(
+                    remainder,
+                    restPlan,
+                    bindTargets,
+                    afterSegmentBinds,
+                    ctx
+                  )
+                  successCheck <- onPureMatch
+                } yield {
+                  val prefixUpdates =
+                    consumedMutOpt.toList.map { consumed =>
+                      val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                      (bindAt(bindTargets, nextBind), prefix)
+                    }
+                  val matched =
+                    matchedStringSearchExpr(state, prefixUpdates)
+                  If(
+                    pureCheck,
+                    If(successCheck, matched, onCandidateMiss),
+                    stopStringSearchExpr(state)
+                  )
+                },
+              Monad[F].pure(onCandidateMiss)
+            )
+          },
+          Monad[F].pure(stopStringSearchExpr(state))
+        )
+      } yield {
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            consumedMutOpt.toList.map { consumed =>
+              (consumed, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: consumedMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(loopRes))
+        )
+      }
+    }
+
+    private def compileLeadingStringSearchSegment[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        restPlan: StringSearchPlan,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] =
+      segment.parts.head match {
+        case _: StrPart.CharPart =>
+          compileLeadingStringSearchSegmentWithChars(
+            arg,
+            segment,
+            restPlan,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+        case StrPart.LitStr(_)   =>
+          compileLeadingStringSearchSegmentWithLiteral(
+            arg,
+            segment,
+            restPlan,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+      }
+
+    private def compileFinalStringSearchSegmentWithChars[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        trailingGlob: Option[StrPart.Glob],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val segmentBindStart =
+        if (segment.glob.capture) nextBind + 1 else nextBind
+      val afterSegmentBinds = segmentBindStart + exactBindCount(segment.parts)
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        prefixMutOpt <- ctx.newMutOpt(segment.glob.capture)
+        loopRes <- ctx.newConst
+        state = StringSearchLoopState(runMut, resMut)
+        advance <- advanceCurrentByOneChar(currentMut, prefixMutOpt, ctx)
+        effect <- ifExactStringParts(
+          currentMut,
+          segment.parts.toList,
+          bindTargets,
+          segmentBindStart,
+          ctx
+        )(
+          remainder =>
+            onPureMatch.map { successCheck =>
+              val matchUpdates =
+                prefixMutOpt.toList.map { prefix =>
+                  (bindAt(bindTargets, nextBind), prefix: Expr[A])
+                } ::: trailingGlob.toList.flatMap { glob =>
+                  bindGlob(glob, bindTargets, afterSegmentBinds, remainder)
+                }
+              val matched = matchedStringSearchExpr(state, matchUpdates)
+              trailingGlob match {
+                case Some(_) =>
+                  If(successCheck, matched, advance)
+                case None    =>
+                  If(
+                    EqualsLit(remainder, emptyStringLit),
+                    If(successCheck, matched, advance),
+                    advance
+                  )
+              }
+            },
+          Monad[F].pure(advance)
+        )
+      } yield {
+        val loopEffect =
+          If(
+            EqualsLit(currentMut, emptyStringLit),
+            stopStringSearchExpr(state),
+            effect
+          )
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            prefixMutOpt.toList.map { prefix =>
+              (prefix, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), loopEffect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: prefixMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(loopRes))
+        )
+      }
+    }
+
+    private def compileFinalStringSearchSegmentWithLiteral[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        trailingGlob: Option[StrPart.Glob],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] = {
+      val expect =
+        segment.parts.head match {
+          case StrPart.LitStr(s) => s
+          case _                 =>
+            throw new IllegalStateException(
+              s"expected literal-led string segment: ${segment.parts}"
+            )
+        }
+      val exactTail = segment.parts.tail
+      val segmentBindStart =
+        if (segment.glob.capture) nextBind + 1 else nextBind
+      val afterSegmentBinds = segmentBindStart + exactBindCount(segment.parts)
+      val splitIdx = expect.offsetByCodePoints(0, 1)
+      val expectHeadExpr = Literal(Lit.Str(expect.substring(0, splitIdx)))
+      val expectTailExprOpt =
+        if (splitIdx < expect.length)
+          Some(Literal(Lit.Str(expect.substring(splitIdx))))
+        else None
+
+      for {
+        runMut <- ctx.newMut
+        resMut <- ctx.newMut
+        currentMut <- ctx.newMut
+        consumedMutOpt <- ctx.newMutOpt(segment.glob.capture)
+        loopRes <- ctx.newConst
+        state = StringSearchLoopState(runMut, resMut)
+        effect <- withSomeTuple2Expr(
+          call2(ctx.from, partitionStringName, currentMut, Literal(Lit.Str(expect))),
+          ctx
+        )(
+          (left, right) => {
+            val currentAdvance: Expr[A] =
+              expectTailExprOpt match {
+                case Some(tailExpr) =>
+                  concatString(ctx.from, tailExpr :: right :: Nil)
+                case None           =>
+                  right
+              }
+            val onCandidateMiss =
+              setAll(
+                (currentMut, currentAdvance) ::
+                  consumedMutOpt.toList.map { consumed =>
+                    val consumed1 =
+                      concatString(ctx.from, consumed :: left :: expectHeadExpr :: Nil)
+                    (consumed, consumed1)
+                  },
+                UnitExpr
+              )
+
+            ifExactStringParts(right, exactTail, bindTargets, segmentBindStart, ctx)(
+              remainder =>
+                onPureMatch.map { successCheck =>
+                  val prefixUpdates =
+                    consumedMutOpt.toList.map { consumed =>
+                      val prefix = concatString(ctx.from, consumed :: left :: Nil)
+                      (bindAt(bindTargets, nextBind), prefix)
+                    }
+                  val trailingUpdates =
+                    trailingGlob.toList.flatMap { glob =>
+                      bindGlob(glob, bindTargets, afterSegmentBinds, remainder)
+                    }
+                  val matched =
+                    matchedStringSearchExpr(state, prefixUpdates ::: trailingUpdates)
+
+                  trailingGlob match {
+                    case Some(_) =>
+                      If(successCheck, matched, onCandidateMiss)
+                    case None    =>
+                      If(
+                        EqualsLit(remainder, emptyStringLit),
+                        If(successCheck, matched, onCandidateMiss),
+                        onCandidateMiss
+                      )
+                  }
+                },
+              Monad[F].pure(onCandidateMiss)
+            )
+          },
+          Monad[F].pure(stopStringSearchExpr(state))
+        )
+      } yield {
+        val initSets =
+          (runMut, TrueExpr) ::
+            (resMut, FalseExpr) ::
+            (currentMut, arg) ::
+            consumedMutOpt.toList.map { consumed =>
+              (consumed, emptyStringExpr)
+            }
+        val searchLoop =
+          setAll(initSets, WhileExpr(isTrueExpr(runMut), effect, resMut))
+
+        LetMutBool(
+          runMut :: resMut :: currentMut :: consumedMutOpt.toList,
+          LetBool(Left(loopRes), searchLoop, isTrueExpr(loopRes))
+        )
+      }
+    }
+
+    private def compileFinalStringSearchSegment[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        segment: StringSearchSegment,
+        trailingGlob: Option[StrPart.Glob],
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] =
+      segment.parts.head match {
+        case _: StrPart.CharPart =>
+          compileFinalStringSearchSegmentWithChars(
+            arg,
+            segment,
+            trailingGlob,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+        case StrPart.LitStr(_)   =>
+          compileFinalStringSearchSegmentWithLiteral(
+            arg,
+            segment,
+            trailingGlob,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+      }
+
+    private def compileStringSearchPlan[F[_]: Monad, A](
+        arg: CheapExpr[A],
+        plan: StringSearchPlan,
+        bindTargets: IndexedSeq[LocalAnonMut],
+        nextBind: Int,
+        onPureMatch: F[BoolExpr[A]],
+        ctx: Ctx[F, A]
+    ): F[BoolExpr[A]] =
+      plan.segments match {
+        case NonEmptyList(segment, Nil) =>
+          compileFinalStringSearchSegment(
+            arg,
+            segment,
+            plan.trailingGlob,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+        case NonEmptyList(segment, next :: tail) =>
+          compileLeadingStringSearchSegment(
+            arg,
+            segment,
+            StringSearchPlan(NonEmptyList(next, tail), plan.trailingGlob),
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
       }
 
     private def searchStringWithCharRest[F[_]: Monad, A](
@@ -2405,6 +3108,14 @@ object Matchless {
         capture: Boolean,
         ctx: Ctx[F, A]
     ): F[BoolExpr[A]] = {
+      if (!capture && (tail2 == (StrPart.WildStr :: Nil))) {
+        withCheap(
+          call2(ctx.from, partitionStringName, arg, Literal(Lit.Str(expect))),
+          ctx.newConst
+        ) { part =>
+          Monad[F].pure(ctx.optionIsSome(part))
+        }
+      } else {
       val splitIdx = expect.offsetByCodePoints(0, 1)
       val expectHead = expect.substring(0, splitIdx)
       val expectTail = expect.substring(splitIdx)
@@ -2498,6 +3209,7 @@ object Matchless {
           LetBool(Left(loopRes), searchLoop, isTrueExpr(resMut))
         )
       }
+      }
     }
 
     private def matchStringParts[F[_]: Monad, A](
@@ -2581,6 +3293,7 @@ object Matchless {
         bindTargets: IndexedSeq[LocalAnonMut],
         nextBind: Int,
         mustMatch: Boolean,
+        onPureMatch: F[BoolExpr[A]],
         makeAnon: F[Long],
         from: A,
         variantOf: (PackageName, Constructor) => Option[DataRepr]
@@ -2608,7 +3321,22 @@ object Matchless {
         newMut = makeAnon.map(LocalAnonMut(_)),
         newConst = makeAnon.map(LocalAnon(_))
       )
-      matchStringParts(arg, compactPat, bindTargets, nextBind, ctx)
+      buildStringSearchPlan(compactPat) match {
+        case Some(plan) =>
+          compileStringSearchPlan(
+            arg,
+            plan,
+            bindTargets,
+            nextBind,
+            onPureMatch,
+            ctx
+          )
+        case None       =>
+          for {
+            pureCheck <- matchStringParts(arg, compactPat, bindTargets, nextBind, ctx)
+            successCheck <- onPureMatch
+          } yield pureCheck && successCheck
+      }
     }
   }
 
@@ -2654,12 +3382,55 @@ object Matchless {
 
     type UnionMatch =
       NonEmptyList[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
+    type CandidateGuard = List[(Bindable, Expr[B])] => F[BoolExpr[B]]
 
     val wildMatch: UnionMatch = NonEmptyList((Nil, TrueConst, Nil), Nil)
     def isWildMatch(um: UnionMatch): Boolean =
       um match {
         case NonEmptyList((Nil, TrueConst, Nil), Nil) => true
         case _                                        => false
+      }
+
+    def retainReferencedBinds(
+        in: Expr[B],
+        binds: List[(Bindable, Expr[B])]
+    ): List[(Bindable, Expr[B])] =
+      binds.filter { case (bindable, _) =>
+        Expr.referencesBindable(in, bindable)
+      }
+
+    def applyCandidateGuard(
+        cond: BoolExpr[B],
+        binds: List[(Bindable, Expr[B])],
+        candidateGuard: CandidateGuard
+    ): F[BoolExpr[B]] =
+      candidateGuard(binds).map(cond && _)
+
+    def applyOptionalCandidateGuard(
+        cond: BoolExpr[B],
+        binds: List[(Bindable, Expr[B])],
+        candidateGuard: Option[CandidateGuard]
+    ): F[BoolExpr[B]] =
+      candidateGuard match {
+        case Some(guardFn) =>
+          applyCandidateGuard(cond, binds, guardFn)
+        case None          =>
+          Monad[F].pure(cond)
+      }
+
+    def applyCandidateGuardToUnionMatch(
+        um: UnionMatch,
+        candidateGuard: Option[CandidateGuard]
+    ): F[UnionMatch] =
+      candidateGuard match {
+        case Some(guardFn) =>
+          um.traverse { case (preLets, cond, binds) =>
+            applyCandidateGuard(cond, binds, guardFn).map { guardedCond =>
+              (preLets, guardedCond, binds)
+            }
+          }
+        case None =>
+          Monad[F].pure(um)
       }
 
     val emptyExpr: Expr[B] =
@@ -3128,8 +3899,9 @@ object Matchless {
             val fn = TypedExpr.Local(loopName, loopType, tag)
             TypedExpr.App(fn, args1, tpe, tag)
           }
-        case TypedExpr.Match(arg, branches, tag) =>
+        case m @ TypedExpr.Match(arg, branches, tag) =>
           TypedExpr.Match(
+            m.matchKind,
             recurToSelfCall(loopName, loopType, arg, inNestedLoop),
             branches.map { branch =>
               branch.copy(
@@ -3315,84 +4087,60 @@ object Matchless {
           }
       }
 
-    // handle list matching, this is a while loop, that is evaluting
-    // lst is initialized to init, leftAcc is initialized to empty
-    // tail until it is true while mutating lst => lst.tail
-    // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
-    // which could have nested searches of its own
-    def searchList(
-        lst: LocalAnonMut,
-        init: CheapExpr[B],
-        check: BoolExpr[B],
-        leftAcc: Option[LocalAnonMut]
-    ): F[BoolExpr[B]] =
-      (
-        makeAnon.map(LocalAnonMut(_)),
-        makeAnon.map(LocalAnon(_)),
-        makeAnon.map(LocalAnonMut(_))
-      )
-        .mapN { (resMut, letBind, currentList) =>
-          val initSets =
-            (resMut, FalseExpr) ::
-              (currentList, init) ::
-              (leftAcc.toList.map { left =>
-                (left, ListExpr.Nil)
-              })
+    case class ListSearchSegment(
+        glob: Pattern.ListPart.Glob,
+        items: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
+    )
 
-          val whileCheck = ListExpr.notNil(currentList)
-          val effect: Expr[B] =
-            setAll(
-              (lst, currentList) :: Nil,
-              If(
-                check,
-                setAll(
-                  (currentList, ListExpr.Nil) ::
-                    (resMut, TrueExpr) ::
-                    Nil,
-                  UnitExpr
-                ),
-                setAll(
-                  (currentList, ListExpr.tail(currentList)) ::
-                    leftAcc.toList.map { left =>
-                      (left, ListExpr.cons(ListExpr.head(currentList), left))
-                    },
-                  UnitExpr
-                )
+    case class ListSearchPlan(
+        segments: NonEmptyList[ListSearchSegment],
+        trailingGlob: Option[Pattern.ListPart.Glob]
+    )
+
+    case class SearchLoopState(runMut: LocalAnonMut, resMut: LocalAnonMut)
+
+    // This is only called from the sole caller below after both
+    // exactMiddleItems(right) and exactTrailingItems(right) fail.
+    // That means right contains at least one interior glob, which rules out
+    // one-segment shapes like [items..., trailingGlob]. So the resulting plan
+    // always has at least two exact segments.
+    def buildListSearchPlan(
+        glob: Pattern.ListPart.Glob,
+        right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
+    ): ListSearchPlan = {
+      var currentGlob: Pattern.ListPart.Glob = glob
+      var currentItemsRev: List[Pattern[(PackageName, Constructor), Type]] = Nil
+      var segmentsRev: List[ListSearchSegment] = Nil
+
+      right.toList.foreach {
+        case Pattern.ListPart.Item(p) =>
+          currentItemsRev = p :: currentItemsRev
+        case nextGlob: Pattern.ListPart.Glob =>
+          val currentItems =
+            NonEmptyList.fromList(currentItemsRev.reverse).getOrElse {
+              throw new IllegalStateException(
+                s"expected exact items before trailing glob in list search pattern: $right"
               )
-            )
-          val searchLoop =
-            setAll(initSets, WhileExpr(whileCheck, effect, resMut))
-
-          LetMutBool(
-            resMut :: currentList :: Nil,
-            LetBool(Left(letBind), searchLoop, isTrueExpr(resMut))
-          )
-       }
-      /*
-            Dynamic { (scope: Scope) =>
-              var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
-              scope.updateMut(left, leftList)
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty @ VList.Cons(head, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
-                      scope.updateMut(left, leftList)
-                    }
-                  case _ =>
-                    currentList = null
-                  // we don't match empty lists
-                }
-              }
-              res
             }
-       */
+          segmentsRev = ListSearchSegment(currentGlob, currentItems) :: segmentsRev
+          currentGlob = nextGlob
+          currentItemsRev = Nil
+      }
+
+      val trailingGlob =
+        NonEmptyList.fromList(currentItemsRev.reverse) match {
+          case Some(lastItems) =>
+            segmentsRev = ListSearchSegment(currentGlob, lastItems) :: segmentsRev
+            None
+          case None            =>
+            Some(currentGlob)
+        }
+
+      ListSearchPlan(
+        NonEmptyList.fromListUnsafe(segmentsRev.reverse),
+        trailingGlob
+      )
+    }
 
     def exactTrailingItems(
         right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
@@ -3497,7 +4245,7 @@ object Matchless {
         exactItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]]
     ): F[UnionMatch] =
       itemMuts.zip(exactItems).traverse { case (itemMut, pat) =>
-        doesMatch(ListExpr.head(itemMut), pat, false, None)
+        doesMatch(ListExpr.head(itemMut), pat, false, None, None)
       }.map { matchLists =>
         product(matchLists) { case ((l1, o1, b1), (l2, o2, b2)) =>
           (l1 ::: l2, o1 && o2, b1 ::: b2)
@@ -3510,6 +4258,7 @@ object Matchless {
         leadMut: LocalAnonMut,
         runMut: LocalAnonMut,
         leftAcc: Option[LocalAnonMut],
+        onFailure: Expr[B],
         onSuccess: Expr[B]
     ): Expr[B] = {
       def assignWindow(
@@ -3523,7 +4272,7 @@ object Matchless {
             If(
               ListExpr.notNil(current),
               setAll((itemMut, current) :: Nil, assignWindow(ListExpr.tail(current), tail)),
-              setAll((runMut, FalseExpr) :: Nil, UnitExpr)
+              setAll((runMut, FalseExpr) :: Nil, onFailure)
             )
         }
 
@@ -3559,6 +4308,29 @@ object Matchless {
       setAll(shiftUpdates, UnitExpr)
     }
 
+    def matchedExpr(state: SearchLoopState): Expr[B] =
+      setAll(
+        (state.runMut, FalseExpr) ::
+          (state.resMut, TrueExpr) ::
+          Nil,
+        UnitExpr
+      )
+
+    def stopFailExpr(state: SearchLoopState): Expr[B] =
+      setAll((state.runMut, FalseExpr) :: Nil, UnitExpr)
+
+    def continueExpr(
+        state: SearchLoopState,
+        itemMuts: NonEmptyList[LocalAnonMut],
+        leadMut: LocalAnonMut,
+        leftAcc: Option[LocalAnonMut]
+    ): Expr[B] =
+      If(
+        ListExpr.notNil(leadMut),
+        shiftFixedListWindow(itemMuts, leadMut, leftAcc),
+        stopFailExpr(state)
+      )
+
     def searchFixedListWindow(
         arg: CheapExpr[B],
         itemMuts: NonEmptyList[LocalAnonMut],
@@ -3593,6 +4365,7 @@ object Matchless {
             leadMut,
             runMut,
             leftAcc,
+            resMut,
             WhileExpr(isTrueExpr(runMut), effect, resMut)
           )
         val initSets =
@@ -3600,7 +4373,55 @@ object Matchless {
 
         LetMutBool(
           runMut :: resMut :: Nil,
-          LetBool(Left(loopRes), setAll(initSets, searchLoop), isTrueExpr(resMut))
+          LetBool(Left(loopRes), setAll(initSets, searchLoop), isTrueExpr(loopRes))
+        )
+      }
+
+    def searchFixedListWindowEarlyStop(
+        arg: CheapExpr[B],
+        itemMuts: NonEmptyList[LocalAnonMut],
+        leadMut: LocalAnonMut,
+        exactCheck: BoolExpr[B],
+        pureCheck: BoolExpr[B],
+        onPureMatch: BoolExpr[B],
+        leftAcc: Option[LocalAnonMut]
+    ): F[BoolExpr[B]] =
+      (
+        makeAnon.map(LocalAnonMut(_)),
+        makeAnon.map(LocalAnonMut(_)),
+        makeAnon.map(LocalAnon(_))
+      ).mapN { (runMut, resMut, loopRes) =>
+        val state = SearchLoopState(runMut, resMut)
+        val effect =
+          If(
+            exactCheck,
+            If(
+              pureCheck,
+              If(
+                onPureMatch,
+                matchedExpr(state),
+                continueExpr(state, itemMuts, leadMut, leftAcc)
+              ),
+              stopFailExpr(state)
+            ),
+            continueExpr(state, itemMuts, leadMut, leftAcc)
+          )
+        val searchLoop =
+          initializeFixedListWindow(
+            arg,
+            itemMuts.toList,
+            leadMut,
+            runMut,
+            leftAcc,
+            resMut,
+            WhileExpr(isTrueExpr(runMut), effect, resMut)
+          )
+        val initSets =
+          (resMut, FalseExpr) :: Nil
+
+        LetMutBool(
+          runMut :: resMut :: Nil,
+          LetBool(Left(loopRes), setAll(initSets, searchLoop), isTrueExpr(loopRes))
         )
       }
 
@@ -3608,7 +4429,8 @@ object Matchless {
         arg: CheapExpr[B],
         leftGlob: Pattern.ListPart.Glob,
         middleItems: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
-        rightGlob: Pattern.ListPart.Glob
+        rightGlob: Pattern.ListPart.Glob,
+        candidateGuard: Option[CandidateGuard]
     ): F[UnionMatch] = {
       val leftF = prepareLeftGlob(leftGlob)
       (
@@ -3638,15 +4460,23 @@ object Matchless {
                   case Pattern.ListPart.NamedList(ln) =>
                     (ln, leadMut: Expr[B]) :: Nil
                 }
+              val allBinds = leftBind.toList ::: binds ::: rightBind
 
-              searchFixedListWindow(
-                arg,
-                itemMuts,
-                leadMut,
+              applyOptionalCandidateGuard(
                 expr,
-                optAnonLeft.map(_._1)
-              ).map { search =>
-                (letTail, search, leftBind.toList ::: binds ::: rightBind)
+                allBinds,
+                candidateGuard
+              ).flatMap {
+                searchCheck =>
+                  searchFixedListWindow(
+                    arg,
+                    itemMuts,
+                    leadMut,
+                    searchCheck,
+                    optAnonLeft.map(_._1)
+                  ).map { search =>
+                    (letTail, search, allBinds)
+                  }
               }
             }
           }
@@ -3675,7 +4505,7 @@ object Matchless {
           exactItems.length,
           optAnonLeft.map(_._1)
         )
-        cases <- doesMatch(lagMut, exactPat, false, None)
+        cases <- doesMatch(lagMut, exactPat, false, None, None)
       } yield {
         cases.map { case (preLet, expr, binds) =>
           val searchLets =
@@ -3696,8 +4526,127 @@ object Matchless {
 
           (letTail, positioned && expr, resBind)
         }
+        }
+      }
+
+    def compileLastListSearchSegment(
+        arg: CheapExpr[B],
+        segment: ListSearchSegment,
+        trailingGlob: Option[Pattern.ListPart.Glob]
+    ): F[UnionMatch] =
+      trailingGlob match {
+        case Some(rightGlob) =>
+          exactMiddleListSearch(
+            arg,
+            segment.glob,
+            segment.items,
+            rightGlob,
+            None
+          )
+        case None            =>
+          exactTrailingListSearch(arg, segment.glob, segment.items)
+      }
+
+    def compileLeadingListSearchSegment(
+        arg: CheapExpr[B],
+        segment: ListSearchSegment,
+        restPlan: ListSearchPlan,
+        onPureMatch: List[(Bindable, Expr[B])] => F[BoolExpr[B]]
+    ): F[UnionMatch] = {
+      val leftF = prepareLeftGlob(segment.glob)
+      (
+        leftF,
+        segment.items.traverse(_ => makeAnon.map(LocalAnonMut(_))),
+        makeAnon.map(LocalAnonMut(_))
+      ).flatMapN { (optAnonLeft, itemMuts, leadMut) =>
+        matchFixedListWindowItems(itemMuts, segment.items).flatMap { exactCases =>
+          compilePureListSearchPlan(leadMut, restPlan).flatMap { restCases =>
+            val casePairs =
+              for {
+                exactCase <- exactCases
+                restCase <- restCases
+              } yield (exactCase, restCase)
+
+            casePairs
+              .traverse {
+                case (
+                      (exactPreLet, exactExpr, exactBinds),
+                      (restPreLet, restExpr, restBinds)
+                    ) =>
+                  val letTail =
+                    optAnonLeft.map(_._1).toList ::: (leadMut :: itemMuts.toList) ::: exactPreLet ::: restPreLet
+                  val leftBind =
+                    optAnonLeft.map { case (anonLeft, ln) =>
+                      (
+                        ln,
+                        applyArgs(
+                          reverseFn(from),
+                          NonEmptyList.one(anonLeft)
+                        )
+                      )
+                    }
+                  val allBinds = leftBind.toList ::: exactBinds ::: restBinds
+
+                  onPureMatch(allBinds).flatMap { successCheck =>
+                    searchFixedListWindowEarlyStop(
+                      arg,
+                      itemMuts,
+                      leadMut,
+                      exactExpr,
+                      restExpr,
+                      successCheck,
+                      optAnonLeft.map(_._1)
+                    ).map { search =>
+                      (letTail, search, allBinds)
+                    }
+                  }
+              }
+          }
+        }
       }
     }
+
+    def compilePureListSearchPlan(
+        arg: CheapExpr[B],
+        plan: ListSearchPlan
+    ): F[UnionMatch] =
+      plan.segments match {
+        case NonEmptyList(segment, Nil) =>
+          compileLastListSearchSegment(arg, segment, plan.trailingGlob)
+        case NonEmptyList(segment, next :: tail) =>
+          compileLeadingListSearchSegment(
+            arg,
+            segment,
+            ListSearchPlan(NonEmptyList(next, tail), plan.trailingGlob),
+            _ => Monad[F].pure(TrueConst)
+          )
+      }
+
+    def compileListSearchPlan(
+        arg: CheapExpr[B],
+        plan: ListSearchPlan,
+        candidateGuard: Option[CandidateGuard]
+    ): F[UnionMatch] =
+      candidateGuard match {
+        case None =>
+          compilePureListSearchPlan(arg, plan)
+        case Some(guardFn) =>
+          plan.segments match {
+            case NonEmptyList(segment, tail) =>
+              // The sole caller only reaches compileListSearchPlan after both
+              // exactMiddleItems(right) and exactTrailingItems(right) fail.
+              // That guarantees there is at least one interior glob after the
+              // initial exact run, so a guarded plan here always has at least
+              // two exact segments.
+              val tailNel = NonEmptyList.fromListUnsafe(tail)
+              compileLeadingListSearchSegment(
+                arg,
+                segment,
+                ListSearchPlan(tailNel, plan.trailingGlob),
+                guardFn(_)
+              )
+          }
+      }
 
     case class InlinedStructRoot(fields: Vector[CheapExpr[B]]) {
       def toExpr: Expr[B] =
@@ -3776,33 +4725,37 @@ object Matchless {
         arg: CheapExpr[B],
         pat: Pattern[(PackageName, Constructor), Type],
         mustMatch: Boolean,
-        rootInlined: Option[InlinedStructRoot]
+        rootInlined: Option[InlinedStructRoot],
+        candidateGuard: Option[CandidateGuard]
     ): F[UnionMatch] = {
+      def finish(result: F[UnionMatch]): F[UnionMatch] =
+        result.flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
+
       pat match {
         case Pattern.WildCard =>
           // this is a total pattern
-          Monad[F].pure(wildMatch)
+          finish(Monad[F].pure(wildMatch))
         case Pattern.Literal(lit) =>
           val cond =
             if (mustMatch) TrueConst
             else EqualsLit(arg, lit)
-          Monad[F].pure(NonEmptyList((Nil, cond, Nil), Nil))
+          finish(Monad[F].pure(NonEmptyList((Nil, cond, Nil), Nil)))
         case Pattern.Var(v) =>
-          Monad[F].pure(
+          finish(Monad[F].pure(
             NonEmptyList(
               (Nil, TrueConst, (v, bindOccurrenceValue(arg, rootInlined)) :: Nil),
               Nil
             )
-          )
+          ))
         case Pattern.Named(v, p) =>
-          doesMatch(arg, p, mustMatch, rootInlined).map(_.map {
+          finish(doesMatch(arg, p, mustMatch, rootInlined, None).map(_.map {
             case (l0, cond, bs) =>
               (l0, cond, (v, bindOccurrenceValue(arg, rootInlined)) :: bs)
-          })
+          }))
         case strPat @ Pattern.StrPat(items) =>
           strPat.simplify match {
             case Some(simpler) =>
-              doesMatch(arg, simpler, mustMatch, rootInlined)
+              doesMatch(arg, simpler, mustMatch, rootInlined, candidateGuard)
             case None          =>
               val sbinds: List[Bindable] =
                 items.toList
@@ -3821,96 +4774,53 @@ object Matchless {
                 case Pattern.StrPart.LitStr(s)    => StrPart.LitStr(s)
               }
 
-              sbinds
-                .traverse { b =>
+              for {
+                binds <- sbinds.traverse { b =>
                   makeAnon.map(LocalAnonMut(_)).map((b, _))
                 }
-                .flatMap { binds =>
-                  val ms = binds.map(_._2)
-                  StringMatcher(
-                    arg,
-                    pat,
-                    ms.toIndexedSeq,
-                    0,
-                    mustMatch,
-                    makeAnon,
-                    from,
-                    variantOf
-                  )
-                    .map { cond =>
-                      NonEmptyList.one((ms, cond, binds))
-                    }
-                }
+                ms = binds.map(_._2)
+                onPureMatch =
+                  applyOptionalCandidateGuard(TrueConst, binds, candidateGuard)
+                cond <- StringMatcher(
+                  arg,
+                  pat,
+                  ms.toIndexedSeq,
+                  0,
+                  mustMatch,
+                  onPureMatch,
+                  makeAnon,
+                  from,
+                  variantOf
+                )
+              } yield NonEmptyList.one((ms, cond, binds))
           }
         case lp @ Pattern.ListPat(_) =>
           Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
             case Right(p) =>
               // rootInlined = None: list patterns match enum constructors, not root structs.
-              doesMatch(arg, p, mustMatch, None)
+              doesMatch(arg, p, mustMatch, None, candidateGuard)
             case Left(
                   (glob, right @ NonEmptyList(Pattern.ListPart.Item(_), _))
                 ) =>
               exactMiddleItems(right) match {
                 case Some((middleItems, rightGlob)) =>
-                  exactMiddleListSearch(arg, glob, middleItems, rightGlob)
+                  exactMiddleListSearch(
+                    arg,
+                    glob,
+                    middleItems,
+                    rightGlob,
+                    candidateGuard
+                  )
                 case None =>
                   exactTrailingItems(right) match {
                     case Some(exactItems) =>
-                      exactTrailingListSearch(arg, glob, exactItems)
+                      finish(exactTrailingListSearch(arg, glob, exactItems))
                     case None             =>
-                      // we have a non-trailing list pattern
-                      // to match, this becomes a search problem
-                      // we loop over all the matches of p in the list,
-                      // then we put the prefix on the glob, and the suffix against
-                      // the tail.
-                      //
-                      // we know all the bindings we will make, allocate
-                      // anons for them, do the loop, and then return
-                      // the boolean of did we match
-                      val leftF = prepareLeftGlob(glob)
-
-                      (leftF, makeAnon).tupled
-                        .flatMap { case (optAnonLeft, tmpList) =>
-                          val anonList = LocalAnonMut(tmpList)
-                          // rootInlined = None: we match the derived suffix list, not the root.
-                          doesMatch(anonList, Pattern.ListPat(right.toList), false, None)
-                            .flatMap { cases =>
-                              cases.traverse {
-                                case (_, TrueConst, _) =>
-                                  // $COVERAGE-OFF$
-
-                                  // this shouldn't be possible, since there are no total list matches with
-                                  // one item since we recurse on a ListPat with the first item being Right
-                                  // which as we can see above always returns Some(_)
-                                  throw new IllegalStateException(
-                                    s"$right should not be a total match"
-                                  )
-                                // $COVERAGE-ON$
-                                case (preLet, expr, binds) =>
-                                  val letTail = anonList :: preLet
-
-                                  val (resLet, leftOpt, resBind) =
-                                    optAnonLeft match {
-                                      case Some((anonLeft, ln)) =>
-                                        val revList =
-                                          applyArgs(
-                                            reverseFn(from),
-                                            NonEmptyList.one(anonLeft)
-                                          )
-                                        (
-                                          anonLeft :: letTail,
-                                          Some(anonLeft),
-                                          (ln, revList) :: binds
-                                        )
-                                      case None =>
-                                        (letTail, None, binds)
-                                    }
-
-                                  searchList(anonList, arg, expr, leftOpt)
-                                    .map(s => (resLet, s, resBind))
-                              }
-                            }
-                        }
+                      compileListSearchPlan(
+                        arg,
+                        buildListSearchPlan(glob, right),
+                        candidateGuard
+                      )
                   }
               }
             case Left(
@@ -3928,28 +4838,32 @@ object Matchless {
                     arg,
                     Pattern.ListPat(right.toList),
                     mustMatch,
-                    None
+                    None,
+                    candidateGuard
                   )
                 case Pattern.ListPart.NamedList(ln) =>
                   // bind empty to ln
-                  doesMatch(
-                    arg,
-                    Pattern.ListPat(right.toList),
-                    mustMatch,
-                    None
-                  )
-                    .map { nel =>
+                  finish(
+                    doesMatch(
+                      arg,
+                      Pattern.ListPat(right.toList),
+                      mustMatch,
+                      None,
+                      None
+                    )
+                      .map { nel =>
                       nel.map { case (preLet, expr, binds) =>
                         (preLet, expr, (ln, emptyExpr) :: binds)
                       }
-                    }
+                      }
+                  )
               }
             // $COVERAGE-ON$
           }
 
         case Pattern.Annotation(p, _) =>
           // we discard types at this point
-          doesMatch(arg, p, mustMatch, rootInlined)
+          doesMatch(arg, p, mustMatch, rootInlined, candidateGuard)
         case Pattern.PositionalStruct((pack, cname), params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
@@ -3979,7 +4893,7 @@ object Matchless {
                     nm <- WriterT.valueT[F, Locals, Long](makeAnon)
                     lam = LocalAnonMut(nm)
                     um <- WriterT.valueT[F, Locals, UnionMatch](
-                      doesMatch(lam, pat, mustMatch, None)
+                      doesMatch(lam, pat, mustMatch, None, None)
                     )
                     // if this is a total match, we don't need to do the getter at all
                     chain =
@@ -4022,8 +4936,8 @@ object Matchless {
           variantOf(pack, cname) match {
             case Some(dr) =>
               dr match {
-                case DataRepr.Struct(size)        => forStruct(size)
-                case DataRepr.NewType             => forStruct(1)
+                case DataRepr.Struct(size)        => finish(forStruct(size))
+                case DataRepr.NewType             => finish(forStruct(1))
                 case DataRepr.Enum(vidx, size, f) =>
                   // if we match the variant, then treat it as a struct
                   val cv: BoolExpr[B] =
@@ -4053,11 +4967,12 @@ object Matchless {
                         }
                       }
                     }
+                    .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
                 case DataRepr.ZeroNat =>
                   val cv: BoolExpr[B] =
                     if (mustMatch) TrueConst
                     else EqualsNat(arg, DataRepr.ZeroNat)
-                  Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil))
+                  finish(Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil)))
                 case DataRepr.SuccNat =>
                   params match {
                     case single :: Nil =>
@@ -4072,29 +4987,33 @@ object Matchless {
                       }
 
                       if (!ignoreInner) {
-                        for {
-                          nm <- makeAnon
-                          loc = LocalAnonMut(nm)
-                          prev = PrevNat(arg)
-                          // rootInlined = None: we match the predecessor occurrence, not the root.
-                          rest <- doesMatch(loc, single, mustMatch, None)
-                        } yield rest.map { case (preLets, cond, res) =>
-                          (
-                            loc :: preLets,
-                            check && SetMut(loc, prev) && cond,
-                            res
-                          )
-                        }
+                        (
+                          for {
+                            nm <- makeAnon
+                            loc = LocalAnonMut(nm)
+                            prev = PrevNat(arg)
+                            // rootInlined = None: we match the predecessor occurrence, not the root.
+                            rest <- doesMatch(loc, single, mustMatch, None, None)
+                          } yield rest.map { case (preLets, cond, res) =>
+                            (
+                              loc :: preLets,
+                              check && SetMut(loc, prev) && cond,
+                              res
+                            )
+                          }
+                        ).flatMap(
+                          applyCandidateGuardToUnionMatch(_, candidateGuard)
+                        )
                       } else {
                         // we don't need to bind the prev
-                        Monad[F].pure(wildMatch.map {
+                        finish(Monad[F].pure(wildMatch.map {
                           case (preLets, cond, res) =>
                             (
                               preLets,
                               check && cond,
                               res
                             )
-                        })
+                        }))
                       }
                     case other =>
                       // $COVERAGE-OFF$
@@ -4118,7 +5037,9 @@ object Matchless {
           )
           ((h :: ts)
             .zip(unionMustMatch))
-            .traverse { case (p, mm) => doesMatch(arg, p, mm, rootInlined) }
+            .traverse { case (p, mm) =>
+              doesMatch(arg, p, mm, rootInlined, None)
+            }
             .map { nene =>
               val nel = nene.flatten
               // at the first total match, we can stop
@@ -4127,6 +5048,7 @@ object Matchless {
                 case _                 => false
               }
             }
+            .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
       }
     }
 
@@ -4244,22 +5166,7 @@ object Matchless {
     def isNonOrthogonal(
         p: Pattern[(PackageName, Constructor), Type]
     ): Boolean =
-      p match {
-        case Pattern.Annotation(p1, _) => isNonOrthogonal(p1)
-        case Pattern.Named(_, p1)      => isNonOrthogonal(p1)
-        case Pattern.Var(_) | Pattern.WildCard | Pattern.Literal(_) =>
-          false
-        case sp @ Pattern.StrPat(_)  => sp.simplify.isEmpty
-        case lp @ Pattern.ListPat(_) =>
-          Pattern.ListPat.toPositionalStruct(lp, empty, cons) match {
-            case Right(p1) => isNonOrthogonal(p1)
-            case Left(_)   => true
-          }
-        case Pattern.PositionalStruct(_, ps) =>
-          ps.exists(isNonOrthogonal)
-        case Pattern.Union(h, t) =>
-          isNonOrthogonal(h) || t.exists(isNonOrthogonal)
-      }
+      p.isSearchPattern
 
     // Pull off aliases and bindings that capture the whole occurrence.
     // This keeps the matrix focused on refutable structure.
@@ -4816,6 +5723,11 @@ object Matchless {
         // Normalize to simplify list/string patterns while preserving
         // ordered semantics for non-orthogonal matches.
         val head1 = head.copy(pattern = normalizePattern(head.pattern))
+        val candidateGuard =
+          head1.guard.map { guard =>
+            (binds: List[(Bindable, Expr[B])]) =>
+              guardToBoolExpr(lets(retainReferencedBinds(guard, binds), guard))
+          }
 
         def loop(
             cbs: NonEmptyList[
@@ -4824,18 +5736,12 @@ object Matchless {
         ): F[Expr[B]] =
           cbs match {
             case NonEmptyList((b0, cond, binds), others) =>
-              val thisBranch = lets(binds, head1.rhs)
+              val thisBranch =
+                lets(retainReferencedBinds(head1.rhs, binds), head1.rhs)
 
               val hasFallback = others.nonEmpty || branches.tail.nonEmpty
               val resF =
                 if (hasFallback) {
-                  val condF =
-                    head1.guard match {
-                      case None =>
-                        Monad[F].pure(cond)
-                      case Some(guard) =>
-                        guardToBoolExpr(lets(binds, guard)).map(cond && _)
-                    }
                   lazy val fallbackF: F[Expr[B]] =
                     others match {
                       case oh :: ot =>
@@ -4843,34 +5749,29 @@ object Matchless {
                       case Nil =>
                         recur(arg, NonEmptyList.fromListUnsafe(branches.tail))
                     }
-                  (condF, fallbackF).mapN { (cond1, fallback) =>
-                    cond1 match {
+                  fallbackF.map { fallback =>
+                    cond match {
                       case TrueConst => thisBranch
-                      case _         => If(cond1, thisBranch, fallback)
+                      case _         => If(cond, thisBranch, fallback)
                     }
                   }
                 } else {
-                  head1.guard match {
-                    case None =>
-                      // this must be total, but we still need
-                      // to evaluate cond since it can have side effects.
-                      Monad[F].pure(always(cond, thisBranch))
-                    // $COVERAGE-OFF$
-                    case Some(_) =>
-                      // totality checking rejects a terminal guarded branch
-                      // with no fallback.
-                      Monad[F].pure(always(cond, thisBranch))
-                    // $COVERAGE-ON$
-                  }
+                  // this must be total, but we still need
+                  // to evaluate cond since it can have side effects.
+                  Monad[F].pure(always(cond, thisBranch))
                 }
 
               resF.map(letMutAll(b0, _))
           }
 
         val mustMatchPattern = branches.tail.isEmpty && head1.guard.isEmpty
-        doesMatch(arg, head1.pattern, mustMatchPattern, rootInlined).flatMap(
-          loop
-        )
+        doesMatch(
+          arg,
+          head1.pattern,
+          mustMatchPattern,
+          rootInlined,
+          candidateGuard
+        ).flatMap(loop)
       }
 
       recur(arg, branches)

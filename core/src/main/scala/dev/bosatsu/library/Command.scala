@@ -15,6 +15,7 @@ import dev.bosatsu.tool.{
   CommandSupport,
   CliException,
   CompilerApi,
+  LintMode,
   MarkdownDoc,
   Output,
   PathParseError,
@@ -154,7 +155,7 @@ object Command {
       Opts
         .option[P](
           "repo_root",
-          "the path to the root of the repo, if not set, search for .git directory"
+          "the path to the root of the repo, if not set, search for a .git entry"
         )
         .orNone
         .map {
@@ -166,7 +167,7 @@ object Command {
                 case None        =>
                   moduleIOMonad.raiseError(
                     CliException
-                      .Basic("could not find .git directory in parents.")
+                      .Basic("could not find a .git entry in parents.")
                   )
               }
         }
@@ -320,7 +321,7 @@ object Command {
                 } else {
                   val msg =
                     if (libSize == 0) {
-                      "no libraries configured. Run `lib init`"
+                      "no libraries configured. Run `init`"
                     } else {
                       show"more than one library, select one: ${libs.toMap.keys.toList.sorted.mkString(", ")}"
                     }
@@ -403,7 +404,7 @@ object Command {
         Some(platformIO.resolve(root, ".bosatsuc" :: "infer-cache" :: Nil))
       val noCacheFn: P => Option[P] = (_: P) => None
 
-      // Shared across all lib commands that invoke compiler inference/typechecking.
+      // Shared across top-level library commands that invoke inference/typechecking.
       // --cache_dir and --no_cache are mutually exclusive via orElse branches.
       Opts
         .option[P](
@@ -425,6 +426,25 @@ object Command {
         .orElse(Opts(defaultDirFn))
     }
 
+    val lintMode: Opts[LintMode] =
+      Opts
+        .flag(
+          "warn",
+          help =
+            "treat postponable lint diagnostics as warnings for `check` and `test`"
+        )
+        .as(LintMode.Warn)
+        .orElse(
+          Opts
+            .flag(
+              "lax",
+              help =
+                "suppress postponable lint diagnostics for `check` and `test`"
+            )
+            .as(LintMode.Lax)
+        )
+        .orElse(Opts(LintMode.Strict))
+
     case class ConfigConf(
         conf: LibConfig,
         cas: Cas[F, P],
@@ -441,7 +461,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `lib fetch`."
+                  show"missing dependency ${dep.name} ${Library.versionOrZero(dep)} in CAS, run `fetch`."
                 )
               )
             )
@@ -478,7 +498,7 @@ object Command {
                         desc
                       )).nested(2)).grouped +
                       Doc.line +
-                      Doc.text("run `lib fetch` to download it.")
+                      Doc.text("run `fetch` to download it.")
                   )
                 )
             }
@@ -517,7 +537,7 @@ object Command {
             platformIO
           )
           .map(
-            _.map { case (_, (packageName, imports, _)) =>
+            _.map { case (_, (packageName, imports, _, _)) =>
               (packageName, imports.map(_.pack))
             }
           )
@@ -601,8 +621,9 @@ object Command {
             colorize: Colorize,
             sourcePackageFilter: Option[PackageName => Boolean] = None,
             compileOptions: CompileOptions,
+            lintMode: LintMode,
             compileCacheDirOpt: Option[P] = None
-        ): F[PackageMap.Inferred] =
+        ): F[PackageMap.Compiled] =
           PathGen
             .recursiveChildren(confDir, ".bosatsu")(platformIO)
             .read
@@ -654,7 +675,7 @@ object Command {
                   case Some(inputNel) =>
                     platformIO
                       .withEC {
-                        CompilerApi.typeCheck(
+                        CompilerApi.typeCheckWithLintMode(
                           platformIO,
                           inputNel,
                           pubDecodes.flatMap(_.interfaces) ::: privDecodes
@@ -664,6 +685,7 @@ object Command {
                           colorize,
                           inputRes,
                           compileOptions,
+                          lintMode,
                           compileCacheDirOpt
                         )
                       }
@@ -813,6 +835,7 @@ object Command {
           colorize: Colorize,
           sourcePackageFilter: Option[PackageName => Boolean] = None,
           compileOptions: CompileOptions,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[LibConfig.ValidationResult] =
         for {
@@ -821,6 +844,7 @@ object Command {
             colorize,
             sourcePackageFilter,
             compileOptions,
+            lintMode,
             compileCacheDirOpt
           )
           res <- sourcePackageFilter match {
@@ -842,6 +866,7 @@ object Command {
       def decodedWithDeps(
           colorize: Colorize,
           compileOptions: CompileOptions,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -850,6 +875,7 @@ object Command {
             colorize,
             None,
             compileOptions,
+            lintMode,
             compileCacheDirOpt
           )
           validated = conf.validate(
@@ -871,6 +897,7 @@ object Command {
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
           compileOptions: CompileOptions,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -879,6 +906,7 @@ object Command {
             colorize,
             Some(sourcePackageFilter),
             compileOptions,
+            lintMode,
             compileCacheDirOpt
           )
           decWithLibs <- decodedWithDepsFromPackages(cs, allPacks, Nil)
@@ -886,7 +914,7 @@ object Command {
 
       private def decodedWithDepsFromPackages(
           cs: CheckState,
-          allPacks: PackageMap.Inferred,
+          allPacks: PackageMap.Compiled,
           unusedTransitiveDeps: List[proto.LibDependency]
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         for {
@@ -930,7 +958,7 @@ object Command {
                           Doc.text(
                             s"missing ${dep.name} $version"
                           ) + Doc.line + Doc.text(
-                            "run `lib fetch` to insert these libraries into the cas."
+                            "run `fetch` to insert these libraries into the cas."
                           )
                         )
                       )
@@ -943,12 +971,14 @@ object Command {
       def decodedWithDepsFilteredForTest(
           colorize: Colorize,
           sourcePackageFilter: PackageName => Boolean,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
         decodedWithDepsFiltered(
           colorize,
           sourcePackageFilter,
           CompileOptions.Default,
+          lintMode,
           compileCacheDirOpt
         )
 
@@ -956,6 +986,7 @@ object Command {
           colorize: Colorize,
           trans: Transpiler.Optioned[F, P],
           sourcePackageFilter: Option[PackageName => Boolean] = None,
+          lintMode: LintMode,
           compileCacheDirOpt: Option[P] = None
       ): F[Doc] =
         for {
@@ -964,12 +995,14 @@ object Command {
               decodedWithDeps(
                 colorize,
                 CompileOptions.Default,
+                lintMode,
                 compileCacheDirOpt
               )
             case Some(filter) =>
               decodedWithDepsFilteredForTest(
                 colorize,
                 filter,
+                lintMode,
                 compileCacheDirOpt
               )
           }
@@ -992,7 +1025,8 @@ object Command {
             colorize,
             None,
             CompileOptions.Default,
-            compileCacheDirOpt
+            LintMode.Strict,
+            compileCacheDirOpt = compileCacheDirOpt
           )
           validated = conf.assemble(
             vcsIdent = vcsIdent,
@@ -1031,7 +1065,7 @@ object Command {
               CliException(
                 "missing dep from cas",
                 Doc.text(
-                  show"missing public dependency $name $version in CAS, run `lib fetch`."
+                  show"missing public dependency $name $version in CAS, run `fetch`."
                 )
               )
             )
@@ -1472,7 +1506,7 @@ object Command {
                             DecodedLibrary[Algo.Blake3]
                           ]](
                             CliException.Basic(
-                              "missing previous public deps from CAS; run `lib fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
+                              "missing previous public deps from CAS; run `fetch`, pass --dep for these libraries, or use --fetch-prev-deps to download them."
                             )
                           )
                         }
@@ -1565,7 +1599,7 @@ object Command {
                 case None =>
                   moduleIOMonad.raiseError[List[proto.LibDependency]](
                     CliException.Basic(
-                      show"previous library ${dep.name} not found in CAS, run `lib fetch`."
+                      show"previous library ${dep.name} not found in CAS, run `fetch`."
                     )
                   )
               }
@@ -1594,16 +1628,24 @@ object Command {
         (
           ConfigConf.opts,
           sourceFilterOpt,
+          lintMode,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
-        ).mapN { (fcc, sourceFilter, cacheDirFn, colorize) =>
+        ).mapN { (fcc, sourceFilter, lintMode, cacheDirFn, colorize) =>
             for {
               cc <- fcc
               cacheDir = cacheDirFn(cc.gitRoot)
+              compileOptions =
+                lintMode match {
+                  case LintMode.Strict          => CompileOptions.NoOptimize
+                  case LintMode.Warn | LintMode.Lax =>
+                    CompileOptions.TypeCheckOnly
+                }
               _ <- cc.check(
                 colorize,
                 sourceFilter,
-                CompileOptions.TypeCheckOnly,
+                compileOptions,
+                lintMode,
                 cacheDir
               )
               msg = Doc.text("")
@@ -1729,7 +1771,8 @@ object Command {
                   colorize,
                   sourcePackageFilter,
                   CompileOptions.Default,
-                  cacheDir
+                  LintMode.Strict,
+                  compileCacheDirOpt = cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.evalExternals)
                 (scope, value, tpe) <- moduleIOMonad.fromEither {
@@ -1869,13 +1912,19 @@ object Command {
               for {
                 dec <- sourceFilterOpt match {
                   case None =>
-                    cc.decodedWithDeps(colorize, compileOptions, cacheDir)
+                    cc.decodedWithDeps(
+                      colorize,
+                      compileOptions,
+                      LintMode.Strict,
+                      compileCacheDirOpt = cacheDir
+                    )
                   case Some(sourceFilter) =>
                     cc.decodedWithDepsFiltered(
                       colorize,
                       sourceFilter,
                       compileOptions,
-                      cacheDir
+                      LintMode.Strict,
+                      compileCacheDirOpt = cacheDir
                     )
                 }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
@@ -2125,7 +2174,8 @@ object Command {
                 dec <- cc.decodedWithDeps(
                   colorize,
                   CompileOptions.Default,
-                  cacheDir
+                  LintMode.Strict,
+                  compileCacheDirOpt = cacheDir
                 )
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 evaluated <- moduleIOMonad.fromEither {
@@ -2423,6 +2473,7 @@ object Command {
                 msg <- cc.build(
                   colorize,
                   trans,
+                  lintMode = LintMode.Strict,
                   compileCacheDirOpt = cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])
@@ -2482,6 +2533,7 @@ object Command {
             ConfigConf.opts,
             // we want to run the test after generating it
             ClangTranspiler.Mode.testOpts[F](executeOpts = Opts(true)),
+            lintMode,
             clangOut,
             ClangTranspiler.EmitMode.opts,
             ClangTranspiler.GenExternalsMode.opts,
@@ -2490,7 +2542,7 @@ object Command {
           ).tupled
 
         (testArgs, Colorize.optsConsoleDefault).mapN {
-          case ((fcc, test, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
+          case ((fcc, test, lintMode, out, emit, gen, cacheDirFn, outDirOpt), colorize) =>
             def runtimePreflight(
                 output: ClangTranspiler.Output[F, P]
             ): F[ClangTranspiler.Output[F, P]] =
@@ -2508,7 +2560,7 @@ object Command {
                       val detail = Option(err.getMessage).getOrElse(err.toString)
                       moduleIOMonad.raiseError(
                         CliException.Basic(
-                          show"runtime readiness preflight failed before running `lib test`.\n\n$detail"
+                          show"runtime readiness preflight failed before running `test`.\n\n$detail"
                         )
                       )
                   }
@@ -2542,6 +2594,7 @@ object Command {
                   colorize,
                   trans,
                   test.sourceFilter,
+                  lintMode,
                   cacheDirFn(cc.gitRoot)
                 )
               } yield (Output.Basic(msg, None): Output[P])
@@ -2682,20 +2735,22 @@ object Command {
         }
       }
 
+    // Decline help preserves the left-to-right construction order, so keep this
+    // list aligned with the canonical top-level command surface.
     MonoidK[Opts].combineAllK(
-      initCommand ::
-        listCommand ::
-        depsCommand ::
-        evalCommand ::
-        jsonCommand ::
-        showCommand ::
-        docCommand ::
-        assembleCommand ::
-        fetchCommand ::
-        checkCommand ::
-        buildCommand ::
+      checkCommand ::
         testCommand ::
+        buildCommand ::
+        jsonCommand ::
+        docCommand ::
         publishCommand ::
+        evalCommand ::
+        fetchCommand ::
+        depsCommand ::
+        listCommand ::
+        showCommand ::
+        assembleCommand ::
+        initCommand ::
         Nil
     )
   }
@@ -2868,7 +2923,7 @@ object Command {
                       Doc.text(
                         "missing "
                       ) + pubDoc + Doc.line + privDoc + Doc.line + Doc.text(
-                        "run `lib fetch` to insert these libraries into the cas."
+                        "run `fetch` to insert these libraries into the cas."
                       )
                     )
                   )

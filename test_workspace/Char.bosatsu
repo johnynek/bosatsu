@@ -48,17 +48,9 @@ def int_to_Char(code_point: Int) -> Option[Char]:
 def cmp_Char(a: Char, b: Char) -> Comparison:
   cmp_Int(char_to_Int(a), char_to_Int(b))
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
-def orb(left: Bool, right: Bool) -> Bool:
-  if left:
-    True
-  else:
-    right
+orb = or
 
 def lte_Int(left: Int, right: Int) -> Bool:
   cmp_Int(left, right) matches (LT | EQ)
@@ -223,7 +215,7 @@ def eq_ignore_ascii_case(left: Char, right: Char) -> Bool:
 
 def string_to_Char_List(s: String) -> List[Char]:
   def loop(remaining: String, rev_chars: List[Char]) -> List[Char]:
-    recur remaining:
+    loop remaining:
       case "":
         rev_chars.reverse()
       case "$.{c}${tail}":
@@ -236,7 +228,7 @@ def char_List_to_Int_List(chars: List[Char]) -> List[Int]:
 
 def int_List_to_Char_List(code_points: List[Int]) -> Option[List[Char]]:
   def loop(rest: List[Int], rev_chars: List[Char]) -> Option[List[Char]]:
-    recur rest:
+    loop rest:
       case []:
         Some(rev_chars.reverse())
       case [head, *tail]:

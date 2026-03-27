@@ -268,7 +268,7 @@ object Output {
       extends Output[Path]
 
   case class CompileOut[Path](
-      packList: List[Package.Typed[Any]],
+      packList: List[Package.Compiled],
       ifout: Option[Path],
       output: Option[Path]
   ) extends Output[Path]

@@ -42,6 +42,40 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+    val start = code.indexOf(mangledNameFragment)
+    assert(start >= 0, code)
+    val headerStart = code.lastIndexOf("BValue ", start)
+    assert(headerStart >= 0, code)
+    val nextFn = code.indexOf("\n\nBValue ", start)
+    val nextMain = code.indexOf("\n\nint main(", start)
+    val end =
+      List(nextFn, nextMain)
+        .filter(_ > headerStart)
+        .sorted
+        .headOption
+        .getOrElse(code.length)
+    code.slice(headerStart, end)
+  }
+
+  private def deadCTemps(code: String): Set[String] = {
+    val tempRe = raw"__bsts_(?:a_\d+|l_branch__res\d+|l_cond\d+)".r
+    val names = tempRe.findAllIn(code).toSet
+
+    def lineReads(name: String, line: String): Boolean = {
+      val trimmed = line.trim
+      if (trimmed.startsWith(s"BValue $name") || trimmed.startsWith(s"_Bool $name")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else if (trimmed.startsWith(s"$name =")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else line.contains(name)
+    }
+
+    names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
+  }
+
   def assertPredefFns(
       fns: String*
   )(matches: String)(implicit loc: munit.Location) =
@@ -177,6 +211,133 @@ main = foldr_local
     }
   }
 
+  test("guarded middle list search lowers to a scan loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+main = has_two
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_two"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val hasTwo = extractCFunction(rendered, "_l_has__two(BValue")
+
+        val loopPattern =
+          """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*BValue __bsts_a_\d+ = alloc_enum0\(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\);\s*if \(get_variant_value\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
+
+        assert(loopPattern.findFirstIn(hasTwo).nonEmpty, hasTwo)
+        assertEquals(deadCTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("segmented end-anchored list search lowers to one suffix-positioning loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+
+main = find_before_one
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("find_before_one"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val findBeforeOne = extractCFunction(rendered, "_l_find__before__one(BValue")
+        val whileCount = "while \\(".r.findAllMatchIn(findBeforeOne).length
+
+        assertEquals(whileCount, 2, findBeforeOne)
+        assert(
+          findBeforeOne.contains("__bsts_a_3 = get_enum_index(__bsts_a_3, 1);"),
+          findBeforeOne
+        )
+        assert(
+          findBeforeOne.contains("__bsts_a_2 = get_enum_index(__bsts_a_2, 1);"),
+          findBeforeOne
+        )
+        assert(
+          findBeforeOne.contains(
+            "bsts_integer_equals(__bsts_a_6,\n                        bsts_integer_from_int(1)) && (get_variant(__bsts_a_7) == 0);"
+          ),
+          findBeforeOne
+        )
+        assertEquals(deadCTemps(findBeforeOne), Set.empty, findBeforeOne)
+    }
+  }
+
+  test("segmented string search lowers cleanly in C") {
+    val hasFooPm = typeCheckPackage("""package Test
+
+def has_foo(s):
+  s matches "${_}foo${_}"
+
+main = has_foo
+""")
+    val fooBeforeBarPm = typeCheckPackage("""package Test
+
+def foo_before_bar(s):
+  s matches "${_}foo${_}bar"
+
+main = foo_before_bar
+""")
+    val hasFooRenderedE = Par.withEC {
+      ClangGen(hasFooPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_foo"),
+        Code.Ident("run_main")
+      )
+    }
+    val fooBeforeBarRenderedE = Par.withEC {
+      ClangGen(fooBeforeBarPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("foo_before_bar"),
+        Code.Ident("run_main")
+      )
+    }
+
+    (hasFooRenderedE, fooBeforeBarRenderedE) match {
+      case (Right(hasFooDoc), Right(fooBeforeBarDoc)) =>
+        val hasFoo = extractCFunction(hasFooDoc.render(120), "_l_has__foo(BValue")
+        val fooBeforeBar =
+          extractCFunction(fooBeforeBarDoc.render(120), "_l_foo__before__bar(BValue")
+
+        assertEquals("while \\(".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
+        assert(hasFoo.contains("foo"), hasFoo)
+        assertEquals(deadCTemps(hasFoo), Set.empty, hasFoo)
+
+        assertEquals("while \\(".r.findAllMatchIn(fooBeforeBar).length, 2, fooBeforeBar)
+        assert(fooBeforeBar.contains("foo"), fooBeforeBar)
+        assert(fooBeforeBar.contains("bar"), fooBeforeBar)
+        assertEquals(deadCTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+      case (Left(err), _) =>
+        fail(err.toString)
+      case (_, Left(err)) =>
+        fail(err.toString)
+    }
+  }
+
   test("top-level unit-arg function compiles to direct C function") {
     TestUtils.checkPackageMap("""
 enum Nat:
@@ -184,7 +345,7 @@ enum Nat:
   S(prev: Nat)
 
 def source(n):
-  recur n:
+  loop n:
     case Z: 0
     case S(prev): source(prev)
 
@@ -251,7 +412,7 @@ enum MaybeL:
   None
 
 def mk(n):
-  recur n:
+  loop n:
     case Z: Some(N(D0, N(D1, N(D2, N(D3, N(D4, E))))))
     case S(prev): mk(prev)
 
@@ -336,15 +497,16 @@ main = pick
             if (mainStart > pickStart) rendered.slice(pickStart, mainStart)
             else rendered.drop(pickStart)
 
-          val firstIf = pickFn.indexOf("if (")
-          assert(firstIf >= 0, pickFn)
+          val firstDiscriminatingCheck =
+            pickFn.indexOf("bsts_integer_equals(__bsts_a_1")
+          assert(firstDiscriminatingCheck >= 0, pickFn)
           val firstWideProj =
             "get_struct_index\\([^\\n]*, 2\\)".r
               .findFirstMatchIn(pickFn)
               .map(_.start)
               .getOrElse(-1)
           assert(firstWideProj >= 0, pickFn)
-          assert(firstWideProj > firstIf, pickFn)
+          assert(firstWideProj > firstDiscriminatingCheck, pickFn)
       }
     }
   }
@@ -568,6 +730,20 @@ main = pick
         |operator - = sub
         |operator * = mul
         |
+        |def int_loop(i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+        |  loop i:
+        |    case _ if cmp_Int(i, 0) matches GT:
+        |      (next_i, next_state) = fn(i, state)
+        |      if cmp_Int(next_i, 0) matches GT:
+        |        if cmp_Int(next_i, i) matches LT:
+        |          int_loop(next_i, next_state, fn)
+        |        else:
+        |          next_state
+        |      else:
+        |        next_state
+        |    case _:
+        |      state
+        |
         |def sum(fn, n):
         |  int_loop(n, 0, (i, r) ->
         |    i = i - 1
@@ -599,13 +775,13 @@ main = pick
         )
         assert(
           rendered.contains(
-            "___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,"
+            "___bsts_g_Euler_l_P6_l_int__loop(__bsts_b_n0,"
           )
         )
         val boxedLambda = "alloc_boxed_pure_fn2\\(__bsts_t_lambda\\d+\\)".r
         assert(boxedLambda.findFirstIn(rendered).nonEmpty)
         assert(
-          !rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop")
+          !rendered.contains("call_fn2(___bsts_g_Euler_l_P6_l_int__loop")
         )
     }
   }

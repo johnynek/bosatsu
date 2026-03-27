@@ -22,14 +22,19 @@ def oi(opt):
     case None: "None"
     case Some(v): "Some(${i(v)})"
 
-def notb(a):
-  match a:
-    case True: False
-    case False: True
-def andb(a, b):
-  match a:
-    case True: b
-    case False: False
+notb = not
+andb = and
+
+test_bool = TestSuite("Bool tests", [
+  Assertion(and(True, True), "and(True, True)"),
+  Assertion(and(True, False) matches False, "and(True, False)"),
+  Assertion(and(False, True) matches False, "and(False, True)"),
+  Assertion(or(False, False) matches False, "or(False, False)"),
+  Assertion(or(False, True), "or(False, True)"),
+  Assertion(or(True, False), "or(True, False)"),
+  Assertion(not(True) matches False, "not(True)"),
+  Assertion(not(False), "not(False)"),
+])
 
 test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2 got: ${i(4 % -3)}"),
@@ -114,6 +119,19 @@ test_int = TestSuite("Int tests", [
       Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
 
+test_cmp_eq = TestSuite("Comparison/equality tests", [
+  Assertion(cmp_Bool(False, False) matches EQ, "cmp_Bool EQ"),
+  Assertion(cmp_Bool(False, True) matches LT, "cmp_Bool LT"),
+  Assertion(cmp_Bool(True, False) matches GT, "cmp_Bool GT"),
+  Assertion(eq_Bool(True, True), "eq_Bool true"),
+  Assertion(notb(eq_Bool(True, False)), "eq_Bool false"),
+  Assertion(cmp_Comparison(LT, EQ) matches LT, "cmp_Comparison LT"),
+  Assertion(cmp_Comparison(EQ, EQ) matches EQ, "cmp_Comparison EQ"),
+  Assertion(cmp_Comparison(GT, LT) matches GT, "cmp_Comparison GT"),
+  Assertion(eq_Comparison(GT, GT), "eq_Comparison true"),
+  Assertion(notb(eq_Comparison(LT, GT)), "eq_Comparison false"),
+])
+
 def cmp_to_int(c: Comparison) -> Int:
   match c:
     case LT: -1
@@ -124,7 +142,7 @@ def cmp_char(left: Char, right: Char) -> Comparison:
   cmp_Int(char_to_Int(left), char_to_Int(right))
 
 def cmp_string_model(left: String, right: String) -> Comparison:
-  recur (left, right):
+  loop (left, right):
     case ("", ""): EQ
     case ("", _): LT
     case (_, ""): GT
@@ -142,7 +160,7 @@ def cmp_string_matches_model(left: String, right: String) -> Bool:
   ) matches EQ
 
 def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
-  recur rights:
+  loop rights:
     case []: True
     case [right, *tail]:
       if cmp_string_matches_model(left, right):
@@ -151,7 +169,7 @@ def cmp_string_row_law(left: String, rights: List[String]) -> Bool:
         False
 
 def cmp_string_matrix_law(lefts: List[String], rights: List[String]) -> Bool:
-  recur lefts:
+  loop lefts:
     case []: True
     case [left, *tail]:
       if cmp_string_row_law(left, rights):
@@ -200,6 +218,8 @@ cmp_string_samples = [
 ]
 
 test_string = TestSuite("String tests", [
+  Assertion(eq_String("foo", "foo"), "eq_String equal"),
+  Assertion(notb(eq_String("foo", "food")), "eq_String unequal"),
   Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
   Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
   Assertion("foo".partition_String("x") matches None, "foo partition_String x"),
@@ -267,7 +287,13 @@ test_string = TestSuite("String tests", [
     "unicode literal candidate miss then hit"),
 ])
 
-def eqf(a, b): cmp_Float64(a, b) matches EQ
+test_list = TestSuite("List tests", [
+  Assertion(length_List([]) matches 0, "length_List empty"),
+  Assertion(length_List([1, 2, 3]) matches 3, "length_List items"),
+  Assertion(length_List(["a", "b"]) matches 2, "length_List polymorphic"),
+])
+
+def eqf(a, b): eq_Float64(a, b)
 def eqi(a, b): cmp_Int(a, b) matches EQ
 def eqb(a, b):
   if a:
@@ -276,7 +302,7 @@ def eqb(a, b):
     notb(b)
 
 def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
-  recur (left, right):
+  loop (left, right):
     case ([], []): True
     case ([lh, *lt], [rh, *rt]) if eqi(lh, rh):
       eq_int_list(lt, rt)
@@ -284,7 +310,7 @@ def eq_int_list(left: List[Int], right: List[Int]) -> Bool:
 
 def split_last_loop(items: List[Int]) -> Option[(List[Int], Int)]:
   def loop_split(rem: List[Int], rev_init: List[Int]) -> Option[(List[Int], Int)]:
-    recur rem:
+    loop rem:
       case []:
         None
       case [last]:
@@ -453,7 +479,8 @@ test_float = TestSuite("Float tests", [
   Assertion(eqf(subf(5.5, 2.25), 3.25), "subf"),
   Assertion(eqf(mulf(1.5, 2.0), 3.0), "mulf"),
   Assertion(eqf(divf(7.5, 2.5), 3.0), "divf"),
-  Assertion(eqf(.NaN, nan0), "nan equality"),
+  Assertion(eq_Float64(.NaN, nan0), "nan equality"),
+  Assertion(notb(eq_Float64(1.0, 2.0)), "float inequality"),
   Assertion(eqf(1_234.5_6, 1234.56), "underscore parsing"),
   Assertion(eqf(.5, 0.5), "leading dot"),
   Assertion(eqf(5., 5.0), "trailing dot"),
@@ -519,8 +546,11 @@ test_float = TestSuite("Float tests", [
 ])
 
 test = TestSuite("Predef tests", [
+    test_bool,
     test_int,
+    test_cmp_eq,
     test_string,
+    test_list,
     test_list_patterns,
     test_float,
 ])

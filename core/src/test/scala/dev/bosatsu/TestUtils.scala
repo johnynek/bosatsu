@@ -1,12 +1,15 @@
 package dev.bosatsu
 
-import cats.Order
+import cats.{Order, Show}
 import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec}
 import java.nio.file.{Files, Paths}
+import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.rankn._
 import dev.bosatsu.tool.Output
 import munit.Assertions.{assertEquals, fail}
 import IorMethods.IorExtension
+import scala.collection.mutable
+import scala.collection.immutable.SortedMap
 
 import cats.syntax.all._
 
@@ -58,6 +61,35 @@ object TestUtils {
     List[Statement]
   ]
 
+  private val predefInterface: Package.Interface =
+    Package.interfaceOf(PackageMap.predefCompiled)
+
+  private def importAllPredef[A](
+      pack: A
+  ): Import[A, NonEmptyList[Referant[Kind.Arg]]] = {
+    val items =
+      predefInterface.exports
+        .groupBy(_.name)
+        .iterator
+        .map { case (name, exports) =>
+          ImportedName.OriginalName(
+            name,
+            NonEmptyList.fromListUnsafe(exports.map(_.tag))
+          )
+        }
+        .toList
+
+    Import(pack, NonEmptyList.fromListUnsafe(items))
+  }
+
+  private val predefResolvedImport
+      : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(predefInterface)
+
+  private val predefSourceImport
+      : Import[PackageName, NonEmptyList[Referant[Kind.Arg]]] =
+    importAllPredef(PackageName.PredefName)
+
   def sourceConvertedProgramOf(
       pack: PackageName,
       str: String
@@ -103,7 +135,9 @@ object TestUtils {
       statement: String
   )(fn: TypedExpr[Declaration] => A): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -131,7 +165,7 @@ object TestUtils {
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val sourceConverted =
-      SourceConverter.toProgram(testPackage, Nil, stmts) match {
+      SourceConverter.toProgram(testPackage, predefSourceImport :: Nil, stmts) match {
         case Ior.Right(prog)   => prog
         case Ior.Both(_, prog) => prog
         case Ior.Left(errs)    =>
@@ -140,15 +174,11 @@ object TestUtils {
 
     val Program((importedTypeEnv, parsedTypeEnv0), lets, _, _) = sourceConverted
     val parsedTypeEnv =
-      KindFormula
-        .solveShapesAndKinds(
-          importedTypeEnv,
-          parsedTypeEnv0.allDefinedTypes.reverse
-        ) match {
+      KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0) match {
         case Ior.Right(inferred)   =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Both(_, inferred) =>
-          ParsedTypeEnv(inferred, parsedTypeEnv0.externalDefs)
+          inferred
         case Ior.Left(errs)        =>
           fail(s"kind inference failed: ${errs.toList.mkString(", ")}")
       }
@@ -179,7 +209,8 @@ object TestUtils {
         .runFully(
           withFqn,
           importedTypeEnv.typeConstructors ++ typeEnv.typeConstructors,
-          fullTypeEnv.toKindMap
+          fullTypeEnv.toKindMap,
+          fullTypeEnv.allTypeAliases.iterator.map(ta => ta.toTypeConst -> ta).toMap
         )
     val typedLets =
       typedLetsEither.fold(
@@ -196,7 +227,9 @@ object TestUtils {
       fn: PackageMap.Typed[Declaration] => A
   ): A = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
-    Package.inferBodyUnopt(testPackage, Nil, Nil, stmts).strictToValidated match {
+    Package
+      .inferBodyUnopt(testPackage, predefResolvedImport :: Nil, Nil, stmts)
+      .strictToValidated match {
       case Validated.Invalid(errs) =>
         val lm = LocationMap(statement)
         val packMap = Map((testPackage, (lm, statement)))
@@ -213,7 +246,7 @@ object TestUtils {
         val pack: Package.Typed[Declaration] =
           Package(testPackage, Nil, Nil, (normalized, ImportMap.empty))
         val pm: PackageMap.Typed[Declaration] =
-          PackageMap.empty + pack + PackageMap.predefCompiled
+          PackageMap.empty + pack + PackageMap.predefInferred
         assertPackageMapTypeConnections(pm, "optimized")
         fn(pm)
     }
@@ -259,6 +292,69 @@ object TestUtils {
     val pm = res.right.get
     assertPackageMapTypeConnections(pm, "optimized")
     pm
+  }
+
+  // Test-only helper for cases that need Declaration-tagged packages after
+  // finish phases. Production code should use the compiled artifact boundary.
+  def typeCheckParsedInferred[A: Show](
+      packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
+      ifs: List[Package.Interface],
+      predefKey: A,
+      compileOptions: CompileOptions
+  )(implicit
+      cpuEC: Par.EC
+  ): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
+    import Par.F
+
+    val capturedLock = new AnyRef
+    val captured = mutable.HashMap.empty[PackageName, Package.Inferred]
+    val defaultPhases = InferPhases.default
+    val capturePhases = new InferPhases {
+      val id: String = defaultPhases.id
+
+      def dependencyInterface(pack: Package.Typed[Any]): Package.Interface =
+        defaultPhases.dependencyInterface(pack)
+
+      def finishPackage(
+          pack: Package.Inferred,
+          depIfaces: SortedMap[PackageName, Package.Interface],
+          compileOptions: CompileOptions
+      ): Package.Inferred = {
+        val finished =
+          defaultPhases.finishPackage(pack, depIfaces, compileOptions)
+        capturedLock.synchronized {
+          captured.update(finished.name, finished)
+        }
+        finished
+      }
+    }
+
+    def toInferredMap(compiled: PackageMap.Compiled): PackageMap.Inferred =
+      PackageMap(
+        SortedMap.from(
+          compiled.toMap.keysIterator.map { name =>
+            name -> capturedLock.synchronized {
+              captured.getOrElse(
+                name,
+                sys.error(
+                  s"invariant violation: missing captured inferred package for $name"
+                )
+              )
+            }
+          }
+        )
+      )
+
+    Par.await(
+      PackageMap.typeCheckParsed[F, A](
+        packs,
+        ifs,
+        predefKey,
+        compileOptions,
+        InferCache.noop[F, CompileCache.GenerateKeyInput, Package.Compiled],
+        capturePhases
+      )
+    ).map(toInferredMap)
   }
 
   def makeInputArgs(files: List[(Chain[String], Any)]): List[String] =
@@ -373,7 +469,7 @@ object TestUtils {
   def testInferred(
       packages: List[String],
       mainPackS: String,
-      inferredHandler: (PackageMap.Inferred, PackageName) => Unit
+      inferredHandler: (PackageMap.Compiled, PackageName) => Unit
   )(implicit ec: Par.EC) = {
     val mainPack = PackageName.parse(mainPackS).get
 

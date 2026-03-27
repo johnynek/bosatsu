@@ -61,7 +61,7 @@ trait PlatformIO[F[_], Path] {
       case None    => moduleIOMonad.raiseError(msg)
     }
 
-  def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]]
+  def readPackages(paths: List[Path]): F[List[Package.Compiled]]
   def readInterfaces(paths: List[Path]): F[List[Package.Interface]]
   def readLibrary(path: Path): F[Hashed[Algo.Blake3, proto.Library]]
 
@@ -85,6 +85,13 @@ trait PlatformIO[F[_], Path] {
   def resolve(p: Path, child: String): Path
   def resolve(p: Path, child: Path): Path
   def relativize(prefix: Path, deeper: Path): Option[Path]
+  def parent(p: Path): Option[Path]
+
+  final def hasGitMetadataEntry(dir: Path): F[Boolean] =
+    fsDataType(resolve(dir, ".git")).map {
+      case Some(_) => true
+      case None    => false
+    }
 
   def resolveFile(root: Path, pack: PackageName): F[Option[Path]] = {
     val dir = resolve(root, pack.parts.init)
@@ -111,20 +118,29 @@ trait PlatformIO[F[_], Path] {
 
   def gitShaHead: F[String]
 
-  def gitTopLevel: F[Option[Path]] = {
+  final def gitTopLevelFrom(start: Path): F[Option[Path]] = {
     def searchStep(current: Path): F[Either[Path, Option[Path]]] =
       fsDataType(current).flatMap {
         case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
+          hasGitMetadataEntry(current).map {
+            case true => Right(Some(current))
+            case false =>
+              parent(current) match {
+                case Some(next) if !pathOrdering.equiv(next, current) =>
+                  Left(next)
+                case _ =>
+                  Right(None)
+              }
+          }
         case _ => moduleIOMonad.pure(Right(None))
       }
 
+    moduleIOMonad.tailRecM(start)(searchStep)
+  }
+
+  def gitTopLevel: F[Option[Path]] = {
     path(".") match {
-      case Valid(a)   => moduleIOMonad.tailRecM(a)(searchStep)
+      case Valid(a)   => gitTopLevelFrom(a)
       case Invalid(e) =>
         moduleIOMonad.raiseError(
           new Exception(s"could not find current directory: $e")
@@ -152,7 +168,7 @@ trait PlatformIO[F[_], Path] {
   def writeBytes(path: Path, bytes: Array[Byte]): F[Unit]
 
   def writeLibrary(lib: proto.Library, path: Path): F[Unit]
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): F[Unit]
+  def writePackages(packages: List[Package.Compiled], path: Path): F[Unit]
 
   /** Create a temporary directory with the given prefix, run the function, then
     * delete the directory (best-effort) before returning the original result.

@@ -45,14 +45,13 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
     }
 
   override def beforeAll(): Unit = {
-    run("lib", "fetch", "--name", "core_alpha"): Unit
+    run("fetch", "--name", "core_alpha"): Unit
     ()
   }
 
   workflowCases.foreach { case (workflowFile, mainValue) =>
-    test(s"lib json write matches .github/workflows/$workflowFile") {
+    test(s"json write matches .github/workflows/$workflowFile") {
       val out = run(
-        "lib",
         "json",
         "write",
         "--name",

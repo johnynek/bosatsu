@@ -42,6 +42,18 @@ sealed abstract class Pattern[+N, +T] derives CanEqual {
         false
     }
 
+  lazy val searchInfo: Pattern.SearchInfo =
+    Pattern.searchInfo(this)
+
+  def isSearchPattern: Boolean =
+    searchInfo.isSearchPattern
+
+  def ambiguousBindings: Set[Bindable] =
+    searchInfo.ambiguousBindings
+
+  def hasSearchBindings: Boolean =
+    ambiguousBindings.nonEmpty
+
   /** List all the names that are bound in Vars inside this pattern in the left
     * to right order they are encountered, without any duplication
     */
@@ -470,6 +482,176 @@ object Pattern {
     */
   val AnyList: Pattern[Nothing, Nothing] =
     Pattern.ListPat(ListPart.WildList :: Nil)
+
+  final case class SearchInfo(
+      isSearchPattern: Boolean,
+      ambiguousBindings: Set[Bindable]
+  ) derives CanEqual
+
+  private val NotSearch = SearchInfo(false, Set.empty)
+
+  private def mergeSearchInfo(left: SearchInfo, right: SearchInfo): SearchInfo =
+    SearchInfo(
+      left.isSearchPattern || right.isSearchPattern,
+      left.ambiguousBindings ++ right.ambiguousBindings
+    )
+
+  def searchInfo[N, T](p: Pattern[N, T]): SearchInfo =
+    p match {
+      case WildCard | Literal(_) | Var(_) =>
+        NotSearch
+      case Named(_, p1) =>
+        searchInfo(p1)
+      case Annotation(p1, _) =>
+        searchInfo(p1)
+      case PositionalStruct(_, ps) =>
+        ps.iterator.map(searchInfo(_)).foldLeft(NotSearch)(mergeSearchInfo)
+      case Union(h, t) =>
+        (h :: t.toList).iterator.map(searchInfo(_)).foldLeft(NotSearch)(mergeSearchInfo)
+      case sp @ StrPat(_) =>
+        strSearchInfo(sp)
+      case lp @ ListPat(_) =>
+        listSearchInfo(lp)
+    }
+
+  private def strSearchInfo(sp: StrPat): SearchInfo = {
+    val compacted = compactStrParts(sp.parts.toList)
+    val localAmbiguousBindings = ambiguousStringBindings(compacted)
+
+    SearchInfo(
+      isSearchPattern = sp.simplify.isEmpty,
+      ambiguousBindings = localAmbiguousBindings
+    )
+  }
+
+  private def compactStrParts(parts: List[StrPart]): List[StrPart] =
+    parts match {
+      case Nil =>
+        Nil
+      case head :: tail =>
+        val compactedTail = compactStrParts(tail)
+        head match {
+          case StrPart.LitStr("") =>
+            compactedTail
+          case StrPart.LitStr(s0) =>
+            compactedTail match {
+              case StrPart.LitStr(s1) :: rest =>
+                StrPart.LitStr(s0 + s1) :: rest
+              case _ =>
+                StrPart.LitStr(s0) :: compactedTail
+            }
+          case StrPart.WildStr =>
+            compactedTail match {
+              case StrPart.WildChar :: _ =>
+                val (chars, rest) = compactedTail.span(_ == StrPart.WildChar)
+                rest match {
+                  case glob :: restTail if isVariableWidthStrPart(glob) =>
+                    chars ::: (glob :: restTail)
+                  case _ =>
+                    chars ::: (StrPart.WildStr :: rest)
+                }
+              case _ =>
+                StrPart.WildStr :: compactedTail
+            }
+          case _ =>
+            head :: compactedTail
+        }
+    }
+
+  private def isVariableWidthStrPart(part: StrPart): Boolean =
+    part match {
+      case StrPart.WildStr | StrPart.NamedStr(_) => true
+      case _                                     => false
+    }
+
+  private def ambiguousStringBindings(parts: List[StrPart]): Set[Bindable] = {
+    val globIdxs = parts.iterator.zipWithIndex.collect {
+      case (part, idx) if isVariableWidthStrPart(part) => idx
+    }.toList
+
+    globIdxs match {
+      case first :: rest if rest.nonEmpty =>
+        val last = rest.last
+        parts.iterator.zipWithIndex.foldLeft(Set.empty[Bindable]) {
+          case (acc, (part, idx)) if (first <= idx) && (idx <= last) =>
+            part match {
+              case StrPart.NamedStr(n)  => acc + n
+              case StrPart.NamedChar(n) => acc + n
+              case _                    => acc
+            }
+          case (acc, _) =>
+            acc
+        }
+      case _ =>
+        Set.empty
+    }
+  }
+
+  private def compactAdjacentListGlobs[N, T](
+      parts: List[ListPart[Pattern[N, T]]]
+  ): List[ListPart[Pattern[N, T]]] =
+    parts.foldRight(List.empty[ListPart[Pattern[N, T]]]) {
+      case (_: ListPart.Glob, acc @ ((_: ListPart.Glob) :: _)) =>
+        acc
+      case (part, acc) =>
+        part :: acc
+    }
+
+  private def listSearchInfo[N, T](lp: ListPat[N, T]): SearchInfo = {
+    val compacted = compactAdjacentListGlobs(lp.parts)
+    val nestedAmbiguousBindings =
+      compacted.iterator.foldLeft(Set.empty[Bindable]) {
+        case (acc, ListPart.Item(p)) => acc ++ p.ambiguousBindings
+        case (acc, _)                => acc
+      }
+    val localAmbiguousBindings = ambiguousListBindings(compacted)
+
+    SearchInfo(
+      isSearchPattern = listIsSearchPattern(lp.parts),
+      ambiguousBindings = nestedAmbiguousBindings ++ localAmbiguousBindings
+    )
+  }
+
+  private def ambiguousListBindings[N, T](
+      parts: List[ListPart[Pattern[N, T]]]
+  ): Set[Bindable] = {
+    val globIdxs = parts.iterator.zipWithIndex.collect {
+      case (_: ListPart.Glob, idx) => idx
+    }.toList
+
+    globIdxs match {
+      case first :: rest if rest.nonEmpty =>
+        val last = rest.last
+        parts.iterator.zipWithIndex.foldLeft(Set.empty[Bindable]) {
+          case (acc, (part, idx)) if (first <= idx) && (idx <= last) =>
+            part match {
+              case ListPart.NamedList(n) => acc + n
+              case ListPart.Item(p)      => acc ++ p.names
+              case ListPart.WildList     => acc
+            }
+          case (acc, _) =>
+            acc
+        }
+      case _ =>
+        Set.empty
+    }
+  }
+
+  private def listIsSearchPattern[N, T](
+      parts: List[ListPart[Pattern[N, T]]]
+  ): Boolean =
+    parts match {
+      case Nil                      => false
+      case ListPart.WildList :: Nil => false
+      case ListPart.NamedList(_) :: Nil =>
+        false
+      case ListPart.Item(p) :: tail =>
+        p.isSearchPattern || listIsSearchPattern(tail)
+      case ListPart.WildList :: ListPart.Item(WildCard) :: tail =>
+        listIsSearchPattern(ListPart.Item(WildCard) :: ListPart.WildList :: tail)
+      case (_: ListPart.Glob) :: _ =>
+        true
+    }
 
   type Parsed = Pattern[StructKind, TypeRef]
 
@@ -1328,21 +1510,25 @@ object Pattern {
       case MaybeTupleOrParens.Tuple(p)  => tuple(p)
     }
 
-  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
-    val recurse = P.defer(bindParser)
-
-    val positional =
-      (Identifier.consParser ~ (parseTupleStruct(recurse) <+> parseRecordStruct(
-        recurse
-      )).?)
-        .map {
-          case (n, None) =>
+  /**
+   * After we have parsed a constructor, if this succeeds then we have parsed a pattern
+   */
+  val structAfterCons: P0[Constructor => PositionalStruct[StructKind, TypeRef]] =
+    (parseTupleStruct(bindParser) <+> parseRecordStruct(bindParser)).?
+      .map {
+        case None =>
+          (n: Constructor) =>
             PositionalStruct(
               StructKind.Named(n, StructKind.Style.TupleLike),
               Nil
             )
-          case (n, Some(fn)) => fn(n)
-        }
+        case Some(fn) => fn
+      }
+
+  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
+    val recurse = P.defer(bindParser)
+
+    val positional = (Identifier.consParser ~ structAfterCons).map { case (c, fn) => fn(c) }
 
     val tupleOrParens = recurse.tupleOrParens.map(fromTupleOrParens)
 

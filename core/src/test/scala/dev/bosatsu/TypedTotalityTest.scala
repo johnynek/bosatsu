@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import cats.data.Validated
+import cats.Show
+import cats.data.{Ior, Validated}
 import Identifier.{Constructor, Name}
 import TestUtils.checkEnvExpr
 
@@ -41,6 +42,75 @@ class TypedTotalityTest extends munit.FunSuite {
           fail("expected non-total match error")
       }
     }
+
+  private def assertMatchesAlwaysTrue(statement: String): Unit =
+    val parsed = Parser.parse(Package.parser, statement) match {
+      case Validated.Valid((lm, parsed)) =>
+        ((0.toString, lm), parsed) :: Nil
+      case Validated.Invalid(errs) =>
+        fail(s"parse fail: $errs")
+    }
+
+    val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
+    val errs =
+      Par.noParallelism {
+        PackageMap
+          .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+          .left
+          .getOrElse(fail("expected always-true `matches` error"))
+      }
+
+    val hasAlwaysTrue = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.MatchesAlwaysTrue(_)
+          ) =>
+        true
+      case _ => false
+    }
+    val hasUnreachable = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.UnreachableBranches(_, _)
+          ) =>
+        true
+      case _ => false
+    }
+    assert(hasAlwaysTrue, errs.toList.mkString(", "))
+    assert(!hasUnreachable, errs.toList.mkString(", "))
+
+  private def assertNoMatchesAlwaysTrue(statement: String): Unit =
+    val parsed = Parser.parse(Package.parser, statement) match {
+      case Validated.Valid((lm, parsed)) =>
+        ((0.toString, lm), parsed) :: Nil
+      case Validated.Invalid(errs) =>
+        fail(s"parse fail: $errs")
+    }
+
+    val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
+    val res =
+      Par.noParallelism {
+        PackageMap.resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+      }
+
+    val errs = res match {
+      case Ior.Left(es)     => es.toList
+      case Ior.Both(es, _)  => es.toList
+      case Ior.Right(_) => Nil
+    }
+    val hasAlwaysTrue = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.MatchesAlwaysTrue(_)
+          ) =>
+        true
+      case _ => false
+    }
+    assert(!hasAlwaysTrue, errs.mkString(", "))
 
   test("Result[Never, Value] with only Ok branch is total") {
     assertTotal(
@@ -99,6 +169,50 @@ def vacuous(z: Never) -> Never:
   a
 """,
       "vacuous"
+    )
+  }
+
+  test("unit matches totality errors report always-true matches") {
+    assertMatchesAlwaysTrue(
+      """package TotalUnit
+        |
+        |x = ()
+        |
+        |y = x matches ()
+        |""".stripMargin
+    )
+  }
+
+  test("struct matches totality errors report always-true matches") {
+    assertMatchesAlwaysTrue(
+      """package TotalStruct
+        |
+        |struct Foo
+        |
+        |x = Foo
+        |
+        |y = x matches Foo
+        |""".stripMargin
+    )
+  }
+
+  test("guarded irrefutable matches do not report always-true matches") {
+    assertNoMatchesAlwaysTrue(
+      """package GuardedTotal
+        |
+        |def pred(x): True
+        |
+        |main = 42 matches y if pred(y)
+        |""".stripMargin
+    )
+  }
+
+  test("if True guarded matches still report always-true matches") {
+    assertMatchesAlwaysTrue(
+      """package GuardedTrue
+        |
+        |main = 42 matches y if True
+        |""".stripMargin
     )
   }
 

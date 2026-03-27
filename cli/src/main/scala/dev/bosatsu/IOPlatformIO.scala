@@ -100,19 +100,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     cats.effect.IO.asyncForIO
 
   override def gitTopLevel: IO[Option[Path]] = {
-    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
-      fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
-        case _ => moduleIOMonad.pure(Right(None))
-      }
-
     val start = Paths.get(".").toAbsolutePath.normalize
-    moduleIOMonad.tailRecM(start)(searchStep)
+    gitTopLevelFrom(start)
   }
 
   private def deleteRecursively(path: Path): IO[Unit] =
@@ -211,6 +200,8 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
       root.relativize(pf)
     }
     else None
+  def parent(p: Path): Option[Path] =
+    Option(p.getParent)
 
   def read[A <: GeneratedMessage](
       path: Path
@@ -261,7 +252,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfacesAndPackages(
       ifacePaths: List[Path],
       packagePaths: List[Path]
-  ): IO[(List[Package.Interface], List[Package.Typed[Unit]])] =
+  ): IO[(List[Package.Interface], List[Package.Compiled])] =
     (
       ifacePaths.traverse(read[proto.Interfaces](_)),
       packagePaths.traverse(read[proto.Packages](_))
@@ -277,7 +268,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     readInterfacesAndPackages(paths, Nil).map(_._1)
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Compiled]] =
     readInterfacesAndPackages(Nil, paths).map(_._2)
 
   def readLibrary(path: Path): IO[Hashed[Algo.Blake3, proto.Library]] =
@@ -394,7 +385,7 @@ object IOPlatformIO extends PlatformIO[IO, JPath] {
     IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
       .flatMap(write(_, path))
 
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
+  def writePackages(packages: List[Package.Compiled], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 

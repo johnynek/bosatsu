@@ -116,18 +116,17 @@ lazy val docs = (project in file("docs"))
       // Ensure bosatsuj has an up-to-date CLI assembly before generating docs.
       val _ = (cli / assembly).value
 
-      val fetchCmd = Seq("./bosatsuj", "lib", "fetch")
+      val fetchCmd = Seq("./bosatsuj", "fetch")
       log.info(fetchCmd.mkString("running: ", " ", ""))
       val fetchExit = Process(fetchCmd, repoRoot).!
       if (fetchExit != 0) {
         sys.error(
-          s"lib fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
+          s"fetch failed with exit code $fetchExit: ${fetchCmd.mkString(" ")}"
         )
       }
 
       val docCmd = Seq(
         "./bosatsuj",
-        "lib",
         "doc",
         "--outdir",
         "core_alpha_docs",
@@ -183,7 +182,7 @@ lazy val docs = (project in file("docs"))
         s"""# Core Alpha API
            |
            |This section is generated from `test_workspace` using:
-           |`./bosatsuj lib doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
+           |`./bosatsuj doc --outdir core_alpha_docs --include_predef --source_repo_url $sourceRepoUrl`
            |
            |@@@ index
            |${tocLinkLines.mkString("\n")}
@@ -309,14 +308,27 @@ lazy val cli = (project in file("cli"))
         munitScalaCheck.value % Test
       ),
     // static linking doesn't work with macos or with linux http4s on the path
-    nativeImageOptions ++= List(
-      "--no-fallback",
-      "--verbose",
-      "-O2",
-      "-J-Xmx12g",
-      "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
-      "-H:+RemoveUnusedSymbols"
-    ) ++ {
+    nativeImageOptions ++= {
+      val nativeImageBuilderXmx =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX")
+          .filter(_.nonEmpty)
+          .getOrElse("12g")
+      val watchdogOpts =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES")
+          .filter(_.nonEmpty)
+          .toList
+          .map(minutes => s"-H:DeadlockWatchdogInterval=$minutes") ++
+          sys.env
+            .get("BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_EXIT_ON_TIMEOUT")
+            .collect {
+              case value if value.equalsIgnoreCase("true") =>
+                "-H:+DeadlockWatchdogExitOnTimeout"
+              case value if value.equalsIgnoreCase("false") =>
+                "-H:-DeadlockWatchdogExitOnTimeout"
+            }
+            .toList
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
           List("--static")
@@ -338,10 +350,19 @@ lazy val cli = (project in file("cli"))
           .map(_.trim)
           .filter(_.nonEmpty)
           .map(p => s"-H:CLibraryPath=$p")
-      staticOpt ++ muslOpt ++ clibPaths
+      List(
+        "--no-fallback",
+        "--verbose",
+        "-O2",
+        s"-J-Xmx$nativeImageBuilderXmx",
+        "-H:IncludeResources=dev/bosatsu/scalawasiz3/aot/.*\\.meta",
+        "-H:+RemoveUnusedSymbols",
+        "-H:CompilationExpirationPeriod=0",
+        "-H:CompilationNoProgressPeriod=0"
+      ) ++ watchdogOpts ++ staticOpt ++ muslOpt ++ clibPaths
     },
-    nativeImageJvm := "graalvm-java21",
-    nativeImageVersion := "21.0.2"
+    nativeImageJvm := "graalvm-java23",
+    nativeImageVersion := "23.0.2"
   )
   .dependsOn(protoJVM, coreJVM % "compile->compile;test->test")
 
@@ -444,6 +465,7 @@ lazy val jsapi =
         Seq(
           cats.value,
           decline.value,
+          munit.value % Test,
           scalaCheck.value % Test
         )
     )

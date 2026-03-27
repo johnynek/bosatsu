@@ -7,6 +7,7 @@ import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import dev.bosatsu.{
+  HasRegion,
   Json,
   Kind,
   Package,
@@ -46,10 +47,10 @@ case class LibConfig(
 
   /** validate then unvalidatedAssemble
     */
-  def assemble(
+  def assemble[A: HasRegion](
       vcsIdent: String,
       previous: Option[DecodedLibrary[Algo.Blake3]],
-      packs: List[Package.Typed[Any]],
+      packs: List[Package.Typed[A]],
       deps: List[DecodedLibrary[Algo.Blake3]],
       publicDepClosureLibs: List[DecodedLibrary[Algo.Blake3]],
       prevPublicDepLibs: List[DecodedLibrary[Algo.Blake3]]
@@ -479,7 +480,7 @@ case class LibConfig(
       val validSet = validDepPacks.toSet
 
       exportedPacks.traverse_ { p =>
-        val depOn = p.visibleDepPackages
+        val depOn = p.exposedDepPackages
         val invalidDeps = depOn.filterNot(validSet)
         invalidDeps.traverse_ { badPn =>
           val msg =
@@ -513,7 +514,7 @@ case class LibConfig(
       val prop5 = {
         val exportedLibs = (for {
           p <- exportedPacks
-          visPack <- p.visibleDepPackages
+          visPack <- p.exposedDepPackages
           libName = packToLibName.get(visPack)
         } yield libName).toSet
 
@@ -570,7 +571,7 @@ case class LibConfig(
       validateDeps(deps)
 
   // just build the library without any validations
-  def unvalidatedAssemble[A](
+  def unvalidatedAssemble[A: HasRegion](
       previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
       packs: List[Package.Typed[A]],

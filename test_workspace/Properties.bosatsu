@@ -4,6 +4,7 @@ from Bosatsu/Rand import (Rand, run_Rand, prod_Rand, map_Rand,
   int_range, sequence_Rand)
 
 export (Prop, forall_Prop, suite_Prop, run_Prop)
+exposes Bosatsu/Rand
 
 struct Prop(fn: Int -> Rand[Test])
 
@@ -54,7 +55,7 @@ shift_unshift_law = forall_Prop(
   ))
 
 def gtez(x): x.cmp_Int(0) matches (GT | EQ)
-def operator ||(a, b): True if a else b
+operator || = or
 def implies(a, b): b if a else True
 
 positive_and_law = forall_Prop(

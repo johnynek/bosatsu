@@ -8,6 +8,7 @@ from Bosatsu/Num/BinNat import (BinNat, Zero as BZero, Odd, Even,
 
 export (Rand, run_Rand, prod_Rand, map_Rand, flat_map_Rand, const_Rand,
   int_range, nat_range, sequence_Rand, bool_Rand, geometric_Int, from_pair, one_of)
+exposes Bosatsu/Num/Nat
 
 struct State(s0: Int, s1: Int, s2: Int, s3: Int)
 struct UInt64(to_Int: Int)
@@ -117,7 +118,7 @@ def run_Rand[a](rand: Rand[a], seed: Int) -> a:
 
 def sequence_Rand[a](rands: List[Rand[a]]) -> Rand[List[a]]:
   def sample(rands: List[Rand[a]], s: State, acc: List[a]) -> (State, List[a]):
-    recur rands:
+    loop rands:
         case []: (s, reverse(acc))
         case [Rand(hfn), *rt]: 
           (s1, h) = hfn(s)
@@ -136,7 +137,7 @@ def bit_count(i: Int) -> Int:
     go(i, 0)
 
 def to_big_Int(us: List[UInt64], acc: Int) -> Int:
-  recur us:
+  loop us:
     case []: acc
     case [UInt64(h), *t]: to_big_Int(t, (acc << 64) | h)
 
@@ -146,7 +147,7 @@ def resample(rand_Int: Rand[Int], high: Int, uints: Int) -> Rand[Int]:
   Rand(fn) = rand_Int
   boundary = (1 << (uints * 64)).div(high) * high
   def next(s: State, fuel: Nat) -> (State, Int):
-    recur fuel:
+    loop fuel:
         case Zero: (s, (high - 1) >> 1)
         case Succ(n):
           (s1, i) = fn(s)
@@ -194,7 +195,7 @@ geometric_Int: Rand[Int] = geometric(nat30, 0)
 
 def len[a](list: List[a]) -> BinNat:
     def loop(list, acc):
-        recur list:
+        loop list:
             case []: acc
             case [_, *t]: loop(t, acc.next_BinNat())
     loop(list, BZero)

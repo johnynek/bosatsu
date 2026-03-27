@@ -56,6 +56,7 @@ export (
   now_mono,
   sleep,
 )
+exposes Bosatsu/IO/Bytes, Bosatsu/IO/Error, Bosatsu/Prog
 
 external path_sep: String
 
@@ -131,17 +132,9 @@ def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
   to_nanos
 
-def andb(left: Bool, right: Bool) -> Bool:
-  if left:
-    right
-  else:
-    False
+andb = and
 
-def orb(left: Bool, right: Bool) -> Bool:
-  if left:
-    True
-  else:
-    right
+orb = or
 
 def starts_with_slash(s: String) -> Bool:
   s matches "/${_}" | "/"
@@ -171,7 +164,7 @@ def is_drive_root(s: String) -> Bool:
     case _: False
 
 def has_control_char(chars: List[Char]) -> Bool:
-  recur chars:
+  loop chars:
     case []: False
     case [h, *t]:
       cp = char_to_Int(h)
@@ -205,7 +198,7 @@ def is_forbidden_component_char(c: Char) -> Bool:
     case _: False
 
 def has_forbidden_component_char(chars: List[Char]) -> Bool:
-  recur chars:
+  loop chars:
     case []: False
     case [h, *t]:
       if is_forbidden_component_char(h):
@@ -215,7 +208,7 @@ def has_forbidden_component_char(chars: List[Char]) -> Bool:
 
 def split_slash(path: String) -> List[String]:
   def loop(chars: List[Char], rev_current: List[Char], rev_parts: List[String]) -> List[String]:
-    recur chars:
+    loop chars:
       case []:
         [chars_to_String(rev_current.reverse()), *rev_parts].reverse()
       case [h, *t]:
@@ -305,7 +298,7 @@ def valid_component(component: String) -> Bool:
     )
 
 def valid_components_from_parts(parts: List[String]) -> Bool:
-  recur parts:
+  loop parts:
     case []: True
     case [h, *t]:
       if valid_component(h):
@@ -408,7 +401,7 @@ def drop_trailing_slash_non_root(s: String) -> String:
     s
   else:
     def drop_leading_slashes(chars: List[Char]) -> List[Char]:
-      recur chars:
+      loop chars:
         case []: []
         case [h, *t]:
           if char_to_Int(h) matches 47:
