@@ -287,6 +287,57 @@ main = find_before_one
     }
   }
 
+  test("segmented string search lowers cleanly in C") {
+    val hasFooPm = typeCheckPackage("""package Test
+
+def has_foo(s):
+  s matches "${_}foo${_}"
+
+main = has_foo
+""")
+    val fooBeforeBarPm = typeCheckPackage("""package Test
+
+def foo_before_bar(s):
+  s matches "${_}foo${_}bar"
+
+main = foo_before_bar
+""")
+    val hasFooRenderedE = Par.withEC {
+      ClangGen(hasFooPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_foo"),
+        Code.Ident("run_main")
+      )
+    }
+    val fooBeforeBarRenderedE = Par.withEC {
+      ClangGen(fooBeforeBarPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("foo_before_bar"),
+        Code.Ident("run_main")
+      )
+    }
+
+    (hasFooRenderedE, fooBeforeBarRenderedE) match {
+      case (Right(hasFooDoc), Right(fooBeforeBarDoc)) =>
+        val hasFoo = extractCFunction(hasFooDoc.render(120), "_l_has__foo(BValue")
+        val fooBeforeBar =
+          extractCFunction(fooBeforeBarDoc.render(120), "_l_foo__before__bar(BValue")
+
+        assertEquals("while \\(".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
+        assert(hasFoo.contains("foo"), hasFoo)
+        assertEquals(deadCTemps(hasFoo), Set.empty, hasFoo)
+
+        assertEquals("while \\(".r.findAllMatchIn(fooBeforeBar).length, 2, fooBeforeBar)
+        assert(fooBeforeBar.contains("foo"), fooBeforeBar)
+        assert(fooBeforeBar.contains("bar"), fooBeforeBar)
+        assertEquals(deadCTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+      case (Left(err), _) =>
+        fail(err.toString)
+      case (_, Left(err)) =>
+        fail(err.toString)
+    }
+  }
+
   test("top-level unit-arg function compiles to direct C function") {
     TestUtils.checkPackageMap("""
 enum Nat:
