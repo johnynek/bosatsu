@@ -119,6 +119,12 @@ def tag_env(tag_name: String) -> StepEnv:
 def runtime_hash_env(hash: String) -> StepEnv:
   StepEnv { `BOSATSU_C_RUNTIME_HASH`: Set(hash) }
 
+def native_macos_env(hash: String) -> StepEnv:
+  StepEnv {
+    `BOSATSU_C_RUNTIME_HASH`: Set(hash),
+    `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Set("0"),
+  }
+
 def native_linux_env(
   hash: String,
   static_native: String,
@@ -485,7 +491,7 @@ workflow =
               "file bosatsu-macos | grep -q \"arm64\" || { echo \"Expected arm64 binary\"; exit 1; }",
               "",
             ])),
-            env: Set(runtime_hash_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
+            env: Set(native_macos_env("\${{ needs.prepare.outputs.c_runtime_hash }}")),
           },
           Step {
             uses: Set(action_upload_artifact),
