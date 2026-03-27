@@ -36,7 +36,6 @@ export (
   python_version_matrix,
   python_version_3_9,
   runner_macos_14,
-  runner_macos_14_xlarge,
   runner_macos_latest,
   runner_ubuntu_latest,
   Step(),
@@ -97,8 +96,6 @@ struct StepEnv(
   `URI_BASE`: Optional[String] = Missing,
   `PUBLISH_DRY_RUN`: Optional[String] = Missing,
   `C_RUNTIME_ARCHIVE`: Optional[String] = Missing,
-  `BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX`: Optional[String] = Missing,
-  `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Optional[String] = Missing,
   `GITHUB_TOKEN`: Optional[String] = Missing,
   `GITHUB_REF_NAME`: Optional[String] = Missing,
   `GH_TOKEN`: Optional[String] = Missing,
@@ -135,7 +132,6 @@ struct JavaStrategy(matrix: JavaStrategyMatrix)
 runner_ubuntu_latest = "ubuntu-latest"
 runner_macos_latest = "macos-latest"
 runner_macos_14 = "macos-14"
-runner_macos_14_xlarge = "macos-14-xlarge"
 
 action_checkout_v2 = "actions/checkout@v2.1.0"
 action_checkout_v4 = "actions/checkout@v4"
