@@ -100,8 +100,10 @@ object MatchlessGlobalInlining {
         case ((rewritten, available), name) =>
           val expr0 = byName.getOrElse(name, Matchless.UnitExpr)
           val rewrittenExpr =
-            Matchless.postLoweringCleanup(
-              rewriteExpr(expr0, available, depFor)
+            Matchless.refreshAnonBinders(
+              Matchless.postLoweringCleanup(
+                rewriteExpr(expr0, available, depFor)
+              )
             )
           val available1 =
             summarize(pack, name, rewrittenExpr).fold(available) { summary =>

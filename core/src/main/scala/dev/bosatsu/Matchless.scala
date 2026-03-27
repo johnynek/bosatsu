@@ -743,6 +743,196 @@ object Matchless {
   private def maxLocalAnonMutId[A](expr: Expr[A]): Long =
     allLocalAnonMutIds(expr).foldLeft(-1L)(_ max _)
 
+  private[bosatsu] def refreshAnonBinders[A](expr: Expr[A]): Expr[A] = {
+    case class RenameEnv(
+        anons: Map[Long, Long],
+        muts: Map[Long, Long]
+    )
+    case class RenameState(
+        nextId: Long
+    ) {
+      def freshAnon: (LocalAnon, RenameState) = {
+        val next = LocalAnon(nextId)
+        (next, copy(nextId = nextId + 1L))
+      }
+
+      def freshMut: (LocalAnonMut, RenameState) = {
+        val next = LocalAnonMut(nextId)
+        (next, copy(nextId = nextId + 1L))
+      }
+    }
+
+    def loopExpr(
+        ex: Expr[A],
+        env: RenameEnv,
+        st: RenameState
+    ): (Expr[A], RenameState) =
+      ex match {
+        case LocalAnon(id) =>
+          (env.anons.get(id).fold(ex: Expr[A])(LocalAnon(_)), st)
+        case LocalAnonMut(id) =>
+          (env.muts.get(id).fold(ex: Expr[A])(LocalAnonMut(_)), st)
+        case Lambda(captures, recName, args, body) =>
+          val (captures1Rev, st1) =
+            captures.foldLeft((List.empty[Expr[A]], st)) { case ((acc, stN), capture) =>
+              val (capture1, stN1) = loopExpr(capture, env, stN)
+              (capture1 :: acc, stN1)
+            }
+          val (body1, st2) = loopExpr(body, env, st1)
+          (Lambda(captures1Rev.reverse, recName, args, body1), st2)
+        case WhileExpr(cond, effectExpr, result) =>
+          val result1 =
+            env.muts.get(result.ident).fold(result)(LocalAnonMut(_))
+          val (cond1, st1) = loopBool(cond, env, st)
+          val (effectExpr1, st2) = loopExpr(effectExpr, env, st1)
+          (WhileExpr(cond1, effectExpr1, result1), st2)
+        case App(fn, args) =>
+          val (fn1, st1) = loopExpr(fn, env, st)
+          val (args1Rev, st2) =
+            args.toList.foldLeft((List.empty[Expr[A]], st1)) { case ((acc, stN), arg) =>
+              val (arg1, stN1) = loopExpr(arg, env, stN)
+              (arg1 :: acc, stN1)
+            }
+          (App(fn1, NonEmptyList.fromListUnsafe(args1Rev.reverse)), st2)
+        case Let(arg, value, in) =>
+          val (value1, st1) = loopExpr(value, env, st)
+          arg match {
+            case Right(_) =>
+              val (in1, st2) = loopExpr(in, env, st1)
+              (Let(arg, value1, in1), st2)
+            case Left(anon) =>
+              val (anon1, st2) = st1.freshAnon
+              val env1 = env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
+              val (in1, st3) = loopExpr(in, env1, st2)
+              (Let(Left(anon1), value1, in1), st3)
+          }
+        case LetMut(name, in) =>
+          val (name1, st1) = st.freshMut
+          val env1 = env.copy(muts = env.muts.updated(name.ident, name1.ident))
+          val (in1, st2) = loopExpr(in, env1, st1)
+          (LetMut(name1, in1), st2)
+        case If(cond, thenExpr, elseExpr) =>
+          val (cond1, st1) = loopBool(cond, env, st)
+          val (then1, st2) = loopExpr(thenExpr, env, st1)
+          val (else1, st3) = loopExpr(elseExpr, env, st2)
+          (If(cond1, then1, else1), st3)
+        case SwitchVariant(on, famArities, cases, default) =>
+          val (on1, st1) = loopCheap(on, env, st)
+          val (cases1Rev, st2) =
+            cases.toList.foldLeft((List.empty[(Int, Expr[A])], st1)) {
+              case ((acc, stN), (variant, branch)) =>
+                val (branch1, stN1) = loopExpr(branch, env, stN)
+                ((variant, branch1) :: acc, stN1)
+            }
+          val (default1, st3) =
+            default match {
+              case Some(defaultExpr) =>
+                val (defaultExpr1, stN) = loopExpr(defaultExpr, env, st2)
+                (Some(defaultExpr1), stN)
+              case None =>
+                (None, st2)
+            }
+          (
+            SwitchVariant(
+              on1,
+              famArities,
+              NonEmptyList.fromListUnsafe(cases1Rev.reverse),
+              default1
+            ),
+            st3
+          )
+        case Always(cond, thenExpr) =>
+          val (cond1, st1) = loopBool(cond, env, st)
+          val (then1, st2) = loopExpr(thenExpr, env, st1)
+          (Always(cond1, then1), st2)
+        case PrevNat(of) =>
+          val (of1, st1) = loopExpr(of, env, st)
+          (PrevNat(of1), st1)
+        case ge: GetEnumElement[?] =>
+          val (arg1, st1) = loopCheap(ge.arg, env, st)
+          (ge.copy(arg = arg1), st1)
+        case gs: GetStructElement[?] =>
+          val (arg1, st1) = loopCheap(gs.arg, env, st)
+          (gs.copy(arg = arg1), st1)
+        case Global(_, _, _) | Local(_) | ClosureSlot(_) | Literal(_) |
+            MakeEnum(_, _, _) | MakeStruct(_) | SuccNat | ZeroNat =>
+          (ex, st)
+      }
+
+    def loopCheap(
+        ex: CheapExpr[A],
+        env: RenameEnv,
+        st: RenameState
+    ): (CheapExpr[A], RenameState) =
+      loopExpr(ex, env, st) match {
+        case (cheap: CheapExpr[A], st1) => (cheap, st1)
+        case (notCheap, _) =>
+          // $COVERAGE-OFF$
+          sys.error(
+            s"invariant violation: expected cheap expression while refreshing anon binders, got: $notCheap"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def loopBool(
+        ex: BoolExpr[A],
+        env: RenameEnv,
+        st: RenameState
+    ): (BoolExpr[A], RenameState) =
+      ex match {
+        case EqualsLit(arg, lit) =>
+          val (arg1, st1) = loopCheap(arg, env, st)
+          (EqualsLit(arg1, lit), st1)
+        case LtEqLit(arg, lit) =>
+          val (arg1, st1) = loopCheap(arg, env, st)
+          (LtEqLit(arg1, lit), st1)
+        case EqualsNat(arg, nat) =>
+          val (arg1, st1) = loopCheap(arg, env, st)
+          (EqualsNat(arg1, nat), st1)
+        case And(left, right) =>
+          val (left1, st1) = loopBool(left, env, st)
+          val (right1, st2) = loopBool(right, env, st1)
+          (And(left1, right1), st2)
+        case CheckVariant(arg, expect, size, famArities) =>
+          val (arg1, st1) = loopCheap(arg, env, st)
+          (CheckVariant(arg1, expect, size, famArities), st1)
+        case CheckVariantSet(arg, expect, size, famArities) =>
+          val (arg1, st1) = loopCheap(arg, env, st)
+          (CheckVariantSet(arg1, expect, size, famArities), st1)
+        case SetMut(target, value) =>
+          val target1 =
+            env.muts.get(target.ident).fold(target)(LocalAnonMut(_))
+          val (value1, st1) = loopExpr(value, env, st)
+          (SetMut(target1, value1), st1)
+        case LetBool(arg, value, in) =>
+          val (value1, st1) = loopExpr(value, env, st)
+          arg match {
+            case Right(_) =>
+              val (in1, st2) = loopBool(in, env, st1)
+              (LetBool(arg, value1, in1), st2)
+            case Left(anon) =>
+              val (anon1, st2) = st1.freshAnon
+              val env1 = env.copy(anons = env.anons.updated(anon.ident, anon1.ident))
+              val (in1, st3) = loopBool(in, env1, st2)
+              (LetBool(Left(anon1), value1, in1), st3)
+          }
+        case LetMutBool(name, in) =>
+          val (name1, st1) = st.freshMut
+          val env1 = env.copy(muts = env.muts.updated(name.ident, name1.ident))
+          val (in1, st2) = loopBool(in, env1, st1)
+          (LetMutBool(name1, in1), st2)
+        case TrueConst =>
+          (TrueConst, st)
+      }
+
+    val initialState =
+      RenameState(
+        nextId = (maxLocalAnonId(expr) max maxLocalAnonMutId(expr)) + 1L
+      )
+
+    loopExpr(expr, RenameEnv(Map.empty, Map.empty), initialState)._1
+  }
+
   private def substituteClosureSlots[A](
       slots: Vector[CheapExpr[A]],
       expr: Expr[A]
@@ -1148,8 +1338,7 @@ object Matchless {
 
     case class RenameState(
         usedNames: Set[Bindable],
-        nextAnon: Long,
-        nextMut: Long
+        nextId: Long
     ) {
       def freshName(prefix: String): (Bindable, RenameState) = {
         val next =
@@ -1160,13 +1349,13 @@ object Matchless {
       }
 
       def freshAnon: (LocalAnon, RenameState) = {
-        val next = LocalAnon(nextAnon)
-        (next, copy(nextAnon = nextAnon + 1L))
+        val next = LocalAnon(nextId)
+        (next, copy(nextId = nextId + 1L))
       }
 
       def freshMut: (LocalAnonMut, RenameState) = {
-        val next = LocalAnonMut(nextMut)
-        (next, copy(nextMut = nextMut + 1L))
+        val next = LocalAnonMut(nextId)
+        (next, copy(nextId = nextId + 1L))
       }
     }
 
@@ -1368,13 +1557,17 @@ object Matchless {
         }
 
       val usedNames = allNames(lam0) | argNames
-      val nextAnon = (maxLocalAnonId(lam0) max argAnonIds.foldLeft(-1L)(_ max _)) + 1L
-      val nextMut =
-        (maxLocalAnonMutId(lam0) max argMutIds.foldLeft(-1L)(_ max _)) + 1L
+      val nextId =
+        List(
+          maxLocalAnonId(lam0),
+          maxLocalAnonMutId(lam0),
+          argAnonIds.foldLeft(-1L)(_ max _),
+          argMutIds.foldLeft(-1L)(_ max _)
+        ).max + 1L
       loopExpr(
         lam0,
         emptyRenameEnv,
-        RenameState(usedNames, nextAnon, nextMut)
+        RenameState(usedNames, nextId)
       ) match {
         case (lam1: Lambda[A], _) => lam1
         case (other, _)           =>
