@@ -194,6 +194,7 @@ type StepEnv
       `URI_BASE`: Bosatsu/Json::Optional[String],
       `PUBLISH_DRY_RUN`: Bosatsu/Json::Optional[String],
       `C_RUNTIME_ARCHIVE`: Bosatsu/Json::Optional[String],
+      `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Bosatsu/Json::Optional[String],
       `GITHUB_TOKEN`: Bosatsu/Json::Optional[String],
       `GITHUB_REF_NAME`: Bosatsu/Json::Optional[String],
       `GH_TOKEN`: Bosatsu/Json::Optional[String]
