@@ -4099,6 +4099,11 @@ object Matchless {
 
     case class SearchLoopState(runMut: LocalAnonMut, resMut: LocalAnonMut)
 
+    // This is only called from the sole caller below after both
+    // exactMiddleItems(right) and exactTrailingItems(right) fail.
+    // That means right contains at least one interior glob, which rules out
+    // one-segment shapes like [items..., trailingGlob]. So the resulting plan
+    // always has at least two exact segments.
     def buildListSearchPlan(
         glob: Pattern.ListPart.Glob,
         right: NonEmptyList[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]]
@@ -4627,25 +4632,17 @@ object Matchless {
           compilePureListSearchPlan(arg, plan)
         case Some(guardFn) =>
           plan.segments match {
-            case NonEmptyList(segment, Nil) =>
-              plan.trailingGlob match {
-                case Some(rightGlob) =>
-                  exactMiddleListSearch(
-                    arg,
-                    segment.glob,
-                    segment.items,
-                    rightGlob,
-                    candidateGuard
-                  )
-                case None            =>
-                  compileLastListSearchSegment(arg, segment, None)
-                    .flatMap(applyCandidateGuardToUnionMatch(_, candidateGuard))
-              }
-            case NonEmptyList(segment, next :: tail) =>
+            case NonEmptyList(segment, tail) =>
+              // The sole caller only reaches compileListSearchPlan after both
+              // exactMiddleItems(right) and exactTrailingItems(right) fail.
+              // That guarantees there is at least one interior glob after the
+              // initial exact run, so a guarded plan here always has at least
+              // two exact segments.
+              val tailNel = NonEmptyList.fromListUnsafe(tail)
               compileLeadingListSearchSegment(
                 arg,
                 segment,
-                ListSearchPlan(NonEmptyList(next, tail), plan.trailingGlob),
+                ListSearchPlan(tailNel, plan.trailingGlob),
                 guardFn(_)
               )
           }
