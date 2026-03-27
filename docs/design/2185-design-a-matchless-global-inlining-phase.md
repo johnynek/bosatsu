@@ -94,7 +94,9 @@ Likely summary fields:
 2. arity and rewritten body
 3. expression weight / size estimate for budget checks
 4. boundary-safety flags describing whether the body, or any nested lambda/value it produces, captures a free `LocalAnonMut` from outside the candidate
-5. per-parameter demand facts: unused, eager, branch-guarded only, lambda-callee-only, and total use count
+5. per-parameter demand facts: unused, eager on the selector or guard path, deferrable into an `If` or `SwitchVariant` branch body, lambda-callee-only, and total use count
+
+The key summary fact is whether an argument is deferrable. A parameter is deferrable when every demand for it occurs inside an `If` or `SwitchVariant` branch body rather than on the selector or guard path. `Bosatsu/Predef.and` and `Bosatsu/Predef.or` are the canonical examples: after inlining, `and(x, y)` can become `if x: y; else False` and `or(x, y)` can become `if x: True; else y`, so `y` is deferrable in both cases. Because Bosatsu is pure and total, that deferral does not change semantics, but it can strictly lower runtime cost by avoiding work on untaken branches.
 
 V1 should only publish conservative candidates:
 
@@ -145,7 +147,7 @@ Hard gates:
 Benefit signals:
 
 1. a parameter is unused in the callee body
-2. every use of a parameter is inside a branch body rather than in the selector or guard path
+2. a non-cheap actual argument sits in a deferrable parameter position, meaning inlining can move that work under an `If` or `SwitchVariant` branch body instead of forcing it on every path
 3. a parameter is only used as a direct callee, and the actual argument is a literal lambda or resolves to a lambda after local alias resolution
 4. the candidate body is tiny and pure
 
@@ -156,13 +158,17 @@ Cost signals:
 3. actual-argument weight when that argument would be copied multiple times
 4. introduction of additional control-flow or loop structure at the call site
 
+Some candidates should be treated as unconditional wins rather than merely good heuristic scores. At minimum, `Bosatsu/Predef.and` and `Bosatsu/Predef.or` should always inline, because their entire value is short-circuit deferral of the second argument and their lowered bodies are tiny.
+
 Inline when the benefit exceeds the cost and all hard gates pass. A small helper whose recursion has already lowered to a self-contained `WhileExpr` is still eligible under this policy. The initial constants should mirror the intent of `TypedExprNormalization.ResolveToLambda`, but stay separate so Matchless tuning does not silently perturb typedexpr behavior.
 
 ### 6. Reuse local cleanup after inlining
 
 After rewriting a let body, rerun existing local Matchless cleanup that is already safe post-lowering, especially `reuseConstructors`. If `inlineApplyArgs` introduces trivial `Let` wrappers or immediate alias opportunities, clean those up before publishing the summary.
 
-Existing tree shaking and dead-code elimination should still run first and determine which top-level bindings reach this phase. V1 does not add another DCE step; it only rewrites the surviving bodies. Export selection and `ShowSelection` behavior remain unchanged.
+This likely requires a small refactor in `Matchless.scala` so the existing post-lowering cleanup becomes an explicit pipeline rather than a few maps hanging off the tail of `fromLet`. The raw lowering step, the existing local cleanup passes, and the new global inlining phase should be exposed as named stages so the sequencing is easy to reason about and extend.
+
+Existing tree shaking and dead-code elimination should still run first and determine which top-level bindings reach this phase. V1 does not add another DCE step; it only rewrites the surviving bodies. Export selection remains unchanged.
 
 ### 7. Integrate at the common compilation entry points
 
@@ -176,38 +182,42 @@ That keeps codegen and evaluator behavior aligned. For codegen, the post-pass sh
 
 ## Detailed Implementation Plan
 
-1. Add shared Matchless analysis helpers in `Matchless.scala`: expression weight, parameter-demand summary, lambda-callee-only detection, and `inlineApplyArgs`.
-2. Add `MatchlessGlobalInlining.scala` with `InlineSummary`, local dependency sorting, topo-layer rewrite orchestration, and call-site heuristic evaluation.
-3. Keep `MatchlessFromTypedExpr.compile` as the raw primitive and call it from the new coordinator.
-4. Update `CompilationSource`, `DecodedLibraryWithDeps`, and `LibraryEvaluation` to use the optimized pipeline instead of exposing only raw compiled output, and ensure any existing tree-shake step feeds the inliner rather than the reverse.
-5. Preserve deterministic output by using topo order plus stable tie-breaks based on original let position or bindable ordering.
-6. Add structural tests for `inlineApplyArgs` and for heuristic inlining decisions.
-7. Add cross-package and cross-library regressions that prove imported helpers inline when implementations are available and remain uninlined when only interfaces are available.
-8. Review generated-code diffs on representative `test_workspace` programs to confirm that eager work decreases without unacceptable code-size growth.
+1. Refactor the current Matchless post-lowering cleanup into explicit named phases so raw lowering, local cleanup, and global inlining are not fused into one tail of `fromLet`.
+2. Add shared Matchless analysis helpers in `Matchless.scala`: expression weight, parameter-demand summary, deferrable-argument detection, lambda-callee-only detection, and `inlineApplyArgs`.
+3. Add `MatchlessGlobalInlining.scala` with `InlineSummary`, local dependency sorting, topo-layer rewrite orchestration, and call-site heuristic evaluation.
+4. Treat `Bosatsu/Predef.and` and `Bosatsu/Predef.or` as mandatory inline wins, either through an explicit always-inline classification or an equivalent deterministic rule over tiny short-circuit boolean combinators.
+5. Keep `MatchlessFromTypedExpr.compile` as the raw primitive and call it from the new coordinator.
+6. Update `CompilationSource`, `DecodedLibraryWithDeps`, and `LibraryEvaluation` to use the optimized pipeline instead of exposing only raw compiled output, and ensure any existing tree-shake step feeds the inliner rather than the reverse.
+7. Preserve deterministic output by using topo order plus stable tie-breaks based on original let position or bindable ordering.
+8. Add structural tests for `inlineApplyArgs` and for heuristic inlining decisions.
+9. Add cross-package and cross-library regressions that prove imported helpers inline when implementations are available and remain uninlined when only interfaces are available.
+10. Review generated-code diffs on representative `test_workspace` programs to confirm that eager work decreases without unacceptable code-size growth.
 
 ## Testing Strategy
 
 1. Extend `MatchlessApplyArgsTest.scala` with branch-sensitive cases that show `inlineApplyArgs` keeps expensive arguments under `If` or `SwitchVariant` branches instead of hoisting them into eager lets.
-2. Extend `MatchlessTests.scala` with an unused-parameter or branch-only-parameter example that should inline.
-3. Extend `MatchlessTests.scala` with a lambda-argument example that becomes directly beta-reducible after inlining.
-4. Extend `MatchlessTests.scala` with a helper that lowers to a small closed `WhileExpr` and remains eligible for inlining.
-5. Extend `MatchlessTests.scala` with a rejected case where a large or duplicated argument should not inline.
-6. Extend `MatchlessInterfaceTest.scala` with a cross-package example that proves imported implementations can inline while interface-only dependencies still compile through the old `Global` path.
-7. Extend `ClangGenLibraryDepsTest.scala` with a cross-library helper whose generated code no longer materializes both branch arguments before the helper call shape.
-8. Keep the broader Matchless, evaluator, and codegen suites green to validate semantic preservation.
+2. Extend `MatchlessTests.scala` with explicit `Bosatsu/Predef.and` and `Bosatsu/Predef.or` examples that always inline and defer the second argument into the appropriate branch body.
+3. Extend `MatchlessTests.scala` with another branch-only-parameter example that should inline because a non-cheap actual argument sits in a deferrable position.
+4. Extend `MatchlessTests.scala` with a lambda-argument example that becomes directly beta-reducible after inlining.
+5. Extend `MatchlessTests.scala` with a helper that lowers to a small closed `WhileExpr` and remains eligible for inlining.
+6. Extend `MatchlessTests.scala` with a rejected case where a large or duplicated argument should not inline.
+7. Extend `MatchlessInterfaceTest.scala` with a cross-package example that proves imported implementations can inline while interface-only dependencies still compile through the old `Global` path.
+8. Extend `ClangGenLibraryDepsTest.scala` with a cross-library helper whose generated code no longer materializes both branch arguments before the helper call shape.
+9. Keep the broader Matchless, evaluator, and codegen suites green to validate semantic preservation.
 
 ## Acceptance Criteria
 
 1. The compiler has a distinct Matchless global inlining phase that runs after raw lowering and before Matchless consumers.
 2. Raw Matchless lowering remains parallel, and in codegen flows the post-pass runs after existing tree shaking/dead-code elimination on the already-selected graph.
 3. Fully saturated calls to eligible globals, including helpers whose recursion has already lowered to a closed `WhileExpr`, can inline across packages and across library dependency scopes when implementation packages are available.
-4. The heuristic handles at least the two motivating cases from the issue: branch-delayed arguments and lambda-argument beta opportunities.
+4. The heuristic records deferrable argument positions and uses them at call sites, so non-cheap actual arguments can be pushed under `If` or `SwitchVariant` branches when that lowers runtime cost.
 5. `Matchless.inlineApplyArgs` avoids eager outer lets for inlined arguments and preserves capture and dependency-scope correctness.
 6. Candidates that would expose free mutable anons across the boundary, exceed size budgets, or duplicate expensive arguments remain as ordinary global calls.
 7. Codegen and evaluator compilation entry points use the same optimized Matchless pipeline.
 8. Interface-only dependency flows require no schema changes and still compile without attempting unavailable global inlining.
-9. New structural and cross-library tests fail before the change and pass after it.
-10. Generated-code diff review on representative programs shows no unacceptable code-size blowup.
+9. `Bosatsu/Predef.and` and `Bosatsu/Predef.or` are always inlined, so their second argument can be deferred into the short-circuit branch.
+10. New structural and cross-library tests fail before the change and pass after it.
+11. Generated-code diff review on representative programs shows no unacceptable code-size blowup.
 
 ## Risks And Mitigations
 
