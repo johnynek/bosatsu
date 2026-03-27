@@ -52,7 +52,6 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`run_lib_build_node_c`](#value-run-lib-build-node-c), [`run_lib_test_c`](#value-run-lib-test-c),
 [`run_publish_bosatsu_libs`](#value-run-publish-bosatsu-libs),
 [`run_python_tests_cmd`](#value-run-python-tests-cmd), [`runner_macos_14`](#value-runner-macos-14),
-[`runner_macos_14_xlarge`](#value-runner-macos-14-xlarge),
 [`runner_macos_latest`](#value-runner-macos-latest),
 [`runner_ubuntu_latest`](#value-runner-ubuntu-latest),
 [`sbt_cache_fetch_step`](#value-sbt-cache-fetch-step), [`setup_java_step`](#value-setup-java-step),
@@ -195,8 +194,6 @@ type StepEnv
       `URI_BASE`: Bosatsu/Json::Optional[String],
       `PUBLISH_DRY_RUN`: Bosatsu/Json::Optional[String],
       `C_RUNTIME_ARCHIVE`: Bosatsu/Json::Optional[String],
-      `BOSATSU_NATIVE_IMAGE_BUILD_JAVA_XMX`: Bosatsu/Json::Optional[String],
-      `BOSATSU_NATIVE_IMAGE_DEADLOCK_WATCHDOG_INTERVAL_MINUTES`: Bosatsu/Json::Optional[String],
       `GITHUB_TOKEN`: Bosatsu/Json::Optional[String],
       `GITHUB_REF_NAME`: Bosatsu/Json::Optional[String],
       `GH_TOKEN`: Bosatsu/Json::Optional[String]
@@ -682,16 +679,6 @@ references: [`String`](../../../../Predef.html#type-string)
 
 ```bosatsu
 runner_macos_14: String
-```
-
-<a id="value-runner-macos-14-xlarge"></a>
-
-### `runner_macos_14_xlarge`
-
-references: [`String`](../../../../Predef.html#type-string)
-
-```bosatsu
-runner_macos_14_xlarge: String
 ```
 
 <a id="value-runner-macos-latest"></a>
