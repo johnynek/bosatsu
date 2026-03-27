@@ -347,6 +347,90 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         Eval.now(fail(s"unexpected global during Matchless eval: $pack.$ident"))
     }
 
+  private def matchlessEvalResolveReverseAndStrings(
+      from: Unit,
+      pack: PackageName,
+      ident: Identifier
+  ): Eval[Value] =
+    (from, pack, ident) match {
+      case ((), PackageName.PredefName, Identifier.Name("reverse")) =>
+        matchlessEvalResolveReverseOnly(from, pack, ident)
+      case ((), PackageName.PredefName, Identifier.Name("concat_String")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(list, Nil) =>
+              val strs =
+                Value.VList
+                  .unapply(list)
+                  .getOrElse(fail(s"expected list argument to concat_String, got: $list"))
+                  .map {
+                    case Value.Str(str) => str
+                    case other          => fail(s"expected string in concat_String list, got: $other")
+                  }
+              Value.Str(strs.mkString)
+            case args =>
+              fail(s"unexpected concat_String args: $args")
+          }
+        )
+      case ((), PackageName.PredefName, Identifier.Name("partition_String")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(Value.Str(str), Value.Str(sep) :: Nil) =>
+              if (sep.isEmpty) Value.VOption.none
+              else {
+                val idx = str.indexOf(sep)
+                if (idx < 0) Value.VOption.none
+                else {
+                  val left = str.substring(0, idx)
+                  val right = str.substring(idx + sep.length)
+                  Value.VOption.some(Value.Tuple(Value.Str(left), Value.Str(right)))
+                }
+              }
+            case args =>
+              fail(s"unexpected partition_String args: $args")
+          }
+        )
+      case ((), PackageName.PredefName, Identifier.Name("uncons_String")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(Value.Str(str), Nil) =>
+              if (str.isEmpty) Value.VOption.none
+              else {
+                val next = str.offsetByCodePoints(0, 1)
+                  Value.VOption.some(
+                    Value.Tuple(Value.Str(str.substring(0, next)), Value.Str(str.substring(next)))
+                  )
+              }
+            case args =>
+              fail(s"unexpected uncons_String args: $args")
+          }
+        )
+      case ((), PackageName.PredefName, Identifier.Name("tail_or_empty_String")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(Value.Str(str), Nil) =>
+              if (str.isEmpty) Value.Str("")
+              else {
+                val next = str.offsetByCodePoints(0, 1)
+                Value.Str(str.substring(next))
+              }
+            case args =>
+              fail(s"unexpected tail_or_empty_String args: $args")
+          }
+        )
+      case ((), PackageName.PredefName, Identifier.Name("char_to_String")) =>
+        Eval.now(
+          Value.FnValue {
+            case NonEmptyList(Value.Str(str), Nil) =>
+              Value.Str(str)
+            case args =>
+              fail(s"unexpected char_to_String args: $args")
+          }
+        )
+      case _ =>
+        Eval.now(fail(s"unexpected global during Matchless eval: $pack.$ident"))
+    }
+
   private def collectProjectionIndices(
       expr: Matchless.Expr[Unit]
   )(
@@ -3637,6 +3721,71 @@ test = TestSuite("guarded list search", [
     }
   }
 
+  test("guarded exact list search preserves left bias and retries after guard failure") {
+    TestUtils.checkMatchless("""
+def guarded_middle_retry(xs):
+  match xs:
+    case [*prefix, x, *_] if x matches 2: prefix
+    case _: []
+
+def guarded_trailing_exact(xs):
+  match xs:
+    case [*prefix, 2, 3] if prefix matches [1]: prefix
+    case _: xs
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val middleExpr = byName(Identifier.Name("guarded_middle_retry"))
+      val trailingExpr = byName(Identifier.Name("guarded_trailing_exact"))
+
+      val middleEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(
+                middleExpr,
+                NonEmptyList.one(matchlessListOfInts(3 :: 2 :: 4 :: Nil))
+              ),
+              Matchless.App(
+                middleExpr,
+                NonEmptyList.one(matchlessListOfInts(3 :: 4 :: Nil))
+              )
+            )
+          )(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+
+      val trailingEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(
+                trailingExpr,
+                NonEmptyList.one(matchlessListOfInts(1 :: 2 :: 3 :: Nil))
+              ),
+              Matchless.App(
+                trailingExpr,
+                NonEmptyList.one(matchlessListOfInts(0 :: 1 :: 2 :: 3 :: Nil))
+              )
+            )
+          )(matchlessEvalResolveReverseOnly)
+          .map(_.value)
+
+      assertEquals(
+        middleEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(3))),
+          Value.VList(Nil)
+        )
+      )
+      assertEquals(
+        trailingEvaluated,
+        Vector(
+          Value.VList(List(Value.VInt(1))),
+          Value.VList(List(Value.VInt(0), Value.VInt(1), Value.VInt(2), Value.VInt(3)))
+        )
+      )
+    }
+  }
+
   test("exact trailing list suffix preserves named prefix binding semantics") {
     TestUtils.checkMatchless("""
 def suffix_prefix(xs):
@@ -3928,6 +4077,373 @@ def segmented_shape(xs):
       assertEquals(Matchless.Expr.containsWhileExpr(expr), true, expr.toString)
       assertEquals(countStructConstructorApps(expr, 2), 0, expr.toString)
       assertEquals(countWhileListVariantChecks(expr) >= 1, true, expr.toString)
+    }
+  }
+
+  test("segmented string search preserves left-biased decomposition") {
+    TestUtils.checkMatchless("""
+def prefix_before_bar(s):
+  match s:
+    case "${prefix}foo${_}bar": prefix
+    case _: s
+
+def between_foo_bar(s):
+  match s:
+    case "${_}foo${mid}bar": mid
+    case _: s
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val prefixExpr = byName(Identifier.Name("prefix_before_bar"))
+      val midExpr = byName(Identifier.Name("between_foo_bar"))
+
+      val prefixEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxbar")))),
+              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxfooybar")))),
+              Matchless.App(prefixExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafoox"))))
+            )
+          )(matchlessEvalResolveReverseAndStrings)
+          .map(_.value)
+      val midEvaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(midExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxxbarfooyybar")))),
+              Matchless.App(midExpr, NonEmptyList.one(Matchless.Literal(Lit.Str("aafooxx"))))
+            )
+          )(matchlessEvalResolveReverseAndStrings)
+          .map(_.value)
+
+      assertEquals(
+        prefixEvaluated,
+        Vector(Value.Str("aa"), Value.Str("aa"), Value.Str("aafoox"))
+      )
+      assertEquals(
+        midEvaluated,
+        Vector(Value.Str("xxbarfooyy"), Value.Str("aafooxx"))
+      )
+    }
+  }
+
+  test("segmented string search keeps searching after guard failure") {
+    TestUtils.checkMatchless("""
+def guarded(s):
+  match s:
+    case "${_}foo${mid}bar" if mid matches "ok": mid
+    case _: ""
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("guarded"))
+      val evaluated =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              Matchless.App(expr, NonEmptyList.one(Matchless.Literal(Lit.Str("foozzbarfoookbar")))),
+              Matchless.App(expr, NonEmptyList.one(Matchless.Literal(Lit.Str("foozzbarfoonopebar"))))
+            )
+          )(matchlessEvalResolveReverseAndStrings)
+          .map(_.value)
+
+      assertEquals(evaluated, Vector(Value.Str("ok"), Value.Str("")))
+    }
+  }
+
+  test("string matcher covers exact and non-segmented search behaviors") {
+    TestUtils.checkMatchless("""
+def literal_prefix_has_tail(s):
+  s matches "ab${_}"
+
+def literal_prefix_tail(s):
+  match s:
+    case "ab${tail}": tail
+    case _: "#"
+
+def head_char_capture(s):
+  match s:
+    case "$.{h}${t}": concat_String([char_to_String(h), ":", t])
+    case _: "#"
+
+def head_char_wild(s):
+  s matches "$.{_}${_}"
+
+def head_char_no_capture(s):
+  match s:
+    case "$.{_}y": "T"
+    case _: "F"
+
+def glob_char_has_mid_z(s):
+  s matches "${_}$.{_}z"
+
+def glob_char_capture(s):
+  match s:
+    case "${left}$.{mid}z": concat_String([left, ":", char_to_String(mid)])
+    case _: "#"
+
+def glob_char_only_capture(s):
+  match s:
+    case "${left}$.{mid}": concat_String([left, ":", char_to_String(mid)])
+    case _: "#"
+
+def glob_lit_has_xyz(s):
+  s matches "${_}xyz"
+
+def glob_lit_has_x(s):
+  s matches "${_}x"
+
+def glob_lit_prefix_before_aZ(s):
+  match s:
+    case "${left}aZ": left
+    case _: "#"
+
+def glob_lit_has_abZ(s):
+  s matches "${_}abZ"
+
+def unicode_prefix_before_emoji_x(s):
+  match s:
+    case "${left}👋x": left
+    case _: "#"
+
+def glob_capture_all(s):
+  match s:
+    case "${all}": all
+
+def glob_wild_all(s):
+  match s:
+    case "${_}": "T"
+
+def contains_foo(s):
+  s matches "${_}foo${_}"
+
+def prefix_before_foo(s):
+  match s:
+    case "${left}foo${_}": left
+    case _: "#"
+
+def prefix_before_f(s):
+  match s:
+    case "${left}f": left
+    case _: "#"
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      def str(s: String): Matchless.Expr[Unit] =
+        Matchless.Literal(Lit.Str(s))
+      def app(name: String, s: String): Matchless.Expr[Unit] =
+        Matchless.App(byName(Identifier.Name(name)), NonEmptyList.one(str(s)))
+      val values =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              app("literal_prefix_has_tail", "bbb"),
+              app("literal_prefix_has_tail", "zabq"),
+              app("literal_prefix_has_tail", "abq"),
+              app("literal_prefix_tail", "abq"),
+              app("literal_prefix_tail", "zz"),
+              app("head_char_capture", "xy"),
+              app("head_char_capture", ""),
+              app("head_char_wild", "xy"),
+              app("head_char_wild", ""),
+              app("head_char_no_capture", "xy"),
+              app("head_char_no_capture", "xz"),
+              app("glob_char_has_mid_z", "abcz"),
+              app("glob_char_has_mid_z", "abc"),
+              app("glob_char_capture", "abcz"),
+              app("glob_char_capture", "abc"),
+              app("glob_char_only_capture", "ab"),
+              app("glob_char_only_capture", ""),
+              app("glob_lit_has_xyz", "abc"),
+              app("glob_lit_has_x", ""),
+              app("glob_lit_prefix_before_aZ", "aaZ"),
+              app("glob_lit_prefix_before_aZ", "bbZ"),
+              app("glob_lit_has_abZ", "ababZ"),
+              app("glob_lit_has_abZ", "abZZ"),
+              app("unicode_prefix_before_emoji_x", "👋👋x"),
+              app("unicode_prefix_before_emoji_x", "x"),
+              app("glob_capture_all", "abc"),
+              app("glob_wild_all", "abc"),
+              app("contains_foo", "zzfooyy"),
+              app("contains_foo", "zzfyy"),
+              app("prefix_before_foo", "zzfooyy"),
+              app("prefix_before_foo", "zzfyy"),
+              app("prefix_before_f", "aaf"),
+              app("prefix_before_f", "zzz")
+            )
+          )(matchlessEvalResolveReverseAndStrings)
+          .map(_.value)
+
+      assertEquals(
+        values,
+        Vector(
+          Value.False,
+          Value.False,
+          Value.True,
+          Value.Str("q"),
+          Value.Str("#"),
+          Value.Str("x:y"),
+          Value.Str("#"),
+          Value.True,
+          Value.False,
+          Value.Str("T"),
+          Value.Str("F"),
+          Value.True,
+          Value.False,
+          Value.Str("ab:c"),
+          Value.Str("#"),
+          Value.Str("a:b"),
+          Value.Str("#"),
+          Value.False,
+          Value.False,
+          Value.Str("a"),
+          Value.Str("#"),
+          Value.True,
+          Value.False,
+          Value.Str("👋"),
+          Value.Str("#"),
+          Value.Str("abc"),
+          Value.Str("T"),
+          Value.True,
+          Value.False,
+          Value.Str("zz"),
+          Value.Str("#"),
+          Value.Str("aa")
+          ,
+          Value.Str("#")
+        )
+      )
+    }
+  }
+
+  test("segmented string matcher covers char, literal, trailing-glob, and retry behaviors") {
+    TestUtils.checkMatchless("""
+def seg_final_char_some(s):
+  match s:
+    case "${a}foo${b}$.{c}bar${d}":
+      concat_String([a, ":", b, ":", char_to_String(c), ":", d])
+    case _: "#"
+
+def seg_final_char_wild(s):
+  s matches "${_}foo${_}$.{_}bar${_}"
+
+def seg_final_char_none(s):
+  match s:
+    case "${a}foo${b}$.{c}":
+      concat_String([a, ":", b, ":", char_to_String(c)])
+    case _: "#"
+
+def seg_final_char_none_wild(s):
+  s matches "${_}foo${_}$.{_}"
+
+def seg_leading_char_some(s):
+  match s:
+    case "${a}$.{c}bar${d}baz${e}":
+      concat_String([a, ":", char_to_String(c), ":", d, ":", e])
+    case _: "#"
+
+def seg_leading_char_wild(s):
+  s matches "${_}$.{_}bar${_}baz${_}"
+
+def seg_leading_literal_char_tail_some(s):
+  match s:
+    case "${a}foo$.{c}${b}x${d}":
+      concat_String([a, ":", char_to_String(c), ":", b, ":", d])
+    case _: "#"
+
+def seg_leading_literal_retry(s):
+  match s:
+    case "${a}foo$.{c}bar${d}x${e}":
+      concat_String([a, ":", char_to_String(c), ":", d, ":", e])
+    case _: "#"
+
+def seg_one_char_literal_some(s):
+  match s:
+    case "${a}f$.{c}${b}x${d}":
+      concat_String([a, ":", char_to_String(c), ":", b, ":", d])
+    case _: "#"
+
+def seg_one_char_literal_wild(s):
+  s matches "${_}f$.{_}${_}x${_}"
+
+def seg_final_literal_none(s):
+  match s:
+    case "${a}foo${b}x":
+      concat_String([a, ":", b])
+    case _: "#"
+
+def seg_final_literal_char(s):
+  match s:
+    case "${a}foo${b}x$.{c}":
+      concat_String([a, ":", b, ":", char_to_String(c)])
+    case _: "#"
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      def str(s: String): Matchless.Expr[Unit] =
+        Matchless.Literal(Lit.Str(s))
+      def app(name: String, s: String): Matchless.Expr[Unit] =
+        Matchless.App(byName(Identifier.Name(name)), NonEmptyList.one(str(s)))
+      val values =
+        MatchlessToValue
+          .traverse(
+            Vector(
+              app("seg_final_char_some", "LfooMIDQbarR"),
+              app("seg_final_char_some", "LfooMIDQbazR"),
+              app("seg_final_char_some", "fooQbar"),
+              app("seg_final_char_wild", "LfooMIDQbarR"),
+              app("seg_final_char_wild", "LfooMIDQbazR"),
+              app("seg_final_char_none", "LfooMIDQ"),
+              app("seg_final_char_none", "LfooMID"),
+              app("seg_final_char_none_wild", "LfooMIDQ"),
+              app("seg_final_char_none_wild", "LfooMID"),
+              app("seg_leading_char_some", "LQbarMIDbazR"),
+              app("seg_leading_char_some", "LQbazMIDbazR"),
+              app("seg_leading_char_wild", "LQbarMIDbazR"),
+              app("seg_leading_char_wild", "LQbazMIDbazR"),
+              app("seg_leading_literal_char_tail_some", "LfooQMIDxR"),
+              app("seg_leading_literal_char_tail_some", "LbarQMIDxR"),
+              app("seg_leading_literal_retry", "LfooQbazfooRbarMIDxS"),
+              app("seg_leading_literal_retry", "LfooQbazzzz"),
+              app("seg_one_char_literal_some", "LfQMIDxR"),
+              app("seg_one_char_literal_some", "LxQMIDxR"),
+              app("seg_one_char_literal_wild", "LfQMIDxR"),
+              app("seg_one_char_literal_wild", "LxQMIDxR"),
+              app("seg_final_literal_none", "LfooMIDx"),
+              app("seg_final_literal_none", "LfooMIDy"),
+              app("seg_final_literal_char", "LfooMIDxQ"),
+              app("seg_final_literal_char", "LfooMIDx")
+            )
+          )(matchlessEvalResolveReverseAndStrings)
+          .map(_.value)
+
+      assertEquals(
+        values,
+        Vector(
+          Value.Str("L:MID:Q:R"),
+          Value.Str("#"),
+          Value.Str("::Q:"),
+          Value.True,
+          Value.False,
+          Value.Str("L:MID:Q"),
+          Value.Str("L:MI:D"),
+          Value.True,
+          Value.True,
+          Value.Str("L:Q:MID:R"),
+          Value.Str("#"),
+          Value.True,
+          Value.False,
+          Value.Str("L:Q:MID:R"),
+          Value.Str("#"),
+          Value.Str("LfooQbaz:R:MID:S"),
+          Value.Str("#"),
+          Value.Str("L:Q:MID:R"),
+          Value.Str("#"),
+          Value.True,
+          Value.False,
+          Value.Str("L:MID"),
+          Value.Str("#"),
+          Value.Str("L:MID:Q"),
+          Value.Str("#")
+        )
+      )
     }
   }
 
