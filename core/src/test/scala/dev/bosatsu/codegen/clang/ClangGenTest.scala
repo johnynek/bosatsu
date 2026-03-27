@@ -76,6 +76,46 @@ class ClangGenTest extends munit.ScalaCheckSuite {
     names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
   }
 
+  private def canonicalizeGeneratedLocals(code: String): String = {
+    def canonicalizeFamily(
+        input: String,
+        pattern: scala.util.matching.Regex,
+        prefix: String
+    ): String = {
+      val mapping = scala.collection.mutable.Map.empty[String, String]
+      var next = 0
+
+      pattern.replaceAllIn(
+        input,
+        mat => {
+          val matched = mat.matched.nn
+          mapping.getOrElseUpdate(
+            matched,
+            {
+              val renamed = s"$prefix$next"
+              next += 1
+              renamed
+            }
+          )
+        }
+      )
+    }
+
+    val normalizedTemps =
+      canonicalizeFamily(code, raw"__bsts_a_\d+".r, "__bsts_a_")
+    val normalizedConds =
+      canonicalizeFamily(
+        normalizedTemps,
+        raw"__bsts_l_cond\d+".r,
+        "__bsts_l_cond"
+      )
+    canonicalizeFamily(
+      normalizedConds,
+      raw"__bsts_l_branch__res\d+".r,
+      "__bsts_l_branch__res"
+    )
+  }
+
   def assertPredefFns(
       fns: String*
   )(matches: String)(implicit loc: munit.Location) =
@@ -98,8 +138,9 @@ x = 1
 
       res match {
         case Right(d) =>
-          val rendered = d.render(80)
-          assertEquals(rendered, matches)
+          val rendered = canonicalizeGeneratedLocals(d.render(80))
+          val expected = canonicalizeGeneratedLocals(matches)
+          assertEquals(rendered, expected)
         case Left(e) => fail(e.toString)
       }
     }
@@ -267,20 +308,21 @@ main = find_before_one
         val rendered = doc.render(120)
         val findBeforeOne = extractCFunction(rendered, "_l_find__before__one(BValue")
         val whileCount = "while \\(".r.findAllMatchIn(findBeforeOne).length
+        val selfAdvancingTemps =
+          """(__bsts_a_\d+) = get_enum_index\(\1, 1\);""".r
+            .findAllMatchIn(findBeforeOne)
+            .map(_.group(1))
+            .toSet
+        val trailingOnePattern =
+          """(?s)bsts_integer_equals\(__bsts_a_\d+,\s*bsts_integer_from_int\(1\)\) && \(get_variant\(__bsts_a_\d+\) == 0\);""".r
 
         assertEquals(whileCount, 2, findBeforeOne)
         assert(
-          findBeforeOne.contains("__bsts_a_3 = get_enum_index(__bsts_a_3, 1);"),
+          selfAdvancingTemps.size == 2,
           findBeforeOne
         )
         assert(
-          findBeforeOne.contains("__bsts_a_2 = get_enum_index(__bsts_a_2, 1);"),
-          findBeforeOne
-        )
-        assert(
-          findBeforeOne.contains(
-            "bsts_integer_equals(__bsts_a_6,\n                        bsts_integer_from_int(1)) && (get_variant(__bsts_a_7) == 0);"
-          ),
+          trailingOnePattern.findFirstIn(findBeforeOne).nonEmpty,
           findBeforeOne
         )
         assertEquals(deadCTemps(findBeforeOne), Set.empty, findBeforeOne)
@@ -498,7 +540,10 @@ main = pick
             else rendered.drop(pickStart)
 
           val firstDiscriminatingCheck =
-            pickFn.indexOf("bsts_integer_equals(__bsts_a_1")
+            "bsts_integer_equals\\(__bsts_a_\\d+".r
+              .findFirstMatchIn(pickFn)
+              .map(_.start)
+              .getOrElse(-1)
           assert(firstDiscriminatingCheck >= 0, pickFn)
           val firstWideProj =
             "get_struct_index\\([^\\n]*, 2\\)".r
