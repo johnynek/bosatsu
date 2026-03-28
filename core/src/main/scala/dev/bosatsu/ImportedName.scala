@@ -4,6 +4,7 @@ import cats.{Eq, Functor}
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.spaces
+import scala.util.hashing.MurmurHash3
 
 sealed abstract class ImportedName[+T] {
   def originalName: Identifier
@@ -50,11 +51,15 @@ object ImportedName {
     }
   case class OriginalName[T](originalName: Identifier, tag: T)
       extends ImportedName[T] {
+    final override val hashCode: Int =
+      MurmurHash3.caseClassHash(this)
     def localName = originalName
     def withTag[U](tag: U): ImportedName[U] = copy(tag = tag)
   }
   case class Renamed[T](originalName: Identifier, localName: Identifier, tag: T)
       extends ImportedName[T] {
+    final override val hashCode: Int =
+      MurmurHash3.caseClassHash(this)
     def withTag[U](tag: U): ImportedName[U] = copy(tag = tag)
   }
 

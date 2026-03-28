@@ -10,7 +10,16 @@ import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
 case class PackageName(parts: NonEmptyList[String]) derives CanEqual {
-  lazy val asString: String = parts.toList.mkString("/")
+  final val asString: String = parts.toList.mkString("/")
+
+  final override def equals(that: Any): Boolean =
+    that match {
+      case pn: PackageName =>
+        (this eq pn) || (asString == pn.asString)
+      case _ => false
+    }
+
+  final override val hashCode: Int = asString.hashCode
 
   def isPredef: Boolean = parts === PackageName.PredefName.parts
 }
@@ -36,7 +45,7 @@ object PackageName {
     }
 
   implicit val order: Order[PackageName] =
-    Order[NonEmptyList[String]].contramap[PackageName](_.parts)
+    Order[String].contramap[PackageName](_.asString)
 
   implicit val packageNameOrdering: Ordering[PackageName] =
     order.toOrdering
