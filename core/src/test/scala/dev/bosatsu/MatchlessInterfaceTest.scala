@@ -178,6 +178,12 @@ class MatchlessInterfaceTest extends munit.FunSuite {
         ),
         true
       )
+      Matchless.recoverTopLevelLambda(optimizedWithImpl(callerPack).toMap.apply(use)) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(0))
+        case other =>
+          fail(s"expected inlined helper to reduce to a constant-zero lambda, found: $other")
+      }
     }
   }
 }

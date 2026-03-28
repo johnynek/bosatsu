@@ -77,6 +77,40 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
   }
 
   test(
+    "Matchless.inlineApplyArgs memoizes non-CheapExpr nullary constructors in cheap positions"
+  ) {
+    val arg = Identifier.Name("arg")
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(arg),
+        body = Matchless.If(
+          Matchless.EqualsNat(Matchless.Local(arg), rankn.DataRepr.ZeroNat),
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(2))
+        )
+      )
+
+    Matchless.inlineApplyArgs(lam, NonEmptyList.one(Matchless.ZeroNat)) match {
+      case Matchless.Let(
+            Right(tmp),
+            Matchless.ZeroNat,
+            Matchless.If(
+              Matchless.EqualsNat(Matchless.Local(tmpRef), rankn.DataRepr.ZeroNat),
+              Matchless.Literal(ifTrue),
+              Matchless.Literal(ifFalse)
+            )
+          ) =>
+        assertEquals(tmpRef, tmp)
+        assertEquals(ifTrue, Lit.fromInt(1))
+        assertEquals(ifFalse, Lit.fromInt(2))
+      case other =>
+        fail(s"expected ZeroNat to be memoized for the cheap position, found: $other")
+    }
+  }
+
+  test(
     "Matchless.recoverTopLevelLambda beta-reduces let-bound lambda aliases"
   ) {
     val fnName1 = Identifier.Name("fn1")

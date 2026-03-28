@@ -1,7 +1,7 @@
 package dev.bosatsu.library
 
 import _root_.bosatsu.{TypedAst => proto}
-import cats.{MonadError, Order, Show}
+import cats.{MonadError, Show}
 import cats.data.{NonEmptyList, StateT}
 import cats.syntax.all._
 import dev.bosatsu.{
@@ -45,27 +45,13 @@ case class DecodedLibraryWithDeps[A](
 
   def compile(implicit
       ec: Par.EC
-  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] = {
-    given Order[(Name, Version)] = Order.fromOrdering(using
-      Ordering.Tuple2(using
-        summon[Ordering[Name]],
-        summon[Ordering[Version]]
-      )
-    )
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
-  }
 
   def compileRaw(implicit
       ec: Par.EC
-  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] = {
-    given Order[(Name, Version)] = Order.fromOrdering(using
-      Ordering.Tuple2(using
-        summon[Ordering[Name]],
-        summon[Ordering[Version]]
-      )
-    )
+  ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
     MatchlessFromTypedExpr.compileRaw(nameVersion, lib.implementations)
-  }
 
   def filterLets(
       keep: ((Name, Version)) => Option[((PackageName, Identifier)) => Boolean]

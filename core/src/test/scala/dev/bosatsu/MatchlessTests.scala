@@ -4762,7 +4762,7 @@ def seg_final_literal_char(s):
     assertEquals(structProjections, Set.empty[Int])
   }
 
-  test("whole-root binding reconstructs only on bound branch path") {
+  test("whole-root binding can eliminate reconstruction when only bound fields are read") {
     val x2 = Identifier.Name("x2")
     val pairAlias = Identifier.Name("pair_alias")
     val out = Identifier.Name("whole_root")
@@ -4797,7 +4797,7 @@ def seg_final_literal_char(s):
     val lowered =
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
-    assertEquals(countStructConstructorApps(lowered, 2), 1)
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
     assertEquals(hasStructConstructorOutsideConditional(lowered, 2), false)
   }
 
@@ -4858,7 +4858,7 @@ def seg_final_literal_char(s):
     )
   }
 
-  test("multiple whole-root bind branches disable root inlining") {
+  test("multiple whole-root bind branches can still avoid reconstruction") {
     val flag = Identifier.Name("flag")
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
@@ -4896,8 +4896,8 @@ def seg_final_literal_char(s):
     val lowered =
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
-    assertEquals(countStructConstructorApps(lowered, 2), 1)
-    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), true)
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), false)
   }
 
   test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
@@ -5083,17 +5083,10 @@ def seg_final_literal_char(s):
       assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
 
       Matchless.recoverTopLevelLambda(useExpr) match {
-        case Matchless.Lambda(Nil, None, _, Matchless.If(_, _, _)) =>
-          ()
-        case Matchless.Lambda(
-              Nil,
-              None,
-              _,
-              Matchless.Let(_, _, Matchless.If(_, _, _))
-            ) =>
-          ()
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(0))
         case other =>
-          fail(s"expected inlined branch helper body, found: $other")
+          fail(s"expected inlined branch helper to collapse to 0, found: $other")
       }
     }
   }
@@ -5134,7 +5127,7 @@ def seg_final_literal_char(s):
     }
   }
 
-  test("optimized Matchless rejects helpers that would duplicate non-cheap arguments") {
+  test("optimized Matchless inlines duplicate helpers once arguments simplify to cheap locals") {
     val helperPack = PackageName.parts("Helper", "Dup")
     val callerPack = PackageName.parts("Caller", "Dup")
     val duplicate = Identifier.Name("duplicate")
@@ -5167,7 +5160,7 @@ def seg_final_literal_char(s):
       )
     ) { compiled =>
       val useExpr = compiled(callerPack).toMap.apply(useName)
-      assertEquals(containsGlobal(useExpr, helperPack, duplicate), true)
+      assertEquals(containsGlobal(useExpr, helperPack, duplicate), false)
     }
   }
 
