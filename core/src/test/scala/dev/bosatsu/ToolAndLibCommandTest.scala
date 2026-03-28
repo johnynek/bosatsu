@@ -6024,7 +6024,11 @@ main = depBox
         assertEquals(out1, Output.Basic(Doc.text(""), None))
         assertEquals(out2, Output.Basic(Doc.text(""), None))
         assert(err1.contains("declared `exposes` does not match"), err1)
-        assert(err1.contains("canonical fix: exposes Dep/Api."), err1)
+        assert(err1.contains("declared here:"), err1)
+        assert(err1.contains("no `exposes` declaration found."), err1)
+        assert(err1.contains("canonical fix:"), err1)
+        assert(err1.contains("exposes Dep/Api."), err1)
+        assert(!err1.contains("\nactual:"), err1)
         assertEquals(err2, err1)
     }
   }

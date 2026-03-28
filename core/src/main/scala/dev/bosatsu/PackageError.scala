@@ -157,11 +157,49 @@ object PackageError {
           .grouped
     }
 
+  private def groupedParensDoc(items: List[Doc]): Doc =
+    items match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        val body = Doc.intercalate(Doc.comma + Doc.line, nonEmpty)
+        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+          .char(')')).grouped
+    }
+
   private def exposesLineDoc(packages: List[PackageName]): Option[Doc] =
     packages match {
       case Nil      => None
       case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
     }
+
+  private def canonicalExposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil => None
+      case nonEmpty @ (_ :: Nil) =>
+        Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+      case nonEmpty =>
+        Some(
+          (Doc.text("exposes ") + groupedParensDoc(
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )).grouped
+        )
+    }
+
+  private def sectionDoc(title: String, body: Doc): Doc =
+    Doc.text(title) + (Doc.hardLine + body).nested(4)
+
+  private val exposesRegionParser =
+    (Package.headerPackageNameParser.void *>
+      Package.headerImportsParser.void *>
+      Package.headerExportsParser.void *>
+      Package.headerExposeRegionsParser) <* P.anyChar.rep0.void
+
+  private def declaredExposesRegion(source: String): Option[Region] =
+    Parser
+      .parse(exposesRegionParser, source)
+      .toOption
+      .flatMap(_._2.headOption)
 
   private def suggestedName(
       ident: Identifier,
@@ -2046,18 +2084,26 @@ object PackageError {
         errColor: Colorize
     ) = {
       val prefix = sourceMap.headLine(pack, None)
+      val (lm, _) = sourceMap.getMapSrc(pack)
       val missing = actual.filterNot(declared.toSet)
       val extra = declared.filterNot(actual.toSet)
+      val declaredDoc =
+        declaredExposesRegion(lm.fromString)
+          .flatMap(lm.showRegion(_, 0, errColor))
+          .getOrElse {
+            exposesLineDoc(declared).getOrElse(
+              Doc.text("no `exposes` declaration found.")
+            )
+          }
       val fixDoc =
         if (actual.isEmpty)
-          Doc.text("canonical fix: omit `exposes` (equivalent to `exposes ()`).")
+          Doc.text("omit `exposes` (equivalent to `exposes ()`).")
         else
-          Doc.text("canonical fix: ") + exposesLineDoc(actual).get + Doc.char('.')
+          canonicalExposesLineDoc(actual).get + Doc.char('.')
 
       val missingDoc =
-        if (missing.isEmpty) Doc.empty
-        else {
-          val lines = missing.flatMap { dep =>
+        NonEmptyList.fromList(missing).map { missingNel =>
+          val lines = missingNel.toList.flatMap { dep =>
             missingCauses.get(dep).map { exports =>
               val exportWord =
                 if (exports.tail.isEmpty) "export" else "exports"
@@ -2074,25 +2120,33 @@ object PackageError {
             }
           }
 
-          Doc.hardLine + Doc.text("missing declarations:") + Doc.hardLine +
-            Doc.intercalate(Doc.hardLine, lines).nested(2)
+          sectionDoc(
+            "missing declarations:",
+            Doc.intercalate(Doc.hardLine, lines)
+          )
         }
 
       val extraDoc =
-        if (extra.isEmpty) Doc.empty
-        else
-          Doc.hardLine + Doc.text("extra declarations: ") + exposesSetDoc(extra)
+        NonEmptyList
+          .fromList(extra)
+          .map(extraNel =>
+            sectionDoc("extra declarations:", exposesSetDoc(extraNel.toList))
+          )
+
+      val sections =
+        List(
+          Some(sectionDoc("declared here:", declaredDoc)),
+          Some(sectionDoc("canonical fix:", fixDoc)),
+          missingDoc,
+          extraDoc
+        ).flatten
 
       val body =
-        Doc.text("declared `exposes` does not match the exported API.") +
-          Doc.hardLine +
-          Doc.text("declared: ") + exposesSetDoc(declared) +
-          Doc.hardLine +
-          Doc.text("actual: ") + exposesSetDoc(actual) +
-          Doc.hardLine +
-          fixDoc +
-          missingDoc +
-          extraDoc
+        Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          Doc.text("declared `exposes` does not match the exported API.") ::
+            sections
+        )
 
       (prefix + Doc.hardLine + body).render(80)
     }

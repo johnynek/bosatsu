@@ -448,39 +448,70 @@ object Package {
         Doc.intercalate(Doc.empty, p :: i :: e :: x :: b)
     }
 
-  def headerParser: P[Header] = {
-    val spaceComment: P0[Unit] =
-      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
+  private[bosatsu] val headerSpaceCommentParser: P0[Unit] =
+    (Parser.spaces.? ~ CommentStatement.commentPart.?).void
 
-    val eol = spaceComment <* Parser.termination
-    val parsePack = Padding
+  private[bosatsu] val headerEolParser: P0[Unit] =
+    headerSpaceCommentParser <* Parser.termination
+
+  private[bosatsu] val headerPackageNameParser: P[PackageName] =
+    Padding
       .parser(
-        (P.string("package").soft ~ spaces) *> PackageName.parser <* eol,
-        spaceComment
+        (P.string("package").soft ~ spaces) *> PackageName.parser <* headerEolParser,
+        headerSpaceCommentParser
       )
       .map(_.padded)
-    val im =
-      Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
-    val ex = Padding
+
+  private[bosatsu] val headerImportsParser
+      : P0[List[Import[PackageName, Unit]]] =
+    Padding
+      .parser(Import.parser <* headerEolParser, headerSpaceCommentParser)
+      .map(_.padded)
+      .rep0
+
+  private[bosatsu] val headerExportsParser: P0[List[ExportedName[Unit]]] = {
+    val exportLine = Padding
       .parser(
         (P.string("export")
           .soft ~ spaces) *> ExportedName.parser.itemsMaybeParens
-          .map(_._2) <* eol,
-        spaceComment
-      )
-      .map(_.padded)
-    val exposeItems =
-      PackageName.parser.parensLines0Cut.backtrack.orElse(
-        PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
-      )
-    val exposes = Padding
-      .parser(
-        (P.string("exposes").soft ~ spaces) *> exposeItems <* eol,
-        spaceComment
+          .map(_._2) <* headerEolParser,
+        headerSpaceCommentParser
       )
       .map(_.padded)
 
-    (((parsePack ~ im) ~ Parser.nonEmptyListToList(ex)) ~ exposes.rep0).map {
+    Parser.nonEmptyListToList(exportLine)
+  }
+
+  private[bosatsu] val headerExposeItemsParser: P[List[PackageName]] =
+    PackageName.parser.parensLines0Cut.backtrack.orElse(
+      PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
+    )
+
+  private[bosatsu] val headerExposeDeclParser: P[List[PackageName]] =
+    (P.string("exposes").soft ~ spaces) *> headerExposeItemsParser
+
+  private[bosatsu] val headerExposesParser: P0[List[List[PackageName]]] =
+    Padding
+      .parser(
+        headerExposeDeclParser <* headerEolParser,
+        headerSpaceCommentParser
+      )
+      .map(_.padded)
+      .rep0
+
+  private[bosatsu] val headerExposeRegionsParser: P0[List[Region]] =
+    Padding
+      .parser(
+        headerExposeDeclParser.region.map(_._1) <* headerEolParser,
+        headerSpaceCommentParser
+      )
+      .map(_.padded)
+      .rep0
+
+  def headerParser: P[Header] = {
+    (((headerPackageNameParser ~ headerImportsParser) ~ headerExportsParser) ~
+      headerExposesParser)
+      .map {
       case (((p, i), e), x) => (p, i, e, x)
     }
   }
