@@ -5046,6 +5046,61 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless expands tiny capture-free helper references generically") {
+    val helperPack = PackageName.parts("Helper", "Ref")
+    val callerPack = PackageName.parts("Caller", "Ref")
+    val helperName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+    val flag = Identifier.Name("flag")
+    val onTrue = Identifier.Name("on_true")
+
+    val helperExpr =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.of(flag, onTrue),
+        body = Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.Local(onTrue),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.Global((), helperPack, helperName)
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(rawCompiled, topoSort, (_, _) => ())
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    Matchless.recoverTopLevelLambda(useExpr) match {
+      case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+        val List(flagArg, onTrueArg) = args.toList
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flagArg), true)
+        assertEquals(thenExpr, Matchless.Local(onTrueArg))
+        assertEquals(elseExpr, Matchless.Literal(Lit.fromInt(0)))
+      case other =>
+        fail(s"expected generic helper reference to inline to a lambda, found: $other")
+    }
+  }
+
   test("optimized Matchless inlines cross-package helpers with deferrable arguments") {
     val helperPack = PackageName.parts("Helper", "Branch")
     val callerPack = PackageName.parts("Caller", "Branch")

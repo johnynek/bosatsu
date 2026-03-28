@@ -31,61 +31,6 @@ object MatchlessGlobalInlining {
   private val CheapArgWeightBudget = 3
   private val MaxExpensiveArgUses = 1
 
-  private def builtinLambda[A](
-      pack: PackageName,
-      name: Bindable
-  ): Option[Lambda[A]] =
-    if (pack != PackageName.PredefName) None
-    else
-      name match {
-        case Identifier.Name("and") =>
-          val left = Identifier.Name("left")
-          val right = Identifier.Name("right")
-          Some(
-            Lambda(
-              captures = Nil,
-              recursiveName = None,
-              args = NonEmptyList.of(left, right),
-              body = Matchless.If(
-                Matchless.isTrueExpr(Matchless.Local(left)),
-                Matchless.Local(right),
-                Matchless.FalseExpr
-              )
-            )
-          )
-        case Identifier.Name("or")  =>
-          val left = Identifier.Name("left")
-          val right = Identifier.Name("right")
-          Some(
-            Lambda(
-              captures = Nil,
-              recursiveName = None,
-              args = NonEmptyList.of(left, right),
-              body = Matchless.If(
-                Matchless.isTrueExpr(Matchless.Local(left)),
-                Matchless.TrueExpr,
-                Matchless.Local(right)
-              )
-            )
-          )
-        case _ =>
-          None
-      }
-
-  private def builtinSummary[K](
-      pack: PackageName,
-      name: Bindable
-  ): Option[InlineSummary[K]] =
-    builtinLambda[K](pack, name).map { lam =>
-      InlineSummary(
-        lambda = lam,
-        bodyWeight = Matchless.exprWeight(lam),
-        paramDemand = Matchless.parameterDemandSummary(lam),
-        containsWhileExpr = false,
-        exposesFreeMutableAnon = false
-      )
-    }
-
   private def cleanedCompiled[K: Order](
       rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]]
   )(implicit ec: Par.EC): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] = {
@@ -357,7 +302,6 @@ object MatchlessGlobalInlining {
           val key = SummaryKey(depFor(from, pack), pack, name)
           summaries
             .get(key)
-            .orElse(builtinSummary(pack, name))
             .filter(shouldInlineReference)
             .fold(global: Expr[K])(summary => loop(summary.lambda))
         case ge: Matchless.GetEnumElement[?] =>
@@ -412,7 +356,7 @@ object MatchlessGlobalInlining {
         case Global(from, pack, name) =>
           val resolvedScope = depFor(from, pack)
           val key = SummaryKey(resolvedScope, pack, name)
-          summaries.get(key).orElse(builtinSummary(pack, name)).filter(summary =>
+          summaries.get(key).filter(summary =>
             shouldInline(summary, args)
           ).map { summary =>
             loop(Matchless.inlineApplyArgs(summary.lambda, args))
