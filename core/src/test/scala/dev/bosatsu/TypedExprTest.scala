@@ -3944,28 +3944,74 @@ x = Foo
     (unoptimizedExpr, normalizedExpr)
   }
 
-  test("if matches normalizes to same code as equivalent match") {
-    def normalizedFromPackage(packSrc: String): TypedExpr[Unit] =
-      Par.withEC {
-        var out: Option[TypedExpr[Unit]] = None
-        TestUtils.testInferred(
-          List(packSrc),
-          "Test",
-          { (pm, mainPack) =>
-            val pack = pm.toMap(mainPack)
-            val fExpr = pack.lets.find(_._1 == Identifier.Name("f")) match {
-              case Some((_, _, te)) => te
-              case None => fail(s"missing let f in ${pack.lets.map(_._1)}")
-            }
-            val normalized =
-              TypedExprNormalization.normalize(fExpr).getOrElse(fExpr).void
-            out = Some(normalized)
-          }
-        )
-        out.getOrElse(fail("failed to infer normalized expression for f"))
+  def inferLoweredAndNormalizedExpr(
+      statement: String,
+      letName: String
+  ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val (fullTypeEnv, unoptProgram) =
+      Package.inferBodyUnopt(
+        TestUtils.testPackage,
+        predefResolvedImport :: Nil,
+        Nil,
+        stmts
+      ) match {
+        case cats.data.Ior.Right(res) =>
+          res
+        case cats.data.Ior.Both(errs, _) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+        case cats.data.Ior.Left(errs) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
       }
 
-    val ifNormalized = normalizedFromPackage(
+    val targetName = Identifier.Name(letName)
+    val loweredLets = TypedExprLoopRecurLowering.lowerAll(unoptProgram.lets)
+    val loweredExpr = loweredLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing lowered let: $letName in ${loweredLets.map(_._1)}")
+    }
+    val normalizedLets =
+      TypedExprNormalization.normalizeAll(
+        TestUtils.testPackage,
+        loweredLets,
+        fullTypeEnv
+      )
+    val normalizedExpr = normalizedLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing normalized let: $letName in ${normalizedLets.map(_._1)}")
+    }
+    (loweredExpr, normalizedExpr)
+  }
+
+  private def normalizedLetFromPackage(
+      packSrc: String,
+      letName: String
+  ): TypedExpr[Unit] =
+    Par.withEC {
+      var out: Option[TypedExpr[Unit]] = None
+      TestUtils.testInferred(
+        List(packSrc),
+        "Test",
+        { (pm, mainPack) =>
+          val pack = pm.toMap(mainPack)
+          val target = Identifier.Name(letName)
+          val te = pack.lets.find(_._1 == target) match {
+            case Some((_, _, expr)) => expr
+            case None               =>
+              fail(s"missing let $letName in ${pack.lets.map(_._1)}")
+          }
+          out = Some(TypedExprNormalization.normalize(te).getOrElse(te).void)
+        }
+      )
+      out.getOrElse(
+        fail(s"failed to infer normalized expression for $letName")
+      )
+    }
+
+  test("if matches normalizes to same code as equivalent match") {
+    val ifNormalized = normalizedLetFromPackage(
       """
 package Test
 
@@ -3974,10 +4020,11 @@ enum E: Left(l), Right(r)
 def f(x):
   if x matches Left(_): 1
   else: -1
-"""
+""",
+      "f"
     )
 
-    val matchNormalized = normalizedFromPackage(
+    val matchNormalized = normalizedLetFromPackage(
       """
 package Test
 
@@ -3987,10 +4034,39 @@ def f(x):
   match x:
     case Left(_): 1
     case _: -1
-"""
+""",
+      "f"
     )
 
     assertEquals(ifNormalized, matchNormalized)
+  }
+
+  test("package-local bool helpers normalize nested if matches into direct matches") {
+    val (_, helperNormalized) = inferLoweredAndNormalizedExpr(
+      """
+def is_newline(ch): ch matches .'\n'
+
+def step(ch, line):
+  if is_newline(ch):
+    line.add(1)
+  else:
+    line
+""",
+      "step"
+    )
+
+    val (_, matchNormalized) = inferLoweredAndNormalizedExpr(
+      """
+def step(ch, line):
+  match ch:
+    case .'\n': line.add(1)
+    case _: line
+""",
+      "step"
+    )
+
+    assertEquals(helperNormalized.void, matchNormalized.void)
+    assertEquals(countMatch(helperNormalized), 1, helperNormalized.reprString)
   }
 
   test(
