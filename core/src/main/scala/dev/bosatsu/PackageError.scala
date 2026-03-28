@@ -1,13 +1,14 @@
 package dev.bosatsu
 
 import cats.data.{Chain, NonEmptyList, NonEmptyMap}
-import cats.parse.{Parser => P}
+import cats.parse.{Parser0 => P0, Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.LongMap
 
 import rankn._
 import LocationMap.Colorize
+import Parser.Combinators
 
 sealed abstract class PackageError {
   def message(
@@ -157,11 +158,83 @@ object PackageError {
           .grouped
     }
 
+  private def groupedParensDoc(items: List[Doc]): Doc =
+    items match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        val body = Doc.intercalate(Doc.comma + Doc.line, nonEmpty)
+        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+          .char(')')).grouped
+    }
+
   private def exposesLineDoc(packages: List[PackageName]): Option[Doc] =
     packages match {
       case Nil      => None
       case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
     }
+
+  private def canonicalExposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil => None
+      case nonEmpty @ (_ :: Nil) =>
+        Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+      case nonEmpty =>
+        Some(
+          (Doc.text("exposes ") + groupedParensDoc(
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )).grouped
+        )
+    }
+
+  private def sectionDoc(title: String, body: Doc): Doc =
+    Doc.text(title) + (Doc.hardLine + body).nested(4)
+
+  private val exposesRegionParser: P0[List[Region]] = {
+    val spaceComment: P0[Unit] =
+      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
+
+    val eol = spaceComment <* Parser.termination
+    val parsePack = Padding
+      .parser(
+        (P.string("package").soft ~ Parser.spaces) *> PackageName.parser <* eol,
+        spaceComment
+      )
+      .void
+    val im = Padding.parser(Import.parser <* eol, spaceComment).void.rep0
+    val ex = Padding
+      .parser(
+        (P.string("export")
+          .soft ~ Parser.spaces) *> ExportedName.parser.itemsMaybeParens
+          .map(_._2) <* eol,
+        spaceComment
+      )
+      .void
+    val exposeItems =
+      PackageName.parser.parensLines0Cut.backtrack.orElse(
+        PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
+      )
+    val exposes = Padding
+      .parser(
+        (
+          (P.index.with1 ~
+            ((P.string("exposes").soft ~ Parser.spaces) *> exposeItems <* eol)) ~
+            P.index
+        )
+          .map { case ((start, _), end) => Region(start, end) },
+        spaceComment
+      )
+      .map(_.padded)
+
+    ((((parsePack ~ im) ~ ex.rep0) ~ exposes.rep0)
+      .map { case (((_, _), _), xs) => xs }) <* P.anyChar.rep0.void
+  }
+
+  private def declaredExposesRegion(source: String): Option[Region] =
+    Parser
+      .parse(exposesRegionParser, source)
+      .toOption
+      .flatMap(_._2.headOption)
 
   private def suggestedName(
       ident: Identifier,
@@ -2046,13 +2119,22 @@ object PackageError {
         errColor: Colorize
     ) = {
       val prefix = sourceMap.headLine(pack, None)
+      val (lm, _) = sourceMap.getMapSrc(pack)
       val missing = actual.filterNot(declared.toSet)
       val extra = declared.filterNot(actual.toSet)
+      val declaredDoc =
+        declaredExposesRegion(lm.fromString)
+          .flatMap(lm.showRegion(_, 0, errColor))
+          .getOrElse {
+            exposesLineDoc(declared).getOrElse(
+              Doc.text("no `exposes` declaration found.")
+            )
+          }
       val fixDoc =
         if (actual.isEmpty)
-          Doc.text("canonical fix: omit `exposes` (equivalent to `exposes ()`).")
+          Doc.text("omit `exposes` (equivalent to `exposes ()`).")
         else
-          Doc.text("canonical fix: ") + exposesLineDoc(actual).get + Doc.char('.')
+          canonicalExposesLineDoc(actual).get + Doc.char('.')
 
       val missingDoc =
         if (missing.isEmpty) Doc.empty
@@ -2074,25 +2156,31 @@ object PackageError {
             }
           }
 
-          Doc.hardLine + Doc.text("missing declarations:") + Doc.hardLine +
-            Doc.intercalate(Doc.hardLine, lines).nested(2)
+          sectionDoc(
+            "missing declarations:",
+            Doc.intercalate(Doc.hardLine, lines)
+          )
         }
 
       val extraDoc =
         if (extra.isEmpty) Doc.empty
         else
-          Doc.hardLine + Doc.text("extra declarations: ") + exposesSetDoc(extra)
+          sectionDoc("extra declarations:", exposesSetDoc(extra))
+
+      val sections =
+        List(
+          Some(sectionDoc("declared here:", declaredDoc)),
+          Some(sectionDoc("canonical fix:", fixDoc)),
+          Option.when(missing.nonEmpty)(missingDoc),
+          Option.when(extra.nonEmpty)(extraDoc)
+        ).flatten
 
       val body =
-        Doc.text("declared `exposes` does not match the exported API.") +
-          Doc.hardLine +
-          Doc.text("declared: ") + exposesSetDoc(declared) +
-          Doc.hardLine +
-          Doc.text("actual: ") + exposesSetDoc(actual) +
-          Doc.hardLine +
-          fixDoc +
-          missingDoc +
-          extraDoc
+        Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          Doc.text("declared `exposes` does not match the exported API.") ::
+            sections
+        )
 
       (prefix + Doc.hardLine + body).render(80)
     }

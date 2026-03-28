@@ -3508,7 +3508,7 @@ main = S {}
     assertEquals(suggestions.map(_.value), List("local"))
   }
 
-  test("exposes mismatch message shows canonical fix and causes") {
+  test("exposes mismatch message shows declared source context and sections") {
     val dep =
       """package Dep/Api
         |export Dep()
@@ -3520,6 +3520,7 @@ main = S {}
       """package App/Main
         |from Dep/Api import Dep
         |export Wrapped()
+        |exposes Dep/Wrong
         |
         |struct Wrapped(value: Dep)
         |""".stripMargin
@@ -3535,8 +3536,41 @@ main = S {}
       msg.contains("declared `exposes` does not match the exported API."),
       msg
     )
-    assert(msg.contains("canonical fix: exposes Dep/Api."), msg)
+    assert(msg.contains("declared here:\n"), msg)
+    assert(msg.contains("exposes Dep/Wrong"), msg)
+    assert(msg.contains("canonical fix:\n    exposes Dep/Api."), msg)
+    assert(msg.contains("missing declarations:\n"), msg)
     assert(msg.contains("Dep/Api escapes via export `Wrapped()`"), msg)
+    assert(msg.contains("extra declarations:\n    Dep/Wrong"), msg)
+    assert(!msg.contains("\nactual:"), msg)
+    assert(!msg.contains("\ndeclared: "), msg)
+  }
+
+  test("exposes mismatch canonical fix uses parens for multiple packages") {
+    val pack = PackageName.parts("App", "Main")
+    val depOne = PackageName.parts("Dep", "One")
+    val depTwo = PackageName.parts("Dep", "Two")
+    val source =
+      """package App/Main
+        |export Wrapped()
+        |exposes Dep/One
+        |
+        |struct Wrapped
+        |""".stripMargin
+
+    val msg =
+      PackageError
+        .ExposesMismatch(
+          pack,
+          declared = depOne :: Nil,
+          actual = List(depOne, depTwo),
+          missingCauses = Map(depTwo -> NonEmptyList.one("Wrapped()"))
+        )
+        .message(Map(pack -> (LocationMap(source), "<test>")), Colorize.None)
+
+    assert(msg.contains("declared here:\n"), msg)
+    assert(msg.contains("exposes Dep/One"), msg)
+    assert(msg.contains("canonical fix:\n    exposes (Dep/One, Dep/Two)."), msg)
   }
 
   test("duplicate exposes message lists both declarations") {
