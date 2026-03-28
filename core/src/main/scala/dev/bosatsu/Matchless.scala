@@ -1605,12 +1605,18 @@ object Matchless {
         .collect {
           case ((argName, argExpr), demand)
               if !demand.unused &&
-                // CheapExpr positions such as EqualsNat/GetStructElement cannot
-                // directly hold nullary constructors like ZeroNat or MakeStruct(0),
-                // even though they are semantically trivial. Memoize any non-CheapExpr
-                // argument once so those sites can still reference a cheap local.
                 !argExpr.isInstanceOf[CheapExpr[?]] &&
-                ((demand.cheapPositionUses > 0) || isTriviallyCheap(argExpr)) =>
+                (
+                  // Any eager use means the original call would have evaluated the
+                  // argument before entering the helper, so binding it once at the
+                  // call site preserves that behavior while avoiding duplication.
+                  ((demand.eagerUses > 0) &&
+                    ((demand.totalUses > 1) || (demand.cheapPositionUses > 0))) ||
+                  // CheapExpr positions such as EqualsNat/GetStructElement cannot
+                  // directly hold nullary constructors like ZeroNat or
+                  // MakeStruct(0), even though they are semantically trivial.
+                  ((demand.cheapPositionUses > 0) && isTriviallyCheap(argExpr))
+                ) =>
             (argName, argExpr)
         }
       val argMemoNames =

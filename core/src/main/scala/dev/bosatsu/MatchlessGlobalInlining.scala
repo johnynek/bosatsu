@@ -385,30 +385,25 @@ object MatchlessGlobalInlining {
             case (demand, arg) =>
               demand.lambdaCalleeOnly && resolvesToLambda(arg).nonEmpty
           }
-      val nonCheapCheapPositionArgument =
+      val deferredCheapPositionArgument =
         summary.paramDemand.iterator.zip(argList.iterator).exists {
           case (demand, arg) =>
-            (demand.cheapPositionUses > 0) && !isCheapArgument(arg)
+            (demand.eagerUses == 0) &&
+            (demand.cheapPositionUses > 0) &&
+            !isCheapArgument(arg)
         }
-      val eagerNonCheapArgument =
+      val duplicatedDeferredExpensiveArg =
         summary.paramDemand.iterator.zip(argList.iterator).exists {
           case (demand, arg) =>
-            !isCheapArgument(arg) &&
-            !demand.unused &&
-            !demand.deferrable &&
-            !demand.lambdaCalleeOnly
-        }
-      val duplicatedExpensiveArg =
-        summary.paramDemand.iterator.zip(argList.iterator).exists {
-          case (demand, arg) =>
-            (demand.totalUses > MaxExpensiveArgUses) && !isCheapArgument(arg)
+            (demand.eagerUses == 0) &&
+            (demand.totalUses > MaxExpensiveArgUses) &&
+            !isCheapArgument(arg)
         }
 
       if (
         whileLambdaArgument ||
-        nonCheapCheapPositionArgument ||
-        eagerNonCheapArgument ||
-        duplicatedExpensiveArg
+        deferredCheapPositionArgument ||
+        duplicatedDeferredExpensiveArg
       ) false
       else {
         val hasUnusedBenefit =

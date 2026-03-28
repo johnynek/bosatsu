@@ -5146,6 +5146,51 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless inlines mixed eager and deferrable helpers") {
+    val helperPack = PackageName.parts("Helper", "Mixed")
+    val callerPack = PackageName.parts("Caller", "Mixed")
+    val chooseName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Mixed
+          |
+          |export choose
+          |
+          |def choose(flag: Bool, eager: Int, on_true: Int) -> Int:
+          |  if flag:
+          |    on_true
+          |  else:
+          |    eager.add(eager)
+          |""".stripMargin,
+        """package Caller/Mixed
+          |
+          |from Helper/Mixed import choose
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int) -> Int:
+          |  choose(True, expensive(i), 42)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(42))
+        case other =>
+          fail(s"expected mixed helper to collapse to 42, found: $other")
+      }
+    }
+  }
+
   test("optimized Matchless exposes beta-reduction for lambda arguments") {
     val helperPack = PackageName.parts("Helper", "Lambda")
     val callerPack = PackageName.parts("Caller", "Lambda")
@@ -5178,6 +5223,51 @@ def seg_final_literal_char(s):
           assertEquals(body, Matchless.Local(args.head))
         case other =>
           fail(s"expected beta-reduced lambda body, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless keeps lambda-argument inlining with mixed eager args") {
+    val helperPack = PackageName.parts("Helper", "MixedLambda")
+    val callerPack = PackageName.parts("Caller", "MixedLambda")
+    val helperName = Identifier.Name("choose_apply")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/MixedLambda
+          |
+          |export choose_apply
+          |
+          |def choose_apply(flag: Bool, eager: Int, fn: Int -> Int, x: Int) -> Int:
+          |  if flag:
+          |    fn(x)
+          |  else:
+          |    eager.add(eager)
+          |""".stripMargin,
+        """package Caller/MixedLambda
+          |
+          |from Helper/MixedLambda import choose_apply
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(x: Int) -> Int:
+          |  choose_apply(True, expensive(x), y -> y, x)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, args, body) =>
+          assertEquals(body, Matchless.Local(args.head))
+        case other =>
+          fail(s"expected mixed lambda helper to beta-reduce to the argument, found: $other")
       }
     }
   }

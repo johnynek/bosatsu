@@ -76,6 +76,109 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
     }
   }
 
+  test("Matchless.inlineApplyArgs directly substitutes single eager non-cheap arguments") {
+    val arg = Identifier.Name("arg")
+    val consume = Identifier.Name("consume")
+    val expensive = Identifier.Name("expensive")
+    val actual: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(expensive),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(arg),
+        body = Matchless.App(
+          Matchless.Local(consume),
+          NonEmptyList.one(Matchless.Local(arg))
+        )
+      )
+
+    Matchless.inlineApplyArgs(lam, NonEmptyList.one(actual)) match {
+      case Matchless.App(Matchless.Local(`consume`), appliedArgs) =>
+        assertEquals(appliedArgs.toList, actual :: Nil)
+      case Matchless.Let(_, `actual`, _) =>
+        fail("expected single eager use to substitute directly")
+      case other =>
+        fail(s"expected direct substitution for the eager argument, found: $other")
+    }
+  }
+
+  test("Matchless.inlineApplyArgs memoizes repeated eager non-cheap arguments once") {
+    val arg = Identifier.Name("arg")
+    val consume = Identifier.Name("consume")
+    val expensive = Identifier.Name("expensive")
+    val actual: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(expensive),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(arg),
+        body = Matchless.App(
+          Matchless.Local(consume),
+          NonEmptyList.of(Matchless.Local(arg), Matchless.Local(arg))
+        )
+      )
+
+    Matchless.inlineApplyArgs(lam, NonEmptyList.one(actual)) match {
+      case Matchless.Let(
+            Right(tmp),
+            `actual`,
+            Matchless.App(Matchless.Local(`consume`), appliedArgs)
+          ) =>
+        assertEquals(
+          appliedArgs.toList,
+          List(Matchless.Local(tmp), Matchless.Local(tmp))
+        )
+      case other =>
+        fail(s"expected repeated eager use to memoize once, found: $other")
+    }
+  }
+
+  test("Matchless.inlineApplyArgs memoizes eager non-cheap args for cheap positions") {
+    val arg = Identifier.Name("arg")
+    val expensive = Identifier.Name("expensive")
+    val actual: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(expensive),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val lam: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(arg),
+        body = Matchless.If(
+          Matchless.EqualsNat(Matchless.Local(arg), rankn.DataRepr.ZeroNat),
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(2))
+        )
+      )
+
+    Matchless.inlineApplyArgs(lam, NonEmptyList.one(actual)) match {
+      case Matchless.Let(
+            Right(tmp),
+            `actual`,
+            Matchless.If(
+              Matchless.EqualsNat(Matchless.Local(tmpRef), rankn.DataRepr.ZeroNat),
+              Matchless.Literal(ifTrue),
+              Matchless.Literal(ifFalse)
+            )
+          ) =>
+        assertEquals(tmpRef, tmp)
+        assertEquals(ifTrue, Lit.fromInt(1))
+        assertEquals(ifFalse, Lit.fromInt(2))
+      case other =>
+        fail(s"expected eager cheap-position use to memoize once, found: $other")
+    }
+  }
+
   test(
     "Matchless.inlineApplyArgs memoizes non-CheapExpr nullary constructors in cheap positions"
   ) {
