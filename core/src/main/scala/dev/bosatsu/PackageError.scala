@@ -1,14 +1,13 @@
 package dev.bosatsu
 
 import cats.data.{Chain, NonEmptyList, NonEmptyMap}
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser => P}
 import cats.syntax.all._
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.immutable.LongMap
 
 import rankn._
 import LocationMap.Colorize
-import Parser.Combinators
 
 sealed abstract class PackageError {
   def message(
@@ -190,45 +189,11 @@ object PackageError {
   private def sectionDoc(title: String, body: Doc): Doc =
     Doc.text(title) + (Doc.hardLine + body).nested(4)
 
-  private val exposesRegionParser: P0[List[Region]] = {
-    val spaceComment: P0[Unit] =
-      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
-
-    val eol = spaceComment <* Parser.termination
-    val parsePack = Padding
-      .parser(
-        (P.string("package").soft ~ Parser.spaces) *> PackageName.parser <* eol,
-        spaceComment
-      )
-      .void
-    val im = Padding.parser(Import.parser <* eol, spaceComment).void.rep0
-    val ex = Padding
-      .parser(
-        (P.string("export")
-          .soft ~ Parser.spaces) *> ExportedName.parser.itemsMaybeParens
-          .map(_._2) <* eol,
-        spaceComment
-      )
-      .void
-    val exposeItems =
-      PackageName.parser.parensLines0Cut.backtrack.orElse(
-        PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
-      )
-    val exposes = Padding
-      .parser(
-        (
-          (P.index.with1 ~
-            ((P.string("exposes").soft ~ Parser.spaces) *> exposeItems <* eol)) ~
-            P.index
-        )
-          .map { case ((start, _), end) => Region(start, end) },
-        spaceComment
-      )
-      .map(_.padded)
-
-    ((((parsePack ~ im) ~ ex.rep0) ~ exposes.rep0)
-      .map { case (((_, _), _), xs) => xs }) <* P.anyChar.rep0.void
-  }
+  private val exposesRegionParser =
+    (Package.headerPackageNameParser.void *>
+      Package.headerImportsParser.void *>
+      Package.headerExportsParser.void *>
+      Package.headerExposeRegionsParser) <* P.anyChar.rep0.void
 
   private def declaredExposesRegion(source: String): Option[Region] =
     Parser
@@ -2137,9 +2102,8 @@ object PackageError {
           canonicalExposesLineDoc(actual).get + Doc.char('.')
 
       val missingDoc =
-        if (missing.isEmpty) Doc.empty
-        else {
-          val lines = missing.flatMap { dep =>
+        NonEmptyList.fromList(missing).map { missingNel =>
+          val lines = missingNel.toList.flatMap { dep =>
             missingCauses.get(dep).map { exports =>
               val exportWord =
                 if (exports.tail.isEmpty) "export" else "exports"
@@ -2163,16 +2127,18 @@ object PackageError {
         }
 
       val extraDoc =
-        if (extra.isEmpty) Doc.empty
-        else
-          sectionDoc("extra declarations:", exposesSetDoc(extra))
+        NonEmptyList
+          .fromList(extra)
+          .map(extraNel =>
+            sectionDoc("extra declarations:", exposesSetDoc(extraNel.toList))
+          )
 
       val sections =
         List(
           Some(sectionDoc("declared here:", declaredDoc)),
           Some(sectionDoc("canonical fix:", fixDoc)),
-          Option.when(missing.nonEmpty)(missingDoc),
-          Option.when(extra.nonEmpty)(extraDoc)
+          missingDoc,
+          extraDoc
         ).flatten
 
       val body =
