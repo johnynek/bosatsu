@@ -21,7 +21,7 @@ case class PackageName(parts: NonEmptyList[String]) derives CanEqual {
 
   final override val hashCode: Int = asString.hashCode
 
-  def isPredef: Boolean = parts === PackageName.PredefName.parts
+  def isPredef: Boolean = this == PackageName.PredefName
 }
 
 object PackageName {
