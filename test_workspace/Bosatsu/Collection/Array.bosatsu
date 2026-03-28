@@ -116,22 +116,32 @@ def flatten_Array[a](arrays: Array[Array[a]]) -> Array[a]:
 def eq_Array(eq_a: (a, a) -> Bool)(left: Array[a], right: Array[a]) -> Bool:
   left_sz = size_Array(left)
   if cmp_Int(left_sz, size_Array(right)) matches EQ:
-    def loop_eq(remaining: Int, idx: Int) -> Bool:
-      loop (remaining, idx):
-        case _ if cmp_Int(remaining, 0) matches GT:
-          next_idx = get_map_Array(left, idx, () -> -1, left_item ->
-            get_map_Array(right, idx, () -> -1, right_item ->
-              if eq_a(left_item, right_item):
-                idx.add(1)
-              else:
-                -1
-            )
-          )
-          False if cmp_Int(next_idx, 0) matches LT else loop_eq(remaining.sub(1), next_idx)
-        case _:
-          True
+    if cmp_Int(left_sz, 0) matches EQ:
+      True
+    else:
+      match (get_Array(left, 0), get_Array(right, 0)):
+        case (Some(left0), Some(right0)):
+          if eq_a(left0, right0):
+            left_default = () -> left0
+            right_default = () -> right0
 
-    loop_eq(left_sz, 0)
+            def loop_eq(remaining: Int, idx: Int) -> Bool:
+              loop (remaining, idx):
+                case _ if cmp_Int(remaining, 0) matches GT:
+                  left_item = get_or_Array(left, idx, left_default)
+                  right_item = get_or_Array(right, idx, right_default)
+                  if eq_a(left_item, right_item):
+                    loop_eq(remaining.sub(1), idx.add(1))
+                  else:
+                    False
+                case _:
+                  True
+
+            loop_eq(left_sz.sub(1), 1)
+          else:
+            False
+        case _:
+          False
   else:
     False
 
@@ -146,6 +156,10 @@ eq_oi = eq_Option(eq_Int)
 a0 = empty_Array
 
 a5 = range_Array(5)
+a0_copy = from_List_Array([])
+a1 = from_List_Array([7])
+a1_copy = from_List_Array([7])
+a1_diff = from_List_Array([9])
 a5_copy = from_List_Array([0, 1, 2, 3, 4])
 a5_first_diff = from_List_Array([99, 1, 2, 3, 4])
 a5_last_diff = from_List_Array([0, 1, 2, 3, 99])
@@ -187,6 +201,9 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(a0) matches [], "empty to list"),
   Assertion(to_List_Array(a5) matches [0, 1, 2, 3, 4], "range 5"),
   Assertion(to_List_Array(a_from) matches [10, 11, 12, 13], "range_from 10,4"),
+  Assertion(eq_ai(a0, a0_copy), "eq_Array empty"),
+  Assertion(eq_ai(a1, a1_copy), "eq_Array singleton equal"),
+  Assertion(eq_ai(a1, a1_diff) matches False, "eq_Array singleton mismatch"),
   Assertion(eq_ai(a5, a5_copy), "eq_Array equal copy"),
   Assertion(eq_ai(a5, a5_first_diff) matches False, "eq_Array first element mismatch"),
   Assertion(eq_ai(a5, a5_last_diff) matches False, "eq_Array last element mismatch"),
