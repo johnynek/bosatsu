@@ -429,6 +429,50 @@ main = set_in_range_ok
     }
   }
 
+  test("top-level captured lambda stays a cached closure value in C") {
+    TestUtils.checkPackageMap("""
+def choose(eq):
+  (left, right) -> eq(left, right)
+
+eq_int_alias = choose(eq_Int)
+
+def use(_):
+  eq_int_alias(1, 2)
+
+main = use
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("use"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(100)
+          assert(
+            "static _Atomic BValue ___bsts_s_.*eq__int__alias".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "read_or_build\\(&___bsts_s_.*eq__int__alias".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "BValue ___bsts_g_.*eq__int__alias\\(BValue ".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
   test(
     "top-level unit-arg function remains direct when nested matches share False branches"
   ) {
