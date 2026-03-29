@@ -32,14 +32,15 @@ object MatchlessGlobalInlining {
   private val MaxExpensiveArgUses = 1
 
   private def cleanedCompiled[K: Order](
-      rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]]
+      rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]],
+      localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] = {
     val scopeTasks = rawCompiled.iterator.toList.map { case (scope, packs) =>
       Par.start {
         val packTasks = packs.toList.map { case (pack, lets) =>
           Par.start {
             pack -> lets.map { case (name, expr) =>
-              (name, Matchless.postLoweringCleanup(expr))
+              (name, Matchless.postLoweringCleanup(expr, localPassOptions))
             }
           }
         }
@@ -53,9 +54,10 @@ object MatchlessGlobalInlining {
   def optimize[K: Order](
       rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]],
       topoSort: Toposort.Result[(K, PackageName)],
-      depFor: (K, PackageName) => K
+      depFor: (K, PackageName) => K,
+      localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] = {
-    val cleanedBase = cleanedCompiled(rawCompiled)
+    val cleanedBase = cleanedCompiled(rawCompiled, localPassOptions)
 
     val layers =
       topoSort.layers ++ topoSort.loopNodes
@@ -75,7 +77,14 @@ object MatchlessGlobalInlining {
                     s"missing cleaned Matchless package $pack in scope $scope during global inlining"
                   )
                 )
-            rewritePackage(scope, pack, lets, summaryAcc, depFor)
+            rewritePackage(
+              scope,
+              pack,
+              lets,
+              summaryAcc,
+              depFor,
+              localPassOptions
+            )
           }
         }
 
@@ -102,7 +111,8 @@ object MatchlessGlobalInlining {
       pack: PackageName,
       cleanedLets: List[(Bindable, Expr[K])],
       priorSummaries: Map[SummaryKey[K], InlineSummary[K]],
-      depFor: (K, PackageName) => K
+      depFor: (K, PackageName) => K,
+      localPassOptions: Matchless.LocalPassOptions
   ): (K, PackageName, List[(Bindable, Expr[K])], Map[SummaryKey[K], InlineSummary[K]]) = {
     val byName = cleanedLets.toMap
     val localOrder = localDependencyOrder(scope, pack, cleanedLets, depFor)
@@ -120,7 +130,8 @@ object MatchlessGlobalInlining {
           val rewrittenExpr =
             Matchless.refreshAnonBinders(
               Matchless.postLoweringCleanup(
-                rewriteExpr(expr0, available, depFor)
+                rewriteExpr(expr0, available, depFor),
+                localPassOptions
               )
             )
           val available1 =

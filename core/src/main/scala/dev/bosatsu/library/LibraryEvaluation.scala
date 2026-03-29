@@ -66,7 +66,8 @@ case class LibraryEvaluation[K] private (
         MatchlessFromTypedExpr.compileRaw(scope, data.packages)
       },
       topoSort,
-      depFor
+      depFor,
+      Matchless.LocalPassOptions.Default
     )
 
   private lazy val envCache

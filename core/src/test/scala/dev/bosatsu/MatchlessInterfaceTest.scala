@@ -120,7 +120,8 @@ class MatchlessInterfaceTest extends munit.FunSuite {
 
     Par.withEC {
       given Order[Unit] = Order.fromOrdering
-      val compiled = MatchlessFromTypedExpr.compile((), fibPm)
+      val compiled =
+        MatchlessFromTypedExpr.compile((), fibPm, Matchless.LocalPassOptions.Default)
       assert(compiled.contains(PackageName.parts("My", "Fib")))
     }
   }

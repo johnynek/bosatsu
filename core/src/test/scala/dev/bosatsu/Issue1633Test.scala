@@ -193,7 +193,8 @@ main = parse_value(" null")
       assert(typedHasRecur(parseValueTyped), parseValueTyped.repr.render(100))
 
       given Order[Unit] = Order.fromOrdering
-      val compiled = MatchlessFromTypedExpr.compile((), pm)
+      val compiled =
+        MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
       val parseValueMatchless = compiled
         .getOrElse(
           reproPackage,
