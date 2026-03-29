@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-19b13421*
+0.0.0+1-06c9db95*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-19b13421*
+0.0.0+1-06c9db95*
 </div>
 </div>
 <div class="nav-toc">
@@ -130,7 +130,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#emit-json-instead-of-edn" name="emit-json-instead-of-edn" class="anchor"><span class="anchor-link"></span></a>Emit JSON instead of EDN</h3>
 <pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/Char --json
 </code></pre>
-<p><code>--json</code> emits a deterministic JSON projection of the same <code>show</code> data. The top-level value is an object with <code>&quot;$form&quot;: &quot;show&quot;</code> and fields such as <code>interfaces</code> and <code>packages</code>.</p>
+<p><code>--json</code> emits a deterministic JSON projection of the same <code>show</code> data. The top-level value is an object with <code>&quot;$form&quot;: &quot;show&quot;</code> and fields such as <code>ir</code>, <code>typed-passes</code>, and <code>packages</code>. Typed output also includes <code>interfaces</code>.</p>
+<h3><a href="#show-matchless-ir-instead-of-typedexpr" name="show-matchless-ir-instead-of-typedexpr" class="anchor"><span class="anchor-link"></span></a>Show Matchless IR instead of typedexpr</h3>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --package Bosatsu/Char --ir matchless --color none
+</code></pre>
+<p>This lowers the selected package to Matchless before rendering. The top-level <code>show</code> form reports <code>:ir matchless</code> and <code>:matchless-passes</code>. Matchless output is intentionally value-only: it omits typed sections such as <code>:interfaces</code> and package <code>:types</code>.</p>
 <h3><a href="#show-a-single-type" name="show-a-single-type" class="anchor"><span class="anchor-link"></span></a>Show a single type</h3>
 <pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --type Bosatsu/Option::Option --color none
 </code></pre>
@@ -139,6 +143,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha --value Bosatsu/Num/Binary::not --color none
 </code></pre>
 <p>Use <code>--value &lt;package::value&gt;</code> to focus on one top-level value. This selects values that exist in compiled package output. If a helper value is fully inlined or otherwise eliminated, it will not be available by name.</p>
+<p>If you want to inspect values before a pass erases them, disable the relevant pass explicitly:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
+  --value Bosatsu/Num/Binary::helper \
+  --disable-typed-pass discard-unused \
+  --color none
+</code></pre>
 <p>You can mix selectors:</p>
 <pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
   --package Bosatsu/Char \
@@ -147,6 +157,36 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   --color none
 </code></pre>
 <p>If no <code>--package</code>, <code>--type</code>, or <code>--value</code> is given, <code>show</code> shows all local library packages (the existing default behavior).</p>
+<h2><a href="#pass-controls" name="pass-controls" class="anchor"><span class="anchor-link"></span></a>Pass controls</h2>
+<p>Typed output keeps the current fixed pass order and lets you disable stages individually:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
+  --package Bosatsu/FibBench \
+  --disable-typed-pass loop-recur-lowering \
+  --disable-typed-pass normalize \
+  --color none
+</code></pre>
+<p><code>library show</code> still accepts <code>--no-opt</code> as a compatibility alias for disabling all typed passes at once.</p>
+<p>Matchless output supports three named stages:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
+  --package Bosatsu/Char \
+  --ir matchless \
+  --disable-matchless-pass hoist-invariant-loop-lets \
+  --disable-matchless-pass reuse-constructors \
+  --color none
+</code></pre>
+<p>To inspect Matchless before and after namespace-level inlining, toggle <code>global-inlining</code>:</p>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
+  --value Bosatsu/FibBench::fib \
+  --ir matchless \
+  --disable-matchless-pass global-inlining \
+  --color none
+</code></pre>
+<pre class="prettyprint"><code class="language-bash">./bosatsuj show --name core_alpha \
+  --value Bosatsu/FibBench::fib \
+  --ir matchless \
+  --color none
+</code></pre>
+<p>The first command shows raw lowered Matchless with local cleanup only. The second shows the default Matchless pipeline, including global inlining.</p>
 <h2><a href="#why-this-helps" name="why-this-helps" class="anchor"><span class="anchor-link"></span></a>Why this helps</h2>
 <h3><a href="#see-inferred-types-on-values" name="see-inferred-types-on-values" class="anchor"><span class="anchor-link"></span></a>See inferred types on values</h3>
 <p>Entries in <code>:defs</code> include typed expressions, so you can inspect the inferred type information attached to each value.</p>
@@ -236,7 +276,7 @@ The source code for this page can be found <a href="https://github.com/johnynek/
 <script type="text/javascript" src="lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-19b13421-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-06c9db95-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
