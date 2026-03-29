@@ -2,6 +2,7 @@ package dev.bosatsu.pattern
 
 import cats.data.{NonEmptyChain, NonEmptyList}
 import dev.bosatsu.{Identifier, Pattern}
+import scala.collection.mutable
 
 import Identifier.Bindable
 
@@ -88,20 +89,31 @@ object NameMap {
     Alignment(NonEmptyChain.one(aligned))
 
   private def alignmentFromList(
-      aligned: List[Map[Bindable, Bindable]]
+      aligned: IterableOnce[Map[Bindable, Bindable]]
   ): Option[Alignment] =
-    NonEmptyList.fromList(aligned.distinct).map(nel =>
-      Alignment(NonEmptyChain.fromNonEmptyList(nel))
-    )
+    distinctChain(aligned.iterator).map(Alignment(_))
 
-  private def nameMapFromList(alts: List[Deterministic]): Option[NameMap] =
-    NonEmptyList.fromList(alts.distinct).map(nel =>
-      NameMap(NonEmptyChain.fromNonEmptyList(nel))
-    )
+  private def nameMapFromList(alts: IterableOnce[Deterministic]): Option[NameMap] =
+    distinctChain(alts.iterator).map(NameMap(_))
+
+  private def distinctChain[A](
+      values: Iterator[A]
+  ): Option[NonEmptyChain[A]] = {
+    val seen = mutable.LinkedHashSet.empty[A]
+    while (values.hasNext) {
+      seen += values.next()
+    }
+
+    val it = seen.iterator
+    if (it.hasNext) {
+      val head = it.next()
+      Some(NonEmptyChain.fromNonEmptyList(NonEmptyList(head, it.toList)))
+    } else None
+  }
 
   def maybeOr(left: NameMap, right: NameMap): NameMap =
     nameMapFromList(
-      left.alternatives.iterator.toList ::: right.alternatives.iterator.toList
+      left.alternatives.iterator ++ right.alternatives.iterator
     ).get
 
   private def maybeOr(
@@ -109,7 +121,7 @@ object NameMap {
       right: Alignment
   ): Alignment =
     alignmentFromList(
-      left.alternatives.iterator.toList ::: right.alternatives.iterator.toList
+      left.alternatives.iterator ++ right.alternatives.iterator
     ).get
 
   private def maybeAnd(
@@ -258,13 +270,21 @@ object NameMap {
       superPattern: Pattern[N, T],
       subPattern: Pattern[N, T]
   ): Option[Alignment] = {
-    val topAligned: Map[Bindable, Bindable] =
-      subPattern.topNames.headOption match {
-        case Some(subTop) =>
-          superPattern.topNames.iterator.map(_ -> subTop).toMap
-        case None         =>
-          Map.empty
-      }
+    val topAligned: Alignment = {
+      val subTopNames = subPattern.topNames.distinct
+      val topAlternatives =
+        subTopNames match {
+          case Nil =>
+            List(Map.empty[Bindable, Bindable])
+          case _ =>
+            val superTopNames = superPattern.topNames.distinct
+            subTopNames.map(subTop =>
+              superTopNames.iterator.map(_ -> subTop).toMap
+            )
+        }
+
+      alignmentFromList(topAlternatives).get
+    }
 
     val coreAligned =
       (unwrapNamedPattern(superPattern), unwrapNamedPattern(subPattern)) match {
@@ -277,14 +297,16 @@ object NameMap {
         case (Pattern.Var(superName), _) =>
           // A variable pattern binds the whole matched value, so align against
           // the sub-pattern's whole-value aliases before unwrapping.
-          val subTopName = subPattern.topNames.headOption
-          Some(
-            oneAlignment(
-              subTopName.fold(Map.empty[Bindable, Bindable])(subName =>
-                Map(superName -> subName)
-              )
-            )
-          )
+          val subTopNames = subPattern.topNames.distinct
+          val topAlternatives =
+            subTopNames match {
+              case Nil =>
+                List(Map.empty[Bindable, Bindable])
+              case _ =>
+                subTopNames.map(subName => Map(superName -> subName))
+            }
+
+          alignmentFromList(topAlternatives)
         case (
               Pattern.PositionalStruct(superName, superParams),
               Pattern.PositionalStruct(subName, subParams)
@@ -328,6 +350,6 @@ object NameMap {
           None
       }
 
-    coreAligned.flatMap(maybeAnd(oneAlignment(topAligned), _))
+    coreAligned.flatMap(maybeAnd(topAligned, _))
   }
 }
