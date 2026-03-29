@@ -2197,10 +2197,12 @@ object TypedExprRecursionCheck {
                   } else (conds, st0)
               }
 
-            addPathFactIfNonTrivial(
-              SmtExpr.Not(mkOr(condsRev.reverse.distinct.toVector)),
-              st1
-            )
+            if (condsRev.isEmpty) st1
+            else
+              addPathFactIfNonTrivial(
+                SmtExpr.Not(mkOr(condsRev.reverse.distinct.toVector)),
+                st1
+              )
           case _ =>
             st
         }

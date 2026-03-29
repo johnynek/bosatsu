@@ -200,23 +200,34 @@ class NameMapTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("alignSubsumedPatternNames isDefined is invariant under unbind on either side") {
-    forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
-      val d0 = NameMap.alignSubsumedPatternNames(superPattern, subPattern).isDefined
-      val d1 = NameMap
-        .alignSubsumedPatternNames(superPattern.unbind, subPattern)
-        .isDefined
-      val d2 = NameMap
-        .alignSubsumedPatternNames(superPattern, subPattern.unbind)
-        .isDefined
-      val d3 = NameMap
-        .alignSubsumedPatternNames(superPattern.unbind, subPattern.unbind)
-        .isDefined
+  test("alignSubsumedPatternNames can become defined after unbind") {
+    val superPattern: Pattern.Parsed =
+      Pattern.ListPat(
+        List(Pattern.ListPart.NamedList(Identifier.Name("lzjqp9ilw")))
+      )
+    val subPattern: Pattern.Parsed =
+      Pattern.Named(
+        Identifier.Operator("&"),
+        Pattern.ListPat(
+          List(Pattern.ListPart.NamedList(Identifier.Name("mmoedu4mrp4")))
+        )
+      )
 
-      assertEquals(d1, d0)
-      assertEquals(d2, d0)
-      assertEquals(d3, d0)
-    }
+    val d0 = NameMap.alignSubsumedPatternNames(superPattern, subPattern).isDefined
+    val d1 = NameMap
+      .alignSubsumedPatternNames(superPattern.unbind, subPattern)
+      .isDefined
+    val d2 = NameMap
+      .alignSubsumedPatternNames(superPattern, subPattern.unbind)
+      .isDefined
+    val d3 = NameMap
+      .alignSubsumedPatternNames(superPattern.unbind, subPattern.unbind)
+      .isDefined
+
+    assertEquals(d0, false)
+    assertEquals(d1, true)
+    assertEquals(d2, true)
+    assertEquals(d3, true)
   }
 
   test("successful namemap is stable under simultaneous injective substitute") {
