@@ -258,13 +258,21 @@ object NameMap {
       superPattern: Pattern[N, T],
       subPattern: Pattern[N, T]
   ): Option[Alignment] = {
-    val topAligned: Map[Bindable, Bindable] =
-      subPattern.topNames.headOption match {
-        case Some(subTop) =>
-          superPattern.topNames.iterator.map(_ -> subTop).toMap
-        case None         =>
-          Map.empty
-      }
+    val topAligned: Alignment = {
+      val superTopNames = superPattern.topNames.distinct
+      val subTopNames = subPattern.topNames.distinct
+      val topAlternatives =
+        subTopNames match {
+          case Nil =>
+            List(Map.empty[Bindable, Bindable])
+          case _ =>
+            subTopNames.map(subTop =>
+              superTopNames.iterator.map(_ -> subTop).toMap
+            )
+        }
+
+      alignmentFromList(topAlternatives).get
+    }
 
     val coreAligned =
       (unwrapNamedPattern(superPattern), unwrapNamedPattern(subPattern)) match {
@@ -277,14 +285,16 @@ object NameMap {
         case (Pattern.Var(superName), _) =>
           // A variable pattern binds the whole matched value, so align against
           // the sub-pattern's whole-value aliases before unwrapping.
-          val subTopName = subPattern.topNames.headOption
-          Some(
-            oneAlignment(
-              subTopName.fold(Map.empty[Bindable, Bindable])(subName =>
-                Map(superName -> subName)
-              )
-            )
-          )
+          val subTopNames = subPattern.topNames.distinct
+          val topAlternatives =
+            subTopNames match {
+              case Nil =>
+                List(Map.empty[Bindable, Bindable])
+              case _ =>
+                subTopNames.map(subName => Map(superName -> subName))
+            }
+
+          alignmentFromList(topAlternatives)
         case (
               Pattern.PositionalStruct(superName, superParams),
               Pattern.PositionalStruct(subName, subParams)
@@ -328,6 +338,6 @@ object NameMap {
           None
       }
 
-    coreAligned.flatMap(maybeAnd(oneAlignment(topAligned), _))
+    coreAligned.flatMap(maybeAnd(topAligned, _))
   }
 }

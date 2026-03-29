@@ -1603,8 +1603,8 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
-  test("loop ignores subsumed guard facts when whole-pattern alias alignment conflicts") {
-    disallowed("""#
+  test("loop aligns subsumed guard facts through whole-pattern alias alternatives") {
+    allowed("""#
 enum Node:
   Branch(size: Int)
 
@@ -1613,8 +1613,10 @@ def walk(idx: Int, stack: List[Int], node: Node) -> Int:
     case _ if cmp_Int(idx, 0) matches LT:
       idx
     case (_, [*whole], Branch(s)) if cmp_Int(idx, s) matches LT:
+      _ = whole
       idx
     case (_, [*tail] as alias, Branch(t)) if cmp_Int(t, 0) matches GT:
+      _ = alias
       walk(idx.sub(t), tail, Branch(t))
     case _:
       idx

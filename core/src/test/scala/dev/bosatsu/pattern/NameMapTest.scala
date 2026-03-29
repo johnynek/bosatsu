@@ -19,30 +19,6 @@ class NameMapTest extends munit.ScalaCheckSuite {
   private val genPatternPairNoUnion: Gen[(Pattern.Parsed, Pattern.Parsed)] =
     Gen.zip(genPatternNoUnion, genPatternNoUnion)
 
-  private def normalizedRename(
-      rename: Rename,
-      subst: Map[Identifier.Bindable, Identifier.Bindable]
-  ): Rename =
-    rename match {
-      case Rename.Same     => Rename.Same
-      case Rename.Removed  => Rename.Removed
-      case Rename.To(name) => Rename.To(subst.getOrElse(name, name))
-    }
-
-  private def renameMapUnderSubst(
-      nameMap: NameMap,
-      subst: Map[Identifier.Bindable, Identifier.Bindable]
-  ): NameMap = {
-    val superNames1 = nameMap.superNames.iterator.map { case (from, rename) =>
-      val from1 = subst.getOrElse(from, from)
-      from1 -> normalizedRename(rename, subst)
-    }.toMap
-
-    val addedInSub1 = nameMap.addedInSub.iterator.map(n => subst.getOrElse(n, n)).toSet
-
-    NameMap(superNames1, addedInSub1)
-  }
-
   private def injectiveSubstFor(
       names: Set[Identifier.Bindable]
   ): Map[Identifier.Bindable, Identifier.Bindable] =
@@ -74,6 +50,24 @@ class NameMapTest extends munit.ScalaCheckSuite {
           case Rename.Removed => None
         }
       assertEquals(nameMap.superToSub(from), expected)
+    }
+  }
+
+  private def assertAlternativesRespectPatterns[N, T](
+      superPattern: Pattern[N, T],
+      subPattern: Pattern[N, T],
+      nameMap: NameMap
+  ): Unit = {
+    val superNames = superPattern.names.toSet
+    val subNames = subPattern.names.toSet
+
+    assertEquals(nameMap.substitutionAlternatives(Set.empty).toSet, Set(Map.empty))
+
+    (superNames.map(Set(_)) + superNames).foreach { fromNames =>
+      nameMap.substitutionAlternatives(fromNames).foreach { alt =>
+        assertEquals(alt.keySet, fromNames)
+        assert(alt.valuesIterator.forall(subNames))
+      }
     }
   }
 
@@ -179,7 +173,12 @@ class NameMapTest extends munit.ScalaCheckSuite {
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(nameMap) =>
-          assertCoherent(superPattern, subPattern, nameMap)
+          nameMap.deterministic match {
+            case Some(_) =>
+              assertCoherent(superPattern, subPattern, nameMap)
+            case None =>
+              assertAlternativesRespectPatterns(superPattern, subPattern, nameMap)
+          }
         case None =>
           ()
       }
@@ -200,7 +199,7 @@ class NameMapTest extends munit.ScalaCheckSuite {
     }
   }
 
-  test("alignSubsumedPatternNames can become defined after unbind") {
+  test("alignSubsumedPatternNames keeps viable whole-pattern alias alternatives") {
     val superPattern: Pattern.Parsed =
       Pattern.ListPat(
         List(Pattern.ListPart.NamedList(Identifier.Name("lzjqp9ilw")))
@@ -224,13 +223,41 @@ class NameMapTest extends munit.ScalaCheckSuite {
       .alignSubsumedPatternNames(superPattern.unbind, subPattern.unbind)
       .isDefined
 
-    assertEquals(d0, false)
+    assertEquals(d0, true)
     assertEquals(d1, true)
     assertEquals(d2, true)
     assertEquals(d3, true)
   }
 
-  test("successful namemap is stable under simultaneous injective substitute") {
+  test("successful alignment survives adding a fresh whole-pattern alias around sub pattern") {
+    val alias = Identifier.synthetic("pnm_sub_alias")
+
+    forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
+      NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
+        case Some(_) =>
+          val aliasedSub = Pattern.Named(alias, subPattern)
+          assert(NameMap.alignSubsumedPatternNames(superPattern, aliasedSub).nonEmpty)
+        case None =>
+          ()
+      }
+    }
+  }
+
+  test("successful alignment survives adding a fresh whole-pattern alias around super pattern") {
+    val alias = Identifier.synthetic("pnm_super_alias")
+
+    forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
+      NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
+        case Some(_) =>
+          val aliasedSuper = Pattern.Named(alias, superPattern)
+          assert(NameMap.alignSubsumedPatternNames(aliasedSuper, subPattern).nonEmpty)
+        case None =>
+          ()
+      }
+    }
+  }
+
+  test("successful namemap alternatives are stable under simultaneous injective substitute") {
     forAll(genPatternPairNoUnion) { case (superPattern, subPattern) =>
       NameMap.alignSubsumedPatternNames(superPattern, subPattern) match {
         case Some(nameMap) =>
@@ -240,11 +267,32 @@ class NameMapTest extends munit.ScalaCheckSuite {
           val super1 = superPattern.substitute(subst)
           val sub1 = subPattern.substitute(subst)
 
-          val remapped = renameMapUnderSubst(nameMap, subst)
-
           val next = NameMap.alignSubsumedPatternNames(super1, sub1)
-          assertEquals(next, Some(remapped))
-          assertCoherent(super1, sub1, remapped)
+          assert(next.nonEmpty)
+
+          val sourceSets =
+            (superPattern.names.toSet.map(Set(_)) + superPattern.names.toSet + Set.empty[
+              Identifier.Bindable
+            ])
+
+          sourceSets.foreach { fromNames =>
+            val expected =
+              nameMap
+                .substitutionAlternatives(fromNames)
+                .map(_.iterator.map { case (from, to) =>
+                  subst(from) -> subst(to)
+                }.toMap)
+                .toSet
+
+            val actual =
+              next.get
+                .substitutionAlternatives(fromNames.map(subst))
+                .toSet
+
+            assertEquals(actual, expected)
+          }
+
+          next.foreach(assertAlternativesRespectPatterns(super1, sub1, _))
         case None =>
           ()
       }
