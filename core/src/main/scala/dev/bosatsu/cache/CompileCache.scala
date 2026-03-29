@@ -214,12 +214,15 @@ object CompileCache {
         case Some(outputHash) =>
           val packagePath = casPath(outputHash)
           val read = platformIO.readBytes(packagePath).flatMap { bytes =>
-            moduleIOMonad.fromTry(decodeValue(key, bytes)).map {
-              case some @ Some(_) => some
-              case None           =>
-                statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
-                None
-            }
+            platformIO.canPromiseF
+              .compute(decodeValue(key, bytes))
+              .flatMap(moduleIOMonad.fromTry)
+              .map {
+                case some @ Some(_) => some
+                case None           =>
+                  statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
+                  None
+              }
           }
           onError(
             read,

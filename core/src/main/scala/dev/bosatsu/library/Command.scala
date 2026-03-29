@@ -141,7 +141,7 @@ object Command {
       platformIO: PlatformIO[F, P],
       evalPassthroughArgs: List[String] = Nil
   ): Opts[F[Output[P]]] = {
-    import platformIO.{pathArg, moduleIOMonad, showPath, parallelF}
+    import platformIO.{canPromiseF, pathArg, moduleIOMonad, showPath, parallelF}
 
     implicit val hashArg: Argument[Algo.WithAlgo[HashValue]] =
       Parser.argFromParser(

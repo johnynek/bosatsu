@@ -17,7 +17,7 @@ import dev.bosatsu.{
 }
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource}
 import dev.bosatsu.hashing.{Algo, Hashed}
-import dev.bosatsu.graph.{Dag, Memoize, Toposort}
+import dev.bosatsu.graph.{CanPromise, Dag, Memoize, Toposort}
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -72,14 +72,16 @@ object DecodedLibraryWithDeps {
   def decodeAll[F[_]](
       protoLib: Hashed[Algo.Blake3, proto.Library]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
-      F: MonadError[F, Throwable]
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] =
     DecodedLibrary.decodeWithDeps(protoLib)(load).flatMap(decodeAll(_)(load))
 
   def decodeAll[F[_]](
       dec: DecodedLibrary[Algo.Blake3]
   )(load: proto.LibDependency => F[Hashed[Algo.Blake3, proto.Library]])(implicit
-      F: MonadError[F, Throwable]
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
   ): F[DecodedLibraryWithDeps[Algo.Blake3]] = {
     type Key = (Name, Version)
     type Value = DecodedLibraryWithDeps[Algo.Blake3]
