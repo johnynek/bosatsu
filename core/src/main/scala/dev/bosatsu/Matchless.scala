@@ -10,44 +10,29 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
-  private[bosatsu] sealed abstract class LocalPass(val cliName: String)
-      extends Product
-      with Serializable
+  private[bosatsu] enum LocalPass(val cliName: String) derives CanEqual {
+    case HoistInvariantLoopLets extends LocalPass("hoist-invariant-loop-lets")
+    case ReuseConstructors extends LocalPass("reuse-constructors")
+  }
   private[bosatsu] object LocalPass {
-    case object HoistInvariantLoopLets
-        extends LocalPass("hoist-invariant-loop-lets")
-    case object ReuseConstructors extends LocalPass("reuse-constructors")
-
-    given CanEqual[LocalPass, LocalPass] = CanEqual.derived
-
     val ordered: List[LocalPass] = values.toList
     val defaultSet: Set[LocalPass] = ordered.toSet
 
     def fromCliName(name: String): Option[LocalPass] =
       ordered.find(_.cliName == name)
-
-    def values: IndexedSeq[LocalPass] =
-      IndexedSeq(HoistInvariantLoopLets, ReuseConstructors)
   }
 
-  private[bosatsu] sealed abstract class Pass(val cliName: String)
-      extends Product
-      with Serializable
+  private[bosatsu] enum Pass(val cliName: String) derives CanEqual {
+    case HoistInvariantLoopLets extends Pass("hoist-invariant-loop-lets")
+    case ReuseConstructors extends Pass("reuse-constructors")
+    case GlobalInlining extends Pass("global-inlining")
+  }
   private[bosatsu] object Pass {
-    case object HoistInvariantLoopLets extends Pass("hoist-invariant-loop-lets")
-    case object ReuseConstructors extends Pass("reuse-constructors")
-    case object GlobalInlining extends Pass("global-inlining")
-
-    given CanEqual[Pass, Pass] = CanEqual.derived
-
     val ordered: List[Pass] = values.toList
     val defaultSet: Set[Pass] = ordered.toSet
 
     def fromCliName(name: String): Option[Pass] =
       ordered.find(_.cliName == name)
-
-    def values: IndexedSeq[Pass] =
-      IndexedSeq(HoistInvariantLoopLets, ReuseConstructors, GlobalInlining)
   }
 
   private[bosatsu] final case class LocalPassOptions(enabled: Set[LocalPass]) {

@@ -1488,8 +1488,13 @@ object ShowEdn {
     }
 
   private def encodeImportForShow(
+      imp: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+  ): Edn =
+    encodeImportForShow(imp, includeTypes = true)
+
+  private def encodeImportForShow(
       imp: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]],
-      includeTypes: Boolean = true
+      includeTypes: Boolean
   ): Edn = {
     val bucketedNames =
       imp.items.toList.flatMap(item =>
@@ -1587,7 +1592,7 @@ object ShowEdn {
         else
           Some(
             kw("imports") -> EVector(
-              normalized.imports.map(imp => encodeImportForShow(imp))
+              normalized.imports.map(encodeImportForShow)
             )
           ),
         exportsMap.map(kw("exports") -> _),
