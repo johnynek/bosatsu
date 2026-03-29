@@ -273,7 +273,7 @@ object Output {
         packages: List[Package.Typed[Any]],
         interfaces: List[Package.Interface],
         typedPasses: List[CompileOptions.TypedPass],
-        packageNamesOnly: Boolean = false
+        packageNamesOnly: Boolean
     ) extends ShowValue {
       val ir: ShowIr = ShowIr.TypedExpr
     }
@@ -293,7 +293,7 @@ object Output {
         packages: List[MatchlessPackage],
         typedPasses: List[CompileOptions.TypedPass],
         matchlessPasses: List[BosatsuMatchless.Pass],
-        packageNamesOnly: Boolean = false
+        packageNamesOnly: Boolean
     ) extends ShowValue {
       val ir: ShowIr = ShowIr.Matchless
     }
@@ -302,7 +302,7 @@ object Output {
   case class TestOutput(
       tests: List[(PackageName, Option[Eval[Test]])],
       colorize: Colorize,
-      quiet: Boolean = false
+      quiet: Boolean
   ) extends Output[Nothing]
 
   case class EvaluationResult(

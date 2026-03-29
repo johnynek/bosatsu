@@ -16,7 +16,7 @@ object ShowSupport {
       ir: Output.ShowIr,
       compileOptions: CompileOptions,
       matchlessPassOptions: Matchless.PassOptions,
-      packageNamesOnly: Boolean = false
+      packageNamesOnly: Boolean
   ) {
     def typedPasses: List[CompileOptions.TypedPass] =
       compileOptions.enabledTypedPasses
@@ -76,7 +76,7 @@ object ShowSupport {
       noOpt: Boolean,
       disabledTypedPasses: Set[CompileOptions.TypedPass],
       disabledMatchlessPasses: Set[Matchless.Pass],
-      packageNamesOnly: Boolean = false
+      packageNamesOnly: Boolean
   ): ValidatedNel[String, Request] = {
     val noOptValidation =
       Validated.condNel(
@@ -94,7 +94,11 @@ object ShowSupport {
     (noOptValidation, matchlessValidation).mapN { (_, _) =>
       val compileOptions =
         if (noOpt) CompileOptions.NoOptimize
-        else CompileOptions.fromDisabledTypedPasses(disabledTypedPasses)
+        else
+          CompileOptions.fromDisabledTypedPasses(
+            disabledTypedPasses,
+            CompileOptions.Mode.Emit
+          )
       val matchlessPassOptions =
         Matchless.PassOptions(Matchless.Pass.defaultSet -- disabledMatchlessPasses)
 

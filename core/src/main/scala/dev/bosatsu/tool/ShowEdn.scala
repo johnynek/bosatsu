@@ -2128,7 +2128,7 @@ object ShowEdn {
   def showJson(
       packs: List[Package.Typed[Any]],
       ifaces: List[Package.Interface],
-      packageNamesOnly: Boolean = false
+      packageNamesOnly: Boolean
   ): Json =
     showJson(
       Output.ShowValue.Typed(
@@ -2147,7 +2147,7 @@ object ShowEdn {
   def showDoc(
       packs: List[Package.Typed[Any]],
       ifaces: List[Package.Interface],
-      packageNamesOnly: Boolean = false
+      packageNamesOnly: Boolean
   ): Doc =
     showDoc(
       Output.ShowValue.Typed(

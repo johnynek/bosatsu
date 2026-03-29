@@ -2830,8 +2830,8 @@ object Matchless {
     def knownValue(
         ex: Expr[A],
         env: KnownEnv,
-        seenBindables: Set[Bindable] = Set.empty,
-        seenAnons: Set[Long] = Set.empty
+        seenBindables: Set[Bindable],
+        seenAnons: Set[Long]
     ): Option[Expr[A]] =
       ex match {
         case Local(name) if !seenBindables(name) =>
@@ -2887,7 +2887,7 @@ object Matchless {
       }
 
     def knownEnumTag(ex: Expr[A], env: KnownEnv): Option[(Int, Int, List[Int])] =
-      knownValue(ex, env).flatMap {
+      knownValue(ex, env, Set.empty, Set.empty).flatMap {
         case MakeEnum(variant, 0, famArities) =>
           Some((variant, 0, famArities))
         case App(MakeEnum(variant, arity, famArities), args)
@@ -2898,7 +2898,7 @@ object Matchless {
       }
 
     def knownNatTag(ex: Expr[A], env: KnownEnv): Option[DataRepr.Nat] =
-      knownValue(ex, env).flatMap {
+      knownValue(ex, env, Set.empty, Set.empty).flatMap {
         case ZeroNat                            => Some(DataRepr.ZeroNat)
         case App(SuccNat, NonEmptyList(_, Nil)) => Some(DataRepr.SuccNat)
         case _                                  => None
@@ -2907,16 +2907,16 @@ object Matchless {
     def boolValue(ex: BoolExpr[A], env: KnownEnv): Option[Boolean] =
       ex match {
         case EqualsLit(expr, lit) =>
-          knownValue(expr, env).collect {
+          knownValue(expr, env, Set.empty, Set.empty).collect {
             case Literal(found) =>
               Lit.litOrdering.compare(found, lit) == 0
           }
         case LtEqLit(expr, Lit.Integer(rhs)) =>
-          knownValue(expr, env).collect {
+          knownValue(expr, env, Set.empty, Set.empty).collect {
             case Literal(Lit.Integer(lhs)) => lhs.compareTo(rhs) <= 0
           }
         case LtEqLit(expr, rhs: Lit.Chr) =>
-          knownValue(expr, env).collect {
+          knownValue(expr, env, Set.empty, Set.empty).collect {
             case Literal(lit: Lit.Chr) => lit.toCodePoint <= rhs.toCodePoint
           }
         case LtEqLit(_, _) =>
@@ -2958,7 +2958,7 @@ object Matchless {
         value: Expr[A]
     ): KnownEnv = {
       val base = shadowBinding(env, arg)
-      knownValue(value, env) match {
+      knownValue(value, env, Set.empty, Set.empty) match {
         case Some(value1) =>
           arg match {
             case Right(name) =>
@@ -2972,7 +2972,7 @@ object Matchless {
     }
 
     def canDiscardBinding(value: Expr[A], env: KnownEnv): Boolean =
-      knownValue(value, env).isDefined || (value match {
+      knownValue(value, env, Set.empty, Set.empty).isDefined || (value match {
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | Global(_, _, _) |
             Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | SuccNat |
             ZeroNat | Lambda(_, _, _, _) =>
@@ -4794,7 +4794,7 @@ object Matchless {
 
   private[bosatsu] def postLoweringCleanup[A: Order](
       expr: Expr[A],
-      localPassOptions: LocalPassOptions = LocalPassOptions.Default
+      localPassOptions: LocalPassOptions
   ): Expr[A] = {
     val hoisted =
       if (localPassOptions.enables(LocalPass.HoistInvariantLoopLets))

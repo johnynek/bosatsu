@@ -29,7 +29,7 @@ object TestUtils {
 
   def validatePackageMap[A](
       pm: PackageMap.Typed[A],
-      stage: String = "package-map"
+      stage: String
   ): ValidatedNec[TypeValidationError, Unit] =
     TypeValidator.validatePackageMap(pm, stage)
 
@@ -263,7 +263,8 @@ object TestUtils {
     checkPackageMap(statement) { pm =>
       Par.withEC {
         given Order[Unit] = Order.fromOrdering
-        val comp = MatchlessFromTypedExpr.compile((), pm)
+        val comp =
+          MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
         fn(comp)
       }
     }

@@ -320,7 +320,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }
     Par.withEC {
-      val comp = MatchlessFromTypedExpr.compile((), pm)
+      val comp =
+        MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
       fn(comp)
     }
   }
@@ -1514,7 +1515,12 @@ main = select
       TestUtils.testInferred(
         List(src),
         "Matchless/BoolSelectorScrutinee", { (pm, packName) =>
-          val compiled = MatchlessFromTypedExpr.compile((), pm)
+          val compiled =
+            MatchlessFromTypedExpr.compile(
+              (),
+              pm,
+              Matchless.LocalPassOptions.Default
+            )
           val byName = compiled(packName).toMap
           val selectExpr = byName(Identifier.Name("select"))
           val bools = exprBoolSubexpressions(selectExpr)
@@ -1707,7 +1713,12 @@ main = (cmp_guard, enum_guard)
       TestUtils.testInferred(
         List(src),
         "Matchless/GuardCoverage", { (pm, packName) =>
-          val compiled = MatchlessFromTypedExpr.compile((), pm)
+          val compiled =
+            MatchlessFromTypedExpr.compile(
+              (),
+              pm,
+              Matchless.LocalPassOptions.Default
+            )
           val byName = compiled(packName).toMap
 
           def hasLetBool(expr: Matchless.Expr[Unit]): Boolean =
@@ -5085,7 +5096,12 @@ def seg_final_literal_char(s):
 
     val optimized =
       Par.withEC {
-        MatchlessGlobalInlining.optimize(rawCompiled, topoSort, (_, _) => ())
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
       }
     val useExpr = optimized(())(callerPack).toMap.apply(useName)
 
@@ -5366,7 +5382,12 @@ def seg_final_literal_char(s):
 
     val optimized =
       Par.withEC {
-        MatchlessGlobalInlining.optimize(rawCompiled, topoSort, (_, _) => ())
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
       }
     val useExpr = optimized(())(callerPack).toMap.apply(useName)
 
@@ -5390,7 +5411,8 @@ def seg_final_literal_char(s):
         Matchless.If(Matchless.TrueConst, pair, pair)
       )
 
-    val reused = Matchless.postLoweringCleanup(expr)
+    val reused =
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default)
     val noReuse =
       Matchless.postLoweringCleanup(
         expr,
@@ -5429,7 +5451,8 @@ def seg_final_literal_char(s):
         )
       )
 
-    val hoistedExpr = Matchless.postLoweringCleanup(expr)
+    val hoistedExpr =
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default)
     val noHoist =
       Matchless.postLoweringCleanup(
         expr,

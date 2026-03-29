@@ -47,7 +47,11 @@ case class DecodedLibraryWithDeps[A](
   def compile(implicit
       ec: Par.EC
   ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
-    MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
+    MatchlessFromTypedExpr.compile(
+      nameVersion,
+      lib.implementations,
+      Matchless.LocalPassOptions.Default
+    )
 
   def compile(
       localPassOptions: Matchless.LocalPassOptions

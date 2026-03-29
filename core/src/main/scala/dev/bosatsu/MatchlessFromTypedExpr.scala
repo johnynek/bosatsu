@@ -71,7 +71,7 @@ object MatchlessFromTypedExpr {
   def compile[K: Order, A](
       from: K,
       pm: PackageMap.Typed[A],
-      localPassOptions: Matchless.LocalPassOptions = Matchless.LocalPassOptions.Default
+      localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): Compiled[K] =
     compileRaw(from, pm).view.mapValues { lets =>
       lets.map { case (name, expr) =>

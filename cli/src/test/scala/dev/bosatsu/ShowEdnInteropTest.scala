@@ -13,7 +13,7 @@ class ShowEdnInteropTest extends munit.ScalaCheckSuite {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
       val ifaces = packs.map(Package.interfaceOf)
-      val rendered = ShowEdn.showDoc(packs, ifaces).render(120)
+      val rendered = ShowEdn.showDoc(packs, ifaces, packageNamesOnly = false).render(120)
 
       val parser = Parsers.newParser(Parsers.defaultConfiguration())
       val parseable = Parsers.newParseable(rendered)

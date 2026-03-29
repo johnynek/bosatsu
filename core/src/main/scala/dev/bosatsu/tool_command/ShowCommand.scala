@@ -271,7 +271,8 @@ object ShowCommand {
               ir,
               noOpt,
               disabledTypedPasses,
-              disabledMatchlessPasses
+              disabledMatchlessPasses,
+              packageNamesOnly = false
             )
             .toEither
             .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))

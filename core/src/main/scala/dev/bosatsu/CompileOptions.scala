@@ -2,7 +2,7 @@ package dev.bosatsu
 
 final case class CompileOptions(
     typedPasses: Set[CompileOptions.TypedPass],
-    mode: CompileOptions.Mode = CompileOptions.Mode.Emit
+    mode: CompileOptions.Mode
 ) {
   def optimize: Boolean =
     typedPasses.nonEmpty
@@ -34,7 +34,7 @@ object CompileOptions {
 
   def fromDisabledTypedPasses(
       disabled: Set[TypedPass],
-      mode: Mode = Mode.Emit
+      mode: Mode
   ): CompileOptions =
     CompileOptions(TypedPass.defaultSet -- disabled, mode)
 

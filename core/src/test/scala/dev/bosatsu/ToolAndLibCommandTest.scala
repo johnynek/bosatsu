@@ -136,7 +136,7 @@ class ToolAndLibCommandTest extends FunSuite {
 
   private def allFilePaths(
       state: MemoryMain.State,
-      prefix: Chain[String] = Chain.empty
+      prefix: Chain[String]
   ): List[Chain[String]] =
     state.children.toList.flatMap {
       case (name, Right(_)) =>
@@ -150,7 +150,7 @@ class ToolAndLibCommandTest extends FunSuite {
       prefix: Chain[String]
   ): Set[Chain[String]] = {
     val prefixList = prefix.toList
-    allFilePaths(state).filter { path =>
+    allFilePaths(state, Chain.empty).filter { path =>
       path.toList.startsWith(prefixList)
     }.toSet
   }
@@ -896,7 +896,7 @@ class ToolAndLibCommandTest extends FunSuite {
   ): Map[String, Edn] = {
     import Edn._
 
-    val rendered = ShowEdn.showDoc(packs, Nil).render(120)
+    val rendered = ShowEdn.showDoc(packs, Nil, packageNamesOnly = false).render(120)
     val parsed = Edn.parseAll(rendered) match {
       case Right(value) => value
       case Left(err)    => fail(s"failed to parse show output: $err")
@@ -9568,7 +9568,8 @@ main = 0
           Some(Eval.now(Test.Assertion(false, "boom")))
         )
       ),
-      Colorize.None
+      Colorize.None,
+      quiet = false
     )
     val second =
       Output.Basic(

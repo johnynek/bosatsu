@@ -55,7 +55,7 @@ object MatchlessGlobalInlining {
       rawCompiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]],
       topoSort: Toposort.Result[(K, PackageName)],
       depFor: (K, PackageName) => K,
-      localPassOptions: Matchless.LocalPassOptions = Matchless.LocalPassOptions.Default
+      localPassOptions: Matchless.LocalPassOptions
   )(implicit ec: Par.EC): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] = {
     val cleanedBase = cleanedCompiled(rawCompiled, localPassOptions)
 

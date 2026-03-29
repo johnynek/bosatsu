@@ -105,7 +105,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         selection = ShowSelection.Request(Nil, Nil, Nil),
         ir = Output.ShowIr.Matchless,
         compileOptions = CompileOptions.Default,
-        matchlessPassOptions = Matchless.PassOptions.Default
+        matchlessPassOptions = Matchless.PassOptions.Default,
+        packageNamesOnly = false
       )
 
     ShowSupport.matchlessShowValue(packs, request, pack =>
@@ -143,7 +144,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
       val ifaces = packs.map(Package.interfaceOf)
-      val rendered = ShowEdn.showDoc(packs, ifaces).render(120)
+      val rendered = ShowEdn.showDoc(packs, ifaces, packageNamesOnly = false).render(120)
       Edn.parseAll(rendered) match {
         case Right(_)  => ()
         case Left(err) => fail(s"failed to parse showDoc output as EDN: $err")
@@ -155,7 +156,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
       val ifaces = packs.map(Package.interfaceOf)
-      val rendered = ShowEdn.showJson(packs, ifaces).render
+      val rendered = ShowEdn.showJson(packs, ifaces, packageNamesOnly = false).render
       Json.parserFile.parseAll(rendered) match {
         case Right(Json.JObject(fields)) =>
           assertEquals(fields.toMap.get("$form"), Some(Json.JString("show")))
@@ -189,7 +190,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
           case Left(err)    => fail(err)
         }
 
-        val rendered = ShowEdn.showDoc(List(normalized), Nil).render(120)
+        val rendered =
+          ShowEdn.showDoc(List(normalized), Nil, packageNamesOnly = false).render(120)
         val showEdn = Edn.parseAll(rendered) match {
           case Right(value) => value
           case Left(err)    => fail(s"failed parsing showDoc EDN: $err")
