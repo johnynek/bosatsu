@@ -12,6 +12,7 @@ import dev.bosatsu.library.{
 }
 import dev.bosatsu.{
   CompileOptions,
+  Identifier,
   LocationMap,
   Package,
   PackageMap,
@@ -23,6 +24,21 @@ import dev.bosatsu.{
 import scala.collection.immutable.SortedMap
 
 class ClangGenLibraryDepsTest extends munit.FunSuite {
+  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+    val start = code.indexOf(mangledNameFragment)
+    assert(start >= 0, code)
+    val headerStart = code.lastIndexOf("BValue ", start)
+    assert(headerStart >= 0, code)
+    val nextFn = code.indexOf("\n\nBValue ", start)
+    val nextMain = code.indexOf("\n\nint main(", start)
+    val end =
+      List(nextFn, nextMain)
+        .filter(_ > headerStart)
+        .sorted
+        .headOption
+        .getOrElse(code.length)
+    code.slice(headerStart, end)
+  }
 
   private def typeCheck(
       src: String,
@@ -114,6 +130,101 @@ class ClangGenLibraryDepsTest extends munit.FunSuite {
           assert(rendered.contains("bsts_test_argv_has_quiet"), rendered)
           assert(rendered.contains("bsts_test_run"), rendered)
           assert(rendered.contains("quiet"), rendered)
+        case Left(err) =>
+          fail(err.display.render(80))
+      }
+    }
+  }
+
+  test("clang gen avoids cross-library helper calls after Matchless inlining") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+    val helperPackName = PackageName.parts("Helper", "Bool")
+    val rootPackName = PackageName.parts("Root", "Main")
+    val mainName = Identifier.Name("main")
+
+    val helperSrc =
+      """package Helper/Bool
+        |
+        |export choose
+        |
+        |def choose(flag: Bool, on_true: Int) -> Int:
+        |  if flag:
+        |    on_true
+        |  else:
+        |    0
+        |""".stripMargin
+
+    val helperPm = typeCheck(helperSrc, predefIface :: Nil)
+    val helperPack = helperPm.toMap(helperPackName)
+    val helperIface = Package.interfaceOf(helperPack)
+
+    val rootSrc =
+      """package Root/Main
+        |
+        |from Helper/Bool import choose
+        |
+        |def expensive(i: Int) -> Int:
+        |  if False:
+        |    0
+        |  else:
+        |    i
+        |
+        |main = choose(False, expensive(1))
+        |""".stripMargin
+
+    val rootPm = typeCheck(rootSrc, predefIface :: helperIface :: Nil)
+
+    val helperVersion = Version(1, 0, 0)
+    val rootVersion = Version(1, 0, 0)
+
+    val helperLib = DecodedLibrary[Algo.Blake3](
+      name = Name("helper"),
+      version = helperVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "helper",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(helperVersion.toProto)))
+      ),
+      interfaces = helperIface :: Nil,
+      implementations = helperPm
+    )
+
+    val rootLib = DecodedLibrary[Algo.Blake3](
+      name = Name("root"),
+      version = rootVersion,
+      hashValue = HashValue[Algo.Blake3]("00"),
+      protoLib = proto.Library(
+        name = "root",
+        descriptor =
+          Some(proto.LibDescriptor(version = Some(rootVersion.toProto)))
+      ),
+      interfaces = Nil,
+      implementations = rootPm
+    )
+
+    val helperDl = DecodedLibraryWithDeps(helperLib, SortedMap.empty)
+    val rootDl =
+      DecodedLibraryWithDeps(
+        rootLib,
+        SortedMap(helperDl.nameVersion -> helperDl)
+      )
+
+    Par.withEC {
+      ClangGen(rootDl).renderMain(
+        rootPackName,
+        mainName,
+        Code.Ident("run_main")
+      ) match {
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          val mainFn =
+            extractCFunction(rendered, "___bsts_g_Root_l_Main_l_main")
+          assertEquals(
+            mainFn.contains("___bsts_g_Helper_l_Bool_l_choose"),
+            false,
+            mainFn
+          )
         case Left(err) =>
           fail(err.display.render(80))
       }

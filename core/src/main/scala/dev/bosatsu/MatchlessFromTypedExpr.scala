@@ -8,7 +8,7 @@ import cats.implicits._
 object MatchlessFromTypedExpr {
   type Compiled[+A] = Map[PackageName, List[(Bindable, Matchless.Expr[A])]]
   // compile a set of packages given a set of external remappings
-  def compile[K: Order, A](
+  def compileRaw[K: Order, A](
       from: K,
       pm: PackageMap.Typed[A]
   )(implicit ec: Par.EC): Compiled[K] = {
@@ -52,9 +52,8 @@ object MatchlessFromTypedExpr {
               .flatMap { c =>
                 lets
                   .traverse { case (name, rec, te) =>
-                    // TODO: add from so we can resolve packages correctly
                     Matchless
-                      .fromLet(from, name, rec, te, variantOf, c)
+                      .fromLetRaw(from, name, rec, te, variantOf, c)
                       .map((name, _))
                   }
               }
@@ -68,4 +67,14 @@ object MatchlessFromTypedExpr {
     val allItems = allItemsList.map(_.toMap)
     Par.await(allItems)
   }
+
+  def compile[K: Order, A](
+      from: K,
+      pm: PackageMap.Typed[A]
+  )(implicit ec: Par.EC): Compiled[K] =
+    compileRaw(from, pm).view.mapValues { lets =>
+      lets.map { case (name, expr) =>
+        (name, Matchless.postLoweringCleanup(expr))
+      }
+    }.toMap
 }

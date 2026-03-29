@@ -20,6 +20,7 @@ import rankn.{DataRepr, TypeEnv}
 import cats.implicits._
 import dev.bosatsu.cache.{CompileCache, InferCache, InferPhases}
 import dev.bosatsu.hashing.{Algo, HashValue}
+import scala.util.hashing.MurmurHash3
 
 case class PackageMap[A, B, C, +D](
     toMap: SortedMap[PackageName, Package[A, B, C, D]]
@@ -195,6 +196,8 @@ object PackageMap {
       sourceHash: HashValue[Algo.Blake3],
       loadParsed: F[Package.Parsed]
   ) {
+    override lazy val hashCode: Int =
+      MurmurHash3.caseClassHash(this)
     def withImport(i: Import[PackageName, Unit]): SourceUnit[F, A] =
       copy(imports = i :: imports)
   }
@@ -312,24 +315,25 @@ object PackageMap {
       map: PackageMap[PackageName, A, B, C],
       ifs: List[Package.Interface]
   ): ValidatedNel[PackageError, MapF3[A, B, C]] = {
+    val packagesByName = map.toMap
     val interfaceMap = ifs.iterator.map(iface => (iface.name, iface)).toMap
 
     def getPackage(
         i: Import[PackageName, A],
-        from: Package[PackageName, A, B, C]
+        from: PackageName
     ): ValidatedNel[PackageError, Import[
-      Either[Package.Interface, Package[PackageName, A, B, C]],
+      Either[Package.Interface, PackageName],
       A
     ]] =
-      map.toMap.get(i.pack) match {
-        case Some(pack) => Validated.valid(Import(Right(pack), i.items))
+      packagesByName.get(i.pack) match {
+        case Some(_)    => Validated.valid(Import(Right(i.pack), i.items))
         case None       =>
           interfaceMap.get(i.pack) match {
             case Some(iface) =>
               Validated.valid(Import(Left(iface), i.items))
             case None =>
               Validated.invalidNel(
-                PackageError.UnknownImportPackage(i.pack, from.name)
+                PackageError.UnknownImportPackage(i.pack, from)
               )
           }
       }
@@ -339,26 +343,29 @@ object PackageMap {
     // We use the ReaderT to build the list of imports we are on
     // to detect circular dependencies, if the current package imports itself transitively we
     // want to report the full path
-    val step: Package[PackageName, A, B, C] => ReaderT[ErrorOr, List[
+    val step: PackageName => ReaderT[ErrorOr, List[
       PackageName
     ], PackageFix] =
-      Memoize.memoizeDagHashed[Package[PackageName, A, B, C], ReaderT[
+      Memoize.memoizeDagHashed[PackageName, ReaderT[
         ErrorOr,
         List[PackageName],
         PackageFix
-      ]] { (p, rec) =>
+      ]] { (pname, rec) =>
+        val p = packagesByName.get(pname).expect {
+          s"invariant violation: missing package definition for $pname"
+        }
         val edeps = ReaderT
           .ask[ErrorOr, List[PackageName]]
           .flatMapF {
-            case nonE @ (h :: tail) if nonE.contains(p.name) =>
+            case nonE @ (h :: tail) if nonE.contains(pname) =>
               Left(
                 NonEmptyList.of(
-                  PackageError.CircularDependency(p.name, NonEmptyList(h, tail))
+                  PackageError.CircularDependency(pname, NonEmptyList(h, tail))
                 )
               )
             case _ =>
               val deps = p.imports.traverse(
-                getPackage(_, p)
+                getPackage(_, pname)
               ) // the packages p depends on
               deps.toEither
           }
@@ -366,19 +373,19 @@ object PackageMap {
         edeps
           .flatMap {
             (deps: List[Import[
-              Either[Package.Interface, Package[PackageName, A, B, C]],
+              Either[Package.Interface, PackageName],
               A
             ]]) =>
               deps
                 .parTraverse { i =>
                   i.pack match {
-                    case Right(pack) =>
-                      rec(pack)
+                    case Right(depName) =>
+                      rec(depName)
                         .local[List[PackageName]](
-                          p.name :: _
+                          pname :: _
                         ) // add this package into the path of all the deps
-                        .map { p =>
-                          Import(Package.fix[A, B, C](Right(p)), i.items)
+                        .map { dep =>
+                          Import(Package.fix[A, B, C](Right(dep)), i.items)
                         }
                     case Left(iface) =>
                       ReaderT.pure[ErrorOr, List[PackageName], Import[
@@ -397,7 +404,9 @@ object PackageMap {
 
     type M = SortedMap[PackageName, PackageFix]
     val r: ReaderT[ErrorOr, List[PackageName], M] =
-      map.toMap.parTraverse(step)
+      packagesByName.keys.toList.parTraverse { pname =>
+        step(pname).map(pname -> _)
+      }.map(SortedMap.from(_))
 
     // we start with no imports on
     val m: ErrorOr[M] = r.run(Nil)
@@ -556,9 +565,12 @@ object PackageMap {
     def toCompiledPack(compiled: Package.Compiled): CompiledPack =
       CompiledPack(compiled, phases.dependencyInterface(compiled))
 
-    val inferPack: ResolvedU => F[ErrorOr[CompiledPack]] =
-      Memoize.memoizeDag[F, ResolvedU, ErrorOr[CompiledPack]] {
-        case (pack, recurse) =>
+    val inferPack: PackageName => F[ErrorOr[CompiledPack]] =
+      Memoize.memoizeDag[F, PackageName, ErrorOr[CompiledPack]] {
+        case (packName, recurse) =>
+          val pack = resolvedByName.get(packName).expect {
+            s"invariant violation: missing resolved package for $packName"
+          }
           pack match {
             case Package(nm, imports, exports, (source, imps), exposes) =>
               val depResultsF: F[ErrorOr[SortedMap[PackageName, CompiledPack]]] =
@@ -574,7 +586,8 @@ object PackageMap {
                     case Left(_)        => accF
                     case Right(depPack) =>
                       val nextF: F[ErrorOr[(PackageName, CompiledPack)]] =
-                        recurse(depPack).map(_.map(dep => dep.compiled.name -> dep))
+                        recurse(depPack.name)
+                          .map(_.map(dep => dep.compiled.name -> dep))
                       (accF, nextF).parMapN { (acc, next) =>
                         (acc, next).parMapN { (deps, dep) =>
                           deps.updated(dep._1, dep._2)
@@ -679,7 +692,8 @@ object PackageMap {
                             NonEmptyList[Referant[Kind.Arg]]
                           ]
                         ] = {
-                      val rec1: ResolvedU => ErrorOr[Package.Compiled] = depPackResult
+                      val rec1: ResolvedU => ErrorOr[Package.Compiled] =
+                        depPack => depPackResult(depPack)
                       resolvedImports.parTraverse {
                         (fixpack: ResolvedFix, item: ImportedName[Unit]) =>
                           importResolvedName[[A1] =>> ErrorOr[A1], Region](
@@ -756,9 +770,9 @@ object PackageMap {
       }
 
     val allResults: F[SortedMap[PackageName, ErrorOr[CompiledPack]]] =
-      resolvedByName.values.toList
-        .parTraverse { pack =>
-          inferPack(pack).map(pack.name -> _)
+      resolvedByName.keys.toList
+        .parTraverse { packName =>
+          inferPack(packName).map(packName -> _)
         }
         .map(SortedMap.from(_))
 

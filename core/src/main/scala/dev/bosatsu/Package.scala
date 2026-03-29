@@ -23,9 +23,9 @@ final case class Package[A, B, C, +D](
     exposes: List[List[PackageName]] = Nil
 ) {
 
-  // It is really important to cache the hashcode and these large dags if
-  // we use them as hash keys
-  final override val hashCode: Int =
+  // These large immutable dags are sometimes used as hash keys, but computing
+  // the hash eagerly is expensive during package construction.
+  override lazy val hashCode: Int =
     MurmurHash3.caseClassHash(this)
 
   override def equals(that: Any): Boolean =
