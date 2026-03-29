@@ -2,6 +2,7 @@ package dev.bosatsu.tool
 
 import cats.data.{Validated, ValidatedNel}
 import cats.syntax.all._
+import com.monovore.decline.Argument
 import dev.bosatsu.{
   CompileOptions,
   ExportedName,
@@ -29,46 +30,42 @@ object ShowSupport {
   ): String =
     s"invalid $kind: $value. Expected one of: ${valid.mkString(", ")}"
 
-  def parseIr(name: String): ValidatedNel[String, Output.ShowIr] =
-    Output.ShowIr
-      .fromCliName(name)
-      .toValidNel(
-        invalidChoice("IR", name, Output.ShowIr.values.toList.map(_.cliName))
-      )
+  private def argumentFor[A](
+      metavar: String,
+      kind: String,
+      valid: List[String]
+  )(
+      fromCliName: String => Option[A]
+  ): Argument[A] =
+    new Argument[A] {
+      def defaultMetavar: String = metavar
 
-  def parseDisabledTypedPasses(
-      names: List[String]
-  ): ValidatedNel[String, Set[CompileOptions.TypedPass]] =
-    names
-      .traverse(name =>
-        CompileOptions.TypedPass
-          .fromCliName(name)
-          .toValidNel(
-            invalidChoice(
-              "typed pass",
-              name,
-              CompileOptions.TypedPass.ordered.map(_.cliName)
-            )
-          )
-      )
-      .map(_.toSet)
+      def read(
+          string: String
+      ): ValidatedNel[String, A] =
+        fromCliName(string).toValidNel(invalidChoice(kind, string, valid))
+    }
 
-  def parseDisabledMatchlessPasses(
-      names: List[String]
-  ): ValidatedNel[String, Set[Matchless.Pass]] =
-    names
-      .traverse(name =>
-        Matchless.Pass
-          .fromCliName(name)
-          .toValidNel(
-            invalidChoice(
-              "matchless pass",
-              name,
-              Matchless.Pass.ordered.map(_.cliName)
-            )
-          )
-      )
-      .map(_.toSet)
+  implicit val showIrArgument: Argument[Output.ShowIr] =
+    argumentFor(
+      "ir",
+      "IR",
+      Output.ShowIr.values.toList.map(_.cliName)
+    )(Output.ShowIr.fromCliName)
+
+  implicit val typedPassArgument: Argument[CompileOptions.TypedPass] =
+    argumentFor(
+      "typed-pass",
+      "typed pass",
+      CompileOptions.TypedPass.ordered.map(_.cliName)
+    )(CompileOptions.TypedPass.fromCliName)
+
+  implicit val matchlessPassArgument: Argument[Matchless.Pass] =
+    argumentFor(
+      "matchless-pass",
+      "matchless pass",
+      Matchless.Pass.ordered.map(_.cliName)
+    )(Matchless.Pass.fromCliName)
 
   def request(
       selection: ShowSelection.Request,

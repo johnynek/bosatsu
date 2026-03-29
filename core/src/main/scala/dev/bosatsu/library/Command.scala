@@ -1836,44 +1836,40 @@ object Command {
         "show fully type-checked packages from this library or dependency tree (EDN by default; JSON with --json)"
       ) {
         import ShowSelection.{typeArgument, valueArgument}
+        import ShowSupport.{matchlessPassArgument, showIrArgument, typedPassArgument}
 
         val irOpt =
           Opts
-            .option[String](
+            .option[Output.ShowIr](
               "ir",
               help = "which IR to render: typedexpr or matchless"
             )
-            .mapValidated(ShowSupport.parseIr)
             .withDefault(Output.ShowIr.TypedExpr)
 
         val disableTypedPassOpt =
           Opts
-            .options[String](
+            .options[CompileOptions.TypedPass](
               "disable-typed-pass",
               help =
                 "disable a typed pass: loop-recur-lowering, normalize, discard-unused"
             )
             .orEmpty
-            .mapValidated(ShowSupport.parseDisabledTypedPasses)
+            .map(_.toSet)
 
         val disableMatchlessPassOpt =
           Opts
-            .options[String](
+            .options[dev.bosatsu.Matchless.Pass](
               "disable-matchless-pass",
               help =
                 "disable a Matchless pass: hoist-invariant-loop-lets, reuse-constructors, global-inlining"
             )
             .orEmpty
-            .mapValidated(ShowSupport.parseDisabledMatchlessPasses)
+            .map(_.toSet)
 
-        def defsInOriginalOrder(
+        def defsInOriginalOrder[A](
             pack: dev.bosatsu.Package.Typed[Any],
-            lets: List[
-              (dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])
-            ]
-        ): List[
-          (dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])
-        ] = {
+            lets: List[(dev.bosatsu.Identifier.Bindable, A)]
+        ): List[(dev.bosatsu.Identifier.Bindable, A)] = {
           val byName = lets.toMap
           pack.lets.flatMap { case (name, _, _) =>
             byName.get(name).map(name -> _)
