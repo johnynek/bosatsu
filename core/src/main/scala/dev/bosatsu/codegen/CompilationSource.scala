@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.{
   ExportedName,
   Identifier,
+  MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
   Package,
   PackageName,
@@ -51,11 +52,14 @@ object CompilationSource {
           def depFor(src: Unit, pn: PackageName): Unit = ()
           def rootKey: Unit = ()
 
-          lazy val compiled = SortedMap(
-            () -> MatchlessFromTypedExpr.compile((), pm)
-          )
-
           lazy val topoSort = pm.topoSort.map(p => ((), p))
+
+          lazy val compiled =
+            MatchlessGlobalInlining.optimize(
+              SortedMap(() -> MatchlessFromTypedExpr.compileRaw((), pm)),
+              topoSort,
+              depFor
+            )
 
           def exportedValues(
               packageName: PackageName

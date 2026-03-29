@@ -129,6 +129,8 @@ object Identifier {
   object Bindable {
     implicit def bindableOrder: Order[Bindable] =
       Identifier.order
+    implicit def bindableOrdering: Ordering[Bindable] =
+      bindableOrder.toOrdering
 
     given Hashable[Bindable] =
       Hashable[Identifier].narrow[Bindable]

@@ -1056,7 +1056,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
       def renderTop(k: K, p: PackageName, b: Bindable, expr: Expr[K]): T[Unit] =
         inTop(k, p, b) {
           expr match {
-            case fn: Lambda[K] =>
+            case fn: Lambda[K] if fn.captures.isEmpty =>
               for {
                 fnName <- globalIdent(k, p, b)
                 stmt <- fnStatement(fnName, fn)
@@ -1411,7 +1411,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               val depKey = ns.depFor(k, pack)
               val key = (depKey, pack, b)
               s.allValues.get(key) match {
-                case Some((fn: Matchless.Lambda[K], ident)) =>
+                case Some((fn: Matchless.Lambda[K], ident)) if fn.captures.isEmpty =>
                   result(s, Some((ident, fn.arity)))
                 case None =>
                   // this is external

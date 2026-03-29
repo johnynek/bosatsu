@@ -3,12 +3,14 @@ package dev.bosatsu
 import cats.{Eval, Order}
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
+import dev.bosatsu.codegen.CompilationSource
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
 
+import scala.collection.immutable.SortedMap
 import scala.util.Try
 
 class MatchlessTest extends munit.ScalaCheckSuite {
@@ -321,6 +323,106 @@ class MatchlessTest extends munit.ScalaCheckSuite {
       val comp = MatchlessFromTypedExpr.compile((), pm)
       fn(comp)
     }
+  }
+
+  private def checkOptimizedMatchlessPackages[A](
+      sources: NonEmptyList[String]
+  )(
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
+  ): A = {
+    val packs = sources.zipWithIndex.map { case (source, idx) =>
+      val pack = Parser.unsafeParse(Package.parser, source)
+      ((s"test-$idx", LocationMap(source)), pack)
+    }
+
+    val pm = Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(packs, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+
+    Par.withEC {
+      val compiled = CompilationSource.namespace(pm).compiled(())
+      fn(compiled)
+    }
+  }
+
+  private def checkOptimizedMatchlessPackage[A](
+      source: String
+  )(
+      fn: Map[
+        PackageName,
+        List[(Identifier.Bindable, Matchless.Expr[Unit])]
+      ] => A
+  ): A =
+    checkOptimizedMatchlessPackages(NonEmptyList.one(source))(fn)
+
+  private def containsGlobal(
+      expr: Matchless.Expr[Unit],
+      pack: PackageName,
+      name: Bindable
+  ): Boolean = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Boolean =
+      ex match {
+        case Matchless.Global(_, `pack`, `name`) =>
+          true
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr) || loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) || loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) || args.exists(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) || loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) || cases.exists { case (_, branch) =>
+            loopExpr(branch)
+          } || default.exists(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) || loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          false
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[Unit]): Boolean =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) || loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) || loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          false
+      }
+
+    loopExpr(expr)
   }
 
   private def matchlessEvalResolveReverseOnly(
@@ -4660,7 +4762,7 @@ def seg_final_literal_char(s):
     assertEquals(structProjections, Set.empty[Int])
   }
 
-  test("whole-root binding reconstructs only on bound branch path") {
+  test("whole-root binding can eliminate reconstruction when only bound fields are read") {
     val x2 = Identifier.Name("x2")
     val pairAlias = Identifier.Name("pair_alias")
     val out = Identifier.Name("whole_root")
@@ -4695,7 +4797,7 @@ def seg_final_literal_char(s):
     val lowered =
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
-    assertEquals(countStructConstructorApps(lowered, 2), 1)
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
     assertEquals(hasStructConstructorOutsideConditional(lowered, 2), false)
   }
 
@@ -4756,7 +4858,7 @@ def seg_final_literal_char(s):
     )
   }
 
-  test("multiple whole-root bind branches disable root inlining") {
+  test("multiple whole-root bind branches can still avoid reconstruction") {
     val flag = Identifier.Name("flag")
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
@@ -4794,8 +4896,8 @@ def seg_final_literal_char(s):
     val lowered =
       Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
 
-    assertEquals(countStructConstructorApps(lowered, 2), 1)
-    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), true)
+    assertEquals(countStructConstructorApps(lowered, 2), 0)
+    assertEquals(hasStructConstructorOutsideConditional(lowered, 2), false)
   }
 
   test("TypedExpr.Loop/Recur lowers to WhileExpr in matchless") {
@@ -4892,5 +4994,383 @@ def seg_final_literal_char(s):
       )(fnFromTypeEnv(rankn.TypeEnv.empty))
 
     assertEquals(Matchless.Expr.referencesBindable(lowered, loopArg), false)
+  }
+
+  test("optimized Matchless always inlines Bosatsu/Predef.and and Bosatsu/Predef.or") {
+    val pack = PackageName.parts("Matchless", "Global", "Bool")
+    val useAnd = Identifier.Name("use_and")
+    val useOr = Identifier.Name("use_or")
+
+    checkOptimizedMatchlessPackage(
+      """package Matchless/Global/Bool
+        |
+        |export use_and, use_or
+        |
+        |def use_and(x: Bool, y: Bool) -> Bool:
+        |  and(x, y)
+        |
+        |def use_or(x: Bool, y: Bool) -> Bool:
+        |  or(x, y)
+        |""".stripMargin
+    ) { compiled =>
+      val byName = compiled(pack).toMap
+
+      assertEquals(
+        containsGlobal(byName(useAnd), PackageName.PredefName, Identifier.Name("and")),
+        false
+      )
+      assertEquals(
+        containsGlobal(byName(useOr), PackageName.PredefName, Identifier.Name("or")),
+        false
+      )
+
+      Matchless.recoverTopLevelLambda(byName(useAnd)) match {
+        case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+          val List(x, y) = args.toList
+          assertEquals(Matchless.BoolExpr.referencesBindable(cond, x), true)
+          assertEquals(thenExpr, Matchless.Local(y))
+          assertEquals(elseExpr, Matchless.FalseExpr)
+        case other =>
+          fail(s"expected inlined and body, found: $other")
+      }
+
+      Matchless.recoverTopLevelLambda(byName(useOr)) match {
+        case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+          val List(x, y) = args.toList
+          assertEquals(Matchless.BoolExpr.referencesBindable(cond, x), true)
+          assertEquals(thenExpr, Matchless.TrueExpr)
+          assertEquals(elseExpr, Matchless.Local(y))
+        case other =>
+          fail(s"expected inlined or body, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless expands tiny capture-free helper references generically") {
+    val helperPack = PackageName.parts("Helper", "Ref")
+    val callerPack = PackageName.parts("Caller", "Ref")
+    val helperName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+    val flag = Identifier.Name("flag")
+    val onTrue = Identifier.Name("on_true")
+
+    val helperExpr =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.of(flag, onTrue),
+        body = Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.Local(onTrue),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.Global((), helperPack, helperName)
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(rawCompiled, topoSort, (_, _) => ())
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    Matchless.recoverTopLevelLambda(useExpr) match {
+      case Matchless.Lambda(Nil, None, args, Matchless.If(cond, thenExpr, elseExpr)) =>
+        val List(flagArg, onTrueArg) = args.toList
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flagArg), true)
+        assertEquals(thenExpr, Matchless.Local(onTrueArg))
+        assertEquals(elseExpr, Matchless.Literal(Lit.fromInt(0)))
+      case other =>
+        fail(s"expected generic helper reference to inline to a lambda, found: $other")
+    }
+  }
+
+  test("optimized Matchless inlines cross-package helpers with deferrable arguments") {
+    val helperPack = PackageName.parts("Helper", "Branch")
+    val callerPack = PackageName.parts("Caller", "Branch")
+    val chooseName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Branch
+          |
+          |export choose
+          |
+          |def choose(flag: Bool, on_true: Int) -> Int:
+          |  if flag:
+          |    on_true
+          |  else:
+          |    0
+          |""".stripMargin,
+        """package Caller/Branch
+          |
+          |from Helper/Branch import choose
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int) -> Int:
+          |  choose(False, expensive(i))
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(0))
+        case other =>
+          fail(s"expected inlined branch helper to collapse to 0, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless inlines mixed eager and deferrable helpers") {
+    val helperPack = PackageName.parts("Helper", "Mixed")
+    val callerPack = PackageName.parts("Caller", "Mixed")
+    val chooseName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Mixed
+          |
+          |export choose
+          |
+          |def choose(flag: Bool, eager: Int, on_true: Int) -> Int:
+          |  if flag:
+          |    on_true
+          |  else:
+          |    eager.add(eager)
+          |""".stripMargin,
+        """package Caller/Mixed
+          |
+          |from Helper/Mixed import choose
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int) -> Int:
+          |  choose(True, expensive(i), 42)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(42))
+        case other =>
+          fail(s"expected mixed helper to collapse to 42, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless exposes beta-reduction for lambda arguments") {
+    val helperPack = PackageName.parts("Helper", "Lambda")
+    val callerPack = PackageName.parts("Caller", "Lambda")
+    val applyOnce = Identifier.Name("apply_once")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Lambda
+          |
+          |export apply_once
+          |
+          |def apply_once(fn, x):
+          |  fn(x)
+          |""".stripMargin,
+        """package Caller/Lambda
+          |
+          |from Helper/Lambda import apply_once
+          |
+          |def use(x):
+          |  apply_once(y -> y, x)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, applyOnce), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, args, body) =>
+          assertEquals(body, Matchless.Local(args.head))
+        case other =>
+          fail(s"expected beta-reduced lambda body, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless keeps lambda-argument inlining with mixed eager args") {
+    val helperPack = PackageName.parts("Helper", "MixedLambda")
+    val callerPack = PackageName.parts("Caller", "MixedLambda")
+    val helperName = Identifier.Name("choose_apply")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/MixedLambda
+          |
+          |export choose_apply
+          |
+          |def choose_apply(flag: Bool, eager: Int, fn: Int -> Int, x: Int) -> Int:
+          |  if flag:
+          |    fn(x)
+          |  else:
+          |    eager.add(eager)
+          |""".stripMargin,
+        """package Caller/MixedLambda
+          |
+          |from Helper/MixedLambda import choose_apply
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(x: Int) -> Int:
+          |  choose_apply(True, expensive(x), y -> y, x)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, args, body) =>
+          assertEquals(body, Matchless.Local(args.head))
+        case other =>
+          fail(s"expected mixed lambda helper to beta-reduce to the argument, found: $other")
+      }
+    }
+  }
+
+  test("optimized Matchless inlines duplicate helpers once arguments simplify to cheap locals") {
+    val helperPack = PackageName.parts("Helper", "Dup")
+    val callerPack = PackageName.parts("Caller", "Dup")
+    val duplicate = Identifier.Name("duplicate")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Dup
+          |
+          |export Pair(), duplicate
+          |
+          |struct Pair(left: Int, right: Int)
+          |
+          |def duplicate(x: Int) -> Pair:
+          |  Pair(x, x)
+          |""".stripMargin,
+        """package Caller/Dup
+          |
+          |from Helper/Dup import duplicate
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int):
+          |  duplicate(expensive(i))
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, duplicate), false)
+    }
+  }
+
+  test("optimized Matchless can inline helpers that already lower to WhileExpr") {
+    val helperPack = PackageName.parts("Helper", "While")
+    val callerPack = PackageName.parts("Caller", "While")
+    val helperName = Identifier.Name("drop_arg")
+    val useName = Identifier.Name("use")
+    val helperArg = Identifier.Name("x")
+    val callerArg = Identifier.Name("i")
+    val loopResult = Matchless.LocalAnonMut(0L)
+
+    val helperExpr =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(helperArg),
+        body = Matchless.LetMut(
+          loopResult,
+          Matchless.WhileExpr(
+            Matchless.TrueConst,
+            Matchless.UnitExpr,
+            loopResult
+          )
+        )
+      )
+
+    val callerExpr =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(callerArg),
+        body = Matchless.App(
+          Matchless.Global((), helperPack, helperName),
+          NonEmptyList.one(
+            Matchless.If(
+              Matchless.TrueConst,
+              Matchless.Local(callerArg),
+              Matchless.Literal(Lit.fromInt(0))
+            )
+          )
+        )
+      )
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(rawCompiled, topoSort, (_, _) => ())
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
   }
 }
