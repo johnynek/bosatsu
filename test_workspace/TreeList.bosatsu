@@ -91,7 +91,7 @@ def to_List(list: TreeList[a]) -> List[a]:
   fold(list, [], (l, h) -> [h, *l]).reverse()
 
 def eq_TreeList(fn)(a, b):
-  (res, _) = a.fold((True, b), ((current, b), h) ->
+  (res, remainder) = a.fold((True, b), ((current, b), h) ->
     if current:
       match decons(b):
         case None: (False, empty)
@@ -100,7 +100,9 @@ def eq_TreeList(fn)(a, b):
           else: (False, empty)
     else: (False, empty)
   )
-  res
+  match remainder:
+    case TreeList([]): res
+    case _: False
 
 def eq_Option(fn)(a, b):
   match (a, b):
@@ -117,6 +119,8 @@ tl12 = 2 +/ (1 +/ empty)
 
 list14 = from_List([1, 2, 3, 4])
 cons14 = 1 +/ ( 2 +/ ( 3 +/ ( 4 +/ empty ) ) )
+singleton1 = from_List([1])
+list12 = from_List([1, 2])
 
 tests = TestSuite("TreeList tests", [
   Assertion(tl12.get(0).eq_oi(Some(2)), "get 0 == 2"),
@@ -128,4 +132,6 @@ tests = TestSuite("TreeList tests", [
   Assertion(list14.get(3).eq_oi(Some(4)), "[1, 2, 3, 4] get 3"),
   Assertion(list14.fold(0, `+`).eq_Int(10), "fold to 10"),
   Assertion(eq_ti(list14, cons14), "fromList matches building by cons"),
+  Assertion(eq_ti(singleton1, list12) matches False, "eq_TreeList rejects extra right suffix"),
+  Assertion(eq_ti(list12, singleton1) matches False, "eq_TreeList rejects missing right suffix"),
 ])
