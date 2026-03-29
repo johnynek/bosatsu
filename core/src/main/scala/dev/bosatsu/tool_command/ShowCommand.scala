@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import cats.syntax.all._
 import com.monovore.decline.Opts
 import dev.bosatsu.LocationMap
+import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.tool.{
   CliException,
   CommandSupport,
@@ -13,10 +14,12 @@ import dev.bosatsu.tool.{
   PackageResolver,
   PathGen,
   ShowEdn,
+  ShowSupport,
   ShowSelection
 }
 import dev.bosatsu.{
   CompileOptions,
+  MatchlessFromTypedExpr,
   Package,
   PackageMap,
   PackageName,
@@ -34,6 +37,7 @@ object ShowCommand {
       publicDependencies: List[Path],
       privateDependencies: List[Path],
       compileCacheDirOpt: Option[Path],
+      compileOptions: CompileOptions,
       errColor: LocationMap.Colorize
   )(implicit
       ec: Par.EC
@@ -83,7 +87,7 @@ object ShowCommand {
             ifacesList ::: depIfs ::: packIfs,
             errColor,
             packageResolver,
-            CompileOptions.Default,
+            compileOptions,
             compileCacheDirOpt
           )
           allPacks =
@@ -107,6 +111,86 @@ object ShowCommand {
     import platformIO.moduleIOMonad
     import LocationMap.Colorize
     import ShowSelection.{typeArgument, valueArgument}
+
+    val irOpt =
+      Opts
+        .option[String](
+          "ir",
+          help = "which IR to render: typedexpr or matchless"
+        )
+        .mapValidated(ShowSupport.parseIr)
+        .withDefault(Output.ShowIr.TypedExpr)
+
+    val disableTypedPassOpt =
+      Opts
+        .options[String](
+          "disable-typed-pass",
+          help =
+            "disable a typed pass: loop-recur-lowering, normalize, discard-unused"
+        )
+        .orEmpty
+        .mapValidated(ShowSupport.parseDisabledTypedPasses)
+
+    val disableMatchlessPassOpt =
+      Opts
+        .options[String](
+          "disable-matchless-pass",
+          help =
+            "disable a Matchless pass: hoist-invariant-loop-lets, reuse-constructors, global-inlining"
+        )
+        .orEmpty
+        .mapValidated(ShowSupport.parseDisabledMatchlessPasses)
+
+    def defsInOriginalOrder(
+        pack: Package.Typed[Any],
+        lets: List[(dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])]
+    ): List[(dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])] = {
+      val byName = lets.toMap
+      pack.lets.flatMap { case (name, _, _) =>
+        byName.get(name).map(name -> _)
+      }
+    }
+
+    def matchlessShowValue(
+        request: ShowSupport.Request,
+        allPacks: List[Package.Typed[Any]],
+        selectedPacks: List[Package.Typed[Any]]
+    )(implicit ec: Par.EC): Output.ShowValue.Matchless = {
+      val localPassOptions = request.matchlessPassOptions.localPassOptions
+
+      if (request.matchlessPassOptions.enableGlobalInlining) {
+        val namespace =
+          CompilationSource
+            .namespace(PackageMap.fromIterable(allPacks))
+            .treeShake(ShowSupport.matchlessRoots(selectedPacks))
+        val compiled =
+          namespace.compiledWithMatchlessOptions(
+            localPassOptions,
+            enableGlobalInlining = true
+          )
+
+        ShowSupport.matchlessShowValue(selectedPacks, request, pack => {
+          val scope = namespace.depFor(namespace.rootKey, pack.name)
+          val lets =
+            compiled
+              .get(scope)
+              .flatMap(_.get(pack.name))
+              .getOrElse(Nil)
+          defsInOriginalOrder(pack, lets)
+        })
+      } else {
+        val compiled =
+          MatchlessFromTypedExpr.compile(
+            (),
+            PackageMap.fromIterable(selectedPacks),
+            localPassOptions
+          )
+
+        ShowSupport.matchlessShowValue(selectedPacks, request, pack =>
+          defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
+        )
+      }
+    }
 
     val showOpt = (
       commonOpts.sourcePathOpts,
@@ -146,6 +230,15 @@ object ShowCommand {
           help = "emit JSON instead of EDN for easier machine parsing"
         )
         .orFalse,
+      irOpt,
+      disableTypedPassOpt,
+      disableMatchlessPassOpt,
+      Opts
+        .flag(
+          "no-opt",
+          help = "disable all typed passes to inspect the unoptimized typed pipeline"
+        )
+        .orFalse,
       commonOpts.outputPathOpt.orNone,
       Colorize.optsConsoleDefault
     ).mapN {
@@ -162,13 +255,29 @@ object ShowCommand {
           values,
           externalsOnly,
           jsonOut,
+          ir,
+          disabledTypedPasses,
+          disabledMatchlessPasses,
+          noOpt,
           output,
           errColor
       ) =>
-        val request =
+        val selection =
           ShowSelection.Request(packages, types, values, externalsOnly)
+        val showRequest =
+          ShowSupport
+            .request(
+              selection,
+              ir,
+              noOpt,
+              disabledTypedPasses,
+              disabledMatchlessPasses
+            )
+            .toEither
+            .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
         platformIO.withEC {
           for {
+            request <- moduleIOMonad.fromEither(showRequest)
             (interfaces, packs0) <- loadAndCompile(
               platformIO,
               srcs,
@@ -178,25 +287,33 @@ object ShowCommand {
               publicDependencies,
               privateDependencies,
               compileCacheDirOpt,
+              request.compileOptions,
               errColor
             )
             packs1 = packs0.filterNot(_.name == PackageName.PredefName)
             packs <- moduleIOMonad.fromEither(
               ShowSelection
-                .selectPackages(packs1, request)
+                .selectPackages(packs1, request.selection)
                 .leftMap(CliException.Basic(_))
             )
-            selectedInterfaces = ShowSelection.selectInterfaces(interfaces, request)
+            selectedInterfaces =
+              ShowSelection.selectInterfaces(interfaces, request.selection)
+            showValue =
+              request.ir match {
+                case Output.ShowIr.TypedExpr =>
+                  ShowSupport.typedShowValue(packs, selectedInterfaces, request)
+                case Output.ShowIr.Matchless =>
+                  matchlessShowValue(request, packs0, packs)
+              }
           } yield (
             if (jsonOut)
               Output.JsonOutput(
-                ShowEdn.showJson(packs, selectedInterfaces),
+                ShowEdn.showJson(showValue),
                 output
               )
             else
               Output.ShowOutput(
-                packs,
-                selectedInterfaces,
+                showValue,
                 output
               ): Output[Path]
           )

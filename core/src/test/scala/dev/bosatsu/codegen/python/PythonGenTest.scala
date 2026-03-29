@@ -9,6 +9,7 @@ import dev.bosatsu.{
   Lit,
   LocationMap,
   Matchless,
+  MatchlessFromTypedExpr,
   Package,
   PackageMap,
   PackageName,
@@ -321,6 +322,13 @@ main = foo_before_bar
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
+        Unit
+      ]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =
@@ -442,6 +450,13 @@ main = classify_char
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
+        Unit
+      ]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =

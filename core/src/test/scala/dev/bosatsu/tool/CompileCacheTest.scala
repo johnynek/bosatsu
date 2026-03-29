@@ -216,6 +216,38 @@ class CompileCacheTest extends FunSuite {
     )
   }
 
+  test("typed pass profiles invalidate the compile key") {
+    val source =
+      """package Cache/Foo
+        |main = 1
+        |""".stripMargin
+    val parsed = parsePackage(source)
+
+    val noNormalize =
+      compileKey(
+        parsed,
+        compileOptions = CompileOptions.fromDisabledTypedPasses(
+          Set(CompileOptions.TypedPass.Normalize)
+        )
+      )
+    val noDiscardUnused =
+      compileKey(
+        parsed,
+        compileOptions = CompileOptions.fromDisabledTypedPasses(
+          Set(CompileOptions.TypedPass.DiscardUnused)
+        )
+      )
+
+    assertNotEquals(
+      CompileCache.keyHashHex(noNormalize),
+      CompileCache.keyHashHex(noDiscardUnused)
+    )
+    assertNotEquals(
+      CompileCache.keyHashHex(noNormalize),
+      CompileCache.keyHashHex(compileKey(parsed, compileOptions = CompileOptions.Default))
+    )
+  }
+
   test("generateKey hashes dependency interfaces directly") {
     val consumerSource =
       """package Cache/App

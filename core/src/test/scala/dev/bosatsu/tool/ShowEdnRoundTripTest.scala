@@ -1,6 +1,19 @@
 package dev.bosatsu.tool
 
-import dev.bosatsu.{Generators, Json, Package, Platform}
+import cats.data.NonEmptyList
+import dev.bosatsu.{
+  CompileOptions,
+  Generators,
+  Json,
+  LocationMap,
+  Matchless,
+  MatchlessFromTypedExpr,
+  Package,
+  PackageMap,
+  Par,
+  Parser,
+  Platform
+}
 import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
 import dev.bosatsu.{ExportedName, Identifier, Kind, PackageName, Referant, TypeName}
 import dev.bosatsu.edn.Edn
@@ -60,6 +73,45 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       case Right(value) => value
       case Left(err)    => fail(err)
     }
+
+  private def sampleMatchlessShowValue(): Output.ShowValue.Matchless = {
+    val source =
+      """package ShowEdn/Sample
+        |
+        |export main
+        |
+        |main = 42
+        |""".stripMargin
+    val parsed = Parser.unsafeParse(Package.parser, source)
+    val checked = Par.noParallelism {
+      PackageMap.typeCheckParsed(
+        NonEmptyList.one((("sample", LocationMap(source)), parsed)),
+        Nil,
+        "<predef>",
+        CompileOptions.Default
+      )
+    }
+    val pm = checked.toOption.getOrElse(fail(s"typecheck failed: $checked"))
+    val packs = pm.toMap.values.toList.map(Package.typedFunctor.void)
+    val compiled = Par.withEC {
+      MatchlessFromTypedExpr.compile(
+        (),
+        pm,
+        Matchless.LocalPassOptions.Default
+      )
+    }
+    val request =
+      ShowSupport.Request(
+        selection = ShowSelection.Request(Nil, Nil, Nil),
+        ir = Output.ShowIr.Matchless,
+        compileOptions = CompileOptions.Default,
+        matchlessPassOptions = Matchless.PassOptions.Default
+      )
+
+    ShowSupport.matchlessShowValue(packs, request, pack =>
+      compiled.getOrElse(pack.name, Nil)
+    )
+  }
 
   test("package codec render/parse round trips normalized typed packages") {
     forAll(Generators.genPackage(Gen.const(()), 8)) { packMap =>
@@ -145,7 +197,9 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
 
         val packageEdn = showEdn match {
           case EList(
-                ESymbol("show") :: EKeyword("interfaces") :: _ :: EKeyword(
+                ESymbol("show") :: EKeyword("ir") :: _ :: EKeyword(
+                  "typed-passes"
+                ) :: _ :: EKeyword("interfaces") :: _ :: EKeyword(
                   "packages"
                 ) :: EVector(packages) :: Nil
               ) =>
@@ -177,6 +231,53 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     }
     val param = firstConstructorParam(parsed)
     assertEquals(param.defaultBinding, expectedDefault)
-    assertEquals(param.defaultType, expectedType)
+      assertEquals(param.defaultType, expectedType)
+  }
+
+  test("matchless showDoc output is parseable EDN without typed-only sections") {
+    import Edn._
+
+    val show = sampleMatchlessShowValue()
+    val rendered = ShowEdn.showDoc(show).render(120)
+    val parsed = Edn.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse Matchless showDoc output: $err")
+    }
+
+    parsed match {
+      case EList(
+            ESymbol("show") :: EKeyword("ir") :: ESymbol("matchless") :: EKeyword(
+              "typed-passes"
+            ) :: _ :: EKeyword("matchless-passes") :: _ :: EKeyword(
+              "packages"
+            ) :: EVector(packages) :: Nil
+          ) =>
+        val packageEdn = packages.headOption.getOrElse(fail("missing package"))
+        val packageFields = packageEdn match {
+          case EList(ESymbol("package") :: _ :: _ :: args) =>
+            args.grouped(2).collect { case EKeyword(k) :: value :: Nil =>
+              k -> value
+            }.toMap
+          case other =>
+            fail(s"unexpected package form: ${Edn.toDoc(other).render(120)}")
+        }
+        assert(!packageFields.contains("types"))
+      case other =>
+        fail(s"unexpected Matchless show output: ${Edn.toDoc(other).render(120)}")
+    }
+  }
+
+  test("matchless showJson output is parseable JSON without interfaces") {
+    val rendered = ShowEdn.showJson(sampleMatchlessShowValue()).render
+    Json.parserFile.parseAll(rendered) match {
+      case Right(Json.JObject(fields)) =>
+        val byKey = fields.toMap
+        assertEquals(byKey.get("$form"), Some(Json.JString("show")))
+        assert(!byKey.contains("interfaces"))
+      case Right(other) =>
+        fail(s"expected show json object, found: $other")
+      case Left(err) =>
+        fail(s"failed to parse Matchless showJson output as JSON: $err")
+    }
   }
 }

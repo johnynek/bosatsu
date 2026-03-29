@@ -7,6 +7,7 @@ import cats.syntax.all._
 import dev.bosatsu.{
   ExportedName,
   Identifier,
+  Matchless,
   MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
   Package,
@@ -47,6 +48,15 @@ case class DecodedLibraryWithDeps[A](
       ec: Par.EC
   ): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
     MatchlessFromTypedExpr.compile(nameVersion, lib.implementations)
+
+  def compile(
+      localPassOptions: Matchless.LocalPassOptions
+  )(implicit ec: Par.EC): MatchlessFromTypedExpr.Compiled[(Name, Version)] =
+    MatchlessFromTypedExpr.compile(
+      nameVersion,
+      lib.implementations,
+      localPassOptions
+    )
 
   def compileRaw(implicit
       ec: Par.EC
@@ -139,7 +149,9 @@ object DecodedLibraryWithDeps {
 
   implicit def decodedLibraryWithDepsCompilationSource[A](implicit
       EC: Par.EC
-  ): CompilationSource[DecodedLibraryWithDeps[A]] =
+  ): CompilationSource[DecodedLibraryWithDeps[A]] {
+    type ScopeKey = (Name, Version)
+  } =
     new CompilationSource[DecodedLibraryWithDeps[A]] {
       type ScopeKey = (Name, Version)
 
@@ -218,18 +230,41 @@ object DecodedLibraryWithDeps {
               depForKey(key)
             }
 
+          private def compileWithMatchlessOptions(
+              localPassOptions: Matchless.LocalPassOptions,
+              enableGlobalInlining: Boolean
+          ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
+            if (enableGlobalInlining)
+              MatchlessGlobalInlining.optimize(
+                allDeps
+                  .map { dep =>
+                    (dep.nameVersion, Par.start(dep.compileRaw))
+                  }
+                  .to(SortedMap)
+                  .transform((_, p) => Par.await(p)),
+                topoSort,
+                depFor,
+                localPassOptions
+              )
+            else
+              allDeps
+                .map { dep =>
+                  (dep.nameVersion, dep.compile(localPassOptions))
+                }
+                .to(SortedMap)
+
           lazy val compiled
               : SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
-            MatchlessGlobalInlining.optimize(
-              allDeps
-              .map { dep =>
-                (dep.nameVersion, Par.start(dep.compileRaw))
-              }
-              .to(SortedMap)
-              .transform((_, p) => Par.await(p)),
-              topoSort,
-              depFor
+            compileWithMatchlessOptions(
+              Matchless.LocalPassOptions.Default,
+              enableGlobalInlining = true
             )
+
+          def compiledWithMatchlessOptions(
+              localPassOptions: Matchless.LocalPassOptions,
+              enableGlobalInlining: Boolean
+          ): SortedMap[ScopeKey, MatchlessFromTypedExpr.Compiled[ScopeKey]] =
+            compileWithMatchlessOptions(localPassOptions, enableGlobalInlining)
 
           def exportedValues(
               packageName: PackageName

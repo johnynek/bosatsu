@@ -5,7 +5,13 @@ import cats.data.NonEmptyList
 import dev.bosatsu.codegen.CompilationNamespace
 import dev.bosatsu.graph.Toposort
 import dev.bosatsu.rankn.Type
-import dev.bosatsu.{Identifier, MatchlessFromTypedExpr, Package, PackageName}
+import dev.bosatsu.{
+  Identifier,
+  Matchless,
+  MatchlessFromTypedExpr,
+  Package,
+  PackageName
+}
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 class ExternalNamespaceTest extends munit.FunSuite {
@@ -35,6 +41,11 @@ class ExternalNamespaceTest extends munit.FunSuite {
         Toposort.Success(Vector.empty)
       def compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
         SortedMap.empty
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, Type]] =

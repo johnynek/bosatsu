@@ -5373,4 +5373,99 @@ def seg_final_literal_char(s):
     assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
     assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
   }
+
+  test("postLoweringCleanup can disable reuseConstructors") {
+    val left = Identifier.Name("left")
+    val right = Identifier.Name("right")
+    val pair =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList.of(Matchless.Local(left), Matchless.Local(right))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Lambda(
+        Nil,
+        None,
+        NonEmptyList.of(left, right),
+        Matchless.If(Matchless.TrueConst, pair, pair)
+      )
+
+    val reused = Matchless.postLoweringCleanup(expr)
+    val noReuse =
+      Matchless.postLoweringCleanup(
+        expr,
+        Matchless.LocalPassOptions(Set(Matchless.LocalPass.HoistInvariantLoopLets))
+      )
+
+    assertNotEquals(reused, noReuse)
+  }
+
+  test("postLoweringCleanup can disable hoistInvariantLoopLets") {
+    val condMut = Matchless.LocalAnonMut(0L)
+    val resultMut = Matchless.LocalAnonMut(1L)
+    val hoisted = Matchless.LocalAnon(2L)
+    val costly =
+      Matchless.If(
+        Matchless.TrueConst,
+        Matchless.Literal(Lit.fromInt(1)),
+        Matchless.Literal(Lit.fromInt(0))
+      )
+    val loopEffect =
+      Matchless.Let(
+        Left(hoisted),
+        costly,
+        Matchless.Always(
+          Matchless.SetMut(resultMut, Matchless.LocalAnon(hoisted.ident)),
+          Matchless.UnitExpr
+        )
+      )
+    val expr =
+      Matchless.Always(
+        Matchless.SetMut(condMut, Matchless.TrueExpr),
+        Matchless.WhileExpr(
+          Matchless.isTrueExpr(condMut),
+          loopEffect,
+          resultMut
+        )
+      )
+
+    val hoistedExpr = Matchless.postLoweringCleanup(expr)
+    val noHoist =
+      Matchless.postLoweringCleanup(
+        expr,
+        Matchless.LocalPassOptions(Set(Matchless.LocalPass.ReuseConstructors))
+      )
+
+    assert(hoistedExpr.isInstanceOf[Matchless.Let[Unit]], s"$hoistedExpr")
+    assert(!noHoist.isInstanceOf[Matchless.Let[Unit]], s"$noHoist")
+  }
+
+  test("CompilationSource default Matchless options preserve compiled output") {
+    val source =
+      """package Matchless/Options
+        |
+        |export main
+        |
+        |main = 42
+        |""".stripMargin
+    val pack = Parser.unsafeParse(Package.parser, source)
+    val nel = NonEmptyList.one((("options", LocationMap(source)), pack))
+    val pm = Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+
+    Par.withEC {
+      val namespace = CompilationSource.namespace(pm)
+      assertEquals(
+        namespace.compiledWithMatchlessOptions(
+          Matchless.LocalPassOptions.Default,
+          enableGlobalInlining = true
+        ),
+        namespace.compiled
+      )
+    }
+  }
 }

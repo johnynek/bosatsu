@@ -22,10 +22,12 @@ import dev.bosatsu.tool.{
   PathGen,
   PackageResolver,
   ShowEdn,
+  ShowSupport,
   ShowSelection
 }
 import dev.bosatsu.codegen.Transpiler
 import dev.bosatsu.codegen.clang.ClangTranspiler
+import dev.bosatsu.codegen.CompilationSource
 import dev.bosatsu.Parser
 import cats.parse.{Parser => CP}
 import dev.bosatsu.hashing.Algo.WithAlgo.WithAlgoHashValue
@@ -39,6 +41,8 @@ import dev.bosatsu.{
   LocationMap,
   PackageName,
   PackageMap,
+  Par,
+  MatchlessFromTypedExpr,
   PlatformIO,
   ValueToJson,
   TypeName,
@@ -1833,6 +1837,92 @@ object Command {
       ) {
         import ShowSelection.{typeArgument, valueArgument}
 
+        val irOpt =
+          Opts
+            .option[String](
+              "ir",
+              help = "which IR to render: typedexpr or matchless"
+            )
+            .mapValidated(ShowSupport.parseIr)
+            .withDefault(Output.ShowIr.TypedExpr)
+
+        val disableTypedPassOpt =
+          Opts
+            .options[String](
+              "disable-typed-pass",
+              help =
+                "disable a typed pass: loop-recur-lowering, normalize, discard-unused"
+            )
+            .orEmpty
+            .mapValidated(ShowSupport.parseDisabledTypedPasses)
+
+        val disableMatchlessPassOpt =
+          Opts
+            .options[String](
+              "disable-matchless-pass",
+              help =
+                "disable a Matchless pass: hoist-invariant-loop-lets, reuse-constructors, global-inlining"
+            )
+            .orEmpty
+            .mapValidated(ShowSupport.parseDisabledMatchlessPasses)
+
+        def defsInOriginalOrder(
+            pack: dev.bosatsu.Package.Typed[Any],
+            lets: List[
+              (dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])
+            ]
+        ): List[
+          (dev.bosatsu.Identifier.Bindable, dev.bosatsu.Matchless.Expr[?])
+        ] = {
+          val byName = lets.toMap
+          pack.lets.flatMap { case (name, _, _) =>
+            byName.get(name).map(name -> _)
+          }
+        }
+
+        def matchlessShowValue(
+            request: ShowSupport.Request,
+            dec: DecodedLibraryWithDeps[Algo.Blake3],
+            selectedPacks: List[dev.bosatsu.Package.Typed[Any]]
+        )(implicit ec: Par.EC): Output.ShowValue.Matchless = {
+          val localPassOptions = request.matchlessPassOptions.localPassOptions
+
+          if (request.matchlessPassOptions.enableGlobalInlining) {
+            val namespace =
+              CompilationSource
+                .namespace[DecodedLibraryWithDeps[Algo.Blake3], (Name, Version)](
+                  dec
+                )
+                .treeShake(ShowSupport.matchlessRoots(selectedPacks))
+            val compiled =
+              namespace.compiledWithMatchlessOptions(
+                localPassOptions,
+                enableGlobalInlining = true
+              )
+
+            ShowSupport.matchlessShowValue(selectedPacks, request, pack => {
+              val scope = namespace.depFor(namespace.rootKey, pack.name)
+              val lets =
+                compiled
+                  .get(scope)
+                  .flatMap(_.get(pack.name))
+                  .getOrElse(Nil)
+              defsInOriginalOrder(pack, lets)
+            })
+          } else {
+            val compiled =
+              MatchlessFromTypedExpr.compile(
+                (),
+                PackageMap.fromIterable(selectedPacks),
+                localPassOptions
+              )
+
+            ShowSupport.matchlessShowValue(selectedPacks, request, pack =>
+              defsInOriginalOrder(pack, compiled.getOrElse(pack.name, Nil))
+            )
+          }
+        }
+
         (
           ConfigConf.opts,
           Opts
@@ -1878,6 +1968,9 @@ object Command {
               help = "emit JSON instead of EDN for easier machine parsing"
             )
             .orFalse,
+          irOpt,
+          disableTypedPassOpt,
+          disableMatchlessPassOpt,
           Opts.option[P]("output", help = "output path").orNone,
           compileCacheDirOpt,
           Colorize.optsConsoleDefault
@@ -1891,18 +1984,31 @@ object Command {
               packageNamesOnly,
               noOpt,
               jsonOut,
+              ir,
+              disabledTypedPasses,
+              disabledMatchlessPasses,
               output,
               cacheDirFn,
               colorize
           ) =>
-          val compileOptions =
-            if (noOpt) CompileOptions.NoOptimize else CompileOptions.Default
-          val request =
+          val selection =
             ShowSelection.Request(packages, types, values, externalsOnly)
+          val showRequest =
+            ShowSupport
+              .request(
+                selection,
+                ir,
+                noOpt,
+                disabledTypedPasses,
+                disabledMatchlessPasses,
+                packageNamesOnly = packageNamesOnly
+              )
+              .toEither
+              .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
           val sourceFilterOpt =
-            if (request.isEmpty) None
+            if (selection.isEmpty) None
             else {
-              val requestedSet = request.requestedPackages.toSet
+              val requestedSet = selection.requestedPackages.toSet
               Some((pn: PackageName) => requestedSet(pn))
             }
           for {
@@ -1910,11 +2016,12 @@ object Command {
             cacheDir = cacheDirFn(cc.gitRoot)
             out <- platformIO.withEC {
               for {
+                request <- moduleIOMonad.fromEither(showRequest)
                 dec <- sourceFilterOpt match {
                   case None =>
                     cc.decodedWithDeps(
                       colorize,
-                      compileOptions,
+                      request.compileOptions,
                       LintMode.Strict,
                       compileCacheDirOpt = cacheDir
                     )
@@ -1922,14 +2029,15 @@ object Command {
                     cc.decodedWithDepsFiltered(
                       colorize,
                       sourceFilter,
-                      compileOptions,
+                      request.compileOptions,
                       LintMode.Strict,
                       compileCacheDirOpt = cacheDir
                     )
                 }
                 ev = LibraryEvaluation(dec, BosatsuPredef.jvmExternals)
                 requestedPackages =
-                  if (request.isEmpty) Nil else request.requestedPackages
+                  if (request.selection.isEmpty) Nil
+                  else request.selection.requestedPackages
                 packs0 <- moduleIOMonad.fromEither(
                   ev
                     .packagesForShowEither(requestedPackages)
@@ -1937,29 +2045,23 @@ object Command {
                 )
                 packs <- moduleIOMonad.fromEither(
                   ShowSelection
-                    .selectPackages(packs0, request)
+                    .selectPackages(packs0, request.selection)
                     .leftMap(CliException.Basic(_))
                 )
+                showValue =
+                  request.ir match {
+                    case Output.ShowIr.TypedExpr =>
+                      ShowSupport.typedShowValue(packs, Nil, request)
+                    case Output.ShowIr.Matchless =>
+                      matchlessShowValue(request, dec, packs)
+                  }
               } yield (
                 if (jsonOut)
                   Output.JsonOutput(
-                    ShowEdn.showJson(
-                      packs,
-                      Nil,
-                      packageNamesOnly = packageNamesOnly
-                    ),
+                    ShowEdn.showJson(showValue),
                     output
                   )
-                else if (packageNamesOnly)
-                  Output.Basic(
-                    ShowEdn.showDoc(
-                      packs,
-                      Nil,
-                      packageNamesOnly = true
-                    ),
-                    output
-                  )
-                else Output.ShowOutput(packs, Nil, output): Output[P]
+                else Output.ShowOutput(showValue, output): Output[P]
               )
             }
           } yield out

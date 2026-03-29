@@ -10,6 +10,85 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
+  private[bosatsu] sealed abstract class LocalPass(val cliName: String)
+      extends Product
+      with Serializable
+  private[bosatsu] object LocalPass {
+    case object HoistInvariantLoopLets
+        extends LocalPass("hoist-invariant-loop-lets")
+    case object ReuseConstructors extends LocalPass("reuse-constructors")
+
+    given CanEqual[LocalPass, LocalPass] = CanEqual.derived
+
+    val ordered: List[LocalPass] = values.toList
+    val defaultSet: Set[LocalPass] = ordered.toSet
+
+    def fromCliName(name: String): Option[LocalPass] =
+      ordered.find(_.cliName == name)
+
+    def values: IndexedSeq[LocalPass] =
+      IndexedSeq(HoistInvariantLoopLets, ReuseConstructors)
+  }
+
+  private[bosatsu] sealed abstract class Pass(val cliName: String)
+      extends Product
+      with Serializable
+  private[bosatsu] object Pass {
+    case object HoistInvariantLoopLets extends Pass("hoist-invariant-loop-lets")
+    case object ReuseConstructors extends Pass("reuse-constructors")
+    case object GlobalInlining extends Pass("global-inlining")
+
+    given CanEqual[Pass, Pass] = CanEqual.derived
+
+    val ordered: List[Pass] = values.toList
+    val defaultSet: Set[Pass] = ordered.toSet
+
+    def fromCliName(name: String): Option[Pass] =
+      ordered.find(_.cliName == name)
+
+    def values: IndexedSeq[Pass] =
+      IndexedSeq(HoistInvariantLoopLets, ReuseConstructors, GlobalInlining)
+  }
+
+  private[bosatsu] final case class LocalPassOptions(enabled: Set[LocalPass]) {
+    def enables(pass: LocalPass): Boolean =
+      enabled(pass)
+
+    def enabledPasses: List[LocalPass] =
+      LocalPass.ordered.filter(enabled)
+  }
+  private[bosatsu] object LocalPassOptions {
+    val Default: LocalPassOptions =
+      LocalPassOptions(LocalPass.defaultSet)
+    val None: LocalPassOptions =
+      LocalPassOptions(Set.empty)
+  }
+
+  private[bosatsu] final case class PassOptions(enabled: Set[Pass]) {
+    def enables(pass: Pass): Boolean =
+      enabled(pass)
+
+    def enabledPasses: List[Pass] =
+      Pass.ordered.filter(enabled)
+
+    def localPassOptions: LocalPassOptions =
+      LocalPassOptions(
+        enabled.collect {
+          case Pass.HoistInvariantLoopLets =>
+            LocalPass.HoistInvariantLoopLets
+          case Pass.ReuseConstructors      =>
+            LocalPass.ReuseConstructors
+        }
+      )
+
+    def enableGlobalInlining: Boolean =
+      enables(Pass.GlobalInlining)
+  }
+  private[bosatsu] object PassOptions {
+    val Default: PassOptions =
+      PassOptions(Pass.defaultSet)
+  }
+
   sealed abstract class Expr[+A] derives CanEqual
   object Expr {
     private def exprTag[A](expr: Expr[A]): Int =
@@ -4728,8 +4807,23 @@ object Matchless {
       case NonEmptyList(h0, h1 :: t)   => h0 :: stopAt(NonEmptyList(h1, t))(fn)
     }
 
-  private[bosatsu] def postLoweringCleanup[A: Order](expr: Expr[A]): Expr[A] =
-    simplifyKnownConditions(reuseConstructors(hoistInvariantLoopLets(expr)))
+  private[bosatsu] def postLoweringCleanup[A: Order](
+      expr: Expr[A],
+      localPassOptions: LocalPassOptions = LocalPassOptions.Default
+  ): Expr[A] = {
+    val hoisted =
+      if (localPassOptions.enables(LocalPass.HoistInvariantLoopLets))
+        hoistInvariantLoopLets(expr)
+      else
+        expr
+    val reused =
+      if (localPassOptions.enables(LocalPass.ReuseConstructors))
+        reuseConstructors(hoisted)
+      else
+        hoisted
+
+    simplifyKnownConditions(reused)
+  }
 
   // Allocate anonymous ids with RefSpace, then run the shared post-lowering
   // cleanup pipeline over the raw Matchless tree.
@@ -4741,10 +4835,27 @@ object Matchless {
   )(
       variantOf: (PackageName, Constructor) => Option[DataRepr]
   ): Expr[B] =
+    fromLet(
+      from,
+      name,
+      rec,
+      te,
+      LocalPassOptions.Default
+    )(variantOf)
+
+  private[bosatsu] def fromLet[A, B: Order](
+      from: B,
+      name: Bindable,
+      rec: RecursionKind,
+      te: TypedExpr[A],
+      localPassOptions: LocalPassOptions
+  )(
+      variantOf: (PackageName, Constructor) => Option[DataRepr]
+  ): Expr[B] =
     postLoweringCleanup((for {
       c <- RefSpace.allocCounter
       expr <- fromLetRaw(from, name, rec, te, variantOf, c)
-    } yield expr).run.value)
+    } yield expr).run.value, localPassOptions)
 
   def fromLetRaw[A, B: Order](
       from: B,
@@ -4768,8 +4879,28 @@ object Matchless {
       variantOf: (PackageName, Constructor) => Option[DataRepr],
       makeAnon: F[Long]
   ): F[Expr[B]] =
+    fromLet(
+      from,
+      name,
+      rec,
+      te,
+      variantOf,
+      makeAnon,
+      LocalPassOptions.Default
+    )
+
+  // we need a TypeEnv to inline the creation of structs and variants
+  private[bosatsu] def fromLet[F[_]: Monad, A, B: Order](
+      from: B,
+      name: Bindable,
+      rec: RecursionKind,
+      te: TypedExpr[A],
+      variantOf: (PackageName, Constructor) => Option[DataRepr],
+      makeAnon: F[Long],
+      localPassOptions: LocalPassOptions
+  ): F[Expr[B]] =
     fromLetRaw(from, name, rec, te, variantOf, makeAnon)
-      .map(postLoweringCleanup(_))
+      .map(postLoweringCleanup(_, localPassOptions))
 
   // we need a TypeEnv to inline the creation of structs and variants
   def fromLetRaw[F[_]: Monad, A, B: Order](

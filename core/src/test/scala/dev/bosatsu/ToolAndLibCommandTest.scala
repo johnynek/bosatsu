@@ -904,7 +904,9 @@ class ToolAndLibCommandTest extends FunSuite {
 
     val packageEdn = parsed match {
       case EList(
-            ESymbol("show") :: EKeyword("interfaces") :: _ :: EKeyword(
+            ESymbol("show") :: EKeyword("ir") :: _ :: EKeyword(
+              "typed-passes"
+            ) :: _ :: EKeyword("interfaces") :: _ :: EKeyword(
               "packages"
             ) :: EVector(packages) :: Nil
           ) =>
@@ -921,6 +923,118 @@ class ToolAndLibCommandTest extends FunSuite {
       case other =>
         fail(s"expected package form, found: ${Edn.toDoc(other).render(120)}")
     }
+  }
+
+  private def typedShowValue(
+      show: Output.ShowValue
+  ): Output.ShowValue.Typed =
+    show match {
+      case typed: Output.ShowValue.Typed => typed
+      case other                         => fail(s"expected typed show output, found: $other")
+    }
+
+  private def typedShowPackages(
+      show: Output.ShowValue
+  ): List[Package.Typed[Any]] =
+    typedShowValue(show).packages
+
+  private def typedShowInterfaces(
+      show: Output.ShowValue
+  ): List[Package.Interface] =
+    typedShowValue(show).interfaces
+
+  @annotation.unused
+  private def matchlessShowValue(
+      show: Output.ShowValue
+  ): Output.ShowValue.Matchless =
+    show match {
+      case matchless: Output.ShowValue.Matchless => matchless
+      case other                                => fail(s"expected Matchless show output, found: $other")
+    }
+
+  private def renderShow(show: Output.ShowValue): String =
+    ShowEdn.showDoc(show).render(120)
+
+  private def matchlessDefExpr(
+      show: Output.ShowValue,
+      packName: String,
+      bindableName: String
+  ): Matchless.Expr[?] = {
+    val matchless = matchlessShowValue(show)
+    val pack = matchless.packages.find(_.name.asString == packName).getOrElse {
+      fail(s"missing Matchless package $packName")
+    }
+
+    pack.defs.collectFirst {
+      case (name, expr) if name.sourceCodeRepr == bindableName => expr
+    }.getOrElse(fail(s"missing Matchless def $packName::$bindableName"))
+  }
+
+  private def containsGlobalExpr(
+      expr: Matchless.Expr[?],
+      packName: String,
+      bindableName: String
+  ): Boolean = {
+    val targetPack = packageName(packName)
+    val targetName = Identifier.Name(bindableName)
+
+    def loopExpr(ex: Matchless.Expr[?]): Boolean =
+      ex match {
+        case Matchless.Global(_, `targetPack`, `targetName`) =>
+          true
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.exists(loopExpr) || loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) || loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) || args.exists(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) || loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) || loopExpr(thenExpr) || loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) || cases.exists { case (_, branch) =>
+            loopExpr(branch)
+          } || default.exists(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) || loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          false
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[?]): Boolean =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) || loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) || loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          false
+      }
+
+    loopExpr(expr)
   }
 
   private def showJsonPackageNames(json: Json): List[String] =
@@ -968,6 +1082,27 @@ class ToolAndLibCommandTest extends FunSuite {
         }
       case other =>
         fail(s"expected show json object, found: $other")
+    }
+
+  private def showJsonIr(json: Json): String =
+    json match {
+      case Json.JObject(fields) =>
+        fields.toMap.get("ir") match {
+          case Some(Json.JString(value)) =>
+            value
+          case Some(Json.JObject(("$sym", Json.JString(value)) :: Nil)) =>
+            value
+          case other =>
+            fail(s"expected show ir symbol, found: $other")
+        }
+      case other =>
+        fail(s"expected show json object, found: $other")
+    }
+
+  private def showJsonFieldKeys(json: Json): Set[String] =
+    json match {
+      case Json.JObject(fields) => fields.iterator.map(_._1).toSet
+      case other                => fail(s"expected show json object, found: $other")
     }
 
   private def showJsonPackageFieldKeys(json: Json): List[Set[String]] =
@@ -1308,7 +1443,8 @@ class ToolAndLibCommandTest extends FunSuite {
     runWithFiles(files)(
       List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
       case Right(other) => fail(s"unexpected output: $other")
       case Left(err)    => fail(err.getMessage)
@@ -1349,8 +1485,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "--package-names"
       )
     ) match {
-      case Right(Output.Basic(doc, _)) =>
-        val rendered = doc.render(120)
+      case Right(Output.ShowOutput(show, _)) =>
+        val rendered = ShowEdn.showDoc(show).render(120)
         assert(rendered.contains("(package :name MyLib/Foo)"), rendered)
         assert(!rendered.contains(":imports"), rendered)
         assert(!rendered.contains(":exports"), rendered)
@@ -1455,7 +1591,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "MyLib/Foo"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
         val imports = importItems(packs.headOption.getOrElse(fail("expected one package")))
         assert(imports.exists(_._1 == "MyLib/Dep"), imports.toString)
@@ -1497,7 +1634,8 @@ class ToolAndLibCommandTest extends FunSuite {
     runWithFiles(files)(
       List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         val imports = importItems(pack)
         val predefImport = imports.find(_._1 == "Bosatsu/Predef")
@@ -1529,7 +1667,8 @@ class ToolAndLibCommandTest extends FunSuite {
     runWithFiles(files)(
       List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         val fields = packageKeywordFields(pack)
 
@@ -1574,7 +1713,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "MyLib/Foo::helper"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         assertEquals(packageTypeNames(pack), List("Box"))
@@ -1649,9 +1789,64 @@ class ToolAndLibCommandTest extends FunSuite {
         "--no-opt"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         assert(packageDefNames(pack).contains("helper"), packageDefNames(pack).toString)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("show reports typed IR metadata and explicit typed pass disables") {
+    val src =
+      """helper = 1
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List("show", "--repo_root", "repo", "--package", "MyLib/Foo")
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        assertEquals(
+          typedShowValue(show).typedPasses.map(_.cliName),
+          List("loop-recur-lowering", "normalize", "discard-unused")
+        )
+        val rendered = renderShow(show)
+        assert(rendered.contains(":ir"), rendered)
+        assert(rendered.contains("typedexpr"), rendered)
+        assert(rendered.contains(":typed-passes"), rendered)
+        assert(rendered.contains("loop-recur-lowering"), rendered)
+        assert(rendered.contains("normalize"), rendered)
+        assert(rendered.contains("discard-unused"), rendered)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--value",
+        "MyLib/Foo::helper",
+        "--disable-typed-pass",
+        "discard-unused"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        assertEquals(
+          typedShowValue(show).typedPasses.map(_.cliName),
+          List("loop-recur-lowering", "normalize")
+        )
+        val packs = typedShowPackages(show)
+        val pack = packs.headOption.getOrElse(fail("expected one package"))
+        assertEquals(packageDefNames(pack), List("helper"))
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>
@@ -1723,7 +1918,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "MyLib/Foo::main"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         assert(packageDefNames(pack).contains("main"), packageDefNames(pack).toString)
         val imports = importItems(pack)
@@ -1758,7 +1954,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "MyLib/Foo::main"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         val pack = packs.headOption.getOrElse(fail("expected one package"))
         assert(packageTypeNames(pack).contains("Box"), packageTypeNames(pack).toString)
       case Right(other) =>
@@ -1790,7 +1987,9 @@ class ToolAndLibCommandTest extends FunSuite {
         "--externals"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, interfaces, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
+        val interfaces = typedShowInterfaces(show)
         assertEquals(interfaces, Nil)
         assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
         val pack = packs.headOption.getOrElse(fail("expected one package"))
@@ -1805,6 +2004,71 @@ class ToolAndLibCommandTest extends FunSuite {
           val rendered = Edn.toDoc(tpeEdn).render(120)
           assert(rendered.nonEmpty, "expected encoded external type to be present")
         }
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("library show --ir matchless omits typed sections and reports matchless json") {
+    val src =
+      """struct Box(value: Int)
+|
+|helper = Box(1)
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--ir",
+        "matchless"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val matchless = matchlessShowValue(show)
+        assertEquals(
+          matchless.matchlessPasses.map(_.cliName),
+          List(
+            "hoist-invariant-loop-lets",
+            "reuse-constructors",
+            "global-inlining"
+          )
+        )
+        val rendered = renderShow(show)
+        assert(rendered.contains(":ir"), rendered)
+        assert(rendered.contains("matchless"), rendered)
+        assert(!rendered.contains(":interfaces"), rendered)
+        assert(!rendered.contains(":types"), rendered)
+        assert(rendered.contains("(def main"), rendered)
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--ir",
+        "matchless",
+        "--json"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(showJsonIr(json), "matchless")
+        assertEquals(showJsonPackageNames(json), List("MyLib/Foo"))
+        assert(!showJsonFieldKeys(json).contains("interfaces"))
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>
@@ -1847,7 +2111,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "App/Bar::bar"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, _, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
         assertEquals(packs.map(_.name.asString), List("App/Foo", "App/Bar"))
         val byName = packs.map(pack => pack.name.asString -> pack).toMap
         val foo = byName.getOrElse("App/Foo", fail("missing App/Foo package"))
@@ -1894,7 +2159,9 @@ class ToolAndLibCommandTest extends FunSuite {
         "--externals"
       )
     ) match {
-      case Right(Output.ShowOutput(packs, interfaces, _)) =>
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
+        val interfaces = typedShowInterfaces(show)
         assertEquals(interfaces, Nil)
         assertEquals(packs.map(_.name.asString), List("App/Ext"))
         val pack = packs.headOption.getOrElse(fail("expected one package"))
@@ -1909,6 +2176,114 @@ class ToolAndLibCommandTest extends FunSuite {
           val rendered = Edn.toDoc(tpeEdn).render(120)
           assert(rendered.nonEmpty, "expected encoded external type to be present")
         }
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show --ir matchless can disable global inlining") {
+    val helperSrc =
+      """package App/Helper
+|
+|export choose
+|
+|def choose(flag: Bool, on_true: Int) -> Int:
+|  if flag:
+|    on_true
+|  else:
+|    0
+|""".stripMargin
+    val callerSrc =
+      """package App/Caller
+|
+|from App/Helper import choose
+|
+|def expensive(i: Int) -> Int:
+|  if False:
+|    0
+|  else:
+|    i
+|
+|def use(i: Int) -> Int:
+|  choose(False, expensive(i))
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Helper.bosatsu") -> helperSrc,
+      Chain("src", "App", "Caller.bosatsu") -> callerSrc
+    )
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Helper.bosatsu",
+        "--input",
+        "src/App/Caller.bosatsu",
+        "--value",
+        "App/Caller::use",
+        "--ir",
+        "matchless"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val rendered = renderShow(show)
+        assert(rendered.contains(":matchless-passes"), rendered)
+        assert(
+          !containsGlobalExpr(matchlessDefExpr(show, "App/Caller", "use"), "App/Helper", "choose")
+        )
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Helper.bosatsu",
+        "--input",
+        "src/App/Caller.bosatsu",
+        "--value",
+        "App/Caller::use",
+        "--ir",
+        "matchless",
+        "--disable-matchless-pass",
+        "global-inlining"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        assert(
+          containsGlobalExpr(matchlessDefExpr(show, "App/Caller", "use"), "App/Helper", "choose")
+        )
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Helper.bosatsu",
+        "--input",
+        "src/App/Caller.bosatsu",
+        "--value",
+        "App/Caller::use",
+        "--ir",
+        "matchless",
+        "--json"
+      )
+    ) match {
+      case Right(Output.JsonOutput(json, _)) =>
+        assertEquals(showJsonIr(json), "matchless")
+        assertEquals(showJsonPackageNames(json), List("App/Caller"))
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>
@@ -4339,7 +4714,8 @@ main = 1
           case other => fail(s"unexpected json output: $other")
         }
         showOut match {
-          case Output.ShowOutput(packs, _, _) =>
+          case Output.ShowOutput(show, _) =>
+            val packs = typedShowPackages(show)
             assertEquals(packs.map(_.name.asString), List("Dep/Foo"))
           case other =>
             fail(s"unexpected show output: $other")
