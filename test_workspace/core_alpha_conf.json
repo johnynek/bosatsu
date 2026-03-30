@@ -1,14 +1,14 @@
 {
   "name": "core_alpha",
   "repo_uri": "https://github.com/johnynek/bosatsu.git",
-  "next_version": "6.0.4",
+  "next_version": "6.0.5",
   "previous": {
-    "version": "6.0.3",
+    "version": "6.0.4",
     "hashes": [
-      "blake3:021cdf90a4e986d06a529dc501bd0c335bcefe9ca45d628551fa55797f010049"
+      "blake3:1f61e574e57ce5913e2a4f11db9c88a99b57edd341fb00a988c458be9b69d9f6"
     ],
     "uris": [
-      "https://github.com/johnynek/bosatsu/releases/download/v0.0.60/core_alpha-v6.0.3.bosatsu_lib"
+      "https://github.com/johnynek/bosatsu/releases/download/v0.0.61/core_alpha-v6.0.4.bosatsu_lib"
     ]
   },
   "exported_packages": [
