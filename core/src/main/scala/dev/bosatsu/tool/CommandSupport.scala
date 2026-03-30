@@ -77,7 +77,7 @@ object CommandSupport {
       platformIO: PlatformIO[F, Path],
       path: Path
   ): F[DecodedLibrary[Algo.Blake3]] = {
-    import platformIO.moduleIOMonad
+    import platformIO.{canPromiseF, moduleIOMonad}
 
     for {
       lib <- platformIO.readLibrary(path)
