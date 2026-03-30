@@ -25,7 +25,7 @@ Reviewer expectations for this repo:
    closure allocation, capturing parsers, unnecessary bindings, and data structures with worse
    asymptotics than the operation requires.
 8. Require stack safety for deep recursive traversals over `Expr`, `BoolExpr`, Matchless IR, and
-   similar compiler structures when the work can be expressed iteratively.
+   similar compiler structures; prefer tail-recursive or iterative implementations.
 9. For optimizer and codegen changes, require focused regressions that pin the intended semantic
    behavior and, when relevant, the generated-shape properties that motivated the change.
 10. Prefer portable tooling and reproducible harnesses. Reject hardcoded machine-specific paths,
