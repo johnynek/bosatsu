@@ -40,8 +40,9 @@ Do not make future implementers rediscover the invocation path. For a checked-ou
 Verified baseline:
 
 - Current working branch: `codex/inlining-improvements`
+- Checkpoint used to evaluate item 3: `43bf1d759` (`Inline tiny pure Matchless values`)
 - Before any evaluation rerun `sbt cli/assembly`. `bosatsuj` selects the newest assembly jar from `cli/target/scala-*/bosatsu-cli-assembly-*.jar`, and the jar filename reflects the last commit hash rather than any uncommitted work.
-- Verified current assembly path after item 2 work: `cli/target/scala-3.8.2/bosatsu-cli-assembly-0.0.61+3-92c12efc+20260330-1025-SNAPSHOT.jar`
+- Verified current assembly path after item 3 work: `cli/target/scala-3.8.2/bosatsu-cli-assembly-0.0.61+4-43bf1d75+20260330-1059-SNAPSHOT.jar`
 
 Build the current CLI once from the Bosatsu repo root:
 
@@ -405,7 +406,7 @@ Expand the existing test areas rather than inventing a separate harness:
 - `Matchless.exprWeight` improves or stabilizes across rounds and does not oscillate.
 - Escaping functions remain closures when they must, and `Unit -> a` thunks still preserve laziness.
 
-### Current status after items 1 and 2
+### Current status after items 1 through 3
 
 - The first work item is implemented and covered by focused regressions in `TypedExprTest` and `MatchlessTest`.
 - The standing Zafu probe files for `NonEmptyChain`, `Chain`, `Result`, and `PartialResult` were rerun after the change and are still textually unchanged.
@@ -418,7 +419,10 @@ Expand the existing test areas rather than inventing a separate harness:
 - In that isolated comparison, `global` references dropped from 13089 to 11833, `get-struct` from 10754 to 10709, and `get-enum` from 3449 to 3429. `make-enum` rose from 6321 to 6510 because tiny pure globals are now exposed directly as concrete constructors.
 - Representative item-2 wins include `Zafu/Collection/LazyTree::applicative_LazyTree` inlining `empty_LazyList` to a direct enum constructor, `Zafu/Abstract/Instances/Predef::hash_TupleN` inlining the tiny pure `Hash.mix_prime` and `Hash.mix_add` constants, and `Zafu/Control/Result::tests` folding payload projections from inlined tiny enum values.
 - The standing higher-order traverse probes are still mostly unchanged after item 2 alone: `traverse_NonEmptyChain_fn`, `traverse_Chain_fn`, `traverse_Result_fn`, and `traverse_PartialResult_fn` remain textually unchanged in final Matchless. That is acceptable for now because the whole-library comparison shows the intended value inlining is firing in real Zafu code, and later items are still expected to expose more branch-local structure in those probes.
-- `sbt coreJVM/test` is green with 1914 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
+- The third work item is implemented and covered by focused regressions in `TypedExprTest` and `MatchlessTest`.
+- Isolating item 3 against checkpoint `43bf1d759` changed 0 of 1963 Zafu definitions in final Matchless. The whole-library final shape is therefore unchanged relative to item 2.
+- That no-op corpus diff is acceptable for now. It means the current Zafu workload does not contain direct-call-only multi-use local closures that survive to final Matchless in a way this rewrite changes, so item 3 is evidenced by the new focused normalization and lowering regressions rather than by a whole-library shape shift.
+- `sbt coreJVM/test` is green with 1918 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
 
 ## Items To Do
 
@@ -464,7 +468,7 @@ Done when:
 - `GetStructElement` and `GetEnumElement` on known values fold away.
 - Final Matchless no longer carries wrapper-record plumbing around `Traverse` and `Applicative` values when the concrete helper or branch logic can be exposed instead.
 
-3. [ ] Generalize closure conversion of non-escaping function values
+3. [x] Generalize closure conversion of non-escaping function values
 
 Relevant code:
 
@@ -531,3 +535,5 @@ Done when:
   TypedExpr let-to-match sinking now recurses through `Annotation` and `Generic` wrappers, and Matchless `postLoweringCleanup` now sinks pure branch-only lets into `If` and `SwitchVariant` branches after inlining.
 - Item 2 completed.
   Matchless global inlining now publishes tiny pure value summaries in addition to lambdas, expression-level simplification can substitute those values and fold projections through known locals, and focused tests now cover pure struct-valued and enum-valued helper elimination both in optimizer tests and through `show --ir matchless`.
+- Item 3 completed.
+  TypedExpr normalization now applies the existing non-escaping closure rewrite to multi-use non-recursive local function bindings as well as recursive ones, while still leaving escaping local functions untouched. Focused tests now cover the TypedExpr rewrite directly and the raw Matchless lowering effect, where direct-call-only local closures lose captures and escaping closures still keep them.

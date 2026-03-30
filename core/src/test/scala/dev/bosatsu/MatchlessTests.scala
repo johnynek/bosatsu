@@ -426,6 +426,126 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     loopExpr(expr)
   }
 
+  private def countLambdasWithCaptures(expr: Matchless.Expr[Unit]): Int = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Int =
+      ex match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          (if (captures.nonEmpty) 1 else 0) +
+            captures.foldLeft(0)(_ + loopExpr(_)) +
+            loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) +
+            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            default.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          0
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) + loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
+  private def countClosureSlots(expr: Matchless.Expr[Unit]): Int = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Int =
+      ex match {
+        case Matchless.ClosureSlot(_) =>
+          1
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.foldLeft(0)(_ + loopExpr(_)) + loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) +
+            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            default.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          0
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) + loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
   private def matchlessEvalResolveReverseOnly(
       from: Unit,
       pack: PackageName,
@@ -5387,6 +5507,42 @@ def seg_final_literal_char(s):
         case other =>
           fail(s"expected mixed lambda helper to beta-reduce to the argument, found: $other")
       }
+    }
+  }
+
+  test("Matchless lowers direct-call-only local closures without captures") {
+    val pack = PackageName.parts("Test", "LocalClosure")
+    val useName = Identifier.Name("use")
+
+    checkMatchlessPackage("""package Test/LocalClosure
+      |
+      |export use
+      |
+      |def use(y: Int) -> Int:
+      |  fn = z -> y.add(z)
+      |  fn(1).add(fn(2))
+      |""".stripMargin) { compiled =>
+      val useExpr = compiled(pack).toMap.apply(useName)
+      assertEquals(countLambdasWithCaptures(useExpr), 0, useExpr.toString)
+      assertEquals(countClosureSlots(useExpr), 0, useExpr.toString)
+    }
+  }
+
+  test("Matchless keeps captures for escaping local closures") {
+    val pack = PackageName.parts("Test", "EscapingClosure")
+    val makeName = Identifier.Name("make")
+
+    checkMatchlessPackage("""package Test/EscapingClosure
+      |
+      |export make
+      |
+      |def make(y: Int):
+      |  fn = z -> y.add(z)
+      |  fn
+      |""".stripMargin) { compiled =>
+      val makeExpr = compiled(pack).toMap.apply(makeName)
+      assert(countLambdasWithCaptures(makeExpr) > 0, makeExpr.toString)
+      assert(countClosureSlots(makeExpr) > 0, makeExpr.toString)
     }
   }
 

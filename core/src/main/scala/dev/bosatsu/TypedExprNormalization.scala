@@ -987,8 +987,8 @@ object TypedExprNormalization {
           NonEmptyList.fromListUnsafe(extraArgs.toList ::: args.toList)
         Some(AnnotatedLambda(allArgs, body, tag))
       case _ =>
-        // Recursive lets are introduced from def/recur forms, so this is
-        // only a defensive fallback for malformed TypedExpr values.
+        // Closure rewriting only applies when the binding still normalizes
+        // to a lambda (possibly wrapped in Generic/Annotation).
         None
     }
 
@@ -1418,8 +1418,12 @@ object TypedExprNormalization {
               val scopeIn = si.updated(arg, (rec1, ex2, si))
 
               val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
+              val nonRecUsageCount =
+                if (rec1.isRecursive) 0 else in1.freeVarsDup.count(_ == arg)
+              val shouldRewriteClosureBinding =
+                rec1.isRecursive || (nonRecUsageCount > 1)
               val maybeRewritten =
-                if (rec.isRecursive)
+                if (shouldRewriteClosureBinding)
                   rewriteNonEscapingClosureBinding(arg, ex2, in1, rec1, tag)
                 else None
 

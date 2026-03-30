@@ -4350,6 +4350,28 @@ x = (
     )
   }
 
+  test("normalization rewrites non-escaping non-recursive local closures") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+""",
+      "use"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assertEquals(
+      countLambdaCapturing(normalizedExpr, capturedName),
+      0,
+      normalizedExpr.reprString
+    )
+  }
+
   test("normalization keeps closures when recursive local loops escape") {
     val fnName = Identifier.Name("fn")
     val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
@@ -4372,6 +4394,27 @@ def makeLoop(fn):
     )
     assert(
       countLambdaCapturing(normalizedExpr, fnName) > 0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("normalization keeps closures when non-recursive local functions escape") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def make(y: Int):
+  fn = z -> y.add(z)
+  fn
+""",
+      "make"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assert(
+      countLambdaCapturing(normalizedExpr, capturedName) > 0,
       normalizedExpr.reprString
     )
   }
