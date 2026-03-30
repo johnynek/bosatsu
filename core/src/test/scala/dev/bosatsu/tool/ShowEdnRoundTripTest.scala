@@ -114,6 +114,22 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     )
   }
 
+  private def collectGlobalPackageAtoms(edn: Edn): List[Edn] =
+    edn match {
+      case Edn.EList(Edn.ESymbol("global") :: packEdn :: _ :: Nil) =>
+        packEdn :: Nil
+      case Edn.EList(items) =>
+        items.flatMap(collectGlobalPackageAtoms)
+      case Edn.EVector(items) =>
+        items.flatMap(collectGlobalPackageAtoms)
+      case Edn.EMap(items) =>
+        items.flatMap { case (key, value) =>
+          collectGlobalPackageAtoms(key) ::: collectGlobalPackageAtoms(value)
+        }
+      case _ =>
+        Nil
+    }
+
   test("package codec render/parse round trips normalized typed packages") {
     forAll(Generators.genPackage(Gen.const(()), 8)) { packMap =>
       packMap.values.foreach { pack0 =>
@@ -267,6 +283,63 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       case other =>
         fail(s"unexpected Matchless show output: ${Edn.toDoc(other).render(120)}")
     }
+  }
+
+  test("matchless showDoc renders package names consistently in globals") {
+    val show =
+      Output.ShowValue.Matchless(
+        packages =
+          Output.ShowValue.MatchlessPackage(
+            name = PackageName.parts("ShowEdn", "Sample"),
+            imports = Nil,
+            exportedValues = Nil,
+            externals = Nil,
+            defs = List(
+              Identifier.Name("main") ->
+                Matchless.App(
+                  Matchless.Global(
+                    (),
+                    PackageName.parts("Bosatsu", "Prog"),
+                    Identifier.Name("await")
+                  ),
+                  NonEmptyList.one(
+                    Matchless.Global(
+                      (),
+                      PackageName.parts("Zafu", "Tool", "Cat"),
+                      Identifier.Name("emit_stderr_line")
+                    )
+                  )
+                )
+            )
+          ) :: Nil,
+        typedPasses = CompileOptions.Default.enabledTypedPasses,
+        matchlessPasses = Matchless.PassOptions.Default.enabledPasses,
+        packageNamesOnly = false
+      )
+
+    val rendered = ShowEdn.showDoc(show).render(120)
+    val parsed = Edn.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse Matchless showDoc output: $err")
+    }
+    val packageAtoms = collectGlobalPackageAtoms(parsed)
+
+    assertEquals(
+      packageAtoms.map {
+        case Edn.ESymbol(value) => value
+        case Edn.EString(value) => value
+        case other              => fail(s"unexpected package atom in global: $other")
+      },
+      List("Bosatsu/Prog", "Zafu/Tool/Cat")
+    )
+    assertEquals(
+      packageAtoms.map {
+        case _: Edn.ESymbol => "symbol"
+        case _: Edn.EString => "string"
+        case other          => fail(s"unexpected package atom in global: $other")
+      }.distinct,
+      List("string")
+    )
   }
 
   test("matchless showJson output is parseable JSON without interfaces") {
