@@ -5395,6 +5395,171 @@ def seg_final_literal_char(s):
     assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
   }
 
+  test("optimized Matchless sinks let-wrapped deferred helper args into branches") {
+    val helperPack = PackageName.parts("Helper", "Deferred")
+    val callerPack = PackageName.parts("Caller", "Deferred")
+    val helperName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Deferred
+          |
+          |export choose
+          |
+          |def choose(flag: Bool, on_true: Int) -> Int:
+          |  tmp = on_true
+          |  if flag:
+          |    tmp
+          |  else:
+          |    0
+          |""".stripMargin,
+        """package Caller/Deferred
+          |
+          |from Helper/Deferred import choose
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int) -> Int:
+          |  choose(False, expensive(i))
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(0))
+        case other =>
+          fail(s"expected deferred helper to collapse to 0, found: $other")
+      }
+    }
+  }
+
+  test("postLoweringCleanup sinks pure lets into If branches") {
+    val flag = Identifier.Name("flag")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.App(
+            Matchless.Local(consume),
+            NonEmptyList.one(Matchless.Local(delayed))
+          ),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.If(
+            cond,
+            Matchless.Let(
+              Right(bound),
+              `expensive`,
+              Matchless.App(Matchless.Local(`consume`), appliedArgs)
+            ),
+            Matchless.Literal(lit)
+          ) =>
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flag), true)
+        assertEquals(bound, delayed)
+        assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+        assertEquals(lit, Lit.fromInt(0))
+      case other =>
+        fail(s"expected branch-sunk If, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup keeps lets outside If when the condition needs them") {
+    val delayed = Identifier.Name("delayed")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(delayed)),
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.Let(
+            Right(bound),
+            `expensive`,
+            Matchless.If(cond, Matchless.Literal(ifTrue), Matchless.Literal(ifFalse))
+          ) =>
+        assertEquals(bound, delayed)
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, delayed), true)
+        assertEquals(ifTrue, Lit.fromInt(1))
+        assertEquals(ifFalse, Lit.fromInt(0))
+      case other =>
+        fail(s"expected let to stay outside the condition, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup sinks pure lets into used SwitchVariant branches") {
+    val selector = Identifier.Name("selector")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.SwitchVariant(
+          Matchless.Local(selector),
+          0 :: 0 :: Nil,
+          NonEmptyList.of(
+            (0, Matchless.Literal(Lit.fromInt(0))),
+            (1, Matchless.App(Matchless.Local(consume), NonEmptyList.one(Matchless.Local(delayed))))
+          ),
+          None
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.SwitchVariant(on, _, cases, None) =>
+        assertEquals(Matchless.Expr.referencesBindable(on, selector), true)
+        assertEquals(cases.toList.head._2, Matchless.Literal(Lit.fromInt(0)))
+        cases.toList.last._2 match {
+          case Matchless.Let(
+                Right(bound),
+                `expensive`,
+                Matchless.App(Matchless.Local(`consume`), appliedArgs)
+              ) =>
+            assertEquals(bound, delayed)
+            assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+          case other =>
+            fail(s"expected sink into the used switch branch, found: $other")
+        }
+      case other =>
+        fail(s"expected branch-sunk SwitchVariant, found: $other")
+    }
+  }
+
   test("postLoweringCleanup can disable reuseConstructors") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")

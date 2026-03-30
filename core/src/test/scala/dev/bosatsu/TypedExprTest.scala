@@ -1581,6 +1581,47 @@ foo = _ -> 1
     }
   }
 
+  test("normalization sinks lets through annotations around matches") {
+    val xName = Identifier.Name("x")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val yExpr = varTE("y", intTpe)
+    val wrappedMatch =
+      TypedExpr.Annotation(
+        TypedExpr.Match(
+          yExpr,
+          NonEmptyList.of(
+            TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, int(0)),
+            TypedExpr.Branch(Pattern.WildCard, None, xExpr)
+          ),
+          ()
+        ),
+        intTpe,
+        None
+      )
+    val root =
+      TypedExpr.Let(xName, opaque, wrappedMatch, RecursionKind.NonRecursive, ())
+
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+    val (arg1, branches1) =
+      normalized match {
+        case TypedExpr.Annotation(TypedExpr.Match(arg, branches, _), tpe, _) =>
+          assert(Type.normalize(tpe).sameAs(intTpe))
+          (arg, branches)
+        case TypedExpr.Match(arg, branches, _) =>
+          (arg, branches)
+        case other =>
+          fail(s"expected match after sinking, got: ${other.reprString}")
+      }
+
+    assertEquals(arg1, yExpr)
+    assertEquals(branches1.length, 2)
+    assertEquals(branches1.head.expr, int(0))
+    assertEquals(branches1.last.expr.void, opaque.void)
+    assertEquals(countLet(normalized), 0, normalized.reprString)
+  }
+
   test(
     "normalization can lift non-simple lets outside lambdas when binders do not shadow args"
   ) {

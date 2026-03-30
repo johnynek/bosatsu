@@ -2806,6 +2806,152 @@ object Matchless {
     StackSafe.onStackOverflow(recurExpr(expr))(expr)
   }
 
+  private def canSinkBranchOnlyLet[A](value: Expr[A]): Boolean =
+    !hasSideEffect(value) &&
+      !Expr.readsMutable(value) &&
+      !Expr.containsWhileExpr(value)
+
+  // Defer pure work until the branches that actually need it after inlining
+  // has exposed control flow. This is the Matchless analogue of the existing
+  // TypedExpr let-to-match sinking rewrite.
+  private[bosatsu] def sinkBranchOnlyLets[A](expr: Expr[A]): Expr[A] = {
+    def sinkIntoUsedBranch(
+        arg: Either[LocalAnon, Bindable],
+        value: Expr[A],
+        branch: Expr[A],
+        uses: Boolean
+    ): Expr[A] =
+      if (uses) loopExpr(Let(arg, value, branch))
+      else branch
+
+    def sinkBinding(
+        arg: Either[LocalAnon, Bindable],
+        value: Expr[A],
+        in: Expr[A]
+    ): Option[Expr[A]] =
+      if (!canSinkBranchOnlyLet(value)) None
+      else
+        in match {
+          case If(cond, thenExpr, elseExpr)
+              if !BoolExpr.usesBinding(cond, arg) =>
+            val thenUses = Expr.usesBinding(thenExpr, arg)
+            val elseUses = Expr.usesBinding(elseExpr, arg)
+
+            if (thenUses && elseUses) None
+            else if (!thenUses && !elseUses) Some(in)
+            else
+              Some(
+                If(
+                  cond,
+                  sinkIntoUsedBranch(arg, value, thenExpr, thenUses),
+                  sinkIntoUsedBranch(arg, value, elseExpr, elseUses)
+                )
+              )
+
+          case SwitchVariant(on, famArities, cases, default)
+              if !Expr.usesBinding(on, arg) =>
+            val caseUses = cases.map { case (_, branch) =>
+              Expr.usesBinding(branch, arg)
+            }
+            val defaultUses = default.map(Expr.usesBinding(_, arg))
+            val anyUses =
+              caseUses.exists(identity) || defaultUses.contains(true)
+            val allUses =
+              caseUses.forall(identity) && defaultUses.forall(identity)
+
+            if (allUses) None
+            else if (!anyUses) Some(in)
+            else {
+              val cases1 =
+                cases.zip(caseUses).map { case ((variant, branch), uses) =>
+                  (variant, sinkIntoUsedBranch(arg, value, branch, uses))
+                }
+              val default1 =
+                default.zip(defaultUses).map { case (branch, uses) =>
+                  sinkIntoUsedBranch(arg, value, branch, uses)
+                }
+
+              Some(SwitchVariant(on, famArities, cases1, default1))
+            }
+
+          case _ =>
+            None
+        }
+
+    def loopBool(boolExpr: BoolExpr[A]): BoolExpr[A] =
+      boolExpr match {
+        case EqualsLit(expr, lit) =>
+          EqualsLit(loopCheap(expr), lit)
+        case LtEqLit(expr, lit) =>
+          LtEqLit(loopCheap(expr), lit)
+        case EqualsNat(expr, nat) =>
+          EqualsNat(loopCheap(expr), nat)
+        case And(left, right) =>
+          And(loopBool(left), loopBool(right))
+        case CheckVariant(expr, expect, size, famArities) =>
+          CheckVariant(loopCheap(expr), expect, size, famArities)
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          CheckVariantSet(loopCheap(expr), expect, size, famArities)
+        case SetMut(target, value) =>
+          SetMut(target, loopExpr(value))
+        case LetBool(arg, value, in) =>
+          LetBool(arg, loopExpr(value), loopBool(in))
+        case LetMutBool(name, in) =>
+          LetMutBool(name, loopBool(in))
+        case TrueConst =>
+          TrueConst
+      }
+
+    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      loopExpr(ex) match {
+        case ch: CheapExpr[A] => ch
+        case notCheap         =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"expected cheap expression when sinking branch-only lets, got: $notCheap"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def loopExpr(ex: Expr[A]): Expr[A] =
+      ex match {
+        case Lambda(captures, recursiveName, args, body) =>
+          Lambda(captures.map(loopExpr), recursiveName, args, loopExpr(body))
+        case WhileExpr(cond, effectExpr, result) =>
+          WhileExpr(loopBool(cond), loopExpr(effectExpr), result)
+        case App(fn, args) =>
+          App(loopExpr(fn), args.map(loopExpr))
+        case Let(arg, value, in) =>
+          val value1 = loopExpr(value)
+          val in1 = loopExpr(in)
+          sinkBinding(arg, value1, in1).getOrElse(Let(arg, value1, in1))
+        case LetMut(name, span) =>
+          LetMut(name, loopExpr(span))
+        case If(cond, thenExpr, elseExpr) =>
+          If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            loopCheap(on),
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, loopExpr(branch))
+            },
+            default.map(loopExpr)
+          )
+        case Always(cond, thenExpr) =>
+          Always(loopBool(cond), loopExpr(thenExpr))
+        case PrevNat(of) =>
+          PrevNat(loopExpr(of))
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+            Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+            SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+            GetStructElement(_, _, _) =>
+          ex
+      }
+
+    StackSafe.onStackOverflow(loopExpr(expr))(expr)
+  }
+
   // Evaluate selector-like tests against locally known pure values so inlining
   // can collapse branches such as `let x = False in if x then ... else ...`.
   private[bosatsu] def simplifyKnownConditions[A](expr: Expr[A]): Expr[A] = {
@@ -4806,8 +4952,10 @@ object Matchless {
         reuseConstructors(hoisted)
       else
         hoisted
+    val branchSunk =
+      sinkBranchOnlyLets(reused)
 
-    simplifyKnownConditions(reused)
+    simplifyKnownConditions(branchSunk)
   }
 
   // Allocate anonymous ids with RefSpace, then run the shared post-lowering

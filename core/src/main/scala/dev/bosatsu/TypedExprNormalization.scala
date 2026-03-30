@@ -1066,6 +1066,69 @@ object TypedExprNormalization {
       }
     }
 
+  private def sinkLetIntoBranchingBody[A](
+      arg: Bindable,
+      expr: TypedExpr[A],
+      in: TypedExpr[A],
+      rec: RecursionKind,
+      tag: A
+  ): Option[TypedExpr[A]] = {
+    def loop(current: TypedExpr[A]): Option[TypedExpr[A]] =
+      current match {
+        case Annotation(inner, tpe, qev) =>
+          loop(inner).map(Annotation(_, tpe, qev))
+        case Generic(quant, inner) =>
+          loop(inner).map(Generic(quant, _))
+        case m @ Match(marg, branches, mtag)
+            if !rec.isRecursive &&
+              marg.notFree(arg) &&
+              branches.exists { case Branch(p, guard, r) =>
+                p.names.contains(arg) ||
+                (guard.forall(_.notFree(arg)) && r.notFree(arg))
+              } =>
+          // x = y
+          // match z:
+          //   case w: ww
+          //
+          // can be rewritten as
+          // match z:
+          //   case w:
+          //     x = y
+          //     ww
+          //
+          // when z is not free in x, and at least one branch is not free in x.
+          // We recurse through type wrappers so annotations/generics do not
+          // block the branch-sinking rewrite after inlining.
+          val b1 = branches.map { branch =>
+            val p = branch.pattern
+            val guard = branch.guard
+            val r = branch.expr
+            if (
+              p.names.contains(arg) || (guard.forall(
+                _.notFree(arg)
+              ) && r.notFree(arg))
+            )
+              branch
+            else {
+              val guard1 =
+                guard.map { g =>
+                  if (g.notFree(arg)) g
+                  else Let(arg, expr, g, rec, tag)
+                }
+              val r1 =
+                if (r.notFree(arg)) r
+                else Let(arg, expr, r, rec, tag)
+              branch.copy(guard = guard1, expr = r1)
+            }
+          }
+          Some(Match(m.matchKind, marg, b1, mtag))
+        case _ =>
+          None
+      }
+
+    loop(in)
+  }
+
   /** if the te is not in normal form, transform it into normal form
     */
   private def normalizeLetOpt[A: Eq, V](
@@ -1364,53 +1427,10 @@ object TypedExprNormalization {
                 case Some(rewritten) =>
                   normalize1(namerec, rewritten, scope, typeEnv)
                 case None =>
-                  in1 match {
-                    case m @ Match(marg, branches, mtag)
-                        if !rec1.isRecursive && marg.notFree(arg) && branches
-                          .exists { case Branch(p, guard, r) =>
-                            p.names.contains(arg) ||
-                            (guard.forall(_.notFree(arg)) && r.notFree(arg))
-                          } =>
-                      // x = y
-                      // match z:
-                      //   case w: ww
-                      //
-                      // can be rewritten as
-                      // match z:
-                      //   case w:
-                      //     x = y
-                      //     ww
-                      //
-                      // when z is not free in x, and at least one branch is not free in x
-                      val b1 = branches.map { branch =>
-                        val p = branch.pattern
-                        val guard = branch.guard
-                        val r = branch.expr
-                        if (
-                          p.names.contains(arg) || (guard.forall(
-                            _.notFree(arg)
-                          ) && r.notFree(arg))
-                        )
-                          branch
-                        else {
-                          val guard1 =
-                            guard.map { g =>
-                              if (g.notFree(arg)) g
-                              else Let(arg, ex2, g, rec1, tag)
-                            }
-                          val r1 =
-                            if (r.notFree(arg)) r
-                            else Let(arg, ex2, r, rec1, tag)
-                          branch.copy(guard = guard1, expr = r1)
-                        }
-                      }
-                      normalize1(
-                        namerec,
-                        Match(m.matchKind, marg, b1, mtag),
-                        scope,
-                        typeEnv
-                      )
-                    case _ =>
+                  sinkLetIntoBranchingBody(arg, ex2, in1, rec1, tag) match {
+                    case Some(branchSunk) =>
+                      normalize1(namerec, branchSunk, scope, typeEnv)
+                    case None             =>
                       val cnt = in1.freeVarsDup.count(_ == arg)
                       if (cnt > 0) {
                         // the arg is needed
