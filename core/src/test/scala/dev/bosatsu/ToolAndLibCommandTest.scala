@@ -2291,6 +2291,56 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("tool show --ir matchless inlines tiny pure value helpers") {
+    val helperSrc =
+      """package App/Helper
+|
+|export Pair(), pair
+|
+|struct Pair(left: Int, right: Int)
+|
+|pair = Pair(1, 2)
+|""".stripMargin
+    val callerSrc =
+      """package App/Caller
+|
+|from App/Helper import Pair, pair
+|
+|use =
+|  match pair:
+|    case Pair(_, x):
+|      x
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Helper.bosatsu") -> helperSrc,
+      Chain("src", "App", "Caller.bosatsu") -> callerSrc
+    )
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Helper.bosatsu",
+        "--input",
+        "src/App/Caller.bosatsu",
+        "--value",
+        "App/Caller::use",
+        "--ir",
+        "matchless"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val expr = matchlessDefExpr(show, "App/Caller", "use")
+        assert(!containsGlobalExpr(expr, "App/Helper", "pair"))
+        assertEquals(expr, Matchless.Literal(Lit.fromInt(2)))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
   test("tool show --json emits machine-readable package selection output") {
     val fooSrc =
       """package App/Foo

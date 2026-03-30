@@ -5117,6 +5117,108 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless inlines tiny pure struct values through local aliases") {
+    val helperPack = PackageName.parts("Helper", "Value")
+    val callerPack = PackageName.parts("Caller", "Value")
+    val helperName = Identifier.Name("pair")
+    val useName = Identifier.Name("use")
+    val alias = Identifier.Name("alias")
+
+    val helperExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList.of(
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(2))
+        )
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(alias),
+        Matchless.Global((), helperPack, helperName),
+        Matchless.GetStructElement(Matchless.Local(alias), 1, 2)
+      )
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    assertEquals(useExpr, Matchless.Literal(Lit.fromInt(2)))
+  }
+
+  test("optimized Matchless folds enum payload projections from tiny pure values") {
+    val helperPack = PackageName.parts("Helper", "EnumValue")
+    val callerPack = PackageName.parts("Caller", "EnumValue")
+    val helperName = Identifier.Name("some_value")
+    val useName = Identifier.Name("use")
+    val famArities = 0 :: 1 :: Nil
+
+    val helperExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 1, famArities),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(9)))
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.GetEnumElement(
+        Matchless.Global((), helperPack, helperName),
+        1,
+        0,
+        1
+      )
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    assertEquals(useExpr, Matchless.Literal(Lit.fromInt(9)))
+  }
+
   test("optimized Matchless inlines cross-package helpers with deferrable arguments") {
     val helperPack = PackageName.parts("Helper", "Branch")
     val callerPack = PackageName.parts("Caller", "Branch")

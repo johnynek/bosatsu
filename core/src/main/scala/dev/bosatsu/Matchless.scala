@@ -3257,10 +3257,12 @@ object Matchless {
             Always(cond1, recurExpr(thenExpr, env))
         case PrevNat(of) =>
           PrevNat(recurExpr(of, env))
-        case ge: GetEnumElement[?] =>
-          ge.copy(arg = recurExprCheap(ge.arg, env))
-        case gs: GetStructElement[?] =>
-          gs.copy(arg = recurExprCheap(gs.arg, env))
+        case GetEnumElement(arg, variant, index, size) =>
+          val rewritten = GetEnumElement(recurExprCheap(arg, env), variant, index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
+        case GetStructElement(arg, index, size) =>
+          val rewritten = GetStructElement(recurExprCheap(arg, env), index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
             Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
             SuccNat | ZeroNat =>
