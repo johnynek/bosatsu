@@ -7,7 +7,7 @@ import org.typelevel.paiges.{Doc, Document}
 import dev.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 import java.util.regex.{Pattern => RegexPattern}
 
-import Parser.{Combinators, maybeSpace, MaybeTupleOrParens}
+import Parser.{Combinators, maybeSpace, maybeSpacesAndCommentLines, MaybeTupleOrParens}
 import cats.implicits._
 
 import Identifier.{Bindable, Constructor}
@@ -1429,9 +1429,12 @@ object Pattern {
   val bindParser: P[Parsed] =
     P.defer(matchOrNot(isMatch = false))
 
+  private val patternWs: P0[Unit] =
+    maybeSpacesAndCommentLines
+
   private val maybePartial
       : P0[(Constructor, StructKind.Style) => StructKind.NamedKind] = {
-    val partial = (maybeSpace.soft ~ P.string("...")).as(
+    val partial = (patternWs.with1.soft ~ P.string("...")).as(
       (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s)
     )
 
@@ -1447,18 +1450,18 @@ object Pattern {
     // We do maybeSpace, then { } then either a Bindable or Bindable: Pattern
     // maybe followed by ...
     val item: P[Either[Bindable, (Bindable, Parsed)]] =
-      (Identifier.bindableParser ~ ((maybeSpace.soft ~ P.char(
+      (Identifier.bindableParser ~ ((patternWs.soft ~ P.char(
         ':'
-      ) ~ maybeSpace) *> recurse).?)
+      ) ~ patternWs) *> recurse).?)
         .map {
           case (b, None)      => Left(b)
           case (b, Some(pat)) => Right((b, pat))
         }
 
-    val items = item.nonEmptyList ~ maybePartial
+    val items = item.nonEmptyListOfWs(patternWs) ~ maybePartial
     ((maybeSpace.with1.soft ~ P.char(
       '{'
-    ) ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
+    ) ~ patternWs) *> items <* (patternWs ~ P.char('}')))
       .map { case (args, fn) => { (c: Constructor) => recordPat(c, args)(fn) } }
   }
 
@@ -1470,7 +1473,7 @@ object Pattern {
     // Foo(1 or more patterns, ...)
     // Foo(...)
 
-    val oneOrMore = recurse.nonEmptyList.map(_.toList) ~ maybePartial
+    val oneOrMore = recurse.nonEmptyListOfWs(patternWs).map(_.toList) ~ maybePartial
     val onlyPartial = P.string("...").as {
       (
         Nil,
@@ -1566,9 +1569,9 @@ object Pattern {
     val unionOp: P[Parsed => Parsed] = {
       val bar = P.char('|')
       val unionRest = withAs
-        .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
+        .nonEmptyListOfWsSep(patternWs, bar, allowTrailing = false)
 
-      (maybeSpace.with1.soft *> bar *> maybeSpace *> unionRest)
+      (patternWs.with1.soft *> bar *> patternWs *> unionRest)
         .map(ne => (pat: Parsed) => union(pat, ne.toList))
     }
     val typeAnnotOp: P[Parsed => Parsed] =
