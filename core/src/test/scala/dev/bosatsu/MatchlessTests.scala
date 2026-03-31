@@ -6030,6 +6030,77 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("postLoweringCleanup beta reduces local lambda callees through alias lets") {
+    val fn0 = Identifier.Name("fn0")
+    val fn1 = Identifier.Name("fn1")
+    val arg = Identifier.Name("arg")
+    val x = Identifier.Name("x")
+    val consume = Identifier.Name("consume")
+    val lam =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(x),
+        body = Matchless.App(
+          Matchless.Local(consume),
+          NonEmptyList.one(Matchless.Local(x))
+        )
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(fn0),
+        lam,
+        Matchless.Let(
+          Right(fn1),
+          Matchless.Local(fn0),
+          Matchless.App(
+            Matchless.Local(fn1),
+            NonEmptyList.one(Matchless.Local(arg))
+          )
+        )
+      )
+
+    assertEquals(
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default),
+      Matchless.App(
+        Matchless.Local(consume),
+        NonEmptyList.one(Matchless.Local(arg))
+      )
+    )
+  }
+
+  test("postLoweringCleanup devirtualizes projected direct callees from known local structs") {
+    val dict = Identifier.Name("dict")
+    val fn = Identifier.Name("fn")
+    val arg = Identifier.Name("arg")
+    val helperPack = PackageName.parts("Matchless", "Cleanup", "Direct")
+    val helper = Identifier.Name("helper")
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(dict),
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Global((), helperPack, helper))
+        ),
+        Matchless.Let(
+          Right(fn),
+          Matchless.GetStructElement(Matchless.Local(dict), 0, 1),
+          Matchless.App(
+            Matchless.Local(fn),
+            NonEmptyList.one(Matchless.Local(arg))
+          )
+        )
+      )
+
+    assertEquals(
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default),
+      Matchless.App(
+        Matchless.Global((), helperPack, helper),
+        NonEmptyList.one(Matchless.Local(arg))
+      )
+    )
+  }
+
   test("postLoweringCleanup can disable reuseConstructors") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")

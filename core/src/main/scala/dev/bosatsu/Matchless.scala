@@ -2992,6 +2992,10 @@ object Matchless {
           env.anons
             .get(id)
             .flatMap(knownValue(_, env, seenBindables, seenAnons + id))
+        case lam: Lambda[A] if lam.recursiveName.isEmpty =>
+          Some(lam)
+        case global @ Global(_, _, _) =>
+          Some(global)
         case lit @ Literal(_) =>
           Some(lit)
         case enumExpr @ MakeEnum(_, 0, _) =>
@@ -3194,7 +3198,17 @@ object Matchless {
         case WhileExpr(cond, effectExpr, result) =>
           WhileExpr(recurBool(cond, env), recurExpr(effectExpr, env), result)
         case App(fn, args) =>
-          App(recurExpr(fn, env), args.map(recurExpr(_, env)))
+          val fn1 = recurExpr(fn, env)
+          val args1 = args.map(recurExpr(_, env))
+          val resolvedFn =
+            knownValue(fn1, env, Set.empty, Set.empty).getOrElse(fn1)
+
+          recoverTopLevelLambda(resolvedFn) match {
+            case lam: Lambda[A] if lam.arity == args1.length =>
+              recurExpr(inlineApplyArgs(lam, args1), env)
+            case _ =>
+              App(resolvedFn, args1)
+          }
         case Let(arg, value, in) =>
           val value1 = recurExpr(value, env)
           val env1 = extendEnv(env, arg, value1)

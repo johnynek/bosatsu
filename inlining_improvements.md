@@ -673,3 +673,57 @@ Watch list while iterating:
   - `Zafu/Abstract/Instances/Predef::combine_map_all_Semigroup`
 
 Use the existing `show --ir matchless` commands from the evaluation section and swap the `--value` selector to each item in this list as the heuristics change.
+
+## Completed Follow-on Work: Local Callee Cleanup
+
+Status: completed.
+
+The next clear cleanup target after higher-order loop inlining was residual local-call indirection in final Matchless, especially `Let(name, value, App(Local(name), ...))` wrappers left behind by global inlining and projection exposure. That follow-on work is now in place.
+
+Current evaluation:
+
+- Isolating this follow-on against checkpoint `2be8c6864` changed 22 of 1935 Zafu definitions in final Matchless. The minified per-definition total moved in the right direction overall: 14 definitions shrank, 8 grew, and the net change was `-4527` bytes.
+- The exact `Let(name, value, App(Local(name), ...))` shape dropped from `2744` to `2730` occurrences in whole-Zafu final Matchless, and the broader `App(Local(...), ...)` count dropped from `3375` to `3338`.
+- The more important direct-callee subset shrank sharply. Residual local-app sites that still resolve to lambdas fell from `46` to `21`, and exact one-shot local-lambda wrappers fell from `28` to `17`.
+- Representative wins in the isolated Zafu compare include `Zafu/Collection/Heap::tests`, `Zafu/Collection/HashMap::tests`, `Zafu/Collection/HashSet::tests`, `Zafu/Cli/Args/Internal/Help::help_doc`, and `Zafu/Cli/Args/Internal/Core::decode_positionals`.
+- This was a Matchless-only cleanup, so no TypedExpr optimizer behavior changed and no new `--validate-typedexpr` sweep was required for this item.
+
+Relevant code:
+
+- `core/src/main/scala/dev/bosatsu/Matchless.scala`
+- `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`
+
+What changed:
+
+1. `simplifyKnownConditions.knownValue` now treats non-recursive lambdas and globals as known values.
+   This allows local alias chains and projection folding to resolve directly callable values without opening the door to recursive self-inlining.
+
+2. `simplifyKnownConditions` now resolves callee position from the known-value environment.
+   When that exposes a lambda, it reuses `inlineApplyArgs`; when it exposes a direct global callee, it rewrites the call to target that global directly.
+
+3. Focused post-lowering regressions now cover the two core cases:
+   - beta-reducing a local lambda through a short alias chain
+   - devirtualizing a projected direct callee from a known local struct
+
+## Open Follow-on Work
+
+1. [ ] Add a per-definition cumulative inline budget
+
+Relevant code:
+
+- `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`
+- `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala`
+- `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`
+
+Plan:
+
+- Extend Matchless global inlining so it does not evaluate each call site in isolation only; also track how much inline cost has already been paid inside the current top-level definition.
+- Bias the budget against repeated expansion of loop-like or branch-heavy helpers, since those are the main source of large whole-definition growth in Zafu.
+- Preserve the current strong wins from tiny value exposure, wrapper/dictionary collapse, and short-circuiting helpers such as `and` and `or`.
+- Use the whole-Zafu compare workflow as the primary evaluation loop and explicitly watch the current large-growth definitions such as `Zafu/Collection/HashMap::tests`, `Zafu/Collection/HashSet::tests`, `Zafu/Cli/Args/Internal/Lex::match_visible_spelling`, `Zafu/Cli/Args/Internal/Lex::scan_command`, `Zafu/Cli/Args/Internal/Core::spelling_usage`, and `Zafu/Cli/Args/Internal/Help::help_doc`.
+
+Done when:
+
+- We keep almost all of the current devirtualization wins, especially for `foldl_List`, `map_List`, `flat_map_List`, `and`, and `or`, while reducing the number and magnitude of large per-definition growth outliers.
+- Whole-Zafu final Matchless still removes the important helper calls, but the total code-size increase and worst-case per-definition regressions are materially smaller than the current baseline.
+- The budget is predictable and explainable: repeated inlining inside one already-large definition should stop earlier than the same inline inside a small definition.
