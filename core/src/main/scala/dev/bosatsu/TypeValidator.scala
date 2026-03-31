@@ -921,10 +921,7 @@ object TypeValidator {
             val gotArgs = args.toList
             // here we check P3 pre-solve: use result type to seed substitution S
             val solveVars =
-              appBoundKinds.iterator
-                .filterNot { case (v, _) => inScopeKinds.contains(v) }
-                .map { case (v, k) => v -> k }
-                .toMap
+              appBoundKinds.filterNot { case (v, _) => inScopeKinds.contains(v) }
             val solveToVars =
               Type
                 .freeBoundTyVars(te.getType :: Nil)
