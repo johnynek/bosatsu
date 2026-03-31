@@ -74,6 +74,16 @@ object ShowEdn {
     if (quotePackageNames) str(packageName.asString)
     else nameAtom(packageName.asString)
 
+  private def constructorRefAtom(
+      packageName: PackageName,
+      constructor: Constructor,
+      quotePackageNames: Boolean
+  ): Edn = {
+    val constructorRef = s"${packageName.asString}/${constructor.asString}"
+    if (quotePackageNames) str(constructorRef)
+    else nameAtom(constructorRef)
+  }
+
   private def err[A](message: String): ErrorOr[A] =
     Left(message)
 
@@ -410,7 +420,8 @@ object ShowEdn {
     }
 
   private def encodePattern(
-      pat: Pattern[(PackageName, Constructor), Type]
+      pat: Pattern[(PackageName, Constructor), Type],
+      quotePackageNames: Boolean
   ): Edn =
     pat match {
       case Pattern.WildCard =>
@@ -420,7 +431,13 @@ object ShowEdn {
       case Pattern.Var(name) =>
         EList(List(sym("pvar"), nameAtom(name.sourceCodeRepr)))
       case Pattern.Named(name, p) =>
-        EList(List(sym("pnamed"), nameAtom(name.sourceCodeRepr), encodePattern(p)))
+        EList(
+          List(
+            sym("pnamed"),
+            nameAtom(name.sourceCodeRepr),
+            encodePattern(p, quotePackageNames)
+          )
+        )
       case Pattern.StrPat(parts) =>
         EList(
           List(
@@ -446,25 +463,25 @@ object ShowEdn {
               case ListPart.NamedList(n)  =>
                 EList(List(sym("named-list"), nameAtom(n.sourceCodeRepr)))
               case ListPart.Item(pat)     =>
-                EList(List(sym("item"), encodePattern(pat)))
+                EList(List(sym("item"), encodePattern(pat, quotePackageNames)))
             })
           )
         )
       case Pattern.Annotation(pattern, tpe) =>
-        EList(List(sym("pann"), encodePattern(pattern), encodeType(tpe)))
+        EList(List(sym("pann"), encodePattern(pattern, quotePackageNames), encodeType(tpe)))
       case Pattern.PositionalStruct((pack, cons), params) =>
         EList(
           List(
             sym("pstruct"),
-            nameAtom(s"${pack.asString}/${cons.asString}"),
-            EVector(params.map(encodePattern))
+            constructorRefAtom(pack, cons, quotePackageNames),
+            EVector(params.map(encodePattern(_, quotePackageNames)))
           )
         )
       case Pattern.Union(head, rest) =>
         EList(
           List(
             sym("punion"),
-            EVector((head :: rest.toList).map(encodePattern))
+            EVector((head :: rest.toList).map(encodePattern(_, quotePackageNames)))
           )
         )
     }
@@ -550,7 +567,7 @@ object ShowEdn {
 
   given patternCodec: EdnCodec[Pattern[(PackageName, Constructor), Type]] with {
     def encode(a: Pattern[(PackageName, Constructor), Type]): Edn =
-      encodePattern(a)
+      encodePattern(a, quotePackageNames = false)
     def decode(edn: Edn): ErrorOr[Pattern[(PackageName, Constructor), Type]] =
       decodePattern(edn)
   }
@@ -727,7 +744,7 @@ object ShowEdn {
                   EList(
                     List(
                       sym("branch"),
-                      encodePattern(branch.pattern),
+                      encodePattern(branch.pattern, quotePackageNames),
                       encodeTypedExpr(branch.expr, quotePackageNames)
                     )
                   )
@@ -735,7 +752,7 @@ object ShowEdn {
                   EList(
                     List(
                       sym("branch"),
-                      encodePattern(branch.pattern),
+                      encodePattern(branch.pattern, quotePackageNames),
                       encodeTypedExpr(g, quotePackageNames),
                       encodeTypedExpr(branch.expr, quotePackageNames)
                     )

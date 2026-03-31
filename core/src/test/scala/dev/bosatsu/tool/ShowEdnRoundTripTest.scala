@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.{
   CompileOptions,
   Generators,
+  ImportMap,
   Json,
   LocationMap,
   Matchless,
@@ -11,11 +12,22 @@ import dev.bosatsu.{
   Package,
   PackageMap,
   Par,
+  Pattern,
   Parser,
   Platform
 }
-import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type}
-import dev.bosatsu.{ExportedName, Identifier, Kind, PackageName, Referant, TypeName}
+import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeEnv}
+import dev.bosatsu.{
+  ExportedName,
+  Identifier,
+  Kind,
+  PackageName,
+  Program,
+  RecursionKind,
+  Referant,
+  TypeName,
+  TypedExpr
+}
 import dev.bosatsu.edn.Edn
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -144,6 +156,36 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         Nil
     }
 
+  private def collectPatternConstructorAtoms(edn: Edn): List[Edn] =
+    edn match {
+      case Edn.EList(Edn.ESymbol("pstruct") :: constructorEdn :: _ :: Nil) =>
+        constructorEdn :: Nil
+      case Edn.EList(items) =>
+        items.flatMap(collectPatternConstructorAtoms)
+      case Edn.EVector(items) =>
+        items.flatMap(collectPatternConstructorAtoms)
+      case Edn.EMap(items) =>
+        items.flatMap { case (key, value) =>
+          collectPatternConstructorAtoms(key) ::: collectPatternConstructorAtoms(value)
+        }
+      case _ =>
+        Nil
+    }
+
+  private def collectPatternConstructorJsonAtoms(json: Json): List[Json] =
+    json match {
+      case Json.JArray(Vector(Json.JString("pstruct"), constructorJson, _)) =>
+        constructorJson :: Nil
+      case Json.JArray(items) =>
+        items.toList.flatMap(collectPatternConstructorJsonAtoms)
+      case Json.JObject(fields) =>
+        fields.flatMap { case (_, value) =>
+          collectPatternConstructorJsonAtoms(value)
+        }
+      case _ =>
+        Nil
+    }
+
   private def showValueWithMixedDepthGlobalPackages(): Output.ShowValue.Matchless =
     Output.ShowValue.Matchless(
       packages =
@@ -174,6 +216,67 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       matchlessPasses = Matchless.PassOptions.Default.enabledPasses,
       packageNamesOnly = false
     )
+
+  private def showValueWithMixedDepthPatternPackages(): Output.ShowValue.Typed = {
+    val shallowPattern =
+      Pattern.PositionalStruct(
+        (PackageName.parts("Foo"), Identifier.Constructor("Box")),
+        Pattern.Var(Identifier.Name("x")) :: Nil
+      )
+    val deepPattern =
+      Pattern.PositionalStruct(
+        (PackageName.parts("Foo", "Bar"), Identifier.Constructor("Box")),
+        Pattern.Var(Identifier.Name("y")) :: Nil
+      )
+    val matchExpr =
+      TypedExpr.Match(
+        TypedExpr.Local(Identifier.Name("value"), Type.IntType, ()),
+        NonEmptyList.of(
+          TypedExpr.Branch(
+            shallowPattern,
+            None,
+            TypedExpr.Local(Identifier.Name("x"), Type.IntType, ())
+          ),
+          TypedExpr.Branch(
+            deepPattern,
+            None,
+            TypedExpr.Local(Identifier.Name("y"), Type.IntType, ())
+          )
+        ),
+        ()
+      )
+    val prog =
+      Program(
+        types = TypeEnv.empty,
+        lets =
+          List(
+            (
+              Identifier.Name("main"),
+              RecursionKind.NonRecursive,
+              matchExpr
+            )
+          ),
+        externalDefs = Nil,
+        from = ()
+      )
+    val pack: Package.Typed[Unit] =
+      Package(
+        name = PackageName.parts("ShowEdn", "TypedPatterns"),
+        imports = Nil,
+        exports = Nil,
+        program = (
+          prog,
+          ImportMap.empty[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
+        )
+      )
+
+    Output.ShowValue.Typed(
+      packages = List(pack),
+      interfaces = Nil,
+      typedPasses = CompileOptions.Default.enabledTypedPasses,
+      packageNamesOnly = false
+    )
+  }
 
   test("package codec render/parse round trips normalized typed packages") {
     forAll(Generators.genPackage(Gen.const(()), 8)) { packMap =>
@@ -393,6 +496,71 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         case _: Edn.EString => "string"
         case _: Edn.ESymbol => "symbol"
         case other          => fail(s"unexpected package atom in global: $other")
+      }.distinct,
+      List("string")
+    )
+  }
+
+  test("typed showDoc renders constructor pattern package paths consistently") {
+    val rendered = ShowEdn.showDoc(showValueWithMixedDepthPatternPackages()).render(120)
+    val parsed = Edn.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typed showDoc output: $err")
+    }
+    val constructorAtoms = collectPatternConstructorAtoms(parsed)
+
+    assertEquals(
+      constructorAtoms.map {
+        case Edn.EString(value) => value
+        case Edn.ESymbol(value) => value
+        case other              => fail(s"unexpected constructor atom in pattern: $other")
+      },
+      List("Foo/Box", "Foo/Bar/Box")
+    )
+    assertEquals(
+      constructorAtoms.map {
+        case _: Edn.EString => "string"
+        case _: Edn.ESymbol => "symbol"
+        case other          => fail(s"unexpected constructor atom in pattern: $other")
+      }.distinct,
+      List("string")
+    )
+  }
+
+  test("typed showJson renders constructor pattern package paths consistently") {
+    val rendered = ShowEdn.showJson(showValueWithMixedDepthPatternPackages()).render
+    val parsed = Json.parserFile.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typed showJson output as JSON: $err")
+    }
+    val constructorAtoms = collectPatternConstructorJsonAtoms(parsed)
+    assertEquals(
+      constructorAtoms,
+      List(
+        Json.JObject(List("$str" -> Json.JString("Foo/Box"))),
+        Json.JObject(List("$str" -> Json.JString("Foo/Bar/Box")))
+      )
+    )
+
+    val decoded = ShowEdn.jsonToEdn(parsed) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to decode typed showJson output back to EDN: $err")
+    }
+    val decodedConstructorAtoms = collectPatternConstructorAtoms(decoded)
+
+    assertEquals(
+      decodedConstructorAtoms.map {
+        case Edn.EString(value) => value
+        case Edn.ESymbol(value) => value
+        case other              => fail(s"unexpected constructor atom in pattern: $other")
+      },
+      List("Foo/Box", "Foo/Bar/Box")
+    )
+    assertEquals(
+      decodedConstructorAtoms.map {
+        case _: Edn.EString => "string"
+        case _: Edn.ESymbol => "symbol"
+        case other          => fail(s"unexpected constructor atom in pattern: $other")
       }.distinct,
       List("string")
     )
