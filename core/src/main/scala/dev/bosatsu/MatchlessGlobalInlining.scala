@@ -505,14 +505,11 @@ object MatchlessGlobalInlining {
           case (demand, arg) =>
             (demand.cheapPositionUses > 0) && isKnownArgumentValue(arg)
         }
-      val whileLambdaArgument =
-        // Recursive/while-lowered helpers remain eligible in general, but
-        // direct-callee lambda substitution through those loops needs a more
-        // specific proof than v1 has.
+      val whileUnknownDirectCallee =
         summary.containsWhileExpr &&
           summary.paramDemand.iterator.zip(argList.iterator).exists {
             case (demand, arg) =>
-              demand.lambdaCalleeOnly && resolvesToLambda(arg).nonEmpty
+              demand.lambdaCalleeOnly && !isKnownDirectCalleeArgument(arg)
           }
       val deferredCheapPositionArgument =
         summary.paramDemand.iterator.zip(argList.iterator).exists {
@@ -530,7 +527,7 @@ object MatchlessGlobalInlining {
         }
 
       if (
-        whileLambdaArgument ||
+        whileUnknownDirectCallee ||
         (!hasKnownSelector && deferredCheapPositionArgument) ||
         (!hasKnownSelector && duplicatedDeferredExpensiveArg)
       ) false
@@ -555,6 +552,7 @@ object MatchlessGlobalInlining {
                   ),
                   isCheap = isCheapArgument(arg),
                   resolvesToLambda = resolvesToLambda(arg).nonEmpty,
+                  isKnownDirectCallee = isKnownDirectCalleeArgument(arg),
                   isKnownValue = isKnownArgumentValue(arg)
                 )
               }
@@ -586,6 +584,14 @@ object MatchlessGlobalInlining {
     Matchless.recoverTopLevelLambda(expr) match {
       case lam: Lambda[A] => Some(lam)
       case _              => None
+    }
+
+  private def isKnownDirectCalleeArgument[A](expr: Expr[A]): Boolean =
+    expr match {
+      case Matchless.Global(_, _, _) =>
+        true
+      case _ =>
+        resolvesToLambda(expr).nonEmpty
     }
 
   private def isCheapArgument[A](expr: Expr[A]): Boolean =

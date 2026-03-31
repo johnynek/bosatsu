@@ -5179,6 +5179,52 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless devirtualizes foldl_List step functions in loops") {
+    val pack = PackageName.parts("Matchless", "Global", "Foldl")
+    val useLambda = Identifier.Name("use_lambda")
+    val useGlobal = Identifier.Name("use_global")
+    val useUnknown = Identifier.Name("use_unknown")
+
+    checkOptimizedMatchlessPackage(
+      """package Matchless/Global/Foldl
+        |
+        |export use_lambda, use_global, use_unknown
+        |
+        |def use_lambda(items: List[Int]) -> Int:
+        |  items.foldl_List(0, (acc, item) -> acc.add(item))
+        |
+        |def use_global(items: List[Int]) -> Int:
+        |  items.foldl_List(0, add)
+        |
+        |def use_unknown(items: List[Int], fn: (Int, Int) -> Int) -> Int:
+        |  items.foldl_List(0, fn)
+        |""".stripMargin
+    ) { compiled =>
+      val byName = compiled(pack).toMap
+      val foldlName = Identifier.Name("foldl_List")
+
+      val lambdaExpr = byName(useLambda)
+      assertEquals(
+        containsGlobal(lambdaExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(Matchless.Expr.containsWhileExpr(lambdaExpr), true)
+
+      val globalExpr = byName(useGlobal)
+      assertEquals(
+        containsGlobal(globalExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(Matchless.Expr.containsWhileExpr(globalExpr), true)
+
+      val unknownExpr = byName(useUnknown)
+      assertEquals(
+        containsGlobal(unknownExpr, PackageName.PredefName, foldlName),
+        true
+      )
+    }
+  }
+
   test("optimized Matchless expands tiny capture-free helper references generically") {
     val helperPack = PackageName.parts("Helper", "Ref")
     val callerPack = PackageName.parts("Caller", "Ref")

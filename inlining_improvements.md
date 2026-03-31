@@ -458,6 +458,10 @@ Expand the existing test areas rather than inventing a separate harness:
 - Isolating item 5 against checkpoint `abbfc655b` changed 1078 of 1892 Zafu definitions in raw pretty JSON output, but that churn is only anon and mutable-local renumbering from canonicalization. After normalizing `anon$N` and `mut$N` names per definition, only 1 of 1892 definitions changes: `Zafu/Collection/Chain::tests`.
 - That remaining normalized item-5 diff is the intended cleanup shape: a branch-local constructor `let` now sits under the guarding `if` instead of outside it. Node counts for `global`, `get-struct`, `get-enum`, `make-struct`, `make-enum`, `let`, `if`, and `switch` are otherwise unchanged in the isolated compare.
 - After the item-5 completion change, `sbt coreJVM/test` is green with 1929 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
+- The original five-item plan is now complete, but follow-on evaluation shows that higher-order loop helpers are still the main remaining inlining gap.
+- `map_Option` is now a good positive control. In the targeted Zafu probes it disappears into caller branch structure instead of surviving as a helper call.
+- `Bosatsu/Predef::and` and `Bosatsu/Predef::or` are also good positive controls. The existing Matchless optimizer regressions still assert that both globals inline and preserve short-circuiting shape.
+- `Bosatsu/Predef::foldl_List` remains the weakest important case. In final Matchless it still survives too often when the step function is a literal lambda or a directly callable helper such as `add`, which means loop-body devirtualization is still missing in many otherwise-simple callers.
 
 ## Items To Do
 
@@ -578,3 +582,94 @@ Done when:
   TypedExpr and Matchless now share `InlineBenefitModel` for call-site inlining, the TypedExpr side now recognizes constructor-valued arguments as a concrete payoff when a helper immediately branches on them, and focused optimizer tests cover direct, alias, wrapper, and no-payoff variants so harmless wrappers stay aligned while real branch/projection wins still inline.
 - Item 5 completed.
   Matchless `postLoweringCleanup` now runs as a bounded small fixpoint over the post-lowering rewrite stack, focused optimizer tests cover the multi-round “inline wrapper, expose branch-local work, then sink it” case directly, and the fixpoint bookkeeping now preserves the previous deep-let stack-safety guarantees by falling back cleanly if canonicalization or structural equality would overflow.
+
+## Completed Follow-on Work: Higher-Order Loop Inlining
+
+Status: completed.
+
+The original five work items are done, and the next clear optimization target was higher-order loop-helper inlining, especially `Bosatsu/Predef::foldl_List`. That follow-on work is now in place.
+
+Current evaluation:
+
+- `map_Option` inlines well enough to use as a positive control. Keep `Zafu/Control/Result::map_Option` and `Zafu/Control/PartialResult::map_Option` in the watch set and make sure callers continue to branch first and call `fn` only in the `Some` branch.
+- `Bosatsu/Predef::and` and `Bosatsu/Predef::or` also remain positive controls. Keep the existing short-circuit optimizer tests green and continue to inspect real Zafu uses such as `Zafu/Cli/Args/Internal/Help::subcommand_matches` and `Zafu/Tool/Cat::run_sources`.
+- `Bosatsu/Predef::foldl_List` is now in much better shape. The representative weak cases from the original evaluation, `Zafu/Collection/List::size`, `Zafu/Collection/List::sum`, and `Zafu/Abstract/Foldable::size_List`, now inline `foldl_List` away entirely and expose the loop body directly in final Matchless.
+- Isolating this follow-on work against checkpoint `795727401` changed 130 of 1892 Zafu definitions in final Matchless. Raw minified JSON size grew because call sites now materialize loop bodies instead of a single helper call, but the structural metric we care about improved sharply: residual final-Matchless `Bosatsu/Predef::foldl_List` call sites fell from 100 to 5.
+- The remaining 5 residual `foldl_List` calls are localized to `Zafu/Collection/Deque::foldl` (2), `Zafu/Abstract/Foldable::foldable_from_foldr_iter`, `Zafu/Collection/Chain::foldl`, and `Zafu/Collection/Heap::foldl_prop`. Those are acceptable for now because they are the more conservative higher-order shapes rather than the direct lambda/global cases this follow-on targeted.
+- After this change, `Bosatsu/Predef::and` and `Bosatsu/Predef::or` still have 0 residual final-Matchless call sites in whole-Zafu output.
+- Because this work touched TypedExpr-side inlining scoring, `show --ir typedexpr --validate-typedexpr` was rerun on `../zafu` for the default pipeline, all single disabled typed-pass configurations, all two-pass disabled configurations, and `--no-opt`. All eight configurations still validate successfully.
+
+Relevant code:
+
+- `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala`
+- `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`
+- `core/src/main/resources/bosatsu/predef.bosatsu`
+- `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`
+
+What changed:
+
+1. The old blanket `whileLambdaArgument` veto is now a narrower direct-callee check.
+   Loop-containing helpers can inline when the higher-order parameter is direct-call-only and the actual argument is a known direct callee, while unknown function values still remain conservative.
+
+2. The shared `InlineBenefitModel` now scores loop-body devirtualization explicitly.
+   `foldl_List(..., lambda)` and `foldl_List(..., add)` now count as positive payoffs, which is enough to inline the predef loop helper and expose the direct call inside the loop body.
+
+3. Focused Matchless regressions now cover the three important loop-helper shapes directly:
+   - `foldl_List(items, init, literal-lambda)` inlines
+   - `foldl_List(items, init, direct-global)` inlines
+   - `foldl_List(items, init, unknown-function-value)` stays as a call
+
+Watch list while iterating:
+
+- Positive controls that should stay excellent:
+  - `Bosatsu/Predef::and`
+  - `Bosatsu/Predef::or`
+  - `Zafu/Control/Result::map_Option`
+  - `Zafu/Control/PartialResult::map_Option`
+  - `Zafu/Cli/Args/Internal/Help::subcommand_matches`
+
+- Key direct-lambda/global targets for this completed follow-on:
+  - `Zafu/Collection/List::size`
+  - `Zafu/Collection/List::sum`
+  - `Zafu/Collection/List::foldr`
+  - `Zafu/Abstract/Foldable::size_List`
+  - `Zafu/Abstract/Foldable::foldr_List`
+  - `Zafu/Text/Parse/Error::concat_distinct`
+  - `Zafu/Text/Parse/Types::one_of0`
+  - `Zafu/Text/Parse/Types::chain_left1`
+  - `Zafu/Text/Parse/Types::chain_right1`
+  - `Zafu/Text/Pretty::monoid_Doc`
+  - `Zafu/Text/Pretty::json_doc`
+
+- Representative wins from this completed follow-on:
+  - `Zafu/Collection/List::size`
+  - `Zafu/Collection/List::sum`
+  - `Zafu/Collection/List::foldr`
+  - `Zafu/Abstract/Foldable::size_List`
+  - `Zafu/Abstract/Foldable::foldr_List`
+  - `Zafu/Text/Parse/Error::concat_distinct`
+  - `Zafu/Text/Parse/Types::one_of0`
+  - `Zafu/Text/Parse/Types::chain_left1`
+  - `Zafu/Text/Parse/Types::chain_right1`
+  - `Zafu/Text/Pretty::monoid_Doc`
+  - `Zafu/Text/Pretty::json_doc`
+
+- Residual conservative cases after this completed follow-on:
+  - `Zafu/Collection/Deque::foldl`
+  - `Zafu/Abstract/Foldable::foldable_from_foldr_iter`
+  - `Zafu/Collection/Chain::foldl`
+  - `Zafu/Collection/Heap::foldl_prop`
+
+- Predef helpers expected to benefit from this improvement and worth rechecking in future diffs:
+  - `Bosatsu/Predef::reverse_concat`
+  - `Bosatsu/Predef::map_List`
+  - `Bosatsu/Predef::flat_map_List`
+  - `Bosatsu/Predef::foldr_List`
+
+- Same-shape follow-on cases in Zafu that should be watched after the predef work lands:
+  - `Zafu/Control/IterState::foldl_List`
+  - `Zafu/Control/IterState::foldr_List`
+  - `Zafu/Abstract/Semigroup::combine_map_all`
+  - `Zafu/Abstract/Instances/Predef::combine_map_all_Semigroup`
+
+Use the existing `show --ir matchless` commands from the evaluation section and swap the `--value` selector to each item in this list as the heuristics change.

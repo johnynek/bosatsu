@@ -20,6 +20,7 @@ object InlineBenefitModel {
       demand: ParamSummary,
       isCheap: Boolean,
       resolvesToLambda: Boolean,
+      isKnownDirectCallee: Boolean,
       isKnownValue: Boolean
   )
 
@@ -47,16 +48,24 @@ object InlineBenefitModel {
             else 0
           val deferrableBenefit =
             if (arg.demand.deferrable && !arg.isCheap) 6 else 0
-          val lambdaBenefit =
-            if (arg.demand.lambdaCalleeOnly && arg.resolvesToLambda) 5 else 0
-          acc + unusedBenefit + deferrableBenefit + lambdaBenefit
+          val directCalleeBenefit =
+            if (arg.demand.lambdaCalleeOnly && arg.isKnownDirectCallee) 5
+            else 0
+          acc + unusedBenefit + deferrableBenefit + directCalleeBenefit
         }
+      val loopDevirtualizationBenefit =
+        if (summary.containsLoopLike)
+          summary.args.foldLeft(0) { (acc, arg) =>
+            if (arg.demand.lambdaCalleeOnly && arg.isKnownDirectCallee) acc + 4
+            else acc
+          }
+        else 0
 
       val hasArgSpecificPayoff =
         summary.args.exists { arg =>
           arg.demand.unused ||
           arg.demand.deferrable ||
-          (arg.demand.lambdaCalleeOnly && arg.resolvesToLambda) ||
+          (arg.demand.lambdaCalleeOnly && arg.isKnownDirectCallee) ||
           (arg.isKnownValue && (arg.demand.cheapPositionUses > 0))
         }
       val hasDirectBranchTesterPayoff =
@@ -91,11 +100,12 @@ object InlineBenefitModel {
       val followOnArgBenefit =
         if (
           summary.exposesFollowOnReduction &&
-          summary.args.exists(arg => arg.isKnownValue || arg.resolvesToLambda)
+          summary.args.exists(arg => arg.isKnownValue || arg.isKnownDirectCallee)
         ) 2
         else 0
       val totalBenefit =
         structuralBenefit +
+          loopDevirtualizationBenefit +
           branchingBenefit +
           selectorBenefit +
           followOnReductionBenefit +

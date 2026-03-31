@@ -2310,6 +2310,16 @@ object TypedExprNormalization {
               false
           }
 
+        private def isKnownDirectCallee(argExpr: TypedExpr[A]): Boolean =
+          ResolveToLambda.unapply(argExpr).nonEmpty ||
+            (stripTypeWrappers(argExpr) match {
+              case Global(_, _: Bindable, _, _) |
+                  Global(_, _: Constructor, _, _) =>
+                true
+              case _ =>
+                false
+            })
+
         private def isDirectForwardedValue(argExpr: TypedExpr[A]): Boolean =
           stripTypeWrappers(argExpr) match {
             case Local(_, _, _) => true
@@ -2369,6 +2379,7 @@ object TypedExprNormalization {
                     demand = demand,
                     isCheap = isCheapArgument(argExpr),
                     resolvesToLambda = ResolveToLambda.unapply(argExpr).nonEmpty,
+                    isKnownDirectCallee = isKnownDirectCallee(argExpr),
                     isKnownValue = isKnownArgumentValue(argExpr)
                   )
                 }
