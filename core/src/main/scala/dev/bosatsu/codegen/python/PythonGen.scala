@@ -2696,12 +2696,7 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[Statement] =
         expr match {
-          case lam @ Lambda(captures, _, _, _) if captures.nonEmpty =>
-            capturedLambdaValue(lam, slotName, inlineSlots)
-              .flatMap(Env.onLast(_)(value => (name := value).withValue(Code.Const.Unit)))
-              .map(Code.always)
-          case Lambda(captures, recName, args, body) =>
-            assert(captures.isEmpty)
+          case Lambda(Nil, recName, args, body) =>
             recName.traverse_(Env.bindTo(_, name)) *> args
               .traverse(Env.bind(_))
               .flatMap { as =>
@@ -2710,6 +2705,10 @@ object PythonGen {
               } <* args.traverse_(Env.unbind(_)) <* recName.traverse_(
               Env.unbind(_)
             )
+          case lam =>
+            capturedLambdaValue(lam, slotName, inlineSlots)
+              .flatMap(Env.onLast(_)(value => (name := value).withValue(Code.Const.Unit)))
+              .map(Code.always)
         }
 
       def doLet(
@@ -2741,15 +2740,7 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
         expr match {
-          case lam @ Lambda(captures, _, _, _) if captures.nonEmpty =>
-            // Python closures capture locals by reference. When lambdas are
-            // allocated inside lowered loops, that late binding corrupts
-            // Bosatsu's by-value capture semantics. Route captured lambdas
-            // through a tiny factory scope so each allocation freezes its
-            // current capture values.
-            capturedLambdaValue(lam, slotName, inlineSlots)
-          case Lambda(captures, recName, args, res) =>
-            assert(captures.isEmpty)
+          case Lambda(Nil, recName, args, res) =>
             val defName = recName match {
               case None    => Env.newAssignableVar
               case Some(n) => Env.bind(n)
@@ -2779,6 +2770,13 @@ object PythonGen {
               .flatMapN { case (args, defName, body) =>
                 buildLambdaValue(args, defName, None, body)
               } <* args.traverse_(Env.unbind(_))
+          case lam: Lambda[K] =>
+            // Python closures capture locals by reference. When lambdas are
+            // allocated inside lowered loops, that late binding corrupts
+            // Bosatsu's by-value capture semantics. Route captured lambdas
+            // through a tiny factory scope so each allocation freezes its
+            // current capture values.
+            capturedLambdaValue(lam, slotName, inlineSlots)
 
           case WhileExpr(cond, effect, res) =>
             (
