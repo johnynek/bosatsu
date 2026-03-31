@@ -5225,6 +5225,49 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless applies a per-definition budget to repeated loop helper inlining") {
+    val pack = PackageName.parts("Matchless", "Global", "Budget")
+    val smallName = Identifier.Name("small")
+    val largeName = Identifier.Name("large")
+    val foldlName = Identifier.Name("foldl_List")
+    val repeatedCalls = 10
+    val tmpLines =
+      (0 until repeatedCalls).map { idx =>
+        s"|  tmp$idx = items.foldl_List($idx, add)"
+      }.mkString("\n")
+    val summed =
+      (0 until repeatedCalls)
+        .map(idx => s"tmp$idx")
+        .reduce((acc, next) => s"$acc.add($next)")
+
+    checkOptimizedMatchlessPackage(
+      s"""package Matchless/Global/Budget
+         |
+         |export small, large
+         |
+         |def small(items: List[Int]) -> Int:
+         |  items.foldl_List(0, add)
+         |
+         |def large(items: List[Int]) -> Int:
+${tmpLines}
+         |  $summed
+         |""".stripMargin
+    ) { compiled =>
+      val byName = compiled(pack).toMap
+      val smallExpr = byName(smallName)
+      val largeExpr = byName(largeName)
+
+      assertEquals(
+        containsGlobal(smallExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(
+        countGlobalCalls(largeExpr, PackageName.PredefName, foldlName) > 0,
+        true
+      )
+    }
+  }
+
   test("optimized Matchless expands tiny capture-free helper references generically") {
     val helperPack = PackageName.parts("Helper", "Ref")
     val callerPack = PackageName.parts("Caller", "Ref")

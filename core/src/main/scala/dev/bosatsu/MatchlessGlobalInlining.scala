@@ -279,6 +279,9 @@ object MatchlessGlobalInlining {
       summaries: Map[SummaryKey[K], InlineSummary[K]],
       depFor: (K, PackageName) => K
   ): Expr[K] = {
+    var remainingInlineBudget =
+      InlineBenefitModel.definitionInlineBudget(Matchless.exprWeight(expr))
+
     def summaryKey(from: K, pack: PackageName, name: Bindable): SummaryKey[K] =
       SummaryKey(depFor(from, pack), pack, name)
 
@@ -479,12 +482,18 @@ object MatchlessGlobalInlining {
       fn match {
         case Global(from, pack, name) =>
           val key = summaryKey(from, pack, name)
-          summaries.get(key).collect {
-            case summary: LambdaSummary[K] if shouldInline(summary, args) =>
-              summary
-          }.map { summary =>
-            loop(Matchless.inlineApplyArgs(summary.lambda, args))
-          }
+          summaries
+            .get(key)
+            .collect { case summary: LambdaSummary[K] => summary }
+            .flatMap { summary =>
+              shouldInline(summary, args, remainingInlineBudget).map { inlineCost =>
+                (summary, inlineCost)
+              }
+            }
+            .map { case (summary, inlineCost) =>
+              remainingInlineBudget = (remainingInlineBudget - inlineCost).max(0)
+              loop(Matchless.inlineApplyArgs(summary.lambda, args))
+            }
         case _ =>
           None
       }
@@ -494,10 +503,11 @@ object MatchlessGlobalInlining {
 
   private def shouldInline[K](
       summary: LambdaSummary[K],
-      args: NonEmptyList[Expr[K]]
-  ): Boolean = {
-    if (summary.exposesFreeMutableAnon) false
-    else if (summary.arity != args.length) false
+      args: NonEmptyList[Expr[K]],
+      remainingBudget: Int
+  ): Option[Int] = {
+    if (summary.exposesFreeMutableAnon) None
+    else if (summary.arity != args.length) None
     else {
       val argList = args.toList
       val hasKnownSelector =
@@ -530,7 +540,7 @@ object MatchlessGlobalInlining {
         whileUnknownDirectCallee ||
         (!hasKnownSelector && deferredCheapPositionArgument) ||
         (!hasKnownSelector && duplicatedDeferredExpensiveArg)
-      ) false
+      ) None
       else {
         val callSummary =
           InlineBenefitModel.CallSiteSummary(
@@ -559,7 +569,13 @@ object MatchlessGlobalInlining {
               .toVector
           )
 
-        InlineBenefitModel.shouldInlineCall(callSummary)
+        val inlineCost = InlineBenefitModel.callInlineBudgetCost(callSummary)
+
+        if (
+          InlineBenefitModel.shouldInlineCall(callSummary) &&
+          (inlineCost <= remainingBudget)
+        ) Some(inlineCost)
+        else None
       }
     }
   }

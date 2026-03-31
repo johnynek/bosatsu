@@ -705,9 +705,20 @@ What changed:
    - beta-reducing a local lambda through a short alias chain
    - devirtualizing a projected direct callee from a known local struct
 
-## Open Follow-on Work
+## Completed Follow-on Work: Per-definition Cumulative Inline Budget
 
-1. [ ] Add a per-definition cumulative inline budget
+Status: completed.
+
+The remaining open follow-on after local callee cleanup was size discipline. Matchless global inlining already had a reasonable per-call benefit model, but it still judged each site in isolation, which let large definitions pay for repeated loop-helper expansion over and over. That follow-on is now in place.
+
+Current evaluation:
+
+- Isolating this follow-on against checkpoint `d9a5b704e` changed 24 of 1892 Zafu definitions in final Matchless, and all 24 shrank.
+- The minified per-definition total improved by `-55917` bytes overall, with no growth cases in the isolated compare.
+- The largest wins were exactly the previously bad growth outliers: `Zafu/Collection/HashMap::tests` (`-9074`), `Zafu/Cli/Args/Internal/Lex::match_visible_spelling` (`-6432`), `Zafu/Collection/HashSet::tests` (`-5739`), `Zafu/Cli/Args/Internal/Core::spelling_usage` (`-5257`), `Zafu/Cli/Args/Internal/Lex::scan_command` (`-5148`), and `Zafu/Cli/Args/Internal/Help::help_doc` (`-3917`).
+- The important helper removals were preserved. Whole-Zafu final Matchless still has `0` residual global-call sites to `Bosatsu/Predef::foldl_List`, `map_List`, `flat_map_List`, `and`, and `or`.
+- Structural counts moved in the intended direction for loop-expansion artifacts: `while` `348 -> 312`, `let-mut` `1459 -> 1333`, `set-mut` `3665 -> 3413`, `get-enum` `3950 -> 3752`, `check-variant` `5408 -> 5181`, `make-struct` `2238 -> 2144`, and `make-enum` `6180 -> 6137`.
+- This was a Matchless-only change, so no TypedExpr optimizer behavior changed and no new `--validate-typedexpr` sweep was required for this item.
 
 Relevant code:
 
@@ -715,15 +726,20 @@ Relevant code:
 - `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala`
 - `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`
 
-Plan:
+What changed:
 
-- Extend Matchless global inlining so it does not evaluate each call site in isolation only; also track how much inline cost has already been paid inside the current top-level definition.
-- Bias the budget against repeated expansion of loop-like or branch-heavy helpers, since those are the main source of large whole-definition growth in Zafu.
-- Preserve the current strong wins from tiny value exposure, wrapper/dictionary collapse, and short-circuiting helpers such as `and` and `or`.
-- Use the whole-Zafu compare workflow as the primary evaluation loop and explicitly watch the current large-growth definitions such as `Zafu/Collection/HashMap::tests`, `Zafu/Collection/HashSet::tests`, `Zafu/Cli/Args/Internal/Lex::match_visible_spelling`, `Zafu/Cli/Args/Internal/Lex::scan_command`, `Zafu/Cli/Args/Internal/Core::spelling_usage`, and `Zafu/Cli/Args/Internal/Help::help_doc`.
+1. Matchless global inlining now starts each top-level definition with a cumulative inline budget derived from the definition's initial Matchless weight.
+   Smaller definitions get more room to spend on inlining, while already-large definitions start from a tighter budget.
 
-Done when:
+2. Each accepted inline now pays a caller-local budget cost in addition to passing the existing call-site benefit model.
+   Tiny helpers stay effectively free, while loop-like and branch-heavy helpers consume more of the budget.
 
-- We keep almost all of the current devirtualization wins, especially for `foldl_List`, `map_List`, `flat_map_List`, `and`, and `or`, while reducing the number and magnitude of large per-definition growth outliers.
-- Whole-Zafu final Matchless still removes the important helper calls, but the total code-size increase and worst-case per-definition regressions are materially smaller than the current baseline.
-- The budget is predictable and explainable: repeated inlining inside one already-large definition should stop earlier than the same inline inside a small definition.
+3. Repeated expansion inside the same definition now stops once the budget is exhausted.
+   This preserves high-payoff devirtualization in small helpers while cutting back repeated loop-helper cloning inside already-large Zafu definitions.
+
+4. The focused regression uses distinct `foldl_List` initial accumulators.
+   That prevents the synthetic stress case from collapsing to `10 * foldl(...)` and actually exercises the new cumulative budget behavior.
+
+## Open Follow-on Work
+
+No additional follow-on items are open in this document right now. Use the evaluation workflow above to justify any new item before adding it here.

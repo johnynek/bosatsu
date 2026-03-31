@@ -36,6 +36,9 @@ object InlineBenefitModel {
 
   val MaxCallWeightBudget = 80
   val TinyCallWeightBudget = 20
+  val MaxDefinitionInlineBudget = 32
+  val MinDefinitionInlineBudget = 12
+  val DefinitionInlineBudgetPenaltyDivisor = 64
 
   def shouldInlineCall(summary: CallSiteSummary): Boolean = {
     if (summary.calleeWeight > MaxCallWeightBudget) false
@@ -124,6 +127,22 @@ object InlineBenefitModel {
       (score > 0) && (totalBenefit > 0)
     }
   }
+
+  def callInlineBudgetCost(summary: CallSiteSummary): Int = {
+    val baseCost =
+      if (summary.calleeWeight <= TinyCallWeightBudget) 0
+      else 1 + (summary.calleeWeight / 12)
+    val loopCost =
+      if (summary.containsLoopLike) 4 else 0
+    val branchCost =
+      if (summary.exposesBranching) 1 else 0
+
+    baseCost + loopCost + branchCost
+  }
+
+  def definitionInlineBudget(exprWeight: Int): Int =
+    (MaxDefinitionInlineBudget - (exprWeight / DefinitionInlineBudgetPenaltyDivisor))
+      .max(MinDefinitionInlineBudget)
 
   def shouldInlineTinyReference(
       bodyWeight: Int,
