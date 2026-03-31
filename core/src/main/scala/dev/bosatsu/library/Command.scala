@@ -44,6 +44,7 @@ import dev.bosatsu.{
   Par,
   MatchlessFromTypedExpr,
   PlatformIO,
+  TypeValidator,
   ValueToJson,
   TypeName,
   PredefImpl,
@@ -1964,6 +1965,13 @@ object Command {
               help = "emit JSON instead of EDN for easier machine parsing"
             )
             .orFalse,
+          Opts
+            .flag(
+              "validate-typedexpr",
+              help =
+                "run the TypedExpr TypeValidator on the shown packages before rendering; fails on invalid TypedExpr IR"
+            )
+            .orFalse,
           irOpt,
           disableTypedPassOpt,
           disableMatchlessPassOpt,
@@ -1980,6 +1988,7 @@ object Command {
               packageNamesOnly,
               noOpt,
               jsonOut,
+              validateTypedExpr,
               ir,
               disabledTypedPasses,
               disabledMatchlessPasses,
@@ -1997,7 +2006,8 @@ object Command {
                 noOpt,
                 disabledTypedPasses,
                 disabledMatchlessPasses,
-                packageNamesOnly = packageNamesOnly
+                packageNamesOnly = packageNamesOnly,
+                validateTypedExpr = validateTypedExpr
               )
               .toEither
               .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
@@ -2044,6 +2054,22 @@ object Command {
                     .selectPackages(packs0, request.selection)
                     .leftMap(CliException.Basic(_))
                 )
+                _ <-
+                  if (request.validateTypedExpr)
+                    moduleIOMonad.fromEither(
+                      TypeValidator
+                        .validationFailureMessage(
+                          "show typedexpr",
+                          TypeValidator.validatePackagesInEnv(
+                            packs,
+                            ev.packagesForValidation,
+                            "show typedexpr"
+                          )
+                        )
+                        .toLeft(())
+                        .leftMap(CliException.Basic(_))
+                    )
+                  else moduleIOMonad.unit
                 showValue =
                   request.ir match {
                     case Output.ShowIr.TypedExpr =>

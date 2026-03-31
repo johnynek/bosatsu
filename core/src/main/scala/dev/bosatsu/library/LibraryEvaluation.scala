@@ -363,6 +363,17 @@ case class LibraryEvaluation[K] private (
       requested: List[PackageName]
   ): Either[Throwable, List[Package.Typed[Any]]] =
     packagesForShowEither(requested).leftMap(_.toException)
+
+  def packagesForValidation: List[Package.Typed[Any]] =
+    packageCandidates.iterator
+      .map { case (_, scoped) =>
+        scoped.find { case (scope, _) =>
+          keyOrder.equiv(scope, rootScope)
+        }.orElse(scoped.headOption).map(_._2)
+      }
+      .collect { case Some(pack) => pack }
+      .toList
+      .sortBy(_.name)
 }
 
 object LibraryEvaluation {

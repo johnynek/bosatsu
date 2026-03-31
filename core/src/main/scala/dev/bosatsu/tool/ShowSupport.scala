@@ -17,7 +17,8 @@ object ShowSupport {
       ir: Output.ShowIr,
       compileOptions: CompileOptions,
       matchlessPassOptions: Matchless.PassOptions,
-      packageNamesOnly: Boolean
+      packageNamesOnly: Boolean,
+      validateTypedExpr: Boolean = false
   ) {
     def typedPasses: List[CompileOptions.TypedPass] =
       compileOptions.enabledTypedPasses
@@ -73,7 +74,8 @@ object ShowSupport {
       noOpt: Boolean,
       disabledTypedPasses: Set[CompileOptions.TypedPass],
       disabledMatchlessPasses: Set[Matchless.Pass],
-      packageNamesOnly: Boolean
+      packageNamesOnly: Boolean,
+      validateTypedExpr: Boolean
   ): ValidatedNel[String, Request] = {
     val noOptValidation =
       Validated.condNel(
@@ -87,8 +89,18 @@ object ShowSupport {
         (),
         "--disable-matchless-pass requires --ir matchless"
       )
+    val validateTypedExprValidation =
+      Validated.condNel(
+        (ir == Output.ShowIr.TypedExpr) || !validateTypedExpr,
+        (),
+        "--validate-typedexpr requires --ir typedexpr"
+      )
 
-    (noOptValidation, matchlessValidation).mapN { (_, _) =>
+    (
+      noOptValidation,
+      matchlessValidation,
+      validateTypedExprValidation
+    ).mapN { (_, _, _) =>
       val compileOptions =
         if (noOpt) CompileOptions.NoOptimize
         else
@@ -104,7 +116,8 @@ object ShowSupport {
         ir = ir,
         compileOptions = compileOptions,
         matchlessPassOptions = matchlessPassOptions,
-        packageNamesOnly = packageNamesOnly
+        packageNamesOnly = packageNamesOnly,
+        validateTypedExpr = validateTypedExpr
       )
     }
   }

@@ -26,7 +26,9 @@ object MatchlessGlobalInlining {
       bodyWeight: Int,
       paramDemand: Vector[ParamDemand],
       containsWhileExpr: Boolean,
-      exposesFreeMutableAnon: Boolean
+      exposesFreeMutableAnon: Boolean,
+      exposesBranching: Boolean,
+      exposesFollowOnReduction: Boolean
   ) extends InlineSummary[A] {
     def arity: Int = lambda.arity
   }
@@ -37,8 +39,8 @@ object MatchlessGlobalInlining {
       exposesFreeMutableAnon: Boolean
   ) extends InlineSummary[A]
 
-  private val InlineBodyWeightBudget = 80
-  private val TinyBodyWeightBudget = 20
+  private val InlineBodyWeightBudget = InlineBenefitModel.MaxCallWeightBudget
+  private val TinyBodyWeightBudget = InlineBenefitModel.TinyCallWeightBudget
   private val CheapArgWeightBudget = 3
   private val MaxExpensiveArgUses = 1
 
@@ -498,6 +500,11 @@ object MatchlessGlobalInlining {
     else if (summary.arity != args.length) false
     else {
       val argList = args.toList
+      val hasKnownSelector =
+        summary.paramDemand.iterator.zip(argList.iterator).exists {
+          case (demand, arg) =>
+            (demand.cheapPositionUses > 0) && isKnownArgumentValue(arg)
+        }
       val whileLambdaArgument =
         // Recursive/while-lowered helpers remain eligible in general, but
         // direct-callee lambda substitution through those loops needs a more
@@ -524,40 +531,37 @@ object MatchlessGlobalInlining {
 
       if (
         whileLambdaArgument ||
-        deferredCheapPositionArgument ||
-        duplicatedDeferredExpensiveArg
+        (!hasKnownSelector && deferredCheapPositionArgument) ||
+        (!hasKnownSelector && duplicatedDeferredExpensiveArg)
       ) false
       else {
-        val hasUnusedBenefit =
-          summary.paramDemand.iterator.zip(argList.iterator).exists {
-            case (demand, arg) =>
-              demand.unused && !Matchless.isTriviallyCheap(arg)
-          }
-        val hasDeferrableBenefit =
-          summary.paramDemand.iterator.zip(argList.iterator).exists {
-            case (demand, arg) =>
-              demand.deferrable && !isCheapArgument(arg)
-          }
-        val hasLambdaBenefit =
-          summary.paramDemand.iterator.zip(argList.iterator).exists {
-            case (demand, arg) =>
-              demand.lambdaCalleeOnly && resolvesToLambda(arg).nonEmpty
-          }
-        val cheapCallBenefit =
-          argList.forall(isCheapArgument) &&
-            (summary.bodyWeight <= TinyBodyWeightBudget)
-        val tinyPure =
-          (summary.bodyWeight <= TinyBodyWeightBudget) && !summary.containsWhileExpr
-        val score =
-          (if (hasUnusedBenefit) 4 else 0) +
-            (if (hasDeferrableBenefit) 4 else 0) +
-            (if (hasLambdaBenefit) 3 else 0) +
-            (if (cheapCallBenefit) 2 else 0) +
-            (if (tinyPure) 2 else 0) -
-            (if (summary.containsWhileExpr) 1 else 0) -
-            (summary.bodyWeight / 20)
+        val callSummary =
+          InlineBenefitModel.CallSiteSummary(
+            calleeWeight = summary.bodyWeight,
+            containsLoopLike = summary.containsWhileExpr,
+            exposesBranching = summary.exposesBranching,
+            exposesFollowOnReduction = summary.exposesFollowOnReduction,
+            args = summary.paramDemand.iterator
+              .zip(argList.iterator)
+              .map { case (demand, arg) =>
+                InlineBenefitModel.ArgSummary(
+                  demand = InlineBenefitModel.ParamSummary(
+                    totalUses = demand.totalUses,
+                    eagerUses = demand.eagerUses,
+                    branchOnlyUses = demand.branchOnlyUses,
+                    directCalleeUses = demand.directCalleeUses,
+                    nonDirectCalleeUses = demand.nonDirectCalleeUses,
+                    cheapPositionUses = demand.cheapPositionUses
+                  ),
+                  isCheap = isCheapArgument(arg),
+                  resolvesToLambda = resolvesToLambda(arg).nonEmpty,
+                  isKnownValue = isKnownArgumentValue(arg)
+                )
+              }
+              .toVector
+          )
 
-        score > 0
+        InlineBenefitModel.shouldInlineCall(callSummary)
       }
     }
   }
@@ -566,12 +570,16 @@ object MatchlessGlobalInlining {
     summary match {
       case summary: LambdaSummary[K] =>
         summary.lambda.captures.isEmpty &&
-          !summary.containsWhileExpr &&
-          (summary.bodyWeight <= TinyBodyWeightBudget)
+          InlineBenefitModel.shouldInlineTinyReference(
+            summary.bodyWeight,
+            summary.containsWhileExpr
+          )
       case summary: ValueSummary[K]  =>
-        !summary.containsWhileExpr &&
-          !summary.exposesFreeMutableAnon &&
-          (summary.bodyWeight <= TinyBodyWeightBudget)
+        !summary.exposesFreeMutableAnon &&
+          InlineBenefitModel.shouldInlineTinyReference(
+            summary.bodyWeight,
+            summary.containsWhileExpr
+          )
     }
 
   private def resolvesToLambda[A](expr: Expr[A]): Option[Lambda[A]] =
@@ -587,6 +595,68 @@ object MatchlessGlobalInlining {
         !Matchless.Expr.containsWhileExpr(expr) &&
         (Matchless.exprWeight(expr) <= CheapArgWeightBudget))
 
+  private def isKnownArgumentValue[A](expr: Expr[A]): Boolean =
+    expr match {
+      case Matchless.MakeEnum(_, 0, _) |
+          Matchless.MakeStruct(0) =>
+        true
+      case Matchless.App(Matchless.MakeEnum(_, arity, _), args) if args.length == arity =>
+        args.forall(isKnownArgumentValue)
+      case Matchless.App(Matchless.MakeStruct(arity), args) if args.length == arity =>
+        args.forall(isKnownArgumentValue)
+      case _ =>
+        false
+    }
+
+  private def isDirectForwardedValue[A](expr: Expr[A]): Boolean =
+    expr match {
+      case Matchless.Local(_) | Matchless.ClosureSlot(_) => true
+      case _                                             => false
+    }
+
+  @annotation.tailrec
+  private def exposesFollowOnReduction[A](expr: Expr[A]): Boolean =
+    expr match {
+      case Matchless.App(fn, args)
+          if args.forall(isDirectForwardedValue) &&
+            (fn match {
+              case Matchless.Global(_, _, _) | Matchless.Local(_) |
+                  Matchless.ClosureSlot(_) | Matchless.MakeStruct(_) |
+                  Matchless.MakeEnum(_, _, _) | Matchless.SuccNat =>
+                true
+              case _ =>
+                false
+            }) =>
+        true
+      case Matchless.GetEnumElement(arg, _, _, _) if isDirectForwardedValue(arg) =>
+        true
+      case Matchless.GetStructElement(arg, _, _) if isDirectForwardedValue(arg) =>
+        true
+      case Matchless.PrevNat(of) if isDirectForwardedValue(of) =>
+        true
+      case Matchless.Let(_, value, in)
+          if isCheapArgument(value) &&
+            !Matchless.hasSideEffect(value) &&
+            !Matchless.Expr.readsMutable(value) =>
+        exposesFollowOnReduction(in)
+      case _ =>
+        false
+    }
+
+  @annotation.tailrec
+  private def exposesBranching[A](expr: Expr[A]): Boolean =
+    expr match {
+      case Matchless.If(_, _, _) | Matchless.SwitchVariant(_, _, _, _) =>
+        true
+      case Matchless.Let(_, value, in)
+          if isCheapArgument(value) &&
+            !Matchless.hasSideEffect(value) &&
+            !Matchless.Expr.readsMutable(value) =>
+        exposesBranching(in)
+      case _ =>
+        false
+    }
+
   private def summarize[K](
       expr: Expr[K]
   ): Option[InlineSummary[K]] =
@@ -601,7 +671,9 @@ object MatchlessGlobalInlining {
               bodyWeight = bodyWeight,
               paramDemand = Matchless.parameterDemandSummary(lam),
               containsWhileExpr = Matchless.Expr.containsWhileExpr(expr),
-              exposesFreeMutableAnon = freeMutableAnonIds(expr).nonEmpty
+              exposesFreeMutableAnon = freeMutableAnonIds(expr).nonEmpty,
+              exposesBranching = exposesBranching(lam.body),
+              exposesFollowOnReduction = exposesFollowOnReduction(lam.body)
             )
           )
         }

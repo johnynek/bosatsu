@@ -2,7 +2,6 @@ package dev.bosatsu
 
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNec}
 import dev.bosatsu.rankn._
-import munit.Assertions.fail
 import Identifier.Constructor
 
 import cats.syntax.all._
@@ -117,6 +116,66 @@ object TypeValidator {
     * `freeBoundKinds` are the in-scope free bound vars and their kinds.
     */
   private type SolvedFreeBounds = Map[Type.Var, Type]
+  private case class RigidWitnesses(
+      subst: Map[Type.Var, Type],
+      reverse: Map[Type.Const.Defined, Type.Var.Bound]
+  )
+
+  private def rigidInstantiateWitnesses(
+      envKinds: Map[Type.Var.Bound, Kind],
+      vars: Map[Type.Var.Bound, Kind],
+      toVars: Map[Type.Var.Bound, Kind]
+  ): RigidWitnesses = {
+    val rigidVars =
+      envKinds.keysIterator
+        .filterNot(vars.contains)
+        .filterNot(toVars.contains)
+        .toList
+        .sorted
+
+    val pairs = rigidVars.iterator.zipWithIndex.map { case (b, idx) =>
+      val witnessConst =
+        Type.Const.Defined(
+          PackageName.parts("TypeValidator"),
+          TypeName(Identifier.Constructor(s"RigidWitness$idx"))
+        )
+      val witness = Type.TyConst(witnessConst)
+      ((b: Type.Var) -> witness, witnessConst -> b)
+    }.toList
+
+    RigidWitnesses(
+      subst = pairs.iterator.map(_._1).toMap,
+      reverse = pairs.iterator.map(_._2).toMap
+    )
+  }
+
+  private def thawRigidWitnesses(
+      tpe: Type,
+      reverse: Map[Type.Const.Defined, Type.Var.Bound]
+  ): Type =
+    if (reverse.isEmpty) tpe
+    else
+      tpe match {
+        case Type.TyConst(c: Type.Const.Defined) =>
+          reverse.get(c) match {
+            case Some(b) => Type.TyVar(b)
+            case None    => tpe
+          }
+        case Type.TyApply(on, arg) =>
+          val on1 =
+            thawRigidWitnesses(on, reverse).asInstanceOf[Type.Leaf | Type.TyApply]
+          val arg1 = thawRigidWitnesses(arg, reverse)
+          if ((on1 eq on) && (arg1 eq arg)) tpe else Type.TyApply(on1, arg1)
+        case Type.ForAll(vars, in) =>
+          val in1 = thawRigidWitnesses(in, reverse).asInstanceOf[Type.Rho]
+          if (in1 eq in) tpe else Type.ForAll(vars, in1)
+        case Type.Exists(vars, in) =>
+          val in1 =
+            thawRigidWitnesses(in, reverse).asInstanceOf[Type.Leaf | Type.TyApply]
+          if (in1 eq in) tpe else Type.Exists(vars, in1)
+        case _ =>
+          tpe
+      }
 
   private def canWidenInScopeAndSolve(
       from: Type,
@@ -163,13 +222,15 @@ object TypeValidator {
               exists.iterator ++
               scopedFrees.iterator.map(b => b -> envKinds(b))
           ).toMap
+        val rigidWitnesses =
+          rigidInstantiateWitnesses(envKinds, vars, toVars)
 
         Type
           .instantiate(
             vars = vars,
-            from = fromRho,
+            from = Type.substituteVar(fromRho, rigidWitnesses.subst),
             toVars = toVars,
-            to = to1,
+            to = Type.substituteVar(to1, rigidWitnesses.subst),
             env = envKinds
           ) match {
           case None =>
@@ -180,7 +241,12 @@ object TypeValidator {
                 inst
                   .subs
                   .get(b)
-                  .map { case (_, tpe) => (b: Type.Var) -> tpe }
+                  .map { case (_, tpe) =>
+                    (b: Type.Var) -> thawRigidWitnesses(
+                      tpe,
+                      rigidWitnesses.reverse
+                    )
+                  }
                   .orElse(
                     inst.frees.get(b).map { case (_, b1) =>
                       (b: Type.Var) -> (Type.TyVar(b1): Type)
@@ -363,12 +429,21 @@ object TypeValidator {
       stage: String,
       res: TypeValidation[Unit]
   ): Unit =
+    validationFailureMessage(stage, res) match {
+      case None      => ()
+      case Some(msg) => throw new AssertionError(msg)
+    }
+
+  def validationFailureMessage(
+      stage: String,
+      res: TypeValidation[Unit]
+  ): Option[String] =
     res match {
       case Validated.Valid(_) =>
-        ()
+        None
       case Validated.Invalid(errs) =>
         val msg = errs.iterator.map(_.toString).mkString("\n")
-        fail(s"type connectivity validation failed at $stage:\n$msg")
+        Some(s"type connectivity validation failed at $stage:\n$msg")
     }
 
   private def validateTypedExprInvariants[A](
@@ -848,21 +923,31 @@ object TypeValidator {
             val solveVars =
               appBoundKinds.iterator
                 .filterNot { case (v, _) => inScopeKinds.contains(v) }
-                .map { case (v, _) => v -> Kind.Type }
+                .map { case (v, k) => v -> k }
                 .toMap
             val solveToVars =
               Type
                 .freeBoundTyVars(te.getType :: Nil)
                 .distinct
                 .filterNot(inScopeKinds.contains)
-                .map(_ -> Kind.Type)
+                .map { v =>
+                  v -> appKinds.getOrElse(v, Kind.Type)
+                }
                 .toMap
+            val resultRigidWitnesses =
+              rigidInstantiateWitnesses(appKinds, solveVars, solveToVars)
             val solvedOpt =
               Type.instantiate(
                 vars = solveVars,
-                from = expectedResult0,
+                from = Type.substituteVar(
+                  expectedResult0,
+                  resultRigidWitnesses.subst
+                ),
                 toVars = solveToVars,
-                to = te.getType,
+                to = Type.substituteVar(
+                  te.getType,
+                  resultRigidWitnesses.subst
+                ),
                 env = inScopeKinds
               )
             val solveSubMap: Map[Type.Var, Type] =
@@ -874,7 +959,10 @@ object TypeValidator {
                     }.toMap
                   val concreteSubs: Map[Type.Var, Type] =
                     solved.subs.iterator.map { case (v, (_, tpe)) =>
-                      (v: Type.Var) -> tpe
+                      (v: Type.Var) -> thawRigidWitnesses(
+                        tpe,
+                        resultRigidWitnesses.reverse
+                      )
                     }.toMap
                   freeSubs ++ concreteSubs
                 }
@@ -1240,16 +1328,25 @@ object TypeValidator {
       pm: PackageMap.Typed[A],
       stage: String = "package-map"
   ): ValidatedNec[TypeValidationError, Unit] = {
-    val fullTypeEnv = allTypeEnvOfPackageMap(pm)
+    val packs = pm.toMap.values.toList
+    validatePackagesInEnv(packs, packs, stage)
+  }
+
+  def validatePackagesInEnv[A, B](
+      packs: List[Package.Typed[A]],
+      envPacks: List[Package.Typed[B]],
+      stage: String
+  ): ValidatedNec[TypeValidationError, Unit] = {
+    val envPackageMap = PackageMap.fromIterable(envPacks)
+    val fullTypeEnv = allTypeEnvOfPackageMap(envPackageMap)
     val globalValues =
-      globalValuesFromTypeEnv(fullTypeEnv) ++ pm.toMap.valuesIterator.flatMap {
-        pack =>
-          letGlobalValues(pack.name, pack.lets)
+      globalValuesFromTypeEnv(fullTypeEnv) ++ envPacks.iterator.flatMap { pack =>
+        letGlobalValues(pack.name, pack.lets)
       }.toMap
 
-    pm.toMap.valuesIterator.map { pack =>
+    packs.map { pack =>
       validateLetList(pack.name, pack.lets, fullTypeEnv, globalValues, stage)
-    }.toList.sequence_
+    }.sequence_
   }
 
   def assertPackageMapTypeConnections[A](

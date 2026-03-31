@@ -5,8 +5,54 @@ import cats.data.Validated
 import Identifier.Bindable
 import ShadowedBindingTypeCheck.BindingSite
 import TestUtils.{checkEnvExpr, testPackage}
+import dev.bosatsu.Par
+import dev.bosatsu.rankn.Type
 
 class ShadowedBindingTypeCheckTest extends munit.FunSuite {
+  private def collectUntypedVarPatterns[A](
+      te: TypedExpr[A]
+  ): List[(Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])] = {
+    def loop(expr: TypedExpr[A]): List[
+      (Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])
+    ] =
+      expr match {
+        case TypedExpr.Generic(_, in) =>
+          loop(in)
+        case TypedExpr.Annotation(in, _, _) =>
+          loop(in)
+        case TypedExpr.AnnotatedLambda(_, body, _) =>
+          loop(body)
+        case TypedExpr.App(fn, args, _, _) =>
+          loop(fn) ::: args.toList.flatMap(loop)
+        case TypedExpr.Let(_, expr1, in, _, _) =>
+          loop(expr1) ::: loop(in)
+        case TypedExpr.Loop(args, body, _) =>
+          args.toList.flatMap { case (_, init) => loop(init) } ::: loop(body)
+        case TypedExpr.Recur(args, _, _) =>
+          args.toList.flatMap(loop)
+        case m @ TypedExpr.Match(arg, branches, _) =>
+          val here =
+            branches.toList.collect {
+              case br
+                  if br.pattern.names.nonEmpty &&
+                    br.pattern.simpleTypeOf.isEmpty &&
+                    (br.pattern match {
+                      case Pattern.Var(_) => true
+                      case _              => false
+                    }) =>
+                (br.pattern, m: TypedExpr[A])
+            }
+          here ::: loop(arg) ::: branches.toList.flatMap { br =>
+            br.guard.toList.flatMap(loop) ::: loop(br.expr)
+          }
+        case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
+            TypedExpr.Literal(_, _, _) =>
+          Nil
+      }
+
+    loop(te)
+  }
+
 
   private def normalizeSource(source: String): String = {
     val lines = source.linesIterator.toList
@@ -39,6 +85,27 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       case Validated.Invalid(errs) =>
         val all = errs.toNonEmptyList.toList
         fail(s"expected shadow check to pass, got errors: $all")
+    }
+
+  private def optimizedCompileSucceeds(source: String): Unit =
+    Par.withEC {
+      TestUtils.testInferred(
+        List(normalizeSource(source)),
+        "Test",
+        { (_, _) => () }
+      )
+    }
+
+  private def optimizedCompilePackagesSucceeds(
+      packages: List[String],
+      mainPack: String
+  ): Unit =
+    Par.withEC {
+      TestUtils.testInferred(
+        packages.map(normalizeSource),
+        mainPack,
+        { (_, _) => () }
+      )
     }
 
   private def renderError(
@@ -324,6 +391,100 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       )
       """
     )
+  }
+
+  test("generic pattern destructuring assignment keeps alpha-equivalent binders") {
+    positiveCheck(
+      """
+      struct Nel[a](head: a, tail: List[a])
+
+      def to_List(items: Nel[a]) -> List[a]:
+        Nel(head0, tail0) = items
+        [head0, *tail0]
+
+      main = to_List(Nel(1, []))
+      """
+    )
+  }
+
+  test("optimized compile keeps alpha-equivalent recursive pattern binders") {
+    optimizedCompileSucceeds(
+      """
+      package Test
+
+      struct Lazy[a](value: a)
+      enum LazyList[a]: Empty, Cons(head: a, tail: Lazy[LazyList[a]])
+
+      def uncons(ll: LazyList[a]) -> Option[(a, Lazy[LazyList[a]])]:
+        match ll:
+          case Empty:
+            None
+          case Cons(head, tail):
+            Some((head, tail))
+      """
+    )
+  }
+
+  test("optimized compile preserves pattern binder types after helper inlining") {
+    optimizedCompilePackagesSucceeds(
+      List(
+        """
+        package Helper
+
+        export Chain(), prepend, inspect
+
+        enum Chain[a]: Empty, Link(head: a, tail0: Chain[a])
+
+        def prepend(item: a, chain: Chain[a]) -> Chain[a]:
+          Link(item, chain)
+
+        def inspect(chain: Chain[a]) -> Bool:
+          match chain:
+            case Empty:
+              False
+            case Link(_, tail0):
+              tail0 matches Empty
+        """,
+        """
+        package Caller
+
+        from Helper import Chain, Empty, Link, prepend, inspect
+
+        export NonEmptyChain(), to_Chain
+        exposes Helper
+
+        enum NonEmptyChain[a]: Prepend(head0: a, tail0: Chain[a]), Append(init0: Chain[a], last0: a)
+
+        def to_Chain(items: NonEmptyChain[a]) -> Chain[a]:
+          match items:
+            case Prepend(head0, tail0):
+              if inspect(Link(items, Empty)):
+                prepend(head0, tail0)
+              else:
+                prepend(head0, tail0)
+            case Append(init0, last0):
+              prepend(last0, init0)
+        """
+      ),
+      "Caller"
+    )
+  }
+
+  test("optimized Bosatsu/Num/Nat tests preserve typed match binders") {
+    Par.withEC {
+      val pm = TestUtils.compileFile("test_workspace/Nat.bosatsu")
+      val natPack = PackageName.parts("Bosatsu", "Num", "Nat")
+      val testsName = Identifier.Name("tests")
+      val expr =
+        pm.toMap(natPack).lets.collectFirst {
+          case (`testsName`, _, te) => te
+        }.getOrElse(fail("missing Bosatsu/Num/Nat::tests"))
+
+      val bad = collectUntypedVarPatterns(expr)
+      assertEquals(bad, Nil, bad.map { case (pat, owner) =>
+        s"bad pattern: $pat\nowner: ${owner.reprString}"
+      }.mkString("\n\n"))
+    }
   }
 
   test("quantified non-equivalent shadows fail and messages hide internal renames") {

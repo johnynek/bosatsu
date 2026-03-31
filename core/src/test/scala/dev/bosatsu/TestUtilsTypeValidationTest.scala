@@ -101,6 +101,55 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(res.isValid, renderErrors(res))
   }
 
+  test("validateTypes accepts higher-kinded application solved from result type") {
+    val wrap = Type.Var.Bound("wrap")
+    val f = Type.Var.Bound("f")
+    val g = Type.Var.Bound("g")
+    val a = Type.Var.Bound("a")
+    val fnName = Identifier.Name("mk")
+    val argName = Identifier.Name("pure_g")
+
+    val starToStar = Kind(Kind.Type.in)
+    val wrapperKind = Kind(starToStar.in)
+
+    def pureType(on: Type.Var.Bound): Type =
+      Type.ForAll(
+        NonEmptyList.one((a, Kind.Type)),
+        Type.Fun(
+          NonEmptyList.one(Type.TyVar(a)),
+          Type.TyApply(Type.TyVar(on), Type.TyVar(a))
+        )
+      )
+
+    val fnType = Type.ForAll(
+      NonEmptyList.one((f, starToStar)),
+      Type.Fun(
+        NonEmptyList.one(pureType(f)),
+        Type.TyApply(Type.TyVar(wrap), Type.TyVar(f))
+      )
+    )
+    val argType = pureType(g)
+    val fn = TypedExpr.Local(fnName, fnType, tag)
+    val arg = TypedExpr.Local(argName, argType, tag)
+    val app = TypedExpr.App(
+      fn,
+      NonEmptyList.one(arg),
+      Type.TyApply(Type.TyVar(wrap), Type.TyVar(g)),
+      tag
+    )
+    val te = TypedExpr.Generic(
+      TypedExpr.Quantification.ForAll(
+        NonEmptyList.of((wrap, wrapperKind), (g, starToStar))
+      ),
+      app
+    )
+
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(fn -> fnType, arg -> argType)
+    val res = TestUtils.validateTypes(te, names, TypeEnv.empty)
+    assert(res.isValid, renderErrors(res))
+  }
+
   test("validateTypes rejects free bound type vars in root type") {
     val a = Type.Var.Bound("a")
     val leaked = Identifier.Name("leaked")

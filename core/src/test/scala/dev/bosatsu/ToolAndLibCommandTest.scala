@@ -1150,6 +1150,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "repo",
         "--value",
         value,
+        "--ir",
+        "matchless",
         "--json"
       ) ::: (if (noOpt) List("--no-opt") else Nil)
 
@@ -1851,6 +1853,59 @@ class ToolAndLibCommandTest extends FunSuite {
         fail(s"unexpected output: $other")
       case Left(err) =>
         fail(err.getMessage)
+    }
+  }
+
+  test("show --validate-typedexpr validates typed IR before rendering") {
+    val src =
+      """helper = 1
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--validate-typedexpr"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
+        assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("show --validate-typedexpr rejects --ir matchless") {
+    val src =
+      """main = 42
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--ir",
+        "matchless",
+        "--validate-typedexpr"
+      )
+    ) match {
+      case Right(other) =>
+        fail(s"expected validation option error, got output: $other")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("--validate-typedexpr requires --ir typedexpr"), msg)
     }
   }
 

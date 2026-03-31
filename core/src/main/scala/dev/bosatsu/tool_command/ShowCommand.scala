@@ -24,7 +24,8 @@ import dev.bosatsu.{
   PackageMap,
   PackageName,
   Par,
-  PlatformIO
+  PlatformIO,
+  TypeValidator
 }
 
 object ShowCommand {
@@ -230,6 +231,13 @@ object ShowCommand {
           help = "emit JSON instead of EDN for easier machine parsing"
         )
         .orFalse,
+      Opts
+        .flag(
+          "validate-typedexpr",
+          help =
+            "run the TypedExpr TypeValidator on the shown packages before rendering; fails on invalid TypedExpr IR"
+        )
+        .orFalse,
       irOpt,
       disableTypedPassOpt,
       disableMatchlessPassOpt,
@@ -255,6 +263,7 @@ object ShowCommand {
           values,
           externalsOnly,
           jsonOut,
+          validateTypedExpr,
           ir,
           disabledTypedPasses,
           disabledMatchlessPasses,
@@ -272,7 +281,8 @@ object ShowCommand {
               noOpt,
               disabledTypedPasses,
               disabledMatchlessPasses,
-              packageNamesOnly = false
+              packageNamesOnly = false,
+              validateTypedExpr = validateTypedExpr
             )
             .toEither
             .leftMap(errs => CliException.Basic(errs.toList.mkString("\n")))
@@ -297,6 +307,22 @@ object ShowCommand {
                 .selectPackages(packs1, request.selection)
                 .leftMap(CliException.Basic(_))
             )
+            _ <-
+              if (request.validateTypedExpr)
+                moduleIOMonad.fromEither(
+                  TypeValidator
+                    .validationFailureMessage(
+                      "show typedexpr",
+                      TypeValidator.validatePackagesInEnv(
+                        packs,
+                        packs0,
+                        "show typedexpr"
+                      )
+                    )
+                    .toLeft(())
+                    .leftMap(CliException.Basic(_))
+                )
+              else moduleIOMonad.unit
             selectedInterfaces =
               ShowSelection.selectInterfaces(interfaces, request.selection)
             showValue =

@@ -1888,7 +1888,7 @@ object Matchless {
               )
             case If(cond, thenExpr, elseExpr) =>
               loop(
-                LoopState(cond, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(cond, branchOnly, false, insideLambda, true, shadowed) ::
                   LoopState(thenExpr, true, false, insideLambda, false, shadowed) ::
                   LoopState(elseExpr, true, false, insideLambda, false, shadowed) ::
                   tail
@@ -1929,8 +1929,8 @@ object Matchless {
               loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
             case And(left, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(left, branchOnly, false, insideLambda, cheapContext, shadowed) ::
+                  LoopState(right, branchOnly, false, insideLambda, cheapContext, shadowed) ::
                   tail
               )
             case CheckVariant(arg, _, _, _) =>
@@ -1948,12 +1948,14 @@ object Matchless {
                   case Left(_)     => shadowed
                 }
               loop(
-                LoopState(value, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(in, branchOnly, false, insideLambda, false, shadowed1) ::
+                LoopState(value, branchOnly, false, insideLambda, cheapContext, shadowed) ::
+                  LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed1) ::
                   tail
               )
             case LetMutBool(_, in) =>
-              loop(LoopState(in, branchOnly, false, insideLambda, false, shadowed) :: tail)
+              loop(
+                LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed) :: tail
+              )
             case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
                 Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | _: SuccNat.type |
                 _: ZeroNat.type | _: TrueConst.type =>
@@ -5427,34 +5429,53 @@ object Matchless {
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
+          def peelLeadingLets(
+              expr: Expr[B],
+              acc: List[(Either[LocalAnon, Bindable], Expr[B])]
+          ): (List[(Either[LocalAnon, Bindable], Expr[B])], Expr[B]) =
+            expr match {
+              case Let(arg, value, in) =>
+                peelLeadingLets(in, (arg, value) :: acc)
+              case other =>
+                (acc.reverse, other)
+            }
+
           loop(e, slots.inLet(name)).flatMap {
-            case fn @ Lambda(captures, Some(fnName), args, body)
-                if fnName == name =>
-              // TypedExpr lowering keeps polymorphic recursion in lambda form to
-              // preserve typed AST invariants. Matchless is type-erased, so we
-              // can lower tail self-calls here when available.
-              val initArgs = args.map(Local(_))
-              buildLoopExpr(
-                fnName,
-                args,
-                initArgs,
-                body,
-                onlyIfTailCall = true
-              ).map {
-                case Some(loopBody) =>
-                  Lambda(captures, Some(fnName), args, loopBody)
-                case None =>
-                  fn
+            case compiled =>
+              val (lets, tail) = peelLeadingLets(compiled, Nil)
+              tail match {
+                case fn @ Lambda(captures, Some(fnName), args, body)
+                    if fnName == name =>
+                  // TypedExpr lowering keeps polymorphic recursion in lambda form to
+                  // preserve typed AST invariants. Matchless is type-erased, so we
+                  // can lower tail self-calls here when available.
+                  val initArgs = args.map(Local(_))
+                  buildLoopExpr(
+                    fnName,
+                    args,
+                    initArgs,
+                    body,
+                    onlyIfTailCall = true
+                  ).map { maybeLoopBody =>
+                    val loweredFn =
+                      maybeLoopBody match {
+                        case Some(loopBody) =>
+                          Lambda(captures, Some(fnName), args, loopBody)
+                        case None =>
+                          fn
+                      }
+                    Let.bindAll(lets, loweredFn)
+                  }
+                case fn: Lambda[?] =>
+                  // loops always have a function name
+                  sys.error(
+                    s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $compiled"
+                  )
+                case _ =>
+                  sys.error(
+                    s"expected ${e.repr.render(80)} to compile to a function, but got: $compiled"
+                  )
               }
-            case fn: Lambda[?] =>
-              // loops always have a function name
-              sys.error(
-                s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
-              )
-            case expr =>
-              sys.error(
-                s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
-              )
           }
         case RecursionKind.NonRecursive => loop(e, slots)
       }

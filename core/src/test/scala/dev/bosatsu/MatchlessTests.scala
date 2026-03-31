@@ -3922,6 +3922,8 @@ def middle_window(xs):
   test("guarded fixed-width middle list search evaluates guard per candidate") {
     checkMatchlessPackage("""package Test
 
+export has_two
+
 def has_two(xs):
   xs matches [*_, x, *_] if x matches 2
 
@@ -5373,7 +5375,9 @@ def seg_final_literal_char(s):
       )
     ) { compiled =>
       val useExpr = compiled(callerPack).toMap.apply(useName)
-      assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+      if (containsGlobal(useExpr, helperPack, chooseName)) {
+        fail(s"mixed eager helper still present: $useExpr")
+      }
 
       Matchless.recoverTopLevelLambda(useExpr) match {
         case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
@@ -5546,40 +5550,85 @@ def seg_final_literal_char(s):
     }
   }
 
-  test("optimized Matchless inlines duplicate helpers once arguments simplify to cheap locals") {
-    val helperPack = PackageName.parts("Helper", "Dup")
-    val callerPack = PackageName.parts("Caller", "Dup")
-    val duplicate = Identifier.Name("duplicate")
-    val useName = Identifier.Name("use")
+  test("optimized Matchless keeps direct alias and wrapper variants aligned") {
+    val helperPack = PackageName.parts("Helper", "Benefit")
+    val callerPack = PackageName.parts("Caller", "Benefit")
+    val chooseName = Identifier.Name("choose")
+    val wrapName = Identifier.Name("wrap")
+    val useDirectName = Identifier.Name("use_direct")
+    val useAliasName = Identifier.Name("use_alias")
+    val useWrapperName = Identifier.Name("use_wrapper")
+    val useNoPayoffName = Identifier.Name("use_no_payoff")
+    val directNoPayoffName = Identifier.Name("direct_no_payoff")
 
     checkOptimizedMatchlessPackages(
       NonEmptyList.of(
-        """package Helper/Dup
+        """package Helper/Benefit
           |
-          |export Pair(), duplicate
+          |export choose, no_payoff
           |
-          |struct Pair(left: Int, right: Int)
-          |
-          |def duplicate(x: Int) -> Pair:
-          |  Pair(x, x)
-          |""".stripMargin,
-        """package Caller/Dup
-          |
-          |from Helper/Dup import duplicate
-          |
-          |def expensive(i: Int) -> Int:
-          |  if False:
-          |    0
+          |def choose(flag: Bool, on_true: Int) -> Int:
+          |  tmp0 = on_true
+          |  tmp1 = tmp0
+          |  tmp2 = tmp1
+          |  if flag:
+          |    tmp2
           |  else:
-          |    i
+          |    0
           |
-          |def use(i: Int):
-          |  duplicate(expensive(i))
+          |def no_payoff(x: Int) -> Int:
+          |  x.add(17)
+          |""".stripMargin,
+        """package Caller/Benefit
+          |
+          |from Helper/Benefit import choose, no_payoff
+          |
+          |export use_direct, use_alias, use_wrapper, use_no_payoff
+          |
+          |def wrap(flag: Bool, on_true: Int) -> Int:
+          |  choose(flag, on_true)
+          |
+          |def use_direct(i: Int) -> Int:
+          |  choose(False, i)
+          |
+          |def use_alias(i: Int) -> Int:
+          |  local = choose
+          |  local(False, i)
+          |
+          |def use_wrapper(i: Int) -> Int:
+          |  wrap(False, i)
+          |
+          |def use_no_payoff(i: Int) -> Int:
+          |  no_payoff(i)
+          |
+          |def direct_no_payoff(i: Int) -> Int:
+          |  i.add(17)
           |""".stripMargin
       )
     ) { compiled =>
-      val useExpr = compiled(callerPack).toMap.apply(useName)
-      assertEquals(containsGlobal(useExpr, helperPack, duplicate), false)
+      val callerDefs = compiled(callerPack).toMap
+      val useDirect = callerDefs(useDirectName)
+      val useAlias = callerDefs(useAliasName)
+      val useWrapper = callerDefs(useWrapperName)
+      val useNoPayoff = callerDefs(useNoPayoffName)
+      val directNoPayoff = callerDefs(directNoPayoffName)
+
+      List(useDirect, useAlias, useWrapper).foreach { useExpr =>
+        assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+        assertEquals(containsGlobal(useExpr, callerPack, wrapName), false)
+        Matchless.recoverTopLevelLambda(useExpr) match {
+          case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+            assertEquals(lit, Lit.fromInt(0))
+          case other =>
+            fail(s"expected inlined benefit helper to collapse to 0, found: $other")
+        }
+      }
+
+      assertEquals(
+        Matchless.exprWeight(useNoPayoff) <= Matchless.exprWeight(directNoPayoff),
+        true,
+        s"no-payoff helper grew relative to the direct form: use=$useNoPayoff direct=$directNoPayoff"
+      )
     }
   }
 

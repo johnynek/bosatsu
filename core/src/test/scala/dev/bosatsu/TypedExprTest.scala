@@ -4372,6 +4372,16 @@ def use(y: Int) -> Int:
     )
   }
 
+  test("closure rewrite keeps normalized non-recursive locals type valid") {
+    checkLast(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+"""
+    ) { _ => () }
+  }
+
   test("normalization keeps closures when recursive local loops escape") {
     val fnName = Identifier.Name("fn")
     val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
@@ -4396,6 +4406,21 @@ def makeLoop(fn):
       countLambdaCapturing(normalizedExpr, fnName) > 0,
       normalizedExpr.reprString
     )
+  }
+
+  test("closure rewrite keeps normalized recursive locals type valid") {
+    checkLast(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+def sum_plus(y: Int, zs: L[Int]) -> Int:
+  def loop(lst):
+    recur lst:
+      case E: y
+      case NE(_, t): loop(t).add(y)
+  loop(zs)
+"""
+    ) { _ => () }
   }
 
   test("normalization keeps closures when non-recursive local functions escape") {
