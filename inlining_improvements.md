@@ -16,9 +16,10 @@ The current optimizer already has some of the building blocks we want, but they 
 - `core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala` already has `rewriteNonEscapingClosureBinding` around line 1001, but it is only invoked for recursive lets around line 1358.
 - `core/src/main/scala/dev/bosatsu/Matchless.scala` already has `parameterDemandSummary` and `inlineApplyArgs`, which can keep some non-cheap arguments inside `If` and `SwitchVariant` branches after beta-reduction.
 - `core/src/main/scala/dev/bosatsu/Matchless.scala` already has `simplifyKnownConditions.knownValue`, which can fold `GetStructElement` and `GetEnumElement` when the underlying constructor value is syntactically known.
-- `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala` currently publishes summaries only for lambdas, not small pure values.
-- TypedExpr inlining still uses hard size gates (`ResolveToLambda.MaxSize`, `MaxLocalSize`, `LambdaArgInlineBonus`), while Matchless uses a separate coarse score based on demand and body weight.
+- `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala` now publishes tiny pure value summaries in addition to lambdas.
+- TypedExpr and Matchless now both route call-site inlining through `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`, and the remaining open optimizer work is now the bounded Matchless fixpoint rather than the shared benefit model itself.
 - `core/src/main/scala/dev/bosatsu/Matchless.scala` still runs a single `postLoweringCleanup` round (`hoistInvariantLoopLets`, `reuseConstructors`, `simplifyKnownConditions`) rather than a bounded fixpoint.
+- `show` now supports `--validate-typedexpr`, which lets us run `TypeValidator.assertValid` on the selected optimized TypedExpr output while bisection-testing typed passes.
 
 The goal of this plan is to turn those existing pieces into a more general optimizer pipeline that removes wrapper plumbing, avoids eager branch-only work, and converges on a stable final Matchless shape for semantically equivalent source programs.
 
@@ -40,6 +41,7 @@ Do not make future implementers rediscover the invocation path. For a checked-ou
 Verified baseline:
 
 - Current working branch: `codex/inlining-improvements`
+- Item 4 evaluation baseline checkpoint: `2c8f6faeb` (`Checkpoint inlining work and typedexpr validation`)
 - Checkpoint used to evaluate item 3: `43bf1d759` (`Inline tiny pure Matchless values`)
 - Before any evaluation rerun `sbt cli/assembly`. `bosatsuj` selects the newest assembly jar from `cli/target/scala-*/bosatsu-cli-assembly-*.jar`, and the jar filename reflects the last commit hash rather than any uncommitted work.
 - Verified current assembly path after item 3 work: `cli/target/scala-3.8.2/bosatsu-cli-assembly-0.0.61+4-43bf1d75+20260330-1059-SNAPSHOT.jar`
@@ -98,6 +100,25 @@ Swap the `--value` selector to inspect the other standing probes:
 - `Zafu/Collection/Vector::traverse_Vector_fn`
 - `Zafu/Control/Result::traverse_Result_fn`
 - `Zafu/Control/PartialResult::traverse_PartialResult_fn`
+
+After any change to TypedExpr normalization or any other TypedExpr optimizer pass, rerun the TypedExpr validator before trusting the new optimization:
+
+```sh
+./bosatsuj show \
+  --repo_root ../zafu \
+  --validate-typedexpr
+```
+
+Because optimizations must not be required for correctness, also rerun the validator with typed passes disabled. There are currently three typed passes (`loop-recur-lowering`, `normalize`, `discard-unused`), so either sweep all eight combinations or at minimum rerun `--no-opt` plus the single-pass disables:
+
+```sh
+./bosatsuj show --repo_root ../zafu --validate-typedexpr --no-opt
+./bosatsuj show --repo_root ../zafu --validate-typedexpr --disable-typed-pass loop-recur-lowering
+./bosatsuj show --repo_root ../zafu --validate-typedexpr --disable-typed-pass normalize
+./bosatsuj show --repo_root ../zafu --validate-typedexpr --disable-typed-pass discard-unused
+```
+
+Current soundness status at checkpoint `2c8f6faeb`: all eight typed-pass configurations validate successfully on `../zafu`.
 
 ### Whole-library compare against `origin/main`
 
@@ -406,7 +427,7 @@ Expand the existing test areas rather than inventing a separate harness:
 - `Matchless.exprWeight` improves or stabilizes across rounds and does not oscillate.
 - Escaping functions remain closures when they must, and `Unit -> a` thunks still preserve laziness.
 
-### Current status after items 1 through 3
+### Current status after items 1 through 4
 
 - The first work item is implemented and covered by focused regressions in `TypedExprTest` and `MatchlessTest`.
 - The standing Zafu probe files for `NonEmptyChain`, `Chain`, `Result`, and `PartialResult` were rerun after the change and are still textually unchanged.
@@ -422,7 +443,15 @@ Expand the existing test areas rather than inventing a separate harness:
 - The third work item is implemented and covered by focused regressions in `TypedExprTest` and `MatchlessTest`.
 - Isolating item 3 against checkpoint `43bf1d759` changed 0 of 1963 Zafu definitions in final Matchless. The whole-library final shape is therefore unchanged relative to item 2.
 - That no-op corpus diff is acceptable for now. It means the current Zafu workload does not contain direct-call-only multi-use local closures that survive to final Matchless in a way this rewrite changes, so item 3 is evidenced by the new focused normalization and lowering regressions rather than by a whole-library shape shift.
-- `sbt coreJVM/test` is green with 1918 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
+- `show --validate-typedexpr` is now available through both `show` entry points and should be part of the evaluation loop for all future TypedExpr optimizer work.
+- After the TypedExpr soundness fixes through checkpoint `2c8f6faeb`, `show --validate-typedexpr` succeeded on `../zafu` for the default pipeline, all single disabled typed-pass configurations, all two-pass disabled configurations, and `--no-opt`.
+- The fourth work item is now implemented and covered by focused regressions in `MatchlessTest`.
+- Item 4 already had the shared call-site scoring model in place before this turn; the remaining gap was that TypedExpr still did not recognize constructor-valued arguments as a payoff for inlining branchy helpers. `TypedExprNormalization` now treats direct constructor applications as “known enough” for the benefit model, so wrapper helpers that immediately branch on `Some(x)`-style values can inline even though those constructor applications are not otherwise “simple”.
+- The new focused regression `optimized Matchless inlines constructor-branch helpers across direct alias and wrapper calls` shows the intended effect directly: the direct call, local alias, and wrapper variants all collapse to the same final identity-style Matchless body once the helper sees a known constructor argument.
+- Isolating the item-4 completion work against checkpoint `2c8f6faeb` changed 40 Zafu definitions in final Matchless. Of those, 13 shrank, 6 grew, and 21 had a shape change at the same minified size, for a net minified Matchless win of 4251 bytes.
+- In that isolated comparison, `get-enum` dropped by 26 nodes, `make-struct` by 10, and `make-enum` by 6. `get-struct` rose by 11 and `global` by 6, so this is a net positive but not a uniformly shrinking transform.
+- Representative item-4 wins in that isolated compare include `Zafu/Control/PartialResult::tests`, `Zafu/Cli/Args/Internal/Core::render_spelling`, `Zafu/Control/Result::tests`, and `Zafu/Collection/List::tests`. The largest growths were `Zafu/Cli/Args/Internal/Core::spelling_usage`, `Zafu/Cli/Args/Internal/Core::decode_named_required`, and `Zafu/Tool/Cat::tests`, where helper logic moved into callers. That trade is acceptable for item 4 because the branch/projection payoff is now explicit and the no-payoff regression remains covered by the optimizer tests.
+- After the item-4 completion change, `sbt coreJVM/test` is green with 1928 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
 
 ## Items To Do
 
@@ -488,10 +517,11 @@ Done when:
 - In Matchless, there are fewer `Lambda(captures = ...)` nodes, fewer `ClosureSlot`s, and more `Lambda(captures = Nil, ...)` or fully beta-reduced code.
 - Escaping functions and suspension boundaries keep their current semantics.
 
-4. [ ] Replace size bonuses with a richer shared benefit model
+4. [x] Replace size bonuses with a richer shared benefit model
 
 Relevant code:
 
+- `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`
 - `core/src/main/scala/dev/bosatsu/TypedExprNormalization.scala`
 - `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala`
 - `core/src/main/scala/dev/bosatsu/Matchless.scala`
@@ -537,3 +567,5 @@ Done when:
   Matchless global inlining now publishes tiny pure value summaries in addition to lambdas, expression-level simplification can substitute those values and fold projections through known locals, and focused tests now cover pure struct-valued and enum-valued helper elimination both in optimizer tests and through `show --ir matchless`.
 - Item 3 completed.
   TypedExpr normalization now applies the existing non-escaping closure rewrite to multi-use non-recursive local function bindings as well as recursive ones, while still leaving escaping local functions untouched. Focused tests now cover the TypedExpr rewrite directly and the raw Matchless lowering effect, where direct-call-only local closures lose captures and escaping closures still keep them.
+- Item 4 completed.
+  TypedExpr and Matchless now share `InlineBenefitModel` for call-site inlining, the TypedExpr side now recognizes constructor-valued arguments as a concrete payoff when a helper immediately branches on them, and focused optimizer tests cover direct, alias, wrapper, and no-payoff variants so harmless wrappers stay aligned while real branch/projection wins still inline.

@@ -5632,6 +5632,63 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless inlines constructor-branch helpers across direct alias and wrapper calls") {
+    val pack = PackageName.parts("Test", "KnownBranch")
+    val unwrapName = Identifier.Name("unwrap")
+    val wrapName = Identifier.Name("wrap")
+    val useDirectName = Identifier.Name("use_direct")
+    val useAliasName = Identifier.Name("use_alias")
+    val useWrapperName = Identifier.Name("use_wrapper")
+
+    checkOptimizedMatchlessPackage("""package Test/KnownBranch
+      |
+      |export use_direct, use_alias, use_wrapper
+      |
+      |enum Opt:
+      |  None
+      |  Some(value: Int)
+      |
+      |def unwrap(o: Opt) -> Int:
+      |  match o:
+      |    case Some(v):
+      |      v
+      |    case None:
+      |      0
+      |
+      |def wrap(o: Opt) -> Int:
+      |  unwrap(o)
+      |
+      |def use_direct(i: Int) -> Int:
+      |  unwrap(Some(i))
+      |
+      |def use_alias(i: Int) -> Int:
+      |  local = unwrap
+      |  local(Some(i))
+      |
+      |def use_wrapper(i: Int) -> Int:
+      |  wrap(Some(i))
+      |""".stripMargin) { compiled =>
+      val callerDefs = compiled(pack).toMap
+      val useDirect = callerDefs(useDirectName)
+      val useAlias = callerDefs(useAliasName)
+      val useWrapper = callerDefs(useWrapperName)
+
+      List(useDirect, useAlias, useWrapper).foreach { useExpr =>
+        assertEquals(containsGlobal(useExpr, pack, unwrapName), false)
+        assertEquals(containsGlobal(useExpr, pack, wrapName), false)
+        Matchless.recoverTopLevelLambda(useExpr) match {
+          case Matchless.Lambda(Nil, None, args, Matchless.Local(arg))
+              if args.toList == (arg :: Nil) =>
+            ()
+          case other =>
+            fail(
+              s"expected constructor-known helper to collapse to the identity body, found: $other"
+            )
+        }
+      }
+    }
+  }
+
   test("optimized Matchless can inline helpers that already lower to WhileExpr") {
     val helperPack = PackageName.parts("Helper", "While")
     val callerPack = PackageName.parts("Caller", "While")

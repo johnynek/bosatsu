@@ -2293,7 +2293,22 @@ object TypedExprNormalization {
         private def isCheapArgument(argExpr: TypedExpr[A]): Boolean =
           Impl.isSimple(argExpr, lambdaSimple = true)
 
-        private def isKnownArgumentValue(argExpr: TypedExpr[A]): Boolean = false
+        private def isKnownArgumentValue(argExpr: TypedExpr[A]): Boolean =
+          stripTypeWrappers(argExpr) match {
+            case Literal(_, _, _) =>
+              true
+            case Global(_, _: Constructor, _, _) =>
+              true
+            case App(fn, _, _, _) =>
+              stripTypeWrappers(fn) match {
+                case Global(_, _: Constructor, _, _) =>
+                  true
+                case _ =>
+                  false
+              }
+            case _ =>
+              false
+          }
 
         private def isDirectForwardedValue(argExpr: TypedExpr[A]): Boolean =
           stripTypeWrappers(argExpr) match {
