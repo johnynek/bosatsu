@@ -1679,9 +1679,10 @@ object Matchless {
                   ((demand.eagerUses > 0) &&
                     ((demand.totalUses > 1) || (demand.cheapPositionUses > 0))) ||
                   // CheapExpr positions such as EqualsNat/GetStructElement cannot
-                  // directly hold nullary constructors like ZeroNat or
-                  // MakeStruct(0), even though they are semantically trivial.
-                  ((demand.cheapPositionUses > 0) && isTriviallyCheap(argExpr))
+                  // directly hold arbitrary constructor applications. Memoizing
+                  // any non-cheap selector input preserves eager call semantics
+                  // while giving substitution a cheap local to reference.
+                  (demand.cheapPositionUses > 0)
                 ) =>
             (argName, argExpr)
         }

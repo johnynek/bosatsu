@@ -471,19 +471,21 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
   }
 
   test("optimized Bosatsu/Num/Nat tests preserve typed match binders") {
-    Par.withEC {
-      val pm = TestUtils.compileFile("test_workspace/Nat.bosatsu")
-      val natPack = PackageName.parts("Bosatsu", "Num", "Nat")
-      val testsName = Identifier.Name("tests")
-      val expr =
-        pm.toMap(natPack).lets.collectFirst {
-          case (`testsName`, _, te) => te
-        }.getOrElse(fail("missing Bosatsu/Num/Nat::tests"))
+    if (Platform.isScalaJvm) {
+      Par.withEC {
+        val pm = TestUtils.compileFile("test_workspace/Nat.bosatsu")
+        val natPack = PackageName.parts("Bosatsu", "Num", "Nat")
+        val testsName = Identifier.Name("tests")
+        val expr =
+          pm.toMap(natPack).lets.collectFirst {
+            case (`testsName`, _, te) => te
+          }.getOrElse(fail("missing Bosatsu/Num/Nat::tests"))
 
-      val bad = collectUntypedVarPatterns(expr)
-      assertEquals(bad, Nil, bad.map { case (pat, owner) =>
-        s"bad pattern: $pat\nowner: ${owner.reprString}"
-      }.mkString("\n\n"))
+        val bad = collectUntypedVarPatterns(expr)
+        assertEquals(bad, Nil, bad.map { case (pat, owner) =>
+          s"bad pattern: $pat\nowner: ${owner.reprString}"
+        }.mkString("\n\n"))
+      }
     }
   }
 

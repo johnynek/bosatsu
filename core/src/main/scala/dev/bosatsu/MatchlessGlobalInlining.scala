@@ -640,13 +640,17 @@ object MatchlessGlobalInlining {
 
   private def isKnownArgumentValue[A](expr: Expr[A]): Boolean =
     expr match {
-      case Matchless.MakeEnum(_, 0, _) |
-          Matchless.MakeStruct(0) =>
+      case Matchless.Literal(_) |
+          Matchless.MakeEnum(_, 0, _) |
+          Matchless.MakeStruct(0) |
+          Matchless.ZeroNat =>
         true
       case Matchless.App(Matchless.MakeEnum(_, arity, _), args) if args.length == arity =>
         args.forall(isKnownArgumentValue)
       case Matchless.App(Matchless.MakeStruct(arity), args) if args.length == arity =>
         args.forall(isKnownArgumentValue)
+      case Matchless.App(Matchless.SuccNat, NonEmptyList(arg, Nil)) =>
+        isKnownArgumentValue(arg)
       case _ =>
         false
     }

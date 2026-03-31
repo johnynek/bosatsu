@@ -190,6 +190,29 @@ main = has_two
     }
   }
 
+  test("loop-created closures freeze captures through a factory in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def mk():
+  [_ -> i for i in range(3)]
+
+main = mk
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val mk = normalizeGeneratedTemps(extractPythonDef(code, "mk"))
+      val helperDefs = "def ___v\\d+\\(___v\\d+\\):".r.findAllMatchIn(mk).length
+
+      assert(mk.contains("while ___v"), mk)
+      assertEquals(helperDefs, 1, mk)
+      assert(mk.contains("return lambda ___"), mk)
+      assert(mk.contains("___v6(___b__bsts__inline__let__00)"), mk)
+    }
+  }
+
   test("segmented end-anchored list search lowers to one suffix-positioning loop in Python") {
     val pm = typeCheckPackage("""package Test
 
