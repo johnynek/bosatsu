@@ -17,8 +17,8 @@ The current optimizer already has some of the building blocks we want, but they 
 - `core/src/main/scala/dev/bosatsu/Matchless.scala` already has `parameterDemandSummary` and `inlineApplyArgs`, which can keep some non-cheap arguments inside `If` and `SwitchVariant` branches after beta-reduction.
 - `core/src/main/scala/dev/bosatsu/Matchless.scala` already has `simplifyKnownConditions.knownValue`, which can fold `GetStructElement` and `GetEnumElement` when the underlying constructor value is syntactically known.
 - `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala` now publishes tiny pure value summaries in addition to lambdas.
-- TypedExpr and Matchless now both route call-site inlining through `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`, and the remaining open optimizer work is now the bounded Matchless fixpoint rather than the shared benefit model itself.
-- `core/src/main/scala/dev/bosatsu/Matchless.scala` still runs a single `postLoweringCleanup` round (`hoistInvariantLoopLets`, `reuseConstructors`, `simplifyKnownConditions`) rather than a bounded fixpoint.
+- TypedExpr and Matchless now both route call-site inlining through `core/src/main/scala/dev/bosatsu/InlineBenefitModel.scala`, and the shared benefit model plus bounded Matchless cleanup fixpoint are both now in place.
+- `core/src/main/scala/dev/bosatsu/Matchless.scala` now runs `postLoweringCleanup` as a small bounded fixpoint over `hoistInvariantLoopLets`, `reuseConstructors`, `sinkBranchOnlyLets`, and `simplifyKnownConditions`, with overflow-safe canonicalization and equality checks so deep let chains keep their previous stack-safety behavior.
 - `show` now supports `--validate-typedexpr`, which lets us run `TypeValidator.assertValid` on the selected optimized TypedExpr output while bisection-testing typed passes.
 
 The goal of this plan is to turn those existing pieces into a more general optimizer pipeline that removes wrapper plumbing, avoids eager branch-only work, and converges on a stable final Matchless shape for semantically equivalent source programs.
@@ -41,6 +41,7 @@ Do not make future implementers rediscover the invocation path. For a checked-ou
 Verified baseline:
 
 - Current working branch: `codex/inlining-improvements`
+- Item 5 evaluation baseline checkpoint: `abbfc655b` (`Complete shared inline benefit model`)
 - Item 4 evaluation baseline checkpoint: `2c8f6faeb` (`Checkpoint inlining work and typedexpr validation`)
 - Checkpoint used to evaluate item 3: `43bf1d759` (`Inline tiny pure Matchless values`)
 - Before any evaluation rerun `sbt cli/assembly`. `bosatsuj` selects the newest assembly jar from `cli/target/scala-*/bosatsu-cli-assembly-*.jar`, and the jar filename reflects the last commit hash rather than any uncommitted work.
@@ -427,7 +428,7 @@ Expand the existing test areas rather than inventing a separate harness:
 - `Matchless.exprWeight` improves or stabilizes across rounds and does not oscillate.
 - Escaping functions remain closures when they must, and `Unit -> a` thunks still preserve laziness.
 
-### Current status after items 1 through 4
+### Current status after items 1 through 5
 
 - The first work item is implemented and covered by focused regressions in `TypedExprTest` and `MatchlessTest`.
 - The standing Zafu probe files for `NonEmptyChain`, `Chain`, `Result`, and `PartialResult` were rerun after the change and are still textually unchanged.
@@ -452,6 +453,11 @@ Expand the existing test areas rather than inventing a separate harness:
 - In that isolated comparison, `get-enum` dropped by 26 nodes, `make-struct` by 10, and `make-enum` by 6. `get-struct` rose by 11 and `global` by 6, so this is a net positive but not a uniformly shrinking transform.
 - Representative item-4 wins in that isolated compare include `Zafu/Control/PartialResult::tests`, `Zafu/Cli/Args/Internal/Core::render_spelling`, `Zafu/Control/Result::tests`, and `Zafu/Collection/List::tests`. The largest growths were `Zafu/Cli/Args/Internal/Core::spelling_usage`, `Zafu/Cli/Args/Internal/Core::decode_named_required`, and `Zafu/Tool/Cat::tests`, where helper logic moved into callers. That trade is acceptable for item 4 because the branch/projection payoff is now explicit and the no-payoff regression remains covered by the optimizer tests.
 - After the item-4 completion change, `sbt coreJVM/test` is green with 1928 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
+- The fifth work item is now implemented and covered by a focused `MatchlessTest` regression that requires two cleanup rounds before branch-only work can sink, plus the existing `MatchlessRegressionTest` deep-let stack-safety coverage.
+- `postLoweringCleanup` now runs up to four rounds and stops on structural equality when it can prove stabilization. The structural comparison and anon-binder canonicalization are wrapped with the same stack-overflow fallback discipline as the underlying cleanup passes, so the fixpoint bookkeeping does not reintroduce deep-let stack regressions.
+- Isolating item 5 against checkpoint `abbfc655b` changed 1078 of 1892 Zafu definitions in raw pretty JSON output, but that churn is only anon and mutable-local renumbering from canonicalization. After normalizing `anon$N` and `mut$N` names per definition, only 1 of 1892 definitions changes: `Zafu/Collection/Chain::tests`.
+- That remaining normalized item-5 diff is the intended cleanup shape: a branch-local constructor `let` now sits under the guarding `if` instead of outside it. Node counts for `global`, `get-struct`, `get-enum`, `make-struct`, `make-enum`, `let`, `if`, and `switch` are otherwise unchanged in the isolated compare.
+- After the item-5 completion change, `sbt coreJVM/test` is green with 1929 passed and 2 ignored, and `sbt cli/test` is green with 67 passed.
 
 ## Items To Do
 
@@ -483,6 +489,7 @@ Relevant code:
 - `core/src/main/scala/dev/bosatsu/MatchlessGlobalInlining.scala`
 - `core/src/main/scala/dev/bosatsu/Matchless.scala`
 - `core/src/test/scala/dev/bosatsu/MatchlessTests.scala`
+- `core/src/test/scala/dev/bosatsu/MatchlessRegressionTest.scala`
 - `core/src/test/scala/dev/bosatsu/ToolAndLibCommandTest.scala`
 
 Plan:
@@ -539,7 +546,7 @@ Done when:
 - Helpers that unlock branch sinking, beta-reduction, or projection folding inline even when they slightly exceed the old thresholds.
 - Helpers that unlock none of those wins stay as calls, and total IR size stops growing in no-payoff cases.
 
-5. [ ] Run the new passes to a small fixpoint
+5. [x] Run the new passes to a small fixpoint
 
 Relevant code:
 
@@ -569,3 +576,5 @@ Done when:
   TypedExpr normalization now applies the existing non-escaping closure rewrite to multi-use non-recursive local function bindings as well as recursive ones, while still leaving escaping local functions untouched. Focused tests now cover the TypedExpr rewrite directly and the raw Matchless lowering effect, where direct-call-only local closures lose captures and escaping closures still keep them.
 - Item 4 completed.
   TypedExpr and Matchless now share `InlineBenefitModel` for call-site inlining, the TypedExpr side now recognizes constructor-valued arguments as a concrete payoff when a helper immediately branches on them, and focused optimizer tests cover direct, alias, wrapper, and no-payoff variants so harmless wrappers stay aligned while real branch/projection wins still inline.
+- Item 5 completed.
+  Matchless `postLoweringCleanup` now runs as a bounded small fixpoint over the post-lowering rewrite stack, focused optimizer tests cover the multi-round “inline wrapper, expose branch-local work, then sink it” case directly, and the fixpoint bookkeeping now preserves the previous deep-let stack-safety guarantees by falling back cleanly if canonicalization or structural equality would overflow.

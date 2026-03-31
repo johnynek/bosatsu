@@ -10,6 +10,8 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
+  private val PostLoweringCleanupMaxRounds = 4
+
   private[bosatsu] enum LocalPass(val cliName: String) derives CanEqual {
     case HoistInvariantLoopLets extends LocalPass("hoist-invariant-loop-lets")
     case ReuseConstructors extends LocalPass("reuse-constructors")
@@ -4942,7 +4944,7 @@ object Matchless {
       case NonEmptyList(h0, h1 :: t)   => h0 :: stopAt(NonEmptyList(h1, t))(fn)
     }
 
-  private[bosatsu] def postLoweringCleanup[A: Order](
+  private def postLoweringCleanupRound[A: Order](
       expr: Expr[A],
       localPassOptions: LocalPassOptions
   ): Expr[A] = {
@@ -4960,6 +4962,47 @@ object Matchless {
       sinkBranchOnlyLets(reused)
 
     simplifyKnownConditions(branchSunk)
+  }
+
+  private[bosatsu] def postLoweringCleanup[A: Order](
+      expr: Expr[A],
+      localPassOptions: LocalPassOptions
+  ): Expr[A] = {
+    given Ordering[Expr[A]] = Expr.exprOrder[A].toOrdering
+    val cleanupOrdering: Ordering[Expr[A]] =
+      Ordering.by((expr: Expr[A]) => (exprWeight(expr), expr))
+    val structuralOrdering = summon[Ordering[Expr[A]]]
+
+    def canonical(expr: Expr[A]): Expr[A] =
+      StackSafe.onStackOverflow(refreshAnonBinders(expr))(expr)
+
+    def bestExpr(seen: List[Expr[A]]): Expr[A] =
+      seen.min(using cleanupOrdering)
+
+    def structurallyEqual(left: Expr[A], right: Expr[A]): Boolean =
+      StackSafe.onStackOverflow(structuralOrdering.compare(left, right) == 0)(
+        false
+      )
+
+    @annotation.tailrec
+    def loop(
+        current: Expr[A],
+        roundsLeft: Int,
+        seen: List[Expr[A]]
+    ): Expr[A] =
+      if (roundsLeft <= 0) current
+      else {
+        val next = canonical(postLoweringCleanupRound(current, localPassOptions))
+        if (structurallyEqual(next, current)) current
+        else {
+          if (seen.exists(prev => structurallyEqual(prev, next)))
+            bestExpr(next :: seen)
+          else loop(next, roundsLeft - 1, next :: seen)
+        }
+      }
+
+    val start = canonical(expr)
+    loop(start, PostLoweringCleanupMaxRounds, start :: Nil)
   }
 
   // Allocate anonymous ids with RefSpace, then run the shared post-lowering

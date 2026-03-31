@@ -5924,6 +5924,66 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("postLoweringCleanup reaches a small fixpoint after simplification exposes branch-only work") {
+    val flag = Identifier.Name("flag")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.If(
+            Matchless.TrueConst,
+            Matchless.App(
+              Matchless.Local(consume),
+              NonEmptyList.one(Matchless.Local(delayed))
+            ),
+            Matchless.Literal(Lit.fromInt(0))
+          ),
+          Matchless.If(
+            Matchless.TrueConst,
+            Matchless.Literal(Lit.fromInt(0)),
+            Matchless.App(
+              Matchless.Local(consume),
+              NonEmptyList.one(Matchless.Local(delayed))
+            )
+          )
+        )
+      )
+
+    val cleaned =
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default)
+    val cleanedAgain =
+      Matchless.postLoweringCleanup(cleaned, Matchless.LocalPassOptions.Default)
+
+    assertEquals(cleanedAgain, cleaned)
+
+    cleaned match {
+      case Matchless.If(
+            cond,
+            Matchless.Let(
+              Right(bound),
+              `expensive`,
+              Matchless.App(Matchless.Local(`consume`), appliedArgs)
+            ),
+            Matchless.Literal(lit)
+          ) =>
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flag), true)
+        assertEquals(bound, delayed)
+        assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+        assertEquals(lit, Lit.fromInt(0))
+      case other =>
+        fail(s"expected fixpoint cleanup to expose the branch-sunk If, found: $other")
+    }
+  }
+
   test("postLoweringCleanup can disable reuseConstructors") {
     val left = Identifier.Name("left")
     val right = Identifier.Name("right")
