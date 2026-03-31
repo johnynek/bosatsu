@@ -2211,7 +2211,7 @@ object ShowEdn {
   def showJson(
       show: Output.ShowValue
   ): Json =
-    ednToJson(showEdnValue(show, quotePackageNames = false))
+    ednToJson(showEdnValue(show, quotePackageNames = true))
 
   def showJson(
       packs: List[Package.Typed[Any]],

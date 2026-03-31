@@ -1041,6 +1041,8 @@ class ToolAndLibCommandTest extends FunSuite {
     def jsonNameAtom(value: Json): Option[String] =
       value match {
         case Json.JString(name) => Some(name)
+        case Json.JObject(("$str", Json.JString(name)) :: Nil) =>
+          Some(name)
         case Json.JObject(("$sym", Json.JString(name)) :: Nil) =>
           Some(name)
         case _ => None

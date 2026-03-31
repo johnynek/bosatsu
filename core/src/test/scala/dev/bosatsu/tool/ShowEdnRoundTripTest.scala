@@ -130,6 +130,51 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         Nil
     }
 
+  private def collectGlobalPackageJsonAtoms(json: Json): List[Json] =
+    json match {
+      case Json.JArray(Vector(Json.JString("global"), packJson, _)) =>
+        packJson :: Nil
+      case Json.JArray(items) =>
+        items.toList.flatMap(collectGlobalPackageJsonAtoms)
+      case Json.JObject(fields) =>
+        fields.flatMap { case (_, value) =>
+          collectGlobalPackageJsonAtoms(value)
+        }
+      case _ =>
+        Nil
+    }
+
+  private def showValueWithMixedDepthGlobalPackages(): Output.ShowValue.Matchless =
+    Output.ShowValue.Matchless(
+      packages =
+        Output.ShowValue.MatchlessPackage(
+          name = PackageName.parts("ShowEdn", "Sample"),
+          imports = Nil,
+          exportedValues = Nil,
+          externals = Nil,
+          defs = List(
+            Identifier.Name("main") ->
+              Matchless.App(
+                Matchless.Global(
+                  (),
+                  PackageName.parts("Bosatsu", "Prog"),
+                  Identifier.Name("await")
+                ),
+                NonEmptyList.one(
+                  Matchless.Global(
+                    (),
+                    PackageName.parts("Zafu", "Tool", "Cat"),
+                    Identifier.Name("emit_stderr_line")
+                  )
+                )
+              )
+          )
+        ) :: Nil,
+      typedPasses = CompileOptions.Default.enabledTypedPasses,
+      matchlessPasses = Matchless.PassOptions.Default.enabledPasses,
+      packageNamesOnly = false
+    )
+
   test("package codec render/parse round trips normalized typed packages") {
     forAll(Generators.genPackage(Gen.const(()), 8)) { packMap =>
       packMap.values.foreach { pack0 =>
@@ -286,36 +331,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
   }
 
   test("matchless showDoc renders package names consistently in globals") {
-    val show =
-      Output.ShowValue.Matchless(
-        packages =
-          Output.ShowValue.MatchlessPackage(
-            name = PackageName.parts("ShowEdn", "Sample"),
-            imports = Nil,
-            exportedValues = Nil,
-            externals = Nil,
-            defs = List(
-              Identifier.Name("main") ->
-                Matchless.App(
-                  Matchless.Global(
-                    (),
-                    PackageName.parts("Bosatsu", "Prog"),
-                    Identifier.Name("await")
-                  ),
-                  NonEmptyList.one(
-                    Matchless.Global(
-                      (),
-                      PackageName.parts("Zafu", "Tool", "Cat"),
-                      Identifier.Name("emit_stderr_line")
-                    )
-                  )
-                )
-            )
-          ) :: Nil,
-        typedPasses = CompileOptions.Default.enabledTypedPasses,
-        matchlessPasses = Matchless.PassOptions.Default.enabledPasses,
-        packageNamesOnly = false
-      )
+    val show = showValueWithMixedDepthGlobalPackages()
 
     val rendered = ShowEdn.showDoc(show).render(120)
     val parsed = Edn.parseAll(rendered) match {
@@ -336,6 +352,46 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       packageAtoms.map {
         case _: Edn.ESymbol => "symbol"
         case _: Edn.EString => "string"
+        case other          => fail(s"unexpected package atom in global: $other")
+      }.distinct,
+      List("string")
+    )
+  }
+
+  test("matchless showJson renders package names consistently in globals") {
+    val rendered = ShowEdn.showJson(showValueWithMixedDepthGlobalPackages()).render
+
+    val parsed = Json.parserFile.parseAll(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse Matchless showJson output as JSON: $err")
+    }
+    val packageAtoms = collectGlobalPackageJsonAtoms(parsed)
+    assertEquals(
+      packageAtoms,
+      List(
+        Json.JObject(List("$str" -> Json.JString("Bosatsu/Prog"))),
+        Json.JObject(List("$str" -> Json.JString("Zafu/Tool/Cat")))
+      )
+    )
+
+    val decoded = ShowEdn.jsonToEdn(parsed) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to decode Matchless showJson output back to EDN: $err")
+    }
+    val decodedPackageAtoms = collectGlobalPackageAtoms(decoded)
+
+    assertEquals(
+      decodedPackageAtoms.map {
+        case Edn.EString(value) => value
+        case Edn.ESymbol(value) => value
+        case other              => fail(s"unexpected package atom in global: $other")
+      },
+      List("Bosatsu/Prog", "Zafu/Tool/Cat")
+    )
+    assertEquals(
+      decodedPackageAtoms.map {
+        case _: Edn.EString => "string"
+        case _: Edn.ESymbol => "symbol"
         case other          => fail(s"unexpected package atom in global: $other")
       }.distinct,
       List("string")
