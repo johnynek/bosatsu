@@ -1041,6 +1041,8 @@ class ToolAndLibCommandTest extends FunSuite {
     def jsonNameAtom(value: Json): Option[String] =
       value match {
         case Json.JString(name) => Some(name)
+        case Json.JObject(("$str", Json.JString(name)) :: Nil) =>
+          Some(name)
         case Json.JObject(("$sym", Json.JString(name)) :: Nil) =>
           Some(name)
         case _ => None
@@ -1487,7 +1489,7 @@ class ToolAndLibCommandTest extends FunSuite {
     ) match {
       case Right(Output.ShowOutput(show, _)) =>
         val rendered = ShowEdn.showDoc(show).render(120)
-        assert(rendered.contains("(package :name MyLib/Foo)"), rendered)
+        assert(rendered.contains("""(package :name "MyLib/Foo")"""), rendered)
         assert(!rendered.contains(":imports"), rendered)
         assert(!rendered.contains(":exports"), rendered)
         assert(!rendered.contains(":types"), rendered)
@@ -1513,6 +1515,78 @@ class ToolAndLibCommandTest extends FunSuite {
       case Right(Output.JsonOutput(json, _)) =>
         assertEquals(showJsonPackageNames(json), List("MyLib/Foo"))
         assertEquals(showJsonPackageFieldKeys(json), List(Set("$form", "name")))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("show --ir matchless quotes package names consistently in globals") {
+    val helperSrc =
+      """package MyLib/Helper
+|
+|export one
+|
+|def one(i: Int) -> Int:
+|  i
+|""".stripMargin
+    val deepHelperSrc =
+      """package MyLib/Deep/Helper
+|
+|export two
+|
+|def two(i: Int) -> Int:
+|  i
+|""".stripMargin
+    val callerSrc =
+      """package MyLib/Foo
+|
+|from MyLib/Helper import one
+|from MyLib/Deep/Helper import two
+|
+|export use
+|
+|def use(flag: Bool, i: Int) -> Int:
+|  if flag:
+|    one(i)
+|  else:
+|    two(i)
+|""".stripMargin
+    val files =
+      baseLibFiles(callerSrc) ++
+        List(
+          Chain("repo", "src", "MyLib", "Helper.bosatsu") -> helperSrc,
+          Chain("repo", "src", "MyLib", "Deep", "Helper.bosatsu") -> deepHelperSrc
+        )
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--ir",
+        "matchless",
+        "--disable-matchless-pass",
+        "global-inlining"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val rendered = renderShow(show)
+        assert(
+          containsGlobalExpr(matchlessDefExpr(show, "MyLib/Foo", "use"), "MyLib/Helper", "one")
+        )
+        assert(
+          containsGlobalExpr(
+            matchlessDefExpr(show, "MyLib/Foo", "use"),
+            "MyLib/Deep/Helper",
+            "two"
+          )
+        )
+        assert(rendered.contains("""(global "MyLib/Helper" one)"""), rendered)
+        assert(rendered.contains("""(global "MyLib/Deep/Helper" two)"""), rendered)
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>

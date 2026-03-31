@@ -67,6 +67,23 @@ object ShowEdn {
   private def nameAtom(value: String): Edn =
     if (isSafeSymbolToken(value)) sym(value) else str(value)
 
+  private def packageNameAtom(
+      packageName: PackageName,
+      quotePackageNames: Boolean
+  ): Edn =
+    if (quotePackageNames) str(packageName.asString)
+    else nameAtom(packageName.asString)
+
+  private def constructorRefAtom(
+      packageName: PackageName,
+      constructor: Constructor,
+      quotePackageNames: Boolean
+  ): Edn = {
+    val constructorRef = s"${packageName.asString}/${constructor.asString}"
+    if (quotePackageNames) str(constructorRef)
+    else nameAtom(constructorRef)
+  }
+
   private def err[A](message: String): ErrorOr[A] =
     Left(message)
 
@@ -403,7 +420,8 @@ object ShowEdn {
     }
 
   private def encodePattern(
-      pat: Pattern[(PackageName, Constructor), Type]
+      pat: Pattern[(PackageName, Constructor), Type],
+      quotePackageNames: Boolean
   ): Edn =
     pat match {
       case Pattern.WildCard =>
@@ -413,7 +431,13 @@ object ShowEdn {
       case Pattern.Var(name) =>
         EList(List(sym("pvar"), nameAtom(name.sourceCodeRepr)))
       case Pattern.Named(name, p) =>
-        EList(List(sym("pnamed"), nameAtom(name.sourceCodeRepr), encodePattern(p)))
+        EList(
+          List(
+            sym("pnamed"),
+            nameAtom(name.sourceCodeRepr),
+            encodePattern(p, quotePackageNames)
+          )
+        )
       case Pattern.StrPat(parts) =>
         EList(
           List(
@@ -439,25 +463,25 @@ object ShowEdn {
               case ListPart.NamedList(n)  =>
                 EList(List(sym("named-list"), nameAtom(n.sourceCodeRepr)))
               case ListPart.Item(pat)     =>
-                EList(List(sym("item"), encodePattern(pat)))
+                EList(List(sym("item"), encodePattern(pat, quotePackageNames)))
             })
           )
         )
       case Pattern.Annotation(pattern, tpe) =>
-        EList(List(sym("pann"), encodePattern(pattern), encodeType(tpe)))
+        EList(List(sym("pann"), encodePattern(pattern, quotePackageNames), encodeType(tpe)))
       case Pattern.PositionalStruct((pack, cons), params) =>
         EList(
           List(
             sym("pstruct"),
-            nameAtom(s"${pack.asString}/${cons.asString}"),
-            EVector(params.map(encodePattern))
+            constructorRefAtom(pack, cons, quotePackageNames),
+            EVector(params.map(encodePattern(_, quotePackageNames)))
           )
         )
       case Pattern.Union(head, rest) =>
         EList(
           List(
             sym("punion"),
-            EVector((head :: rest.toList).map(encodePattern))
+            EVector((head :: rest.toList).map(encodePattern(_, quotePackageNames)))
           )
         )
     }
@@ -543,7 +567,7 @@ object ShowEdn {
 
   given patternCodec: EdnCodec[Pattern[(PackageName, Constructor), Type]] with {
     def encode(a: Pattern[(PackageName, Constructor), Type]): Edn =
-      encodePattern(a)
+      encodePattern(a, quotePackageNames = false)
     def decode(edn: Edn): ErrorOr[Pattern[(PackageName, Constructor), Type]] =
       decodePattern(edn)
   }
@@ -628,19 +652,26 @@ object ShowEdn {
         err(s"invalid quantifier evidence: ${rendered(other)}")
     }
 
-  private def encodeTypedExpr(te: TypedExpr[Unit]): Edn =
+  private def encodeTypedExpr(
+      te: TypedExpr[Unit],
+      quotePackageNames: Boolean = false
+  ): Edn =
     te match {
       case TypedExpr.Generic(quant, in) =>
-        EList(List(sym("generic"), encodeQuant(quant), encodeTypedExpr(in)))
+        EList(
+          List(sym("generic"), encodeQuant(quant), encodeTypedExpr(in, quotePackageNames))
+        )
       case TypedExpr.Annotation(term, coerce, None) =>
-        EList(List(sym("widen"), encodeType(coerce), encodeTypedExpr(term)))
+        EList(
+          List(sym("widen"), encodeType(coerce), encodeTypedExpr(term, quotePackageNames))
+        )
       case TypedExpr.Annotation(term, coerce, Some(qev)) =>
         EList(
           List(
             sym("instantiate"),
             encodeType(coerce),
             encodeQuantifierEvidence(qev),
-            encodeTypedExpr(term)
+            encodeTypedExpr(term, quotePackageNames)
           )
         )
       case TypedExpr.AnnotatedLambda(args, expr, ()) =>
@@ -650,7 +681,7 @@ object ShowEdn {
             EVector(args.toList.map { case (name, tpe) =>
               EVector(List(nameAtom(name.sourceCodeRepr), encodeType(tpe)))
             }),
-            encodeTypedExpr(expr)
+            encodeTypedExpr(expr, quotePackageNames)
           )
         )
       case TypedExpr.Local(name, tpe, ()) =>
@@ -659,7 +690,7 @@ object ShowEdn {
         EList(
           List(
             sym("global"),
-            nameAtom(pack.asString),
+            packageNameAtom(pack, quotePackageNames),
             nameAtom(name.sourceCodeRepr),
             encodeType(tpe)
           )
@@ -668,8 +699,8 @@ object ShowEdn {
         EList(
           List(
             sym("app"),
-            encodeTypedExpr(fn),
-            EVector(args.toList.map(encodeTypedExpr)),
+            encodeTypedExpr(fn, quotePackageNames),
+            EVector(args.toList.map(encodeTypedExpr(_, quotePackageNames))),
             encodeType(result)
           )
         )
@@ -678,8 +709,8 @@ object ShowEdn {
           List(
             sym(if (rec.isRecursive) "letrec" else "let"),
             nameAtom(arg.sourceCodeRepr),
-            encodeTypedExpr(expr),
-            encodeTypedExpr(in)
+            encodeTypedExpr(expr, quotePackageNames),
+            encodeTypedExpr(in, quotePackageNames)
           )
         )
       case TypedExpr.Loop(args, body, ()) =>
@@ -687,16 +718,16 @@ object ShowEdn {
           List(
             sym("loop"),
             EVector(args.toList.map { case (name, rhs) =>
-              EVector(List(nameAtom(name.sourceCodeRepr), encodeTypedExpr(rhs)))
+              EVector(List(nameAtom(name.sourceCodeRepr), encodeTypedExpr(rhs, quotePackageNames)))
             }),
-            encodeTypedExpr(body)
+            encodeTypedExpr(body, quotePackageNames)
           )
         )
       case TypedExpr.Recur(args, tpe, ()) =>
         EList(
           List(
             sym("recur"),
-            EVector(args.toList.map(encodeTypedExpr)),
+            EVector(args.toList.map(encodeTypedExpr(_, quotePackageNames))),
             encodeType(tpe)
           )
         )
@@ -706,24 +737,24 @@ object ShowEdn {
         EList(
           List(
             sym(m.matchKind.keyword),
-            encodeTypedExpr(arg),
+            encodeTypedExpr(arg, quotePackageNames),
             EVector(branches.toList.map { branch =>
               branch.guard match {
                 case None =>
                   EList(
                     List(
                       sym("branch"),
-                      encodePattern(branch.pattern),
-                      encodeTypedExpr(branch.expr)
+                      encodePattern(branch.pattern, quotePackageNames),
+                      encodeTypedExpr(branch.expr, quotePackageNames)
                     )
                   )
                 case Some(g) =>
                   EList(
                     List(
                       sym("branch"),
-                      encodePattern(branch.pattern),
-                      encodeTypedExpr(g),
-                      encodeTypedExpr(branch.expr)
+                      encodePattern(branch.pattern, quotePackageNames),
+                      encodeTypedExpr(g, quotePackageNames),
+                      encodeTypedExpr(branch.expr, quotePackageNames)
                     )
                   )
               }
@@ -935,10 +966,13 @@ object ShowEdn {
         err(s"invalid constructor-fn: ${rendered(other)}")
     }
 
-  private def encodeDefinedType(dt: DefinedType[Kind.Arg]): Edn = {
+  private def encodeDefinedType(
+      dt: DefinedType[Kind.Arg],
+      quotePackageNames: Boolean = false
+  ): Edn = {
     val base = List(
       sym("defined-type"),
-      nameAtom(dt.packageName.asString),
+      packageNameAtom(dt.packageName, quotePackageNames),
       nameAtom(dt.name.asString)
     )
     val attrs =
@@ -985,10 +1019,13 @@ object ShowEdn {
         err(s"invalid defined type: ${rendered(other)}")
     }
 
-  private def encodeTypeAlias(ta: TypeAlias[Kind.Arg]): Edn = {
+  private def encodeTypeAlias(
+      ta: TypeAlias[Kind.Arg],
+      quotePackageNames: Boolean = false
+  ): Edn = {
     val base = List(
       sym("type-alias"),
-      nameAtom(ta.packageName.asString),
+      packageNameAtom(ta.packageName, quotePackageNames),
       nameAtom(ta.name.asString)
     )
     val attrs =
@@ -1210,14 +1247,15 @@ object ShowEdn {
     }
 
   private def encodeTopLet(
-      item: (Bindable, RecursionKind, TypedExpr[Unit])
+      item: (Bindable, RecursionKind, TypedExpr[Unit]),
+      quotePackageNames: Boolean = false
   ): Edn = {
     val (name, rec, expr) = item
     EList(
       List(
         sym(if (rec.isRecursive) "defrec" else "def"),
         nameAtom(name.sourceCodeRepr),
-        encodeTypedExpr(expr)
+        encodeTypedExpr(expr, quotePackageNames)
       )
     )
   }
@@ -1360,9 +1398,9 @@ object ShowEdn {
         else Some(kw("exported-values") -> EVector(exportedValues.map(str))),
         if (normalized.exports.isEmpty) None
         else Some(kw("exports") -> EVector(normalized.exports.map(encodeExport))),
-        Some(kw("types") -> EVector(localTypes.map(encodeDefinedType))),
+        Some(kw("types") -> EVector(localTypes.map(dt => encodeDefinedType(dt)))),
         Some(kw("externals") -> EVector(externals.map(encodeExternal))),
-        Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet)))
+        Some(kw("defs") -> EVector(prog.lets.map(item => encodeTopLet(item))))
       ).flatten
 
     EList(
@@ -1488,13 +1526,9 @@ object ShowEdn {
     }
 
   private def encodeImportForShow(
-      imp: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
-  ): Edn =
-    encodeImportForShow(imp, includeTypes = true)
-
-  private def encodeImportForShow(
       imp: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]],
-      includeTypes: Boolean
+      includeTypes: Boolean = true,
+      quotePackageNames: Boolean
   ): Edn = {
     val bucketedNames =
       imp.items.toList.flatMap(item =>
@@ -1524,7 +1558,7 @@ object ShowEdn {
     EList(
       List(
         sym("import"),
-        nameAtom(imp.pack.name.asString),
+        packageNameAtom(imp.pack.name, quotePackageNames),
         EMap(grouped)
       )
     )
@@ -1560,18 +1594,24 @@ object ShowEdn {
     else Some(EMap(items))
   }
 
-  private def encodeInterfaceForShow(iface: Package.Interface): Edn = {
+  private def encodeInterfaceForShow(
+      iface: Package.Interface,
+      quotePackageNames: Boolean
+  ): Edn = {
     val attrs = encodeExportsMapForShow(iface.exports) match {
       case Some(exportsMap) => List(kw("exports"), exportsMap)
       case None             => Nil
     }
 
     EList(
-      List(sym("interface"), kw("name"), nameAtom(iface.name.asString)) ++ attrs
+      List(sym("interface"), kw("name"), packageNameAtom(iface.name, quotePackageNames)) ++ attrs
     )
   }
 
-  private def encodePackageForShow(normalized: Package.Typed[Unit]): Edn = {
+  private def encodePackageForShow(
+      normalized: Package.Typed[Unit],
+      quotePackageNames: Boolean
+  ): Edn = {
     val prog = normalized.program._1
 
     val localTypes =
@@ -1592,26 +1632,33 @@ object ShowEdn {
         else
           Some(
             kw("imports") -> EVector(
-              normalized.imports.map(encodeImportForShow)
+              normalized.imports.map(
+                encodeImportForShow(_, quotePackageNames = quotePackageNames)
+              )
             )
           ),
         exportsMap.map(kw("exports") -> _),
         if (localTypes.isEmpty) None
-        else Some(kw("types") -> EVector(localTypes.map(encodeDefinedType))),
+        else Some(
+          kw("types") -> EVector(localTypes.map(encodeDefinedType(_, quotePackageNames)))
+        ),
         if (externals.isEmpty) None
         else Some(kw("externals") -> EVector(externals.map(encodeExternal))),
         if (prog.lets.isEmpty) None
-        else Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet)))
+        else Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet(_, quotePackageNames))))
       ).flatten
 
     EList(
-      List(sym("package"), kw("name"), nameAtom(normalized.name.asString)) ++
+      List(sym("package"), kw("name"), packageNameAtom(normalized.name, quotePackageNames)) ++
         attrs.flatMap { case (k, v) => List(k, v) }
     )
   }
 
-  private def encodePackageNameOnlyForShow(name: PackageName): Edn =
-    EList(List(sym("package"), kw("name"), nameAtom(name.asString)))
+  private def encodePackageNameOnlyForShow(
+      name: PackageName,
+      quotePackageNames: Boolean
+  ): Edn =
+    EList(List(sym("package"), kw("name"), packageNameAtom(name, quotePackageNames)))
 
   private def intAtom(value: Int): Edn =
     sym(value.toString)
@@ -1636,30 +1683,50 @@ object ShowEdn {
       case DataRepr.SuccNat => sym("succ-nat")
     }
 
-  private def encodeMatchlessCheapExpr(expr: Matchless.CheapExpr[?]): Edn =
-    encodeMatchlessExpr(expr)
+  private def encodeMatchlessCheapExpr(
+      expr: Matchless.CheapExpr[?],
+      quotePackageNames: Boolean
+  ): Edn =
+    encodeMatchlessExpr(expr, quotePackageNames)
 
-  private def encodeMatchlessBoolExpr(expr: Matchless.BoolExpr[?]): Edn =
+  private def encodeMatchlessBoolExpr(
+      expr: Matchless.BoolExpr[?],
+      quotePackageNames: Boolean
+  ): Edn =
     expr match {
       case Matchless.EqualsLit(arg, lit) =>
-        EList(List(sym("equals-lit"), encodeMatchlessCheapExpr(arg), encodeLit(lit)))
+        EList(
+          List(
+            sym("equals-lit"),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
+            encodeLit(lit)
+          )
+        )
       case Matchless.LtEqLit(arg, lit)   =>
-        EList(List(sym("lte-lit"), encodeMatchlessCheapExpr(arg), encodeLit(lit)))
+        EList(
+          List(sym("lte-lit"), encodeMatchlessCheapExpr(arg, quotePackageNames), encodeLit(lit))
+        )
       case Matchless.EqualsNat(arg, nat) =>
-        EList(List(sym("equals-nat"), encodeMatchlessCheapExpr(arg), encodeNat(nat)))
+        EList(
+          List(
+            sym("equals-nat"),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
+            encodeNat(nat)
+          )
+        )
       case Matchless.And(left, right)    =>
         EList(
           List(
             sym("and"),
-            encodeMatchlessBoolExpr(left),
-            encodeMatchlessBoolExpr(right)
+            encodeMatchlessBoolExpr(left, quotePackageNames),
+            encodeMatchlessBoolExpr(right, quotePackageNames)
           )
         )
       case Matchless.CheckVariant(arg, expect, size, famArities) =>
         EList(
           List(
             sym("check-variant"),
-            encodeMatchlessCheapExpr(arg),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
             intAtom(expect),
             intAtom(size),
             EVector(famArities.map(intAtom))
@@ -1669,7 +1736,7 @@ object ShowEdn {
         EList(
           List(
             sym("check-variant-set"),
-            encodeMatchlessCheapExpr(arg),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
             EVector(expect.toList.map(intAtom)),
             intAtom(size),
             EVector(famArities.map(intAtom))
@@ -1680,7 +1747,7 @@ object ShowEdn {
           List(
             sym("set-mut"),
             encodeAnonMutName(target),
-            encodeMatchlessExpr(value)
+            encodeMatchlessExpr(value, quotePackageNames)
           )
         )
       case Matchless.TrueConst =>
@@ -1690,8 +1757,8 @@ object ShowEdn {
           List(
             sym("let-bool"),
             encodeMatchlessBinder(arg),
-            encodeMatchlessExpr(value),
-            encodeMatchlessBoolExpr(in)
+            encodeMatchlessExpr(value, quotePackageNames),
+            encodeMatchlessBoolExpr(in, quotePackageNames)
           )
         )
       case Matchless.LetMutBool(name, span) =>
@@ -1699,25 +1766,30 @@ object ShowEdn {
           List(
             sym("let-mut-bool"),
             encodeAnonMutName(name),
-            encodeMatchlessBoolExpr(span)
+            encodeMatchlessBoolExpr(span, quotePackageNames)
           )
         )
     }
 
-  private def encodeMatchlessExpr(expr: Matchless.Expr[?]): Edn =
+  private def encodeMatchlessExpr(
+      expr: Matchless.Expr[?],
+      quotePackageNames: Boolean
+  ): Edn =
     expr match {
       case Matchless.Lambda(captures, recursiveName, args, body) =>
         val attrs =
           List(
             if (captures.isEmpty) None
-            else Some(kw("captures") -> EVector(captures.map(encodeMatchlessExpr))),
+            else Some(
+              kw("captures") -> EVector(captures.map(encodeMatchlessExpr(_, quotePackageNames)))
+            ),
             recursiveName.map(name =>
               kw("recursive-name") -> nameAtom(name.sourceCodeRepr)
             ),
             Some(kw("args") -> EVector(args.toList.map(arg =>
               nameAtom(arg.sourceCodeRepr)
             ))),
-            Some(kw("body") -> encodeMatchlessExpr(body))
+            Some(kw("body") -> encodeMatchlessExpr(body, quotePackageNames))
           ).flatten
 
         EList(
@@ -1727,8 +1799,8 @@ object ShowEdn {
         EList(
           List(
             sym("while"),
-            encodeMatchlessBoolExpr(cond),
-            encodeMatchlessExpr(effectExpr),
+            encodeMatchlessBoolExpr(cond, quotePackageNames),
+            encodeMatchlessExpr(effectExpr, quotePackageNames),
             encodeAnonMutName(result)
           )
         )
@@ -1736,7 +1808,7 @@ object ShowEdn {
         EList(
           List(
             sym("global"),
-            nameAtom(pack.asString),
+            packageNameAtom(pack, quotePackageNames),
             nameAtom(name.sourceCodeRepr)
           )
         )
@@ -1749,27 +1821,35 @@ object ShowEdn {
       case anon: Matchless.LocalAnonMut =>
         encodeAnonMutName(anon)
       case Matchless.App(fn, args) =>
-        EList(sym("app") :: encodeMatchlessExpr(fn) :: args.toList.map(encodeMatchlessExpr))
+        EList(
+          sym("app") ::
+            encodeMatchlessExpr(fn, quotePackageNames) ::
+            args.toList.map(encodeMatchlessExpr(_, quotePackageNames))
+        )
       case Matchless.Let(arg, value, in) =>
         EList(
           List(
             sym("let"),
             encodeMatchlessBinder(arg),
-            encodeMatchlessExpr(value),
-            encodeMatchlessExpr(in)
+            encodeMatchlessExpr(value, quotePackageNames),
+            encodeMatchlessExpr(in, quotePackageNames)
           )
         )
       case Matchless.LetMut(name, span) =>
         EList(
-          List(sym("let-mut"), encodeAnonMutName(name), encodeMatchlessExpr(span))
+          List(
+            sym("let-mut"),
+            encodeAnonMutName(name),
+            encodeMatchlessExpr(span, quotePackageNames)
+          )
         )
       case Matchless.If(cond, thenExpr, elseExpr) =>
         EList(
           List(
             sym("if"),
-            encodeMatchlessBoolExpr(cond),
-            encodeMatchlessExpr(thenExpr),
-            encodeMatchlessExpr(elseExpr)
+            encodeMatchlessBoolExpr(cond, quotePackageNames),
+            encodeMatchlessExpr(thenExpr, quotePackageNames),
+            encodeMatchlessExpr(elseExpr, quotePackageNames)
           )
         )
       case Matchless.SwitchVariant(on, famArities, cases, default) =>
@@ -1777,28 +1857,30 @@ object ShowEdn {
           List(
             kw("fam-arities") -> EVector(famArities.map(intAtom)),
             kw("cases") -> EVector(cases.toList.map { case (variant, branch) =>
-              EVector(List(intAtom(variant), encodeMatchlessExpr(branch)))
+              EVector(List(intAtom(variant), encodeMatchlessExpr(branch, quotePackageNames)))
             })
           ) :::
-            default.toList.map(expr => kw("default") -> encodeMatchlessExpr(expr))
+            default.toList.map(expr =>
+              kw("default") -> encodeMatchlessExpr(expr, quotePackageNames)
+            )
 
         EList(
-          List(sym("switch"), encodeMatchlessCheapExpr(on)) ++
+          List(sym("switch"), encodeMatchlessCheapExpr(on, quotePackageNames)) ++
             attrs.flatMap { case (k, v) => List(k, v) }
         )
       case Matchless.Always(cond, thenExpr) =>
         EList(
           List(
             sym("always"),
-            encodeMatchlessBoolExpr(cond),
-            encodeMatchlessExpr(thenExpr)
+            encodeMatchlessBoolExpr(cond, quotePackageNames),
+            encodeMatchlessExpr(thenExpr, quotePackageNames)
           )
         )
       case Matchless.GetEnumElement(arg, variant, index, size) =>
         EList(
           List(
             sym("get-enum"),
-            encodeMatchlessCheapExpr(arg),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
             intAtom(variant),
             intAtom(index),
             intAtom(size)
@@ -1808,7 +1890,7 @@ object ShowEdn {
         EList(
           List(
             sym("get-struct"),
-            encodeMatchlessCheapExpr(arg),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
             intAtom(index),
             intAtom(size)
           )
@@ -1835,11 +1917,12 @@ object ShowEdn {
       case Matchless.SuccNat =>
         sym("succ-nat")
       case Matchless.PrevNat(of) =>
-        EList(List(sym("prev-nat"), encodeMatchlessExpr(of)))
+        EList(List(sym("prev-nat"), encodeMatchlessExpr(of, quotePackageNames)))
     }
 
   private def encodeMatchlessTopLet(
-      item: (Bindable, Matchless.Expr[?])
+      item: (Bindable, Matchless.Expr[?]),
+      quotePackageNames: Boolean
   ): Edn = {
     val (name, expr0) = item
     val expr = Matchless.recoverTopLevelLambda(expr0)
@@ -1852,11 +1935,18 @@ object ShowEdn {
           "def"
       }
 
-    EList(List(sym(defName), nameAtom(name.sourceCodeRepr), encodeMatchlessExpr(expr)))
+    EList(
+      List(
+        sym(defName),
+        nameAtom(name.sourceCodeRepr),
+        encodeMatchlessExpr(expr, quotePackageNames)
+      )
+    )
   }
 
   private def encodeMatchlessPackageForShow(
-      pack: Output.ShowValue.MatchlessPackage
+      pack: Output.ShowValue.MatchlessPackage,
+      quotePackageNames: Boolean
   ): Edn = {
     val attrs =
       List(
@@ -1864,7 +1954,13 @@ object ShowEdn {
         else
           Some(
             kw("imports") -> EVector(
-              pack.imports.map(encodeImportForShow(_, includeTypes = false))
+              pack.imports.map(
+                encodeImportForShow(
+                  _,
+                  includeTypes = false,
+                  quotePackageNames = quotePackageNames
+                )
+              )
             )
           ),
         if (pack.exportedValues.isEmpty) None
@@ -1882,11 +1978,13 @@ object ShowEdn {
             )
           ),
         if (pack.defs.isEmpty) None
-        else Some(kw("defs") -> EVector(pack.defs.map(encodeMatchlessTopLet)))
+        else Some(
+          kw("defs") -> EVector(pack.defs.map(encodeMatchlessTopLet(_, quotePackageNames)))
+        )
       ).flatten
 
     EList(
-      List(sym("package"), kw("name"), nameAtom(pack.name.asString)) ++
+      List(sym("package"), kw("name"), packageNameAtom(pack.name, quotePackageNames)) ++
         attrs.flatMap { case (k, v) => List(k, v) }
     )
   }
@@ -2064,7 +2162,10 @@ object ShowEdn {
   ): Edn =
     EVector(passes.map(pass => sym(pass.cliName)))
 
-  private def showEdnValue(show: Output.ShowValue): Edn =
+  private def showEdnValue(
+      show: Output.ShowValue,
+      quotePackageNames: Boolean
+  ): Edn =
     show match {
       case typed: Output.ShowValue.Typed =>
         EList(
@@ -2075,15 +2176,17 @@ object ShowEdn {
             kw("typed-passes"),
             encodeTypedPasses(typed.typedPasses),
             kw("interfaces"),
-            EVector(typed.interfaces.map(encodeInterfaceForShow)),
+            EVector(typed.interfaces.map(encodeInterfaceForShow(_, quotePackageNames))),
             kw("packages"),
             EVector(
               if (typed.packageNamesOnly)
-                typed.packages.map(p => encodePackageNameOnlyForShow(p.name))
+                typed.packages.map(p =>
+                  encodePackageNameOnlyForShow(p.name, quotePackageNames)
+                )
               else
                 typed.packages.map(p => normalizeForRoundTrip(p.void).fold(msg =>
                   EList(List(sym("show-error"), str(msg), str(p.name.asString))),
-                  encodePackageForShow
+                  encodePackageForShow(_, quotePackageNames)
                 ))
             )
           )
@@ -2101,9 +2204,11 @@ object ShowEdn {
             kw("packages"),
             EVector(
               if (matchless.packageNamesOnly)
-                matchless.packages.map(p => encodePackageNameOnlyForShow(p.name))
+                matchless.packages.map(p =>
+                  encodePackageNameOnlyForShow(p.name, quotePackageNames)
+                )
               else
-                matchless.packages.map(encodeMatchlessPackageForShow)
+                matchless.packages.map(encodeMatchlessPackageForShow(_, quotePackageNames))
             )
           )
         )
@@ -2123,7 +2228,7 @@ object ShowEdn {
   def showJson(
       show: Output.ShowValue
   ): Json =
-    ednToJson(showEdnValue(show))
+    ednToJson(showEdnValue(show, quotePackageNames = true))
 
   def showJson(
       packs: List[Package.Typed[Any]],
@@ -2142,7 +2247,7 @@ object ShowEdn {
   def showDoc(
       show: Output.ShowValue
   ): Doc =
-    Edn.toDoc(showEdnValue(show))
+    Edn.toDoc(showEdnValue(show, quotePackageNames = true))
 
   def showDoc(
       packs: List[Package.Typed[Any]],
