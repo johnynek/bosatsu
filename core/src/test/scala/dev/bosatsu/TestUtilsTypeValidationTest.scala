@@ -1,7 +1,7 @@
 package dev.bosatsu
 
 import cats.data.NonEmptyList
-import dev.bosatsu.rankn.{Type, TypeEnv}
+import dev.bosatsu.rankn.{Type, TypeAlias, TypeEnv}
 import Identifier.Constructor
 
 class TestUtilsTypeValidationTest extends munit.FunSuite {
@@ -98,6 +98,48 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     val names: Map[TypedExpr.Name[Unit], Type] =
       Map(fn -> fnType, arg -> aType)
     val res = TestUtils.validateTypes(te, names, TypeEnv.empty)
+    assert(res.isValid, renderErrors(res))
+  }
+
+  test("validateTypes accepts alias-expanded nested foralls without crashing") {
+    val aliasPack = PackageName.parts("TypeValidatorTest")
+    val aliasName = TypeName(Constructor("Poly"))
+    val polyVar = Type.Var.Bound("poly_a")
+    val outerVar = Type.Var.Bound("outer")
+    val actualVar = Type.Var.Bound("actual")
+    val localName = Identifier.Name("poly")
+
+    val polyAlias =
+      TypeAlias(
+        aliasPack,
+        aliasName,
+        Nil,
+        Type.ForAll(
+          NonEmptyList.one((polyVar, Kind.Type)),
+          Type.Fun(
+            NonEmptyList.one(Type.TyVar(polyVar)),
+            Type.TyVar(polyVar)
+          )
+        )
+      )
+
+    val expected = Type.ForAll(
+      NonEmptyList.one((outerVar, Kind.Type)),
+      Type.TyConst(polyAlias.toTypeConst)
+    )
+    val actual = Type.ForAll(
+      NonEmptyList.of((outerVar, Kind.Type), (actualVar, Kind.Type)),
+      Type.Fun(
+        NonEmptyList.one(Type.TyVar(actualVar)),
+        Type.TyVar(actualVar)
+      )
+    )
+    val te = TypedExpr.Local(localName, actual, tag)
+    val names: Map[TypedExpr.Name[Unit], Type] =
+      Map(te -> expected)
+    val env = TypeEnv.empty.addTypeAlias(polyAlias)
+
+    val res = TestUtils.validateTypes(te, names, env)
     assert(res.isValid, renderErrors(res))
   }
 

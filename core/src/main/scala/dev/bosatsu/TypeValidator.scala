@@ -89,23 +89,25 @@ object TypeValidator {
 
     def loop(tpe: Type): Type = {
       val t0 = normalizeAliasHead(tpe)
-      t0 match {
-        case t @ Type.ForAll(vars, in) =>
-          val in1 = loop(in)
-          if (in1 eq in) t
-          else Type.ForAll(vars, in1.asInstanceOf[Type.Rho])
-        case t @ Type.Exists(vars, in) =>
-          val in1 = loop(in)
-          if (in1 eq in) t
-          else Type.Exists(vars, in1.asInstanceOf[Type.Leaf | Type.TyApply])
-        case t @ Type.TyApply(on, arg) =>
-          val on1 = loop(on).asInstanceOf[Type.Leaf | Type.TyApply]
-          val arg1 = loop(arg)
-          if ((on1 eq on) && (arg1 eq arg)) normalizeAliasHead(t)
-          else normalizeAliasHead(Type.TyApply(on1, arg1))
-        case other =>
-          other
-      }
+      if (t0 ne tpe) loop(t0)
+      else
+        t0 match {
+          case t @ Type.ForAll(vars, in) =>
+            val in1 = loop(in)
+            if (in1 eq in) t
+            else Type.forAll(vars, in1)
+          case t @ Type.Exists(vars, in) =>
+            val in1 = loop(in)
+            if (in1 eq in) t
+            else Type.exists(vars, in1)
+          case t @ Type.TyApply(on, arg) =>
+            val on1 = loop(on)
+            val arg1 = loop(arg)
+            if ((on1 eq on) && (arg1 eq arg)) t
+            else Type.apply1(on1, arg1)
+          case other =>
+            other
+        }
     }
 
     loop
@@ -161,18 +163,16 @@ object TypeValidator {
             case Some(b) => Type.TyVar(b)
             case None    => tpe
           }
-        case Type.TyApply(on, arg) =>
-          val on1 =
-            thawRigidWitnesses(on, reverse).asInstanceOf[Type.Leaf | Type.TyApply]
-          val arg1 = thawRigidWitnesses(arg, reverse)
-          if ((on1 eq on) && (arg1 eq arg)) tpe else Type.TyApply(on1, arg1)
         case Type.ForAll(vars, in) =>
-          val in1 = thawRigidWitnesses(in, reverse).asInstanceOf[Type.Rho]
-          if (in1 eq in) tpe else Type.ForAll(vars, in1)
+          val in1 = thawRigidWitnesses(in, reverse)
+          if (in1 eq in) tpe else Type.forAll(vars, in1)
         case Type.Exists(vars, in) =>
-          val in1 =
-            thawRigidWitnesses(in, reverse).asInstanceOf[Type.Leaf | Type.TyApply]
-          if (in1 eq in) tpe else Type.Exists(vars, in1)
+          val in1 = thawRigidWitnesses(in, reverse)
+          if (in1 eq in) tpe else Type.exists(vars, in1)
+        case Type.TyApply(on, arg) =>
+          val on1 = thawRigidWitnesses(on, reverse)
+          val arg1 = thawRigidWitnesses(arg, reverse)
+          if ((on1 eq on) && (arg1 eq arg)) tpe else Type.apply1(on1, arg1)
         case _ =>
           tpe
       }

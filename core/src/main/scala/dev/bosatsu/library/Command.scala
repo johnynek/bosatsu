@@ -2044,27 +2044,37 @@ object Command {
                 requestedPackages =
                   if (request.selection.isEmpty) Nil
                   else request.selection.requestedPackages
-                packs0 <- moduleIOMonad.fromEither(
+                packs0Scoped <- moduleIOMonad.fromEither(
                   ev
-                    .packagesForShowEither(requestedPackages)
+                    .packagesForShowScopedEither(requestedPackages)
                     .leftMap(evalLookupError)
                 )
+                packs0 = packs0Scoped.map(_._2)
                 packs <- moduleIOMonad.fromEither(
                   ShowSelection
                     .selectPackages(packs0, request.selection)
                     .leftMap(CliException.Basic(_))
                 )
+                selectedPackNames = packs.iterator.map(_.name).toSet
+                selectedScoped =
+                  packs0Scoped.filter { case (_, pack) =>
+                    selectedPackNames(pack.name)
+                  }
                 _ <-
                   if (request.validateTypedExpr)
                     moduleIOMonad.fromEither(
                       TypeValidator
                         .validationFailureMessage(
                           "show typedexpr",
-                          TypeValidator.validatePackagesInEnv(
-                            packs,
-                            ev.packagesForValidation,
-                            "show typedexpr"
-                          )
+                          selectedScoped
+                            .map { case (scope, pack) =>
+                              TypeValidator.validatePackagesInEnv(
+                                pack :: Nil,
+                                ev.packagesForValidationOf(scope, pack),
+                                "show typedexpr"
+                              )
+                            }
+                            .sequence_
                         )
                         .toLeft(())
                         .leftMap(CliException.Basic(_))

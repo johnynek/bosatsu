@@ -1983,6 +1983,125 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test(
+    "show --validate-typedexpr validates dependency packages against their scoped dependency versions"
+  ) {
+    val rootMainSrc =
+      """from Foo/Util import helper
+|
+|main = helper
+|""".stripMargin
+    val rootUtilSrc =
+      """export helper
+|
+|helper = "root"
+|""".stripMargin
+    val depUtilSrc =
+      """export helper
+|
+|helper = 1
+|""".stripMargin
+    val depClientSrc =
+      """from Foo/Util import helper
+|
+|main = helper
+|""".stripMargin
+
+    val files = baseLibFiles(rootMainSrc) ++ List(
+      Chain("repo", "src", "Foo", "Util.bosatsu") -> rootUtilSrc,
+      Chain("dep_src", "Foo", "Util.bosatsu") -> depUtilSrc,
+      Chain("dep_src", "Foo", "Client.bosatsu") -> depClientSrc
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "dep_src/Foo/Util.bosatsu",
+          "--input",
+          "dep_src/Foo/Client.bosatsu",
+          "--output",
+          "out/dep.packages"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/dep.packages",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
+      s3 <- runWithState(
+        List(
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      state4 <- state3.withFile(
+        casPathFor(Chain("repo"), depLib),
+        MemoryMain.FileContent.Lib(depLib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception("failed to inject dependency library into repo CAS")
+          )
+      }
+      s4 <- runWithState(
+        List(
+          "show",
+          "--repo_root",
+          "repo",
+          "--package",
+          "MyLib/Foo",
+          "--package",
+          "Foo/Client",
+          "--validate-typedexpr"
+        ),
+        state4
+      )
+    } yield s4
+
+    result match {
+      case Left(err) =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
+      case Right((_, Output.ShowOutput(show, _))) =>
+        val names = typedShowPackages(show).map(_.name.asString).toSet
+        assertEquals(names, Set("MyLib/Foo", "Foo/Client"))
+      case Right((_, other)) =>
+        fail(s"unexpected output: $other")
+    }
+  }
+
   test("show avoids exploding repeated non-lambda global calls") {
     val ranges = List(
       (0, 10),
