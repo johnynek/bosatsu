@@ -18,7 +18,7 @@ object ShowSupport {
       compileOptions: CompileOptions,
       matchlessPassOptions: Matchless.PassOptions,
       packageNamesOnly: Boolean,
-      validateTypedExpr: Boolean = false
+      validateTypedExpr: Boolean
   ) {
     def typedPasses: List[CompileOptions.TypedPass] =
       compileOptions.enabledTypedPasses

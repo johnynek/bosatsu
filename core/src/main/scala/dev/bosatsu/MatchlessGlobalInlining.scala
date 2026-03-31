@@ -285,20 +285,43 @@ object MatchlessGlobalInlining {
     def summaryKey(from: K, pack: PackageName, name: Bindable): SummaryKey[K] =
       SummaryKey(depFor(from, pack), pack, name)
 
+    def cheapReferenceValue(value: Expr[K]): Option[Matchless.CheapExpr[K]] =
+      value match {
+        case lit @ Matchless.Literal(_) =>
+          Some(lit)
+        case global @ Matchless.Global(_, _, _) =>
+          Some(global)
+        case local @ Matchless.Local(_) =>
+          Some(local)
+        case slot @ Matchless.ClosureSlot(_) =>
+          Some(slot)
+        case anon @ Matchless.LocalAnon(_) =>
+          Some(anon)
+        case anonMut @ Matchless.LocalAnonMut(_) =>
+          Some(anonMut)
+        case ge @ Matchless.GetEnumElement(_, _, _, _) =>
+          Some(ge)
+        case gs @ Matchless.GetStructElement(_, _, _) =>
+          Some(gs)
+        case _ =>
+          None
+      }
+
     def inlineReferenceExpr(
-        global: Matchless.Global[K],
+        from: K,
+        pack: PackageName,
+        name: Bindable,
         allowNonCheap: Boolean
     ): Option[Expr[K]] =
       summaries
-        .get(summaryKey(global.from, global.pack, global.name))
+        .get(summaryKey(from, pack, name))
         .filter(shouldInlineReference)
         .flatMap {
           case summary: LambdaSummary[K] =>
             if (allowNonCheap) Some(summary.lambda) else None
           case summary: ValueSummary[K]  =>
-            if (allowNonCheap || summary.value.isInstanceOf[Matchless.CheapExpr[?]])
-              Some(summary.value)
-            else None
+            if (allowNonCheap) Some(summary.value)
+            else cheapReferenceValue(summary.value)
         }
 
     def knownSummaryValue(
@@ -371,8 +394,8 @@ object MatchlessGlobalInlining {
         case Matchless.App(fn, args) =>
           val fn1 =
             fn match {
-              case global: Matchless.Global[?] =>
-                global.asInstanceOf[Matchless.Expr[K]]
+              case global @ Matchless.Global(_, _, _) =>
+                global
               case other =>
                 loop(other)
             }
@@ -405,10 +428,9 @@ object MatchlessGlobalInlining {
           Matchless.Always(loopBool(cond), loop(thenExpr))
         case Matchless.PrevNat(of) =>
           Matchless.PrevNat(loop(of))
-        case global @ Matchless.Global(_, _, _) =>
-          val global1 = global.asInstanceOf[Matchless.Global[K]]
-          inlineReferenceExpr(global1, allowNonCheap = true)
-            .fold(global1: Expr[K])(loop)
+        case global @ Matchless.Global(from, pack, name) =>
+          inlineReferenceExpr(from, pack, name, allowNonCheap = true)
+            .fold(global: Expr[K])(loop)
         case Matchless.GetEnumElement(arg, variant, index, size) =>
           val rewritten =
             Matchless.GetEnumElement(loopCheap(arg), variant, index, size)
@@ -426,9 +448,8 @@ object MatchlessGlobalInlining {
 
     def loopCheap(ex: Matchless.CheapExpr[K]): Matchless.CheapExpr[K] =
       ex match {
-        case global @ Matchless.Global(_, _, _) =>
-          val global1 = global.asInstanceOf[Matchless.Global[K]]
-          inlineReferenceExpr(global1, allowNonCheap = false) match {
+        case global @ Matchless.Global(from, pack, name) =>
+          inlineReferenceExpr(from, pack, name, allowNonCheap = false) match {
             case Some(inlined) =>
               inlined match {
                 case cheap: Matchless.CheapExpr[K] =>
@@ -439,7 +460,7 @@ object MatchlessGlobalInlining {
                   )
               }
             case None =>
-              global1
+              global
           }
         case _ =>
           loop(ex) match {

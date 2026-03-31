@@ -925,6 +925,20 @@ object TypedExprNormalization {
     loop(te, Set.empty, Map.empty)
   }
 
+  private def prependCallArgTypesRho(
+      fnType: Type.Rho,
+      extraArgTypes: List[Type]
+  ): Type.Rho =
+    fnType match {
+      case Type.Fun(args, res) =>
+        Type.Fun(
+          NonEmptyList.fromListUnsafe(extraArgTypes ::: args.toList),
+          res
+        )
+      case _ =>
+        fnType
+    }
+
   private def prependCallArgTypes(
       fnType: Type,
       extraArgTypes: List[Type]
@@ -935,15 +949,10 @@ object TypedExprNormalization {
         case Type.ForAll(vars, in) =>
           Type.ForAll(
             vars,
-            prependCallArgTypes(in, extraArgTypes).asInstanceOf[Type.Rho]
+            prependCallArgTypesRho(in, extraArgTypes)
           )
-        case Type.Fun(args, res) =>
-          Type.Fun(
-            NonEmptyList.fromListUnsafe(extraArgTypes ::: args.toList),
-            res
-          )
-        case _ =>
-          fnType
+        case rho: Type.Rho =>
+          prependCallArgTypesRho(rho, extraArgTypes)
       }
 
   private def retagDirectCallRef[A](
