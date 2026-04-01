@@ -4983,21 +4983,20 @@ object Matchless {
       expr: Expr[A],
       localPassOptions: LocalPassOptions
   ): Expr[A] = {
-    given Ordering[Expr[A]] = Expr.exprOrder[A].toOrdering
-    val cleanupOrdering: Ordering[Expr[A]] =
-      Ordering.by((expr: Expr[A]) => (exprWeight(expr), expr))
-    val structuralOrdering = summon[Ordering[Expr[A]]]
+    val structuralOrder = summon[Order[Expr[A]]]
+    val cleanupOrder: Order[Expr[A]] =
+      Order.by((expr: Expr[A]) => (exprWeight(expr), expr))
 
     def canonical(expr: Expr[A]): Expr[A] =
       StackSafe.onStackOverflow(refreshAnonBinders(expr))(expr)
 
-    def bestExpr(seen: List[Expr[A]]): Expr[A] =
-      seen.min(using cleanupOrdering)
+    def bestExpr(seen: NonEmptyList[Expr[A]]): Expr[A] =
+      seen.tail.foldLeft(seen.head) { (best, next) =>
+        if (cleanupOrder.lteqv(best, next)) best else next
+      }
 
     def structurallyEqual(left: Expr[A], right: Expr[A]): Boolean =
-      StackSafe.onStackOverflow(structuralOrdering.compare(left, right) == 0)(
-        false
-      )
+      StackSafe.onStackOverflow(structuralOrder.eqv(left, right))(false)
 
     @annotation.tailrec
     def loop(
@@ -5011,7 +5010,7 @@ object Matchless {
         if (structurallyEqual(next, current)) current
         else {
           if (seen.exists(prev => structurallyEqual(prev, next)))
-            bestExpr(next :: seen)
+            bestExpr(NonEmptyList(next, seen))
           else loop(next, roundsLeft - 1, next :: seen)
         }
       }

@@ -643,7 +643,8 @@ object MatchlessGlobalInlining {
       case Matchless.Literal(_) |
           Matchless.MakeEnum(_, 0, _) |
           Matchless.MakeStruct(0) |
-          Matchless.ZeroNat =>
+          Matchless.ZeroNat |
+          (_: Matchless.TrueConst.type) =>
         true
       case Matchless.App(Matchless.MakeEnum(_, arity, _), args) if args.length == arity =>
         args.forall(isKnownArgumentValue)

@@ -378,7 +378,7 @@ object TypedExprNormalization {
           val (optName, s0) = nameScope(b, r, scope)
           val normTE0 = normalize1(optName, t, s0, typeEnv).get
           val normTE =
-            freshenInlineBinders(shareImmutableValues(normTE0), Set.empty)
+            unshadowInlineBinders(shareImmutableValues(normTE0), Set.empty)
           val rec1 =
             if (
               r.isRecursive && (SelfCallKind(b, normTE) == SelfCallKind.NoCall)
@@ -420,14 +420,14 @@ object TypedExprNormalization {
   private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
     if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe, None) else expr
 
-  private def freshenInlineBranch[A](
+  private def unshadowInlineBranch[A](
       branch: Branch[A],
       avoid: Set[Bindable]
   ): Branch[A] =
     NonEmptyList.fromList(branch.pattern.names) match {
       case None =>
-        val guard1 = branch.guard.map(freshenInlineBinders(_, avoid))
-        val expr1 = freshenInlineBinders(branch.expr, avoid)
+        val guard1 = branch.guard.map(unshadowInlineBinders(_, avoid))
+        val expr1 = unshadowInlineBinders(branch.expr, avoid)
         if ((guard1 eq branch.guard) && (expr1 eq branch.expr)) branch
         else branch.copy(guard = guard1, expr = expr1)
       case Some(args) =>
@@ -456,8 +456,8 @@ object TypedExprNormalization {
             val pattern2 = branch.pattern.substitute(argRenames)
             (pattern2, guard1, expr1, avoid ++ pattern2.names.toList)
           }
-        val guard1 = guard0.map(freshenInlineBinders(_, avoid1))
-        val expr1 = freshenInlineBinders(expr0, avoid1)
+        val guard1 = guard0.map(unshadowInlineBinders(_, avoid1))
+        val expr1 = unshadowInlineBinders(expr0, avoid1)
         if (
           (pattern1 == branch.pattern) &&
           (guard1 eq branch.guard) &&
@@ -466,57 +466,62 @@ object TypedExprNormalization {
         else branch.copy(pattern = pattern1, guard = guard1, expr = expr1)
     }
 
-  private def freshenInlineBinders[A](
+  // After inlining we can splice a whole subtree under a lexical scope that
+  // already uses some of the same names. The node-local `unshadow` helpers only
+  // rename binders owned by one node; this walk recursively unshadows every
+  // conflicting binder in the inlined subtree.
+  private def unshadowInlineBinders[A](
       te: TypedExpr[A],
       avoid: Set[Bindable]
   ): TypedExpr[A] =
     te match {
       case g @ Generic(q, in) =>
-        val in1 = freshenInlineBinders(in, avoid)
+        val in1 = unshadowInlineBinders(in, avoid)
         if (in1 eq in) g else Generic(q, in1)
       case a @ Annotation(in, tpe, qev) =>
-        val in1 = freshenInlineBinders(in, avoid)
+        val in1 = unshadowInlineBinders(in, avoid)
         if (in1 eq in) a else Annotation(in1, tpe, qev)
       case lam @ AnnotatedLambda(_, _, tag) =>
         val lam1 = lam.unshadow(avoid)
         val avoid1 = avoid ++ lam1.args.iterator.map(_._1)
-        val body1 = freshenInlineBinders(lam1.expr, avoid1)
+        val body1 = unshadowInlineBinders(lam1.expr, avoid1)
         if (body1 eq lam1.expr) lam1
         else AnnotatedLambda(lam1.args, body1, tag)
       case app @ App(fn, args, tpe, tag) =>
-        val fn1 = freshenInlineBinders(fn, avoid)
-        val args1 = ListUtil.mapConserveNel(args)(freshenInlineBinders(_, avoid))
+        val fn1 = unshadowInlineBinders(fn, avoid)
+        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
         if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
       case let @ Let(_, _, _, RecursionKind.NonRecursive, tag) =>
         val let1 = let.unshadowResult(avoid)
-        val expr1 = freshenInlineBinders(let1.expr, avoid)
-        val in1 = freshenInlineBinders(let1.in, avoid + let1.arg)
+        val expr1 = unshadowInlineBinders(let1.expr, avoid)
+        val in1 = unshadowInlineBinders(let1.in, avoid + let1.arg)
         if ((expr1 eq let1.expr) && (in1 eq let1.in)) let1
         else Let(let1.arg, expr1, in1, RecursionKind.NonRecursive, tag)
       case let @ Let(_, _, _, RecursionKind.Recursive, tag) =>
         val let1 = let.unshadowBoth(avoid)
         val avoid1 = avoid + let1.arg
-        val expr1 = freshenInlineBinders(let1.expr, avoid1)
-        val in1 = freshenInlineBinders(let1.in, avoid1)
+        val expr1 = unshadowInlineBinders(let1.expr, avoid1)
+        val in1 = unshadowInlineBinders(let1.in, avoid1)
         if ((expr1 eq let1.expr) && (in1 eq let1.in)) let1
         else Let(let1.arg, expr1, in1, RecursionKind.Recursive, tag)
       case lp @ Loop(_, body, tag) =>
         val lp1 = lp.unshadowBody(avoid)
         val args1 =
           ListUtil.mapConserveNel(lp1.args) { case (name, expr) =>
-            (name, freshenInlineBinders(expr, avoid))
+            (name, unshadowInlineBinders(expr, avoid))
           }
         val avoid1 = avoid ++ lp1.args.iterator.map(_._1)
-        val body1 = freshenInlineBinders(lp1.body, avoid1)
+        val body1 = unshadowInlineBinders(lp1.body, avoid1)
         if ((args1 eq lp1.args) && (body1 eq lp1.body)) lp1
         else Loop(args1, body1, tag)
       case recur @ Recur(args, tpe, tag) =>
-        val args1 = ListUtil.mapConserveNel(args)(freshenInlineBinders(_, avoid))
+        val args1 = ListUtil.mapConserveNel(args)(unshadowInlineBinders(_, avoid))
         if (args1 eq args) recur else Recur(args1, tpe, tag)
       case m @ Match(arg, branches, tag) =>
-        val arg1 = freshenInlineBinders(arg, avoid)
-        val branches1 = ListUtil.mapConserveNel(branches)(freshenInlineBranch(_, avoid))
+        val arg1 = unshadowInlineBinders(arg, avoid)
+        val branches1 =
+          ListUtil.mapConserveNel(branches)(unshadowInlineBranch(_, avoid))
         if ((arg1 eq arg) && (branches1 eq branches)) m
         else Match(m.matchKind, arg1, branches1, tag)
       case n @ (Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _)) =>
@@ -529,14 +534,14 @@ object TypedExprNormalization {
       tpe: Type,
       tag: A
   ): TypedExpr[A] = {
-    val freshened =
-      freshenInlineBinders(f1, TypedExpr.freeVarsSet(args.toList))
+    val unshadowed =
+      unshadowInlineBinders(f1, TypedExpr.freeVarsSet(args.toList))
     val (lamArgs, expr) =
-      freshened match {
+      unshadowed match {
         case AnnotatedLambda(args1, expr1, _) =>
           (args1, expr1)
         case _ =>
-          sys.error(s"expected lambda after inline freshening, found: ${freshened.reprString}")
+          sys.error(s"expected lambda after inline unshadowing, found: ${unshadowed.reprString}")
       }
     // Now that we certainly don't shadow we can convert this:
     // ((y1, y2, ..., yn) -> z)(x1, x2, ..., xn) = let y1 = x1 in let y2 = x2 in ... z
@@ -931,10 +936,7 @@ object TypedExprNormalization {
   ): Type.Rho =
     fnType match {
       case Type.Fun(args, res) =>
-        Type.Fun(
-          NonEmptyList.fromListUnsafe(extraArgTypes ::: args.toList),
-          res
-        )
+        Type.Fun(args.prependList(extraArgTypes), res)
       case _ =>
         fnType
     }
@@ -1064,7 +1066,7 @@ object TypedExprNormalization {
         if (fnIsCall) {
           val extraArgTypes = extraArgs.map(_.getType)
           val fn2 = retagDirectCallRef(fn1, extraArgTypes)
-          val args2 = NonEmptyList.fromListUnsafe(extraArgs ::: args1.toList)
+          val args2 = args1.prependList(extraArgs)
           App(fn2, args2, tpe, tag)
         } else if ((fn1 eq fn) && (args1 eq args)) app
         else App(fn1, args1, tpe, tag)
@@ -1148,8 +1150,7 @@ object TypedExprNormalization {
       case Annotation(in, tpe, qev) =>
         prependLambdaArgs(in, extraArgs).map(Annotation(_, tpe, qev))
       case AnnotatedLambda(args, body, tag) =>
-        val allArgs =
-          NonEmptyList.fromListUnsafe(extraArgs.toList ::: args.toList)
+        val allArgs = args.prependList(extraArgs.toList)
         Some(AnnotatedLambda(allArgs, body, tag))
       case _ =>
         // Closure rewriting only applies when the binding still normalizes
@@ -1905,7 +1906,7 @@ object TypedExprNormalization {
 
   def normalize[A: Eq](te: TypedExpr[A]): Option[TypedExpr[A]] = {
     val norm0 = normalize1(None, te, emptyScope, TypeEnv.empty).get
-    val norm1 = freshenInlineBinders(shareImmutableValues(norm0), Set.empty)
+    val norm1 = unshadowInlineBinders(shareImmutableValues(norm0), Set.empty)
     if ((norm1: TypedExpr[A]) === te) None
     else Some(norm1)
   }
