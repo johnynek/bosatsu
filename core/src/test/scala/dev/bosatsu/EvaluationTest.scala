@@ -3556,6 +3556,16 @@ main = Main(args -> (
     test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      val arrayPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/Collection/Array.bosatsu")
+      val listPack = Predef.loadFileInCompile("test_workspace/List.bosatsu")
+      val optionPack = Predef.loadFileInCompile("test_workspace/Option.bosatsu")
+      val propertiesPack =
+        Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
+      val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
+      val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
+      val binNatPack =
+        Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
       val ioErrorPack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
       val bytesPack =
@@ -3566,7 +3576,7 @@ main = Main(args -> (
       val mkdirEvalPack = """
 package MkdirWithModeEval
 
-from Bosatsu/Prog import Main, pure, recover, await
+from Bosatsu/Prog import Main, Prog, pure, recover, await
 from Bosatsu/IO/Error import IOError, Unsupported
 from Bosatsu/IO/Core import (
   Path,
@@ -3619,13 +3629,21 @@ main = Main(_ ->
               _ <- mkdir_with_mode(leaf, False, mode).await()
               leaf_stat <- stat(leaf).await()
               _ <- remove(root, True).await()
-              pure(if stat_mode_bits(leaf_stat).eq_Int(488): 0 else: 1)
+              exit_code = if stat_mode_bits(leaf_stat).eq_Int(488):
+                0
+              else:
+                1
+              pure(exit_code)
             )
           else:
             (
               unsupported <- mkdir_unsupported(leaf, mode).await()
               _ <- remove(root, True).await()
-              pure(if unsupported: 0 else: 1)
+              exit_code = if unsupported:
+                0
+              else:
+                1
+              pure(exit_code)
             )).await()
           pure(exit_code)
         ),
@@ -3640,6 +3658,13 @@ main = Main(_ ->
         List(
           progPack,
           charPack,
+          arrayPack,
+          listPack,
+          optionPack,
+          propertiesPack,
+          randPack,
+          natPack,
+          binNatPack,
           ioErrorPack,
           bytesPack,
           ioCorePack,
