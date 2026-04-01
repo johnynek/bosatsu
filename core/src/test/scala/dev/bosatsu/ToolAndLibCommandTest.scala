@@ -1152,6 +1152,8 @@ class ToolAndLibCommandTest extends FunSuite {
         "repo",
         "--value",
         value,
+        "--ir",
+        "matchless",
         "--json"
       ) ::: (if (noOpt) List("--no-opt") else Nil)
 
@@ -1928,6 +1930,178 @@ class ToolAndLibCommandTest extends FunSuite {
     }
   }
 
+  test("show --validate-typedexpr validates typed IR before rendering") {
+    val src =
+      """helper = 1
+|main = helper
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--validate-typedexpr"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val packs = typedShowPackages(show)
+        assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("show --validate-typedexpr rejects --ir matchless") {
+    val src =
+      """main = 42
+|""".stripMargin
+    val files = baseLibFiles(src)
+
+    runWithFiles(files)(
+      List(
+        "show",
+        "--repo_root",
+        "repo",
+        "--package",
+        "MyLib/Foo",
+        "--ir",
+        "matchless",
+        "--validate-typedexpr"
+      )
+    ) match {
+      case Right(other) =>
+        fail(s"expected validation option error, got output: $other")
+      case Left(err) =>
+        val msg = Option(err.getMessage).getOrElse(err.toString)
+        assert(msg.contains("--validate-typedexpr requires --ir typedexpr"), msg)
+    }
+  }
+
+  test(
+    "show --validate-typedexpr validates dependency packages against their scoped dependency versions"
+  ) {
+    val rootMainSrc =
+      """from Foo/Util import helper
+|
+|main = helper
+|""".stripMargin
+    val rootUtilSrc =
+      """export helper
+|
+|helper = "root"
+|""".stripMargin
+    val depUtilSrc =
+      """export helper
+|
+|helper = 1
+|""".stripMargin
+    val depClientSrc =
+      """from Foo/Util import helper
+|
+|main = helper
+|""".stripMargin
+
+    val files = baseLibFiles(rootMainSrc) ++ List(
+      Chain("repo", "src", "Foo", "Util.bosatsu") -> rootUtilSrc,
+      Chain("dep_src", "Foo", "Util.bosatsu") -> depUtilSrc,
+      Chain("dep_src", "Foo", "Client.bosatsu") -> depClientSrc
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "dep_src/Foo/Util.bosatsu",
+          "--input",
+          "dep_src/Foo/Client.bosatsu",
+          "--output",
+          "out/dep.packages"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "assemble",
+          "--name",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--package",
+          "out/dep.packages",
+          "--output",
+          "out/dep.bosatsu_lib"
+        ),
+        state1
+      )
+      (state2, _) = s2
+      depLib = readLibraryFile(state2, Chain("out", "dep.bosatsu_lib"))
+      s3 <- runWithState(
+        List(
+          "deps",
+          "add",
+          "--repo_root",
+          "repo",
+          "--dep",
+          "dep",
+          "--version",
+          "0.0.1",
+          "--hash",
+          depLib.hash.toIdent,
+          "--uri",
+          "https://example.com/dep.bosatsu_lib",
+          "--private",
+          "--no-fetch"
+        ),
+        state2
+      )
+      (state3, _) = s3
+      state4 <- state3.withFile(
+        casPathFor(Chain("repo"), depLib),
+        MemoryMain.FileContent.Lib(depLib)
+      ) match {
+        case Some(next) => Right(next)
+        case None       =>
+          Left(
+            new Exception("failed to inject dependency library into repo CAS")
+          )
+      }
+      s4 <- runWithState(
+        List(
+          "show",
+          "--repo_root",
+          "repo",
+          "--package",
+          "MyLib/Foo",
+          "--package",
+          "Foo/Client",
+          "--validate-typedexpr"
+        ),
+        state4
+      )
+    } yield s4
+
+    result match {
+      case Left(err) =>
+        fail(Option(err.getMessage).getOrElse(err.toString))
+      case Right((_, Output.ShowOutput(show, _))) =>
+        val names = typedShowPackages(show).map(_.name.asString).toSet
+        assertEquals(names, Set("MyLib/Foo", "Foo/Client"))
+      case Right((_, other)) =>
+        fail(s"unexpected output: $other")
+    }
+  }
+
   test("show avoids exploding repeated non-lambda global calls") {
     val ranges = List(
       (0, 10),
@@ -2358,6 +2532,56 @@ class ToolAndLibCommandTest extends FunSuite {
       case Right(Output.JsonOutput(json, _)) =>
         assertEquals(showJsonIr(json), "matchless")
         assertEquals(showJsonPackageNames(json), List("App/Caller"))
+      case Right(other) =>
+        fail(s"unexpected output: $other")
+      case Left(err) =>
+        fail(err.getMessage)
+    }
+  }
+
+  test("tool show --ir matchless inlines tiny pure value helpers") {
+    val helperSrc =
+      """package App/Helper
+|
+|export Pair(), pair
+|
+|struct Pair(left: Int, right: Int)
+|
+|pair = Pair(1, 2)
+|""".stripMargin
+    val callerSrc =
+      """package App/Caller
+|
+|from App/Helper import Pair, pair
+|
+|use =
+|  match pair:
+|    case Pair(_, x):
+|      x
+|""".stripMargin
+    val files = List(
+      Chain("src", "App", "Helper.bosatsu") -> helperSrc,
+      Chain("src", "App", "Caller.bosatsu") -> callerSrc
+    )
+
+    runWithFiles(files)(
+      List(
+        "tool",
+        "show",
+        "--input",
+        "src/App/Helper.bosatsu",
+        "--input",
+        "src/App/Caller.bosatsu",
+        "--value",
+        "App/Caller::use",
+        "--ir",
+        "matchless"
+      )
+    ) match {
+      case Right(Output.ShowOutput(show, _)) =>
+        val expr = matchlessDefExpr(show, "App/Caller", "use")
+        assert(!containsGlobalExpr(expr, "App/Helper", "pair"))
+        assertEquals(expr, Matchless.Literal(Lit.fromInt(2)))
       case Right(other) =>
         fail(s"unexpected output: $other")
       case Left(err) =>

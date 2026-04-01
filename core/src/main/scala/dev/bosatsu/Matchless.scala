@@ -10,6 +10,8 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
+  private val PostLoweringCleanupMaxRounds = 4
+
   private[bosatsu] enum LocalPass(val cliName: String) derives CanEqual {
     case HoistInvariantLoopLets extends LocalPass("hoist-invariant-loop-lets")
     case ReuseConstructors extends LocalPass("reuse-constructors")
@@ -1677,9 +1679,10 @@ object Matchless {
                   ((demand.eagerUses > 0) &&
                     ((demand.totalUses > 1) || (demand.cheapPositionUses > 0))) ||
                   // CheapExpr positions such as EqualsNat/GetStructElement cannot
-                  // directly hold nullary constructors like ZeroNat or
-                  // MakeStruct(0), even though they are semantically trivial.
-                  ((demand.cheapPositionUses > 0) && isTriviallyCheap(argExpr))
+                  // directly hold arbitrary constructor applications. Memoizing
+                  // any non-cheap selector input preserves eager call semantics
+                  // while giving substitution a cheap local to reference.
+                  (demand.cheapPositionUses > 0)
                 ) =>
             (argName, argExpr)
         }
@@ -1888,7 +1891,7 @@ object Matchless {
               )
             case If(cond, thenExpr, elseExpr) =>
               loop(
-                LoopState(cond, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(cond, branchOnly, false, insideLambda, true, shadowed) ::
                   LoopState(thenExpr, true, false, insideLambda, false, shadowed) ::
                   LoopState(elseExpr, true, false, insideLambda, false, shadowed) ::
                   tail
@@ -1929,8 +1932,8 @@ object Matchless {
               loop(LoopState(arg, branchOnly, false, insideLambda, true, shadowed) :: tail)
             case And(left, right) =>
               loop(
-                LoopState(left, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(right, branchOnly, false, insideLambda, false, shadowed) ::
+                LoopState(left, branchOnly, false, insideLambda, cheapContext, shadowed) ::
+                  LoopState(right, branchOnly, false, insideLambda, cheapContext, shadowed) ::
                   tail
               )
             case CheckVariant(arg, _, _, _) =>
@@ -1948,12 +1951,14 @@ object Matchless {
                   case Left(_)     => shadowed
                 }
               loop(
-                LoopState(value, branchOnly, false, insideLambda, false, shadowed) ::
-                  LoopState(in, branchOnly, false, insideLambda, false, shadowed1) ::
+                LoopState(value, branchOnly, false, insideLambda, cheapContext, shadowed) ::
+                  LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed1) ::
                   tail
               )
             case LetMutBool(_, in) =>
-              loop(LoopState(in, branchOnly, false, insideLambda, false, shadowed) :: tail)
+              loop(
+                LoopState(in, branchOnly, false, insideLambda, cheapContext, shadowed) :: tail
+              )
             case Global(_, _, _) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
                 Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) | _: SuccNat.type |
                 _: ZeroNat.type | _: TrueConst.type =>
@@ -2806,6 +2811,152 @@ object Matchless {
     StackSafe.onStackOverflow(recurExpr(expr))(expr)
   }
 
+  private def canSinkBranchOnlyLet[A](value: Expr[A]): Boolean =
+    !hasSideEffect(value) &&
+      !Expr.readsMutable(value) &&
+      !Expr.containsWhileExpr(value)
+
+  // Defer pure work until the branches that actually need it after inlining
+  // has exposed control flow. This is the Matchless analogue of the existing
+  // TypedExpr let-to-match sinking rewrite.
+  private[bosatsu] def sinkBranchOnlyLets[A](expr: Expr[A]): Expr[A] = {
+    def sinkIntoUsedBranch(
+        arg: Either[LocalAnon, Bindable],
+        value: Expr[A],
+        branch: Expr[A],
+        uses: Boolean
+    ): Expr[A] =
+      if (uses) loopExpr(Let(arg, value, branch))
+      else branch
+
+    def sinkBinding(
+        arg: Either[LocalAnon, Bindable],
+        value: Expr[A],
+        in: Expr[A]
+    ): Option[Expr[A]] =
+      if (!canSinkBranchOnlyLet(value)) None
+      else
+        in match {
+          case If(cond, thenExpr, elseExpr)
+              if !BoolExpr.usesBinding(cond, arg) =>
+            val thenUses = Expr.usesBinding(thenExpr, arg)
+            val elseUses = Expr.usesBinding(elseExpr, arg)
+
+            if (thenUses && elseUses) None
+            else if (!thenUses && !elseUses) Some(in)
+            else
+              Some(
+                If(
+                  cond,
+                  sinkIntoUsedBranch(arg, value, thenExpr, thenUses),
+                  sinkIntoUsedBranch(arg, value, elseExpr, elseUses)
+                )
+              )
+
+          case SwitchVariant(on, famArities, cases, default)
+              if !Expr.usesBinding(on, arg) =>
+            val caseUses = cases.map { case (_, branch) =>
+              Expr.usesBinding(branch, arg)
+            }
+            val defaultUses = default.map(Expr.usesBinding(_, arg))
+            val anyUses =
+              caseUses.exists(identity) || defaultUses.contains(true)
+            val allUses =
+              caseUses.forall(identity) && defaultUses.forall(identity)
+
+            if (allUses) None
+            else if (!anyUses) Some(in)
+            else {
+              val cases1 =
+                cases.zip(caseUses).map { case ((variant, branch), uses) =>
+                  (variant, sinkIntoUsedBranch(arg, value, branch, uses))
+                }
+              val default1 =
+                default.zip(defaultUses).map { case (branch, uses) =>
+                  sinkIntoUsedBranch(arg, value, branch, uses)
+                }
+
+              Some(SwitchVariant(on, famArities, cases1, default1))
+            }
+
+          case _ =>
+            None
+        }
+
+    def loopBool(boolExpr: BoolExpr[A]): BoolExpr[A] =
+      boolExpr match {
+        case EqualsLit(expr, lit) =>
+          EqualsLit(loopCheap(expr), lit)
+        case LtEqLit(expr, lit) =>
+          LtEqLit(loopCheap(expr), lit)
+        case EqualsNat(expr, nat) =>
+          EqualsNat(loopCheap(expr), nat)
+        case And(left, right) =>
+          And(loopBool(left), loopBool(right))
+        case CheckVariant(expr, expect, size, famArities) =>
+          CheckVariant(loopCheap(expr), expect, size, famArities)
+        case CheckVariantSet(expr, expect, size, famArities) =>
+          CheckVariantSet(loopCheap(expr), expect, size, famArities)
+        case SetMut(target, value) =>
+          SetMut(target, loopExpr(value))
+        case LetBool(arg, value, in) =>
+          LetBool(arg, loopExpr(value), loopBool(in))
+        case LetMutBool(name, in) =>
+          LetMutBool(name, loopBool(in))
+        case TrueConst =>
+          TrueConst
+      }
+
+    def loopCheap(ex: CheapExpr[A]): CheapExpr[A] =
+      loopExpr(ex) match {
+        case ch: CheapExpr[A] => ch
+        case notCheap         =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(
+            s"expected cheap expression when sinking branch-only lets, got: $notCheap"
+          )
+        // $COVERAGE-ON$
+      }
+
+    def loopExpr(ex: Expr[A]): Expr[A] =
+      ex match {
+        case Lambda(captures, recursiveName, args, body) =>
+          Lambda(captures.map(loopExpr), recursiveName, args, loopExpr(body))
+        case WhileExpr(cond, effectExpr, result) =>
+          WhileExpr(loopBool(cond), loopExpr(effectExpr), result)
+        case App(fn, args) =>
+          App(loopExpr(fn), args.map(loopExpr))
+        case Let(arg, value, in) =>
+          val value1 = loopExpr(value)
+          val in1 = loopExpr(in)
+          sinkBinding(arg, value1, in1).getOrElse(Let(arg, value1, in1))
+        case LetMut(name, span) =>
+          LetMut(name, loopExpr(span))
+        case If(cond, thenExpr, elseExpr) =>
+          If(loopBool(cond), loopExpr(thenExpr), loopExpr(elseExpr))
+        case SwitchVariant(on, famArities, cases, default) =>
+          SwitchVariant(
+            loopCheap(on),
+            famArities,
+            cases.map { case (variant, branch) =>
+              (variant, loopExpr(branch))
+            },
+            default.map(loopExpr)
+          )
+        case Always(cond, thenExpr) =>
+          Always(loopBool(cond), loopExpr(thenExpr))
+        case PrevNat(of) =>
+          PrevNat(loopExpr(of))
+        case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
+            Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
+            SuccNat | ZeroNat | GetEnumElement(_, _, _, _) |
+            GetStructElement(_, _, _) =>
+          ex
+      }
+
+    StackSafe.onStackOverflow(loopExpr(expr))(expr)
+  }
+
   // Evaluate selector-like tests against locally known pure values so inlining
   // can collapse branches such as `let x = False in if x then ... else ...`.
   private[bosatsu] def simplifyKnownConditions[A](expr: Expr[A]): Expr[A] = {
@@ -2842,6 +2993,10 @@ object Matchless {
           env.anons
             .get(id)
             .flatMap(knownValue(_, env, seenBindables, seenAnons + id))
+        case lam: Lambda[A] if lam.recursiveName.isEmpty =>
+          Some(lam)
+        case global @ Global(_, _, _) =>
+          Some(global)
         case lit @ Literal(_) =>
           Some(lit)
         case enumExpr @ MakeEnum(_, 0, _) =>
@@ -3044,7 +3199,17 @@ object Matchless {
         case WhileExpr(cond, effectExpr, result) =>
           WhileExpr(recurBool(cond, env), recurExpr(effectExpr, env), result)
         case App(fn, args) =>
-          App(recurExpr(fn, env), args.map(recurExpr(_, env)))
+          val fn1 = recurExpr(fn, env)
+          val args1 = args.map(recurExpr(_, env))
+          val resolvedFn =
+            knownValue(fn1, env, Set.empty, Set.empty).getOrElse(fn1)
+
+          recoverTopLevelLambda(resolvedFn) match {
+            case lam: Lambda[A] if lam.arity == args1.length =>
+              recurExpr(inlineApplyArgs(lam, args1), env)
+            case _ =>
+              App(resolvedFn, args1)
+          }
         case Let(arg, value, in) =>
           val value1 = recurExpr(value, env)
           val env1 = extendEnv(env, arg, value1)
@@ -3111,10 +3276,12 @@ object Matchless {
             Always(cond1, recurExpr(thenExpr, env))
         case PrevNat(of) =>
           PrevNat(recurExpr(of, env))
-        case ge: GetEnumElement[?] =>
-          ge.copy(arg = recurExprCheap(ge.arg, env))
-        case gs: GetStructElement[?] =>
-          gs.copy(arg = recurExprCheap(gs.arg, env))
+        case GetEnumElement(arg, variant, index, size) =>
+          val rewritten = GetEnumElement(recurExprCheap(arg, env), variant, index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
+        case GetStructElement(arg, index, size) =>
+          val rewritten = GetStructElement(recurExprCheap(arg, env), index, size)
+          knownValue(rewritten, env, Set.empty, Set.empty).fold(rewritten: Expr[A])(recurExpr(_, env))
         case Local(_) | ClosureSlot(_) | LocalAnon(_) | LocalAnonMut(_) |
             Global(_, _, _) | Literal(_) | MakeEnum(_, _, _) | MakeStruct(_) |
             SuccNat | ZeroNat =>
@@ -4792,7 +4959,7 @@ object Matchless {
       case NonEmptyList(h0, h1 :: t)   => h0 :: stopAt(NonEmptyList(h1, t))(fn)
     }
 
-  private[bosatsu] def postLoweringCleanup[A: Order](
+  private def postLoweringCleanupRound[A: Order](
       expr: Expr[A],
       localPassOptions: LocalPassOptions
   ): Expr[A] = {
@@ -4806,8 +4973,50 @@ object Matchless {
         reuseConstructors(hoisted)
       else
         hoisted
+    val branchSunk =
+      sinkBranchOnlyLets(reused)
 
-    simplifyKnownConditions(reused)
+    simplifyKnownConditions(branchSunk)
+  }
+
+  private[bosatsu] def postLoweringCleanup[A: Order](
+      expr: Expr[A],
+      localPassOptions: LocalPassOptions
+  ): Expr[A] = {
+    val structuralOrder = summon[Order[Expr[A]]]
+    val cleanupOrder: Order[Expr[A]] =
+      Order.by((expr: Expr[A]) => (exprWeight(expr), expr))
+
+    def canonical(expr: Expr[A]): Expr[A] =
+      StackSafe.onStackOverflow(refreshAnonBinders(expr))(expr)
+
+    def bestExpr(seen: NonEmptyList[Expr[A]]): Expr[A] =
+      seen.tail.foldLeft(seen.head) { (best, next) =>
+        if (cleanupOrder.lteqv(best, next)) best else next
+      }
+
+    def structurallyEqual(left: Expr[A], right: Expr[A]): Boolean =
+      StackSafe.onStackOverflow(structuralOrder.eqv(left, right))(false)
+
+    @annotation.tailrec
+    def loop(
+        current: Expr[A],
+        roundsLeft: Int,
+        seen: List[Expr[A]]
+    ): Expr[A] =
+      if (roundsLeft <= 0) current
+      else {
+        val next = canonical(postLoweringCleanupRound(current, localPassOptions))
+        if (structurallyEqual(next, current)) current
+        else {
+          if (seen.exists(prev => structurallyEqual(prev, next)))
+            bestExpr(NonEmptyList(next, seen))
+          else loop(next, roundsLeft - 1, next :: seen)
+        }
+      }
+
+    val start = canonical(expr)
+    loop(start, PostLoweringCleanupMaxRounds, start :: Nil)
   }
 
   // Allocate anonymous ids with RefSpace, then run the shared post-lowering
@@ -5277,34 +5486,53 @@ object Matchless {
     ): F[Expr[B]] =
       rec match {
         case RecursionKind.Recursive =>
+          def peelLeadingLets(
+              expr: Expr[B],
+              acc: List[(Either[LocalAnon, Bindable], Expr[B])]
+          ): (List[(Either[LocalAnon, Bindable], Expr[B])], Expr[B]) =
+            expr match {
+              case Let(arg, value, in) =>
+                peelLeadingLets(in, (arg, value) :: acc)
+              case other =>
+                (acc.reverse, other)
+            }
+
           loop(e, slots.inLet(name)).flatMap {
-            case fn @ Lambda(captures, Some(fnName), args, body)
-                if fnName == name =>
-              // TypedExpr lowering keeps polymorphic recursion in lambda form to
-              // preserve typed AST invariants. Matchless is type-erased, so we
-              // can lower tail self-calls here when available.
-              val initArgs = args.map(Local(_))
-              buildLoopExpr(
-                fnName,
-                args,
-                initArgs,
-                body,
-                onlyIfTailCall = true
-              ).map {
-                case Some(loopBody) =>
-                  Lambda(captures, Some(fnName), args, loopBody)
-                case None =>
-                  fn
+            case compiled =>
+              val (lets, tail) = peelLeadingLets(compiled, Nil)
+              tail match {
+                case fn @ Lambda(captures, Some(fnName), args, body)
+                    if fnName == name =>
+                  // TypedExpr lowering keeps polymorphic recursion in lambda form to
+                  // preserve typed AST invariants. Matchless is type-erased, so we
+                  // can lower tail self-calls here when available.
+                  val initArgs = args.map(Local(_))
+                  buildLoopExpr(
+                    fnName,
+                    args,
+                    initArgs,
+                    body,
+                    onlyIfTailCall = true
+                  ).map { maybeLoopBody =>
+                    val loweredFn =
+                      maybeLoopBody match {
+                        case Some(loopBody) =>
+                          Lambda(captures, Some(fnName), args, loopBody)
+                        case None =>
+                          fn
+                      }
+                    Let.bindAll(lets, loweredFn)
+                  }
+                case fn: Lambda[?] =>
+                  // loops always have a function name
+                  sys.error(
+                    s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $compiled"
+                  )
+                case _ =>
+                  sys.error(
+                    s"expected ${e.repr.render(80)} to compile to a function, but got: $compiled"
+                  )
               }
-            case fn: Lambda[?] =>
-              // loops always have a function name
-              sys.error(
-                s"expected ${fn.recursiveName} == Some($name) in ${e.repr.render(80)} which compiled to $fn"
-              )
-            case expr =>
-              sys.error(
-                s"expected ${e.repr.render(80)} to compile to a function, but got: $expr"
-              )
           }
         case RecursionKind.NonRecursive => loop(e, slots)
       }

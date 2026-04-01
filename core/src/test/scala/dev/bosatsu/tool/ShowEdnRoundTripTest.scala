@@ -118,7 +118,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         ir = Output.ShowIr.Matchless,
         compileOptions = CompileOptions.Default,
         matchlessPassOptions = Matchless.PassOptions.Default,
-        packageNamesOnly = false
+        packageNamesOnly = false,
+        validateTypedExpr = false
       )
 
     ShowSupport.matchlessShowValue(packs, request, pack =>

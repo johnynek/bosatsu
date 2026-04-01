@@ -426,6 +426,126 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     loopExpr(expr)
   }
 
+  private def countLambdasWithCaptures(expr: Matchless.Expr[Unit]): Int = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Int =
+      ex match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          (if (captures.nonEmpty) 1 else 0) +
+            captures.foldLeft(0)(_ + loopExpr(_)) +
+            loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) +
+            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            default.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          0
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) + loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
+  private def countClosureSlots(expr: Matchless.Expr[Unit]): Int = {
+    def loopExpr(ex: Matchless.Expr[Unit]): Int =
+      ex match {
+        case Matchless.ClosureSlot(_) =>
+          1
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.foldLeft(0)(_ + loopExpr(_)) + loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) + loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) + args.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) + loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) + loopExpr(thenExpr) + loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopExpr(on) +
+            cases.foldLeft(0) { case (acc, (_, branch)) => acc + loopExpr(branch) } +
+            default.foldLeft(0)(_ + loopExpr(_))
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) + loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case ge: Matchless.GetEnumElement[?] =>
+          loopExpr(ge.arg)
+        case gs: Matchless.GetStructElement[?] =>
+          loopExpr(gs.arg)
+        case _ =>
+          0
+      }
+
+    def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
+      ex match {
+        case Matchless.EqualsLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.LtEqLit(arg, _) =>
+          loopExpr(arg)
+        case Matchless.EqualsNat(arg, _) =>
+          loopExpr(arg)
+        case Matchless.And(left, right) =>
+          loopBool(left) + loopBool(right)
+        case Matchless.CheckVariant(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.CheckVariantSet(arg, _, _, _) =>
+          loopExpr(arg)
+        case Matchless.SetMut(_, value) =>
+          loopExpr(value)
+        case Matchless.LetBool(_, value, in) =>
+          loopExpr(value) + loopBool(in)
+        case Matchless.LetMutBool(_, in) =>
+          loopBool(in)
+        case Matchless.TrueConst =>
+          0
+      }
+
+    loopExpr(expr)
+  }
+
   private def matchlessEvalResolveReverseOnly(
       from: Unit,
       pack: PackageName,
@@ -3802,6 +3922,8 @@ def middle_window(xs):
   test("guarded fixed-width middle list search evaluates guard per candidate") {
     checkMatchlessPackage("""package Test
 
+export has_two
+
 def has_two(xs):
   xs matches [*_, x, *_] if x matches 2
 
@@ -5057,6 +5179,95 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless devirtualizes foldl_List step functions in loops") {
+    val pack = PackageName.parts("Matchless", "Global", "Foldl")
+    val useLambda = Identifier.Name("use_lambda")
+    val useGlobal = Identifier.Name("use_global")
+    val useUnknown = Identifier.Name("use_unknown")
+
+    checkOptimizedMatchlessPackage(
+      """package Matchless/Global/Foldl
+        |
+        |export use_lambda, use_global, use_unknown
+        |
+        |def use_lambda(items: List[Int]) -> Int:
+        |  items.foldl_List(0, (acc, item) -> acc.add(item))
+        |
+        |def use_global(items: List[Int]) -> Int:
+        |  items.foldl_List(0, add)
+        |
+        |def use_unknown(items: List[Int], fn: (Int, Int) -> Int) -> Int:
+        |  items.foldl_List(0, fn)
+        |""".stripMargin
+    ) { compiled =>
+      val byName = compiled(pack).toMap
+      val foldlName = Identifier.Name("foldl_List")
+
+      val lambdaExpr = byName(useLambda)
+      assertEquals(
+        containsGlobal(lambdaExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(Matchless.Expr.containsWhileExpr(lambdaExpr), true)
+
+      val globalExpr = byName(useGlobal)
+      assertEquals(
+        containsGlobal(globalExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(Matchless.Expr.containsWhileExpr(globalExpr), true)
+
+      val unknownExpr = byName(useUnknown)
+      assertEquals(
+        containsGlobal(unknownExpr, PackageName.PredefName, foldlName),
+        true
+      )
+    }
+  }
+
+  test("optimized Matchless applies a per-definition budget to repeated loop helper inlining") {
+    val pack = PackageName.parts("Matchless", "Global", "Budget")
+    val smallName = Identifier.Name("small")
+    val largeName = Identifier.Name("large")
+    val foldlName = Identifier.Name("foldl_List")
+    val repeatedCalls = 10
+    val tmpLines =
+      (0 until repeatedCalls).map { idx =>
+        s"|  tmp$idx = items.foldl_List($idx, add)"
+      }.mkString("\n")
+    val summed =
+      (0 until repeatedCalls)
+        .map(idx => s"tmp$idx")
+        .reduce((acc, next) => s"$acc.add($next)")
+
+    checkOptimizedMatchlessPackage(
+      s"""package Matchless/Global/Budget
+         |
+         |export small, large
+         |
+         |def small(items: List[Int]) -> Int:
+         |  items.foldl_List(0, add)
+         |
+         |def large(items: List[Int]) -> Int:
+${tmpLines}
+         |  $summed
+         |""".stripMargin
+    ) { compiled =>
+      val byName = compiled(pack).toMap
+      val smallExpr = byName(smallName)
+      val largeExpr = byName(largeName)
+
+      assertEquals(
+        containsGlobal(smallExpr, PackageName.PredefName, foldlName),
+        false
+      )
+      assertEquals(
+        countGlobalCalls(largeExpr, PackageName.PredefName, foldlName) > 0,
+        true
+      )
+    }
+  }
+
   test("optimized Matchless expands tiny capture-free helper references generically") {
     val helperPack = PackageName.parts("Helper", "Ref")
     val callerPack = PackageName.parts("Caller", "Ref")
@@ -5117,6 +5328,108 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless inlines tiny pure struct values through local aliases") {
+    val helperPack = PackageName.parts("Helper", "Value")
+    val callerPack = PackageName.parts("Caller", "Value")
+    val helperName = Identifier.Name("pair")
+    val useName = Identifier.Name("use")
+    val alias = Identifier.Name("alias")
+
+    val helperExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeStruct(2),
+        NonEmptyList.of(
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(2))
+        )
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(alias),
+        Matchless.Global((), helperPack, helperName),
+        Matchless.GetStructElement(Matchless.Local(alias), 1, 2)
+      )
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    assertEquals(useExpr, Matchless.Literal(Lit.fromInt(2)))
+  }
+
+  test("optimized Matchless folds enum payload projections from tiny pure values") {
+    val helperPack = PackageName.parts("Helper", "EnumValue")
+    val callerPack = PackageName.parts("Caller", "EnumValue")
+    val helperName = Identifier.Name("some_value")
+    val useName = Identifier.Name("use")
+    val famArities = 0 :: 1 :: Nil
+
+    val helperExpr: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.MakeEnum(1, 1, famArities),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(9)))
+      )
+
+    val callerExpr: Matchless.Expr[Unit] =
+      Matchless.GetEnumElement(
+        Matchless.Global((), helperPack, helperName),
+        1,
+        0,
+        1
+      )
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List((helperName, helperExpr)),
+          callerPack -> List((useName, callerExpr))
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+    assertEquals(useExpr, Matchless.Literal(Lit.fromInt(9)))
+  }
+
   test("optimized Matchless inlines cross-package helpers with deferrable arguments") {
     val helperPack = PackageName.parts("Helper", "Branch")
     val callerPack = PackageName.parts("Caller", "Branch")
@@ -5151,7 +5464,9 @@ def seg_final_literal_char(s):
       )
     ) { compiled =>
       val useExpr = compiled(callerPack).toMap.apply(useName)
-      assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+      if (containsGlobal(useExpr, helperPack, chooseName)) {
+        fail(s"mixed eager helper still present: $useExpr")
+      }
 
       Matchless.recoverTopLevelLambda(useExpr) match {
         case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
@@ -5288,40 +5603,178 @@ def seg_final_literal_char(s):
     }
   }
 
-  test("optimized Matchless inlines duplicate helpers once arguments simplify to cheap locals") {
-    val helperPack = PackageName.parts("Helper", "Dup")
-    val callerPack = PackageName.parts("Caller", "Dup")
-    val duplicate = Identifier.Name("duplicate")
+  test("Matchless lowers direct-call-only local closures without captures") {
+    val pack = PackageName.parts("Test", "LocalClosure")
     val useName = Identifier.Name("use")
+
+    checkMatchlessPackage("""package Test/LocalClosure
+      |
+      |export use
+      |
+      |def use(y: Int) -> Int:
+      |  fn = z -> y.add(z)
+      |  fn(1).add(fn(2))
+      |""".stripMargin) { compiled =>
+      val useExpr = compiled(pack).toMap.apply(useName)
+      assertEquals(countLambdasWithCaptures(useExpr), 0, useExpr.toString)
+      assertEquals(countClosureSlots(useExpr), 0, useExpr.toString)
+    }
+  }
+
+  test("Matchless keeps captures for escaping local closures") {
+    val pack = PackageName.parts("Test", "EscapingClosure")
+    val makeName = Identifier.Name("make")
+
+    checkMatchlessPackage("""package Test/EscapingClosure
+      |
+      |export make
+      |
+      |def make(y: Int):
+      |  fn = z -> y.add(z)
+      |  fn
+      |""".stripMargin) { compiled =>
+      val makeExpr = compiled(pack).toMap.apply(makeName)
+      assert(countLambdasWithCaptures(makeExpr) > 0, makeExpr.toString)
+      assert(countClosureSlots(makeExpr) > 0, makeExpr.toString)
+    }
+  }
+
+  test("optimized Matchless keeps direct alias and wrapper variants aligned") {
+    val helperPack = PackageName.parts("Helper", "Benefit")
+    val callerPack = PackageName.parts("Caller", "Benefit")
+    val chooseName = Identifier.Name("choose")
+    val wrapName = Identifier.Name("wrap")
+    val useDirectName = Identifier.Name("use_direct")
+    val useAliasName = Identifier.Name("use_alias")
+    val useWrapperName = Identifier.Name("use_wrapper")
+    val useNoPayoffName = Identifier.Name("use_no_payoff")
+    val directNoPayoffName = Identifier.Name("direct_no_payoff")
 
     checkOptimizedMatchlessPackages(
       NonEmptyList.of(
-        """package Helper/Dup
+        """package Helper/Benefit
           |
-          |export Pair(), duplicate
+          |export choose, no_payoff
           |
-          |struct Pair(left: Int, right: Int)
-          |
-          |def duplicate(x: Int) -> Pair:
-          |  Pair(x, x)
-          |""".stripMargin,
-        """package Caller/Dup
-          |
-          |from Helper/Dup import duplicate
-          |
-          |def expensive(i: Int) -> Int:
-          |  if False:
-          |    0
+          |def choose(flag: Bool, on_true: Int) -> Int:
+          |  tmp0 = on_true
+          |  tmp1 = tmp0
+          |  tmp2 = tmp1
+          |  if flag:
+          |    tmp2
           |  else:
-          |    i
+          |    0
           |
-          |def use(i: Int):
-          |  duplicate(expensive(i))
+          |def no_payoff(x: Int) -> Int:
+          |  x.add(17)
+          |""".stripMargin,
+        """package Caller/Benefit
+          |
+          |from Helper/Benefit import choose, no_payoff
+          |
+          |export use_direct, use_alias, use_wrapper, use_no_payoff
+          |
+          |def wrap(flag: Bool, on_true: Int) -> Int:
+          |  choose(flag, on_true)
+          |
+          |def use_direct(i: Int) -> Int:
+          |  choose(False, i)
+          |
+          |def use_alias(i: Int) -> Int:
+          |  local = choose
+          |  local(False, i)
+          |
+          |def use_wrapper(i: Int) -> Int:
+          |  wrap(False, i)
+          |
+          |def use_no_payoff(i: Int) -> Int:
+          |  no_payoff(i)
+          |
+          |def direct_no_payoff(i: Int) -> Int:
+          |  i.add(17)
           |""".stripMargin
       )
     ) { compiled =>
-      val useExpr = compiled(callerPack).toMap.apply(useName)
-      assertEquals(containsGlobal(useExpr, helperPack, duplicate), false)
+      val callerDefs = compiled(callerPack).toMap
+      val useDirect = callerDefs(useDirectName)
+      val useAlias = callerDefs(useAliasName)
+      val useWrapper = callerDefs(useWrapperName)
+      val useNoPayoff = callerDefs(useNoPayoffName)
+      val directNoPayoff = callerDefs(directNoPayoffName)
+
+      List(useDirect, useAlias, useWrapper).foreach { useExpr =>
+        assertEquals(containsGlobal(useExpr, helperPack, chooseName), false)
+        assertEquals(containsGlobal(useExpr, callerPack, wrapName), false)
+        Matchless.recoverTopLevelLambda(useExpr) match {
+          case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+            assertEquals(lit, Lit.fromInt(0))
+          case other =>
+            fail(s"expected inlined benefit helper to collapse to 0, found: $other")
+        }
+      }
+
+      assertEquals(
+        Matchless.exprWeight(useNoPayoff) <= Matchless.exprWeight(directNoPayoff),
+        true,
+        s"no-payoff helper grew relative to the direct form: use=$useNoPayoff direct=$directNoPayoff"
+      )
+    }
+  }
+
+  test("optimized Matchless inlines constructor-branch helpers across direct alias and wrapper calls") {
+    val pack = PackageName.parts("Test", "KnownBranch")
+    val unwrapName = Identifier.Name("unwrap")
+    val wrapName = Identifier.Name("wrap")
+    val useDirectName = Identifier.Name("use_direct")
+    val useAliasName = Identifier.Name("use_alias")
+    val useWrapperName = Identifier.Name("use_wrapper")
+
+    checkOptimizedMatchlessPackage("""package Test/KnownBranch
+      |
+      |export use_direct, use_alias, use_wrapper
+      |
+      |enum Opt:
+      |  None
+      |  Some(value: Int)
+      |
+      |def unwrap(o: Opt) -> Int:
+      |  match o:
+      |    case Some(v):
+      |      v
+      |    case None:
+      |      0
+      |
+      |def wrap(o: Opt) -> Int:
+      |  unwrap(o)
+      |
+      |def use_direct(i: Int) -> Int:
+      |  unwrap(Some(i))
+      |
+      |def use_alias(i: Int) -> Int:
+      |  local = unwrap
+      |  local(Some(i))
+      |
+      |def use_wrapper(i: Int) -> Int:
+      |  wrap(Some(i))
+      |""".stripMargin) { compiled =>
+      val callerDefs = compiled(pack).toMap
+      val useDirect = callerDefs(useDirectName)
+      val useAlias = callerDefs(useAliasName)
+      val useWrapper = callerDefs(useWrapperName)
+
+      List(useDirect, useAlias, useWrapper).foreach { useExpr =>
+        assertEquals(containsGlobal(useExpr, pack, unwrapName), false)
+        assertEquals(containsGlobal(useExpr, pack, wrapName), false)
+        Matchless.recoverTopLevelLambda(useExpr) match {
+          case Matchless.Lambda(Nil, None, args, Matchless.Local(arg))
+              if args.toList == (arg :: Nil) =>
+            ()
+          case other =>
+            fail(
+              s"expected constructor-known helper to collapse to the identity body, found: $other"
+            )
+        }
+      }
     }
   }
 
@@ -5393,6 +5846,302 @@ def seg_final_literal_char(s):
 
     assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
     assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
+  }
+
+  test("optimized Matchless sinks let-wrapped deferred helper args into branches") {
+    val helperPack = PackageName.parts("Helper", "Deferred")
+    val callerPack = PackageName.parts("Caller", "Deferred")
+    val helperName = Identifier.Name("choose")
+    val useName = Identifier.Name("use")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Helper/Deferred
+          |
+          |export choose
+          |
+          |def choose(flag: Bool, on_true: Int) -> Int:
+          |  tmp = on_true
+          |  if flag:
+          |    tmp
+          |  else:
+          |    0
+          |""".stripMargin,
+        """package Caller/Deferred
+          |
+          |from Helper/Deferred import choose
+          |
+          |def expensive(i: Int) -> Int:
+          |  if False:
+          |    0
+          |  else:
+          |    i
+          |
+          |def use(i: Int) -> Int:
+          |  choose(False, expensive(i))
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useName)
+      assertEquals(containsGlobal(useExpr, helperPack, helperName), false)
+
+      Matchless.recoverTopLevelLambda(useExpr) match {
+        case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
+          assertEquals(lit, Lit.fromInt(0))
+        case other =>
+          fail(s"expected deferred helper to collapse to 0, found: $other")
+      }
+    }
+  }
+
+  test("postLoweringCleanup sinks pure lets into If branches") {
+    val flag = Identifier.Name("flag")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.App(
+            Matchless.Local(consume),
+            NonEmptyList.one(Matchless.Local(delayed))
+          ),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.If(
+            cond,
+            Matchless.Let(
+              Right(bound),
+              `expensive`,
+              Matchless.App(Matchless.Local(`consume`), appliedArgs)
+            ),
+            Matchless.Literal(lit)
+          ) =>
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flag), true)
+        assertEquals(bound, delayed)
+        assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+        assertEquals(lit, Lit.fromInt(0))
+      case other =>
+        fail(s"expected branch-sunk If, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup keeps lets outside If when the condition needs them") {
+    val delayed = Identifier.Name("delayed")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(delayed)),
+          Matchless.Literal(Lit.fromInt(1)),
+          Matchless.Literal(Lit.fromInt(0))
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.Let(
+            Right(bound),
+            `expensive`,
+            Matchless.If(cond, Matchless.Literal(ifTrue), Matchless.Literal(ifFalse))
+          ) =>
+        assertEquals(bound, delayed)
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, delayed), true)
+        assertEquals(ifTrue, Lit.fromInt(1))
+        assertEquals(ifFalse, Lit.fromInt(0))
+      case other =>
+        fail(s"expected let to stay outside the condition, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup sinks pure lets into used SwitchVariant branches") {
+    val selector = Identifier.Name("selector")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.SwitchVariant(
+          Matchless.Local(selector),
+          0 :: 0 :: Nil,
+          NonEmptyList.of(
+            (0, Matchless.Literal(Lit.fromInt(0))),
+            (1, Matchless.App(Matchless.Local(consume), NonEmptyList.one(Matchless.Local(delayed))))
+          ),
+          None
+        )
+      )
+
+    Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default) match {
+      case Matchless.SwitchVariant(on, _, cases, None) =>
+        assertEquals(Matchless.Expr.referencesBindable(on, selector), true)
+        assertEquals(cases.toList.head._2, Matchless.Literal(Lit.fromInt(0)))
+        cases.toList.last._2 match {
+          case Matchless.Let(
+                Right(bound),
+                `expensive`,
+                Matchless.App(Matchless.Local(`consume`), appliedArgs)
+              ) =>
+            assertEquals(bound, delayed)
+            assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+          case other =>
+            fail(s"expected sink into the used switch branch, found: $other")
+        }
+      case other =>
+        fail(s"expected branch-sunk SwitchVariant, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup reaches a small fixpoint after simplification exposes branch-only work") {
+    val flag = Identifier.Name("flag")
+    val delayed = Identifier.Name("delayed")
+    val consume = Identifier.Name("consume")
+    val expensive: Matchless.Expr[Unit] =
+      Matchless.App(
+        Matchless.Local(Identifier.Name("expensive")),
+        NonEmptyList.one(Matchless.Literal(Lit.fromInt(1)))
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(delayed),
+        expensive,
+        Matchless.If(
+          Matchless.isTrueExpr(Matchless.Local(flag)),
+          Matchless.If(
+            Matchless.TrueConst,
+            Matchless.App(
+              Matchless.Local(consume),
+              NonEmptyList.one(Matchless.Local(delayed))
+            ),
+            Matchless.Literal(Lit.fromInt(0))
+          ),
+          Matchless.If(
+            Matchless.TrueConst,
+            Matchless.Literal(Lit.fromInt(0)),
+            Matchless.App(
+              Matchless.Local(consume),
+              NonEmptyList.one(Matchless.Local(delayed))
+            )
+          )
+        )
+      )
+
+    val cleaned =
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default)
+    val cleanedAgain =
+      Matchless.postLoweringCleanup(cleaned, Matchless.LocalPassOptions.Default)
+
+    assertEquals(cleanedAgain, cleaned)
+
+    cleaned match {
+      case Matchless.If(
+            cond,
+            Matchless.Let(
+              Right(bound),
+              `expensive`,
+              Matchless.App(Matchless.Local(`consume`), appliedArgs)
+            ),
+            Matchless.Literal(lit)
+          ) =>
+        assertEquals(Matchless.BoolExpr.referencesBindable(cond, flag), true)
+        assertEquals(bound, delayed)
+        assertEquals(appliedArgs.toList, Matchless.Local(delayed) :: Nil)
+        assertEquals(lit, Lit.fromInt(0))
+      case other =>
+        fail(s"expected fixpoint cleanup to expose the branch-sunk If, found: $other")
+    }
+  }
+
+  test("postLoweringCleanup beta reduces local lambda callees through alias lets") {
+    val fn0 = Identifier.Name("fn0")
+    val fn1 = Identifier.Name("fn1")
+    val arg = Identifier.Name("arg")
+    val x = Identifier.Name("x")
+    val consume = Identifier.Name("consume")
+    val lam =
+      Matchless.Lambda(
+        captures = Nil,
+        recursiveName = None,
+        args = NonEmptyList.one(x),
+        body = Matchless.App(
+          Matchless.Local(consume),
+          NonEmptyList.one(Matchless.Local(x))
+        )
+      )
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(fn0),
+        lam,
+        Matchless.Let(
+          Right(fn1),
+          Matchless.Local(fn0),
+          Matchless.App(
+            Matchless.Local(fn1),
+            NonEmptyList.one(Matchless.Local(arg))
+          )
+        )
+      )
+
+    assertEquals(
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default),
+      Matchless.App(
+        Matchless.Local(consume),
+        NonEmptyList.one(Matchless.Local(arg))
+      )
+    )
+  }
+
+  test("postLoweringCleanup devirtualizes projected direct callees from known local structs") {
+    val dict = Identifier.Name("dict")
+    val fn = Identifier.Name("fn")
+    val arg = Identifier.Name("arg")
+    val helperPack = PackageName.parts("Matchless", "Cleanup", "Direct")
+    val helper = Identifier.Name("helper")
+    val expr: Matchless.Expr[Unit] =
+      Matchless.Let(
+        Right(dict),
+        Matchless.App(
+          Matchless.MakeStruct(1),
+          NonEmptyList.one(Matchless.Global((), helperPack, helper))
+        ),
+        Matchless.Let(
+          Right(fn),
+          Matchless.GetStructElement(Matchless.Local(dict), 0, 1),
+          Matchless.App(
+            Matchless.Local(fn),
+            NonEmptyList.one(Matchless.Local(arg))
+          )
+        )
+      )
+
+    assertEquals(
+      Matchless.postLoweringCleanup(expr, Matchless.LocalPassOptions.Default),
+      Matchless.App(
+        Matchless.Global((), helperPack, helper),
+        NonEmptyList.one(Matchless.Local(arg))
+      )
+    )
   }
 
   test("postLoweringCleanup can disable reuseConstructors") {

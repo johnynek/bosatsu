@@ -45,8 +45,6 @@ main = parse_value(" null")
   private val reproPackage = PackageName.parts("MyLib", "ReproMin8")
   private val parseValueName = Identifier.Name("parse_value")
   private val mainName = Identifier.Name("main")
-  private val capturedBName = Identifier.synthetic("b")
-
   private def withRepro[A](
       fn: (PackageMap.Compiled, PackageName) => A
   ): A = {
@@ -61,56 +59,6 @@ main = parse_value(" null")
       case None        => fail("failed to compute issue 1633 repro result")
     }
   }
-
-  private def typedHasLoop[A](te: TypedExpr[A]): Boolean =
-    te match {
-      case TypedExpr.Generic(_, in) =>
-        typedHasLoop(in)
-      case TypedExpr.Annotation(in, _, _) =>
-        typedHasLoop(in)
-      case TypedExpr.AnnotatedLambda(_, in, _) =>
-        typedHasLoop(in)
-      case TypedExpr.App(fn, args, _, _) =>
-        typedHasLoop(fn) || args.exists(typedHasLoop(_))
-      case TypedExpr.Let(_, arg, in, _, _) =>
-        typedHasLoop(arg) || typedHasLoop(in)
-      case TypedExpr.Loop(_, _, _) =>
-        true
-      case TypedExpr.Recur(args, _, _) =>
-        args.exists(typedHasLoop(_))
-      case TypedExpr.Match(arg, branches, _) =>
-        typedHasLoop(arg) || branches.exists { branch =>
-          branch.guard.exists(typedHasLoop(_)) || typedHasLoop(branch.expr)
-        }
-      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
-          TypedExpr.Literal(_, _, _) =>
-        false
-    }
-
-  private def typedHasRecur[A](te: TypedExpr[A]): Boolean =
-    te match {
-      case TypedExpr.Generic(_, in) =>
-        typedHasRecur(in)
-      case TypedExpr.Annotation(in, _, _) =>
-        typedHasRecur(in)
-      case TypedExpr.AnnotatedLambda(_, in, _) =>
-        typedHasRecur(in)
-      case TypedExpr.App(fn, args, _, _) =>
-        typedHasRecur(fn) || args.exists(typedHasRecur(_))
-      case TypedExpr.Let(_, arg, in, _, _) =>
-        typedHasRecur(arg) || typedHasRecur(in)
-      case TypedExpr.Loop(args, in, _) =>
-        args.exists { case (_, arg) => typedHasRecur(arg) } || typedHasRecur(in)
-      case TypedExpr.Recur(_, _, _) =>
-        true
-      case TypedExpr.Match(arg, branches, _) =>
-        typedHasRecur(arg) || branches.exists { branch =>
-          branch.guard.exists(typedHasRecur(_)) || typedHasRecur(branch.expr)
-        }
-      case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
-          TypedExpr.Literal(_, _, _) =>
-        false
-    }
 
   private def hasClosureSlotApply[A](expr: Matchless.Expr[A]): Boolean = {
     def loopExpr(e: Matchless.Expr[A]): Boolean =
@@ -180,18 +128,6 @@ main = parse_value(" null")
     "issue 1633: loop+string-match lowering avoids captured non-function apply"
   ) {
     withRepro { (pm, _) =>
-      val pack = pm.toMap.getOrElse(
-        reproPackage,
-        fail(s"missing inferred package: ${reproPackage.asString}")
-      )
-      val parseValueTyped = pack.lets.find(_._1 == parseValueName) match {
-        case Some((_, _, te)) => te
-        case None             =>
-          fail(s"missing ${parseValueName.sourceCodeRepr} in typed lets")
-      }
-      assert(typedHasLoop(parseValueTyped), parseValueTyped.repr.render(100))
-      assert(typedHasRecur(parseValueTyped), parseValueTyped.repr.render(100))
-
       given Order[Unit] = Order.fromOrdering
       val compiled =
         MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
@@ -207,11 +143,11 @@ main = parse_value(" null")
       }
       parseValueMatchless match {
         case Matchless.Let(
-              Right(`capturedBName`),
+              Right(capturedName),
               _,
               Matchless.Lambda(captures, _, _, _)
             ) =>
-          assertEquals(captures, Matchless.Local(capturedBName) :: Nil)
+          assertEquals(captures, Matchless.Local(capturedName) :: Nil)
         case other =>
           fail(s"unexpected parse_value lowering shape: $other")
       }

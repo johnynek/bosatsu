@@ -1581,6 +1581,47 @@ foo = _ -> 1
     }
   }
 
+  test("normalization sinks lets through annotations around matches") {
+    val xName = Identifier.Name("x")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val yExpr = varTE("y", intTpe)
+    val wrappedMatch =
+      TypedExpr.Annotation(
+        TypedExpr.Match(
+          yExpr,
+          NonEmptyList.of(
+            TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, int(0)),
+            TypedExpr.Branch(Pattern.WildCard, None, xExpr)
+          ),
+          ()
+        ),
+        intTpe,
+        None
+      )
+    val root =
+      TypedExpr.Let(xName, opaque, wrappedMatch, RecursionKind.NonRecursive, ())
+
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+    val (arg1, branches1) =
+      normalized match {
+        case TypedExpr.Annotation(TypedExpr.Match(arg, branches, _), tpe, _) =>
+          assert(Type.normalize(tpe).sameAs(intTpe))
+          (arg, branches)
+        case TypedExpr.Match(arg, branches, _) =>
+          (arg, branches)
+        case other =>
+          fail(s"expected match after sinking, got: ${other.reprString}")
+      }
+
+    assertEquals(arg1, yExpr)
+    assertEquals(branches1.length, 2)
+    assertEquals(branches1.head.expr, int(0))
+    assertEquals(branches1.last.expr.void, opaque.void)
+    assertEquals(countLet(normalized), 0, normalized.reprString)
+  }
+
   test(
     "normalization can lift non-simple lets outside lambdas when binders do not shadow args"
   ) {
@@ -4309,6 +4350,38 @@ x = (
     )
   }
 
+  test("normalization rewrites non-escaping non-recursive local closures") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+""",
+      "use"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assertEquals(
+      countLambdaCapturing(normalizedExpr, capturedName),
+      0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("closure rewrite keeps normalized non-recursive locals type valid") {
+    checkLast(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+"""
+    ) { _ => () }
+  }
+
   test("normalization keeps closures when recursive local loops escape") {
     val fnName = Identifier.Name("fn")
     val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
@@ -4331,6 +4404,42 @@ def makeLoop(fn):
     )
     assert(
       countLambdaCapturing(normalizedExpr, fnName) > 0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("closure rewrite keeps normalized recursive locals type valid") {
+    checkLast(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+def sum_plus(y: Int, zs: L[Int]) -> Int:
+  def loop(lst):
+    recur lst:
+      case E: y
+      case NE(_, t): loop(t).add(y)
+  loop(zs)
+"""
+    ) { _ => () }
+  }
+
+  test("normalization keeps closures when non-recursive local functions escape") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def make(y: Int):
+  fn = z -> y.add(z)
+  fn
+""",
+      "make"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assert(
+      countLambdaCapturing(normalizedExpr, capturedName) > 0,
       normalizedExpr.reprString
     )
   }
