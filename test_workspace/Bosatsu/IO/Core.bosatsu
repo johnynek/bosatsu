@@ -465,44 +465,28 @@ def path_file_name(path: Path) -> Option[String]:
 
 def stat_posix_mode_bits(stat_res: Option[FileStat]) -> Option[Int]:
   match stat_res:
-    case Some(FileStat { kind: _, size_bytes: _, mtime: _, posix_mode: Some(mode) }):
+    case Some(FileStat { posix_mode: Some(mode), ... }):
       Some(posix_mode_to_Int(mode))
-    case Some(FileStat { kind: _, size_bytes: _, mtime: _, posix_mode: None }):
-      None
-    case None:
+    case _:
       None
 
 def stat_is_dir(stat_res: Option[FileStat]) -> Bool:
-  match stat_res:
-    case Some(FileStat { kind: Dir, size_bytes: _, mtime: _, posix_mode: _ }):
-      True
-    case _:
-      False
+  stat_res matches Some(FileStat { kind: Dir, ... })
 
 def mode_bits_eq(mode_bits: Option[Int], expect: Int) -> Bool:
-  match mode_bits:
-    case Some(bits): bits.eq_Int(expect)
-    case None: False
+  mode_bits matches Some(bits) if bits.eq_Int(expect)
 
 def has_owner_write_execute(mode_bits: Option[Int]) -> Bool:
-  match mode_bits:
-    case Some(bits): bits.and_Int(owner_write_execute_mask).eq_Int(owner_write_execute_mask)
-    case None: False
+  mode_bits matches Some(bits) if bits.and_Int(owner_write_execute_mask).eq_Int(owner_write_execute_mask)
 
 def root_has_posix_mode(stat_res: Option[FileStat]) -> Bool:
-  match stat_posix_mode_bits(stat_res):
-    case Some(_): True
-    case None: False
+  stat_posix_mode_bits(stat_res) matches Some(_)
 
 def is_unsupported_error(err: IOError) -> Bool:
-  match err:
-    case Unsupported(_): True
-    case _: False
+  err matches Unsupported(_)
 
 def is_already_exists_error(err: IOError) -> Bool:
-  match err:
-    case AlreadyExists(_): True
-    case _: False
+  err matches AlreadyExists(_)
 
 def mkdir_with_mode_unsupported(path: Path, recursive: Bool, mode: PosixMode) -> Prog[IOError, Bool]:
   recover(

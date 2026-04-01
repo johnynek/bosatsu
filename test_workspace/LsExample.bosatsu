@@ -28,7 +28,7 @@ def file_kind_to_String(kind: FileKind) -> String:
     case Other: "other"
 
 def render_file_stat(path: Path, fs: FileStat) -> String:
-  FileStat { kind, size_bytes, mtime: _, posix_mode: _ } = fs
+  FileStat { kind, size_bytes, ... } = fs
   "[${file_kind_to_String(kind)}] ${path_to_String(path)} (${int_to_String(size_bytes)} bytes)"
 
 def render_entry(path: Path) -> Prog[IOError, String]:
