@@ -94,6 +94,11 @@ private[bosatsu] object PredefIoCorePlatform {
       )
       .add(
         ioCorePackageName,
+        "mkdir_with_mode",
+        FfiCall.Fn3(PredefImpl.prog_core_mkdir_with_mode(_, _, _))
+      )
+      .add(
+        ioCorePackageName,
         "remove",
         FfiCall.Fn2(PredefImpl.prog_core_remove(_, _))
       )

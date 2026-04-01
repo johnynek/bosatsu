@@ -131,6 +131,8 @@ _IOERR_TIMED_OUT = 17
 _IOERR_BROKEN_PIPE = 18
 _IOERR_UNSUPPORTED = 19
 _IOERR_OTHER = 20
+_POSIX_MODE_MASK = 0o7777
+_OWNER_WRITE_EXECUTE_MASK = 0o300
 
 def _ioerr(tag: int, context: str):
     return (tag, context)
@@ -351,6 +353,93 @@ def _to_bool(v) -> bool:
         if v[0] == 0:
             return False
     return bool(v)
+
+def _to_posix_mode_bits(mode_value):
+    if isinstance(mode_value, int):
+        bits = int(mode_value)
+    elif isinstance(mode_value, tuple) and len(mode_value) >= 1:
+        bits = int(mode_value[0])
+    else:
+        raise ValueError(f"invalid PosixMode value: {mode_value!r}")
+
+    if bits < 0 or bits > _POSIX_MODE_MASK:
+        raise ValueError(f"invalid PosixMode bits: {bits!r}")
+    return bits
+
+def _stat_posix_mode_bits(st):
+    if os.name == "nt":
+        return None
+    return _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+
+def _join_normalized_path(base: str, child: str) -> str:
+    if base == "":
+        return child
+    if base.endswith("/"):
+        return base + child
+    return base + "/" + child
+
+def _split_normalized_path(path_s: str):
+    drive, tail = os.path.splitdrive(path_s)
+    absolute = tail.startswith("/")
+    root = ""
+    if drive:
+        root = drive + ("/" if absolute else "")
+    elif absolute:
+        root = "/"
+
+    without_root = tail[1:] if absolute else tail
+    parts = [part for part in without_root.split("/") if part != ""]
+    return (root, parts)
+
+def _raise_existing_path_error(path_s: str, leaf: bool):
+    if leaf:
+        raise FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), path_s)
+    raise NotADirectoryError(_errno.ENOTDIR, os.strerror(_errno.ENOTDIR), path_s)
+
+def _ensure_directory_at_path(path_s: str, leaf: bool):
+    # mkdir -p should keep traversing through symlinked directory components.
+    if os.path.isdir(path_s):
+        return os.stat(path_s)
+    _raise_existing_path_error(path_s, leaf)
+
+def _set_directory_mode(path_s: str, mode_bits: int):
+    os.chmod(path_s, mode_bits & _POSIX_MODE_MASK)
+
+def _repair_parent_directory_mode(path_s: str):
+    st = os.lstat(path_s)
+    current_bits = _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+    repaired_bits = current_bits | _OWNER_WRITE_EXECUTE_MASK
+    if repaired_bits != current_bits:
+        os.chmod(path_s, repaired_bits)
+
+def _mkdir_recursive(path_s: str, leaf_mode_bits=None):
+    root, parts = _split_normalized_path(path_s)
+    if len(parts) == 0:
+        if root != "":
+            _ensure_directory_at_path(path_s, True)
+        return
+
+    current = root
+    last_index = len(parts) - 1
+    for idx, part in enumerate(parts):
+        current = _join_normalized_path(current, part)
+        is_leaf = idx == last_index
+        created = False
+        try:
+            if leaf_mode_bits is None or not is_leaf:
+                os.mkdir(current)
+            else:
+                os.mkdir(current, leaf_mode_bits)
+            created = True
+        except FileExistsError:
+            _ensure_directory_at_path(current, is_leaf)
+
+        if created and leaf_mode_bits is not None:
+            if is_leaf:
+                _set_directory_mode(current, leaf_mode_bits)
+            else:
+                # Parent directories need owner write/execute after umask masking.
+                _repair_parent_directory_mode(current)
 
 def _as_handle(value):
     if isinstance(value, _CoreHandle):
@@ -1169,7 +1258,8 @@ def stat_path(path):
 
         kind = _kind_from_lstat(st)
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
-        file_stat = (kind, int(st.st_size), int(mtime_ns))
+        posix_mode_bits = _stat_posix_mode_bits(st)
+        file_stat = (kind, int(st.st_size), int(mtime_ns), _none if posix_mode_bits is None else _some(int(posix_mode_bits)))
         return pure(_some(file_stat))
 
     return effect(fn)
@@ -1183,12 +1273,36 @@ def mkdir_path(path, recursive):
 
         try:
             if _to_bool(recursive):
-                os.makedirs(path_s)
+                _mkdir_recursive(path_s)
             else:
                 os.mkdir(path_s)
             return _pure_unit
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, f"creating directory: {path_s}"))
+
+    return effect(fn)
+
+def mkdir_with_mode(path, recursive, mode):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+            mode_bits = _to_posix_mode_bits(mode)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        call_context = f"creating directory with mode: {path_s}"
+        if os.name == "nt":
+            return raise_error(_unsupported(call_context))
+
+        try:
+            if _to_bool(recursive):
+                _mkdir_recursive(path_s, mode_bits)
+            else:
+                os.mkdir(path_s, mode_bits)
+                _set_directory_mode(path_s, mode_bits)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, call_context))
 
     return effect(fn)
 

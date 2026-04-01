@@ -3552,6 +3552,122 @@ main = Main(args -> (
       )
     }
 
+  if (Platform.isScalaJvm)
+    test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
+      val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
+      val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      val ioErrorPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Error.bosatsu")
+      val bytesPack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Bytes.bosatsu")
+      val ioCorePack =
+        Predef.loadFileInCompile("test_workspace/Bosatsu/IO/Core.bosatsu")
+
+      val mkdirEvalPack = """
+package MkdirWithModeEval
+
+from Bosatsu/Prog import Main, pure, recover, await
+from Bosatsu/IO/Error import IOError, Unsupported
+from Bosatsu/IO/Core import (
+  Path,
+  PosixMode,
+  FileStat,
+  string_to_Path,
+  path_join,
+  create_temp_dir,
+  stat,
+  mkdir_with_mode,
+  remove,
+  posix_mode,
+  posix_mode_to_Int,
+)
+
+def stat_mode_bits(stat_res: Option[FileStat]) -> Int:
+  match stat_res:
+    case Some(FileStat { kind: _, size_bytes: _, mtime: _, posix_mode: Some(mode) }):
+      posix_mode_to_Int(mode)
+    case _:
+      -1
+
+def stat_has_mode(stat_res: Option[FileStat]) -> Bool:
+  stat_mode_bits(stat_res).eq_Int(-1) matches False
+
+def is_unsupported_error(err: IOError) -> Bool:
+  match err:
+    case Unsupported(_): True
+    case _: False
+
+def mkdir_unsupported(path: Path, mode: PosixMode) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- mkdir_with_mode(path, False, mode).await()
+      pure(False)
+    ),
+    err -> pure(is_unsupported_error(err))
+  )
+
+main = Main(_ ->
+  match (string_to_Path("leaf"), posix_mode(488)):
+    case (Some(leaf_name), Some(mode)):
+      recover(
+        (
+          root <- create_temp_dir(None, "bosatsu_eval_mkdir_mode").await()
+          root_stat <- stat(root).await()
+          leaf = path_join(root, leaf_name)
+          exit_code <- (if stat_has_mode(root_stat):
+            (
+              _ <- mkdir_with_mode(leaf, False, mode).await()
+              leaf_stat <- stat(leaf).await()
+              _ <- remove(root, True).await()
+              pure(if stat_mode_bits(leaf_stat).eq_Int(488): 0 else: 1)
+            )
+          else:
+            (
+              unsupported <- mkdir_unsupported(leaf, mode).await()
+              _ <- remove(root, True).await()
+              pure(if unsupported: 0 else: 1)
+            )).await()
+          pure(exit_code)
+        ),
+        _ -> pure(1)
+      )
+    case _:
+      pure(1)
+)
+"""
+
+      testInferred(
+        List(
+          progPack,
+          charPack,
+          ioErrorPack,
+          bytesPack,
+          ioCorePack,
+          mkdirEvalPack
+        ),
+        "MkdirWithModeEval",
+        { (pm, mainPack) =>
+          val ev =
+            library.LibraryEvaluation.fromPackageMap(pm, Predef.jvmExternals)
+          val (mainEval, _) =
+            ev.evaluateMainValue(mainPack)
+              .fold(err => fail(err.toString), identity)
+
+          val run =
+            PredefImpl.runProgMain(
+              mainEval.value,
+              Nil,
+              ""
+            )
+
+          run.result match {
+            case Right(VInt(i)) => assertEquals(i.intValue, 0)
+            case other          => fail(s"unexpected prog result: $other")
+          }
+        }
+      )
+    }
+
   test(
     "default-backed constructor calls work across package boundaries with partial fields and stable record-field order"
   ) {

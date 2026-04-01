@@ -35,6 +35,8 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
   private val OneMillionBI = BigInteger.valueOf(1000000L)
+  private val PosixModeMask = 4095
+  private val OwnerWriteExecuteMask = 192
 
   private var nodeRuntimeOverride: Option[Boolean] = None
 
@@ -276,6 +278,16 @@ private[bosatsu] object PredefIoCorePlatform {
       case _       => Left(ioerror_invalid_argument(context))
     }
 
+  private def asPosixModeBits(
+      value: Value,
+      context: String
+  ): Either[Value, Int] =
+    asInt(value, context).flatMap { bi =>
+      if (bi.signum < 0 || bi.compareTo(BigInteger.valueOf(PosixModeMask.toLong)) > 0)
+        Left(ioerror_invalid_argument(context))
+      else Right(bi.intValue)
+    }
+
   private def asPositiveIntBounded(
       value: Value,
       context: String
@@ -310,6 +322,9 @@ private[bosatsu] object PredefIoCorePlatform {
 
   private def normalizePathString(raw: String): String =
     raw.replace('\\', '/')
+
+  private def isNodeWindows: Boolean =
+    isNodeRuntime && (nodeProcess.platform.asInstanceOf[String] == "win32")
 
   private def pathValueFromString(raw: String): Value =
     Str(normalizePathString(raw))
@@ -964,27 +979,173 @@ private[bosatsu] object PredefIoCorePlatform {
       }
     } yield entries
 
+  private def nodeStatValue(attrs: js.Dynamic): Value = {
+    val isSym = attrs.isSymbolicLink().asInstanceOf[Boolean]
+    val isFile = attrs.isFile().asInstanceOf[Boolean]
+    val isDir = attrs.isDirectory().asInstanceOf[Boolean]
+    val kindTag = if (isSym) 2 else if (isFile) 0 else if (isDir) 1 else 3
+    val sizeLong =
+      jsField(attrs, "size") match {
+        case Some(d: Double) => d.toLong
+        case Some(i: Int)    => i.toLong
+        case Some(other)     => Try(other.toString.toLong).getOrElse(0L)
+        case None            => 0L
+      }
+    val sizeBI = BigInteger.valueOf(sizeLong)
+    val mtimeRaw =
+      jsField(attrs, "mtimeMs") match {
+        case Some(d: Double) => d
+        case Some(i: Int)    => i.toDouble
+        case Some(other)     => Try(other.toString.toDouble).getOrElse(0d)
+        case None            => 0d
+      }
+    val mtimeNanos =
+      BigInteger.valueOf(js.Math.floor(mtimeRaw * 1000000d).toLong)
+    val posixMode =
+      if (isNodeWindows) None
+      else jsField(attrs, "mode").map(mode => VInt(BigInteger.valueOf(mode.toString.toLong & PosixModeMask.toLong)))
+
+    ProductValue.fromList(
+      fileKindValue(kindTag) ::
+        VInt(sizeBI) ::
+        instantValueFromNanos(mtimeNanos) ::
+        optionValue(posixMode) :: Nil
+    )
+  }
+
+  private def appendNormalizedPath(base: String, child: String): String =
+    if (base.isEmpty) child
+    else if (base.endsWith("/")) s"$base$child"
+    else s"$base/$child"
+
+  private def splitNormalizedPath(pathStr: String): (String, List[String]) = {
+    val withoutRoot =
+      if (pathStr.startsWith("/")) pathStr.drop(1)
+      else pathStr
+    val root =
+      if (pathStr.startsWith("/")) "/"
+      else ""
+    val parts =
+      withoutRoot
+        .split("/", -1)
+        .iterator
+        .filter(_.nonEmpty)
+        .toList
+    (root, parts)
+  }
+
+  private def ensureNodeDirectoryExists(
+      currentPath: String,
+      context: String,
+      leaf: Boolean
+  ): Either[Value, Unit] =
+    try {
+      // mkdir -p should accept symlinked directory components during traversal.
+      val attrs = nodeFs.statSync(currentPath)
+      if (attrs.isDirectory().asInstanceOf[Boolean]) Right(())
+      else if (leaf) Left(ioerror_known(IOErrorTagAlreadyExists, context))
+      else Left(ioerror_known(IOErrorTagNotDirectory, context))
+    } catch {
+      case t: Throwable =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def setNodeMode(
+      currentPath: String,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      val _ = nodeFs.chmodSync(currentPath, modeBits & PosixModeMask)
+      Right(())
+    } catch {
+      case t: Throwable =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def readNodeMode(
+      currentPath: String,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = nodeFs.lstatSync(currentPath)
+      jsField(attrs, "mode") match {
+        case Some(modeAny) => Right(modeAny.toString.toInt & PosixModeMask)
+        case None          => Left(ioerror_known(IOErrorTagUnsupported, context))
+      }
+    } catch {
+      case t: Throwable =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def mkdirWithModeRecursive(
+      pathStr: String,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] = {
+    val (root, parts) = splitNormalizedPath(pathStr)
+    if (parts.isEmpty) {
+      if (root.nonEmpty) ensureNodeDirectoryExists(pathStr, context, leaf = true)
+      else Right(())
+    } else {
+      var current = root
+      var idx = 0
+      while (idx < parts.length) {
+        current = appendNormalizedPath(current, parts(idx))
+        val isLeaf = idx == (parts.length - 1)
+        val created =
+          try {
+            val _ = nodeFs.mkdirSync(current)
+            true
+          } catch {
+            case t: Throwable =>
+              val err = ioerror_from_throwable(context, t)
+              err match {
+                case s: SumValue if s.variant == IOErrorTagAlreadyExists =>
+                  ensureNodeDirectoryExists(current, context, leaf = isLeaf) match {
+                    case Right(_)  => false
+                    case Left(err) => return Left(err)
+                  }
+                case _ =>
+                  return Left(err)
+              }
+          }
+
+        if (created) {
+          if (isLeaf)
+            setNodeMode(current, modeBits, context) match {
+              case Right(_)  => ()
+              case Left(err) => return Left(err)
+            }
+          else
+            // Repair parent permissions so recursive creation keeps them traversable.
+            readNodeMode(current, context) match {
+              case Right(existingMode) =>
+                val repaired = existingMode | OwnerWriteExecuteMask
+                if (repaired != existingMode)
+                  setNodeMode(current, repaired, context) match {
+                    case Right(_)  => ()
+                    case Left(err) => return Left(err)
+                  }
+              case Left(err) =>
+                return Left(err)
+            }
+        }
+
+        idx = idx + 1
+      }
+
+      Right(())
+    }
+  }
+
   private def core_stat_impl(path: Value): Either[Value, Value] =
     for {
       pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for stat"))
       stat <- {
         try {
           val attrs = nodeFs.lstatSync(pathStr)
-          val isSym = attrs.isSymbolicLink().asInstanceOf[Boolean]
-          val isFile = attrs.isFile().asInstanceOf[Boolean]
-          val isDir = attrs.isDirectory().asInstanceOf[Boolean]
-          val kindTag = if (isSym) 2 else if (isFile) 0 else if (isDir) 1 else 3
-          val sizeBI = BigInteger.valueOf(attrs.size().asInstanceOf[Double].toLong)
-          val mtimeNanos =
-            BigInteger.valueOf(
-              js.Math.floor(attrs.mtimeMs().asInstanceOf[Double] * 1000000d).toLong
-            )
-          val statValue =
-            ProductValue.fromList(
-              fileKindValue(kindTag) ::
-                VInt(sizeBI) ::
-                instantValueFromNanos(mtimeNanos) :: Nil
-            )
+          val statValue = nodeStatValue(attrs)
           Right(optionValue(Some(statValue)))
         } catch {
           case t: Throwable =>
@@ -1013,6 +1174,31 @@ private[bosatsu] object PredefIoCorePlatform {
             Left(ioerror_from_throwable("mkdir", t))
         }
       }
+    } yield ()
+
+  private def core_mkdir_with_mode_impl(
+      path: Value,
+      recursive: Value,
+      mode: Value
+  ): Either[Value, Unit] =
+    for {
+      pathStr <- asPathString(path).left.map(_ => ioerror_invalid_argument("invalid path for mkdir_with_mode"))
+      recursiveFlag <- asBool(recursive)
+      modeBits <- asPosixModeBits(mode, "invalid PosixMode for mkdir_with_mode")
+      callContext = s"mkdir_with_mode(path=$pathStr, recursive=$recursiveFlag)"
+      _ <-
+        if (isNodeWindows)
+          Left(ioerror_known(IOErrorTagUnsupported, callContext))
+        else if (recursiveFlag)
+          mkdirWithModeRecursive(pathStr, modeBits, callContext)
+        else
+          try {
+            val _ = nodeFs.mkdirSync(pathStr)
+            setNodeMode(pathStr, modeBits, callContext)
+          } catch {
+            case t: Throwable =>
+              Left(ioerror_from_throwable(callContext, t))
+          }
     } yield ()
 
   private def core_remove_impl(path: Value, recursive: Value): Either[Value, Unit] =
@@ -1294,6 +1480,24 @@ private[bosatsu] object PredefIoCorePlatform {
           }
       )
 
+  def prog_core_mkdir_with_mode(
+      path: Value,
+      recursive: Value,
+      mode: Value
+  ): Value =
+    if (!isNodeRuntime) unsupportedProg("mkdir_with_mode")
+    else
+      prog_effect3(
+        path,
+        recursive,
+        mode,
+        (p, r, m) =>
+          core_mkdir_with_mode_impl(p, r, m) match {
+            case Right(_)  => PredefImpl.prog_pure(UnitValue)
+            case Left(err) => PredefImpl.prog_raise_error(err)
+          }
+      )
+
   def prog_core_remove(path: Value, recursive: Value): Value =
     if (!isNodeRuntime) unsupportedProg("remove")
     else
@@ -1416,6 +1620,11 @@ private[bosatsu] object PredefIoCorePlatform {
       .add(ioCorePackageName, "list_dir", FfiCall.Fn1(prog_core_list_dir(_)))
       .add(ioCorePackageName, "stat", FfiCall.Fn1(prog_core_stat(_)))
       .add(ioCorePackageName, "mkdir", FfiCall.Fn2(prog_core_mkdir(_, _)))
+      .add(
+        ioCorePackageName,
+        "mkdir_with_mode",
+        FfiCall.Fn3(prog_core_mkdir_with_mode(_, _, _))
+      )
       .add(ioCorePackageName, "remove", FfiCall.Fn2(prog_core_remove(_, _)))
       .add(ioCorePackageName, "rename", FfiCall.Fn2(prog_core_rename(_, _)))
       .add(ioCorePackageName, "get_env", FfiCall.Fn1(prog_core_get_env(_)))
