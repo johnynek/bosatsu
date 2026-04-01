@@ -49,7 +49,7 @@ The runtime contract needed by `mkdir(1)` is narrower than a full permission-man
 
 1. Add a non-breaking way to request an explicit POSIX mode when creating a directory.
 2. Preserve existing `mkdir(path, recursive)` call sites.
-3. Expose POSIX mode bits through the same `stat` payload when the host can provide them.
+3. Expose POSIX mode bits through the same `stat` payload when the host and filesystem can provide them.
 4. Normalize recursive existing-directory behavior across JVM, Python, C, and Node-backed eval/test flows.
 5. Make non-POSIX behavior explicit through typed errors instead of best-effort silent success.
 
@@ -68,7 +68,7 @@ Add a new opaque mode value, extend `FileStat`, and add one new external:
 
 1. `PosixMode` representing only the low permission bits, including special bits, not file type bits.
 2. `posix_mode(bits: Int) -> Option[PosixMode]` and `posix_mode_to_Int(mode: PosixMode) -> Int` as pure helpers.
-3. `FileStat(kind: FileKind, size_bytes: Int, mtime: Instant, posix_mode: Option[PosixMode])`.
+3. `FileStat(kind: FileKind, size_bytes: Int, mtime: Instant, posix_mode: Option[PosixMode])`, where the extra field is populated when the filesystem exposes POSIX bits and `None` otherwise.
 4. `mkdir_with_mode(path: Path, recursive: Bool, mode: PosixMode) -> Prog[IOError, Unit]`.
 5. `stat(path)` keeps its current name, but returns the richer `FileStat`.
 
@@ -105,7 +105,8 @@ Correctness matters more than avoiding a small shape change here. We should pref
 2. Python, Node, and the C runtime can all populate the richer `FileStat` from the same underlying stat call.
 3. JVM can use a single attribute read when a unix or posix view is available.
 4. A separate `stat_posix_mode` API would force an extra syscall and create a race window between the main metadata read and the mode read.
-5. The in-repo `FileStat` consumers are small enough to migrate in the same implementation PR.
+5. `FileStat` is still new and lightly used, so this is the right time to spend compatibility budget on the better shape.
+6. The in-repo `FileStat` consumers are small enough to migrate in the same implementation PR.
 
 ### 4. Backend implementation plan
 
