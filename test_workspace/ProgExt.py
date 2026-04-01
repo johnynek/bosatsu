@@ -20,17 +20,14 @@ from typing import Optional, Tuple, Union
 def pure(a): return (0, a)
 def raise_error(e): return (1, e)
 def flat_map(p, f):
-  if p[0] == 2:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (2, base_prog, lambda a: flat_map(prior_fn(a), f))
+  # Keep the program tree as-is. The evaluator loop already handles nested
+  # FlatMap nodes iteratively, while recursive reassociation can overflow
+  # Python's call stack on deep left-associated chains.
   return (2, p, f)
 
 def recover(p, f):
-  if p[0] == 3:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (3, base_prog, lambda a: recover(prior_fn(a), f))
+  # As with flat_map above, avoid recursive tree rewrites here and let the
+  # evaluator handle nested Recover nodes iteratively.
   return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
@@ -131,6 +128,8 @@ _IOERR_TIMED_OUT = 17
 _IOERR_BROKEN_PIPE = 18
 _IOERR_UNSUPPORTED = 19
 _IOERR_OTHER = 20
+_POSIX_MODE_MASK = 0o7777
+_OWNER_WRITE_EXECUTE_MASK = 0o300
 
 def _ioerr(tag: int, context: str):
     return (tag, context)
@@ -351,6 +350,93 @@ def _to_bool(v) -> bool:
         if v[0] == 0:
             return False
     return bool(v)
+
+def _to_posix_mode_bits(mode_value):
+    if isinstance(mode_value, int):
+        bits = int(mode_value)
+    elif isinstance(mode_value, tuple) and len(mode_value) >= 1:
+        bits = int(mode_value[0])
+    else:
+        raise ValueError(f"invalid PosixMode value: {mode_value!r}")
+
+    if bits < 0 or bits > _POSIX_MODE_MASK:
+        raise ValueError(f"invalid PosixMode bits: {bits!r}")
+    return bits
+
+def _stat_posix_mode_bits(st):
+    if os.name == "nt":
+        return None
+    return _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+
+def _join_normalized_path(base: str, child: str) -> str:
+    if base == "":
+        return child
+    if base.endswith("/"):
+        return base + child
+    return base + "/" + child
+
+def _split_normalized_path(path_s: str):
+    drive, tail = os.path.splitdrive(path_s)
+    absolute = tail.startswith("/")
+    root = ""
+    if drive:
+        root = drive + ("/" if absolute else "")
+    elif absolute:
+        root = "/"
+
+    without_root = tail[1:] if absolute else tail
+    parts = [part for part in without_root.split("/") if part != ""]
+    return (root, parts)
+
+def _raise_existing_path_error(path_s: str, leaf: bool):
+    if leaf:
+        raise FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), path_s)
+    raise NotADirectoryError(_errno.ENOTDIR, os.strerror(_errno.ENOTDIR), path_s)
+
+def _ensure_directory_at_path(path_s: str, leaf: bool):
+    # mkdir -p should keep traversing through symlinked directory components.
+    if os.path.isdir(path_s):
+        return os.stat(path_s)
+    _raise_existing_path_error(path_s, leaf)
+
+def _set_directory_mode(path_s: str, mode_bits: int):
+    os.chmod(path_s, mode_bits & _POSIX_MODE_MASK)
+
+def _repair_parent_directory_mode(path_s: str):
+    st = os.lstat(path_s)
+    current_bits = _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+    repaired_bits = current_bits | _OWNER_WRITE_EXECUTE_MASK
+    if repaired_bits != current_bits:
+        os.chmod(path_s, repaired_bits)
+
+def _mkdir_recursive(path_s: str, leaf_mode_bits=None):
+    root, parts = _split_normalized_path(path_s)
+    if len(parts) == 0:
+        if root != "":
+            _ensure_directory_at_path(path_s, True)
+        return
+
+    current = root
+    last_index = len(parts) - 1
+    for idx, part in enumerate(parts):
+        current = _join_normalized_path(current, part)
+        is_leaf = idx == last_index
+        created = False
+        try:
+            if leaf_mode_bits is None or not is_leaf:
+                os.mkdir(current)
+            else:
+                os.mkdir(current, leaf_mode_bits)
+            created = True
+        except FileExistsError:
+            _ensure_directory_at_path(current, is_leaf)
+
+        if created and leaf_mode_bits is not None:
+            if is_leaf:
+                _set_directory_mode(current, leaf_mode_bits)
+            else:
+                # Parent directories need owner write/execute after umask masking.
+                _repair_parent_directory_mode(current)
 
 def _as_handle(value):
     if isinstance(value, _CoreHandle):
@@ -1169,7 +1255,8 @@ def stat_path(path):
 
         kind = _kind_from_lstat(st)
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
-        file_stat = (kind, int(st.st_size), int(mtime_ns))
+        posix_mode_bits = _stat_posix_mode_bits(st)
+        file_stat = (kind, int(st.st_size), int(mtime_ns), _none if posix_mode_bits is None else _some(int(posix_mode_bits)))
         return pure(_some(file_stat))
 
     return effect(fn)
@@ -1183,12 +1270,36 @@ def mkdir_path(path, recursive):
 
         try:
             if _to_bool(recursive):
-                os.makedirs(path_s)
+                _mkdir_recursive(path_s)
             else:
                 os.mkdir(path_s)
             return _pure_unit
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, f"creating directory: {path_s}"))
+
+    return effect(fn)
+
+def mkdir_with_mode(path, recursive, mode):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+            mode_bits = _to_posix_mode_bits(mode)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        call_context = f"creating directory with mode: {path_s}"
+        if os.name == "nt":
+            return raise_error(_unsupported(call_context))
+
+        try:
+            if _to_bool(recursive):
+                _mkdir_recursive(path_s, mode_bits)
+            else:
+                os.mkdir(path_s, mode_bits)
+                _set_directory_mode(path_s, mode_bits)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, call_context))
 
     return effect(fn)
 
@@ -1518,22 +1629,22 @@ def step_fix(arg, fixfn):
   fixed = lambda a: (4, a, fixfn)
   return fixfn(fixed)(arg)
 
-def _prog_from_main(main):
-  args = py_to_bosatsu_list(sys.argv[1:])
-  if callable(main):
-    return main(args)
-  if isinstance(main, tuple) and len(main) > 0 and callable(main[0]):
-    return main[0](args)
-  return main
+def _prog_from_args(fn_value, args):
+  bosatsu_args = py_to_bosatsu_list(args)
+  if callable(fn_value):
+    return fn_value(bosatsu_args)
+  if isinstance(fn_value, tuple) and len(fn_value) > 0 and callable(fn_value[0]):
+    return fn_value[0](bosatsu_args)
+  return fn_value
 
-# main: List[String] -> Prog[String, Int]
-def run(main):
-  # the stack ADT:
+def _prog_from_main(main):
+  return _prog_from_args(main, sys.argv[1:])
+
+def _run_prog_value(arg):
   done = (0,)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
 
-  arg = _prog_from_main(main)
   stack = done
   while True:
     prog_tag = arg[0]
@@ -1546,8 +1657,7 @@ def run(main):
       item = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the result must be an int
-        sys.exit(item)
+        return (True, item)
       elif stack_tag == 1:
         #fmstep
         fn = stack[1]
@@ -1564,8 +1674,7 @@ def run(main):
       err = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the top error must be a string
-        raise Exception(err) 
+        return (False, err)
       elif stack_tag == 1:
         #fmstep, but this is an error, just pop
         stack = stack[2]
@@ -1583,3 +1692,17 @@ def run(main):
       arg = step_fix(arg[1], arg[2])
     else:
       raise Exception(f"invalid Prog tag: {prog_tag}")
+
+# main: List[String] -> Prog[String, Int]
+def run(main):
+  ok, value = _run_prog_value(_prog_from_main(main))
+  if ok:
+    sys.exit(value)
+  raise Exception(value)
+
+def run_test(prog_test, args=None):
+  run_args = [] if args is None else list(args)
+  ok, value = _run_prog_value(_prog_from_args(prog_test, run_args))
+  if ok:
+    return value
+  raise AssertionError(f"ProgTest raised uncaught error: {value!r}")

@@ -21,7 +21,12 @@ import java.nio.charset.{
   CodingErrorAction,
   StandardCharsets
 }
-import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.{
+  BasicFileAttributes,
+  FileTime,
+  PosixFileAttributes,
+  PosixFilePermission
+}
 import java.nio.file.{
   AccessDeniedException,
   DirectoryNotEmptyException,
@@ -36,7 +41,7 @@ import java.nio.file.{
   Paths,
   StandardOpenOption
 }
-import java.util.Locale
+import java.util.{EnumSet, Locale}
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
@@ -1349,6 +1354,12 @@ object PredefImpl {
   private val OneBillionBI = BigInteger.valueOf(1000000000L)
   private val OneMillionBI = BigInteger.valueOf(1000000L)
   private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
+  private val PosixModeMask = 4095
+  private val PosixPermissionMask = 511
+  private val PosixSpecialBitsMask = PosixModeMask ^ PosixPermissionMask
+  private val OwnerWriteExecuteMask = 192
+  private val UnixStatAttributeView =
+    "unix:size,lastModifiedTime,isRegularFile,isDirectory,isSymbolicLink,mode"
 
   private sealed trait HandleValue derives CanEqual
   private case object HandleStdin extends HandleValue
@@ -2130,23 +2141,282 @@ object PredefImpl {
       }
     } yield ()
 
-  private def basicFileStatValue(attrs: BasicFileAttributes): Value = {
-    val kindTag =
-      if (attrs.isSymbolicLink) 2
-      else if (attrs.isRegularFile) 0
-      else if (attrs.isDirectory) 1
-      else 3
-    val mtimeInstant = attrs.lastModifiedTime.toInstant
-    val mtimeNanos =
-      BigInteger
-        .valueOf(mtimeInstant.getEpochSecond)
-        .multiply(OneBillionBI)
-        .add(BigInteger.valueOf(mtimeInstant.getNano.toLong))
+  private def fileKindTag(
+      isSymbolicLink: Boolean,
+      isRegularFile: Boolean,
+      isDirectory: Boolean
+  ): Int =
+    if (isSymbolicLink) 2
+    else if (isRegularFile) 0
+    else if (isDirectory) 1
+    else 3
+
+  private def instantToNanos(instant: java.time.Instant): BigInteger =
+    BigInteger
+      .valueOf(instant.getEpochSecond)
+      .multiply(OneBillionBI)
+      .add(BigInteger.valueOf(instant.getNano.toLong))
+
+  private def fileStatValue(
+      kindTag: Int,
+      size: Long,
+      mtime: FileTime,
+      posixModeBits: Option[Int]
+  ): Value =
     ProductValue.fromList(
       fileKindValue(kindTag) ::
-        VInt(BigInteger.valueOf(attrs.size)) ::
-        instantValueFromNanos(mtimeNanos) :: Nil
+        VInt(BigInteger.valueOf(size)) ::
+        instantValueFromNanos(instantToNanos(mtime.toInstant)) ::
+        optionValue(posixModeBits.map(bits => VInt(BigInteger.valueOf(bits.toLong)))) :: Nil
     )
+
+  private def basicFileStatValue(attrs: BasicFileAttributes): Value =
+    fileStatValue(
+      fileKindTag(attrs.isSymbolicLink, attrs.isRegularFile, attrs.isDirectory),
+      attrs.size,
+      attrs.lastModifiedTime,
+      None
+    )
+
+  private def unixFileStatValue(
+      attrs: java.util.Map[String, AnyRef]
+  ): Value = {
+    val kindTag =
+      fileKindTag(
+        attrs.get("isSymbolicLink").asInstanceOf[java.lang.Boolean].booleanValue,
+        attrs.get("isRegularFile").asInstanceOf[java.lang.Boolean].booleanValue,
+        attrs.get("isDirectory").asInstanceOf[java.lang.Boolean].booleanValue
+      )
+    val size = attrs.get("size").asInstanceOf[java.lang.Long].longValue
+    val mtime = attrs.get("lastModifiedTime").asInstanceOf[FileTime]
+    val modeBits =
+      attrs.get("mode").asInstanceOf[java.lang.Integer].intValue & PosixModeMask
+    fileStatValue(kindTag, size, mtime, Some(modeBits))
+  }
+
+  private def posixPermissionsToModeBits(
+      permissions: java.util.Set[PosixFilePermission]
+  ): Int = {
+    val iterator = permissions.iterator()
+    var modeBits = 0
+    while (iterator.hasNext) {
+      val permission = iterator.next().nn
+      modeBits =
+        modeBits | (if (permission eq PosixFilePermission.OWNER_READ) 256
+                    else if (permission eq PosixFilePermission.OWNER_WRITE) 128
+                    else if (permission eq PosixFilePermission.OWNER_EXECUTE) 64
+                    else if (permission eq PosixFilePermission.GROUP_READ) 32
+                    else if (permission eq PosixFilePermission.GROUP_WRITE) 16
+                    else if (permission eq PosixFilePermission.GROUP_EXECUTE) 8
+                    else if (permission eq PosixFilePermission.OTHERS_READ) 4
+                    else if (permission eq PosixFilePermission.OTHERS_WRITE) 2
+                    else 1)
+    }
+    modeBits
+  }
+
+  private def modeBitsToPosixPermissions(
+      modeBits: Int
+  ): java.util.Set[PosixFilePermission] = {
+    val permissions = EnumSet.noneOf(classOf[PosixFilePermission])
+
+    def addIf(mask: Int, permission: PosixFilePermission): Unit =
+      if ((modeBits & mask) == mask) {
+        permissions.add(permission): Unit
+      }
+
+    addIf(256, PosixFilePermission.OWNER_READ)
+    addIf(128, PosixFilePermission.OWNER_WRITE)
+    addIf(64, PosixFilePermission.OWNER_EXECUTE)
+    addIf(32, PosixFilePermission.GROUP_READ)
+    addIf(16, PosixFilePermission.GROUP_WRITE)
+    addIf(8, PosixFilePermission.GROUP_EXECUTE)
+    addIf(4, PosixFilePermission.OTHERS_READ)
+    addIf(2, PosixFilePermission.OTHERS_WRITE)
+    addIf(1, PosixFilePermission.OTHERS_EXECUTE)
+    permissions
+  }
+
+  private def posixFileStatValue(
+      attrs: PosixFileAttributes
+  ): Value = {
+    val modeBits = posixPermissionsToModeBits(attrs.permissions())
+    fileStatValue(
+      fileKindTag(attrs.isSymbolicLink, attrs.isRegularFile, attrs.isDirectory),
+      attrs.size,
+      attrs.lastModifiedTime,
+      Some(modeBits)
+    )
+  }
+
+  private def asPosixModeBits(
+      value: Value,
+      context: String
+  ): Either[Value, Int] =
+    asInt(value, context).flatMap { bi =>
+      if (bi.signum < 0 || bi.compareTo(BigInteger.valueOf(PosixModeMask.toLong)) > 0)
+        Left(ioerror_invalid_argument(context))
+      else Right(bi.intValue)
+    }
+
+  private def readCurrentPosixMode(
+      path: JPath,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = Files.readAttributes(
+        path,
+        classOf[PosixFileAttributes],
+        LinkOption.NOFOLLOW_LINKS
+      )
+      Right(posixPermissionsToModeBits(attrs.permissions()))
+    } catch {
+      case _: UnsupportedOperationException =>
+        Left(ioerror_known(IOErrorTagUnsupported, context))
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def readCurrentMode(
+      path: JPath,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = Files.readAttributes(path, "unix:mode", LinkOption.NOFOLLOW_LINKS)
+      Right(attrs.get("mode").asInstanceOf[java.lang.Integer].intValue & PosixModeMask)
+    } catch {
+      case _: UnsupportedOperationException =>
+        // Some stores expose PosixFileAttributeView without the wider unix view.
+        readCurrentPosixMode(path, context)
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def setCurrentPosixMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    if ((modeBits & PosixSpecialBitsMask) != 0)
+      Left(
+        ioerror_known(
+          IOErrorTagUnsupported,
+          s"$context: Posix view does not expose special permission bits"
+        )
+      )
+    else
+      try {
+        val _ = Files.setPosixFilePermissions(
+          path,
+          modeBitsToPosixPermissions(modeBits)
+        )
+        Right(())
+      } catch {
+        case _: UnsupportedOperationException =>
+          Left(ioerror_known(IOErrorTagUnsupported, context))
+        case NonFatal(t) =>
+          Left(ioerror_from_throwable(context, t))
+      }
+
+  private def setCurrentMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      val _ = Files.setAttribute(
+        path,
+        "unix:mode",
+        Integer.valueOf(modeBits & PosixModeMask),
+        LinkOption.NOFOLLOW_LINKS
+      )
+      Right(())
+    } catch {
+      case _: UnsupportedOperationException =>
+        // Fall back to the narrower POSIX permission view when unix mode bits
+        // are unavailable on the host file store.
+        setCurrentPosixMode(path, modeBits, context)
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def ensureExistingDirectory(
+      path: JPath,
+      context: String,
+      leaf: Boolean
+  ): Either[Value, Unit] =
+    try {
+      // mkdir -p should treat a symlinked directory component as traversable.
+      if (Files.isDirectory(path)) Right(())
+      else if (leaf) Left(ioerror_known(IOErrorTagAlreadyExists, context))
+      else Left(ioerror_known(IOErrorTagNotDirectory, context))
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def createDirectoryRecursiveWithMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] = {
+    val root = Option(path.getRoot)
+    val nameCount = path.getNameCount
+
+    if (nameCount == 0) {
+      root match {
+        case Some(_) => ensureExistingDirectory(path, context, leaf = true)
+        case None    => Right(())
+      }
+    } else {
+      var current: JPath = root.orNull
+      var index = 0
+      while (index < nameCount) {
+        val next = path.getName(index)
+        current =
+          if (current eq null) next
+          else current.resolve(next)
+        val isLeaf = index == (nameCount - 1)
+        val created =
+          try {
+            Files.createDirectory(current)
+            true
+          } catch {
+            case _: FileAlreadyExistsException =>
+              ensureExistingDirectory(current, context, leaf = isLeaf) match {
+                case Right(_)  => false
+                case Left(err) => return Left(err)
+              }
+            case NonFatal(t) =>
+              return Left(ioerror_from_throwable(context, t))
+          }
+
+        if (created) {
+          if (isLeaf)
+            setCurrentMode(current, modeBits, context) match {
+              case Right(_)  => ()
+              case Left(err) => return Left(err)
+            }
+          else
+            // Newly created parents need owner write/execute preserved after umask.
+            readCurrentMode(current, context) match {
+              case Right(existingBits) =>
+                val repairedBits = existingBits | OwnerWriteExecuteMask
+                if (repairedBits != existingBits)
+                  setCurrentMode(current, repairedBits, context) match {
+                    case Right(_)  => ()
+                    case Left(err) => return Left(err)
+                  }
+              case Left(err) =>
+                return Left(err)
+            }
+        }
+
+        index = index + 1
+      }
+
+      Right(())
+    }
   }
 
   private def removePathRecursive(path: JPath): Either[Value, Unit] =
@@ -2609,13 +2879,35 @@ object PredefImpl {
           javaPath <- asJavaPath(pathValue, "invalid path for stat")
           statValue <- {
             try {
-              val attrs = Files.readAttributes(
-                javaPath,
-                classOf[BasicFileAttributes],
-                LinkOption.NOFOLLOW_LINKS
-              )
-              Right(Some(basicFileStatValue(attrs)))
+              val attrs =
+                Files.readAttributes(
+                  javaPath,
+                  UnixStatAttributeView,
+                  LinkOption.NOFOLLOW_LINKS
+                )
+              Right(Some(unixFileStatValue(attrs)))
             } catch {
+              case _: UnsupportedOperationException =>
+                try {
+                  val attrs = Files.readAttributes(
+                    javaPath,
+                    classOf[PosixFileAttributes],
+                    LinkOption.NOFOLLOW_LINKS
+                  )
+                  Right(Some(posixFileStatValue(attrs)))
+                } catch {
+                  case _: UnsupportedOperationException =>
+                    val attrs = Files.readAttributes(
+                      javaPath,
+                      classOf[BasicFileAttributes],
+                      LinkOption.NOFOLLOW_LINKS
+                    )
+                    Right(Some(basicFileStatValue(attrs)))
+                  case _: NoSuchFileException =>
+                    Right(None)
+                  case NonFatal(t)            =>
+                    Left(ioerror_from_throwable("stat", t))
+                }
               case _: NoSuchFileException =>
                 Right(None)
               case NonFatal(t)            =>
@@ -2648,6 +2940,46 @@ object PredefImpl {
               case NonFatal(t) =>
                 Left(ioerror_from_throwable("mkdir", t))
             }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_mkdir_with_mode(
+      path: Value,
+      recursive: Value,
+      mode: Value
+  ): Value =
+    prog_effect3(
+      path,
+      recursive,
+      mode,
+      (pathValue, recursiveValue, modeValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for mkdir_with_mode")
+          recursiveFlag <- asBool(recursiveValue)
+          modeBits <- asPosixModeBits(
+            modeValue,
+            "invalid PosixMode for mkdir_with_mode"
+          )
+          callContext =
+            s"mkdir_with_mode(path=${javaPath.toString}, recursive=$recursiveFlag)"
+          _ <- {
+            if (recursiveFlag)
+              createDirectoryRecursiveWithMode(javaPath, modeBits, callContext)
+            else
+              try {
+                Files.createDirectory(javaPath)
+                setCurrentMode(javaPath, modeBits, callContext)
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable(callContext, t))
+              }
           }
         } yield ()
 

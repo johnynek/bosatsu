@@ -31,6 +31,7 @@
     list_dir: ProgExt.list_dir,
     stat: ProgExt.stat_path,
     mkdir: ProgExt.mkdir_path,
+    mkdir_with_mode: ProgExt.mkdir_with_mode,
     remove: ProgExt.remove_path,
     rename: ProgExt.rename_path,
     get_env: ProgExt.get_env,
