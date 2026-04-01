@@ -3,7 +3,16 @@ package dev.bosatsu.codegen.python
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Lit, Matchless, Par, Parser}
+import dev.bosatsu.{
+  Package,
+  PackageName,
+  Identifier,
+  InSetCompiler,
+  Lit,
+  Matchless,
+  Par,
+  Parser
+}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -144,7 +153,7 @@ object PythonGen {
             case None        =>
               val impNumber = imports.size
               val alias = Code.Ident(
-                Idents.escape("___i", mod.last.name + impNumber.toString)
+                Idents.escape("bsts_i", mod.last.name + impNumber.toString)
               )
               (copy(imports = imports.updated(mod, alias)), alias)
           }
@@ -492,6 +501,64 @@ object PythonGen {
     }
   }
 
+  private def unitTestClass(
+      importedName: Code.Ident,
+      tmpVar: Code.Ident,
+      testValue: Code.Expression
+  ): Statement = {
+    import Impl._
+
+    val loopName = Code.Ident("test_loop")
+    val argName = Code.Ident("value")
+    val selfName = Code.Ident("self")
+
+    val isAssertion: Code.Expression =
+      argName.get(0) =:= 0
+
+    // Assertion(bool, msg)
+    val testAssertion: Code.Statement =
+      Code.Call(
+        Code.Apply(
+          selfName.dot(Code.Ident("assertTrue")),
+          argName.get(1) :: argName.get(2) :: Nil
+        )
+      )
+
+    // TestSuite(suiteName, tests)
+    val testSuite: Code.Statement =
+      Code.block(
+        tmpVar := argName.get(2), // get the test list
+        Code.While(
+          isNonEmpty(tmpVar),
+          Code.block(
+            Code.Call(Code.Apply(loopName, headList(tmpVar) :: Nil)),
+            tmpVar := tailList(tmpVar)
+          )
+        )
+      )
+
+    val loopBody: Code.Statement =
+      Code.IfStatement(
+        NonEmptyList.one((isAssertion, testAssertion)),
+        Some(testSuite)
+      )
+
+    val recTest =
+      Code.Def(loopName, argName :: Nil, loopBody)
+
+    val body =
+      Code.block(recTest, Code.Call(Code.Apply(loopName, testValue :: Nil)))
+
+    val defBody =
+      Code.Def(Code.Ident("test_all"), selfName :: Nil, body)
+
+    Code.ClassDef(
+      Code.Ident("BosatsuTests"),
+      List(importedName.dot(Code.Ident("TestCase"))),
+      defBody
+    )
+  }
+
   private def addUnitTest(name: Bindable): Env[Statement] =
     // we could inspect the Expr, but for now, we will just put
     // everything in a single test:
@@ -504,58 +571,19 @@ object PythonGen {
       Env.newAssignableVar,
       Env.topLevelName(name)
     )
-      .mapN { (importedName, tmpVar, testName) =>
-        import Impl._
+      .mapN(unitTestClass(_, _, _))
 
-        val loopName = Code.Ident("test_loop")
-        val argName = Code.Ident("value")
-        val selfName = Code.Ident("self")
-
-        val isAssertion: Code.Expression =
-          argName.get(0) =:= 0
-
-        // Assertion(bool, msg)
-        val testAssertion: Code.Statement =
-          Code.Call(
-            Code.Apply(
-              selfName.dot(Code.Ident("assertTrue")),
-              argName.get(1) :: argName.get(2) :: Nil
-            )
-          )
-
-        // TestSuite(suiteName, tests)
-        val testSuite: Code.Statement =
-          Code.block(
-            tmpVar := argName.get(2), // get the test list
-            Code.While(
-              isNonEmpty(tmpVar),
-              Code.block(
-                Code.Call(Code.Apply(loopName, headList(tmpVar) :: Nil)),
-                tmpVar := tailList(tmpVar)
-              )
-            )
-          )
-
-        val loopBody: Code.Statement =
-          Code.IfStatement(
-            NonEmptyList.one((isAssertion, testAssertion)),
-            Some(testSuite)
-          )
-
-        val recTest =
-          Code.Def(loopName, argName :: Nil, loopBody)
-
-        val body =
-          Code.block(recTest, Code.Call(Code.Apply(loopName, testName :: Nil)))
-
-        val defBody =
-          Code.Def(Code.Ident("test_all"), selfName :: Nil, body)
-
-        Code.ClassDef(
-          Code.Ident("BosatsuTests"),
-          List(importedName.dot(Code.Ident("TestCase"))),
-          defBody
-        )
+  private def addProgUnitTest(name: Bindable): Env[Statement] =
+    (
+      Env.importLiteral(NonEmptyList.one(Code.Ident("unittest"))),
+      Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt"))),
+      Env.newAssignableVar,
+      Env.topLevelName(name)
+    )
+      .mapN { (unittestName, progExtName, tmpVar, testName) =>
+        val testValue =
+          Code.Apply(progExtName.dot(Code.Ident("run_test")), testName :: Nil)
+        unitTestClass(unittestName, tmpVar, testValue)
       }
 
   private def addMainEval(
@@ -649,7 +677,8 @@ object PythonGen {
     val all = pm
       .transform { (k, pm) =>
         val testsK =
-          if (ns.isRoot(k)) ns.testValues else Map.empty[PackageName, Nothing]
+          if (ns.isRoot(k)) ns.testEntries
+          else Map.empty[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[Any]]]
         val evaluatorsK =
           if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
 
@@ -668,7 +697,14 @@ object PythonGen {
                 }
 
               val testStmt: Env[Option[Statement]] =
-                testsK.get(p).traverse(addUnitTest)
+                testsK.get(p) match {
+                  case Some(Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+                    addUnitTest(bindable).map(Some(_))
+                  case Some(Right(Package.TestEntry.ProgTest(bindable, _, _)))  =>
+                    addProgUnitTest(bindable).map(Some(_))
+                  case _ =>
+                    Env.pure(None)
+                }
 
               val stmts = (stmts0, testStmt, evalStmt)
                 .mapN { (s, optT, optM) =>

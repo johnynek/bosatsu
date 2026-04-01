@@ -21,7 +21,12 @@ import java.nio.charset.{
   CodingErrorAction,
   StandardCharsets
 }
-import java.nio.file.attribute.{BasicFileAttributes, FileTime}
+import java.nio.file.attribute.{
+  BasicFileAttributes,
+  FileTime,
+  PosixFileAttributes,
+  PosixFilePermission
+}
 import java.nio.file.{
   AccessDeniedException,
   DirectoryNotEmptyException,
@@ -36,7 +41,7 @@ import java.nio.file.{
   Paths,
   StandardOpenOption
 }
-import java.util.Locale
+import java.util.{EnumSet, Locale}
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
@@ -1350,6 +1355,8 @@ object PredefImpl {
   private val OneMillionBI = BigInteger.valueOf(1000000L)
   private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
   private val PosixModeMask = 4095
+  private val PosixPermissionMask = 511
+  private val PosixSpecialBitsMask = PosixModeMask ^ PosixPermissionMask
   private val OwnerWriteExecuteMask = 192
   private val UnixStatAttributeView =
     "unix:size,lastModifiedTime,isRegularFile,isDirectory,isSymbolicLink,mode"
@@ -2187,6 +2194,61 @@ object PredefImpl {
     fileStatValue(kindTag, size, mtime, Some(modeBits))
   }
 
+  private def posixPermissionsToModeBits(
+      permissions: java.util.Set[PosixFilePermission]
+  ): Int = {
+    val iterator = permissions.iterator()
+    var modeBits = 0
+    while (iterator.hasNext) {
+      val permission = iterator.next().nn
+      modeBits =
+        modeBits | (if (permission eq PosixFilePermission.OWNER_READ) 256
+                    else if (permission eq PosixFilePermission.OWNER_WRITE) 128
+                    else if (permission eq PosixFilePermission.OWNER_EXECUTE) 64
+                    else if (permission eq PosixFilePermission.GROUP_READ) 32
+                    else if (permission eq PosixFilePermission.GROUP_WRITE) 16
+                    else if (permission eq PosixFilePermission.GROUP_EXECUTE) 8
+                    else if (permission eq PosixFilePermission.OTHERS_READ) 4
+                    else if (permission eq PosixFilePermission.OTHERS_WRITE) 2
+                    else 1)
+    }
+    modeBits
+  }
+
+  private def modeBitsToPosixPermissions(
+      modeBits: Int
+  ): java.util.Set[PosixFilePermission] = {
+    val permissions = EnumSet.noneOf(classOf[PosixFilePermission])
+
+    def addIf(mask: Int, permission: PosixFilePermission): Unit =
+      if ((modeBits & mask) == mask) {
+        permissions.add(permission): Unit
+      }
+
+    addIf(256, PosixFilePermission.OWNER_READ)
+    addIf(128, PosixFilePermission.OWNER_WRITE)
+    addIf(64, PosixFilePermission.OWNER_EXECUTE)
+    addIf(32, PosixFilePermission.GROUP_READ)
+    addIf(16, PosixFilePermission.GROUP_WRITE)
+    addIf(8, PosixFilePermission.GROUP_EXECUTE)
+    addIf(4, PosixFilePermission.OTHERS_READ)
+    addIf(2, PosixFilePermission.OTHERS_WRITE)
+    addIf(1, PosixFilePermission.OTHERS_EXECUTE)
+    permissions
+  }
+
+  private def posixFileStatValue(
+      attrs: PosixFileAttributes
+  ): Value = {
+    val modeBits = posixPermissionsToModeBits(attrs.permissions())
+    fileStatValue(
+      fileKindTag(attrs.isSymbolicLink, attrs.isRegularFile, attrs.isDirectory),
+      attrs.size,
+      attrs.lastModifiedTime,
+      Some(modeBits)
+    )
+  }
+
   private def asPosixModeBits(
       value: Value,
       context: String
@@ -2197,7 +2259,25 @@ object PredefImpl {
       else Right(bi.intValue)
     }
 
-  private def readCurrentUnixMode(
+  private def readCurrentPosixMode(
+      path: JPath,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = Files.readAttributes(
+        path,
+        classOf[PosixFileAttributes],
+        LinkOption.NOFOLLOW_LINKS
+      )
+      Right(posixPermissionsToModeBits(attrs.permissions()))
+    } catch {
+      case _: UnsupportedOperationException =>
+        Left(ioerror_known(IOErrorTagUnsupported, context))
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def readCurrentMode(
       path: JPath,
       context: String
   ): Either[Value, Int] =
@@ -2206,12 +2286,39 @@ object PredefImpl {
       Right(attrs.get("mode").asInstanceOf[java.lang.Integer].intValue & PosixModeMask)
     } catch {
       case _: UnsupportedOperationException =>
-        Left(ioerror_known(IOErrorTagUnsupported, context))
+        // Some stores expose PosixFileAttributeView without the wider unix view.
+        readCurrentPosixMode(path, context)
       case NonFatal(t) =>
         Left(ioerror_from_throwable(context, t))
     }
 
-  private def setUnixMode(
+  private def setCurrentPosixMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    if ((modeBits & PosixSpecialBitsMask) != 0)
+      Left(
+        ioerror_known(
+          IOErrorTagUnsupported,
+          s"$context: Posix view does not expose special permission bits"
+        )
+      )
+    else
+      try {
+        val _ = Files.setPosixFilePermissions(
+          path,
+          modeBitsToPosixPermissions(modeBits)
+        )
+        Right(())
+      } catch {
+        case _: UnsupportedOperationException =>
+          Left(ioerror_known(IOErrorTagUnsupported, context))
+        case NonFatal(t) =>
+          Left(ioerror_from_throwable(context, t))
+      }
+
+  private def setCurrentMode(
       path: JPath,
       modeBits: Int,
       context: String
@@ -2226,7 +2333,9 @@ object PredefImpl {
       Right(())
     } catch {
       case _: UnsupportedOperationException =>
-        Left(ioerror_known(IOErrorTagUnsupported, context))
+        // Fall back to the narrower POSIX permission view when unix mode bits
+        // are unavailable on the host file store.
+        setCurrentPosixMode(path, modeBits, context)
       case NonFatal(t) =>
         Left(ioerror_from_throwable(context, t))
     }
@@ -2284,17 +2393,17 @@ object PredefImpl {
 
         if (created) {
           if (isLeaf)
-            setUnixMode(current, modeBits, context) match {
+            setCurrentMode(current, modeBits, context) match {
               case Right(_)  => ()
               case Left(err) => return Left(err)
             }
           else
             // Newly created parents need owner write/execute preserved after umask.
-            readCurrentUnixMode(current, context) match {
+            readCurrentMode(current, context) match {
               case Right(existingBits) =>
                 val repairedBits = existingBits | OwnerWriteExecuteMask
                 if (repairedBits != existingBits)
-                  setUnixMode(current, repairedBits, context) match {
+                  setCurrentMode(current, repairedBits, context) match {
                     case Right(_)  => ()
                     case Left(err) => return Left(err)
                   }
@@ -2782,11 +2891,18 @@ object PredefImpl {
                 try {
                   val attrs = Files.readAttributes(
                     javaPath,
-                    classOf[BasicFileAttributes],
+                    classOf[PosixFileAttributes],
                     LinkOption.NOFOLLOW_LINKS
                   )
-                  Right(Some(basicFileStatValue(attrs)))
+                  Right(Some(posixFileStatValue(attrs)))
                 } catch {
+                  case _: UnsupportedOperationException =>
+                    val attrs = Files.readAttributes(
+                      javaPath,
+                      classOf[BasicFileAttributes],
+                      LinkOption.NOFOLLOW_LINKS
+                    )
+                    Right(Some(basicFileStatValue(attrs)))
                   case _: NoSuchFileException =>
                     Right(None)
                   case NonFatal(t)            =>
@@ -2859,7 +2975,7 @@ object PredefImpl {
             else
               try {
                 Files.createDirectory(javaPath)
-                setUnixMode(javaPath, modeBits, callContext)
+                setCurrentMode(javaPath, modeBits, callContext)
               } catch {
                 case NonFatal(t) =>
                   Left(ioerror_from_throwable(callContext, t))

@@ -20,17 +20,14 @@ from typing import Optional, Tuple, Union
 def pure(a): return (0, a)
 def raise_error(e): return (1, e)
 def flat_map(p, f):
-  if p[0] == 2:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (2, base_prog, lambda a: flat_map(prior_fn(a), f))
+  # Keep the program tree as-is. The evaluator loop already handles nested
+  # FlatMap nodes iteratively, while recursive reassociation can overflow
+  # Python's call stack on deep left-associated chains.
   return (2, p, f)
 
 def recover(p, f):
-  if p[0] == 3:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (3, base_prog, lambda a: recover(prior_fn(a), f))
+  # As with flat_map above, avoid recursive tree rewrites here and let the
+  # evaluator handle nested Recover nodes iteratively.
   return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
@@ -1632,22 +1629,22 @@ def step_fix(arg, fixfn):
   fixed = lambda a: (4, a, fixfn)
   return fixfn(fixed)(arg)
 
-def _prog_from_main(main):
-  args = py_to_bosatsu_list(sys.argv[1:])
-  if callable(main):
-    return main(args)
-  if isinstance(main, tuple) and len(main) > 0 and callable(main[0]):
-    return main[0](args)
-  return main
+def _prog_from_args(fn_value, args):
+  bosatsu_args = py_to_bosatsu_list(args)
+  if callable(fn_value):
+    return fn_value(bosatsu_args)
+  if isinstance(fn_value, tuple) and len(fn_value) > 0 and callable(fn_value[0]):
+    return fn_value[0](bosatsu_args)
+  return fn_value
 
-# main: List[String] -> Prog[String, Int]
-def run(main):
-  # the stack ADT:
+def _prog_from_main(main):
+  return _prog_from_args(main, sys.argv[1:])
+
+def _run_prog_value(arg):
   done = (0,)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
 
-  arg = _prog_from_main(main)
   stack = done
   while True:
     prog_tag = arg[0]
@@ -1660,8 +1657,7 @@ def run(main):
       item = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the result must be an int
-        sys.exit(item)
+        return (True, item)
       elif stack_tag == 1:
         #fmstep
         fn = stack[1]
@@ -1678,8 +1674,7 @@ def run(main):
       err = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the top error must be a string
-        raise Exception(err) 
+        return (False, err)
       elif stack_tag == 1:
         #fmstep, but this is an error, just pop
         stack = stack[2]
@@ -1697,3 +1692,17 @@ def run(main):
       arg = step_fix(arg[1], arg[2])
     else:
       raise Exception(f"invalid Prog tag: {prog_tag}")
+
+# main: List[String] -> Prog[String, Int]
+def run(main):
+  ok, value = _run_prog_value(_prog_from_main(main))
+  if ok:
+    sys.exit(value)
+  raise Exception(value)
+
+def run_test(prog_test, args=None):
+  run_args = [] if args is None else list(args)
+  ok, value = _run_prog_value(_prog_from_args(prog_test, run_args))
+  if ok:
+    return value
+  raise AssertionError(f"ProgTest raised uncaught error: {value!r}")

@@ -82,6 +82,20 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     }
   }
 
+  private def typeCheckPackage(
+      src: String,
+      ifaces: List[Package.Interface]
+  ): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser, src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, ifaces, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
   test("all escapes are valid python identifiers") {
     forAll(bindIdentGen) { b =>
       val str = PythonGen.escape(b).name
@@ -210,6 +224,54 @@ main = mk
       assertEquals(helperDefs, 1, mk)
       assert(mk.contains("return lambda ___"), mk)
       assert(mk.contains("___v6(___b__bsts__inline__let__00)"), mk)
+    }
+  }
+
+  test("ProgTest exports generate unittest wrappers in Python") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+
+    val progPm = typeCheckPackage(
+      """package Bosatsu/Prog
+        |
+        |export Prog(), ProgTest(), pure
+        |
+        |enum Prog[e, a]:
+        |  Pure(get: a)
+        |
+        |def pure[a](a: a) -> forall e. Prog[e, a]:
+        |  Pure(a)
+        |
+        |struct ProgTest(test_fn: List[String] -> Prog[String, Test])
+        |""".stripMargin,
+      predefIface :: Nil
+    )
+    val progIface =
+      Package.interfaceOf(progPm.toMap(PackageName.parts("Bosatsu", "Prog")))
+
+    val rootPm = typeCheckPackage(
+      """package Root/Main
+        |
+        |from Bosatsu/Prog import ProgTest, pure
+        |
+        |tests = ProgTest(_ -> pure(Assertion(True, "ok")))
+        |""".stripMargin,
+      predefIface :: progIface :: Nil
+    )
+
+    val pm =
+      (PackageMap.empty + PackageMap.predefInferred) ++
+        progPm.toMap.values ++
+        rootPm.toMap.values
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Root", "Main"))._2
+      val code = doc.render(120)
+
+      assert(code.contains("class BosatsuTests("), code)
+      assert(code.contains(".TestCase):"), code)
+      assert(code.contains("def test_all(self):"), code)
+      assert(code.contains("run_test(tests)"), code)
     }
   }
 
