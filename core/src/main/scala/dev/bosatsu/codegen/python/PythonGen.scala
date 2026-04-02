@@ -93,6 +93,7 @@ object PythonGen {
 
       case class EnvState(
           imports: Map[Module, Code.Ident],
+          helpers: Map[String, Code.Ident],
           bindings: Map[Bindable, BindState],
           tops: Set[Bindable],
           nextTmp: Long,
@@ -158,6 +159,19 @@ object PythonGen {
               (copy(imports = imports.updated(mod, alias)), alias)
           }
 
+        def helper(key: String): Option[Code.Ident] =
+          helpers.get(key)
+
+        def addHelper(
+            key: String,
+            ident: Code.Ident,
+            stmts: List[Statement]
+        ): EnvState =
+          copy(
+            helpers = helpers.updated(key, ident),
+            lifted = lifted ++ stmts
+          )
+
         def lift(stmt: Statement): EnvState =
           copy(lifted = lifted :+ stmt)
 
@@ -177,7 +191,7 @@ object PythonGen {
       }
 
       def emptyState: EnvState =
-        EnvState(Map.empty, Map.empty, Set.empty, 0L, Vector.empty)
+        EnvState(Map.empty, Map.empty, Map.empty, Set.empty, 0L, Vector.empty)
 
       case class EnvImpl[A](state: State[EnvState, A]) extends Env[A]
 
@@ -250,6 +264,19 @@ object PythonGen {
 
     def importLiteral(parts: NonEmptyList[Code.Ident]): Env[Code.Ident] =
       Impl.env(_.addImport(parts))
+
+    def ensureHelper(
+        key: String
+    )(build: Code.Ident => Env[List[Statement]]): Env[Code.Ident] =
+      Impl.read(_.helper(key)).flatMap {
+        case Some(ident) => Env.pure(ident)
+        case None        =>
+          for {
+            helperName <- newHoistedDefName
+            stmts <- build(helperName)
+            _ <- Impl.update(_.addHelper(key, helperName, stmts))
+          } yield helperName
+      }
 
     // top level names are imported across files so they have
     // to be consistently transformed
@@ -752,34 +779,91 @@ object PythonGen {
         PackageName.parts("Bosatsu", "Collection", "Array")
       private val float64Package: PackageName =
         PackageName.parts("Bosatsu", "Num", "Float64")
+      private val pyStringCmpHelperKey = "py_string_cmp_helper"
+
+      private def cmpExpr(
+          arg0: Code.Expression,
+          arg1: Code.Expression
+      ): Code.Expression =
+        Code
+          .Ternary(
+            0,
+            arg0 :< arg1,
+            Code.Ternary(1, arg0 =:= arg1, 2)
+          )
+          .simplify
 
       private val cmpFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-          Code
-            .Ternary(
-              0,
-              arg0 :< arg1,
-              Code.Ternary(1, arg0 =:= arg1, 2)
-            )
-            .simplify
+          cmpExpr(arg0, arg1)
         }
       }
+
+      private def utf8Bytes(expr: Code.Expression): Code.Expression =
+        expr.dot(Code.Ident("encode"))(Code.PyString("utf-8"))
 
       private def utf32Bytes(expr: Code.Expression): Code.Expression =
         expr.dot(Code.Ident("encode"))(Code.PyString("utf-32-be"))
 
-      private val cmpUtf32Fn: List[ValueLike] => Env[ValueLike] = { input =>
-        Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-          val arg0Utf32 = utf32Bytes(arg0)
-          val arg1Utf32 = utf32Bytes(arg1)
-          Code
-            .Ternary(
-              0,
-              arg0Utf32 :< arg1Utf32,
-              Code.Ternary(1, arg0Utf32 =:= arg1Utf32, 2)
-            )
-            .simplify
+      private def cmpEncodedFn(
+          encode: Code.Expression => Code.Expression
+      ): List[ValueLike] => Env[ValueLike] = { input =>
+        (Env.newAssignableVar, Env.newAssignableVar).mapN { (enc0, enc1) =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            Code
+              .block(
+                enc0 := encode(arg0),
+                enc1 := encode(arg1)
+              )
+              .withValue(cmpExpr(enc0, enc1))
+          }
+        }.flatten
+      }
+
+      private val cmpUtf32Fn: List[ValueLike] => Env[ValueLike] =
+        cmpEncodedFn(utf32Bytes)
+
+      private def buildPyStringCmpHelper(
+          helperName: Code.Ident
+      ): Env[List[Statement]] = {
+        val probeLeft = Code.PyString("\uE000")
+        val probeRight = Code.PyString(new String(Character.toChars(0x10000)))
+        val probe = probeLeft :< probeRight
+
+        for {
+          nativeName <- Env.newHoistedDefName
+          utf8Name <- Env.newHoistedDefName
+          arg0 <- Env.newAssignableVar
+          arg1 <- Env.newAssignableVar
+          utf8Arg0 <- Env.newAssignableVar
+          utf8Arg1 <- Env.newAssignableVar
+        } yield {
+          val args = NonEmptyList.of(arg0, arg1)
+          val nativeDef = Env.makeDef(nativeName, args, cmpExpr(arg0, arg1))
+          val utf8Def = Env.makeDef(
+            utf8Name,
+            args,
+            Code
+              .block(
+                utf8Arg0 := utf8Bytes(arg0),
+                utf8Arg1 := utf8Bytes(arg1)
+              )
+              .withValue(cmpExpr(utf8Arg0, utf8Arg1))
+          )
+          val helperAssign =
+            helperName := Code.Ternary(nativeName, probe, utf8Name).simplify
+
+          nativeDef :: utf8Def :: helperAssign :: Nil
         }
+      }
+
+      private val cmpStringFn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.ensureHelper(pyStringCmpHelperKey)(buildPyStringCmpHelper)
+          .flatMap { helperName =>
+            Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+              Code.Apply(helperName, arg0 :: arg1 :: Nil)
+            }
+          }
       }
 
       private def mathModule: Env[Code.Ident] =
@@ -1695,7 +1779,7 @@ object PythonGen {
               1
             )
           ),
-          (Identifier.Name("cmp_String"), (cmpUtf32Fn, 2))
+          (Identifier.Name("cmp_String"), (cmpStringFn, 2))
         )
 
       val arrayResults

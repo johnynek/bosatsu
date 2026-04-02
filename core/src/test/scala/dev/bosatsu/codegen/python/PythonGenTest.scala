@@ -342,6 +342,38 @@ main = foo_before_bar
     }
   }
 
+  test("cmp_String emits one semantic-probe helper per Python module") {
+    val pm = typeCheckPackage("""package Test
+from Bosatsu/Predef import cmp_String
+
+def compare_three(a, b, c):
+  (cmp_String(a, b), cmp_String(b, c), cmp_String(a, c))
+
+main = compare_three
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val compareThree =
+        normalizeGeneratedTemps(extractPythonDef(code, "compare_three"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assertEquals(
+        """encode\(u"utf-8"\)""".r.findAllMatchIn(code).length,
+        2,
+        code
+      )
+      assert(!compareThree.contains("""encode(u"utf-8")"""), compareThree)
+    }
+  }
+
   test("CheckVariantSet guards compile to direct Python membership comparisons") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
