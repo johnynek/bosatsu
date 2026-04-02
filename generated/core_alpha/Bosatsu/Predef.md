@@ -32,10 +32,11 @@ github.base_url=
 [`and`](#value-and), [`and_Int`](#value-and-int), [`build_List`](#value-build-list),
 [`char_List_to_String`](#value-char-list-to-string), [`char_to_Int`](#value-char-to-int),
 [`char_to_String`](#value-char-to-string), [`clear_Dict`](#value-clear-dict),
-[`cmp_Bool`](#value-cmp-bool), [`cmp_Comparison`](#value-cmp-comparison),
-[`cmp_Float64`](#value-cmp-float64), [`cmp_Int`](#value-cmp-int), [`cmp_String`](#value-cmp-string),
-[`concat`](#value-concat), [`concat_String`](#value-concat-string), [`div`](#value-div),
-[`divf`](#value-divf), [`empty_Dict`](#value-empty-dict), [`eq_Bool`](#value-eq-bool),
+[`cmp_Bool`](#value-cmp-bool), [`cmp_Char`](#value-cmp-char),
+[`cmp_Comparison`](#value-cmp-comparison), [`cmp_Float64`](#value-cmp-float64),
+[`cmp_Int`](#value-cmp-int), [`cmp_String`](#value-cmp-string), [`concat`](#value-concat),
+[`concat_String`](#value-concat-string), [`div`](#value-div), [`divf`](#value-divf),
+[`empty_Dict`](#value-empty-dict), [`eq_Bool`](#value-eq-bool), [`eq_Char`](#value-eq-char),
 [`eq_Comparison`](#value-eq-comparison), [`eq_Float64`](#value-eq-float64),
 [`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string), [`flat_map_List`](#value-flat-map-list),
 [`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
@@ -2379,6 +2380,18 @@ references: [`Bool`](#type-bool), [`Comparison`](#type-comparison)
 def cmp_Bool(left: Bool, right: Bool) -> Comparison
 ```
 
+<a id="value-cmp-char"></a>
+
+### `cmp_Char`
+
+Total character comparison in Unicode code-point order.
+
+references: [`Char`](#type-char), [`Comparison`](#type-comparison)
+
+```bosatsu
+def cmp_Char(c0: Char, c1: Char) -> Comparison
+```
+
 <a id="value-cmp-comparison"></a>
 
 ### `cmp_Comparison`
@@ -2417,7 +2430,7 @@ def cmp_Int(a: Int, b: Int) -> Comparison
 
 ### `cmp_String`
 
-Total string comparison.
+Total string comparison in Unicode code-point order.
 
 references: [`Comparison`](#type-comparison), [`String`](#type-string)
 
@@ -2493,6 +2506,18 @@ references: [`Bool`](#type-bool)
 
 ```bosatsu
 def eq_Bool(left: Bool, right: Bool) -> Bool
+```
+
+<a id="value-eq-char"></a>
+
+### `eq_Char`
+
+Character equality.
+
+references: [`Bool`](#type-bool), [`Char`](#type-char)
+
+```bosatsu
+def eq_Char(c0: Char, c1: Char) -> Bool
 ```
 
 <a id="value-eq-comparison"></a>
