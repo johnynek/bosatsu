@@ -119,6 +119,22 @@ test_int = TestSuite("Int tests", [
       Assertion(string_to_Int("-2147483649z") matches None, "-2147483649z string_to_Int"),
     ])
 
+def scalar_char(code_point: Int) -> Char:
+  match int_to_Char(code_point):
+    case Some(c): c
+    case None: .'?'
+
+char_u_e000 = scalar_char(57344)
+char_u_ffff = scalar_char(65535)
+char_u_10000 = scalar_char(65536)
+
+string_u_e000 = char_to_String(char_u_e000)
+string_u_ffff = char_to_String(char_u_ffff)
+string_u_10000 = char_to_String(char_u_10000)
+string_a_u_e000 = concat_String(["a", string_u_e000])
+string_a_u_ffff = concat_String(["a", string_u_ffff])
+string_a_u_10000 = concat_String(["a", string_u_10000])
+
 test_cmp_eq = TestSuite("Comparison/equality tests", [
   Assertion(cmp_Bool(False, False) matches EQ, "cmp_Bool EQ"),
   Assertion(cmp_Bool(False, True) matches LT, "cmp_Bool LT"),
@@ -128,8 +144,12 @@ test_cmp_eq = TestSuite("Comparison/equality tests", [
   Assertion(cmp_Comparison(LT, EQ) matches LT, "cmp_Comparison LT"),
   Assertion(cmp_Comparison(EQ, EQ) matches EQ, "cmp_Comparison EQ"),
   Assertion(cmp_Comparison(GT, LT) matches GT, "cmp_Comparison GT"),
+  Assertion(cmp_Char(char_u_e000, char_u_10000) matches LT, "cmp_Char U+E000 < U+10000"),
+  Assertion(cmp_Char(char_u_ffff, char_u_10000) matches LT, "cmp_Char U+FFFF < U+10000"),
   Assertion(eq_Comparison(GT, GT), "eq_Comparison true"),
   Assertion(notb(eq_Comparison(LT, GT)), "eq_Comparison false"),
+  Assertion(eq_Char(char_u_e000, char_u_e000), "eq_Char true"),
+  Assertion(notb(eq_Char(char_u_e000, char_u_10000)), "eq_Char false"),
 ])
 
 def cmp_to_int(c: Comparison) -> Int:
@@ -210,6 +230,12 @@ cmp_string_samples = [
   "a👋",
   "日本",
   "日本語",
+  string_u_e000,
+  string_u_ffff,
+  string_u_10000,
+  string_a_u_e000,
+  string_a_u_ffff,
+  string_a_u_10000,
   "~tilde",
   "{brace}",
   "|pipe",
@@ -238,6 +264,10 @@ test_string = TestSuite("String tests", [
   Assertion(tail_or_empty_String("abc") matches "bc", "tail_or_empty ascii"),
   Assertion(tail_or_empty_String("éa") matches "a", "tail_or_empty unicode"),
   Assertion(cmp_String("BARBARA", "LINDA") matches LT, "cmp_String BARBARA vs LINDA"),
+  Assertion(cmp_String(string_u_e000, string_u_10000) matches LT, "cmp_String U+E000 < U+10000"),
+  Assertion(cmp_String(string_u_ffff, string_u_10000) matches LT, "cmp_String U+FFFF < U+10000"),
+  Assertion(cmp_String(string_a_u_e000, string_a_u_10000) matches LT, "cmp_String a+U+E000 < a+U+10000"),
+  Assertion(cmp_String(string_a_u_ffff, string_a_u_10000) matches LT, "cmp_String a+U+FFFF < a+U+10000"),
   Assertion(
     cmp_string_matrix_law(cmp_string_samples, cmp_string_samples),
     "cmp_String agrees with recursive model on sample matrix"),

@@ -159,7 +159,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     ___a1 = 1
     ___t1 = True
     while ___t1:
-        if ___a4 == "":
+        if ___a4 == u"":
             ___a1 = 0
             ___a2 = ___a6
         else:
@@ -332,13 +332,45 @@ main = foo_before_bar
         normalizeGeneratedTemps(extractPythonDef(fooBeforeBarCode, "foo_before_bar"))
 
       assertEquals("while ___v".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
-      assert(hasFoo.contains("""partition("foo")"""), hasFoo)
+      assert(hasFoo.contains("""partition(u"foo")"""), hasFoo)
       assertEquals(deadPythonTemps(hasFoo), Set.empty, hasFoo)
 
       assertEquals("while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2, true, fooBeforeBar)
-      assert(fooBeforeBar.contains("""partition("foo")"""), fooBeforeBar)
-      assert(fooBeforeBar.contains("""partition("bar")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"foo")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"bar")"""), fooBeforeBar)
       assertEquals(deadPythonTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+    }
+  }
+
+  test("cmp_String emits one semantic-probe helper per Python module") {
+    val pm = typeCheckPackage("""package Test
+from Bosatsu/Predef import cmp_String
+
+def compare_three(a, b, c):
+  (cmp_String(a, b), cmp_String(b, c), cmp_String(a, c))
+
+main = compare_three
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val compareThree =
+        normalizeGeneratedTemps(extractPythonDef(code, "compare_three"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assertEquals(
+        """encode\(u"utf-8"\)""".r.findAllMatchIn(code).length,
+        2,
+        code
+      )
+      assert(!compareThree.contains("""encode(u"utf-8")"""), compareThree)
     }
   }
 

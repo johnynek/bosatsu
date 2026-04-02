@@ -161,9 +161,9 @@ object Code {
   private val whileDoc = Doc.text("while")
   private val spaceEqSpace = Doc.text(" = ")
 
-  // Render Python strings as ASCII source while preserving Unicode content.
-  // This avoids source-encoding issues and avoids bosatsu-specific escaping
-  // (e.g. '$' interpolation escapes) leaking into Python regex/string literals.
+  // Render Python strings as ASCII unicode literals while preserving Unicode
+  // content. This avoids source-encoding issues and makes \u/\U escapes
+  // decode the same way on Jython and Python 3.
   private def escapePyString(s: String): String = {
     def appendHex(
         sb: java.lang.StringBuilder,
@@ -219,7 +219,9 @@ object Code {
           Doc.text("float(\"-inf\")")
         else Doc.text(java.lang.Double.toString(d))
       case PyString(s) =>
-        Doc.char('"') + Doc.text(escapePyString(s)) + Doc.char('"')
+        Doc.char('u') + Doc.char('"') + Doc.text(escapePyString(s)) + Doc.char(
+          '"'
+        )
       case PyBool(b) =>
         if (b) trueDoc
         else falseDoc

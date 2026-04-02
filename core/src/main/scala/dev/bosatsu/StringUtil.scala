@@ -255,6 +255,28 @@ object StringUtil extends GenericStringUtil {
     bldr.result()
   }
 
+  // Bosatsu string/char ordering is by Unicode scalar value, not host UTF-16 code unit order.
+  def codePointCompare(left: String, right: String): Int = {
+    var leftIdx = 0
+    var rightIdx = 0
+    val leftLen = left.length
+    val rightLen = right.length
+
+    while ((leftIdx < leftLen) && (rightIdx < rightLen)) {
+      val leftCp = left.codePointAt(leftIdx)
+      val rightCp = right.codePointAt(rightIdx)
+      if (leftCp != rightCp) {
+        return java.lang.Integer.compare(leftCp, rightCp)
+      }
+      leftIdx += Character.charCount(leftCp)
+      rightIdx += Character.charCount(rightCp)
+    }
+
+    if (leftIdx < leftLen) 1
+    else if (rightIdx < rightLen) -1
+    else 0
+  }
+
   def fromCodePoints(it: Iterable[Int]): String = {
     val bldr = new java.lang.StringBuilder
     it.foreach(bldr.appendCodePoint(_))

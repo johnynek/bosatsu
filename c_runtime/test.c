@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include <stdlib.h>
@@ -483,6 +484,21 @@ void test_runtime_strings() {
     assert(bsts_string_cmp(linda, barbara) == 1, "cmp LINDA > BARBARA normalized");
     assert(bsts_string_cmp(a, c) == -1, "cmp A < C normalized");
     assert(bsts_string_cmp(c, a) == 1, "cmp C > A normalized");
+  }
+
+  {
+    BValue u_e000 = bsts_char_from_code_point(0xE000);
+    BValue u_ffff = bsts_char_from_code_point(0xFFFF);
+    BValue u_10000 = bsts_char_from_code_point(0x10000);
+    BValue a_u_e000 = bsts_string_from_utf8_bytes_static(4, "a\xEE\x80\x80");
+    BValue a_u_10000 = bsts_string_from_utf8_bytes_static(5, "a\xF0\x90\x80\x80");
+
+    assert(bsts_string_cmp(u_e000, u_10000) == -1, "cmp U+E000 < U+10000");
+    assert(bsts_string_cmp(u_ffff, u_10000) == -1, "cmp U+FFFF < U+10000");
+    assert(bsts_string_cmp(a_u_e000, a_u_10000) == -1, "cmp a+U+E000 < a+U+10000");
+    assert(___bsts_g_Bosatsu_l_Predef_l_cmp__Char(u_e000, u_10000) == alloc_enum0(0), "cmp_Char U+E000 < U+10000");
+    assert(___bsts_g_Bosatsu_l_Predef_l_eq__Char(u_e000, u_e000) == alloc_enum0(1), "eq_Char same");
+    assert(___bsts_g_Bosatsu_l_Predef_l_eq__Char(u_e000, u_10000) == alloc_enum0(0), "eq_Char different");
   }
 
   {

@@ -10,6 +10,7 @@ import errno as _errno
 import os
 import shutil
 import stat as _stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -801,7 +802,7 @@ def utf8_Char_at(bytes_value, idx):
     else:
         return _none
 
-    return _some(chr(codepoint))
+    return _some(struct.pack(">I", codepoint).decode("utf-32-be"))
 
 # Bosatsu/IO/Core externals
 path_sep = os.sep
