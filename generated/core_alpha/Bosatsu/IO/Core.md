@@ -13,16 +13,19 @@ public dependencies: [`Bosatsu/IO/Bytes`](Bytes.html), [`Bosatsu/IO/Error`](Erro
 
 - Types: [`Duration`](#type-duration), [`FileKind`](#type-filekind), [`FileStat`](#type-filestat),
 [`Handle`](#type-handle), [`Instant`](#type-instant), [`OpenMode`](#type-openmode),
-[`Path`](#type-path), [`Process`](#type-process), [`SpawnResult`](#type-spawnresult),
-[`Stdio`](#type-stdio), [`StdioConfig`](#type-stdioconfig), [`TempFile`](#type-tempfile)
+[`Path`](#type-path), [`PosixMode`](#type-posixmode), [`Process`](#type-process),
+[`SpawnResult`](#type-spawnresult), [`Stdio`](#type-stdio), [`StdioConfig`](#type-stdioconfig),
+[`TempFile`](#type-tempfile)
 - Values: [`close`](#value-close), [`copy_bytes`](#value-copy-bytes),
 [`create_temp_dir`](#value-create-temp-dir), [`create_temp_file`](#value-create-temp-file),
 [`duration_to_nanos`](#value-duration-to-nanos), [`flush`](#value-flush),
 [`get_env`](#value-get-env), [`list_dir`](#value-list-dir), [`mkdir`](#value-mkdir),
-[`now_mono`](#value-now-mono), [`now_wall`](#value-now-wall), [`open_file`](#value-open-file),
+[`mkdir_with_mode`](#value-mkdir-with-mode), [`now_mono`](#value-now-mono),
+[`now_wall`](#value-now-wall), [`open_file`](#value-open-file),
 [`path_file_name`](#value-path-file-name), [`path_join`](#value-path-join),
 [`path_parent`](#value-path-parent), [`path_sep`](#value-path-sep),
-[`path_to_String`](#value-path-to-string), [`read_all_bytes`](#value-read-all-bytes),
+[`path_to_String`](#value-path-to-string), [`posix_mode`](#value-posix-mode),
+[`posix_mode_to_Int`](#value-posix-mode-to-int), [`read_all_bytes`](#value-read-all-bytes),
 [`read_bytes`](#value-read-bytes), [`read_utf8`](#value-read-utf8), [`remove`](#value-remove),
 [`rename`](#value-rename), [`sleep`](#value-sleep), [`spawn`](#value-spawn), [`stat`](#value-stat),
 [`stderr`](#value-stderr), [`stdin`](#value-stdin), [`stdout`](#value-stdout),
@@ -64,7 +67,7 @@ type FileStat
 
 #### Constructors
 
-- `FileStat(kind: FileKind, size_bytes: Int, mtime: Instant)`
+- `FileStat(kind: FileKind, size_bytes: Int, mtime: Instant, posix_mode: Option[PosixMode])`
 
 <a id="type-handle"></a>
 
@@ -107,6 +110,14 @@ Opaque outside this package because constructor is not exported.
 
 ```bosatsu
 type Path
+```
+
+<a id="type-posixmode"></a>
+
+### `PosixMode`
+
+```bosatsu
+type PosixMode
 ```
 
 <a id="type-process"></a>
@@ -260,6 +271,16 @@ references: [`Bool`](../Predef.html#type-bool), [`Bosatsu/IO/Error::IOError`](Er
 def mkdir(path: Path, recursive: Bool) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
 ```
 
+<a id="value-mkdir-with-mode"></a>
+
+### `mkdir_with_mode`
+
+references: [`Bool`](../Predef.html#type-bool), [`Bosatsu/IO/Error::IOError`](Error.html#type-ioerror), [`Bosatsu/Prog::Prog`](../Prog.html#type-prog), [`Path`](#type-path), [`PosixMode`](#type-posixmode), [`Unit`](../Predef.html#type-unit)
+
+```bosatsu
+def mkdir_with_mode(path: Path, recursive: Bool, mode: PosixMode) -> Bosatsu/Prog::Prog[Bosatsu/IO/Error::IOError, ()]
+```
+
 <a id="value-now-mono"></a>
 
 ### `now_mono`
@@ -338,6 +359,26 @@ references: [`Path`](#type-path), [`String`](../Predef.html#type-string)
 
 ```bosatsu
 def path_to_String(path: Path) -> String
+```
+
+<a id="value-posix-mode"></a>
+
+### `posix_mode`
+
+references: [`Int`](../Predef.html#type-int), [`Option`](../Predef.html#type-option), [`PosixMode`](#type-posixmode)
+
+```bosatsu
+def posix_mode(bits: Int) -> Option[PosixMode]
+```
+
+<a id="value-posix-mode-to-int"></a>
+
+### `posix_mode_to_Int`
+
+references: [`Int`](../Predef.html#type-int), [`PosixMode`](#type-posixmode)
+
+```bosatsu
+def posix_mode_to_Int(mode: PosixMode) -> Int
 ```
 
 <a id="value-read-all-bytes"></a>
