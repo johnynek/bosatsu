@@ -53,6 +53,7 @@ export (
   char_to_Int,
   char_List_to_String,
   char_to_String,
+  cmp_Char,
   cmp_Bool,
   cmp_Comparison,
   cmp_Int,
@@ -64,6 +65,7 @@ export (
   clear_Dict,
   empty_Dict,
   eq_Bool,
+  eq_Char,
   eq_Comparison,
   eq_Int,
   eq_Float64,
@@ -342,11 +344,15 @@ external struct Char
 external def char_to_String(c: Char) -> String
 # Unicode code point value for a character.
 external def char_to_Int(c: Char) -> Int
+# Total character comparison in Unicode code-point order.
+external def cmp_Char(c0: Char, c1: Char) -> Comparison
+# Character equality.
+external def eq_Char(c0: Char, c1: Char) -> Bool
 # Concatenate a list of characters into a string.
 external def char_List_to_String(chars: List[Char]) -> String
 # Convert a Unicode code point to a character.
 external def int_to_Char(code_point: Int) -> Option[Char]
-# Total string comparison.
+# Total string comparison in Unicode code-point order.
 external def cmp_String(str0: String, str1: String) -> Comparison
 
 def eq_String(str0: String, str1: String) -> Bool:

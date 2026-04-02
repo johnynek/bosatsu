@@ -25,6 +25,17 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
   return bsts_integer_from_int(codepoint);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Char(BValue a, BValue b) {
+  int left = bsts_char_code_point_from_value(a);
+  int right = bsts_char_code_point_from_value(b);
+  int result = (left < right) ? -1 : ((left > right) ? 1 : 0);
+  return alloc_enum0(result + 1);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Char(BValue a, BValue b) {
+  return bsts_string_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
+}
+
 // a is a List[Char]
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   BValue amut = a;

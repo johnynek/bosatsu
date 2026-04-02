@@ -765,6 +765,23 @@ object PythonGen {
         }
       }
 
+      private def utf32Bytes(expr: Code.Expression): Code.Expression =
+        expr.dot(Code.Ident("encode"))(Code.PyString("utf-32-be"))
+
+      private val cmpUtf32Fn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+          val arg0Utf32 = utf32Bytes(arg0)
+          val arg1Utf32 = utf32Bytes(arg1)
+          Code
+            .Ternary(
+              0,
+              arg0Utf32 :< arg1Utf32,
+              Code.Ternary(1, arg0Utf32 =:= arg1Utf32, 2)
+            )
+            .simplify
+        }
+      }
+
       private def mathModule: Env[Code.Ident] =
         Env.importLiteral(NonEmptyList.one(Code.Ident("math")))
 
@@ -1255,6 +1272,18 @@ object PythonGen {
               2
             )
           ),
+          (Identifier.Name("cmp_Char"), (cmpUtf32Fn, 2)),
+          (
+            Identifier.Name("eq_Char"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(
+                  _.eval(Code.Const.Eq, _)
+                )
+              },
+              2
+            )
+          ),
           (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
           (
             Identifier.Name("shift_left_Int"),
@@ -1488,7 +1517,16 @@ object PythonGen {
             Identifier.Name("char_to_Int"),
             (
               { input =>
-                Env.onLast(input.head)(c => Code.Ident("ord")(c))
+                structModule.flatMap { struct =>
+                  Env.onLast(input.head) { c =>
+                    struct
+                      .dot(Code.Ident("unpack"))(
+                        Code.PyString(">I"),
+                        utf32Bytes(c)
+                      )
+                      .get(0)
+                  }
+                }
               },
               1
             )
@@ -1522,25 +1560,29 @@ object PythonGen {
             Identifier.Name("int_to_Char"),
             (
               { input =>
-                Env.onLast(input.head) { cp =>
-                  val nonNegative = !(cp :< Code.Const.Zero)
-                  val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
-                  val inSurrogateRange =
-                    (!(cp :< Code.fromInt(0xd800)))
-                      .evalAnd(cp :< Code.fromInt(0xe000))
-                  val valid =
-                    nonNegative
-                      .evalAnd(belowUnicodeLimit)
-                      .evalAnd(
-                        !inSurrogateRange
-                      )
-                  Code.Ternary(
-                    Code.MakeTuple(
-                      Code.Const.One :: Code.Ident("chr")(cp) :: Nil
-                    ),
-                    valid,
-                    Code.MakeTuple(Code.Const.Zero :: Nil)
-                  )
+                structModule.flatMap { struct =>
+                  Env.onLast(input.head) { cp =>
+                    val nonNegative = !(cp :< Code.Const.Zero)
+                    val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
+                    val inSurrogateRange =
+                      (!(cp :< Code.fromInt(0xd800)))
+                        .evalAnd(cp :< Code.fromInt(0xe000))
+                    val valid =
+                      nonNegative
+                        .evalAnd(belowUnicodeLimit)
+                        .evalAnd(
+                          !inSurrogateRange
+                        )
+                    val ch =
+                      struct
+                        .dot(Code.Ident("pack"))(Code.PyString(">I"), cp)
+                        .dot(Code.Ident("decode"))(Code.PyString("utf-32-be"))
+                    Code.Ternary(
+                      Code.MakeTuple(Code.Const.One :: ch :: Nil),
+                      valid,
+                      Code.MakeTuple(Code.Const.Zero :: Nil)
+                    )
+                  }
                 }
               },
               1
@@ -1653,7 +1695,7 @@ object PythonGen {
               1
             )
           ),
-          (Identifier.Name("cmp_String"), (cmpFn, 2))
+          (Identifier.Name("cmp_String"), (cmpUtf32Fn, 2))
         )
 
       val arrayResults

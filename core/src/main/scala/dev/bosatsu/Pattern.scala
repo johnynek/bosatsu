@@ -1060,7 +1060,7 @@ object Pattern {
             case (WildChar, WildChar)                    => 0
             case (WildChar, _)                           => -1
             case (LitStr(_), WildStr | WildChar)         => 1
-            case (LitStr(sa), LitStr(sb))                => sa.compareTo(sb)
+            case (LitStr(sa), LitStr(sb))                => StringUtil.codePointCompare(sa, sb)
             case (LitStr(_), NamedStr(_) | NamedChar(_)) => -1
             case (NamedChar(_), WildStr | WildChar | LitStr(_)) => 1
             case (NamedChar(na), NamedChar(nb)) => ordBin.compare(na, nb)

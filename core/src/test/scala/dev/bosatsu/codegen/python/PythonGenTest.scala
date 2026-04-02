@@ -159,7 +159,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     ___a1 = 1
     ___t1 = True
     while ___t1:
-        if ___a4 == "":
+        if ___a4 == u"":
             ___a1 = 0
             ___a2 = ___a6
         else:
@@ -332,12 +332,12 @@ main = foo_before_bar
         normalizeGeneratedTemps(extractPythonDef(fooBeforeBarCode, "foo_before_bar"))
 
       assertEquals("while ___v".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
-      assert(hasFoo.contains("""partition("foo")"""), hasFoo)
+      assert(hasFoo.contains("""partition(u"foo")"""), hasFoo)
       assertEquals(deadPythonTemps(hasFoo), Set.empty, hasFoo)
 
       assertEquals("while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2, true, fooBeforeBar)
-      assert(fooBeforeBar.contains("""partition("foo")"""), fooBeforeBar)
-      assert(fooBeforeBar.contains("""partition("bar")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"foo")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"bar")"""), fooBeforeBar)
       assertEquals(deadPythonTemps(fooBeforeBar), Set.empty, fooBeforeBar)
     }
   }

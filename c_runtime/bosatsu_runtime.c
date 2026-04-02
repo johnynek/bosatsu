@@ -720,6 +720,8 @@ int bsts_string_cmp(BValue left, BValue right) {
   size_t llen = lview.len;
   size_t rlen = rview.len;
   size_t min_len = (llen <= rlen) ? llen : rlen;
+  // All Bosatsu strings are valid UTF-8. Lexicographic comparison of valid UTF-8
+  // byte sequences matches lexicographic comparison of their Unicode scalar values.
   int cmp = memcmp(lview.bytes, rview.bytes, min_len);
   if (cmp < 0) return -1;
   if (cmp > 0) return 1;

@@ -2,6 +2,7 @@ package Bosatsu/Char
 
 from Bosatsu/Predef import (
   char_to_Int as char_to_Int_predef,
+  cmp_Char as cmp_Char_predef,
   int_to_Char as int_to_Char_predef,
 )
 
@@ -46,7 +47,7 @@ def int_to_Char(code_point: Int) -> Option[Char]:
   int_to_Char_predef(code_point)
 
 def cmp_Char(a: Char, b: Char) -> Comparison:
-  cmp_Int(char_to_Int(a), char_to_Int(b))
+  cmp_Char_predef(a, b)
 
 andb = and
 

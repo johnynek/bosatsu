@@ -252,6 +252,16 @@ object Predef {
       )
       .add(
         predefPackageName,
+        "cmp_Char",
+        FfiCall.Fn2(PredefImpl.cmp_Char(_, _))
+      )
+      .add(
+        predefPackageName,
+        "eq_Char",
+        FfiCall.Fn2(PredefImpl.eq_Char(_, _))
+      )
+      .add(
+        predefPackageName,
         "char_List_to_String",
         FfiCall.Fn1(PredefImpl.char_List_to_String(_))
       )
@@ -4094,7 +4104,7 @@ object PredefImpl {
   def cmp_String(a: Value, b: Value): Value =
     (a, b) match {
       case (Value.Str(sa), Value.Str(sb)) =>
-        Value.Comparison.fromInt(sa.compareTo(sb))
+        Value.Comparison.fromInt(StringUtil.codePointCompare(sa, sb))
       case other => sys.error(s"type error: $other")
     }
 
@@ -4109,6 +4119,28 @@ object PredefImpl {
     item match {
       case Value.Str(s) =>
         Value.VInt(BigInteger.valueOf(s.codePointAt(0).toLong))
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def cmp_Char(a: Value, b: Value): Value =
+    (a, b) match {
+      case (Value.Str(sa), Value.Str(sb)) =>
+        Value.Comparison.fromInt(
+          java.lang.Integer.compare(sa.codePointAt(0), sb.codePointAt(0))
+        )
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def eq_Char(a: Value, b: Value): Value =
+    (a, b) match {
+      case (Value.Str(sa), Value.Str(sb)) =>
+        bool(sa == sb)
       case other =>
         // $COVERAGE-OFF$
         sys.error(s"type error: $other")
