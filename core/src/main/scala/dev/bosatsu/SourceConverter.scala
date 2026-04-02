@@ -329,7 +329,15 @@ final class SourceConverter(
         currentBound: Set[Bindable],
         framesRev: List[LinearDeclFrame],
         changed: Boolean
-    ): (Declaration, Set[Bindable], List[LinearDeclFrame], Boolean) =
+    ): (Declaration, Set[Bindable], List[LinearDeclFrame], Boolean) = {
+      inline def collectTagged(inner: Declaration) =
+        collectLinearDeclFrames(
+          inner,
+          currentBound,
+          ReplaceTagFrame(current) :: framesRev,
+          changed = true
+        )
+
       current match {
         case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
           collectLinearDeclFrames(
@@ -339,19 +347,15 @@ final class SourceConverter(
             changed = true
           )
         case Comment(CommentStatement(_, Padding(_, inner))) =>
-          collectLinearDeclFrames(inner, currentBound, framesRev, changed = true)
+          collectTagged(inner)
         case CommentNB(CommentStatement(_, Padding(_, inner))) =>
-          collectLinearDeclFrames(inner, currentBound, framesRev, changed = true)
+          collectTagged(inner)
         case Parens(inner) =>
-          collectLinearDeclFrames(
-            inner,
-            currentBound,
-            ReplaceTagFrame(current) :: framesRev,
-            changed = true
-          )
+          collectTagged(inner)
         case other =>
           (other, currentBound, framesRev, changed)
       }
+    }
 
     def solveBindingFrame(
         erest: Result[Expr[Declaration]],
