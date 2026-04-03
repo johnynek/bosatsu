@@ -1,15 +1,15 @@
 package dev.bosatsu
 
-import dev.bosatsu.graph.{CanPromise, Dag, Memoize, Toposort}
+import dev.bosatsu.graph.{CanPromise, Dag, Memoize, Paths, Toposort}
 import cats.{Applicative, Foldable, Monad, Parallel, Show}
 import cats.data.{
   Ior,
   IorT,
+  NonEmptyChain,
   NonEmptyList,
   NonEmptyMap,
   Validated,
-  ValidatedNel,
-  ReaderT
+  ValidatedNel
 }
 import scala.collection.immutable.SortedMap
 
@@ -318,100 +318,162 @@ object PackageMap {
     val packagesByName = map.toMap
     val interfaceMap = ifs.iterator.map(iface => (iface.name, iface)).toMap
 
-    def getPackage(
+    def getImport(
         i: Import[PackageName, A],
         from: PackageName
-    ): ValidatedNel[PackageError, Import[
+    ): Either[NonEmptyChain[PackageError], Import[
       Either[Package.Interface, PackageName],
       A
     ]] =
       packagesByName.get(i.pack) match {
-        case Some(_)    => Validated.valid(Import(Right(i.pack), i.items))
+        case Some(_)    => Right(Import(Right(i.pack), i.items))
         case None       =>
           interfaceMap.get(i.pack) match {
             case Some(iface) =>
-              Validated.valid(Import(Left(iface), i.items))
+              Right(Import(Left(iface), i.items))
             case None =>
-              Validated.invalidNel(
+              Left(NonEmptyChain.one(
                 PackageError.UnknownImportPackage(i.pack, from)
-              )
+              ))
           }
       }
 
     type PackageFix = Package[FixPackage[A, B, C], A, B, C]
-    type ErrorOr[A] = Either[NonEmptyList[PackageError], A]
-    // We use the ReaderT to build the list of imports we are on
-    // to detect circular dependencies, if the current package imports itself transitively we
-    // want to report the full path
-    val step: PackageName => ReaderT[ErrorOr, List[
-      PackageName
-    ], PackageFix] =
-      Memoize.memoizeDagHashed[PackageName, ReaderT[
-        ErrorOr,
-        List[PackageName],
-        PackageFix
-      ]] { (pname, rec) =>
-        val p = packagesByName.get(pname).expect {
-          s"invariant violation: missing package definition for $pname"
+    type ErrorOr[A] = Either[NonEmptyChain[PackageError], A]
+
+    // Explicit loops avoid building the deep Kleisli/Eval chains that overflow
+    // native-image stacks on the Zafu package graph.
+    def traverseList[X, Y](items: List[X])(fn: X => ErrorOr[Y]): ErrorOr[
+      List[Y]
+    ] = {
+      var remaining = items
+      var revItems = List.empty[Y]
+      var errors: Nullable[NonEmptyChain[PackageError]] = Nullable.empty
+
+      while (remaining.nonEmpty) {
+        fn(remaining.head) match {
+          case Right(item) =>
+            if (errors.isNull) {
+              revItems = item :: revItems
+            }
+          case Left(errs) =>
+            errors = Nullable(errors.fold(errs)(_ ++ errs))
         }
-        val edeps = ReaderT
-          .ask[ErrorOr, List[PackageName]]
-          .flatMapF {
-            case nonE @ (h :: tail) if nonE.contains(pname) =>
-              Left(
-                NonEmptyList.of(
-                  PackageError.CircularDependency(pname, NonEmptyList(h, tail))
-                )
-              )
-            case _ =>
-              val deps = p.imports.traverse(
-                getPackage(_, pname)
-              ) // the packages p depends on
-              deps.toEither
+        remaining = remaining.tail
+      }
+
+      errors.fold(Right(revItems.reverse): ErrorOr[List[Y]])(Left(_))
+    }
+
+    val step: PackageName => ErrorOr[PackageFix] =
+      Memoize.memoizeDagHashed[PackageName, ErrorOr[PackageFix]] {
+        (pname, rec) =>
+          val p = packagesByName.get(pname).expect {
+            s"invariant violation: missing package definition for $pname"
           }
 
-        edeps
-          .flatMap {
-            (deps: List[Import[
-              Either[Package.Interface, PackageName],
-              A
-            ]]) =>
-              deps
-                .parTraverse { i =>
+          val depsOr =
+            traverseList(p.imports) { i => getImport(i, pname) }
+
+          depsOr match {
+            case Right(deps) =>
+              // recursing can throw if we don't have a dag. We need to catch each call
+              val maybeFns =
+                try Some(deps.map { i =>
                   i.pack match {
                     case Right(depName) =>
-                      rec(depName)
-                        .local[List[PackageName]](
-                          pname :: _
-                        ) // add this package into the path of all the deps
-                        .map { dep =>
-                          Import(Package.fix[A, B, C](Right(dep)), i.items)
-                        }
+                      // This recursion can throw if we don't have a dag
+                      rec(depName).map { dep =>
+                        Import(Package.fix[A, B, C](Right(dep)), i.items)
+                      }
                     case Left(iface) =>
-                      ReaderT.pure[ErrorOr, List[PackageName], Import[
-                        FixPackage[A, B, C],
-                        A
-                      ]](
+                      Right(
                         Import(Package.fix[A, B, C](Left(iface)), i.items)
                       )
                   }
+                })
+                catch {
+                  case Memoize.NotDagException(_) =>
+                    // we don't have a dag. Fall back to the slow case to find the error
+                    None
                 }
-                .map { imports =>
-                  Package(p.name, imports, p.exports, p.program, p.exposes)
-                }
+
+              maybeFns match {
+                case Some(fns) =>
+                  // if we never throw, this means we do have a sub-dag we can resolve:
+                  traverseList(fns)(identity)
+                    .map { imports =>
+                      Package(p.name, imports, p.exports, p.program, p.exposes)
+                    }
+                case None =>
+                  // there was a circular dependency error in the transitive set of imports
+                  def internalDeps(from: PackageName): List[PackageName] =
+                    packagesByName.get(from) match {
+                      case None => Nil
+                      case Some(pack) =>
+                        pack.imports.iterator
+                          .map(_.pack)
+                          .filter(packagesByName.contains)
+                          .toList
+                          .sorted
+                    }
+
+                  val reachable =
+                    Dag.transitiveSet(pname :: Nil)(internalDeps)
+                  val topo = Toposort.sort(reachable)(internalDeps)
+
+                  val circularErrors: NonEmptyChain[PackageError] =
+                    topo.loopNodes match {
+                      case Nil =>
+                        NonEmptyChain.one(
+                          PackageError.CircularDependency(
+                            pname,
+                            NonEmptyList.one(pname)
+                          )
+                        )
+                      case loopNodes =>
+                        val loopSet = loopNodes.toSet
+                        def loopDeps(from: PackageName): List[PackageName] =
+                          if (loopSet(from)) {
+                            internalDeps(from).filter(loopSet)
+                          } else Nil
+
+                        val cycleErrors =
+                          loopNodes.sorted.flatMap { from =>
+                            Paths.allCycle0(from)(loopDeps).map { path =>
+                              val reversedPath =
+                                NonEmptyList.ofInitLast(path.toList.init.reverse, from)
+                              PackageError.CircularDependency(from, reversedPath)
+                            }
+                          }
+
+                        NonEmptyChain.fromSeq(cycleErrors).getOrElse(
+                          NonEmptyChain.one(
+                            PackageError.CircularDependency(
+                              pname,
+                              NonEmptyList.one(pname)
+                            )
+                          )
+                        )
+                    }
+
+                  Left(circularErrors)
+              }
+            case err @ Left(_) => err.rightCast
           }
       }
 
-    type M = SortedMap[PackageName, PackageFix]
-    val r: ReaderT[ErrorOr, List[PackageName], M] =
-      packagesByName.keys.toList.parTraverse { pname =>
+    val all =
+      traverseList(packagesByName.keys.toList) { pname =>
         step(pname).map(pname -> _)
-      }.map(SortedMap.from(_))
+      }
 
-    // we start with no imports on
-    val m: ErrorOr[M] = r.run(Nil)
-
-    m.leftMap(normalizeCircularDependencyErrors).map(PackageMap(_)).toValidated
+    all match {
+      case Right(packList) =>
+        Validated.valid(PackageMap(SortedMap.from(packList)))
+      case Left(nec) =>
+        Validated.invalid(normalizeCircularDependencyErrors(nec.toNonEmptyList))
+    }
   }
 
   private def resolveAllSourceUnits[F[_], A: Show](
