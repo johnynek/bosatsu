@@ -349,24 +349,21 @@ object PackageMap {
     ] = {
       var remaining = items
       var revItems = List.empty[Y]
-      var errors = Option.empty[NonEmptyChain[PackageError]]
+      var errors: Nullable[NonEmptyChain[PackageError]] = Nullable.empty
 
       while (remaining.nonEmpty) {
         fn(remaining.head) match {
           case Right(item) =>
-            if (errors.isEmpty) {
+            if (errors.isNull) {
               revItems = item :: revItems
             }
           case Left(errs) =>
-            errors = Some(errors.fold(errs)(_ ++ errs))
+            errors = Nullable(errors.fold(errs)(_ ++ errs))
         }
         remaining = remaining.tail
       }
 
-      errors match {
-        case Some(errs) => Left(errs)
-        case None       => Right(revItems.reverse)
-      }
+      errors.fold(Right(revItems.reverse): ErrorOr[List[Y]])(Left(_))
     }
 
     // We still thread the current import path through the resolver so circular
