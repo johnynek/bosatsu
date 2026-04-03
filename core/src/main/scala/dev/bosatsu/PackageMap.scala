@@ -8,8 +8,7 @@ import cats.data.{
   NonEmptyList,
   NonEmptyMap,
   Validated,
-  ValidatedNel,
-  ReaderT
+  ValidatedNel
 }
 import scala.collection.immutable.SortedMap
 
@@ -340,76 +339,82 @@ object PackageMap {
 
     type PackageFix = Package[FixPackage[A, B, C], A, B, C]
     type ErrorOr[A] = Either[NonEmptyList[PackageError], A]
-    // We use the ReaderT to build the list of imports we are on
-    // to detect circular dependencies, if the current package imports itself transitively we
-    // want to report the full path
-    val step: PackageName => ReaderT[ErrorOr, List[
-      PackageName
-    ], PackageFix] =
-      Memoize.memoizeDagHashed[PackageName, ReaderT[
-        ErrorOr,
-        List[PackageName],
-        PackageFix
-      ]] { (pname, rec) =>
-        val p = packagesByName.get(pname).expect {
-          s"invariant violation: missing package definition for $pname"
-        }
-        val edeps = ReaderT
-          .ask[ErrorOr, List[PackageName]]
-          .flatMapF {
-            case nonE @ (h :: tail) if nonE.contains(pname) =>
-              Left(
-                NonEmptyList.of(
-                  PackageError.CircularDependency(pname, NonEmptyList(h, tail))
-                )
-              )
-            case _ =>
-              val deps = p.imports.traverse(
-                getPackage(_, pname)
-              ) // the packages p depends on
-              deps.toEither
-          }
+    type Resolve[A] = List[PackageName] => ErrorOr[A]
 
-        edeps
-          .flatMap {
-            (deps: List[Import[
-              Either[Package.Interface, PackageName],
-              A
-            ]]) =>
-              deps
-                .parTraverse { i =>
-                  i.pack match {
-                    case Right(depName) =>
-                      rec(depName)
-                        .local[List[PackageName]](
-                          pname :: _
-                        ) // add this package into the path of all the deps
-                        .map { dep =>
+    // Explicit loops avoid building the deep Kleisli/Eval chains that overflow
+    // native-image stacks on the Zafu package graph.
+    def accumulateList[X, Y](items: List[X])(fn: X => ErrorOr[Y]): ErrorOr[
+      List[Y]
+    ] = {
+      var remaining = items
+      var revItems = List.empty[Y]
+      var errors = Option.empty[NonEmptyList[PackageError]]
+
+      while (remaining.nonEmpty) {
+        fn(remaining.head) match {
+          case Right(item) =>
+            if (errors.isEmpty) {
+              revItems = item :: revItems
+            }
+          case Left(errs) =>
+            errors = Some(errors.fold(errs)(_.concatNel(errs)))
+        }
+        remaining = remaining.tail
+      }
+
+      errors match {
+        case Some(errs) => Left(errs)
+        case None       => Right(revItems.reverse)
+      }
+    }
+
+    // We still thread the current import path through the resolver so circular
+    // dependency errors keep reporting the cycle itself rather than just the
+    // repeated package name.
+    val step: PackageName => Resolve[PackageFix] =
+      Memoize.memoizeDagHashed[PackageName, Resolve[PackageFix]] {
+        (pname, rec) =>
+          (path: List[PackageName]) => {
+            val p = packagesByName.get(pname).expect {
+              s"invariant violation: missing package definition for $pname"
+            }
+
+            path match {
+              case nonE @ (h :: tail) if nonE.contains(pname) =>
+                Left(
+                  NonEmptyList.of(
+                    PackageError.CircularDependency(pname, NonEmptyList(h, tail))
+                  )
+                )
+              case _ =>
+                val depsOr =
+                  accumulateList(p.imports)(getPackage(_, pname).toEither)
+
+                depsOr.flatMap { deps =>
+                  accumulateList(deps) { i =>
+                    i.pack match {
+                      case Right(depName) =>
+                        rec(depName)(pname :: path).map { dep =>
                           Import(Package.fix[A, B, C](Right(dep)), i.items)
                         }
-                    case Left(iface) =>
-                      ReaderT.pure[ErrorOr, List[PackageName], Import[
-                        FixPackage[A, B, C],
-                        A
-                      ]](
-                        Import(Package.fix[A, B, C](Left(iface)), i.items)
-                      )
+                      case Left(iface) =>
+                        Right(
+                          Import(Package.fix[A, B, C](Left(iface)), i.items)
+                        )
+                    }
+                  }.map { imports =>
+                    Package(p.name, imports, p.exports, p.program, p.exposes)
                   }
                 }
-                .map { imports =>
-                  Package(p.name, imports, p.exports, p.program, p.exposes)
-                }
+            }
           }
       }
 
     type M = SortedMap[PackageName, PackageFix]
-    val r: ReaderT[ErrorOr, List[PackageName], M] =
-      packagesByName.keys.toList.parTraverse { pname =>
-        step(pname).map(pname -> _)
+    val m: ErrorOr[M] =
+      accumulateList(packagesByName.keys.toList) { pname =>
+        step(pname)(Nil).map(pname -> _)
       }.map(SortedMap.from(_))
-
-    // we start with no imports on
-    val m: ErrorOr[M] = r.run(Nil)
 
     m.leftMap(normalizeCircularDependencyErrors).map(PackageMap(_)).toValidated
   }
