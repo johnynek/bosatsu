@@ -5,6 +5,7 @@ import cats.{Applicative, Foldable, Monad, Parallel, Show}
 import cats.data.{
   Ior,
   IorT,
+  NonEmptyChain,
   NonEmptyList,
   NonEmptyMap,
   Validated,
@@ -338,7 +339,7 @@ object PackageMap {
       }
 
     type PackageFix = Package[FixPackage[A, B, C], A, B, C]
-    type ErrorOr[A] = Either[NonEmptyList[PackageError], A]
+    type ErrorOr[A] = Either[NonEmptyChain[PackageError], A]
     type Resolve[A] = List[PackageName] => ErrorOr[A]
 
     // Explicit loops avoid building the deep Kleisli/Eval chains that overflow
@@ -348,7 +349,7 @@ object PackageMap {
     ] = {
       var remaining = items
       var revItems = List.empty[Y]
-      var errors = Option.empty[NonEmptyList[PackageError]]
+      var errors = Option.empty[NonEmptyChain[PackageError]]
 
       while (remaining.nonEmpty) {
         fn(remaining.head) match {
@@ -357,7 +358,7 @@ object PackageMap {
               revItems = item :: revItems
             }
           case Left(errs) =>
-            errors = Some(errors.fold(errs)(_.concatNel(errs)))
+            errors = Some(errors.fold(errs)(_ ++ errs))
         }
         remaining = remaining.tail
       }
@@ -382,13 +383,15 @@ object PackageMap {
             path match {
               case nonE @ (h :: tail) if nonE.contains(pname) =>
                 Left(
-                  NonEmptyList.of(
+                  NonEmptyChain.one(
                     PackageError.CircularDependency(pname, NonEmptyList(h, tail))
                   )
                 )
               case _ =>
                 val depsOr =
-                  accumulateList(p.imports)(getPackage(_, pname).toEither)
+                  accumulateList(p.imports) { i =>
+                    getPackage(i, pname).toEither.leftMap(NonEmptyChain.fromNonEmptyList)
+                  }
 
                 depsOr.flatMap { deps =>
                   accumulateList(deps) { i =>
@@ -416,7 +419,10 @@ object PackageMap {
         step(pname)(Nil).map(pname -> _)
       }.map(SortedMap.from(_))
 
-    m.leftMap(normalizeCircularDependencyErrors).map(PackageMap(_)).toValidated
+    m.leftMap(_.toNonEmptyList)
+      .leftMap(normalizeCircularDependencyErrors)
+      .map(PackageMap(_))
+      .toValidated
   }
 
   private def resolveAllSourceUnits[F[_], A: Show](
