@@ -30,62 +30,72 @@ object NameCheck {
       expr: Expr[A],
       globalScope: Map[Infer.Name, Type],
       localScope: Set[Bindable]
-  ): Chain[Infer.Error.NameError] =
-    expr match {
-      case Expr.Annotation(inner, _, _) =>
-        collectMissingNames(inner, globalScope, localScope)
-      case Expr.Local(name, tag)        =>
-        if (localScope(name)) Chain.empty
-        else {
-          Chain.one(
-            Infer.Error.VarNotInScope(
+  ): Chain[Infer.Error.NameError] = {
+    case class ExprWork(expr: Expr[A], scope: Set[Bindable])
+
+    val errors = scala.collection.mutable.ListBuffer.empty[Infer.Error.NameError]
+    var stack: List[ExprWork] = ExprWork(expr, localScope) :: Nil
+
+    while (stack.nonEmpty) {
+      val current = stack.head
+      stack = stack.tail
+
+      val ExprWork(currentExpr, scope) = current
+
+      currentExpr match {
+        case Expr.Annotation(inner, _, _) =>
+          stack = ExprWork(inner, scope) :: stack
+        case Expr.Local(name, tag) =>
+          if (!scope(name)) {
+            errors += Infer.Error.VarNotInScope(
               (None, name),
-              inferErrorScope(globalScope, localScope),
+              inferErrorScope(globalScope, scope),
               HasRegion.region(tag)
             )
-          )
-        }
-      case Expr.Generic(_, inner)       =>
-        collectMissingNames(inner, globalScope, localScope)
-      case Expr.Global(pack, name, tag) =>
-        val inferredName = (Some(pack), name)
-        if (globalScope.contains(inferredName)) Chain.empty
-        else {
-          Chain.one(
-            Infer.Error.VarNotInScope(
-              inferredName,
-              inferErrorScope(globalScope, localScope),
-              HasRegion.region(tag)
-            )
-          )
-        }
-      case Expr.App(fn, args, _)        =>
-        collectMissingNames(fn, globalScope, localScope) ++
-          args.foldMap(collectMissingNames(_, globalScope, localScope))
-      case Expr.Lambda(args, inner, _)  =>
-        val withArgs = localScope ++ args.toList.iterator.map(_._1)
-        collectMissingNames(inner, globalScope, withArgs)
-      case Expr.Let(arg, bound, in, rec, _) =>
-        val boundScope =
-          if (rec.isRecursive) localScope + arg
-          else localScope
-        collectMissingNames(bound, globalScope, boundScope) ++
-          collectMissingNames(in, globalScope, localScope + arg)
-      case Expr.Literal(_, _) =>
-        Chain.empty
-      case Expr.Match(arg, branches, _) =>
-        val argErrors = collectMissingNames(arg, globalScope, localScope)
-        val branchErrors =
-          branches.toList.foldMap { branch =>
-            val withPat = localScope ++ branch.pattern.names
-            val guardErrors =
-              branch.guard.fold(Chain.empty[Infer.Error.NameError]) { guard =>
-                collectMissingNames(guard, globalScope, withPat)
-              }
-            guardErrors ++ collectMissingNames(branch.expr, globalScope, withPat)
           }
-        argErrors ++ branchErrors
+        case Expr.Generic(_, inner) =>
+          stack = ExprWork(inner, scope) :: stack
+        case Expr.Global(pack, name, tag) =>
+          val inferredName = (Some(pack), name)
+          if (!globalScope.contains(inferredName)) {
+            errors += Infer.Error.VarNotInScope(
+              inferredName,
+              inferErrorScope(globalScope, scope),
+              HasRegion.region(tag)
+            )
+          }
+        case Expr.App(fn, args, _) =>
+          args.toList.reverseIterator.foreach { arg =>
+            stack = ExprWork(arg, scope) :: stack
+          }
+          stack = ExprWork(fn, scope) :: stack
+        case Expr.Lambda(args, inner, _) =>
+          val withArgs = scope ++ args.toList.iterator.map(_._1)
+          stack = ExprWork(inner, withArgs) :: stack
+        case Expr.Let(arg, bound, in, rec, _) =>
+          val boundScope =
+            if (rec.isRecursive) scope + arg
+            else scope
+          stack = ExprWork(bound, boundScope) :: ExprWork(
+            in,
+            scope + arg
+          ) :: stack
+        case Expr.Literal(_, _) =>
+          ()
+        case Expr.Match(arg, branches, _) =>
+          branches.toList.reverseIterator.foreach { branch =>
+            val withPat = scope ++ branch.pattern.names
+            stack = ExprWork(branch.expr, withPat) :: stack
+            branch.guard.foreach { guard =>
+              stack = ExprWork(guard, withPat) :: stack
+            }
+          }
+          stack = ExprWork(arg, scope) :: stack
+      }
     }
+
+    Chain.fromSeq(errors.toList)
+  }
 
   private def samePackageDepsOf[A](
       pack: PackageName,

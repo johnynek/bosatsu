@@ -314,7 +314,122 @@ final class SourceConverter(
     def withBound(decl: Declaration, newB: Iterable[Bindable]) =
       fromDecl(decl, bound ++ newB, topBound, typeBound)
 
-    decl match {
+    sealed trait LinearDeclFrame
+    case class BindingFrame(
+        decl: Declaration,
+        pat: Pattern.Parsed,
+        value: Declaration.NonBinding,
+        boundBefore: Set[Bindable]
+    ) extends LinearDeclFrame
+    case class ReplaceTagFrame(tag: Declaration) extends LinearDeclFrame
+
+    @annotation.tailrec
+    def collectLinearDeclFrames(
+        current: Declaration,
+        currentBound: Set[Bindable],
+        framesRev: List[LinearDeclFrame],
+        changed: Boolean
+    ): (Declaration, Set[Bindable], List[LinearDeclFrame], Boolean) = {
+      inline def collectTagged(inner: Declaration) =
+        collectLinearDeclFrames(
+          inner,
+          currentBound,
+          ReplaceTagFrame(current) :: framesRev,
+          changed = true
+        )
+
+      current match {
+        case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
+          collectLinearDeclFrames(
+            rest,
+            currentBound ++ pat.names,
+            BindingFrame(current, pat, value, currentBound) :: framesRev,
+            changed = true
+          )
+        case Comment(CommentStatement(_, Padding(_, inner))) =>
+          collectTagged(inner)
+        case CommentNB(CommentStatement(_, Padding(_, inner))) =>
+          collectTagged(inner)
+        case Parens(inner) =>
+          collectTagged(inner)
+        case other =>
+          (other, currentBound, framesRev, changed)
+      }
+    }
+
+    def solveBindingFrame(
+        erest: Result[Expr[Declaration]],
+        bindingDecl: Declaration,
+        pat: Pattern.Parsed,
+        value: Declaration.NonBinding,
+        boundBefore: Set[Bindable]
+    ): Result[Expr[Declaration]] = {
+      val assignRegion = bindingDecl.region - value.region
+      val rrhs = fromDecl(value, boundBefore, topBound, typeBound)
+
+      def solvePat(
+          pat: Pattern.Parsed,
+          rhs: Result[Expr[Declaration]]
+      ): Result[Expr[Declaration]] =
+        pat match {
+          case Pattern.Var(arg) =>
+            (erest, rhs).parMapN { (e, rhsExpr) =>
+              Expr.Let(
+                arg,
+                rhsExpr,
+                e,
+                RecursionKind.NonRecursive,
+                bindingDecl
+              )
+            }
+          case Pattern.Annotation(innerPat, tpe) =>
+            toType(tpe, assignRegion).flatMap { realTpe =>
+              // Move the annotation to the right so we can rebuild long
+              // binding chains iteratively without changing semantics.
+              val annotatedRhs = rhs.map { expr =>
+                Expr.Annotation(expr, realTpe, expr.tag)
+              }
+              solvePat(innerPat, annotatedRhs)
+            }
+          case Pattern.Named(nm, innerPat) =>
+            // This is equivalent to creating a let nm = value before solving the
+            // underlying pattern.
+            (solvePat(innerPat, rhs), rhs).parMapN { (innerExpr, rhsExpr) =>
+              Expr.Let(
+                nm,
+                rhsExpr,
+                innerExpr,
+                RecursionKind.NonRecursive,
+                bindingDecl
+              )
+            }
+          case matchPat =>
+            // TODO: we need the region on the pattern...
+            // (https://github.com/johnynek/bosatsu/issues/132)
+            (convertPattern(matchPat, assignRegion), erest, rhs).parMapN {
+              (newPattern, e, rhsExpr) =>
+                val expBranches = NonEmptyList.of(
+                  Expr.Branch(newPattern, None, e)(using assignRegion)
+                )
+                Expr.Match(rhsExpr, expBranches, bindingDecl)
+            }
+        }
+
+      solvePat(pat, rrhs)
+    }
+
+    val (coreDecl, finalBound, framesRev, changed) =
+      collectLinearDeclFrames(decl, bound, Nil, changed = false)
+
+    if (changed) {
+      val base = fromDecl(coreDecl, finalBound, topBound, typeBound)
+      framesRev.foldLeft(base) {
+        case (acc, BindingFrame(bindingDecl, pat, value, boundBefore)) =>
+          solveBindingFrame(acc, bindingDecl, pat, value, boundBefore)
+        case (acc, ReplaceTagFrame(tag)) =>
+          acc.map(_.replaceTag(tag))
+      }
+    } else decl match {
       case Annotation(term, tpe) =>
         (loop(term), toType(tpe, decl.region))
           .parMapN(Expr.Annotation(_, _, decl))
