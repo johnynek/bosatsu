@@ -29,7 +29,15 @@ object Command {
         )
         .orNone
         .map {
-          case Some(value) => moduleIOMonad.pure(value)
+          case Some(value) =>
+            platformIO.gitTopLevel.flatMap {
+              case Some(repoTop)
+                  if platformIO.pathToString(value) == "." ||
+                    platformIO.pathToString(value) == "./" =>
+                moduleIOMonad.pure(repoTop)
+              case _ =>
+                moduleIOMonad.pure(value)
+            }
           case None        =>
             platformIO.gitTopLevel
               .flatMap {
