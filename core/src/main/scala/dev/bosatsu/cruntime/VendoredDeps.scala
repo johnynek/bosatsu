@@ -5,6 +5,7 @@ import dev.bosatsu.{Json, PlatformIO}
 import dev.bosatsu.Json.{JBool, JObject}
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
+import scala.util.matching.Regex
 
 object VendoredDeps {
   final case class ResolvedDependency[P](
@@ -67,12 +68,25 @@ object VendoredDeps {
     maybeLoadManifest(runtimeRoot)(platformIO).flatMap {
       case None => moduleIOMonad.pure(None)
       case Some(manifest) =>
-        for {
-          context <- buildContext(manifest.recipeVersion, profile)(platformIO)
-          resolved <- manifest.dependencies.traverse { dependency =>
-            ensureDependency(repoRoot, dependency, context)(platformIO)
-          }
-        } yield Some(BuildInputs(manifest, resolved))
+        CDeps.orderedDependencies(manifest) match {
+          case Left(err) =>
+            moduleIOMonad.raiseError(
+              CliException.Basic(s"invalid vendored dependency manifest: $err")
+            )
+          case Right(ordered) =>
+            for {
+              context <- buildContext(manifest.recipeVersion, profile)(platformIO)
+              resolved <- ordered.foldLeftM(
+                (List.empty[ResolvedDependency[P]], Map.empty[String, ResolvedDependency[P]])
+              ) { case ((acc, byName), dependency) =>
+                ensureDependency(repoRoot, dependency, context, byName)(
+                  platformIO
+                ).map { resolved =>
+                  (acc :+ resolved, byName.updated(dependency.name, resolved))
+                }
+              }
+            } yield Some(BuildInputs(manifest, resolved._1))
+        }
     }
   }
 
@@ -97,11 +111,17 @@ object VendoredDeps {
   private def ensureDependency[F[_], P](
       repoRoot: P,
       dependency: CDeps.Dependency,
-      context: CDeps.BuildContext
+      context: CDeps.BuildContext,
+      resolvedDependencies: Map[String, ResolvedDependency[P]]
   )(platformIO: PlatformIO[F, P]): F[ResolvedDependency[P]] = {
     import platformIO.moduleIOMonad
 
-    val buildKey = CDeps.buildKey(dependency, context)
+    val buildKey =
+      CDeps.buildKey(
+        dependency,
+        context,
+        transitiveBuildKeys(dependency, resolvedDependencies)
+      )
     val buildDir = buildCacheDir(repoRoot, buildKey)(platformIO)
 
     cachedMetadata(buildDir)(platformIO).flatMap {
@@ -525,7 +545,7 @@ object VendoredDeps {
     }
   }
 
-  private def parsePkgConfigSystemFlags(content: String): List[String] = {
+  private[cruntime] def parsePkgConfigSystemFlags(content: String): List[String] = {
     val variablePattern = "\\$\\{([^}]+)\\}".r
 
     val (variables, fields) =
@@ -557,7 +577,7 @@ object VendoredDeps {
               m => {
                 val key = Option(m.group(1)).getOrElse("")
                 val matched = Option(m.matched).getOrElse("")
-                variables.getOrElse(key, matched)
+                Regex.quoteReplacement(variables.getOrElse(key, matched))
               }
             )
           if (next == current) current else loop(next, remaining - 1)
@@ -576,6 +596,25 @@ object VendoredDeps {
     rawFlags
       .filterNot(flag => flag == "-lgc" || flag.startsWith("-L"))
       .distinct
+  }
+
+  private def transitiveBuildKeys[P](
+      dependency: CDeps.Dependency,
+      resolvedDependencies: Map[String, ResolvedDependency[P]]
+  ): List[String] = {
+    def loop(
+        name: String,
+        seen: Set[String]
+    ): List[String] =
+      if (seen.contains(name)) Nil
+      else
+        resolvedDependencies.get(name).toList.flatMap { resolved =>
+          resolved.buildKey :: resolved.dependency.dependencies.flatMap { depName =>
+            loop(depName, seen + name)
+          }
+        }
+
+    dependency.dependencies.flatMap(depName => loop(depName, Set.empty)).distinct
   }
 
   private def writeMetadata[F[_], P](

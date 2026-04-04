@@ -432,6 +432,45 @@ object CDeps {
   def normalizeToolchainFamily(raw: String): String =
     raw.toLowerCase(java.util.Locale.ROOT).trim
 
+  def orderedDependencies(
+      manifest: Manifest
+  ): Either[String, List[Dependency]] = {
+    val grouped = manifest.dependencies.groupBy(_.name)
+    grouped.collectFirst { case (name, deps) if deps.lengthCompare(1) > 0 => name } match {
+      case Some(name) =>
+        Left(s"duplicate dependency name in manifest: $name")
+      case None =>
+        val byName = manifest.dependencies.iterator.map(d => d.name -> d).toMap
+        val ordered = scala.collection.mutable.ListBuffer.empty[Dependency]
+
+        def visit(dep: Dependency, active: List[String]): Either[String, Set[String]] =
+          if (ordered.exists(_.name == dep.name)) Right(Set.empty)
+          else if (active.contains(dep.name)) {
+            val cycle = (dep.name :: active).reverse.mkString(" -> ")
+            Left(s"dependency cycle detected: $cycle")
+          } else {
+            dep.dependencies.foldLeft[Either[String, Unit]](Right(())) {
+              case (acc, depName) =>
+                acc.flatMap { _ =>
+                  byName.get(depName) match {
+                    case Some(next) =>
+                      visit(next, dep.name :: active).map(_ => ())
+                    case None =>
+                      Left(
+                        s"${dep.name} depends on missing vendored dependency: $depName"
+                      )
+                  }
+                }
+            }.map { _ =>
+              if (!ordered.exists(_.name == dep.name)) ordered += dep
+              Set(dep.name)
+            }
+          }
+
+        manifest.dependencies.traverse_(visit(_, Nil)).map(_ => ordered.toList)
+    }
+  }
+
   def detectToolchainFamily(
       compilerPath: String,
       compilerVersion: String

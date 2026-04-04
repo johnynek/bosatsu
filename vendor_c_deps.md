@@ -621,6 +621,15 @@ Recommended sequence:
 
 ### Phase 3: multi-dependency and `libuv`-ready recipe plumbing
 
+Status: completed on 2026-04-04.
+
+Delivered in this phase:
+
+1. manifest dependency ordering now goes through explicit dependency-graph validation with missing-dependency and cycle errors;
+2. transitive dependency build keys now participate in cache identity, so future dependency edges can invalidate builds correctly;
+3. the recipe/metadata layer remains recipe-driven and now has direct tests around graph ordering, transitive build-key changes, and `.pc` system-flag parsing;
+4. the working vendored install path was rechecked after this refactor and still reused the cached `bdwgc` build.
+
 Deliverables:
 
 1. extend dependency resolution from “declared order only” to explicit dependency graph ordering with cycle detection;
