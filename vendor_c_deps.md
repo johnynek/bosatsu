@@ -589,6 +589,18 @@ Delivered in this phase:
 
 ### Phase 2: vendored `libgc` install integration on macOS/Linux
 
+Status: completed on 2026-04-04.
+
+Delivered in this phase:
+
+1. `bosatsu c-runtime install` now reads `c_runtime/deps.json`, computes a shared build key, and materializes vendored dependency state under `.bosatsuc/c_deps/...`;
+2. `bdwgc-cmake-static` is implemented and installs into a Bosatsu-managed prefix instead of relying on host package discovery;
+3. the runtime `Makefile` now has a supported vendored-dependency path that bypasses host `pkg-config`/Homebrew lookup;
+4. `install.py` now records the exact vendored include and library paths it is given, rather than rediscovering `bdw-gc` itself;
+5. local verification shows:
+   - the first install builds and caches `bdwgc`;
+   - a second install with a different runtime id reuses the cached `libgc.a` build.
+
 Concrete file areas likely touched:
 
 1. `core/src/main/scala/dev/bosatsu/cruntime/Command.scala`
@@ -605,16 +617,16 @@ Recommended sequence:
 3. implement the `bdwgc-cmake-static` recipe and metadata output;
 4. plumb vendored metadata into the runtime build and `cc_conf.json`;
 5. delete or bypass host `bdw-gc` discovery in the supported installer path;
-6. add install-path tests.
+6. add install-path verification.
 
 ### Phase 3: multi-dependency and `libuv`-ready recipe plumbing
 
 Deliverables:
 
-1. extend dependency resolution to multiple dependencies and dependency order;
-2. generalize the recipe layer so `libuv-cmake-static` is a straightforward next entry;
-3. preserve runtime-backend-specific requirements so a future libuv-enabled runtime can emit `GC_THREADS` and other backend-specific compile flags cleanly;
-4. allow dependency metadata to carry remaining system link flags.
+1. extend dependency resolution from “declared order only” to explicit dependency graph ordering with cycle detection;
+2. include transitive dependency build keys in cache identity so future `libatomic_ops` or `libuv` edges invalidate correctly;
+3. keep the recipe/metadata layer generic enough that `libuv-cmake-static` is just another recipe entry, not a new architecture;
+4. add tests for dependency ordering, cache-key invalidation through transitive deps, and metadata/system-flag parsing.
 
 This phase does not require the libuv backend itself to land at the same time, but it should make adding it straightforward.
 

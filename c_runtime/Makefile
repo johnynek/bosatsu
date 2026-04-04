@@ -9,6 +9,7 @@ PROFILE ?= release
 CPPFLAGS ?=
 LDFLAGS ?=
 LIBS ?=
+VENDORED_DEPS ?= 0
 
 ifeq ($(PROFILE),debug)
 	CFLAGS ?= -O0 -g3
@@ -20,6 +21,10 @@ else
 $(error PROFILE must be one of: release, debug)
 endif
 
+ifeq ($(VENDORED_DEPS),1)
+GC_CFLAGS :=
+GC_LIBS :=
+else
 # Prefer pkg-config for portability.
 GC_CFLAGS := $(shell $(PKG_CONFIG) --cflags bdw-gc 2>/dev/null)
 GC_LIBS := $(shell $(PKG_CONFIG) --libs bdw-gc 2>/dev/null)
@@ -42,7 +47,7 @@ endif
 else ifeq ($(OS),Linux)
 GC_LIBS += -lgc
 endif
-
+endif
 endif
 
 ALL_CPPFLAGS := $(CPPFLAGS) $(RUNTIME_DEBUG_CPPFLAGS) $(GC_CFLAGS)

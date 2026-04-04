@@ -115,6 +115,11 @@ trait PlatformIO[F[_], Path] {
   def writeError(doc: Doc): F[Unit]
 
   def system(command: String, args: List[String]): F[Unit]
+  def systemStdout(command: String, args: List[String]): F[String]
+
+  def env(name: String): F[Option[String]]
+  def hostOs: F[String]
+  def hostArch: F[String]
 
   def gitShaHead: F[String]
 

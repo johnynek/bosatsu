@@ -263,16 +263,54 @@ object Command {
                 ".bosatsuc" :: "c_runtime" :: "src" :: gitSha :: Nil
               )
               runtimeRoot <- ensureRuntimeRoot(baseDir, archivePath)
+              vendoredInputsOpt <- VendoredDeps.ensure(
+                root,
+                runtimeRoot,
+                profile
+              )(platformIO)
+              envCppFlags <- platformIO.env("CPPFLAGS")
+              envLdFlags <- platformIO.env("LDFLAGS")
+              envLibs <- platformIO.env("LIBS")
+              makeArgs = {
+                val base =
+                  List(
+                    "-C",
+                    platformIO.pathToString(runtimeRoot),
+                    "install",
+                    s"ROOTDIR=${platformIO.pathToString(root)}",
+                    s"VERSION=$gitSha",
+                    s"PROFILE=$profile"
+                  )
+
+                vendoredInputsOpt match {
+                  case None => base
+                  case Some(vendoredInputs) =>
+                    val cppFlags =
+                      (
+                        (vendoredInputs.runtimeCppFlags ::: vendoredInputs.includeFlags)
+                          .mkString(" ") ::
+                          envCppFlags.filter(_.trim.nonEmpty).toList
+                      ).filter(_.nonEmpty).mkString(" ")
+                    val ldFlags =
+                      envLdFlags.filter(_.trim.nonEmpty).getOrElse("")
+                    val libs =
+                      (
+                        vendoredInputs.linkFlags.mkString(" ") ::
+                          envLibs.filter(_.trim.nonEmpty).toList
+                      ).filter(_.nonEmpty).mkString(" ")
+
+                    base :::
+                      List("VENDORED_DEPS=1") :::
+                      (if (cppFlags.nonEmpty) List(s"CPPFLAGS=$cppFlags")
+                       else Nil) :::
+                      (if (ldFlags.nonEmpty) List(s"LDFLAGS=$ldFlags")
+                       else Nil) :::
+                      (if (libs.nonEmpty) List(s"LIBS=$libs") else Nil)
+                }
+              }
               _ <- platformIO.system(
                 "make",
-                List(
-                  "-C",
-                  platformIO.pathToString(runtimeRoot),
-                  "install",
-                  s"ROOTDIR=${platformIO.pathToString(root)}",
-                  s"VERSION=$gitSha",
-                  s"PROFILE=$profile"
-                )
+                makeArgs
               )
               installDir =
                 platformIO.resolve(root, ".bosatsuc" :: gitSha :: Nil)
