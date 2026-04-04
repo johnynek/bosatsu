@@ -94,14 +94,14 @@ object CommandSupport {
 
     val conf = LibConfig(
       name = Name("_tool"),
-      repoUri = "",
-      nextVersion = Version.zero,
+      repo_uri = "",
+      next_version = Version.zero,
       previous = None,
-      exportedPackages = Nil,
-      allPackages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
-      publicDeps = pub.map(_.toDep),
-      privateDeps = priv.map(_.toDep),
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      public_deps = pub.map(_.toDep),
+      private_deps = priv.map(_.toDep),
+      default_main = None
     )
     val validated = conf.validateDeps(pub ::: priv)
     moduleIOMonad.fromTry(LibConfig.Error.toTry(validated)).void
