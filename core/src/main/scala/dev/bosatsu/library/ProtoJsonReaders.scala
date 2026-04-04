@@ -9,9 +9,6 @@ import cats.syntax.all._
 
 object ProtoJsonReaders {
 
-  implicit val versionReader: Reader[Version] =
-    Reader.fromParser("version", Version.parser)
-
   implicit val descriptorReader: Reader[proto.LibDescriptor] =
     new Reader.Obj[proto.LibDescriptor] {
       def describe: String = "LibDescriptor"
@@ -109,5 +106,28 @@ object ProtoJsonReaders {
           dep.name -> Json.Writer.write(d)
         }
       })
+    }
+
+  implicit val listOfDepsFieldReader: Reader.ProductFieldReader[
+    List[proto.LibDependency]
+  ] =
+    new Reader.ProductFieldReader[List[proto.LibDependency]] {
+      def read(
+          from: Reader.FromObj,
+          key: String
+      ): Either[(String, Json, Json.Path), List[proto.LibDependency]] =
+        from.optional[List[proto.LibDependency]](key).map(_.getOrElse(Nil))
+    }
+
+  implicit val listOfDepsFieldWriter: Writer.ProductFieldWriter[
+    List[proto.LibDependency]
+  ] =
+    new Writer.ProductFieldWriter[List[proto.LibDependency]] {
+      def fields(
+          name: String,
+          value: List[proto.LibDependency]
+      ): List[(String, Json)] =
+        if (value.isEmpty) Nil
+        else (name -> Writer.write(value)) :: Nil
     }
 }
