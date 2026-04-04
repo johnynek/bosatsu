@@ -2,6 +2,8 @@
 set -euo pipefail
 
 CFLAGS_VAL='-O1 -g -fno-omit-frame-pointer'
+export SHA=$(./bosatsuj version -g)
+RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
 VALGRIND_CC_FLAGS=(
   --cc_flag=-O1
   --cc_flag=-g
@@ -26,19 +28,23 @@ run_memcheck() {
   echo '::endgroup::'
 }
 
+rm -f "$RUNTIME_ARCHIVE"
+tar -czf "$RUNTIME_ARCHIVE" c_runtime
+CFLAGS="$CFLAGS_VAL" \
+CPPFLAGS='-DBSTS_CI=1' \
+./bosatsuj c-runtime install --repo_root . --archive "$RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
+eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
+
 cd c_runtime
 rm -f test_exe
-make PROFILE=debug CFLAGS="$CFLAGS_VAL" && git diff --quiet || { git diff; false; }
-make boehm_example PROFILE=release CFLAGS="$CFLAGS_VAL"
-make install PROFILE=release CFLAGS="$CFLAGS_VAL" CPPFLAGS='-DBSTS_CI=1'
-make bench_exe PROFILE=release CFLAGS="$CFLAGS_VAL"
+CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL" && git diff --quiet || { git diff; false; }
+CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL"
+CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$CFLAGS_VAL"
 run_memcheck 'c_runtime test_exe' ./test_exe
 run_memcheck 'c_runtime boehm_example' ./boehm_example
 run_memcheck 'c_runtime bench_exe' ./bench_exe 50000 | tee bench_ci_valgrind.txt
 cd ..
 
-export SHA
-SHA=$(./bosatsuj version -g)
 python3 - <<'PY'
 import json
 import os

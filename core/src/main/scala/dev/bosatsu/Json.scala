@@ -539,6 +539,43 @@ object Json {
           }
       }
 
+    implicit val jsonReader: Reader[Json] =
+      new Reader[Json] {
+        val describe = "Json"
+        def read(path: Path, j: Json): Either[(String, Json, Path), Json] =
+          Right(j)
+      }
+
+    implicit val intReader: Reader[Int] =
+      new Reader[Int] {
+        val describe = "Int"
+        private val intMin = java.math.BigInteger.valueOf(Int.MinValue.toLong)
+        private val intMax = java.math.BigInteger.valueOf(Int.MaxValue.toLong)
+        def read(path: Path, j: Json): Either[(String, Json, Path), Int] =
+          j match {
+            case JBigInteger(bi)
+                if bi.compareTo(intMin) >= 0 && bi.compareTo(intMax) <= 0 =>
+              Right(bi.intValue)
+            case JBigInteger(bi) =>
+              Left((s"$bi cannot fit in Int", j, path))
+            case _ =>
+              Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit val boolReader: Reader[Boolean] =
+      new Reader[Boolean] {
+        val describe = "Boolean"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Boolean] =
+          j match {
+            case JBool(value) => Right(value)
+            case _            => Left((s"expected to find $describe", j, path))
+          }
+      }
+
     implicit def listReader[A: Reader]: Reader[List[A]] =
       new Reader[List[A]] {
         val describe = s"List[${Reader[A].describe}]"
@@ -550,6 +587,24 @@ object Json {
                   Reader[A].read(path.index(idx), a)
                 }
                 .map(_.toList)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit def stringMapReader[A: Reader]: Reader[Map[String, A]] =
+      new Reader[Map[String, A]] {
+        val describe = s"Map[String, ${Reader[A].describe}]"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Map[String, A]] =
+          j match {
+            case jobj: JObject =>
+              jobj.keys
+                .traverse { key =>
+                  Reader[A].read(path.key(key), jobj.toMap(key)).map(key -> _)
+                }
+                .map(_.toMap)
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
@@ -591,7 +646,21 @@ object Json {
     implicit val stringWriter: Writer[String] =
       from(JString(_))
 
+    implicit val jsonWriter: Writer[Json] =
+      from(identity)
+
+    implicit val intWriter: Writer[Int] =
+      from(i => JNumberStr(i.toString))
+
+    implicit val boolWriter: Writer[Boolean] =
+      from(JBool(_))
+
     implicit def listWriter[A: Writer]: Writer[List[A]] =
       from(list => JArray(list.map(write(_)).toVector))
+
+    implicit def stringMapWriter[A: Writer]: Writer[Map[String, A]] =
+      from { map =>
+        JObject(map.toList.sortBy(_._1).map { case (k, v) => k -> write(v) })
+      }
   }
 }
