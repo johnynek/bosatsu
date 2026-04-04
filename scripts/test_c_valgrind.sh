@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CFLAGS_VAL='-O1 -g -fno-omit-frame-pointer'
-SHA=$(./bosatsuj version -g)
+export SHA=$(./bosatsuj version -g)
 RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
 VALGRIND_CC_FLAGS=(
   --cc_flag=-O1

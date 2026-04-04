@@ -6,7 +6,7 @@ export UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'
 
 SANITIZER_CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
 SANITIZER_LDFLAGS='-fsanitize=address,undefined'
-SHA=$(./bosatsuj version -g)
+export SHA=$(./bosatsuj version -g)
 RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
 
 CC_FLAGS=(
