@@ -63,6 +63,8 @@ export (
   checkout_v2_fetch_depth_0_step,
   checkout_v4_fetch_depth_0_step,
   install_b3sum_step,
+  install_vendored_c_runtime_cmd,
+  install_vendored_c_runtime_node_cmd,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
   node_lib_eval_run_create_mode_cmd,
@@ -307,7 +309,7 @@ run_publish_bosatsu_libs =
 install_vendored_c_runtime_cmd =
   cat_lines([
     "export SHA=$(./bosatsuj version -g)",
-    "export C_RUNTIME_ARCHIVE=\"${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz\"",
+    "export C_RUNTIME_ARCHIVE=\"\${RUNNER_TEMP}/bosatsu-c-runtime-\${SHA}.tar.gz\"",
     "rm -f \"$C_RUNTIME_ARCHIVE\"",
     "tar -czf \"$C_RUNTIME_ARCHIVE\" c_runtime",
     "CFLAGS=\"-O1 -g\" CPPFLAGS=\"-DBSTS_CI=1\" ./bosatsuj c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",
@@ -317,7 +319,7 @@ install_vendored_c_runtime_cmd =
 install_vendored_c_runtime_node_cmd =
   cat_lines([
     "export SHA=$(git rev-parse HEAD)",
-    "export C_RUNTIME_ARCHIVE=\"${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz\"",
+    "export C_RUNTIME_ARCHIVE=\"\${RUNNER_TEMP}/bosatsu-c-runtime-\${SHA}.tar.gz\"",
     "rm -f \"$C_RUNTIME_ARCHIVE\"",
     "tar -czf \"$C_RUNTIME_ARCHIVE\" c_runtime",
     "./bosatsu_node c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",

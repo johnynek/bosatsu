@@ -2,7 +2,7 @@ package dev.bosatsu.cruntime
 
 import cats.syntax.all._
 import dev.bosatsu.Json
-import dev.bosatsu.Json.{JBigInteger, JBool, JObject, JString, Reader, Writer}
+import dev.bosatsu.Json.{JObject, JString, Reader, Writer}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import java.nio.charset.StandardCharsets
 
@@ -80,63 +80,6 @@ object CDeps {
       transitiveBuildKeys: List[String],
       context: BuildContext
   )
-
-  implicit val jsonReader: Reader[Json] =
-    new Reader[Json] {
-      val describe = "Json"
-      def read(
-          path: Json.Path,
-          j: Json
-      ): Either[(String, Json, Json.Path), Json] =
-        Right(j)
-    }
-
-  implicit val jsonWriter: Writer[Json] =
-    Writer.from(identity)
-
-  implicit val intReader: Reader[Int] =
-    new Reader[Int] {
-      val describe = "Int"
-      private val intMin = java.math.BigInteger.valueOf(Int.MinValue.toLong)
-      private val intMax = java.math.BigInteger.valueOf(Int.MaxValue.toLong)
-      def read(
-          path: Json.Path,
-          j: Json
-      ): Either[(String, Json, Json.Path), Int] =
-        j match {
-          case JBigInteger(bi)
-              if bi.compareTo(intMin) >= 0 && bi.compareTo(intMax) <= 0 =>
-            Right(bi.intValue)
-          case JBigInteger(bi) =>
-            Left((s"$bi cannot fit in Int", j, path))
-          case _ =>
-            Left((s"expected to find $describe", j, path))
-        }
-    }
-
-  implicit val intWriter: Writer[Int] =
-    Writer.from(i => Json.JNumberStr(i.toString))
-
-  implicit val boolReader: Reader[Boolean] =
-    new Reader[Boolean] {
-      val describe = "Boolean"
-      def read(
-          path: Json.Path,
-          j: Json
-      ): Either[(String, Json, Json.Path), Boolean] =
-        j match {
-          case JBool(value) => Right(value)
-          case _            => Left((s"expected to find $describe", j, path))
-        }
-    }
-
-  implicit val boolWriter: Writer[Boolean] =
-    Writer.from(JBool(_))
-
-  implicit val stringMapWriter: Writer[Map[String, String]] =
-    Writer.from { m =>
-      JObject(m.toList.sortBy(_._1).map { case (k, v) => k -> JString(v) })
-    }
 
   implicit val hashReader: Reader[Algo.WithAlgo[HashValue]] =
     Reader

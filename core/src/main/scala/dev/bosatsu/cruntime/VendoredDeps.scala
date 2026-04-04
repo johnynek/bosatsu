@@ -199,30 +199,22 @@ object VendoredDeps {
   )(platformIO: PlatformIO[F, P]): F[CDeps.Metadata] = {
     import platformIO.moduleIOMonad
 
+    val staticLibFile = staticLibFileName(dependency)
     val includeDir = platformIO.resolve(installedPrefix, "include")
     val libDir = platformIO.resolve(installedPrefix, "lib")
-    val gcLib = platformIO.resolve(libDir, "libgc.a")
+    val staticLib = platformIO.resolve(libDir, staticLibFile)
     val recordedIncludeDir = platformIO.resolve(recordedPrefix, "include")
     val recordedLibDir = platformIO.resolve(recordedPrefix, "lib")
-    val recordedGcLib = platformIO.resolve(recordedLibDir, "libgc.a")
+    val recordedStaticLib = platformIO.resolve(recordedLibDir, staticLibFile)
 
     for {
       _ <- requireDir(includeDir, s"vendored include dir for ${dependency.name}")(
         platformIO
       )
-      _ <- requireFile(gcLib, s"vendored static lib for ${dependency.name}")(
+      _ <- requireFile(staticLib, s"vendored static lib for ${dependency.name}")(
         platformIO
       )
-      systemLinkFlags <- dependency.recipe match {
-        case CDeps.BdwgcCmakeStatic =>
-          bdwgcSystemLinkFlags(installedPrefix)(platformIO)
-        case _ =>
-          moduleIOMonad.raiseError(
-            CliException.Basic(
-              s"unsupported vendored dependency recipe: ${dependency.recipe}"
-            )
-          )
-      }
+      systemLinkFlags <- systemLinkFlagsFor(dependency, installedPrefix)(platformIO)
       normalizedOs = CDeps.normalizeOs(context.os)
       normalizedArch = CDeps.normalizeArch(context.arch)
       normalizedFamily = CDeps.normalizeToolchainFamily(context.toolchainFamily)
@@ -242,9 +234,9 @@ object VendoredDeps {
         ),
         prefix = platformIO.pathToString(recordedPrefix),
         includeDirs = platformIO.pathToString(recordedIncludeDir) :: Nil,
-        staticLibs = platformIO.pathToString(recordedGcLib) :: Nil,
+        staticLibs = platformIO.pathToString(recordedStaticLib) :: Nil,
         systemLinkFlags = systemLinkFlags,
-        runtimeRequirements = CDeps.RuntimeRequirements(Nil, Nil)
+        runtimeRequirements = runtimeRequirementsFor(dependency)
       )
     } yield metadata
   }
@@ -317,6 +309,40 @@ object VendoredDeps {
       case obj: JObject =>
         obj.toMap.get(key).collect { case JBool(value) => value }
       case _ => None
+    }
+
+  private[cruntime] def staticLibFileName(
+      dependency: CDeps.Dependency
+  ): String =
+    dependency.recipe match {
+      case CDeps.BdwgcCmakeStatic => "libgc.a"
+      case CDeps.LibuvCmakeStatic => "libuv.a"
+      case _                      => s"lib${dependency.name}.a"
+    }
+
+  private[cruntime] def runtimeRequirementsFor(
+      dependency: CDeps.Dependency
+  ): CDeps.RuntimeRequirements =
+    dependency.recipe match {
+      case CDeps.BdwgcCmakeStatic
+          if optionBool(dependency.options, "threadsafe").getOrElse(true) =>
+        CDeps.RuntimeRequirements(
+          "-DGC_THREADS" :: Nil,
+          "-DGC_THREADS" :: Nil
+        )
+      case _ =>
+        CDeps.RuntimeRequirements(Nil, Nil)
+    }
+
+  private def systemLinkFlagsFor[F[_], P](
+      dependency: CDeps.Dependency,
+      installedPrefix: P
+  )(platformIO: PlatformIO[F, P]): F[List[String]] =
+    dependency.recipe match {
+      case CDeps.BdwgcCmakeStatic =>
+        bdwgcSystemLinkFlags(installedPrefix)(platformIO)
+      case _ =>
+        platformIO.moduleIOMonad.pure(Nil)
     }
 
   private def buildContext[F[_], P](
@@ -419,9 +445,8 @@ object VendoredDeps {
       }
 
     for {
-      _ <- ensureDir(parentOrError(archivePath, "archive parent")(platformIO))(
-        platformIO
-      )
+      archiveParent <- parentOrError(archivePath, "archive parent")(platformIO)
+      _ <- ensureDir(archiveParent)(platformIO)
       validExisting <- verifiedHash(archivePath, dependency)(platformIO)
       archive <- if (validExisting) moduleIOMonad.pure(archivePath)
       else loop(dependency.uris, Nil)
@@ -459,7 +484,7 @@ object VendoredDeps {
         moduleIOMonad.pure(sourceRoot)
       case _ =>
         for {
-          parent <- moduleIOMonad.pure(parentOrError(sourceBase, "source parent")(platformIO))
+          parent <- parentOrError(sourceBase, "source parent")(platformIO)
           _ <- ensureDir(parent)(platformIO)
           _ <- removeTree(sourceBase)(platformIO).handleError(_ => ())
           _ <- platformIO.withTempPrefix(s"bosatsu-${dependency.name}-src-") {
@@ -708,7 +733,7 @@ object VendoredDeps {
     import platformIO.moduleIOMonad
 
     for {
-      parent <- moduleIOMonad.pure(parentOrError(to, "build cache parent")(platformIO))
+      parent <- parentOrError(to, "build cache parent")(platformIO)
       _ <- ensureDir(parent)(platformIO)
       _ <- removeTree(to)(platformIO).handleError(_ => ())
       _ <- moveDirectory(from, to)(platformIO)
@@ -779,10 +804,15 @@ object VendoredDeps {
   private def parentOrError[F[_], P](
       path: P,
       label: String
-  )(platformIO: PlatformIO[F, P]): P =
-    platformIO.parent(path).getOrElse {
-      throw CliException.Basic(
-        s"could not determine $label for ${platformIO.pathToString(path)}"
-      )
+  )(platformIO: PlatformIO[F, P]): F[P] =
+    platformIO.parent(path) match {
+      case Some(parent) =>
+        platformIO.moduleIOMonad.pure(parent)
+      case None =>
+        platformIO.moduleIOMonad.raiseError(
+          CliException.Basic(
+            s"could not determine $label for ${platformIO.pathToString(path)}"
+          )
+        )
     }
 }

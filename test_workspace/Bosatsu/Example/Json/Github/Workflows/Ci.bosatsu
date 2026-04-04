@@ -16,6 +16,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   StepEnv,
   java_strategy_17,
   java_version_17,
+  install_vendored_c_runtime_cmd,
+  install_vendored_c_runtime_node_cmd,
   needs_test,
   needs_test_c,
   node_lib_eval_run_create_mode_cmd,
