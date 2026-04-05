@@ -521,8 +521,10 @@ object Json {
     final class LiftedProductFieldReader[A](
         mk: () => ProductFieldReader[A]
     ) extends AnyProductFieldReader {
+      private lazy val reader = mk()
+
       def read(from: FromObj, key: String): Either[(String, Json, Path), Any] =
-        mk().read(from, key)
+        reader.read(from, key)
     }
 
     final class DerivedProductReader[A](
@@ -690,8 +692,10 @@ object Json {
     final class LiftedProductFieldWriter[A](
         mk: () => ProductFieldWriter[A]
     ) extends AnyProductFieldWriter {
+      private lazy val writer = mk()
+
       def fields(name: String, value: Any): List[(String, Json)] =
-        mk().fields(name, value.asInstanceOf[A])
+        writer.fields(name, value.asInstanceOf[A])
     }
 
     final class DerivedProductWriter[A <: Product](
