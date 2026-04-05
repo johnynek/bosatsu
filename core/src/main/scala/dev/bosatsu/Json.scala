@@ -522,7 +522,7 @@ object Json {
         mk: () => ProductFieldReader[A]
     ) extends AnyProductFieldReader {
       def read(from: FromObj, key: String): Either[(String, Json, Path), Any] =
-        mk().read(from, key).map(identity[Any])
+        mk().read(from, key)
     }
 
     final class DerivedProductReader[A](
@@ -531,8 +531,10 @@ object Json {
         fieldReaders: List[AnyProductFieldReader],
         fromProduct: Product => A
     ) extends Obj[A] {
+      private val size = fieldReaders.size
+
       def readObj(from: FromObj): Either[(String, Json, Path), A] = {
-        val values = new Array[Any](fieldReaders.size)
+        val values = new Array[Any](size)
 
         @annotation.tailrec
         def loop(
