@@ -89,7 +89,7 @@ Important invariants after the change:
 - `int_low_bits_to_Int64(i)` is the low-64-bit two's-complement truncation of `i`. Equivalently, `int64_to_Int(int_low_bits_to_Int64(i))` is `i` reduced modulo `2^64` and then interpreted as a signed 64-bit integer.
 - `int_low_bits_to_Int64(int64_to_Int(x)) == x` for every `Int64` value `x`.
 - `add_Int64`, `sub_Int64`, and `mul_Int64` agree with exact `Int` arithmetic followed by `int_low_bits_to_Int64`.
-- `div_Int64` agrees with exact Bosatsu `Int` division semantics followed by `int_low_bits_to_Int64`. This means it keeps Bosatsu's floor-division behavior for negative operands, returns `0` when dividing by `0`, and deterministically wraps the one overflow case `(-2^63) / -1` back into the signed 64-bit range.
+- `div_Int64` agrees with exact Bosatsu `Int` division semantics followed by `int_low_bits_to_Int64`. This means it keeps Bosatsu's floor-division behavior for negative operands, returns `0` when dividing by `0`, and deterministically wraps the one overflow case `(-2^63) / -1` to `min_i64`.
 - `cmp_Int64(a, b)` is the signed total order on the decoded 64-bit values, and `eq_Int64(a, b)` is exactly `cmp_Int64(a, b) matches EQ`.
 - `float64_to_Int64` uses the same rounding rule as the current `Float64.float64_to_Int`: finite values round to nearest with ties to even, then range-check into signed 64-bit. Non-finite values return `None`.
 - `int64_to_Float64` is semantically the same as `int_to_Float64(int64_to_Int(x))`.
