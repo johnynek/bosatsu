@@ -20,6 +20,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
   given Show[K] = ns.keyShow
   // (function ident, isClosure, arity)
   type DirectFnRef = (Code.Ident, Boolean, Int)
+  private val int64PackageName = PackageName.parts("Bosatsu", "Num", "Int64")
+  private val intToInt64Name = Identifier.Name("int_to_Int64")
+  private val intLowBitsToInt64Name = Identifier.Name("int_low_bits_to_Int64")
   def generateExternalsStub: SortedMap[String, Doc] =
     ExternalResolver.stdExternals.generateExternalsStub
 
@@ -700,30 +703,68 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
             )
         }
 
+      def int64LiteralExpr(value: Long): Code.Expression = {
+        val int64Const =
+          if (value == Long.MinValue) Code.Ident("INT64_MIN")
+          else Code.IntLiteral(BigInt(value))
+        Code.Ident("bsts_int64_from_int64")(int64Const)
+      }
+
+      def int64SomeLiteral(value: Long): T[Code.ValueLike] =
+        pv(
+          Code.Ident("alloc_enum1")(
+            Code.IntLiteral(1),
+            int64LiteralExpr(value)
+          )
+        )
+
+      def int64NoneLiteral: T[Code.ValueLike] =
+        pv(Code.Ident("alloc_enum0")(Code.IntLiteral(0)))
+
+      def optimizeInt64LiteralCall(
+          pack: PackageName,
+          fnName: Bindable,
+          args: NonEmptyList[Expr[K]]
+      ): Option[T[Code.ValueLike]] =
+        args.toList match {
+          case Literal(Lit.Integer(value)) :: Nil
+              if pack == int64PackageName && fnName == intToInt64Name =>
+            try Some(int64SomeLiteral(value.longValueExact()))
+            catch {
+              case _: ArithmeticException => Some(int64NoneLiteral)
+            }
+          case Literal(Lit.Integer(value)) :: Nil
+              if pack == int64PackageName && fnName == intLowBitsToInt64Name =>
+            Some(pv(int64LiteralExpr(value.longValue())))
+          case _ => None
+        }
+
       def innerApp[K1 <: K](app: App[K1]): T[Code.ValueLike] =
         app match {
           case App(Global(k, pack, fnName), args) =>
-            directFn(k, pack, fnName).flatMap {
-              case Some((ident, _)) =>
-                // directly invoke instead of by treating them like lambdas
-                args.traverse(innerToValue(_)).flatMap { argsVL =>
-                  Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
-                }
-              case None =>
-                // the ref be holding the result of another function call
-                (globalIdent(k, pack, fnName), args.traverse(innerToValue(_)))
-                  .flatMapN { (fnVL, argsVL) =>
-                    // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
-                    // but since these are ValueLike, we need to handle more carefully
-                    val fnValue = fnVL.onExpr(e => pv(e()))(newLocalName);
-                    fnValue.flatMap { fnValue =>
-                      val fnSize = argsVL.length
-                      val callFn = Code.Ident(s"call_fn$fnSize")
-                      Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(
-                        newLocalName
-                      )
-                    }
+            optimizeInt64LiteralCall(pack, fnName, args).getOrElse {
+              directFn(k, pack, fnName).flatMap {
+                case Some((ident, _)) =>
+                  // directly invoke instead of by treating them like lambdas
+                  args.traverse(innerToValue(_)).flatMap { argsVL =>
+                    Code.ValueLike.applyArgs(ident, argsVL)(newLocalName)
                   }
+                case None =>
+                  // the ref be holding the result of another function call
+                  (globalIdent(k, pack, fnName), args.traverse(innerToValue(_)))
+                    .flatMapN { (fnVL, argsVL) =>
+                      // we need to invoke call_fn<idx>(fn, arg0, arg1, ....)
+                      // but since these are ValueLike, we need to handle more carefully
+                      val fnValue = fnVL.onExpr(e => pv(e()))(newLocalName);
+                      fnValue.flatMap { fnValue =>
+                        val fnSize = argsVL.length
+                        val callFn = Code.Ident(s"call_fn$fnSize")
+                        Code.ValueLike.applyArgs(callFn, fnValue :: argsVL)(
+                          newLocalName
+                        )
+                      }
+                    }
+              }
             }
           case App(Local(fnName), args) =>
             directFn(fnName).flatMap {

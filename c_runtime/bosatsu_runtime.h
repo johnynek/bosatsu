@@ -182,6 +182,15 @@ uint64_t bsts_integer_to_low_uint64(BValue bint);
 double bsts_integer_to_double(BValue bint);
 // Integral finite Float64 -> Integer.
 BValue bsts_integral_float64_to_integer(double d);
+// Round finite Float64 to the nearest integer with ties to even.
+double bsts_round_ties_even(double d);
+
+// Int64 values are stored by packing signed two's-complement bits into the
+// BValue word.
+BValue bsts_int64_from_bits(uint64_t bits);
+uint64_t bsts_int64_to_bits(BValue v);
+BValue bsts_int64_from_int64(int64_t value);
+int64_t bsts_int64_to_int64(BValue v);
 
 // Float64 values are stored by packing IEEE754 bits into the BValue word.
 BValue bsts_float64_from_bits(uint64_t bits);

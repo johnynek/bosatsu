@@ -5033,6 +5033,7 @@ main = 1
       "Bosatsu/Json",
       "Bosatsu/Lazy",
       "Bosatsu/Num/Float64",
+      "Bosatsu/Num/Int64",
       "Bosatsu/Prog"
     ).map(packageName)
 
@@ -5048,11 +5049,13 @@ main = 1
 |from Bosatsu/IO/Core import core_error
 |from Bosatsu/IO/Std import std_summary
 |from Bosatsu/Json import JNull
+|from Bosatsu/Num/Int64 import int64_tag
 |from Bosatsu/Prog import Main
 |
 |_ = JNull
 |_ = std_summary
 |_ = core_error
+|_ = int64_tag
 |main = Main(1)
 |""".stripMargin
     val blockedSrc =
@@ -5171,6 +5174,15 @@ main = 1
 |export float_tag
 |
 |float_tag = 1.0
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") ->
+        """package Bosatsu/Num/Int64
+|
+|export Int64Tag(), int64_tag
+|
+|struct Int64Tag(value: Int)
+|
+|int64_tag = Int64Tag(64)
 |""".stripMargin,
       Chain("repo", "src", "Bosatsu", "Num", "Nat.bosatsu") ->
         """package Bosatsu/Num/Nat

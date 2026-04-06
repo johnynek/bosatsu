@@ -16,6 +16,7 @@ class PythonGenJvmTest extends munit.FunSuite {
         "test_workspace/Bool.bosatsu",
         "test_workspace/Nat.bosatsu",
         "test_workspace/BinNat.bosatsu",
+        "test_workspace/Int64.bosatsu",
         "test_workspace/Rand.bosatsu",
         "test_workspace/Properties.bosatsu"
       )

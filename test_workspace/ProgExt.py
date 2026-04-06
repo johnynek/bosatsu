@@ -7,6 +7,7 @@
 # Effect(f) => (5, f)
 
 import errno as _errno
+import math
 import os
 import shutil
 import stat as _stat
@@ -233,6 +234,68 @@ def _as_bosatsu_bytes(value):
     if isinstance(value, _BosatsuBytes):
         return value
     return None
+
+class _BosatsuInt64:
+    __slots__ = ("value",)
+
+    def __init__(self, value: int):
+        self.value = _normalize_int64_bits(int(value))
+
+def _as_bosatsu_int64(value):
+    if isinstance(value, _BosatsuInt64):
+        return value
+    return None
+
+_INT64_MASK = (1 << 64) - 1
+_INT64_SIGN = 1 << 63
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+
+def _normalize_int64_bits(value: int) -> int:
+    low_bits = int(value) & _INT64_MASK
+    if low_bits >= _INT64_SIGN:
+        return low_bits - (1 << 64)
+    return low_bits
+
+def _box_int64(value: int):
+    return _BosatsuInt64(value)
+
+def _expect_int64(value):
+    wrapped = _as_bosatsu_int64(value)
+    if wrapped is None:
+        raise ValueError(f"invalid Int64 value: {value!r}")
+    return wrapped.value
+
+def _shift_left_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return 0
+        return _normalize_int64_bits(value << shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return -1 if value < 0 else 0
+    return _normalize_int64_bits(value >> shift_abs)
+
+def _shift_right_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return -1 if value < 0 else 0
+        return _normalize_int64_bits(value >> shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return 0
+    return _normalize_int64_bits(value << shift_abs)
+
+min_i64 = _box_int64(_INT64_MIN)
+max_i64 = _box_int64(_INT64_MAX)
 
 def _bytes_view_slice(value: _BosatsuBytes):
     start = value.offset
@@ -494,6 +557,77 @@ def _kind_from_lstat(st):
     if _stat.S_ISLNK(mode):
         return 2  # Symlink
     return 3      # Other
+
+# Bosatsu/Num/Int64 externals
+def int_to_Int64(value):
+    raw = int(value)
+    if _INT64_MIN <= raw <= _INT64_MAX:
+        return _some(_box_int64(raw))
+    return _none
+
+def int_low_bits_to_Int64(value):
+    return _box_int64(int(value))
+
+def int64_to_Int(value):
+    return _expect_int64(value)
+
+def int64_to_Float64(value):
+    return float(_expect_int64(value))
+
+def float64_to_Int64(value):
+    fvalue = float(value)
+    if not math.isfinite(fvalue):
+        return _none
+
+    rounded = round(fvalue)
+    if _INT64_MIN <= rounded <= _INT64_MAX:
+        return _some(_box_int64(rounded))
+    return _none
+
+def add_Int64(left, right):
+    return _box_int64(_expect_int64(left) + _expect_int64(right))
+
+def sub_Int64(left, right):
+    return _box_int64(_expect_int64(left) - _expect_int64(right))
+
+def mul_Int64(left, right):
+    return _box_int64(_expect_int64(left) * _expect_int64(right))
+
+def div_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if rhs == 0:
+        return _box_int64(0)
+    if lhs == _INT64_MIN and rhs == -1:
+        return _box_int64(_INT64_MIN)
+    return _box_int64(lhs // rhs)
+
+def and_Int64(left, right):
+    return _box_int64(_expect_int64(left) & _expect_int64(right))
+
+def or_Int64(left, right):
+    return _box_int64(_expect_int64(left) | _expect_int64(right))
+
+def xor_Int64(left, right):
+    return _box_int64(_expect_int64(left) ^ _expect_int64(right))
+
+def not_Int64(value):
+    return _box_int64(~_expect_int64(value))
+
+def shift_left_Int64(value, count):
+    return _box_int64(_shift_left_int64(_expect_int64(value), count))
+
+def shift_right_Int64(value, count):
+    return _box_int64(_shift_right_int64(_expect_int64(value), count))
+
+def cmp_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if lhs < rhs:
+        return 0
+    if lhs > rhs:
+        return 2
+    return 1
 
 # Bosatsu/Lazy externals
 def lazy(fn):
@@ -1566,7 +1700,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     s = decode_buf()
     if s is not None:
         # Covers:
-        #   - Got exactly `requested` bytes and they’re valid
+        #   - Got exactly `requested` bytes and they're valid
         #   - Got fewer than `requested` bytes due to EOF but still valid
         #   - requested == 0 -> empty buffer -> ""
         return (True, s)
@@ -1605,7 +1739,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
         if s is not None:
             return (True, s)
 
-    # Still invalid after up to 4 extra bytes → true UTF-8 error
+    # Still invalid after up to 4 extra bytes -> true UTF-8 error
     return (False, _ioerr(_IOERR_INVALID_UTF8, "decoding bytes from stdin"))
 
 def read_stdin_utf8_bytes(cnt):

@@ -10,6 +10,26 @@ from Bosatsu/Num/Float64 import (
   is_nan,
   string_to_Float64,
 )
+from Bosatsu/Num/Int64 import (
+  add_Int64,
+  and_Int64,
+  cmp_Int64,
+  div_Int64,
+  float64_to_Int64,
+  int64_to_Float64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+  max_i64,
+  min_i64,
+  mul_Int64,
+  not_Int64,
+  or_Int64,
+  shift_left_Int64,
+  shift_right_Int64,
+  sub_Int64,
+  xor_Int64,
+)
 from Bosatsu/Loops import range_foldr
 
 operator / = div
@@ -325,6 +345,15 @@ test_list = TestSuite("List tests", [
 
 def eqf(a, b): eq_Float64(a, b)
 def eqi(a, b): cmp_Int(a, b) matches EQ
+def eqi64(a, b): cmp_Int64(a, b) matches EQ
+
+def int64_eq_int(value, expected: Int) -> Bool:
+  int64_to_Int(value).eqi(expected)
+
+def int64_option_eq_int(value, expected: Int) -> Bool:
+  match value:
+    case Some(v): int64_eq_int(v, expected)
+    case None: False
 def eqb(a, b):
   if a:
     b
@@ -575,6 +604,58 @@ test_float = TestSuite("Float tests", [
   Assertion(classify_float(0.0) matches 1, "zero pattern match"),
 ])
 
+test_int64 = TestSuite("Int64 tests", [
+  Assertion(int64_option_eq_int(int_to_Int64(0), 0), "safe conversion 0"),
+  Assertion(int64_option_eq_int(int_to_Int64(9223372036854775807), 9223372036854775807), "safe conversion max"),
+  Assertion(int_to_Int64(9223372036854775808) matches None, "safe conversion max + 1"),
+  Assertion(int_to_Int64(-9223372036854775809) matches None, "safe conversion min - 1"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(18446744073709551615), -1), "low bits uses two's complement"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1), -1), "low bits preserves negative one"),
+  Assertion(int64_eq_int(add_Int64(max_i64, int_low_bits_to_Int64(1)), -9223372036854775808),
+    "add_Int64 wraps to min_i64"),
+  Assertion(int64_eq_int(sub_Int64(min_i64, int_low_bits_to_Int64(1)), 9223372036854775807),
+    "sub_Int64 wraps to max_i64"),
+  Assertion(int64_eq_int(mul_Int64(min_i64, int_low_bits_to_Int64(-1)), -9223372036854775808),
+    "mul_Int64 wraps min_i64 * -1"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(-5), int_low_bits_to_Int64(3)), -2),
+    "div_Int64 floors negative quotient"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(5), int_low_bits_to_Int64(-3)), -2),
+    "div_Int64 floors mixed-sign quotient"),
+  Assertion(int64_eq_int(div_Int64(min_i64, int_low_bits_to_Int64(-1)), -9223372036854775808),
+    "div_Int64 overflow wraps to min_i64"),
+  Assertion(int64_eq_int(div_Int64(int_low_bits_to_Int64(7), int_low_bits_to_Int64(0)), 0),
+    "div_Int64 by zero returns 0"),
+  Assertion(int64_eq_int(and_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), 23),
+    "and_Int64 keeps low bits"),
+  Assertion(int64_eq_int(or_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), -1),
+    "or_Int64 keeps low bits"),
+  Assertion(int64_eq_int(xor_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(23)), -24),
+    "xor_Int64 keeps low bits"),
+  Assertion(int64_eq_int(not_Int64(int_low_bits_to_Int64(-2)), 1), "not_Int64 flips all bits"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), 63), -9223372036854775808),
+    "shift_left_Int64 keeps low 64 bits"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), 64), 0),
+    "shift_left_Int64 clears on large positive count"),
+  Assertion(int64_eq_int(shift_left_Int64(int_low_bits_to_Int64(1), -1), 0),
+    "shift_left_Int64 uses right shift on negative count"),
+  Assertion(int64_eq_int(shift_right_Int64(int_low_bits_to_Int64(-1), 100), -1),
+    "shift_right_Int64 sign extends on large positive count"),
+  Assertion(int64_eq_int(shift_right_Int64(int_low_bits_to_Int64(1), -63), -9223372036854775808),
+    "shift_right_Int64 uses wrapped left shift on negative count"),
+  Assertion(cmp_Int64(min_i64, max_i64) matches LT, "cmp_Int64 signed ordering"),
+  Assertion(cmp_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)) matches EQ, "cmp_Int64 equality"),
+  Assertion(int64_option_eq_int(float64_to_Int64(1.5), 2), "float64_to_Int64 rounds ties to even"),
+  Assertion(int64_option_eq_int(float64_to_Int64(2.5), 2), "float64_to_Int64 keeps even ties"),
+  Assertion(int64_option_eq_int(float64_to_Int64(-0.5), 0), "float64_to_Int64 handles negative ties"),
+  Assertion(float64_to_Int64(∞) matches None, "float64_to_Int64 rejects infinity"),
+  Assertion(eqf(int64_to_Float64(min_i64), -9223372036854775808.0), "int64_to_Float64 matches Int conversion"),
+  Assertion(
+    match float64_to_Int64(int64_to_Float64(min_i64)):
+      case Some(v): eqi64(v, min_i64)
+      case None: False,
+    "float64 roundtrip keeps min_i64"),
+])
+
 test = TestSuite("Predef tests", [
     test_bool,
     test_int,
@@ -583,4 +664,5 @@ test = TestSuite("Predef tests", [
     test_list,
     test_list_patterns,
     test_float,
+    test_int64,
 ])
