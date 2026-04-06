@@ -1,6 +1,7 @@
 #include "bosatsu_runtime.h"
 #include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
+#include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -66,6 +67,18 @@ void assert_u64_equals(uint64_t got, uint64_t expected, const char* message) {
     printf("%s\nexpected: %llu\ngot: %llu\n", message, (unsigned long long)expected, (unsigned long long)got);
     exit(1);
   }
+}
+
+void assert_int64_bits(BValue value, uint64_t expected, const char* message) {
+  assert_u64_equals(bsts_int64_to_bits(value), expected, message);
+}
+
+void assert_option_int64_bits(BValue opt, uint64_t expected, const char* message) {
+  if (get_variant(opt) != 1) {
+    printf("%s\nexpected: Some(Int64)\n", message);
+    exit(1);
+  }
+  assert_int64_bits(get_enum_index(opt, 0), expected, message);
 }
 
 void assert_is_small_int(BValue value, const char* message) {
@@ -635,6 +648,275 @@ void test_float64() {
   }
 }
 
+void test_int64() {
+  uint64_t bits_cases[] = {
+    UINT64_C(0x0000000000000000),
+    UINT64_C(0x0000000000000001),
+    UINT64_C(0xffffffffffffffff),
+    UINT64_C(0x7fffffffffffffff),
+    UINT64_C(0x8000000000000000),
+    UINT64_C(0x1234567890abcdef)
+  };
+
+  for (size_t i = 0; i < sizeof(bits_cases) / sizeof(bits_cases[0]); i++) {
+    BValue v = bsts_int64_from_bits(bits_cases[i]);
+    assert_u64_equals(bsts_int64_to_bits(v), bits_cases[i], "int64 bits roundtrip");
+  }
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_min__i64(),
+      UINT64_C(0x8000000000000000),
+      "min_i64 bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_max__i64(),
+      UINT64_C(0x7fffffffffffffff),
+      "max_i64 bits");
+
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(bsts_integer_from_int64(INT64_MIN)),
+      UINT64_C(0x8000000000000000),
+      "safe int64 min conversion");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(bsts_integer_from_int64(INT64_MAX)),
+      UINT64_C(0x7fffffffffffffff),
+      "safe int64 max conversion");
+  {
+    BValue too_big = bsts_integer_add(
+        bsts_integer_from_int64(INT64_MAX),
+        bsts_integer_from_int(1));
+    BValue too_small = bsts_integer_add(
+        bsts_integer_from_int64(INT64_MIN),
+        bsts_integer_from_int(-1));
+    assert_option_none(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(too_big),
+        "safe int64 rejects max + 1");
+    assert_option_none(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(too_small),
+        "safe int64 rejects min - 1");
+  }
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64(bsts_integer_from_int(-1)),
+      UINT64_C(0xffffffffffffffff),
+      "low bits conversion keeps two's complement");
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int64__to__Int(bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),
+      "-1",
+      "int64_to_Int decodes signed payload");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_add__Int64(
+          bsts_int64_from_int64(INT64_MAX),
+          bsts_int64_from_int64(1)),
+      UINT64_C(0x8000000000000000),
+      "add wraps to min_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_sub__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(1)),
+      UINT64_C(0x7fffffffffffffff),
+      "sub wraps to max_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mul__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(-1)),
+      UINT64_C(0x8000000000000000),
+      "mul wraps min_i64 * -1");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(-5),
+          bsts_int64_from_int64(3)),
+      UINT64_C(0xfffffffffffffffe),
+      "division uses floor semantics");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(-1)),
+      UINT64_C(0x8000000000000000),
+      "division overflow wraps to min_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(1234),
+          bsts_int64_from_int64(0)),
+      UINT64_C(0x0000000000000000),
+      "division by zero returns zero");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(5),
+          bsts_int64_from_int64(-3)),
+      UINT64_C(0xffffffffffffffff),
+      "mod_Int64 keeps the divisor sign");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(1234),
+          bsts_int64_from_int64(0)),
+      UINT64_C(0x00000000000004d2),
+      "mod_Int64 by zero returns the left value");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_and__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffff0000ffff0000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0x0f0f00000f0f0000),
+      "bitwise and keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_or__Int64(
+          bsts_int64_from_bits(UINT64_C(0xf0f00000f0f00000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0xffff0f0fffff0f0f),
+      "bitwise or keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_xor__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffff0000ffff0000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0xf0f00f0ff0f00f0f),
+      "bitwise xor keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_not__Int64(bsts_int64_from_int64(0)),
+      UINT64_C(0xffffffffffffffff),
+      "bitwise not flips all bits");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(63)),
+      UINT64_C(0x8000000000000000),
+      "left shift keeps low 64 bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(64)),
+      UINT64_C(0x0000000000000000),
+      "left shift by >= 64 clears the value");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-1)),
+      UINT64_C(0x0000000000000000),
+      "negative left shift becomes arithmetic right shift");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+          bsts_int64_from_int64(-1),
+          bsts_integer_from_int(100)),
+      UINT64_C(0xffffffffffffffff),
+      "right shift keeps sign for large positive counts");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-63)),
+      UINT64_C(0x8000000000000000),
+      "negative right shift becomes wrapped left shift");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+          bsts_integer_from_int(1)),
+      UINT64_C(0x7fffffffffffffff),
+      "unsigned right shift clears the sign bit");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-63)),
+      UINT64_C(0x8000000000000000),
+      "negative unsigned right shift becomes wrapped left shift");
+  {
+    BValue huge_shift =
+        bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(70));
+    BValue huge_neg_shift = bsts_integer_negate(huge_shift);
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(1),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge left shift clears the value");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(-1),
+            huge_neg_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge negative left shift sign-fills");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+            bsts_int64_from_int64(-1),
+            huge_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge right shift keeps the sign bit");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+            bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge unsigned right shift clears the value");
+  }
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_popcount__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),
+      "64",
+      "popcount_Int64 counts raw bits");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(7))) == 1,
+      "eq_Int64 true");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(8))) == 0,
+      "eq_Int64 false");
+
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_cmp__Int64(
+              bsts_int64_from_int64(-1),
+              bsts_int64_from_int64(1))) == 0,
+      "cmp_Int64 sorts signed values");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_cmp__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(7))) == 1,
+      "cmp_Int64 eq");
+
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(1.5)),
+      UINT64_C(0x0000000000000002),
+      "float64_to_Int64 rounds ties to even");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(2.5)),
+      UINT64_C(0x0000000000000002),
+      "float64_to_Int64 keeps even ties");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(-0.5)),
+      UINT64_C(0x0000000000000000),
+      "float64_to_Int64 handles negative ties");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(NAN)),
+      "float64_to_Int64 rejects NaN");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(INFINITY)),
+      "float64_to_Int64 rejects infinity");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(ldexp(1.0, 63))),
+      "float64_to_Int64 rejects 2^63");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(-ldexp(1.0, 63))),
+      UINT64_C(0x8000000000000000),
+      "float64_to_Int64 accepts -2^63");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_int64__to__Float64(
+              bsts_int64_from_int64(INT64_MIN))) == -ldexp(1.0, 63),
+      "int64_to_Float64 matches Int conversion semantics");
+}
+
 void test_prog_assoc() {
 #if !defined(_WIN32) && defined(BSTS_RUNTIME_DEBUG_CHECKS)
   assert_child_aborts(call_alloc_closure_zero, "zero-capture closures must use alloc_boxed_pure_fn");
@@ -682,6 +964,7 @@ int main(int argc, char** argv) {
   test_runtime_strings();
   test_integer();
   test_float64();
+  test_int64();
   test_prog_assoc();
   printf("success\n");
   return 0;

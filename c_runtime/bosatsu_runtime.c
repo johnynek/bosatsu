@@ -200,6 +200,51 @@ int bsts_char_code_point_from_value(BValue ch) {
   }
 }
 
+double bsts_round_ties_even(double d) {
+  double int_part = 0.0;
+  double frac = modf(d, &int_part);
+  double abs_frac = fabs(frac);
+  if (abs_frac < 0.5) {
+    return int_part;
+  }
+  if (abs_frac > 0.5) {
+    return int_part + copysign(1.0, d);
+  }
+
+  double abs_int = fabs(int_part);
+  double rem2 = fmod(abs_int, 2.0);
+  if (rem2 == 0.0) {
+    return int_part;
+  }
+  return int_part + copysign(1.0, d);
+}
+
+BValue bsts_int64_from_bits(uint64_t bits) {
+  return (BValue)bits;
+}
+
+uint64_t bsts_int64_to_bits(BValue v) {
+  return (uint64_t)v;
+}
+
+BValue bsts_int64_from_int64(int64_t value) {
+  union {
+    int64_t i;
+    uint64_t u;
+  } conv;
+  conv.i = value;
+  return bsts_int64_from_bits(conv.u);
+}
+
+int64_t bsts_int64_to_int64(BValue v) {
+  union {
+    int64_t i;
+    uint64_t u;
+  } conv;
+  conv.u = bsts_int64_to_bits(v);
+  return conv.i;
+}
+
 BValue bsts_float64_from_bits(uint64_t bits) {
   return (BValue)bits;
 }
@@ -2591,19 +2636,18 @@ BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand
 }
 
 _Bool bsts_integer_is_zero(BValue v) {
-  _Bool is_zero;
+  return bsts_integer_cmp_zero(v) == 0;
+}
+
+int bsts_integer_cmp_zero(BValue v) {
   if (IS_SMALL(v)) {
-      // zero is encoded as just the pure value tag
-      is_zero = (v == (BValue)PURE_VALUE_TAG);
-  } else {
-      BSTS_Integer* m_big = GET_BIG_INT(v);
-      is_zero = 1;
-      for (size_t i = 0; i < m_big->len; i++) {
-          if (m_big->words[i] != 0) { is_zero = 0; break; }
-      }
+    int64_t small = GET_SMALL_INT(v);
+    return (small > 0) - (small < 0);
   }
 
-  return is_zero;
+  // Canonical integers never heap-allocate zero or any small-magnitude value.
+  BSTS_Integer* integer = GET_BIG_INT(v);
+  return integer->sign ? -1 : 1;
 }
 
 // (&Integer, &Integer) -> (Integer, Integer)

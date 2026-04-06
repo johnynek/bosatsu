@@ -16,6 +16,8 @@ from Bosatsu/Example/Json/Github/Workflows/Util import (
   StepEnv,
   java_strategy_17,
   java_version_17,
+  install_vendored_c_runtime_cmd,
+  install_vendored_c_runtime_node_cmd,
   needs_test,
   needs_test_c,
   node_lib_eval_run_create_mode_cmd,
@@ -331,15 +333,8 @@ workflow =
           },
           run_bosatsu_node_tests_step,
           Step {
-            name: Set("install boehm"),
-            run: Set("sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"),
-          },
-          Step {
             name: Set("install c runtime"),
-            run: Set(cat_lines([
-              "make -C c_runtime install VERSION=$(git rev-parse HEAD)",
-              "",
-            ])),
+            run: Set(install_vendored_c_runtime_node_cmd),
           },
           Step {
             name: Set("run test"),
@@ -370,8 +365,8 @@ workflow =
           *c_build_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
-            name: Set("install boehm"),
-            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
+            name: Set("install vendored c runtime"),
+            run: Set(install_vendored_c_runtime_cmd),
           },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
@@ -405,10 +400,6 @@ workflow =
           *c_build_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
-            name: Set("install boehm"),
-            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"),
-          },
-          Step {
             name: Set("run c sanitizer checks"),
             run: Set("./scripts/test_c_sanitizers.sh"),
           },
@@ -424,7 +415,7 @@ workflow =
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
           Step {
             name: Set("install c toolchain and valgrind"),
-            run: Set("sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config valgrind"),
+            run: Set("sudo apt-get update && sudo apt install -y valgrind"),
           },
           Step {
             name: Set("run c valgrind checks"),
@@ -440,7 +431,10 @@ workflow =
         [
           *c_build_bootstrap_steps,
           Step { name: Set("build assembly"), run: Set("sbt \"cli/assembly\"") },
-          Step { name: Set("install boehm"), run: Set("brew install bdw-gc pkg-config") },
+          Step {
+            name: Set("install vendored c runtime"),
+            run: Set(install_vendored_c_runtime_cmd),
+          },
           Step { name: Set("test runtime code"), run: Set(run_c_runtime_ci) },
           Step { name: Set("generate and compile c code"), run: Set(transpile_c_cmd) },
           Step { name: Set("run generated c code"), run: Set("./c_out/test_exe") },

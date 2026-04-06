@@ -5,6 +5,8 @@ import java.util.Locale
 import org.typelevel.paiges.Doc
 import cats.parse.{Parser0 => P0, Parser => P, Numbers}
 import cats.{Eq, Show}
+import scala.compiletime.{constValue, erasedValue, summonInline}
+import scala.deriving.Mirror
 
 import cats.syntax.all._
 
@@ -18,6 +20,13 @@ sealed abstract class Json derives CanEqual {
 
 object Json {
   import Doc.text
+
+  private inline def summonLabels[T <: Tuple]: List[String] =
+    inline erasedValue[T] match {
+      case _: EmptyTuple => Nil
+      case _: (t *: ts) =>
+        constValue[t].asInstanceOf[String] :: summonLabels[ts]
+    }
 
   // YAML core-schema parsers can coerce these plain scalars into non-strings.
   // Keep them quoted so YAML and JSON output stay semantically aligned.
@@ -501,6 +510,66 @@ object Json {
   object Reader {
     def apply[A](implicit r: Reader[A]): Reader[A] = r
 
+    trait ProductFieldReader[A] {
+      def read(from: FromObj, key: String): Either[(String, Json, Path), A]
+    }
+
+    trait AnyProductFieldReader {
+      def read(from: FromObj, key: String): Either[(String, Json, Path), Any]
+    }
+
+    final class LiftedProductFieldReader[A](
+        mk: () => ProductFieldReader[A]
+    ) extends AnyProductFieldReader {
+      private lazy val reader = mk()
+
+      def read(from: FromObj, key: String): Either[(String, Json, Path), Any] =
+        reader.read(from, key)
+    }
+
+    final class DerivedProductReader[A](
+        val describe: String,
+        fieldLabels: List[String],
+        fieldReaders: List[AnyProductFieldReader],
+        fromProduct: Product => A
+    ) extends Obj[A] {
+      private val size = fieldReaders.size
+
+      def readObj(from: FromObj): Either[(String, Json, Path), A] = {
+        val values = new Array[Any](size)
+
+        @annotation.tailrec
+        def loop(
+            labels: List[String],
+            readers: List[AnyProductFieldReader],
+            idx: Int
+        ): Either[(String, Json, Path), A] =
+          readers match {
+            case Nil =>
+              Right(fromProduct(Tuple.fromArray(values)))
+            case reader :: nextReaders =>
+              reader.read(from, labels.head) match {
+                case Right(value) =>
+                  values(idx) = value
+                  loop(labels.tail, nextReaders, idx + 1)
+                case Left(err) =>
+                  Left(err)
+              }
+          }
+
+        loop(fieldLabels, fieldReaders, 0)
+      }
+    }
+
+    private inline def summonProductFieldReaders[T <: Tuple]
+        : List[AnyProductFieldReader] =
+      inline erasedValue[T] match {
+        case _: EmptyTuple => Nil
+        case _: (t *: ts) =>
+          new LiftedProductFieldReader[t](() => summonInline[ProductFieldReader[t]]) ::
+            summonProductFieldReaders[ts]
+      }
+
     case class FromObj(path: Path, j: JObject) {
       def field[A: Reader](key: String): Either[(String, Json, Path), A] = {
         val jv = j.getOrNull(key)
@@ -529,12 +598,85 @@ object Json {
         }
     }
 
+    given [A](using r: Reader[A]): ProductFieldReader[A] with {
+      def read(from: FromObj, key: String): Either[(String, Json, Path), A] =
+        from.field[A](key)
+    }
+
+    given [A](using r: Reader[A]): ProductFieldReader[Option[A]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[A]] =
+        from.optional[A](key)
+    }
+
+    given optionJObjectFieldReader: ProductFieldReader[Option[JObject]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[JObject]] = {
+        val path = from.path.key(key)
+        from.j.getOrNull(key) match {
+          case JNull                              => Right(None)
+          case obj: JObject if obj.keys.isEmpty   => Right(None)
+          case obj: JObject                       => Right(Some(obj))
+          case other                              => Left(("expected to find Json.JObject", other, path))
+        }
+      }
+    }
+
+    given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[List[A]]] =
+        from.optional[List[A]](key).map(_.filter(_.nonEmpty))
+    }
+
     implicit val stringReader: Reader[String] =
       new Reader[String] {
         val describe = "String"
         def read(path: Path, j: Json): Either[(String, Json, Path), String] =
           j match {
             case JString(str) => Right(str)
+            case _            => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit val jsonReader: Reader[Json] =
+      new Reader[Json] {
+        val describe = "Json"
+        def read(path: Path, j: Json): Either[(String, Json, Path), Json] =
+          Right(j)
+      }
+
+    implicit val intReader: Reader[Int] =
+      new Reader[Int] {
+        val describe = "Int"
+        private val intMin = java.math.BigInteger.valueOf(Int.MinValue.toLong)
+        private val intMax = java.math.BigInteger.valueOf(Int.MaxValue.toLong)
+        def read(path: Path, j: Json): Either[(String, Json, Path), Int] =
+          j match {
+            case JBigInteger(bi)
+                if bi.compareTo(intMin) >= 0 && bi.compareTo(intMax) <= 0 =>
+              Right(bi.intValue)
+            case JBigInteger(bi) =>
+              Left((s"$bi cannot fit in Int", j, path))
+            case _ =>
+              Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit val boolReader: Reader[Boolean] =
+      new Reader[Boolean] {
+        val describe = "Boolean"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Boolean] =
+          j match {
+            case JBool(value) => Right(value)
             case _            => Left((s"expected to find $describe", j, path))
           }
       }
@@ -554,6 +696,34 @@ object Json {
           }
       }
 
+    implicit def stringMapReader[A: Reader]: Reader[Map[String, A]] =
+      new Reader[Map[String, A]] {
+        val describe = s"Map[String, ${Reader[A].describe}]"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Map[String, A]] =
+          j match {
+            case jobj: JObject =>
+              jobj.keys
+                .traverse { key =>
+                  Reader[A].read(path.key(key), jobj.toMap(key)).map(key -> _)
+                }
+                .map(_.toMap)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit def nullableReader[A: Reader]: Reader[Nullable[A]] =
+      new Reader[Nullable[A]] {
+        val describe = s"Nullable[${Reader[A].describe}]"
+        def read(path: Path, j: Json): Either[(String, Json, Path), Nullable[A]] =
+          j match {
+            case JNull => Right(Nullable.empty)
+            case other => Reader[A].read(path, other).map(Nullable(_))
+          }
+      }
+
     implicit def fromParser[A](desc: String, p0: P0[A]): Reader[A] =
       new Reader[A] {
         def describe: String = desc
@@ -564,10 +734,18 @@ object Json {
                 case Right(value) => Right(value)
                 case Left(value)  =>
                   Left((show"string parser error: $value", j, path))
-              }
+                }
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
+
+    inline given derived[A](using mirror: Mirror.ProductOf[A]): Reader[A] =
+      new DerivedProductReader[A](
+        constValue[mirror.MirroredLabel].asInstanceOf[String],
+        summonLabels[mirror.MirroredElemLabels],
+        summonProductFieldReaders[mirror.MirroredElemTypes],
+        mirror.fromProduct
+      )
   }
 
   trait Writer[A] { self =>
@@ -581,6 +759,54 @@ object Json {
   object Writer {
     def apply[A](implicit w: Writer[A]): Writer[A] = w
 
+    trait ProductFieldWriter[-A] {
+      def fields(name: String, value: A): List[(String, Json)]
+    }
+
+    trait AnyProductFieldWriter {
+      def fields(name: String, value: Any): List[(String, Json)]
+    }
+
+    final class LiftedProductFieldWriter[A](
+        mk: () => ProductFieldWriter[A]
+    ) extends AnyProductFieldWriter {
+      private lazy val writer = mk()
+
+      def fields(name: String, value: Any): List[(String, Json)] =
+        writer.fields(name, value.asInstanceOf[A])
+    }
+
+    final class DerivedProductWriter[A <: Product](
+        fieldLabels: List[String],
+        fieldWriters: List[AnyProductFieldWriter]
+    ) extends Writer[A] {
+      def write(a: A): Json = {
+        val builder = List.newBuilder[(String, Json)]
+        val product = a
+
+        var idx = 0
+        var labels = fieldLabels
+        var writers = fieldWriters
+        while (writers.nonEmpty) {
+          builder ++= writers.head.fields(labels.head, product.productElement(idx))
+          idx += 1
+          labels = labels.tail
+          writers = writers.tail
+        }
+
+        JObject(builder.result())
+      }
+    }
+
+    private inline def summonProductFieldWriters[T <: Tuple]
+        : List[AnyProductFieldWriter] =
+      inline erasedValue[T] match {
+        case _: EmptyTuple => Nil
+        case _: (t *: ts) =>
+          new LiftedProductFieldWriter[t](() => summonInline[ProductFieldWriter[t]]) ::
+            summonProductFieldWriters[ts]
+      }
+
     def write[A](a: A)(implicit w: Writer[A]): Json = w.write(a)
 
     def from[A](fn: A => Json): Writer[A] =
@@ -588,10 +814,65 @@ object Json {
         def write(value: A) = fn(value)
       }
 
+    given [A](using w: Writer[A]): ProductFieldWriter[A] with {
+      def fields(name: String, value: A): List[(String, Json)] =
+        (name -> write(value)) :: Nil
+    }
+
+    given [A](using w: Writer[A]): ProductFieldWriter[Option[A]] with {
+      def fields(name: String, value: Option[A]): List[(String, Json)] =
+        value match {
+          case Some(item) => (name -> write(item)) :: Nil
+          case None       => Nil
+        }
+    }
+
+    given optionJObjectFieldWriter: ProductFieldWriter[Option[JObject]] with {
+      def fields(name: String, value: Option[JObject]): List[(String, Json)] =
+        value match {
+          case None                                   => Nil
+          case Some(obj: JObject) if obj.keys.isEmpty => Nil
+          case Some(item)                             => (name -> item) :: Nil
+        }
+    }
+
+    given optionListFieldWriter[A: Writer]: ProductFieldWriter[Option[List[A]]] with {
+      def fields(name: String, value: Option[List[A]]): List[(String, Json)] =
+        value.filter(_.nonEmpty) match {
+          case Some(items) => (name -> write(items)) :: Nil
+          case None        => Nil
+        }
+    }
+
     implicit val stringWriter: Writer[String] =
       from(JString(_))
 
+    implicit val jsonWriter: Writer[Json] =
+      from(identity)
+
+    implicit val intWriter: Writer[Int] =
+      from(i => JNumberStr(i.toString))
+
+    implicit val boolWriter: Writer[Boolean] =
+      from(JBool(_))
+
     implicit def listWriter[A: Writer]: Writer[List[A]] =
       from(list => JArray(list.map(write(_)).toVector))
+
+    implicit def stringMapWriter[A: Writer]: Writer[Map[String, A]] =
+      from { map =>
+        JObject(map.toList.sortBy(_._1).map { case (k, v) => k -> write(v) })
+      }
+
+    implicit def nullableWriter[A: Writer]: Writer[Nullable[A]] =
+      from { value =>
+        value.fold[Json](JNull)(write(_))
+      }
+
+    inline given derived[A <: Product](using mirror: Mirror.ProductOf[A]): Writer[A] =
+      new DerivedProductWriter[A](
+        summonLabels[mirror.MirroredElemLabels],
+        summonProductFieldWriters[mirror.MirroredElemTypes]
+      )
   }
 }

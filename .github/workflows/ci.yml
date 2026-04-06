@@ -251,11 +251,13 @@ jobs:
       - name: "run bosatsu tests"
         run: |
           ./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
       - name: "install c runtime"
         run: |
-          make -C c_runtime install VERSION=$(git rev-parse HEAD)
+          export SHA=$(git rev-parse HEAD)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          ./bosatsu_node c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "run test"
         run: |
           ./bosatsu_node fetch
@@ -295,20 +297,25 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
+      - name: "install vendored c runtime"
+        run: |
+          export SHA=$(./bosatsuj version -g)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
+          export SHA=$(./bosatsuj version -g)
+          eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
           cd c_runtime
           rm -f test_exe
-          make PROFILE=debug && git diff --quiet || { git diff; false; }
-          make boehm_example PROFILE=release
-          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
+          CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" && git diff --quiet || { git diff; false; }
+          CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS"
           ./test_exe && ./boehm_example
-          make bench_exe PROFILE=release
+          CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS"
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
-          export SHA=$(./bosatsuj version -g)
           python3 - <<'PY'
           import json
           import os
@@ -370,8 +377,6 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
       - name: "run c sanitizer checks"
         run: "./scripts/test_c_sanitizers.sh"
     timeout-minutes: 60
@@ -394,7 +399,7 @@ jobs:
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "install c toolchain and valgrind"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config valgrind"
+        run: "sudo apt-get update && sudo apt install -y valgrind"
       - name: "run c valgrind checks"
         run: "./scripts/test_c_valgrind.sh"
     timeout-minutes: 90
@@ -416,20 +421,25 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "brew install bdw-gc pkg-config"
+      - name: "install vendored c runtime"
+        run: |
+          export SHA=$(./bosatsuj version -g)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
+          export SHA=$(./bosatsuj version -g)
+          eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
           cd c_runtime
           rm -f test_exe
-          make PROFILE=debug && git diff --quiet || { git diff; false; }
-          make boehm_example PROFILE=release
-          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
+          CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" && git diff --quiet || { git diff; false; }
+          CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS"
           ./test_exe && ./boehm_example
-          make bench_exe PROFILE=release
+          CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS"
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
-          export SHA=$(./bosatsuj version -g)
           python3 - <<'PY'
           import json
           import os

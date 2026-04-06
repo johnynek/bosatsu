@@ -4844,17 +4844,17 @@ main = 1
     val privatePack = PackageName.parts("MyLib", "Private")
     val conf = LibConfig(
       name = Name("mylib"),
-      repoUri = "https://example.com",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "https://example.com",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = LibConfig.PackageFilter.Name(publicPack) :: Nil,
-      allPackages =
+      exported_packages = LibConfig.PackageFilter.Name(publicPack) :: Nil,
+      all_packages =
         LibConfig.PackageFilter.Name(publicPack) ::
           LibConfig.PackageFilter.Name(privatePack) ::
           Nil,
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
     )
 
     val publicSrc =
@@ -5033,13 +5033,14 @@ main = 1
       "Bosatsu/Json",
       "Bosatsu/Lazy",
       "Bosatsu/Num/Float64",
+      "Bosatsu/Num/Int64",
       "Bosatsu/Prog"
     ).map(packageName)
 
     val conf = LibConfig
       .init(Name("core_alpha"), "https://example.com", Version(6, 0, 0))
       .copy(
-        exportedPackages = exportedPackages.map(LibConfig.PackageFilter.Name(_))
+        exported_packages = exportedPackages.map(LibConfig.PackageFilter.Name(_))
       )
 
     val allowedSrc =
@@ -5048,11 +5049,13 @@ main = 1
 |from Bosatsu/IO/Core import core_error
 |from Bosatsu/IO/Std import std_summary
 |from Bosatsu/Json import JNull
+|from Bosatsu/Num/Int64 import int64_tag
 |from Bosatsu/Prog import Main
 |
 |_ = JNull
 |_ = std_summary
 |_ = core_error
+|_ = int64_tag
 |main = Main(1)
 |""".stripMargin
     val blockedSrc =
@@ -5171,6 +5174,15 @@ main = 1
 |export float_tag
 |
 |float_tag = 1.0
+|""".stripMargin,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") ->
+        """package Bosatsu/Num/Int64
+|
+|export Int64Tag(), int64_tag
+|
+|struct Int64Tag(value: Int)
+|
+|int64_tag = Int64Tag(64)
 |""".stripMargin,
       Chain("repo", "src", "Bosatsu", "Num", "Nat.bosatsu") ->
         """package Bosatsu/Num/Nat
