@@ -557,6 +557,9 @@ def eq_i64_opt(opt, expected: Int) -> Bool:
 bools_42 = run_Rand(sequence_Rand(replicate_List(bool_Rand, 10)), 42)
 range_42 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), 42)
 range_neg_5 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), -5)
+# The Xoshiro state transition is unchanged. These expected sequences changed
+# because bool_Rand now computes parity with popcount_Int64(i) & 1 instead of
+# the old recursive xor-based parity helper, so the derived Bool stream differs.
 geometric_42 = run_Rand(sequence_Rand(replicate_List(geometric_Int, 10)), 42)
 
 test = TestSuite("int64-eval", [
@@ -572,13 +575,13 @@ test = TestSuite("int64-eval", [
   Assertion(eq_i64_opt(float64_to_Int64(2.5), 2), "float conversion uses ties-to-even"),
   Assertion(cmp_Int64(min_i64, max_i64) matches LT, "signed comparison"),
   Assertion(bools_42 matches [False, False, True, True, False, False, False, True, True, True],
-    "bool_Rand deterministic sequence"),
+    "bool_Rand deterministic sequence after popcount parity change"),
   Assertion(range_42 matches [891, 934, 750, 416, 109],
     "int_range deterministic sequence"),
   Assertion(range_neg_5 matches [108, 345, 489, 216, 813],
     "int_range deterministic negative-seed sequence"),
   Assertion(geometric_42 matches [2, 0, 3, 0, 0, 3, 1, 2, 0, 2],
-    "geometric_Int deterministic sequence"),
+    "geometric_Int deterministic sequence after popcount parity change"),
 ])
 """
       ),
