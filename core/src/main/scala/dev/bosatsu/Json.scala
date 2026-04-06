@@ -611,15 +611,19 @@ object Json {
         from.optional[A](key)
     }
 
-    given optionJsonFieldReader: ProductFieldReader[Option[Json]] with {
+    given optionJObjectFieldReader: ProductFieldReader[Option[JObject]] with {
       def read(
           from: FromObj,
           key: String
-      ): Either[(String, Json, Path), Option[Json]] =
-        from.optional[Json](key).map {
-          case Some(obj: JObject) if obj.keys.isEmpty => None
-          case other                                  => other
+      ): Either[(String, Json, Path), Option[JObject]] = {
+        val path = from.path.key(key)
+        from.j.getOrNull(key) match {
+          case JNull                              => Right(None)
+          case obj: JObject if obj.keys.isEmpty   => Right(None)
+          case obj: JObject                       => Right(Some(obj))
+          case other                              => Left(("expected to find Json.JObject", other, path))
         }
+      }
     }
 
     given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]] with {
@@ -823,12 +827,12 @@ object Json {
         }
     }
 
-    given optionJsonFieldWriter: ProductFieldWriter[Option[Json]] with {
-      def fields(name: String, value: Option[Json]): List[(String, Json)] =
+    given optionJObjectFieldWriter: ProductFieldWriter[Option[JObject]] with {
+      def fields(name: String, value: Option[JObject]): List[(String, Json)] =
         value match {
           case None                                   => Nil
           case Some(obj: JObject) if obj.keys.isEmpty => Nil
-          case Some(item)                             => (name -> write(item)) :: Nil
+          case Some(item)                             => (name -> item) :: Nil
         }
     }
 

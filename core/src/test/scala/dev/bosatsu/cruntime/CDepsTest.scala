@@ -55,6 +55,34 @@ class CDepsTest extends munit.FunSuite {
     assertEquals(parsed.map(_.dependencies), Right(dependency :: Nil))
   }
 
+  test("manifest rejects non-object dependency options") {
+    val content =
+      """{
+        |  "schema_version": 1,
+        |  "recipe_version": 1,
+        |  "dependencies": [
+        |    {
+        |      "name": "bdwgc",
+        |      "version": "8.2.8",
+        |      "uris": [
+        |        "https://github.com/bdwgc/bdwgc/releases/download/v8.2.8/gc-8.2.8.tar.gz"
+        |      ],
+        |      "hash": "blake3:0ec0780a271850fa1640a4d97c4dd8185cddcfd1bfb2563dd8501382fb85f6a4",
+        |      "source_subdir": "gc-8.2.8",
+        |      "recipe": "bdwgc-cmake-static",
+        |      "options": true
+        |    }
+        |  ]
+        |}""".stripMargin
+
+    assert(
+      CDeps
+        .parseManifestString(content)
+        .left
+        .exists(msg => msg.contains("Json.JObject") && msg.contains("options"))
+    )
+  }
+
   test("manifest round trips through the json writer") {
     val manifest = CDeps.Manifest(1, 3, dependency :: Nil)
     val rendered = CDeps.renderManifest(manifest)

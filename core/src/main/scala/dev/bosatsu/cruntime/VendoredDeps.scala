@@ -1,7 +1,7 @@
 package dev.bosatsu.cruntime
 
 import cats.syntax.all._
-import dev.bosatsu.{Json, Nullable, PlatformIO}
+import dev.bosatsu.{Nullable, PlatformIO}
 import dev.bosatsu.Json.{JBool, JObject}
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -306,12 +306,8 @@ object VendoredDeps {
     }
   }
 
-  private def optionBool(options: Json, key: String): Option[Boolean] =
-    options match {
-      case obj: JObject =>
-        obj.toMap.get(key).collect { case JBool(value) => value }
-      case _ => None
-    }
+  private def optionBool(options: JObject, key: String): Option[Boolean] =
+    options.toMap.get(key).collect { case JBool(value) => value }
 
   private[cruntime] def staticLibFileName(
       dependency: CDeps.Dependency

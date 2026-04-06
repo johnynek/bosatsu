@@ -25,7 +25,7 @@ object CDeps {
       hash: Algo.WithAlgo[HashValue],
       source_subdir: String,
       recipe: String,
-      options: Option[Json] = None,
+      options: Option[Json.JObject] = None,
       dependencies: Option[List[String]] = None
   ) derives Json.Reader, Json.Writer
 

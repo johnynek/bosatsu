@@ -14,7 +14,7 @@ class VendoredDepsTest extends munit.FunSuite {
   private def dependency(
       name: String,
       recipe: String,
-      options: Option[Json] = None
+      options: Option[Json.JObject] = None
   ) =
     CDeps.Dependency(
       name = name,
