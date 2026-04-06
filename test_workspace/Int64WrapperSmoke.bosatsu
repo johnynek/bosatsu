@@ -1,0 +1,33 @@
+package Int64WrapperSmoke
+
+from Bosatsu/Num/Int64 import (
+  Int64,
+  eq_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  operator +,
+  operator -,
+  operator *,
+  operator /,
+  operator &,
+  operator |,
+  operator ^,
+  operator <<,
+  operator >>,
+)
+
+def int64_eq_int(value: Int64, expected: Int) -> Bool:
+  cmp_Int(int64_to_Int(value), expected) matches EQ
+
+test = TestSuite("Int64 wrapper smoke", [
+  Assertion(eq_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)), "eq_Int64 wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(2) + int_low_bits_to_Int64(3), 5), "Int64 operator + wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(2) - int_low_bits_to_Int64(3), -1), "Int64 operator - wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(3) * int_low_bits_to_Int64(7), 21), "Int64 operator * wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-5) / int_low_bits_to_Int64(3), -2), "Int64 operator / wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) & int_low_bits_to_Int64(23), 23), "Int64 operator & wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) | int_low_bits_to_Int64(23), -1), "Int64 operator | wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(-1) ^ int_low_bits_to_Int64(23), -24), "Int64 operator ^ wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(1) << 63, -9223372036854775808), "Int64 operator << wrapper"),
+  Assertion(int64_eq_int(int_low_bits_to_Int64(1) >> -63, -9223372036854775808), "Int64 operator >> wrapper"),
+])

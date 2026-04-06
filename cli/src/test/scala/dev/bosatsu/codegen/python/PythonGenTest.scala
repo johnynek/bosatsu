@@ -90,7 +90,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   def isfromString(s: String): InputStream =
     new ByteArrayInputStream(s.getBytes("UTF-8"))
 
-  private val int64Externals: Map[
+  // Jython cannot import the checked-in ProgExt.py runtime because it uses
+  // Python 3 syntax. Keep a tiny Int64-only shim here for Jython execution and
+  // cover the shipped ProgExt.py path in PythonGenJvmTest instead.
+  private val jythonInt64Externals: Map[
     (PackageName, Identifier.Bindable),
     (PythonGen.Module, Code.Ident)
   ] = {
@@ -436,7 +439,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val packMap =
         Par.noParallelism {
           val bosatsuPM = compileFile(path, extraPaths*)
-          PythonGen.renderSource(bosatsuPM, int64Externals, Map.empty)
+          PythonGen.renderSource(bosatsuPM, jythonInt64Externals, Map.empty)
         }
       val rendered = packMap(())
       val module = rendered(pn)._1
