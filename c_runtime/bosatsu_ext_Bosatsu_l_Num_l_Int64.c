@@ -174,8 +174,8 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_not__Int64(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(BValue a, BValue b) {
+  if (bsts_integer_is_zero(b)) return a;
   int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
-  if (shift_vs_zero == 0) return a;
 
   uint64_t bits = bsts_int64_to_bits(a);
   BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);
@@ -194,8 +194,8 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(BValue a, BValue b) 
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(BValue a, BValue b) {
+  if (bsts_integer_is_zero(b)) return a;
   int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
-  if (shift_vs_zero == 0) return a;
 
   uint64_t bits = bsts_int64_to_bits(a);
   BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);
@@ -216,8 +216,8 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(BValue a, BValue b)
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(BValue a, BValue b) {
+  if (bsts_integer_is_zero(b)) return a;
   int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
-  if (shift_vs_zero == 0) return a;
 
   uint64_t bits = bsts_int64_to_bits(a);
   BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);

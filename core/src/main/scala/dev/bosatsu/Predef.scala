@@ -650,12 +650,6 @@ object PredefImpl {
   object Int64Value {
     def apply(value: Long): java.lang.Long =
       java.lang.Long.valueOf(value)
-
-    def unapply(value: Any): Option[Long] =
-      value match {
-        case longValue: java.lang.Long => Some(longValue.longValue)
-        case _                         => None
-      }
   }
 
   final case class LazyCell(state: AtomicReference[Either[Value, Value]])
@@ -705,7 +699,7 @@ object PredefImpl {
 
   private def asInt64(a: Value): Long =
     a.asExternal.toAny match {
-      case Int64Value(value) => value
+      case value: java.lang.Long => value.longValue
       case other             =>
         // $COVERAGE-OFF$
         sys.error(s"expected Int64 external value, found: $other")

@@ -54,8 +54,8 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   private def int64Value(value: Value): Long =
     value match {
-      case Value.ExternalValue(PredefImpl.Int64Value(v)) => v
-      case other                                         => fail(s"expected Int64 value, found: $other")
+      case Value.ExternalValue(v: java.lang.Long) => v.longValue
+      case other                                  => fail(s"expected Int64 value, found: $other")
     }
 
   private def int64OptionValue(value: Value): Option[Long] =

@@ -1,0 +1,89 @@
+package Int64Properties
+
+from Bosatsu/Num/Int64 import (
+  Int64,
+  add_Int64,
+  cmp_Int64,
+  div_Int64,
+  eq_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  mod_Int64,
+  mul_Int64,
+  sub_Int64,
+)
+from Bosatsu/Testing/Properties import (forall_Prop, run_Prop, suite_Prop)
+from Bosatsu/Rand import (Rand, int_range, map_Rand, prod_Rand)
+
+def operator -(a, b): a.sub(b)
+def operator <<(a, b): a.shift_left_Int(b)
+
+signed64_Int: Rand[Int] =
+  int_range(1 << 64).map_Rand(i -> i - (1 << 63))
+
+small_Int: Rand[Int] =
+  int_range(1 << 20).map_Rand(i -> i - (1 << 19))
+
+rand_Int64: Rand[Int64] =
+  signed64_Int.map_Rand(int_low_bits_to_Int64)
+
+def eq_i64_int(value: Int64, expected: Int) -> Bool:
+  cmp_Int(int64_to_Int(value), expected) matches EQ
+
+int64_pair = prod_Rand(rand_Int64, rand_Int64)
+int64_triple = prod_Rand(rand_Int64, prod_Rand(rand_Int64, rand_Int64))
+small_int_pair = prod_Rand(small_Int, small_Int)
+
+all_props = suite_Prop(
+  "Int64 properties",
+  [
+    forall_Prop(int64_pair, "divmod law", ((x, y)) -> (
+      q = div_Int64(x, y)
+      r = mod_Int64(x, y)
+      recomposed = add_Int64(mul_Int64(q, y), r)
+      Assertion(eq_Int64(recomposed, x), "x = div(x, y) * y + mod(x, y)")
+    )),
+    forall_Prop(int64_pair, "addition commutativity", ((x, y)) -> (
+      Assertion(eq_Int64(add_Int64(x, y), add_Int64(y, x)), "x + y = y + x")
+    )),
+    forall_Prop(int64_triple, "addition associativity", ((x, (y, z))) -> (
+      left = add_Int64(add_Int64(x, y), z)
+      right = add_Int64(x, add_Int64(y, z))
+      Assertion(eq_Int64(left, right), "(x + y) + z = x + (y + z)")
+    )),
+    forall_Prop(int64_pair, "multiplication commutativity", ((x, y)) -> (
+      Assertion(eq_Int64(mul_Int64(x, y), mul_Int64(y, x)), "x * y = y * x")
+    )),
+    forall_Prop(int64_triple, "left distributive law", ((x, (y, z))) -> (
+      left = mul_Int64(x, add_Int64(y, z))
+      right = add_Int64(mul_Int64(x, y), mul_Int64(x, z))
+      Assertion(eq_Int64(left, right), "x * (y + z) = x * y + x * z")
+    )),
+    forall_Prop(small_int_pair, "addition homomorphism with Int", ((x, y)) -> (
+      sum = add_Int64(int_low_bits_to_Int64(x), int_low_bits_to_Int64(y))
+      Assertion(eq_i64_int(sum, x.add(y)), "int64(x + y) = int64(x) + int64(y)")
+    )),
+    forall_Prop(small_int_pair, "subtraction homomorphism with Int", ((x, y)) -> (
+      diff = sub_Int64(int_low_bits_to_Int64(x), int_low_bits_to_Int64(y))
+      Assertion(eq_i64_int(diff, x.sub(y)), "int64(x - y) = int64(x) - int64(y)")
+    )),
+    forall_Prop(small_int_pair, "multiplication homomorphism with Int", ((x, y)) -> (
+      prod = mul_Int64(int_low_bits_to_Int64(x), int_low_bits_to_Int64(y))
+      Assertion(eq_i64_int(prod, x.mul(y)), "int64(x * y) = int64(x) * int64(y)")
+    )),
+    forall_Prop(small_int_pair, "comparison and equality match Int", ((x, y)) -> (
+      xi = int_low_bits_to_Int64(x)
+      yi = int_low_bits_to_Int64(y)
+      cmp_ok = cmp_Comparison(cmp_Int64(xi, yi), cmp_Int(x, y)) matches EQ
+      eq_ok = if cmp_Int(x, y) matches EQ:
+        eq_Int64(xi, yi)
+      else:
+        not(eq_Int64(xi, yi))
+      Assertion(
+        and(cmp_ok, eq_ok),
+        "cmp_Int64 and eq_Int64 agree with Int"
+      )
+    )),
+  ])
+
+test = run_Prop(all_props, 100, 123456)

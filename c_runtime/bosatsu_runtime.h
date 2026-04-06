@@ -149,6 +149,7 @@ BValue bsts_integer_from_int64(int64_t value);
 BValue bsts_integer_from_uint64(uint64_t value);
 int32_t bsts_integer_to_int32(BValue bint);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
+_Bool bsts_integer_is_zero(BValue v);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_add(BValue left, BValue right);
