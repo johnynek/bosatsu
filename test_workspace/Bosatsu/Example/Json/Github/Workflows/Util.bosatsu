@@ -63,6 +63,8 @@ export (
   checkout_v2_fetch_depth_0_step,
   checkout_v4_fetch_depth_0_step,
   install_b3sum_step,
+  install_vendored_c_runtime_cmd,
+  install_vendored_c_runtime_node_cmd,
   tool_test_workspace_cmd,
   tool_test_workspace_node_cmd,
   node_lib_eval_run_create_mode_cmd,
@@ -304,18 +306,38 @@ run_publish_bosatsu_libs =
     "",
   ])
 
+install_vendored_c_runtime_cmd =
+  cat_lines([
+    "export SHA=$(./bosatsuj version -g)",
+    "export C_RUNTIME_ARCHIVE=\"\${RUNNER_TEMP}/bosatsu-c-runtime-\${SHA}.tar.gz\"",
+    "rm -f \"$C_RUNTIME_ARCHIVE\"",
+    "tar -czf \"$C_RUNTIME_ARCHIVE\" c_runtime",
+    "CFLAGS=\"-O1 -g\" CPPFLAGS=\"-DBSTS_CI=1\" ./bosatsuj c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",
+    "",
+  ])
+
+install_vendored_c_runtime_node_cmd =
+  cat_lines([
+    "export SHA=$(git rev-parse HEAD)",
+    "export C_RUNTIME_ARCHIVE=\"\${RUNNER_TEMP}/bosatsu-c-runtime-\${SHA}.tar.gz\"",
+    "rm -f \"$C_RUNTIME_ARCHIVE\"",
+    "tar -czf \"$C_RUNTIME_ARCHIVE\" c_runtime",
+    "./bosatsu_node c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",
+    "",
+  ])
+
 run_c_runtime_ci =
   cat_lines([
+    "export SHA=$(./bosatsuj version -g)",
+    "eval \"$(python3 scripts/c_runtime_ci_env.py --sha \"$SHA\")\"",
     "cd c_runtime",
     "rm -f test_exe",
-    "make PROFILE=debug && git diff --quiet || { git diff; false; }",
-    "make boehm_example PROFILE=release",
-    "make install PROFILE=release CFLAGS=\"-O1 -g\" CPPFLAGS=\"-DBSTS_CI=1\"",
+    "CC=\"$C_RUNTIME_CC\" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" && git diff --quiet || { git diff; false; }",
+    "CC=\"$C_RUNTIME_CC\" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\"",
     "./test_exe && ./boehm_example",
-    "make bench_exe PROFILE=release",
+    "CC=\"$C_RUNTIME_CC\" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\"",
     "./bench_exe 1000000 | tee bench_ci.txt",
     "cd ..",
-    "export SHA=$(./bosatsuj version -g)",
     "python3 - <<'PY'",
     "import json",
     "import os",

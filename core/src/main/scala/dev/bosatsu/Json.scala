@@ -611,12 +611,72 @@ object Json {
         from.optional[A](key)
     }
 
+    given optionJObjectFieldReader: ProductFieldReader[Option[JObject]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[JObject]] = {
+        val path = from.path.key(key)
+        from.j.getOrNull(key) match {
+          case JNull                              => Right(None)
+          case obj: JObject if obj.keys.isEmpty   => Right(None)
+          case obj: JObject                       => Right(Some(obj))
+          case other                              => Left(("expected to find Json.JObject", other, path))
+        }
+      }
+    }
+
+    given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[List[A]]] =
+        from.optional[List[A]](key).map(_.filter(_.nonEmpty))
+    }
+
     implicit val stringReader: Reader[String] =
       new Reader[String] {
         val describe = "String"
         def read(path: Path, j: Json): Either[(String, Json, Path), String] =
           j match {
             case JString(str) => Right(str)
+            case _            => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit val jsonReader: Reader[Json] =
+      new Reader[Json] {
+        val describe = "Json"
+        def read(path: Path, j: Json): Either[(String, Json, Path), Json] =
+          Right(j)
+      }
+
+    implicit val intReader: Reader[Int] =
+      new Reader[Int] {
+        val describe = "Int"
+        private val intMin = java.math.BigInteger.valueOf(Int.MinValue.toLong)
+        private val intMax = java.math.BigInteger.valueOf(Int.MaxValue.toLong)
+        def read(path: Path, j: Json): Either[(String, Json, Path), Int] =
+          j match {
+            case JBigInteger(bi)
+                if bi.compareTo(intMin) >= 0 && bi.compareTo(intMax) <= 0 =>
+              Right(bi.intValue)
+            case JBigInteger(bi) =>
+              Left((s"$bi cannot fit in Int", j, path))
+            case _ =>
+              Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit val boolReader: Reader[Boolean] =
+      new Reader[Boolean] {
+        val describe = "Boolean"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Boolean] =
+          j match {
+            case JBool(value) => Right(value)
             case _            => Left((s"expected to find $describe", j, path))
           }
       }
@@ -632,6 +692,24 @@ object Json {
                   Reader[A].read(path.index(idx), a)
                 }
                 .map(_.toList)
+            case _ => Left((s"expected to find $describe", j, path))
+          }
+      }
+
+    implicit def stringMapReader[A: Reader]: Reader[Map[String, A]] =
+      new Reader[Map[String, A]] {
+        val describe = s"Map[String, ${Reader[A].describe}]"
+        def read(
+            path: Path,
+            j: Json
+        ): Either[(String, Json, Path), Map[String, A]] =
+          j match {
+            case jobj: JObject =>
+              jobj.keys
+                .traverse { key =>
+                  Reader[A].read(path.key(key), jobj.toMap(key)).map(key -> _)
+                }
+                .map(_.toMap)
             case _ => Left((s"expected to find $describe", j, path))
           }
       }
@@ -749,11 +827,42 @@ object Json {
         }
     }
 
+    given optionJObjectFieldWriter: ProductFieldWriter[Option[JObject]] with {
+      def fields(name: String, value: Option[JObject]): List[(String, Json)] =
+        value match {
+          case None                                   => Nil
+          case Some(obj: JObject) if obj.keys.isEmpty => Nil
+          case Some(item)                             => (name -> item) :: Nil
+        }
+    }
+
+    given optionListFieldWriter[A: Writer]: ProductFieldWriter[Option[List[A]]] with {
+      def fields(name: String, value: Option[List[A]]): List[(String, Json)] =
+        value.filter(_.nonEmpty) match {
+          case Some(items) => (name -> write(items)) :: Nil
+          case None        => Nil
+        }
+    }
+
     implicit val stringWriter: Writer[String] =
       from(JString(_))
 
+    implicit val jsonWriter: Writer[Json] =
+      from(identity)
+
+    implicit val intWriter: Writer[Int] =
+      from(i => JNumberStr(i.toString))
+
+    implicit val boolWriter: Writer[Boolean] =
+      from(JBool(_))
+
     implicit def listWriter[A: Writer]: Writer[List[A]] =
       from(list => JArray(list.map(write(_)).toVector))
+
+    implicit def stringMapWriter[A: Writer]: Writer[Map[String, A]] =
+      from { map =>
+        JObject(map.toList.sortBy(_._1).map { case (k, v) => k -> write(v) })
+      }
 
     implicit def nullableWriter[A: Writer]: Writer[Nullable[A]] =
       from { value =>

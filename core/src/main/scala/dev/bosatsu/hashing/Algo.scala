@@ -2,6 +2,7 @@ package dev.bosatsu.hashing
 
 import cats.arrow.FunctionK
 import cats.parse.Parser
+import dev.bosatsu.Json
 import pt.kcry.blake3.{Blake3 => B3, Hasher => B3Hasher}
 
 sealed abstract class Algo[A] {
@@ -101,6 +102,12 @@ object Algo {
 
     implicit val orderingWithAlgoHash: Ordering[WithAlgo[HashValue]] =
       Ordering.by(_.toIdent)
+
+    implicit val jsonReader: Json.Reader[WithAlgo[HashValue]] =
+      Json.Reader.fromParser("Algo.WithAlgo[HashValue]", Algo.parseIdent)
+
+    implicit val jsonWriter: Json.Writer[WithAlgo[HashValue]] =
+      Json.Writer.from(withAlgo => Json.JString(withAlgo.toIdent))
   }
 
   def hashBytes[A](bytes: Array[Byte])(implicit algo: Algo[A]): HashValue[A] =
