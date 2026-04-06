@@ -788,6 +788,18 @@ object PredefImpl {
     }
   }
 
+  // Long.MaxValue.toDouble also rounds to 2^63, so the signed Int64 range is
+  // best modeled as the exact floating interval [-2^63, 2^63).
+  private val Int64LowerInclusiveDouble = Long.MinValue.toDouble
+  private val Int64UpperExclusiveDouble = -Int64LowerInclusiveDouble
+
+  private def finiteDoubleToNearestInt64(d: Double): Option[Long] = {
+    val rounded = java.lang.Math.rint(d)
+    if ((rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble))
+      None
+    else Some(rounded.toLong)
+  }
+
   private val Int64MinBI = BigInteger.valueOf(Long.MinValue)
   private val Int64MaxBI = BigInteger.valueOf(Long.MaxValue)
   private val Int64WidthBI = BigInteger.valueOf(64L)
@@ -1113,12 +1125,15 @@ object PredefImpl {
   def int64_to_Float64(a: Value): Value =
     int_to_Float64(int64_to_Int(a))
 
-  def float64_to_Int64(a: Value): Value =
-    float64_to_Int(a) match {
-      case Value.VOption(Some(intValue)) => int_to_Int64(intValue)
-      case Value.VOption(None)           => Value.VOption.none
-      case other                         => sys.error(s"type error: $other")
-    }
+  def float64_to_Int64(a: Value): Value = {
+    val value = d(a)
+    if (java.lang.Double.isFinite(value))
+      finiteDoubleToNearestInt64(value) match {
+        case Some(v) => Value.VOption.some(vi64(v))
+        case None    => Value.VOption.none
+      }
+    else Value.VOption.none
+  }
 
   def add_Int64(a: Value, b: Value): Value =
     vi64(asInt64(a).value + asInt64(b).value)

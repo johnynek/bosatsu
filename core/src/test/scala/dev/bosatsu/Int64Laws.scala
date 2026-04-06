@@ -11,6 +11,8 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   private val LongMinBI = BigInteger.valueOf(Long.MinValue)
   private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
+  private val Int64UpperExclusiveDouble = java.lang.Math.scalb(1.0d, 63)
+  private val Int64LowerInclusiveDouble = -Int64UpperExclusiveDouble
 
   private val genBoundaryBigInt: Gen[BigInteger] =
     Gen.choose(-4L, 4L).flatMap { offset =>
@@ -68,6 +70,15 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
   private def valueInt(v: BigInteger): Value =
     Value.VInt(v)
+
+  private def modelFloat64ToInt64(value: Double): Option[Long] =
+    if (!java.lang.Double.isFinite(value)) None
+    else {
+      val rounded = java.lang.Math.rint(value)
+      if ((rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble))
+        None
+      else Some(rounded.toLong)
+    }
 
   private def assertBinaryLaw(
       left: Long,
@@ -175,19 +186,25 @@ class Int64Laws extends munit.ScalaCheckSuite {
     }
   }
 
-  test("float64_to_Int64 agrees with float64_to_Int followed by int_to_Int64") {
+  test("float64_to_Int64 matches the documented rounding and signed-range contract") {
     forAll(Arbitrary.arbitrary[Long]) { bits =>
-      val floatValue = Value.VFloat(java.lang.Double.longBitsToDouble(bits))
+      val input = java.lang.Double.longBitsToDouble(bits)
+      val floatValue = Value.VFloat(input)
       val actual = int64OptionValue(PredefImpl.float64_to_Int64(floatValue))
-      val expected =
-        PredefImpl.float64_to_Int(floatValue) match {
-          case Value.VOption(Some(intValue)) =>
-            int64OptionValue(PredefImpl.int_to_Int64(intValue))
-          case Value.VOption(None) => None
-          case other               => fail(s"unexpected float64_to_Int result: $other")
-        }
+      val expected = modelFloat64ToInt64(input)
       assertEquals(actual, expected)
     }
+  }
+
+  test("float64_to_Int64 rejects 2^63 and accepts -2^63") {
+    assertEquals(
+      int64OptionValue(PredefImpl.float64_to_Int64(Value.VFloat(Int64UpperExclusiveDouble))),
+      None
+    )
+    assertEquals(
+      int64OptionValue(PredefImpl.float64_to_Int64(Value.VFloat(Int64LowerInclusiveDouble))),
+      Some(Long.MinValue)
+    )
   }
 
   test("int64_to_Float64 agrees with int_to_Float64(int64_to_Int(x))") {

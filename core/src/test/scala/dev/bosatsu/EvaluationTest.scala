@@ -562,6 +562,9 @@ geometric_42 = run_Rand(sequence_Rand(replicate_List(geometric_Int, 10)), 42)
 test = TestSuite("int64-eval", [
   Assertion(eq_i64_opt(int_to_Int64(9223372036854775807), 9223372036854775807), "checked conversion max"),
   Assertion(int_to_Int64(9223372036854775808) matches None, "checked conversion out of range"),
+  Assertion(float64_to_Int64(9223372036854775808.0) matches None, "float conversion rejects 2^63"),
+  Assertion(eq_i64_opt(float64_to_Int64(-9223372036854775808.0), -9223372036854775808),
+    "float conversion accepts -2^63"),
   Assertion(int64_to_Int(div_Int64(min_i64, int_low_bits_to_Int64(-1))) matches -9223372036854775808,
     "division overflow wraps to min_i64"),
   Assertion(int64_to_Int(shift_right_Int64(int_low_bits_to_Int64(1), -63)) matches -9223372036854775808,
@@ -580,7 +583,7 @@ test = TestSuite("int64-eval", [
 """
       ),
       "Foo",
-      10
+      12
     )
   }
 
