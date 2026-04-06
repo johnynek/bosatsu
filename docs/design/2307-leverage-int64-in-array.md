@@ -70,13 +70,16 @@ This design assumes the new `zip_*` functions truncate to the shorter visible in
 The change is correct when these properties hold, regardless of backend:
 
 - `size_Array` returns the visible array length as an exact `Int64`.
+- The shared constructible array cap is `Int.MaxValue` on JVM and Python and `INT_MAX` in the C runtime; `tabulate_Array` above that cap returns `empty_Array` on every backend.
 - `tabulate_Array(n, fn)` calls `fn` exactly once for each visible index `0 .. n - 1`, in increasing order, and never calls `fn` when `n <= 0` or when `n` is above the shared constructible array cap.
 - `get_or_Array(arr, idx, default)` returns the visible element at `idx` when `0 <= idx < size_Array(arr)`. Otherwise it calls `default` exactly once, and it passes the original requested `idx`, not a clamped value.
 - `foldl_with_index_Array` visits each visible element exactly once, from left to right, with indices `0 .. size_Array(arr) - 1`.
 - `map_with_index_Array` preserves visible length and element order, and the index seen by the mapping function is relative to the visible array view, not the underlying slice offset.
 - For sliced arrays, the first visible element always has index `0` for `get_or_Array`, `foldl_with_index_Array`, and `map_with_index_Array`. Internal `offset` is never observable in the public index.
 - `zip_map_Array`, `zip_foldl_Array`, `zip_sumf_Array`, and `dotf_Array` consume exactly `min(size_Array(left), size_Array(right))` visible pairs and never step past either visible end.
+- `zip_foldl_Array` returns its initial accumulator unchanged when the visible paired prefix has length `0`.
 - `sumf_Array`, `sumsqf_Array`, `zip_sumf_Array`, and `dotf_Array` are defined as strict left-to-right Float64 reductions. Implementations must not reorder, tree-reduce, or otherwise change the evaluation order, because that would change rounding and NaN behavior.
+- `sumf_Array` and `sumsqf_Array` return `0.0` on empty visible arrays, and `zip_sumf_Array` and `dotf_Array` return `0.0` when the visible paired prefix has length `0`.
 - The runtime-backed fast path should not materialize Bosatsu `Int` values except in deliberately retained compatibility wrappers outside the hot path.
 
 ## Runtime Architecture
@@ -91,7 +94,7 @@ The new Float64 helpers belong in `Bosatsu/Collection/Array`, not `Bosatsu/Num/F
 Implementation notes:
 
 - `size_Array` should return `PredefImpl.Int64Value(len.toLong)`.
-- `tabulate_Array` should accept an `Int64`, reject non-positive or oversized counts with `empty_Array`, and use a primitive `Int` loop counter internally.
+- `tabulate_Array` should accept an `Int64`, reject non-positive or counts above `Int.MaxValue` with `empty_Array`, and use a primitive `Int` loop counter internally.
 - `get_or_Array` should range-check the incoming `Int64` against the visible `len`, cast to `Int` only after the check, and call the fallback with the original `Int64` on miss.
 - `foldl_with_index_Array` and `map_with_index_Array` should walk the visible view with a primitive `Int` counter and construct `Int64` callback indices only at the point of calling user code.
 - `zip_*` helpers should compute `min(left.len, right.len)` once and then loop over visible offsets.
@@ -104,7 +107,7 @@ Implementation notes:
 
 - Unbox incoming `Int64` values once at the start of `tabulate_Array` and `get_or_Array`.
 - Box outgoing sizes and callback indices with the existing Int64 helpers instead of routing Array through a second runtime representation.
-- Keep the same shared constructible-length cap as the evaluator and C runtime so Python does not accidentally accept larger arrays than other backends.
+- Keep the same shared constructible-length cap as the evaluator and C runtime by rejecting counts above `Int.MaxValue`, so Python does not accidentally accept larger arrays than other backends.
 - Add direct Python codegen paths for `foldl_with_index_Array`, `map_with_index_Array`, `zip_map_Array`, `zip_foldl_Array`, `zip_sumf_Array`, `sumf_Array`, `sumsqf_Array`, and `dotf_Array`.
 
 A separate `ProgExt.py` Array implementation should not be introduced unless PythonGen proves unable to reuse the existing Int64 helpers cleanly. The current special-cased Array lowering is already the established architecture.
@@ -116,7 +119,7 @@ Implementation notes:
 
 - Keep `BSTS_Array { BValue* data; int offset; int len; }`.
 - `size_Array` returns `bsts_int64_from_int64(arr->len)`.
-- `tabulate_Array` accepts an `Int64` `BValue`, rejects non-positive or oversized counts with `empty_Array`, and passes `bsts_int64_from_int64(idx)` into the callback.
+- `tabulate_Array` accepts an `Int64` `BValue`, rejects non-positive or counts above `INT_MAX` with `empty_Array`, and passes `bsts_int64_from_int64(idx)` into the callback.
 - `get_or_Array` accepts an `Int64` index and calls the fallback with the original `Int64` on miss.
 - `foldl_with_index_Array` and `map_with_index_Array` should use the visible array view and produce relative indices from `0`.
 - `zip_*` helpers should operate on the shorter visible length and avoid intermediate pair allocations.
@@ -163,6 +166,7 @@ If the package-local Bosatsu tests in `test_workspace/Bosatsu/Collection/Array.b
 - `foldl_with_index_Array`, `map_with_index_Array`, `sumf_Array`, `sumsqf_Array`, `dotf_Array`, `zip_map_Array`, `zip_foldl_Array`, and `zip_sumf_Array` exist and match the documented semantics.
 - Public indices on visible slices are relative to the visible view and do not leak internal offsets.
 - `zip_*` and `dotf_Array` operate on the shorter visible input length.
+- `sumf_Array` and `sumsqf_Array` return `0.0` on empty visible arrays, and `zip_sumf_Array` and `dotf_Array` return `0.0` on zero-pair inputs.
 - Float64 reductions are left-to-right and backend-consistent.
 - The evaluator, Python backend, and C runtime all use the same constructible-length cap and the same miss and hit behavior for `get_or_Array`.
 - Property-check coverage exists for the semantic laws, and case-based coverage exists for boundary values, generated Python shape, package visibility, and C runtime edge cases.
