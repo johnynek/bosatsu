@@ -1,6 +1,6 @@
 package dev.bosatsu.cruntime
 
-import dev.bosatsu.Json
+import dev.bosatsu.{Json, Nullable}
 import dev.bosatsu.hashing.{Algo, HashValue}
 
 class CDepsTest extends munit.FunSuite {
@@ -19,12 +19,12 @@ class CDepsTest extends munit.FunSuite {
         "https://github.com/bdwgc/bdwgc/releases/download/v8.2.8/gc-8.2.8.tar.gz" ::
           Nil,
       hash = hash,
-      sourceSubdir = "gc-8.2.8",
+      source_subdir = "gc-8.2.8",
       recipe = CDeps.BdwgcCmakeStatic,
-      options = Json.JObject(
+      options = Some(Json.JObject(
         ("threadsafe" -> Json.JBool(true)) ::
           Nil
-      )
+      ))
     )
 
   test("manifest parses vendored dependency entries") {
@@ -50,8 +50,8 @@ class CDepsTest extends munit.FunSuite {
         |}""".stripMargin
 
     val parsed = CDeps.parseManifestString(content)
-    assertEquals(parsed.map(_.schemaVersion), Right(1))
-    assertEquals(parsed.map(_.recipeVersion), Right(1))
+    assertEquals(parsed.map(_.schema_version), Right(1))
+    assertEquals(parsed.map(_.recipe_version), Right(1))
     assertEquals(parsed.map(_.dependencies), Right(dependency :: Nil))
   }
 
@@ -66,14 +66,14 @@ class CDepsTest extends munit.FunSuite {
       CDeps.BuildContext(
         os = "Darwin",
         arch = "aarch64",
-        toolchainFamily = "Clang",
-        compilerPath = "/usr/bin/cc",
-        compilerVersion = "Apple clang version 17.0.0",
-        archiverPath = Some("/usr/bin/ar"),
-        archiverVersion = Some("Apple ar"),
+        toolchain_family = "Clang",
+        compiler_path = "/usr/bin/cc",
+        compiler_version = "Apple clang version 17.0.0",
+        archiver_path = Nullable.fromOption(Some("/usr/bin/ar")),
+        archiver_version = Nullable.fromOption(Some("Apple ar")),
         profile = "release",
-        recipeVersion = 1,
-        relevantEnv = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
+        recipe_version = 1,
+        relevant_env = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
       )
     val sameCtx =
       baseCtx.copy(
@@ -94,14 +94,14 @@ class CDepsTest extends munit.FunSuite {
       CDeps.BuildContext(
         os = "macos",
         arch = "arm64",
-        toolchainFamily = "clang",
-        compilerPath = "/usr/bin/cc",
-        compilerVersion = "Apple clang version 17.0.0",
-        archiverPath = Some("/usr/bin/ar"),
-        archiverVersion = Some("Apple ar"),
+        toolchain_family = "clang",
+        compiler_path = "/usr/bin/cc",
+        compiler_version = "Apple clang version 17.0.0",
+        archiver_path = Nullable.fromOption(Some("/usr/bin/ar")),
+        archiver_version = Nullable.fromOption(Some("Apple ar")),
         profile = "release",
-        recipeVersion = 1,
-        relevantEnv = Map.empty
+        recipe_version = 1,
+        relevant_env = Map.empty
       )
 
     val dep =
@@ -171,20 +171,20 @@ class CDepsTest extends munit.FunSuite {
   test("metadata round trips with runtime requirements") {
     val metadata =
       CDeps.Metadata(
-        schemaVersion = 1,
+        schema_version = 1,
         name = "bdwgc",
         version = "8.2.8",
         recipe = CDeps.BdwgcCmakeStatic,
-        sourceHash = hash.toIdent,
-        buildKey = "abc123",
-        dependencies = Nil,
+        source_hash = hash.toIdent,
+        build_key = "abc123",
+        dependencies = None,
         target =
           CDeps.Target("macos", "arm64", "clang", "Apple clang version 17.0.0"),
         prefix = "/tmp/prefix",
-        includeDirs = "/tmp/prefix/include" :: Nil,
-        staticLibs = "/tmp/prefix/lib/libgc.a" :: Nil,
-        systemLinkFlags = "-lm" :: Nil,
-        runtimeRequirements =
+        include_dirs = "/tmp/prefix/include" :: Nil,
+        static_libs = "/tmp/prefix/lib/libgc.a" :: Nil,
+        system_link_flags = "-lm" :: Nil,
+        runtime_requirements =
           CDeps.RuntimeRequirements("-DGC_THREADS" :: Nil, Nil)
       )
 

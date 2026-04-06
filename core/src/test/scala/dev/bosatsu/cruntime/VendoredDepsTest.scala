@@ -14,14 +14,14 @@ class VendoredDepsTest extends munit.FunSuite {
   private def dependency(
       name: String,
       recipe: String,
-      options: Json = Json.JObject(Nil)
+      options: Option[Json] = None
   ) =
     CDeps.Dependency(
       name = name,
       version = "1.0.0",
       uris = "https://example.com/src.tar.gz" :: Nil,
       hash = hash,
-      sourceSubdir = "src",
+      source_subdir = "src",
       recipe = recipe,
       options = options
     )
@@ -52,7 +52,7 @@ class VendoredDepsTest extends munit.FunSuite {
       dependency(
         "bdwgc",
         CDeps.BdwgcCmakeStatic,
-        Json.JObject(("threadsafe" -> Json.JBool(true)) :: Nil)
+        Some(Json.JObject(("threadsafe" -> Json.JBool(true)) :: Nil))
       )
 
     assertEquals(

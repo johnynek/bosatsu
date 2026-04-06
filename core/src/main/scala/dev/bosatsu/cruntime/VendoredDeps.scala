@@ -1,7 +1,7 @@
 package dev.bosatsu.cruntime
 
 import cats.syntax.all._
-import dev.bosatsu.{Json, PlatformIO}
+import dev.bosatsu.{Json, Nullable, PlatformIO}
 import dev.bosatsu.Json.{JBool, JObject}
 import dev.bosatsu.tool.CliException
 import org.typelevel.paiges.Doc
@@ -21,17 +21,17 @@ object VendoredDeps {
   ) {
     def runtimeCppFlags: List[String] =
       resolved
-        .flatMap(_.metadata.runtimeRequirements.bosatsuRuntimeCppflags)
+        .flatMap(_.metadata.runtime_requirements.bosatsu_runtime_cppflags)
         .distinct
 
     def includeFlags: List[String] =
       resolved
-        .flatMap(_.metadata.includeDirs.map("-I" + _))
+        .flatMap(_.metadata.include_dirs.map("-I" + _))
         .distinct
 
     def linkFlags: List[String] =
       resolved
-        .flatMap(rd => rd.metadata.staticLibs ::: rd.metadata.systemLinkFlags)
+        .flatMap(rd => rd.metadata.static_libs ::: rd.metadata.system_link_flags)
         .distinct
   }
 
@@ -75,7 +75,7 @@ object VendoredDeps {
             )
           case Right(ordered) =>
             for {
-              context <- buildContext(manifest.recipeVersion, profile)(platformIO)
+              context <- buildContext(manifest.recipe_version, profile)(platformIO)
               resolved <- ordered.foldLeftM(
                 (List.empty[ResolvedDependency[P]], Map.empty[String, ResolvedDependency[P]])
               ) { case ((acc, byName), dependency) =>
@@ -217,26 +217,26 @@ object VendoredDeps {
       systemLinkFlags <- systemLinkFlagsFor(dependency, installedPrefix)(platformIO)
       normalizedOs = CDeps.normalizeOs(context.os)
       normalizedArch = CDeps.normalizeArch(context.arch)
-      normalizedFamily = CDeps.normalizeToolchainFamily(context.toolchainFamily)
+      normalizedFamily = CDeps.normalizeToolchainFamily(context.toolchain_family)
       metadata = CDeps.Metadata(
-        schemaVersion = CDeps.SchemaVersion,
+        schema_version = CDeps.SchemaVersion,
         name = dependency.name,
         version = dependency.version,
         recipe = dependency.recipe,
-        sourceHash = dependency.hash.toIdent,
-        buildKey = buildKey,
-        dependencies = dependency.dependencyNames,
+        source_hash = dependency.hash.toIdent,
+        build_key = buildKey,
+        dependencies = dependency.dependencies,
         target = CDeps.Target(
           normalizedOs,
           normalizedArch,
           normalizedFamily,
-          context.compilerVersion.trim
+          context.compiler_version.trim
         ),
         prefix = platformIO.pathToString(recordedPrefix),
-        includeDirs = platformIO.pathToString(recordedIncludeDir) :: Nil,
-        staticLibs = platformIO.pathToString(recordedStaticLib) :: Nil,
-        systemLinkFlags = systemLinkFlags,
-        runtimeRequirements = runtimeRequirementsFor(dependency)
+        include_dirs = platformIO.pathToString(recordedIncludeDir) :: Nil,
+        static_libs = platformIO.pathToString(recordedStaticLib) :: Nil,
+        system_link_flags = systemLinkFlags,
+        runtime_requirements = runtimeRequirementsFor(dependency)
       )
     } yield metadata
   }
@@ -269,7 +269,8 @@ object VendoredDeps {
     import platformIO.moduleIOMonad
 
     val threadsafe =
-      optionBool(dependency.optionsJson, "threadsafe").getOrElse(true)
+      optionBool(dependency.options.getOrElse(JObject(Nil)), "threadsafe")
+        .getOrElse(true)
 
     if (!threadsafe)
       platformIO.moduleIOMonad.raiseError(
@@ -326,7 +327,8 @@ object VendoredDeps {
   ): CDeps.RuntimeRequirements =
     dependency.recipe match {
       case CDeps.BdwgcCmakeStatic
-          if optionBool(dependency.optionsJson, "threadsafe").getOrElse(true) =>
+          if optionBool(dependency.options.getOrElse(JObject(Nil)), "threadsafe")
+            .getOrElse(true) =>
         CDeps.RuntimeRequirements(
           "-DGC_THREADS" :: Nil,
           "-DGC_THREADS" :: Nil
@@ -394,14 +396,14 @@ object VendoredDeps {
     } yield CDeps.BuildContext(
       os = CDeps.normalizeOs(hostOs),
       arch = CDeps.normalizeArch(hostArch),
-      toolchainFamily = toolchainFamily,
-      compilerPath = compilerPath,
-      compilerVersion = compilerVersion,
-      archiverPath = archiverPath,
-      archiverVersion = archiverVersion,
+      toolchain_family = toolchainFamily,
+      compiler_path = compilerPath,
+      compiler_version = compilerVersion,
+      archiver_path = Nullable.fromOption(archiverPath),
+      archiver_version = Nullable.fromOption(archiverVersion),
       profile = profile,
-      recipeVersion = recipeVersion,
-      relevantEnv = envPairs.flatten.toMap
+      recipe_version = recipeVersion,
+      relevant_env = envPairs.flatten.toMap
     )
   }
 
@@ -478,7 +480,7 @@ object VendoredDeps {
     import platformIO.moduleIOMonad
 
     val sourceBase = sourceCacheDir(repoRoot, dependency)(platformIO)
-    val sourceRoot = platformIO.resolve(sourceBase, dependency.sourceSubdir)
+    val sourceRoot = platformIO.resolve(sourceBase, dependency.source_subdir)
 
     platformIO.fsDataType(sourceRoot).flatMap {
       case Some(PlatformIO.FSDataType.Dir) =>
@@ -495,7 +497,7 @@ object VendoredDeps {
                 _ <- ensureDir(publishRoot)(platformIO)
                 _ <- extractArchive(archivePath, publishRoot)(platformIO)
                 _ <- requireDir(
-                  platformIO.resolve(publishRoot, dependency.sourceSubdir),
+                  platformIO.resolve(publishRoot, dependency.source_subdir),
                   s"extracted source root for ${dependency.name}"
                 )(platformIO)
                 _ <- moveDirectory(publishRoot, sourceBase)(platformIO)
@@ -548,8 +550,8 @@ object VendoredDeps {
         .handleError(_ => false)
 
     val checks =
-      metadata.includeDirs.traverse(exists) ::
-        metadata.staticLibs.traverse(exists) ::
+      metadata.include_dirs.traverse(exists) ::
+        metadata.static_libs.traverse(exists) ::
         Nil
 
     checks.sequence.map(_.flatten.forall(identity)).handleError(_ => false)
@@ -635,13 +637,13 @@ object VendoredDeps {
       if (seen.contains(name)) Nil
       else
         resolvedDependencies.get(name).toList.flatMap { resolved =>
-          resolved.buildKey :: resolved.dependency.dependencyNames.flatMap {
+          resolved.buildKey :: resolved.dependency.dependencies.getOrElse(Nil).flatMap {
             depName =>
             loop(depName, seen + name)
           }
         }
 
-    dependency.dependencyNames.flatMap(depName => loop(depName, Set.empty)).distinct
+    dependency.dependencies.getOrElse(Nil).flatMap(depName => loop(depName, Set.empty)).distinct
   }
 
   private def writeMetadata[F[_], P](

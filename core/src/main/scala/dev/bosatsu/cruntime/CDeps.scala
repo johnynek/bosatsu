@@ -2,7 +2,7 @@ package dev.bosatsu.cruntime
 
 import cats.syntax.all._
 import dev.bosatsu.{Json, Nullable}
-import dev.bosatsu.Json.{JObject, JString, Reader, Writer}
+import dev.bosatsu.Json.{Reader, Writer}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import java.nio.charset.StandardCharsets
 
@@ -12,64 +12,11 @@ object CDeps {
   final val BdwgcCmakeStatic = "bdwgc-cmake-static"
   final val LibuvCmakeStatic = "libuv-cmake-static"
 
-  implicit val hashReader: Reader[Algo.WithAlgo[HashValue]] =
-    Reader
-      .fromParser("Algo.WithAlgo[HashValue]", Algo.parseIdent)
-
-  implicit val hashWriter: Writer[Algo.WithAlgo[HashValue]] =
-    Writer.from(h => JString(h.toIdent))
-
-  given optionsFieldReader: Reader.ProductFieldReader[Option[Json]] with {
-    def read(
-        from: Reader.FromObj,
-        key: String
-    ): Either[(String, Json, Json.Path), Option[Json]] =
-      from.optional[Json](key).map {
-        case Some(obj: JObject) if obj.keys.isEmpty => None
-        case other                                  => other
-      }
-  }
-
-  given optionsFieldWriter: Writer.ProductFieldWriter[Option[Json]] with {
-    def fields(name: String, value: Option[Json]): List[(String, Json)] =
-      value match {
-        case None                                   => Nil
-        case Some(obj: JObject) if obj.keys.isEmpty => Nil
-        case Some(other)                            => (name -> Writer.write(other)) :: Nil
-      }
-  }
-
-  given dependencyListFieldReader: Reader.ProductFieldReader[
-    Option[List[String]]
-  ] with {
-    def read(
-        from: Reader.FromObj,
-        key: String
-    ): Either[(String, Json, Json.Path), Option[List[String]]] =
-      from.optional[List[String]](key).map(_.filter(_.nonEmpty))
-  }
-
-  given dependencyListFieldWriter: Writer.ProductFieldWriter[
-    Option[List[String]]
-  ] with {
-    def fields(
-        name: String,
-        value: Option[List[String]]
-    ): List[(String, Json)] =
-      value.filter(_.nonEmpty) match {
-        case Some(items) => (name -> Writer.write(items)) :: Nil
-        case None        => Nil
-      }
-  }
-
   final case class Manifest(
       schema_version: Int,
       recipe_version: Int,
       dependencies: List[Dependency]
-  ) derives Json.Reader, Json.Writer {
-    def schemaVersion: Int = schema_version
-    def recipeVersion: Int = recipe_version
-  }
+  ) derives Json.Reader, Json.Writer
 
   final case class Dependency(
       name: String,
@@ -80,71 +27,7 @@ object CDeps {
       recipe: String,
       options: Option[Json] = None,
       dependencies: Option[List[String]] = None
-  ) derives Json.Reader, Json.Writer {
-    def sourceSubdir: String = source_subdir
-    def optionsJson: Json = options.getOrElse(Json.JObject(Nil))
-    def dependencyNames: List[String] = dependencies.getOrElse(Nil)
-  }
-
-  object Dependency {
-    def apply(
-        name: String,
-        version: String,
-        uris: List[String],
-        hash: Algo.WithAlgo[HashValue],
-        sourceSubdir: String,
-        recipe: String,
-        options: Json,
-        dependencies: List[String]
-    ): Dependency =
-      new Dependency(
-        name = name,
-        version = version,
-        uris = uris,
-        hash = hash,
-        source_subdir = sourceSubdir,
-        recipe = recipe,
-        options = options match {
-          case obj: JObject if obj.keys.isEmpty => None
-          case Json.JNull                       => None
-          case other                            => Some(other)
-        },
-        dependencies = dependencies match {
-          case Nil   => None
-          case items => Some(items)
-        }
-      )
-
-    def apply(
-        name: String,
-        version: String,
-        uris: List[String],
-        hash: Algo.WithAlgo[HashValue],
-        sourceSubdir: String,
-        recipe: String,
-        options: Json
-    ): Dependency =
-      apply(name, version, uris, hash, sourceSubdir, recipe, options, Nil)
-
-    def apply(
-        name: String,
-        version: String,
-        uris: List[String],
-        hash: Algo.WithAlgo[HashValue],
-        sourceSubdir: String,
-        recipe: String
-    ): Dependency =
-      apply(
-        name,
-        version,
-        uris,
-        hash,
-        sourceSubdir,
-        recipe,
-        Json.JObject(Nil),
-        Nil
-      )
-  }
+  ) derives Json.Reader, Json.Writer
 
   final case class BuildContext(
       os: String,
@@ -157,60 +40,19 @@ object CDeps {
       profile: String,
       recipe_version: Int,
       relevant_env: Map[String, String]
-  ) derives Json.Writer {
-    def toolchainFamily: String = toolchain_family
-    def compilerPath: String = compiler_path
-    def compilerVersion: String = compiler_version
-    def archiverPath: Option[String] = archiver_path.toOption
-    def archiverVersion: Option[String] = archiver_version.toOption
-    def recipeVersion: Int = recipe_version
-    def relevantEnv: Map[String, String] = relevant_env
-  }
-
-  object BuildContext {
-    def apply(
-        os: String,
-        arch: String,
-        toolchainFamily: String,
-        compilerPath: String,
-        compilerVersion: String,
-        archiverPath: Option[String],
-        archiverVersion: Option[String],
-        profile: String,
-        recipeVersion: Int,
-        relevantEnv: Map[String, String]
-    ): BuildContext =
-      new BuildContext(
-        os = os,
-        arch = arch,
-        toolchain_family = toolchainFamily,
-        compiler_path = compilerPath,
-        compiler_version = compilerVersion,
-        archiver_path = Nullable.fromOption(archiverPath),
-        archiver_version = Nullable.fromOption(archiverVersion),
-        profile = profile,
-        recipe_version = recipeVersion,
-        relevant_env = relevantEnv
-      )
-  }
+  ) derives Json.Writer
 
   final case class Target(
       os: String,
       arch: String,
       toolchain_family: String,
       toolchain_version: String
-  ) derives Json.Reader, Json.Writer {
-    def toolchainFamily: String = toolchain_family
-    def toolchainVersion: String = toolchain_version
-  }
+  ) derives Json.Reader, Json.Writer
 
   final case class RuntimeRequirements(
       bosatsu_runtime_cppflags: List[String],
       generated_c_cppflags: List[String]
-  ) derives Json.Reader, Json.Writer {
-    def bosatsuRuntimeCppflags: List[String] = bosatsu_runtime_cppflags
-    def generatedCCppflags: List[String] = generated_c_cppflags
-  }
+  ) derives Json.Reader, Json.Writer
 
   final case class Metadata(
       schema_version: Int,
@@ -226,52 +68,7 @@ object CDeps {
       static_libs: List[String],
       system_link_flags: List[String],
       runtime_requirements: RuntimeRequirements
-  ) derives Json.Reader, Json.Writer {
-    def schemaVersion: Int = schema_version
-    def sourceHash: String = source_hash
-    def buildKey: String = build_key
-    def dependencyNames: List[String] = dependencies.getOrElse(Nil)
-    def includeDirs: List[String] = include_dirs
-    def staticLibs: List[String] = static_libs
-    def systemLinkFlags: List[String] = system_link_flags
-    def runtimeRequirements: RuntimeRequirements = runtime_requirements
-  }
-
-  object Metadata {
-    def apply(
-        schemaVersion: Int,
-        name: String,
-        version: String,
-        recipe: String,
-        sourceHash: String,
-        buildKey: String,
-        dependencies: List[String],
-        target: Target,
-        prefix: String,
-        includeDirs: List[String],
-        staticLibs: List[String],
-        systemLinkFlags: List[String],
-        runtimeRequirements: RuntimeRequirements
-    ): Metadata =
-      new Metadata(
-        schema_version = schemaVersion,
-        name = name,
-        version = version,
-        recipe = recipe,
-        source_hash = sourceHash,
-        build_key = buildKey,
-        dependencies = dependencies match {
-          case Nil   => None
-          case items => Some(items)
-        },
-        target = target,
-        prefix = prefix,
-        include_dirs = includeDirs,
-        static_libs = staticLibs,
-        system_link_flags = systemLinkFlags,
-        runtime_requirements = runtimeRequirements
-      )
-  }
+  ) derives Json.Reader, Json.Writer
 
   private final case class BuildKeyInput(
       name: String,
@@ -321,14 +118,14 @@ object CDeps {
       dependency.version,
       dependency.hash.toIdent,
       dependency.recipe,
-      context.recipeVersion,
-      dependency.dependencyNames.sorted,
+      context.recipe_version,
+      dependency.dependencies.getOrElse(Nil).sorted,
       transitiveBuildKeys.sorted,
       context.copy(
         os = normalizeOs(context.os),
         arch = normalizeArch(context.arch),
-        toolchain_family = normalizeToolchainFamily(context.toolchainFamily),
-        relevant_env = context.relevantEnv.toList.sortBy(_._1).toMap
+        toolchain_family = normalizeToolchainFamily(context.toolchain_family),
+        relevant_env = context.relevant_env.toList.sortBy(_._1).toMap
       )
     )
     Algo
@@ -375,7 +172,7 @@ object CDeps {
             val cycle = (dep.name :: active).reverse.mkString(" -> ")
             Left(s"dependency cycle detected: $cycle")
           } else {
-            dep.dependencyNames.foldLeft[Either[String, Unit]](Right(())) {
+            dep.dependencies.getOrElse(Nil).foldLeft[Either[String, Unit]](Right(())) {
               case (acc, depName) =>
                 acc.flatMap { _ =>
                   byName.get(depName) match {

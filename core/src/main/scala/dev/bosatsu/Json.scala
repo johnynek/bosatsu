@@ -611,6 +611,25 @@ object Json {
         from.optional[A](key)
     }
 
+    given optionJsonFieldReader: ProductFieldReader[Option[Json]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[Json]] =
+        from.optional[Json](key).map {
+          case Some(obj: JObject) if obj.keys.isEmpty => None
+          case other                                  => other
+        }
+    }
+
+    given optionListFieldReader[A: Reader]: ProductFieldReader[Option[List[A]]] with {
+      def read(
+          from: FromObj,
+          key: String
+      ): Either[(String, Json, Path), Option[List[A]]] =
+        from.optional[List[A]](key).map(_.filter(_.nonEmpty))
+    }
+
     implicit val stringReader: Reader[String] =
       new Reader[String] {
         val describe = "String"
@@ -801,6 +820,23 @@ object Json {
         value match {
           case Some(item) => (name -> write(item)) :: Nil
           case None       => Nil
+        }
+    }
+
+    given optionJsonFieldWriter: ProductFieldWriter[Option[Json]] with {
+      def fields(name: String, value: Option[Json]): List[(String, Json)] =
+        value match {
+          case None                                   => Nil
+          case Some(obj: JObject) if obj.keys.isEmpty => Nil
+          case Some(item)                             => (name -> write(item)) :: Nil
+        }
+    }
+
+    given optionListFieldWriter[A: Writer]: ProductFieldWriter[Option[List[A]]] with {
+      def fields(name: String, value: Option[List[A]]): List[(String, Json)] =
+        value.filter(_.nonEmpty) match {
+          case Some(items) => (name -> write(items)) :: Nil
+          case None        => Nil
         }
     }
 
