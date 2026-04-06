@@ -149,6 +149,15 @@ BValue bsts_integer_from_int64(int64_t value);
 BValue bsts_integer_from_uint64(uint64_t value);
 int32_t bsts_integer_to_int32(BValue bint);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
+// Integer-specific helper: callers must already know the value is an Integer.
+static inline _Bool bsts_integer_is_small(BValue value) {
+  return (value & (BValue)((uintptr_t)0x3)) == (BValue)((uintptr_t)0x1);
+}
+// Integer-specific helper: callers must already know the value is a small Integer.
+static inline int64_t bsts_integer_small_value(BValue value) {
+  return ((int64_t)value) >> 2;
+}
+int bsts_integer_cmp_zero(BValue v);
 _Bool bsts_integer_is_zero(BValue v);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer

@@ -74,6 +74,11 @@ static uint32_t bsts_int64_popcount_bits(uint64_t bits) {
 #endif
 }
 
+static BValue bsts_int64_sign_fill(uint64_t bits) {
+  return bsts_int64_from_bits(
+      (bits & UINT64_C(0x8000000000000000)) ? UINT64_MAX : UINT64_C(0));
+}
+
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_min__i64() {
   return bsts_int64_from_int64(INT64_MIN);
 }
@@ -174,63 +179,76 @@ BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_not__Int64(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(BValue a, BValue b) {
-  if (bsts_integer_is_zero(b)) return a;
-  int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
+  if (bsts_integer_is_small(b)) {
+    int64_t shift = bsts_integer_small_value(b);
+    if (shift == 0) return a;
 
-  uint64_t bits = bsts_int64_to_bits(a);
-  BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);
-  if (bsts_integer_cmp(shift, bsts_integer_from_int(64)) >= 0) {
-    if (shift_vs_zero > 0) return bsts_int64_from_int64(0);
-    return bsts_int64_from_bits(
-        (bits & UINT64_C(0x8000000000000000)) ? UINT64_MAX : UINT64_C(0));
-  }
-
-  uint32_t shift_count = (uint32_t)bsts_integer_to_int32(shift);
-  if (shift_vs_zero > 0) {
-    return bsts_int64_from_bits(bits << shift_count);
-  }
-  return bsts_int64_from_bits(
-      bsts_int64_arithmetic_shift_right_bits(bits, shift_count));
-}
-
-BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(BValue a, BValue b) {
-  if (bsts_integer_is_zero(b)) return a;
-  int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
-
-  uint64_t bits = bsts_int64_to_bits(a);
-  BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);
-  if (bsts_integer_cmp(shift, bsts_integer_from_int(64)) >= 0) {
-    if (shift_vs_zero > 0) {
-      return bsts_int64_from_bits(
-          (bits & UINT64_C(0x8000000000000000)) ? UINT64_MAX : UINT64_C(0));
+    uint64_t bits = bsts_int64_to_bits(a);
+    if (shift > 0) {
+      if (shift >= 64) return bsts_int64_from_int64(0);
+      return bsts_int64_from_bits(bits << (uint32_t)shift);
     }
-    return bsts_int64_from_int64(0);
-  }
 
-  uint32_t shift_count = (uint32_t)bsts_integer_to_int32(shift);
-  if (shift_vs_zero > 0) {
+    uint32_t shift_count = (uint32_t)(-shift);
+    if (shift_count >= 64U) return bsts_int64_sign_fill(bits);
     return bsts_int64_from_bits(
         bsts_int64_arithmetic_shift_right_bits(bits, shift_count));
   }
-  return bsts_int64_from_bits(bits << shift_count);
+
+  int shift_vs_zero = bsts_integer_cmp_zero(b);
+  if (shift_vs_zero == 0) return a;
+
+  // Canonical integers use the small encoding for every value in [-2^61, 2^61 - 1].
+  // If a shift count isn't small, its magnitude is already > 63 and the Int64
+  // shift saturates immediately.
+  if (shift_vs_zero > 0) return bsts_int64_from_int64(0);
+  return bsts_int64_sign_fill(bsts_int64_to_bits(a));
+}
+
+BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(BValue a, BValue b) {
+  if (bsts_integer_is_small(b)) {
+    int64_t shift = bsts_integer_small_value(b);
+    if (shift == 0) return a;
+
+    uint64_t bits = bsts_int64_to_bits(a);
+    if (shift > 0) {
+      if (shift >= 64) return bsts_int64_sign_fill(bits);
+      return bsts_int64_from_bits(
+          bsts_int64_arithmetic_shift_right_bits(bits, (uint32_t)shift));
+    }
+
+    uint32_t shift_count = (uint32_t)(-shift);
+    if (shift_count >= 64U) return bsts_int64_from_int64(0);
+    return bsts_int64_from_bits(bits << shift_count);
+  }
+
+  int shift_vs_zero = bsts_integer_cmp_zero(b);
+  if (shift_vs_zero == 0) return a;
+  if (shift_vs_zero > 0) {
+    return bsts_int64_sign_fill(bsts_int64_to_bits(a));
+  }
+  return bsts_int64_from_int64(0);
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(BValue a, BValue b) {
-  if (bsts_integer_is_zero(b)) return a;
-  int shift_vs_zero = bsts_integer_cmp(b, bsts_integer_from_int(0));
+  if (bsts_integer_is_small(b)) {
+    int64_t shift = bsts_integer_small_value(b);
+    if (shift == 0) return a;
 
-  uint64_t bits = bsts_int64_to_bits(a);
-  BValue shift = (shift_vs_zero > 0) ? b : bsts_integer_negate(b);
-  if (bsts_integer_cmp(shift, bsts_integer_from_int(64)) >= 0) {
-    return bsts_int64_from_int64(0);
+    uint64_t bits = bsts_int64_to_bits(a);
+    if (shift > 0) {
+      if (shift >= 64) return bsts_int64_from_int64(0);
+      return bsts_int64_from_bits(
+          bsts_int64_logical_shift_right_bits(bits, (uint32_t)shift));
+    }
+
+    uint32_t shift_count = (uint32_t)(-shift);
+    if (shift_count >= 64U) return bsts_int64_from_int64(0);
+    return bsts_int64_from_bits(bits << shift_count);
   }
 
-  uint32_t shift_count = (uint32_t)bsts_integer_to_int32(shift);
-  if (shift_vs_zero > 0) {
-    return bsts_int64_from_bits(
-        bsts_int64_logical_shift_right_bits(bits, shift_count));
-  }
-  return bsts_int64_from_bits(bits << shift_count);
+  if (bsts_integer_cmp_zero(b) == 0) return a;
+  return bsts_int64_from_int64(0);
 }
 
 BValue ___bsts_g_Bosatsu_l_Num_l_Int64_l_popcount__Int64(BValue a) {

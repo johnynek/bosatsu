@@ -818,6 +818,35 @@ void test_int64() {
           bsts_integer_from_int(-63)),
       UINT64_C(0x8000000000000000),
       "negative unsigned right shift becomes wrapped left shift");
+  {
+    BValue huge_shift =
+        bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(70));
+    BValue huge_neg_shift = bsts_integer_negate(huge_shift);
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(1),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge left shift clears the value");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(-1),
+            huge_neg_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge negative left shift sign-fills");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+            bsts_int64_from_int64(-1),
+            huge_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge right shift keeps the sign bit");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+            bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge unsigned right shift clears the value");
+  }
   assert_int_string(
       ___bsts_g_Bosatsu_l_Num_l_Int64_l_popcount__Int64(
           bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),

@@ -2636,19 +2636,18 @@ BSTS_Int_Div_Mod bsts_integer_divmod_pos(BSTS_Int_Operand l_op, BSTS_Int_Operand
 }
 
 _Bool bsts_integer_is_zero(BValue v) {
-  _Bool is_zero;
+  return bsts_integer_cmp_zero(v) == 0;
+}
+
+int bsts_integer_cmp_zero(BValue v) {
   if (IS_SMALL(v)) {
-      // zero is encoded as just the pure value tag
-      is_zero = (v == (BValue)PURE_VALUE_TAG);
-  } else {
-      BSTS_Integer* m_big = GET_BIG_INT(v);
-      is_zero = 1;
-      for (size_t i = 0; i < m_big->len; i++) {
-          if (m_big->words[i] != 0) { is_zero = 0; break; }
-      }
+    int64_t small = GET_SMALL_INT(v);
+    return (small > 0) - (small < 0);
   }
 
-  return is_zero;
+  // Canonical integers never heap-allocate zero or any small-magnitude value.
+  BSTS_Integer* integer = GET_BIG_INT(v);
+  return integer->sign ? -1 : 1;
 }
 
 // (&Integer, &Integer) -> (Integer, Integer)
