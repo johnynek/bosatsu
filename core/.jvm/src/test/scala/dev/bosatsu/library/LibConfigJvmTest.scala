@@ -37,6 +37,7 @@ class LibConfigJvmTest extends munit.FunSuite {
       "Bosatsu/Json",
       "Bosatsu/Lazy",
       "Bosatsu/Num/Float64",
+      "Bosatsu/Num/Int64",
       "Bosatsu/Prog"
     ).map(packageName)
 

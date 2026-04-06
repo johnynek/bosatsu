@@ -513,6 +513,83 @@ test = TestSuite("float64_to_String", [
     )
   }
 
+  test("test Int64 functions and Rand outputs") {
+    val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+    val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+    val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
+    val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
+    val binNatPack = Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
+
+    runBosatsuTest(
+      List(
+        float64Pack,
+        int64Pack,
+        natPack,
+        binNatPack,
+        randPack,
+        """
+package Foo
+
+from Bosatsu/Num/Int64 import (
+  cmp_Int64,
+  div_Int64,
+  float64_to_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+  max_i64,
+  min_i64,
+  shift_right_Int64,
+)
+from Bosatsu/Rand import (
+  bool_Rand,
+  geometric_Int,
+  int_range,
+  run_Rand,
+  sequence_Rand,
+)
+
+def eq_i64_opt(opt, expected: Int) -> Bool:
+  match opt:
+    case Some(v): cmp_Int(int64_to_Int(v), expected) matches EQ
+    case None: False
+
+bools_42 = run_Rand(sequence_Rand(replicate_List(bool_Rand, 10)), 42)
+range_42 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), 42)
+range_neg_5 = run_Rand(sequence_Rand(replicate_List(int_range(1000), 5)), -5)
+# The Xoshiro state transition is unchanged. These expected sequences changed
+# because bool_Rand now computes parity with popcount_Int64(i) & 1 instead of
+# the old recursive xor-based parity helper, so the derived Bool stream differs.
+geometric_42 = run_Rand(sequence_Rand(replicate_List(geometric_Int, 10)), 42)
+
+test = TestSuite("int64-eval", [
+  Assertion(eq_i64_opt(int_to_Int64(9223372036854775807), 9223372036854775807), "checked conversion max"),
+  Assertion(int_to_Int64(9223372036854775808) matches None, "checked conversion out of range"),
+  Assertion(float64_to_Int64(9223372036854775808.0) matches None, "float conversion rejects 2^63"),
+  Assertion(eq_i64_opt(float64_to_Int64(-9223372036854775808.0), -9223372036854775808),
+    "float conversion accepts -2^63"),
+  Assertion(int64_to_Int(div_Int64(min_i64, int_low_bits_to_Int64(-1))) matches -9223372036854775808,
+    "division overflow wraps to min_i64"),
+  Assertion(int64_to_Int(shift_right_Int64(int_low_bits_to_Int64(1), -63)) matches -9223372036854775808,
+    "negative right shift becomes wrapped left shift"),
+  Assertion(eq_i64_opt(float64_to_Int64(2.5), 2), "float conversion uses ties-to-even"),
+  Assertion(cmp_Int64(min_i64, max_i64) matches LT, "signed comparison"),
+  Assertion(bools_42 matches [False, False, True, True, False, False, False, True, True, True],
+    "bool_Rand deterministic sequence after popcount parity change"),
+  Assertion(range_42 matches [891, 934, 750, 416, 109],
+    "int_range deterministic sequence"),
+  Assertion(range_neg_5 matches [108, 345, 489, 216, 813],
+    "int_range deterministic negative-seed sequence"),
+  Assertion(geometric_42 matches [2, 0, 3, 0, 0, 3, 1, 2, 0, 2],
+    "geometric_Int deterministic sequence after popcount parity change"),
+])
+"""
+      ),
+      "Foo",
+      12
+    )
+  }
+
   test("use range") {
     evalTest(
       List("""
@@ -3562,6 +3639,7 @@ main = Main(args -> (
       val optionPack = Predef.loadFileInCompile("test_workspace/Option.bosatsu")
       val propertiesPack =
         Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
+      val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
       val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
       val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
       val binNatPack =
@@ -3662,6 +3740,7 @@ main = Main(_ ->
           listPack,
           optionPack,
           propertiesPack,
+          int64Pack,
           randPack,
           natPack,
           binNatPack,

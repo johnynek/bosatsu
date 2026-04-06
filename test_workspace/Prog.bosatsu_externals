@@ -64,6 +64,30 @@
     lazy: ProgExt.lazy,
     get_Lazy: ProgExt.get_Lazy
   },
+  Bosatsu/Num/Int64: {
+    min_i64: ProgExt.min_i64,
+    max_i64: ProgExt.max_i64,
+    int_to_Int64: ProgExt.int_to_Int64,
+    int_low_bits_to_Int64: ProgExt.int_low_bits_to_Int64,
+    int64_to_Int: ProgExt.int64_to_Int,
+    int64_to_Float64: ProgExt.int64_to_Float64,
+    float64_to_Int64: ProgExt.float64_to_Int64,
+    add_Int64: ProgExt.add_Int64,
+    sub_Int64: ProgExt.sub_Int64,
+    mul_Int64: ProgExt.mul_Int64,
+    div_Int64: ProgExt.div_Int64,
+    mod_Int64: ProgExt.mod_Int64,
+    and_Int64: ProgExt.and_Int64,
+    or_Int64: ProgExt.or_Int64,
+    xor_Int64: ProgExt.xor_Int64,
+    not_Int64: ProgExt.not_Int64,
+    shift_left_Int64: ProgExt.shift_left_Int64,
+    shift_right_Int64: ProgExt.shift_right_Int64,
+    shift_right_unsigned_Int64: ProgExt.shift_right_unsigned_Int64,
+    popcount_Int64: ProgExt.popcount_Int64,
+    eq_Int64: ProgExt.eq_Int64,
+    cmp_Int64: ProgExt.cmp_Int64
+  },
   Bosatsu/Eval: {
     eval_loop: ProgExt.eval_loop
   }
