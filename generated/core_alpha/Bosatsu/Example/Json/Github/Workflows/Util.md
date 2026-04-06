@@ -34,6 +34,8 @@ public dependencies: [`Bosatsu/Json`](../../../../Json.html)
 [`install_b3sum_step`](#value-install-b3sum-step),
 [`install_sbt_step_name`](#value-install-sbt-step-name),
 [`install_sbt_step_name_title`](#value-install-sbt-step-name-title),
+[`install_vendored_c_runtime_cmd`](#value-install-vendored-c-runtime-cmd),
+[`install_vendored_c_runtime_node_cmd`](#value-install-vendored-c-runtime-node-cmd),
 [`java17_title_fetch_step`](#value-java17-title-fetch-step),
 [`java_17_setup_name`](#value-java-17-setup-name),
 [`java_17_setup_name_title`](#value-java-17-setup-name-title),
@@ -420,6 +422,26 @@ references: [`String`](../../../../Predef.html#type-string)
 
 ```bosatsu
 install_sbt_step_name_title: String
+```
+
+<a id="value-install-vendored-c-runtime-cmd"></a>
+
+### `install_vendored_c_runtime_cmd`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+install_vendored_c_runtime_cmd: String
+```
+
+<a id="value-install-vendored-c-runtime-node-cmd"></a>
+
+### `install_vendored_c_runtime_node_cmd`
+
+references: [`String`](../../../../Predef.html#type-string)
+
+```bosatsu
+install_vendored_c_runtime_node_cmd: String
 ```
 
 <a id="value-java17-title-fetch-step"></a>
