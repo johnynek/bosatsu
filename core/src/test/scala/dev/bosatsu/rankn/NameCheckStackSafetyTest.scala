@@ -70,11 +70,31 @@ class NameCheckStackSafetyTest extends munit.FunSuite {
     failure
   }
 
+  private def warmNameCheck(): Unit = {
+    val let = (
+      Identifier.Name("fixture"): Identifier.Bindable,
+      RecursionKind.NonRecursive,
+      deepListExpr(4)
+    )
+    val initialScope: Map[Infer.Name, Type] = Map(
+      (Some(PackageName.PredefName), Identifier.Constructor("EmptyList")) ->
+        Type.UnitType,
+      (Some(PackageName.PredefName), Identifier.Constructor("NonEmptyList")) ->
+        Type.UnitType
+    )
+
+    val (errors, result) =
+      NameCheck.checkLets(pack, let :: Nil, initialScope)
+    assertEquals(errors, None)
+    assertEquals(result.nameErrorLets, Set.empty)
+  }
+
   Platform.onJvm(
     test("NameCheck.checkLets should not overflow on deep list expressions") {
       val depth = sys.props.get("repro.nameCheckDepth").fold(5000)(_.toInt)
       val stackBytes =
         sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      warmNameCheck()
 
       runNameCheckOnSmallStack(depth, stackBytes) match {
         case Some(_: StackOverflowError) =>

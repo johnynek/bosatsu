@@ -19,10 +19,20 @@ class UnusedLetCheckStackSafetyTest extends munit.FunSuite {
     }
   }
 
+  private def warmUnusedLetCheck(): Unit = {
+    UnusedLetCheck.check(deepUnusedLetChain(4)) match {
+      case Validated.Invalid(errs) =>
+        assertEquals(errs.length.toInt, 4)
+      case Validated.Valid(_) =>
+        fail("expected warm-up run to report unused-let errors")
+    }
+  }
+
   Platform.onJvm(
     test("UnusedLetCheck.check should not overflow on deep let chains") {
       val depth = sys.props.get("repro.unusedLetDepth").fold(3200)(_.toInt)
       val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      warmUnusedLetCheck()
       val expr = deepUnusedLetChain(depth)
 
       @volatile var failure: Option[Throwable] = None
