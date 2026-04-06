@@ -76,8 +76,10 @@ class CDepsTest extends munit.FunSuite {
         relevantEnv = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
       )
     val sameCtx =
-      baseCtx.copy(relevantEnv = Map("CC" -> "/usr/bin/cc", "CFLAGS" -> "-O2"))
-    val differentCtx = baseCtx.copy(recipeVersion = 2)
+      baseCtx.copy(
+        relevant_env = Map("CC" -> "/usr/bin/cc", "CFLAGS" -> "-O2")
+      )
+    val differentCtx = baseCtx.copy(recipe_version = 2)
 
     val first = CDeps.buildKey(dependency, baseCtx)
     val second = CDeps.buildKey(dependency, sameCtx)
@@ -107,7 +109,7 @@ class CDepsTest extends munit.FunSuite {
         name = "libuv",
         version = "1.0.0",
         recipe = CDeps.LibuvCmakeStatic,
-        dependencies = "bdwgc" :: Nil
+        dependencies = Some("bdwgc" :: Nil)
       )
 
     val first = CDeps.buildKey(dep, ctx, "key-a" :: Nil)
@@ -121,14 +123,14 @@ class CDepsTest extends munit.FunSuite {
       dependency.copy(name = "libatomic_ops", version = "7.8.2")
     val gc =
       dependency.copy(
-        dependencies = "libatomic_ops" :: Nil
+        dependencies = Some("libatomic_ops" :: Nil)
       )
     val uv =
       dependency.copy(
         name = "libuv",
         version = "1.52.1",
         recipe = CDeps.LibuvCmakeStatic,
-        dependencies = "bdwgc" :: Nil
+        dependencies = Some("bdwgc" :: Nil)
       )
     val manifest = CDeps.Manifest(1, 1, uv :: gc :: atomic :: Nil)
 
@@ -144,14 +146,14 @@ class CDepsTest extends munit.FunSuite {
       CDeps.Manifest(
         1,
         1,
-        dependency.copy(dependencies = "missing" :: Nil) :: Nil
+        dependency.copy(dependencies = Some("missing" :: Nil)) :: Nil
       )
     val cycle =
       CDeps.Manifest(
         1,
         1,
-        dependency.copy(name = "a", dependencies = "b" :: Nil) ::
-          dependency.copy(name = "b", dependencies = "a" :: Nil) ::
+        dependency.copy(name = "a", dependencies = Some("b" :: Nil)) ::
+          dependency.copy(name = "b", dependencies = Some("a" :: Nil)) ::
           Nil
       )
 

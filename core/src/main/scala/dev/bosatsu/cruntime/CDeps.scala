@@ -1,7 +1,7 @@
 package dev.bosatsu.cruntime
 
 import cats.syntax.all._
-import dev.bosatsu.Json
+import dev.bosatsu.{Json, Nullable}
 import dev.bosatsu.Json.{JObject, JString, Reader, Writer}
 import dev.bosatsu.hashing.{Algo, HashValue}
 import java.nio.charset.StandardCharsets
@@ -12,75 +12,6 @@ object CDeps {
   final val BdwgcCmakeStatic = "bdwgc-cmake-static"
   final val LibuvCmakeStatic = "libuv-cmake-static"
 
-  final case class Manifest(
-      schemaVersion: Int,
-      recipeVersion: Int,
-      dependencies: List[Dependency]
-  )
-
-  final case class Dependency(
-      name: String,
-      version: String,
-      uris: List[String],
-      hash: Algo.WithAlgo[HashValue],
-      sourceSubdir: String,
-      recipe: String,
-      options: Json = Json.JObject(Nil),
-      dependencies: List[String] = Nil
-  )
-
-  final case class BuildContext(
-      os: String,
-      arch: String,
-      toolchainFamily: String,
-      compilerPath: String,
-      compilerVersion: String,
-      archiverPath: Option[String],
-      archiverVersion: Option[String],
-      profile: String,
-      recipeVersion: Int,
-      relevantEnv: Map[String, String]
-  )
-
-  final case class Target(
-      os: String,
-      arch: String,
-      toolchainFamily: String,
-      toolchainVersion: String
-  )
-
-  final case class RuntimeRequirements(
-      bosatsuRuntimeCppflags: List[String],
-      generatedCCppflags: List[String]
-  )
-
-  final case class Metadata(
-      schemaVersion: Int,
-      name: String,
-      version: String,
-      recipe: String,
-      sourceHash: String,
-      buildKey: String,
-      dependencies: List[String],
-      target: Target,
-      prefix: String,
-      includeDirs: List[String],
-      staticLibs: List[String],
-      systemLinkFlags: List[String],
-      runtimeRequirements: RuntimeRequirements
-  )
-
-  private final case class BuildKeyInput(
-      name: String,
-      version: String,
-      hash: String,
-      recipe: String,
-      recipeVersion: Int,
-      sourceDependencies: List[String],
-      transitiveBuildKeys: List[String],
-      context: BuildContext
-  )
-
   implicit val hashReader: Reader[Algo.WithAlgo[HashValue]] =
     Reader
       .fromParser("Algo.WithAlgo[HashValue]", Algo.parseIdent)
@@ -88,227 +19,278 @@ object CDeps {
   implicit val hashWriter: Writer[Algo.WithAlgo[HashValue]] =
     Writer.from(h => JString(h.toIdent))
 
-  implicit val runtimeRequirementsReader: Reader[RuntimeRequirements] =
-    new Reader.Obj[RuntimeRequirements] {
-      def describe = "RuntimeRequirements"
-      def readObj(
-          from: Reader.FromObj
-      ): Either[(String, Json, Json.Path), RuntimeRequirements] =
-        for {
-          bosatsuRuntimeCppflags <- from.field[List[String]](
-            "bosatsu_runtime_cppflags"
-          )
-          generatedCCppflags <- from.field[List[String]]("generated_c_cppflags")
-        } yield RuntimeRequirements(bosatsuRuntimeCppflags, generatedCCppflags)
-    }
+  given optionsFieldReader: Reader.ProductFieldReader[Option[Json]] with {
+    def read(
+        from: Reader.FromObj,
+        key: String
+    ): Either[(String, Json, Json.Path), Option[Json]] =
+      from.optional[Json](key).map {
+        case Some(obj: JObject) if obj.keys.isEmpty => None
+        case other                                  => other
+      }
+  }
 
-  implicit val runtimeRequirementsWriter: Writer[RuntimeRequirements] =
-    Writer.from { rr =>
-      JObject(
-        ("bosatsu_runtime_cppflags" -> Writer.write(
-          rr.bosatsuRuntimeCppflags
-        )) ::
-          ("generated_c_cppflags" -> Writer.write(rr.generatedCCppflags)) ::
-          Nil
-      )
-    }
+  given optionsFieldWriter: Writer.ProductFieldWriter[Option[Json]] with {
+    def fields(name: String, value: Option[Json]): List[(String, Json)] =
+      value match {
+        case None                                   => Nil
+        case Some(obj: JObject) if obj.keys.isEmpty => Nil
+        case Some(other)                            => (name -> Writer.write(other)) :: Nil
+      }
+  }
 
-  implicit val dependencyReader: Reader[Dependency] =
-    new Reader.Obj[Dependency] {
-      def describe = "Dependency"
-      def readObj(
-          from: Reader.FromObj
-      ): Either[(String, Json, Json.Path), Dependency] =
-        for {
-          name <- from.field[String]("name")
-          version <- from.field[String]("version")
-          uris <- from.field[List[String]]("uris")
-          hash <- from.field[Algo.WithAlgo[HashValue]]("hash")
-          sourceSubdir <- from.field[String]("source_subdir")
-          recipe <- from.field[String]("recipe")
-          options <- from.optional[Json]("options").map(_.getOrElse(JObject(Nil)))
-          dependencies <- from.optional[List[String]]("dependencies").map(
-            _.getOrElse(Nil)
-          )
-        } yield Dependency(
-          name,
-          version,
-          uris,
-          hash,
-          sourceSubdir,
-          recipe,
-          options,
-          dependencies
-        )
-    }
+  given dependencyListFieldReader: Reader.ProductFieldReader[
+    Option[List[String]]
+  ] with {
+    def read(
+        from: Reader.FromObj,
+        key: String
+    ): Either[(String, Json, Json.Path), Option[List[String]]] =
+      from.optional[List[String]](key).map(_.filter(_.nonEmpty))
+  }
 
-  implicit val dependencyWriter: Writer[Dependency] =
-    Writer.from { dep =>
-      val base =
-        List(
-          "name" -> Writer.write(dep.name),
-          "version" -> Writer.write(dep.version),
-          "uris" -> Writer.write(dep.uris),
-          "hash" -> Writer.write(dep.hash),
-          "source_subdir" -> Writer.write(dep.sourceSubdir),
-          "recipe" -> Writer.write(dep.recipe)
-        )
-      val withOptions =
-        dep.options match {
-          case obj: JObject if obj.keys.isEmpty => base
-          case other                            => base :+ ("options" -> other)
+  given dependencyListFieldWriter: Writer.ProductFieldWriter[
+    Option[List[String]]
+  ] with {
+    def fields(
+        name: String,
+        value: Option[List[String]]
+    ): List[(String, Json)] =
+      value.filter(_.nonEmpty) match {
+        case Some(items) => (name -> Writer.write(items)) :: Nil
+        case None        => Nil
+      }
+  }
+
+  final case class Manifest(
+      schema_version: Int,
+      recipe_version: Int,
+      dependencies: List[Dependency]
+  ) derives Json.Reader, Json.Writer {
+    def schemaVersion: Int = schema_version
+    def recipeVersion: Int = recipe_version
+  }
+
+  final case class Dependency(
+      name: String,
+      version: String,
+      uris: List[String],
+      hash: Algo.WithAlgo[HashValue],
+      source_subdir: String,
+      recipe: String,
+      options: Option[Json] = None,
+      dependencies: Option[List[String]] = None
+  ) derives Json.Reader, Json.Writer {
+    def sourceSubdir: String = source_subdir
+    def optionsJson: Json = options.getOrElse(Json.JObject(Nil))
+    def dependencyNames: List[String] = dependencies.getOrElse(Nil)
+  }
+
+  object Dependency {
+    def apply(
+        name: String,
+        version: String,
+        uris: List[String],
+        hash: Algo.WithAlgo[HashValue],
+        sourceSubdir: String,
+        recipe: String,
+        options: Json,
+        dependencies: List[String]
+    ): Dependency =
+      new Dependency(
+        name = name,
+        version = version,
+        uris = uris,
+        hash = hash,
+        source_subdir = sourceSubdir,
+        recipe = recipe,
+        options = options match {
+          case obj: JObject if obj.keys.isEmpty => None
+          case Json.JNull                       => None
+          case other                            => Some(other)
+        },
+        dependencies = dependencies match {
+          case Nil   => None
+          case items => Some(items)
         }
-      val withDependencies =
-        if (dep.dependencies.isEmpty) withOptions
-        else withOptions :+ ("dependencies" -> Writer.write(dep.dependencies))
-      JObject(withDependencies)
-    }
-
-  implicit val manifestReader: Reader[Manifest] =
-    new Reader.Obj[Manifest] {
-      def describe = "Manifest"
-      def readObj(
-          from: Reader.FromObj
-      ): Either[(String, Json, Json.Path), Manifest] =
-        for {
-          schemaVersion <- from.field[Int]("schema_version")
-          recipeVersion <- from.field[Int]("recipe_version")
-          dependencies <- from.field[List[Dependency]]("dependencies")
-        } yield Manifest(schemaVersion, recipeVersion, dependencies)
-    }
-
-  implicit val manifestWriter: Writer[Manifest] =
-    Writer.from { manifest =>
-      JObject(
-        ("schema_version" -> Writer.write(manifest.schemaVersion)) ::
-          ("recipe_version" -> Writer.write(manifest.recipeVersion)) ::
-          ("dependencies" -> Writer.write(manifest.dependencies)) ::
-          Nil
       )
-    }
 
-  implicit val buildContextWriter: Writer[BuildContext] =
-    Writer.from { ctx =>
-      JObject(
-        ("os" -> Writer.write(ctx.os)) ::
-          ("arch" -> Writer.write(ctx.arch)) ::
-          ("toolchain_family" -> Writer.write(ctx.toolchainFamily)) ::
-          ("compiler_path" -> Writer.write(ctx.compilerPath)) ::
-          ("compiler_version" -> Writer.write(ctx.compilerVersion)) ::
-          ("archiver_path" -> ctx.archiverPath.fold[Json](Json.JNull)(Writer.write(_))) ::
-          ("archiver_version" -> ctx.archiverVersion.fold[Json](Json.JNull)(
-            Writer.write(_)
-          )) ::
-          ("profile" -> Writer.write(ctx.profile)) ::
-          ("recipe_version" -> Writer.write(ctx.recipeVersion)) ::
-          ("relevant_env" -> Writer.write(ctx.relevantEnv)) ::
-          Nil
+    def apply(
+        name: String,
+        version: String,
+        uris: List[String],
+        hash: Algo.WithAlgo[HashValue],
+        sourceSubdir: String,
+        recipe: String,
+        options: Json
+    ): Dependency =
+      apply(name, version, uris, hash, sourceSubdir, recipe, options, Nil)
+
+    def apply(
+        name: String,
+        version: String,
+        uris: List[String],
+        hash: Algo.WithAlgo[HashValue],
+        sourceSubdir: String,
+        recipe: String
+    ): Dependency =
+      apply(
+        name,
+        version,
+        uris,
+        hash,
+        sourceSubdir,
+        recipe,
+        Json.JObject(Nil),
+        Nil
       )
-    }
+  }
 
-  implicit val targetReader: Reader[Target] =
-    new Reader.Obj[Target] {
-      def describe = "Target"
-      def readObj(from: Reader.FromObj) =
-        for {
-          os <- from.field[String]("os")
-          arch <- from.field[String]("arch")
-          toolchainFamily <- from.field[String]("toolchain_family")
-          toolchainVersion <- from.field[String]("toolchain_version")
-        } yield Target(os, arch, toolchainFamily, toolchainVersion)
-    }
+  final case class BuildContext(
+      os: String,
+      arch: String,
+      toolchain_family: String,
+      compiler_path: String,
+      compiler_version: String,
+      archiver_path: Nullable[String],
+      archiver_version: Nullable[String],
+      profile: String,
+      recipe_version: Int,
+      relevant_env: Map[String, String]
+  ) derives Json.Writer {
+    def toolchainFamily: String = toolchain_family
+    def compilerPath: String = compiler_path
+    def compilerVersion: String = compiler_version
+    def archiverPath: Option[String] = archiver_path.toOption
+    def archiverVersion: Option[String] = archiver_version.toOption
+    def recipeVersion: Int = recipe_version
+    def relevantEnv: Map[String, String] = relevant_env
+  }
 
-  implicit val targetWriter: Writer[Target] =
-    Writer.from { target =>
-      JObject(
-        ("os" -> Writer.write(target.os)) ::
-          ("arch" -> Writer.write(target.arch)) ::
-          ("toolchain_family" -> Writer.write(target.toolchainFamily)) ::
-          ("toolchain_version" -> Writer.write(target.toolchainVersion)) ::
-          Nil
+  object BuildContext {
+    def apply(
+        os: String,
+        arch: String,
+        toolchainFamily: String,
+        compilerPath: String,
+        compilerVersion: String,
+        archiverPath: Option[String],
+        archiverVersion: Option[String],
+        profile: String,
+        recipeVersion: Int,
+        relevantEnv: Map[String, String]
+    ): BuildContext =
+      new BuildContext(
+        os = os,
+        arch = arch,
+        toolchain_family = toolchainFamily,
+        compiler_path = compilerPath,
+        compiler_version = compilerVersion,
+        archiver_path = Nullable.fromOption(archiverPath),
+        archiver_version = Nullable.fromOption(archiverVersion),
+        profile = profile,
+        recipe_version = recipeVersion,
+        relevant_env = relevantEnv
       )
-    }
+  }
 
-  implicit val metadataReader: Reader[Metadata] =
-    new Reader.Obj[Metadata] {
-      def describe = "Metadata"
-      def readObj(from: Reader.FromObj) =
-        for {
-          schemaVersion <- from.field[Int]("schema_version")
-          name <- from.field[String]("name")
-          version <- from.field[String]("version")
-          recipe <- from.field[String]("recipe")
-          sourceHash <- from.field[String]("source_hash")
-          buildKey <- from.field[String]("build_key")
-          dependencies <- from.optional[List[String]]("dependencies").map(
-            _.getOrElse(Nil)
-          )
-          target <- from.field[Target]("target")
-          prefix <- from.field[String]("prefix")
-          includeDirs <- from.field[List[String]]("include_dirs")
-          staticLibs <- from.field[List[String]]("static_libs")
-          systemLinkFlags <- from.field[List[String]]("system_link_flags")
-          runtimeRequirements <- from.field[RuntimeRequirements](
-            "runtime_requirements"
-          )
-        } yield Metadata(
-          schemaVersion,
-          name,
-          version,
-          recipe,
-          sourceHash,
-          buildKey,
-          dependencies,
-          target,
-          prefix,
-          includeDirs,
-          staticLibs,
-          systemLinkFlags,
-          runtimeRequirements
-        )
-    }
+  final case class Target(
+      os: String,
+      arch: String,
+      toolchain_family: String,
+      toolchain_version: String
+  ) derives Json.Reader, Json.Writer {
+    def toolchainFamily: String = toolchain_family
+    def toolchainVersion: String = toolchain_version
+  }
 
-  implicit val metadataWriter: Writer[Metadata] =
-    Writer.from { metadata =>
-      JObject(
-        ("schema_version" -> Writer.write(metadata.schemaVersion)) ::
-          ("name" -> Writer.write(metadata.name)) ::
-          ("version" -> Writer.write(metadata.version)) ::
-          ("recipe" -> Writer.write(metadata.recipe)) ::
-          ("source_hash" -> Writer.write(metadata.sourceHash)) ::
-          ("build_key" -> Writer.write(metadata.buildKey)) ::
-          ("dependencies" -> Writer.write(metadata.dependencies)) ::
-          ("target" -> Writer.write(metadata.target)) ::
-          ("prefix" -> Writer.write(metadata.prefix)) ::
-          ("include_dirs" -> Writer.write(metadata.includeDirs)) ::
-          ("static_libs" -> Writer.write(metadata.staticLibs)) ::
-          ("system_link_flags" -> Writer.write(metadata.systemLinkFlags)) ::
-          ("runtime_requirements" -> Writer.write(metadata.runtimeRequirements)) ::
-          Nil
+  final case class RuntimeRequirements(
+      bosatsu_runtime_cppflags: List[String],
+      generated_c_cppflags: List[String]
+  ) derives Json.Reader, Json.Writer {
+    def bosatsuRuntimeCppflags: List[String] = bosatsu_runtime_cppflags
+    def generatedCCppflags: List[String] = generated_c_cppflags
+  }
+
+  final case class Metadata(
+      schema_version: Int,
+      name: String,
+      version: String,
+      recipe: String,
+      source_hash: String,
+      build_key: String,
+      dependencies: Option[List[String]] = None,
+      target: Target,
+      prefix: String,
+      include_dirs: List[String],
+      static_libs: List[String],
+      system_link_flags: List[String],
+      runtime_requirements: RuntimeRequirements
+  ) derives Json.Reader, Json.Writer {
+    def schemaVersion: Int = schema_version
+    def sourceHash: String = source_hash
+    def buildKey: String = build_key
+    def dependencyNames: List[String] = dependencies.getOrElse(Nil)
+    def includeDirs: List[String] = include_dirs
+    def staticLibs: List[String] = static_libs
+    def systemLinkFlags: List[String] = system_link_flags
+    def runtimeRequirements: RuntimeRequirements = runtime_requirements
+  }
+
+  object Metadata {
+    def apply(
+        schemaVersion: Int,
+        name: String,
+        version: String,
+        recipe: String,
+        sourceHash: String,
+        buildKey: String,
+        dependencies: List[String],
+        target: Target,
+        prefix: String,
+        includeDirs: List[String],
+        staticLibs: List[String],
+        systemLinkFlags: List[String],
+        runtimeRequirements: RuntimeRequirements
+    ): Metadata =
+      new Metadata(
+        schema_version = schemaVersion,
+        name = name,
+        version = version,
+        recipe = recipe,
+        source_hash = sourceHash,
+        build_key = buildKey,
+        dependencies = dependencies match {
+          case Nil   => None
+          case items => Some(items)
+        },
+        target = target,
+        prefix = prefix,
+        include_dirs = includeDirs,
+        static_libs = staticLibs,
+        system_link_flags = systemLinkFlags,
+        runtime_requirements = runtimeRequirements
       )
-    }
+  }
 
-  private implicit val buildKeyInputWriter: Writer[BuildKeyInput] =
-    Writer.from { input =>
-      JObject(
-        ("name" -> Writer.write(input.name)) ::
-          ("version" -> Writer.write(input.version)) ::
-          ("hash" -> Writer.write(input.hash)) ::
-          ("recipe" -> Writer.write(input.recipe)) ::
-          ("recipe_version" -> Writer.write(input.recipeVersion)) ::
-          ("source_dependencies" -> Writer.write(input.sourceDependencies)) ::
-          ("transitive_build_keys" -> Writer.write(input.transitiveBuildKeys)) ::
-          ("context" -> Writer.write(input.context)) ::
-          Nil
-      )
-    }
+  private final case class BuildKeyInput(
+      name: String,
+      version: String,
+      hash: String,
+      recipe: String,
+      recipe_version: Int,
+      source_dependencies: List[String],
+      transitive_build_keys: List[String],
+      context: BuildContext
+  ) derives Json.Writer
 
   def parseManifestString(
       content: String
   ): Either[String, Manifest] =
     Json.parserFile.parseAll(content).leftMap(_.toString).flatMap { json =>
-      manifestReader.read(Json.Path.Root, json).leftMap { case (msg, _, path) =>
-        s"$msg at $path"
+      Json.Reader[Manifest].read(Json.Path.Root, json).leftMap {
+        case (msg, _, path) =>
+          s"$msg at $path"
       }
     }
 
@@ -316,8 +298,9 @@ object CDeps {
       content: String
   ): Either[String, Metadata] =
     Json.parserFile.parseAll(content).leftMap(_.toString).flatMap { json =>
-      metadataReader.read(Json.Path.Root, json).leftMap { case (msg, _, path) =>
-        s"$msg at $path"
+      Json.Reader[Metadata].read(Json.Path.Root, json).leftMap {
+        case (msg, _, path) =>
+          s"$msg at $path"
       }
     }
 
@@ -339,13 +322,13 @@ object CDeps {
       dependency.hash.toIdent,
       dependency.recipe,
       context.recipeVersion,
-      dependency.dependencies.sorted,
+      dependency.dependencyNames.sorted,
       transitiveBuildKeys.sorted,
       context.copy(
         os = normalizeOs(context.os),
         arch = normalizeArch(context.arch),
-        toolchainFamily = normalizeToolchainFamily(context.toolchainFamily),
-        relevantEnv = context.relevantEnv.toList.sortBy(_._1).toMap
+        toolchain_family = normalizeToolchainFamily(context.toolchainFamily),
+        relevant_env = context.relevantEnv.toList.sortBy(_._1).toMap
       )
     )
     Algo
@@ -392,7 +375,7 @@ object CDeps {
             val cycle = (dep.name :: active).reverse.mkString(" -> ")
             Left(s"dependency cycle detected: $cycle")
           } else {
-            dep.dependencies.foldLeft[Either[String, Unit]](Right(())) {
+            dep.dependencyNames.foldLeft[Either[String, Unit]](Right(())) {
               case (acc, depName) =>
                 acc.flatMap { _ =>
                   byName.get(depName) match {

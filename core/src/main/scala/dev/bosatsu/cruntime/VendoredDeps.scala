@@ -225,7 +225,7 @@ object VendoredDeps {
         recipe = dependency.recipe,
         sourceHash = dependency.hash.toIdent,
         buildKey = buildKey,
-        dependencies = dependency.dependencies,
+        dependencies = dependency.dependencyNames,
         target = CDeps.Target(
           normalizedOs,
           normalizedArch,
@@ -268,7 +268,8 @@ object VendoredDeps {
   )(platformIO: PlatformIO[F, P]): F[Unit] = {
     import platformIO.moduleIOMonad
 
-    val threadsafe = optionBool(dependency.options, "threadsafe").getOrElse(true)
+    val threadsafe =
+      optionBool(dependency.optionsJson, "threadsafe").getOrElse(true)
 
     if (!threadsafe)
       platformIO.moduleIOMonad.raiseError(
@@ -325,7 +326,7 @@ object VendoredDeps {
   ): CDeps.RuntimeRequirements =
     dependency.recipe match {
       case CDeps.BdwgcCmakeStatic
-          if optionBool(dependency.options, "threadsafe").getOrElse(true) =>
+          if optionBool(dependency.optionsJson, "threadsafe").getOrElse(true) =>
         CDeps.RuntimeRequirements(
           "-DGC_THREADS" :: Nil,
           "-DGC_THREADS" :: Nil
@@ -634,12 +635,13 @@ object VendoredDeps {
       if (seen.contains(name)) Nil
       else
         resolvedDependencies.get(name).toList.flatMap { resolved =>
-          resolved.buildKey :: resolved.dependency.dependencies.flatMap { depName =>
+          resolved.buildKey :: resolved.dependency.dependencyNames.flatMap {
+            depName =>
             loop(depName, seen + name)
           }
         }
 
-    dependency.dependencies.flatMap(depName => loop(depName, Set.empty)).distinct
+    dependency.dependencyNames.flatMap(depName => loop(depName, Set.empty)).distinct
   }
 
   private def writeMetadata[F[_], P](

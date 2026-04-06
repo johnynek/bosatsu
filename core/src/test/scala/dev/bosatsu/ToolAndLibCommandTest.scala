@@ -4844,17 +4844,17 @@ main = 1
     val privatePack = PackageName.parts("MyLib", "Private")
     val conf = LibConfig(
       name = Name("mylib"),
-      repoUri = "https://example.com",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "https://example.com",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = LibConfig.PackageFilter.Name(publicPack) :: Nil,
-      allPackages =
+      exported_packages = LibConfig.PackageFilter.Name(publicPack) :: Nil,
+      all_packages =
         LibConfig.PackageFilter.Name(publicPack) ::
           LibConfig.PackageFilter.Name(privatePack) ::
           Nil,
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
     )
 
     val publicSrc =
@@ -5039,7 +5039,7 @@ main = 1
     val conf = LibConfig
       .init(Name("core_alpha"), "https://example.com", Version(6, 0, 0))
       .copy(
-        exportedPackages = exportedPackages.map(LibConfig.PackageFilter.Name(_))
+        exported_packages = exportedPackages.map(LibConfig.PackageFilter.Name(_))
       )
 
     val allowedSrc =

@@ -256,15 +256,15 @@ object AssembleCommand {
             }
             conf = LibConfig(
               name = name,
-              repoUri = repoUri,
-              nextVersion = version,
+              repo_uri = repoUri,
+              next_version = version,
               previous = prevDesc,
-              exportedPackages = exportedNames.map(PackageFilter.Name(_)),
-              allPackages = allNames.map(PackageFilter.Name(_)),
-              publicDeps = pubDeps.map(_.toDep),
-              privateDeps = privDeps.map(_.toDep),
-              defaultMain = defaultMain,
-              docBaseUrl = docBaseUrl
+              exported_packages = exportedNames.map(PackageFilter.Name(_)),
+              all_packages = allNames.map(PackageFilter.Name(_)),
+              public_deps = pubDeps.map(_.toDep),
+              private_deps = privDeps.map(_.toDep),
+              default_main = defaultMain,
+              doc_base_url = docBaseUrl
             )
             publicDepClosureLibs <- moduleIOMonad.fromEither(
               DecodedLibrary
