@@ -133,13 +133,13 @@ No Array-specific `ClangGen.scala` work is expected. The C backend already lower
 3. Extend the Array external registry and implementation in `core/src/main/scala/dev/bosatsu/Predef.scala`.
 4. Extend the Python Array special cases in `core/src/main/scala/dev/bosatsu/codegen/python/PythonGen.scala`.
 5. Update the Array runtime externals in `c_runtime/bosatsu_ext_Bosatsu_l_Collection_l_Array.c` and `.h`.
-6. Add law-style regression coverage for the new semantic model and targeted boundary and codegen tests in the existing Scala and C test suites.
+6. Add Bosatsu property-check coverage for the semantic laws in `test_workspace/Bosatsu/Collection/Array.bosatsu`, plus targeted boundary and codegen tests in the existing Scala and C test suites.
 7. Update package-interface and dependency-visibility tests so the `Array` public surface explicitly depends on `Bosatsu/Num/Int64`.
 
 ## Testing Strategy
 Property-check style tests should carry the semantic contract.
 
-Primary law coverage should live in a new ScalaCheck suite such as `core/src/test/scala/dev/bosatsu/ArrayInt64Laws.scala`. It should cover:
+Primary cross-backend law coverage should live in `test_workspace/Bosatsu/Collection/Array.bosatsu` using `Bosatsu/Testing/Properties`, so the same Array laws can run through Bosatsu evaluation, Python transpilation, and C transpilation. That Bosatsu property suite should cover:
 
 - `size_Array(tabulate_Array(n, fn)) == n` for representable `n`.
 - `to_List_Array(tabulate_Array(n, fn))` matches the list model with `Int64` indices in ascending order.
@@ -149,6 +149,8 @@ Primary law coverage should live in a new ScalaCheck suite such as `core/src/tes
 - `sumf_Array`, `sumsqf_Array`, `zip_sumf_Array`, and `dotf_Array` agreement with explicit left-to-right models, including sliced inputs.
 
 Case-based tests are still the right fit where exact boundaries, generated code shape, or machine-level diagnostics matter.
+
+A narrower ScalaCheck suite such as `core/src/test/scala/dev/bosatsu/ArrayInt64Laws.scala` is still useful for evaluator-only helper invariants or edge cases that are awkward to express in Bosatsu, but it should complement rather than replace the Bosatsu property suite.
 
 Those should live in:
 
@@ -169,7 +171,7 @@ If the package-local Bosatsu tests in `test_workspace/Bosatsu/Collection/Array.b
 - `sumf_Array` and `sumsqf_Array` return `0.0` on empty visible arrays, and `zip_sumf_Array` and `dotf_Array` return `0.0` on zero-pair inputs.
 - Float64 reductions are left-to-right and backend-consistent.
 - The evaluator, Python backend, and C runtime all use the same constructible-length cap and the same miss and hit behavior for `get_or_Array`.
-- Property-check coverage exists for the semantic laws, and case-based coverage exists for boundary values, generated Python shape, package visibility, and C runtime edge cases.
+- Bosatsu property-check coverage exists in `test_workspace/Bosatsu/Collection/Array.bosatsu` for the semantic laws, and case-based coverage exists for boundary values, generated Python shape, package visibility, and C runtime edge cases.
 - `test_workspace/core_alpha_conf.json` is updated to `next_version: 8.0.0`.
 
 ## Risks
