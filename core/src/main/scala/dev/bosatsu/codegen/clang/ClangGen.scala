@@ -726,14 +726,14 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
           fnName: Bindable,
           args: NonEmptyList[Expr[K]]
       ): Option[T[Code.ValueLike]] =
-        args.toList match {
-          case Literal(Lit.Integer(value)) :: Nil
+        args match {
+          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
               if pack == int64PackageName && fnName == intToInt64Name =>
             try Some(int64SomeLiteral(value.longValueExact()))
             catch {
               case _: ArithmeticException => Some(int64NoneLiteral)
             }
-          case Literal(Lit.Integer(value)) :: Nil
+          case NonEmptyList(Literal(Lit.Integer(value)), Nil)
               if pack == int64PackageName && fnName == intLowBitsToInt64Name =>
             Some(pv(int64LiteralExpr(value.longValue())))
           case _ => None

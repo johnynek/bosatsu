@@ -6,9 +6,9 @@ class PredefWorkspaceTest extends munit.FunSuite with ParTest {
   private val loopsPack = Predef.loadFileInCompile("test_workspace/Loops.bosatsu")
   private val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
   private val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
-  // Keep the full Int64 operator smoke in its own package so `/` can use the
-  // Int64 wrapper without colliding with the package-wide Int `/` alias in
-  // PredefTests.bosatsu.
+  // Keep the Int64 wrapper and function smoke in its own package so `/` can
+  // use the Int64 wrapper without colliding with the package-wide Int `/`
+  // alias in PredefTests.bosatsu.
   private val int64WrapperSmokePack =
     Predef.loadFileInCompile("test_workspace/Int64WrapperSmoke.bosatsu")
   private val predefTestsPack =
@@ -18,7 +18,7 @@ class PredefWorkspaceTest extends munit.FunSuite with ParTest {
     runBosatsuTest(
       List(loopsPack, float64Pack, int64Pack, predefTestsPack),
       "PredefTests",
-      217
+      223
     )
   }
 
@@ -26,7 +26,7 @@ class PredefWorkspaceTest extends munit.FunSuite with ParTest {
     runBosatsuTest(
       List(int64Pack, int64WrapperSmokePack),
       "Int64WrapperSmoke",
-      10
+      13
     )
   }
 }

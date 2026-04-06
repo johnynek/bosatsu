@@ -5,6 +5,9 @@ from Bosatsu/Num/Int64 import (
   eq_Int64,
   int64_to_Int,
   int_low_bits_to_Int64,
+  mod_Int64,
+  popcount_Int64,
+  shift_right_unsigned_Int64,
   operator +,
   operator -,
   operator *,
@@ -30,4 +33,7 @@ test = TestSuite("Int64 wrapper smoke", [
   Assertion(int64_eq_int(int_low_bits_to_Int64(-1) ^ int_low_bits_to_Int64(23), -24), "Int64 operator ^ wrapper"),
   Assertion(int64_eq_int(int_low_bits_to_Int64(1) << 63, -9223372036854775808), "Int64 operator << wrapper"),
   Assertion(int64_eq_int(int_low_bits_to_Int64(1) >> -63, -9223372036854775808), "Int64 operator >> wrapper"),
+  Assertion(int64_eq_int(mod_Int64(int_low_bits_to_Int64(5), int_low_bits_to_Int64(-3)), -1), "mod_Int64 function"),
+  Assertion(int64_eq_int(shift_right_unsigned_Int64(int_low_bits_to_Int64(-1), 1), 9223372036854775807), "shift_right_unsigned_Int64 function"),
+  Assertion(cmp_Int(popcount_Int64(int_low_bits_to_Int64(-1)), 64) matches EQ, "popcount_Int64 function"),
 ])

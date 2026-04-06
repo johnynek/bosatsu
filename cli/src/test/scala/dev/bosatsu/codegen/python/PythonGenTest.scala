@@ -111,12 +111,16 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       "sub_Int64",
       "mul_Int64",
       "div_Int64",
+      "mod_Int64",
       "and_Int64",
       "or_Int64",
       "xor_Int64",
       "not_Int64",
       "shift_left_Int64",
       "shift_right_Int64",
+      "shift_right_unsigned_Int64",
+      "popcount_Int64",
+      "eq_Int64",
       "cmp_Int64"
     ).iterator
       .map { name =>
@@ -217,6 +221,28 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 |        return 0
 |    return _norm(value << count)
 |
+|def _shift_right_unsigned(value, count):
+|    count = long(count)
+|    value = long(value)
+|    if count == 0:
+|        return _norm(value)
+|    if count > 0:
+|        if count >= 64:
+|            return 0
+|        return _norm((value & _INT64_MASK) >> count)
+|    count = -count
+|    if count >= 64:
+|        return 0
+|    return _norm(value << count)
+|
+|def _popcount(value):
+|    bits = long(value) & _INT64_MASK
+|    count = 0
+|    while bits:
+|        bits &= bits - 1
+|        count += 1
+|    return count
+|
 |min_i64 = _INT64_MIN
 |max_i64 = _INT64_MAX
 |
@@ -270,6 +296,13 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 |        return _INT64_MIN
 |    return _norm(left // right)
 |
+|def mod_Int64(left, right):
+|    left = long(left)
+|    right = long(right)
+|    if right == 0:
+|        return _norm(left)
+|    return _norm(left % right)
+|
 |def and_Int64(left, right):
 |    return _norm(long(left) & long(right))
 |
@@ -287,6 +320,15 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 |
 |def shift_right_Int64(value, count):
 |    return _shift_right(value, count)
+|
+|def shift_right_unsigned_Int64(value, count):
+|    return _shift_right_unsigned(value, count)
+|
+|def popcount_Int64(value):
+|    return _popcount(value)
+|
+|def eq_Int64(left, right):
+|    return long(left) == long(right)
 |
 |def cmp_Int64(left, right):
 |    return _cmp(long(left), long(right))

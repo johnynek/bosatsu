@@ -571,13 +571,13 @@ test = TestSuite("int64-eval", [
     "negative right shift becomes wrapped left shift"),
   Assertion(eq_i64_opt(float64_to_Int64(2.5), 2), "float conversion uses ties-to-even"),
   Assertion(cmp_Int64(min_i64, max_i64) matches LT, "signed comparison"),
-  Assertion(bools_42 matches [True, True, False, True, True, False, True, True, True, True],
+  Assertion(bools_42 matches [False, False, True, True, False, False, False, True, True, True],
     "bool_Rand deterministic sequence"),
   Assertion(range_42 matches [891, 934, 750, 416, 109],
     "int_range deterministic sequence"),
   Assertion(range_neg_5 matches [108, 345, 489, 216, 813],
     "int_range deterministic negative-seed sequence"),
-  Assertion(geometric_42 matches [0, 0, 1, 0, 1, 0, 0, 0, 0, 0],
+  Assertion(geometric_42 matches [2, 0, 3, 0, 0, 3, 1, 2, 0, 2],
     "geometric_Int deterministic sequence"),
 ])
 """

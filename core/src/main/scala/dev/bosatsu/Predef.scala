@@ -506,6 +506,11 @@ object Predef {
       )
       .add(
         int64PackageName,
+        "mod_Int64",
+        FfiCall.Fn2(PredefImpl.mod_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
         "and_Int64",
         FfiCall.Fn2(PredefImpl.and_Int64(_, _))
       )
@@ -533,6 +538,21 @@ object Predef {
         int64PackageName,
         "shift_right_Int64",
         FfiCall.Fn2(PredefImpl.shift_right_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "shift_right_unsigned_Int64",
+        FfiCall.Fn2(PredefImpl.shift_right_unsigned_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "popcount_Int64",
+        FfiCall.Fn1(PredefImpl.popcount_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "eq_Int64",
+        FfiCall.Fn2(PredefImpl.eq_Int64(_, _))
       )
       .add(
         int64PackageName,
@@ -627,7 +647,16 @@ object PredefImpl {
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
   }
 
-  final case class Int64Value(value: Long)
+  object Int64Value {
+    def apply(value: Long): java.lang.Long =
+      java.lang.Long.valueOf(value)
+
+    def unapply(value: Any): Option[Long] =
+      value match {
+        case longValue: java.lang.Long => Some(longValue.longValue)
+        case _                         => None
+      }
+  }
 
   final case class LazyCell(state: AtomicReference[Either[Value, Value]])
 
@@ -674,9 +703,9 @@ object PredefImpl {
       case _         => sys.error(s"expected float64: $a")
     }
 
-  private def asInt64(a: Value): Int64Value =
+  private def asInt64(a: Value): Long =
     a.asExternal.toAny match {
-      case int64: Int64Value => int64
+      case Int64Value(value) => value
       case other             =>
         // $COVERAGE-OFF$
         sys.error(s"expected Int64 external value, found: $other")
@@ -828,6 +857,17 @@ object PredefImpl {
       else value << absAmount.intValue()
     }
 
+  private def shiftRightUnsignedInt64(value: Long, amount: BigInteger): Long =
+    if (amount.signum == 0) value
+    else if (amount.signum > 0) {
+      if (amount.compareTo(Int64WidthBI) >= 0) 0L
+      else value >>> amount.intValue()
+    } else {
+      val absAmount = amount.negate()
+      if (absAmount.compareTo(Int64WidthBI) >= 0) 0L
+      else value << absAmount.intValue()
+    }
+
   private def floorDivInt64(left: Long, right: Long): Long =
     if (right == 0L) 0L
     else if ((left == Long.MinValue) && (right == -1L)) Long.MinValue
@@ -836,6 +876,15 @@ object PredefImpl {
       val rem = left % right
       if ((rem != 0L) && ((left ^ right) < 0L)) quot - 1L
       else quot
+    }
+
+  private def floorModInt64(left: Long, right: Long): Long =
+    if (right == 0L) left
+    else if ((left == Long.MinValue) && (right == -1L)) 0L
+    else {
+      val rem = left % right
+      if ((rem != 0L) && ((left ^ right) < 0L)) rem + right
+      else rem
     }
 
   private def asArray(a: Value): ArrayValue =
@@ -1120,7 +1169,7 @@ object PredefImpl {
     vi64(i(a).longValue())
 
   def int64_to_Int(a: Value): Value =
-    Value.VInt(BigInteger.valueOf(asInt64(a).value))
+    Value.VInt(BigInteger.valueOf(asInt64(a)))
 
   def int64_to_Float64(a: Value): Value =
     int_to_Float64(int64_to_Int(a))
@@ -1136,38 +1185,50 @@ object PredefImpl {
   }
 
   def add_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value + asInt64(b).value)
+    vi64(asInt64(a) + asInt64(b))
 
   def sub_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value - asInt64(b).value)
+    vi64(asInt64(a) - asInt64(b))
 
   def mul_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value * asInt64(b).value)
+    vi64(asInt64(a) * asInt64(b))
 
   def div_Int64(a: Value, b: Value): Value =
-    vi64(floorDivInt64(asInt64(a).value, asInt64(b).value))
+    vi64(floorDivInt64(asInt64(a), asInt64(b)))
+
+  def mod_Int64(a: Value, b: Value): Value =
+    vi64(floorModInt64(asInt64(a), asInt64(b)))
 
   def and_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value & asInt64(b).value)
+    vi64(asInt64(a) & asInt64(b))
 
   def or_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value | asInt64(b).value)
+    vi64(asInt64(a) | asInt64(b))
 
   def xor_Int64(a: Value, b: Value): Value =
-    vi64(asInt64(a).value ^ asInt64(b).value)
+    vi64(asInt64(a) ^ asInt64(b))
 
   def not_Int64(a: Value): Value =
-    vi64(~asInt64(a).value)
+    vi64(~asInt64(a))
 
   def shift_left_Int64(a: Value, b: Value): Value =
-    vi64(shiftLeftInt64(asInt64(a).value, i(b)))
+    vi64(shiftLeftInt64(asInt64(a), i(b)))
 
   def shift_right_Int64(a: Value, b: Value): Value =
-    vi64(shiftRightInt64(asInt64(a).value, i(b)))
+    vi64(shiftRightInt64(asInt64(a), i(b)))
+
+  def shift_right_unsigned_Int64(a: Value, b: Value): Value =
+    vi64(shiftRightUnsignedInt64(asInt64(a), i(b)))
+
+  def popcount_Int64(a: Value): Value =
+    Value.VInt(BigInteger.valueOf(java.lang.Long.bitCount(asInt64(a)).toLong))
+
+  def eq_Int64(a: Value, b: Value): Value =
+    bool(asInt64(a) == asInt64(b))
 
   def cmp_Int64(a: Value, b: Value): Value =
     Comparison.fromInt(
-      java.lang.Long.compare(asInt64(a).value, asInt64(b).value)
+      java.lang.Long.compare(asInt64(a), asInt64(b))
     )
 
   def mod_Int(a: Value, b: Value): Value =

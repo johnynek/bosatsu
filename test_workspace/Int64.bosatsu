@@ -15,12 +15,15 @@ export (
   sub_Int64,
   mul_Int64,
   div_Int64,
+  mod_Int64,
   and_Int64,
   or_Int64,
   xor_Int64,
   not_Int64,
   shift_left_Int64,
   shift_right_Int64,
+  shift_right_unsigned_Int64,
+  popcount_Int64,
   cmp_Int64,
   eq_Int64,
   operator +,
@@ -48,16 +51,17 @@ external def add_Int64(a: Int64, b: Int64) -> Int64
 external def sub_Int64(a: Int64, b: Int64) -> Int64
 external def mul_Int64(a: Int64, b: Int64) -> Int64
 external def div_Int64(a: Int64, b: Int64) -> Int64
+external def mod_Int64(a: Int64, b: Int64) -> Int64
 external def and_Int64(a: Int64, b: Int64) -> Int64
 external def or_Int64(a: Int64, b: Int64) -> Int64
 external def xor_Int64(a: Int64, b: Int64) -> Int64
 external def not_Int64(a: Int64) -> Int64
 external def shift_left_Int64(a: Int64, n: Int) -> Int64
 external def shift_right_Int64(a: Int64, n: Int) -> Int64
+external def shift_right_unsigned_Int64(a: Int64, n: Int) -> Int64
+external def popcount_Int64(a: Int64) -> Int
 external def cmp_Int64(a: Int64, b: Int64) -> Comparison
-
-def eq_Int64(a: Int64, b: Int64) -> Bool:
-  cmp_Int64(a, b) matches EQ
+external def eq_Int64(a: Int64, b: Int64) -> Bool
 
 def operator +(a, b): add_Int64(a, b)
 def operator -(a, b): sub_Int64(a, b)

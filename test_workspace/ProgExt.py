@@ -294,6 +294,28 @@ def _shift_right_int64(value: int, count: int) -> int:
         return 0
     return _normalize_int64_bits(value << shift_abs)
 
+def _shift_right_unsigned_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return 0
+        return _normalize_int64_bits((value & _INT64_MASK) >> shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return 0
+    return _normalize_int64_bits(value << shift_abs)
+
+def _popcount_int64(value: int) -> int:
+    bits = int(value) & _INT64_MASK
+    count = 0
+    while bits:
+        bits &= bits - 1
+        count += 1
+    return count
+
 min_i64 = _box_int64(_INT64_MIN)
 max_i64 = _box_int64(_INT64_MAX)
 
@@ -602,6 +624,13 @@ def div_Int64(left, right):
         return _box_int64(_INT64_MIN)
     return _box_int64(lhs // rhs)
 
+def mod_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if rhs == 0:
+        return _box_int64(lhs)
+    return _box_int64(lhs % rhs)
+
 def and_Int64(left, right):
     return _box_int64(_expect_int64(left) & _expect_int64(right))
 
@@ -619,6 +648,15 @@ def shift_left_Int64(value, count):
 
 def shift_right_Int64(value, count):
     return _box_int64(_shift_right_int64(_expect_int64(value), count))
+
+def shift_right_unsigned_Int64(value, count):
+    return _box_int64(_shift_right_unsigned_int64(_expect_int64(value), count))
+
+def popcount_Int64(value):
+    return _popcount_int64(_expect_int64(value))
+
+def eq_Int64(left, right):
+    return _expect_int64(left) == _expect_int64(right)
 
 def cmp_Int64(left, right):
     lhs = _expect_int64(left)

@@ -1,6 +1,6 @@
 package Bosatsu/Rand
 
-from Bosatsu/Num/Nat import (Nat, Zero, Succ, exp as exp_Nat,
+from Bosatsu/Num/Nat import (Nat, Zero, Succ,
   to_Int as nat_to_Int, to_Nat as int_to_Nat)
 
 from Bosatsu/Num/BinNat import (BinNat, Zero as BZero, Odd, Even,
@@ -12,7 +12,9 @@ from Bosatsu/Num/Int64 import (
   int_low_bits_to_Int64,
   mul_Int64,
   or_Int64,
+  popcount_Int64,
   shift_left_Int64,
+  shift_right_unsigned_Int64,
   xor_Int64,
 )
 
@@ -40,13 +42,12 @@ def int64_to_unsigned_Int(i: Int64) -> Int:
 
 def rotl(x: Int64, k: Int) -> Int64:
   lx = shift_left_Int64(x, k)
-  # Rotate needs an unsigned right shift, so decode through Int first.
-  rx = int_low_bits_to_Int64(int64_to_unsigned_Int(x) >> (64 - k))
+  rx = shift_right_unsigned_Int64(x, 64 - k)
   or_Int64(lx, rx)
 
 # this is the Xoshiro256** algorithm
 def next(state: State) -> (State, Int64):
-  State { s0, s1, s2, s3 } = state
+  State { s0, s1, s2, s3} = state
   result = mul_Int64(rotl(mul_Int64(s1, i64_5), 7), i64_9)
   t = shift_left_Int64(s1, 17)
   s2 = xor_Int64(s2, s0)
@@ -101,31 +102,9 @@ def prod_Rand[a, b](ra: Rand[a], rb: Rand[b]) -> Rand[(a, b)]:
 
 def const_Rand[a](a: a) -> Rand[a]: Rand(s -> (s, a))
 
-def xor(a, b):
-    match a:
-        case True: False if b else True
-        case False: b
-
-nat_2 = Succ(Succ(Zero))
-
-def parity(n: Nat, i: Int) -> Bool:
-    recur n:
-        case Zero: (i & 1) matches 1
-        case Succ(p):
-            half_bits = exp_Nat(nat_2, n).nat_to_Int()
-            left_half = i >> half_bits
-            bl = parity(p, left_half)
-            br = parity(p, i)
-            xor(bl, br)
-
-# 2^6 = 64
-zero = Zero
-succ = Succ
-six = zero.succ().succ().succ().succ().succ().succ()
-
 bool_Rand: Rand[Bool] = Rand(s -> (
   (s, i) = next(s)
-  (s, parity(six, int64_to_unsigned_Int(i)))
+  (s, (popcount_Int64(i) & 1) matches 1)
 ))
 
 def run_Rand[a](rand: Rand[a], seed: Int) -> a:

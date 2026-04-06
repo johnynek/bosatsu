@@ -137,6 +137,21 @@ class Int64Laws extends munit.ScalaCheckSuite {
     }
   }
 
+  test("div_Int64 and mod_Int64 satisfy the Int64 divmod law") {
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
+      val quot = int64Value(PredefImpl.div_Int64(valueInt64(left), valueInt64(right)))
+      val rem = int64Value(PredefImpl.mod_Int64(valueInt64(left), valueInt64(right)))
+      val recomposed =
+        int64Value(
+          PredefImpl.add_Int64(
+            PredefImpl.mul_Int64(valueInt64(quot), valueInt64(right)),
+            valueInt64(rem)
+          )
+        )
+      assertEquals(recomposed, left)
+    }
+  }
+
   test("bitwise Int64 functions match Int bitwise operations followed by truncation") {
     forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
       assertEquals(
@@ -174,6 +189,44 @@ class Int64Laws extends munit.ScalaCheckSuite {
 
       assertEquals(leftActual, leftExpected)
       assertEquals(rightActual, rightExpected)
+    }
+  }
+
+  test("Int64 unsigned right shifts match the raw-bit logical shift model") {
+    forAll(Arbitrary.arbitrary[Long], genShiftCount) { (value, shift) =>
+      val expected =
+        if (shift.signum == 0) value
+        else if (shift.signum > 0) {
+          if (shift.compareTo(BigInteger.valueOf(64L)) >= 0) 0L
+          else value >>> shift.intValue()
+        } else {
+          val absShift = shift.negate()
+          if (absShift.compareTo(BigInteger.valueOf(64L)) >= 0) 0L
+          else value << absShift.intValue()
+        }
+
+      val actual =
+        int64Value(PredefImpl.shift_right_unsigned_Int64(valueInt64(value), valueInt(shift)))
+
+      assertEquals(actual, expected)
+    }
+  }
+
+  test("popcount_Int64 counts set bits in the raw 64-bit payload") {
+    forAll(Arbitrary.arbitrary[Long]) { value =>
+      assertEquals(
+        PredefImpl.popcount_Int64(valueInt64(value)),
+        Value.VInt(BigInteger.valueOf(java.lang.Long.bitCount(value).toLong))
+      )
+    }
+  }
+
+  test("eq_Int64 matches signed Long equality") {
+    forAll(Arbitrary.arbitrary[Long], Arbitrary.arbitrary[Long]) { (left, right) =>
+      assertEquals(
+        PredefImpl.eq_Int64(valueInt64(left), valueInt64(right)),
+        if (left == right) Value.True else Value.False
+      )
     }
   }
 

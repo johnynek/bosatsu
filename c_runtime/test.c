@@ -740,6 +740,18 @@ void test_int64() {
           bsts_int64_from_int64(0)),
       UINT64_C(0x0000000000000000),
       "division by zero returns zero");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(5),
+          bsts_int64_from_int64(-3)),
+      UINT64_C(0xffffffffffffffff),
+      "mod_Int64 keeps the divisor sign");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(1234),
+          bsts_int64_from_int64(0)),
+      UINT64_C(0x00000000000004d2),
+      "mod_Int64 by zero returns the left value");
 
   assert_int64_bits(
       ___bsts_g_Bosatsu_l_Num_l_Int64_l_and__Int64(
@@ -794,6 +806,35 @@ void test_int64() {
           bsts_integer_from_int(-63)),
       UINT64_C(0x8000000000000000),
       "negative right shift becomes wrapped left shift");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+          bsts_integer_from_int(1)),
+      UINT64_C(0x7fffffffffffffff),
+      "unsigned right shift clears the sign bit");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-63)),
+      UINT64_C(0x8000000000000000),
+      "negative unsigned right shift becomes wrapped left shift");
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_popcount__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),
+      "64",
+      "popcount_Int64 counts raw bits");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(7))) == 1,
+      "eq_Int64 true");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(8))) == 0,
+      "eq_Int64 false");
 
   assert(
       get_variant(
