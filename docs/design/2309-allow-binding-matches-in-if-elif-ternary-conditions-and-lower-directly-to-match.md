@@ -6,6 +6,7 @@ touch_paths:
   - core/src/main/scala/dev/bosatsu/Declaration.scala
   - core/src/main/scala/dev/bosatsu/SourceConverter.scala
   - core/src/test/scala/dev/bosatsu/DeclarationTest.scala
+  - core/src/test/scala/dev/bosatsu/Gen.scala
   - core/src/test/scala/dev/bosatsu/SourceConverterTest.scala
   - core/src/test/scala/dev/bosatsu/ParserTest.scala
   - core/src/test/scala/dev/bosatsu/ErrorMessageTest.scala
@@ -193,6 +194,8 @@ Add targeted properties over constructed or generated `IfElse` and `Ternary` nod
 2. `allNames` still includes those binders.
 3. `substitute` does not rewrite or capture conditional-match binders in the true arm, but still rewrites the condition and fallback branches when legal.
 4. Existing broad structural laws such as `freeVars subset allNames` continue to hold for these shapes.
+
+If the current declaration generators do not produce these shapes often enough to make the properties meaningful, add a targeted helper or frequency bump in `Gen.scala` rather than relying on accidental random coverage.
 
 The existing parser/declaration round-trip properties should continue to run, but exact parser precedence and lowering shape are better enforced with focused examples than with random generation.
 
