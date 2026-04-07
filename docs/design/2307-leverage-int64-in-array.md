@@ -16,7 +16,7 @@ touch_paths:
   - c_runtime/test.c
 depends_on: []
 estimated_size: M
-generated_at: 2026-04-06T22:08:01Z
+generated_at: 2026-04-07T22:26:14Z
 ---
 
 # Design: leverage Int64 in Array
@@ -25,7 +25,7 @@ _Issue: #2307 (https://github.com/johnynek/bosatsu/issues/2307)_
 
 ## Summary
 
-Move Array's hot-path size and index APIs to Int64, add indexed, zipped, and Float64-specialized helpers, keep evaluator/Python/C behavior aligned around a shared visible-view model, and ship the breaking change as core_alpha 8.0.0.
+Move Array's hot-path size and index APIs to Int64, add indexed, zipped, and Float64-specialized helpers, and target the core_alpha 8.0.0 release for performance and efficiency gains.
 
 ## Context
 `Bosatsu/Collection/Array` is a runtime-backed collection whose evaluator, Python, and C implementations already track visible data as `(data, offset, len)` with concrete machine-sized counts. The public API, however, still exposes several hot-path sizes and indices as Bosatsu `Int`, which means code that is otherwise array-local pays arbitrary-precision conversion and range-check costs in tight loops. Issue #2307 asks to move that hot path to `Int64` and to add a small set of Array helpers that keep more work inside runtime loops.
