@@ -1,0 +1,9 @@
+package Test/Issue
+
+def test_if(foo):
+  if foo matches Some(a):
+    a
+  else:
+    0
+
+main = test_if(Some(42))
