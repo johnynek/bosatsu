@@ -537,6 +537,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         PackageName.parts("Issue1961"),
         "tests",
         "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "test_workspace/Float64.bosatsu",
         "test_workspace/Properties.bosatsu",
         "test_workspace/Int64.bosatsu",
         "test_workspace/Rand.bosatsu",

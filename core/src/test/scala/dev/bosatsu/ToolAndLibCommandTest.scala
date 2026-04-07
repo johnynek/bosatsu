@@ -7609,14 +7609,26 @@ main = from_List_Array([1, 2, 3])
     val arrayPkgSrc =
       """package Bosatsu/Collection/Array
 
+from Bosatsu/Num/Int64 import Int64
+
 export Array, from_List_Array, size_Array
+exposes Bosatsu/Num/Int64
 
 external struct Array[a: +*]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
-external def size_Array[a](ary: Array[a]) -> Int
+external def size_Array[a](ary: Array[a]) -> Int64
 """
-    val arrayFiles = baseLibFiles(arraySrc) :+ (
-      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
+    val int64PkgSrc =
+      """package Bosatsu/Num/Int64
+
+export Int64, int64_to_Int
+
+external struct Int64
+external def int64_to_Int(i: Int64) -> Int
+"""
+    val arrayFiles = baseLibFiles(arraySrc) ++ List(
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64PkgSrc
     )
 
     runWithFiles(arrayFiles)(
@@ -8034,20 +8046,33 @@ external def size_Array[a](ary: Array[a]) -> Int
 
     val arrayFnSrc =
       """from Bosatsu/Collection/Array import Array, size_Array
+from Bosatsu/Num/Int64 import int64_to_Int
 
-main = (xs: Array[Int]) -> size_Array(xs)
+main = (xs: Array[Int]) -> int64_to_Int(size_Array(xs))
 """
     val arrayPkgSrc =
       """package Bosatsu/Collection/Array
 
+from Bosatsu/Num/Int64 import Int64
+
 export Array, from_List_Array, size_Array
+exposes Bosatsu/Num/Int64
 
 external struct Array[a: +*]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
-external def size_Array[a](ary: Array[a]) -> Int
+external def size_Array[a](ary: Array[a]) -> Int64
 """
-    val arrayFnFiles = baseLibFiles(arrayFnSrc) :+ (
-      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc
+    val int64PkgSrc =
+      """package Bosatsu/Num/Int64
+
+export Int64, int64_to_Int
+
+external struct Int64
+external def int64_to_Int(i: Int64) -> Int
+"""
+    val arrayFnFiles = baseLibFiles(arrayFnSrc) ++ List(
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64PkgSrc
     )
 
     runWithFiles(arrayFnFiles)(
@@ -8135,6 +8160,98 @@ external def size_Array[a](ary: Array[a]) -> Int
       case Left(err) =>
         val msg = Option(err.getMessage).getOrElse(err.toString)
         assert(msg.contains("invalid input json"), msg)
+    }
+  }
+
+  test("Array interface exposes Bosatsu/Num/Int64 to downstream packages") {
+    val appSrc =
+      """from Bosatsu/Collection/Array import Array, size_Array
+|
+|main = (xs: Array[Int]) -> size_Array(xs)
+|""".stripMargin
+    val arrayPkgSrc =
+      """package Bosatsu/Collection/Array
+|
+|from Bosatsu/Num/Int64 import Int64
+|
+|export Array, size_Array
+|exposes Bosatsu/Num/Int64
+|
+|external struct Array[a: +*]
+|external def size_Array[a](ary: Array[a]) -> Int64
+|""".stripMargin
+    val int64PkgSrc =
+      """package Bosatsu/Num/Int64
+|
+|export Int64
+|
+|external struct Int64
+|""".stripMargin
+    val files = baseLibFiles(appSrc) ++ List(
+      Chain("repo", "src", "Bosatsu", "Collection", "Array.bosatsu") -> arrayPkgSrc,
+      Chain("repo", "src", "Bosatsu", "Num", "Int64.bosatsu") -> int64PkgSrc
+    )
+
+    val result = for {
+      s0 <- stateFromFiles(files)
+      s1 <- runWithState(
+        List(
+          "tool",
+          "check",
+          "--input",
+          "repo/src/MyLib/Foo.bosatsu",
+          "--input",
+          "repo/src/Bosatsu/Collection/Array.bosatsu",
+          "--input",
+          "repo/src/Bosatsu/Num/Int64.bosatsu",
+          "--output",
+          "out/Foo.bosatsu_package"
+        ),
+        s0
+      )
+      (state1, _) = s1
+      s2 <- runWithState(
+        List(
+          "tool",
+          "deps",
+          "--input",
+          "repo/src/Bosatsu/Collection/Array.bosatsu",
+          "--graph_format",
+          "json",
+          "--output",
+          "out/deps.json"
+        ),
+        state1
+      )
+    } yield s2._1
+
+    result match {
+      case Left(err) =>
+        fail(err.getMessage)
+      case Right(state) =>
+        val jsonStr = readStringFile(state, Chain("out", "deps.json"))
+        Json.parserFile.parseAll(jsonStr) match {
+          case Right(Json.JArray(items)) =>
+            val deps = items.toList.collectFirst {
+              case Json.JObject(fields)
+                  if fields.exists {
+                    case ("package", Json.JString("Bosatsu/Collection/Array")) =>
+                      true
+                    case _                                                     =>
+                      false
+                  } =>
+                fields
+                  .collectFirst { case ("dependsOn", Json.JArray(values)) =>
+                    values.toList.collect { case Json.JString(s) => s }
+                  }
+                  .getOrElse(Nil)
+            }
+            assertEquals(deps, Some(List("Bosatsu/Num/Int64")))
+          case Right(other) =>
+            fail(show"expected deps json array output, found: $other")
+          case Left(err) =>
+            fail(show"failed to parse deps json output: $err")
+        }
     }
   }
 

@@ -103,6 +103,7 @@ class PythonGenJvmTest extends munit.FunSuite {
     Par.withEC {
       val pm = TestUtils.compileFile(
         "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "test_workspace/Float64.bosatsu",
         "test_workspace/List.bosatsu",
         "test_workspace/Option.bosatsu",
         "test_workspace/Char.bosatsu",

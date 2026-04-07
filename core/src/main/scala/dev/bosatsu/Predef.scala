@@ -329,6 +329,11 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "foldl_with_index_Array",
+        FfiCall.Fn3(PredefImpl.foldl_with_index_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
         "foldl_Array",
         FfiCall.Fn3(PredefImpl.foldl_Array(_, _, _))
       )
@@ -344,6 +349,11 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "map_with_index_Array",
+        FfiCall.Fn2(PredefImpl.map_with_index_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
         "filter_Array",
         FfiCall.Fn2(PredefImpl.filter_Array(_, _))
       )
@@ -351,6 +361,36 @@ object Predef {
         arrayPackageName,
         "flat_map_Array",
         FfiCall.Fn2(PredefImpl.flat_map_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_map_Array",
+        FfiCall.Fn3(PredefImpl.zip_map_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_foldl_Array",
+        FfiCall.Fn4(PredefImpl.zip_foldl_Array(_, _, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_sumf_Array",
+        FfiCall.Fn3(PredefImpl.zip_sumf_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "sumf_Array",
+        FfiCall.Fn1(PredefImpl.sumf_Array(_))
+      )
+      .add(
+        arrayPackageName,
+        "sumsqf_Array",
+        FfiCall.Fn1(PredefImpl.sumsqf_Array(_))
+      )
+      .add(
+        arrayPackageName,
+        "dotf_Array",
+        FfiCall.Fn2(PredefImpl.dotf_Array(_, _))
       )
       .add(
         arrayPackageName,
@@ -4047,16 +4087,16 @@ object PredefImpl {
   }
 
   def tabulate_Array(size: Value, fn: Value): Value = {
-    val sizeBI = i(size)
-    if (sizeBI.signum <= 0) emptyArray
-    else if (sizeBI.compareTo(MaxIntBI) > 0) emptyArray
+    val size64 = asInt64(size)
+    if (size64 <= 0L) emptyArray
+    else if (size64 > Int.MaxValue.toLong) emptyArray
     else {
-      val sz = sizeBI.intValue()
+      val sz = size64.toInt
       val data = new Array[Value](sz)
       val fnT = fn.asFn
       var idx = 0
       while (idx < sz) {
-        data(idx) = fnT(NonEmptyList(VInt(idx), Nil))
+        data(idx) = fnT(NonEmptyList(vi64(idx.toLong), Nil))
         idx = idx + 1
       }
       ExternalValue(ArrayValue(data, 0, sz))
@@ -4097,7 +4137,7 @@ object PredefImpl {
   }
 
   def size_Array(array: Value): Value =
-    VInt(asArray(array).len)
+    vi64(asArray(array).len.toLong)
 
   def get_map_Array(
       array: Value,
@@ -4113,7 +4153,27 @@ object PredefImpl {
   }
 
   def get_or_Array(array: Value, index: Value, default: Value): Value =
-    get_map_Array(array, index, default, FnValue.identity)
+    {
+      val arr = asArray(array)
+      val idx = asInt64(index)
+      if (idx >= 0L && idx < arr.len.toLong) arr.data(arr.offset + idx.toInt)
+      else default.asFn(NonEmptyList(index, Nil))
+    }
+
+  def foldl_with_index_Array(array: Value, init: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    // Public indices are relative to the visible slice, never the backing offset.
+    while (idx < arr.len) {
+      acc = fnT(
+        NonEmptyList(acc, arr.data(arr.offset + idx) :: vi64(idx.toLong) :: Nil)
+      )
+      idx = idx + 1
+    }
+    acc
+  }
 
   def foldl_Array(array: Value, init: Value, fn: Value): Value = {
     val arr = asArray(array)
@@ -4148,6 +4208,23 @@ object PredefImpl {
       var idx = 0
       while (idx < arr.len) {
         mapped(idx) = fnT(NonEmptyList(arr.data(arr.offset + idx), Nil))
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(mapped, 0, arr.len))
+    }
+  }
+
+  def map_with_index_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[Value](arr.len)
+      var idx = 0
+      while (idx < arr.len) {
+        mapped(idx) = fnT(
+          NonEmptyList(arr.data(arr.offset + idx), vi64(idx.toLong) :: Nil)
+        )
         idx = idx + 1
       }
       ExternalValue(ArrayValue(mapped, 0, arr.len))
@@ -4236,6 +4313,137 @@ object PredefImpl {
         }
         ExternalValue(ArrayValue(data, 0, totalInt))
       }
+    }
+  }
+
+  def zip_map_Array(left: Value, right: Value, fn: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[Value](pairLen)
+      var idx = 0
+      while (idx < pairLen) {
+        mapped(idx) = fnT(
+          NonEmptyList(
+            leftArr.data(leftArr.offset + idx),
+            rightArr.data(rightArr.offset + idx) :: Nil
+          )
+        )
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(mapped, 0, pairLen))
+    }
+  }
+
+  def zip_foldl_Array(
+      left: Value,
+      right: Value,
+      init: Value,
+      fn: Value
+  ): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    while (idx < pairLen) {
+      acc = fnT(
+        NonEmptyList(
+          acc,
+          leftArr.data(leftArr.offset + idx) ::
+            rightArr.data(rightArr.offset + idx) ::
+            Nil
+        )
+      )
+      idx = idx + 1
+    }
+    acc
+  }
+
+  def zip_sumf_Array(left: Value, right: Value, fn: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen <= 0) vf(0.0)
+    else {
+      val fnT = fn.asFn
+      // Seed from the first visible pair so left-to-right reductions preserve
+      // sign-sensitive values like -0.0 instead of forcing an initial +0.0.
+      var acc = d(
+        fnT(
+          NonEmptyList(
+            leftArr.data(leftArr.offset),
+            rightArr.data(rightArr.offset) :: Nil
+          )
+        )
+      )
+      var idx = 1
+      while (idx < pairLen) {
+        val v =
+          fnT(
+            NonEmptyList(
+              leftArr.data(leftArr.offset + idx),
+              rightArr.data(rightArr.offset + idx) :: Nil
+            )
+          )
+        acc = acc + d(v)
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def sumf_Array(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) vf(0.0)
+    else {
+      var acc = d(arr.data(arr.offset))
+      var idx = 1
+      while (idx < arr.len) {
+        acc = acc + d(arr.data(arr.offset + idx))
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def sumsqf_Array(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) vf(0.0)
+    else {
+      val first = d(arr.data(arr.offset))
+      var acc = first * first
+      var idx = 1
+      while (idx < arr.len) {
+        val item = d(arr.data(arr.offset + idx))
+        acc = acc + (item * item)
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def dotf_Array(left: Value, right: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen <= 0) vf(0.0)
+    else {
+      var acc =
+        d(leftArr.data(leftArr.offset)) * d(rightArr.data(rightArr.offset))
+      var idx = 1
+      while (idx < pairLen) {
+        acc =
+          acc + (d(leftArr.data(leftArr.offset + idx)) * d(
+            rightArr.data(rightArr.offset + idx)
+          ))
+        idx = idx + 1
+      }
+      vf(acc)
     }
   }
 

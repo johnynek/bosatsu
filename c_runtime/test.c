@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Collection_l_Array.h"
 #include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
@@ -160,6 +161,103 @@ void assert_option_float_bits(BValue opt, uint64_t expected, const char* message
   }
   BValue v = get_enum_index(opt, 0);
   assert_u64_equals(bsts_float64_to_bits(v), expected, message);
+}
+
+typedef struct {
+  BValue* data;
+  int offset;
+  int len;
+} TestBSTS_Array;
+
+static TestBSTS_Array* test_array_unbox(BValue array) {
+  return BSTS_PTR(TestBSTS_Array, array);
+}
+
+static BValue test_array_from_values(size_t len, const BValue* values) {
+  BValue* data = NULL;
+  if (len > 0) {
+    data = (BValue*)GC_malloc(sizeof(BValue) * len);
+    if (data == NULL) {
+      perror("GC_malloc failure in test_array_from_values data");
+      exit(1);
+    }
+    memcpy(data, values, sizeof(BValue) * len);
+  }
+
+  TestBSTS_Array* arr = (TestBSTS_Array*)GC_malloc(sizeof(TestBSTS_Array));
+  if (arr == NULL) {
+    perror("GC_malloc failure in test_array_from_values array");
+    exit(1);
+  }
+
+  arr->data = data;
+  arr->offset = 0;
+  arr->len = (int)len;
+  return BSTS_VALUE_FROM_PTR(arr);
+}
+
+static void assert_int_array_equals(BValue array, const int* expected, size_t expected_len, const char* message) {
+  TestBSTS_Array* arr = test_array_unbox(array);
+  if ((size_t)arr->len != expected_len) {
+    printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
+    exit(1);
+  }
+
+  for (size_t idx = 0; idx < expected_len; idx++) {
+    BValue got = arr->data[arr->offset + (int)idx];
+    if (bsts_integer_cmp(got, bsts_integer_from_int(expected[idx])) != 0) {
+      printf("%s\nmismatch at index %zu\n", message, idx);
+      exit(1);
+    }
+  }
+}
+
+static void assert_int64_array_bits(BValue array, const uint64_t* expected, size_t expected_len, const char* message) {
+  TestBSTS_Array* arr = test_array_unbox(array);
+  if ((size_t)arr->len != expected_len) {
+    printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
+    exit(1);
+  }
+
+  for (size_t idx = 0; idx < expected_len; idx++) {
+    assert_u64_equals(
+        bsts_int64_to_bits(arr->data[arr->offset + (int)idx]),
+        expected[idx],
+        message);
+  }
+}
+
+static BValue array_identity_i64_fn(BValue arg) {
+  return arg;
+}
+
+static BValue array_echo_i64_fn(BValue arg) {
+  return arg;
+}
+
+static BValue array_fold_index_sum_fn(BValue acc, BValue item, BValue idx) {
+  int64_t idx_i64 = (int64_t)bsts_int64_to_bits(idx);
+  return bsts_integer_add(
+      acc,
+      bsts_integer_add(item, bsts_integer_from_int64(idx_i64)));
+}
+
+static BValue array_map_index_sum_fn(BValue item, BValue idx) {
+  int64_t idx_i64 = (int64_t)bsts_int64_to_bits(idx);
+  return bsts_integer_add(item, bsts_integer_from_int64(idx_i64));
+}
+
+static BValue array_zip_add_fn(BValue left, BValue right) {
+  return bsts_integer_add(left, right);
+}
+
+static BValue array_zip_accum_add_fn(BValue acc, BValue left, BValue right) {
+  return bsts_integer_add(acc, bsts_integer_add(left, right));
+}
+
+static BValue array_float_mul_fn(BValue left, BValue right) {
+  return bsts_float64_from_double(
+      bsts_float64_to_double(left) * bsts_float64_to_double(right));
 }
 
 void test_runtime_enum_struct() {
@@ -917,6 +1015,158 @@ void test_int64() {
       "int64_to_Float64 matches Int conversion semantics");
 }
 
+void test_array_int64() {
+  BValue tabulate_fn = alloc_boxed_pure_fn1(array_identity_i64_fn);
+  BValue default_fn = alloc_boxed_pure_fn1(array_echo_i64_fn);
+  BValue fold_index_fn = alloc_boxed_pure_fn3(array_fold_index_sum_fn);
+  BValue map_index_fn = alloc_boxed_pure_fn2(array_map_index_sum_fn);
+  BValue zip_add_fn = alloc_boxed_pure_fn2(array_zip_add_fn);
+  BValue zip_accum_add_fn = alloc_boxed_pure_fn3(array_zip_accum_add_fn);
+  BValue float_mul_fn = alloc_boxed_pure_fn2(array_float_mul_fn);
+
+  BValue tabulated =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64(3),
+          tabulate_fn);
+  uint64_t tabulated_bits[] = { 0, 1, 2 };
+  assert_int64_array_bits(
+      tabulated,
+      tabulated_bits,
+      3,
+      "tabulate_Array uses visible Int64 indices");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(tabulated),
+      3,
+      "size_Array returns Int64");
+
+  BValue tabulated_empty =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64(-1),
+          tabulate_fn);
+  assert(test_array_unbox(tabulated_empty)->len == 0, "tabulate_Array rejects negative sizes");
+
+  BValue tabulated_oversized =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64((int64_t)INT_MAX + 1),
+          tabulate_fn);
+  assert(test_array_unbox(tabulated_oversized)->len == 0, "tabulate_Array rejects oversized sizes");
+
+  const BValue ints[] = {
+    bsts_integer_from_int(0),
+    bsts_integer_from_int(1),
+    bsts_integer_from_int(2),
+    bsts_integer_from_int(3),
+    bsts_integer_from_int(4),
+  };
+  BValue base_ints = test_array_from_values(5, ints);
+  BValue sliced =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(
+          base_ints,
+          bsts_integer_from_int(2),
+          bsts_integer_from_int(5));
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(
+          sliced,
+          bsts_int64_from_int64(0),
+          default_fn),
+      "2",
+      "get_or_Array uses slice-relative visible indices");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(
+          sliced,
+          bsts_int64_from_int64(9),
+          default_fn),
+      9,
+      "get_or_Array forwards the original miss index");
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__with__index__Array(
+          sliced,
+          bsts_integer_from_int(0),
+          fold_index_fn),
+      "12",
+      "foldl_with_index_Array uses visible slice indices");
+
+  BValue mapped =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__with__index__Array(
+          sliced,
+          map_index_fn);
+  const int mapped_expected[] = { 2, 4, 6 };
+  assert_int_array_equals(mapped, mapped_expected, 3, "map_with_index_Array uses visible indices");
+
+  const BValue right_ints[] = {
+    bsts_integer_from_int(10),
+    bsts_integer_from_int(11),
+    bsts_integer_from_int(12),
+  };
+  BValue right_prefix = test_array_from_values(3, right_ints);
+  BValue zipped =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__map__Array(
+          base_ints,
+          right_prefix,
+          zip_add_fn);
+  const int zipped_expected[] = { 10, 12, 14 };
+  assert_int_array_equals(zipped, zipped_expected, 3, "zip_map_Array truncates to the shorter input");
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(
+          base_ints,
+          right_prefix,
+          bsts_integer_from_int(0),
+          zip_accum_add_fn),
+      "36",
+      "zip_foldl_Array truncates to the shorter input");
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(
+          test_array_from_values(0, NULL),
+          base_ints,
+          bsts_integer_from_int(99),
+          zip_accum_add_fn),
+      "99",
+      "zip_foldl_Array keeps the initial accumulator on empty prefixes");
+
+  const BValue neg_zero_items[] = { bsts_float64_from_double(-0.0) };
+  BValue neg_zero_array = test_array_from_values(1, neg_zero_items);
+  assert_u64_equals(
+      bsts_float64_to_bits(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(neg_zero_array)),
+      UINT64_C(0x8000000000000000),
+      "sumf_Array preserves negative zero");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(
+              test_array_from_values(0, NULL))) == 0.0,
+      "sumf_Array returns 0.0 on empty arrays");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(
+              test_array_from_values(0, NULL))) == 0.0,
+      "sumsqf_Array returns 0.0 on empty arrays");
+
+  const BValue left_float_items[] = { bsts_float64_from_double(INFINITY) };
+  const BValue right_float_items[] = {
+    bsts_float64_from_double(1.0),
+    bsts_float64_from_double(NAN),
+  };
+  BValue left_float_array = test_array_from_values(1, left_float_items);
+  BValue right_float_array = test_array_from_values(2, right_float_items);
+
+  assert(
+      isinf(bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(
+              left_float_array,
+              right_float_array))),
+      "dotf_Array truncates before reading past the shorter input");
+  assert(
+      isinf(bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__sumf__Array(
+              left_float_array,
+              right_float_array,
+              float_mul_fn))),
+      "zip_sumf_Array truncates before reading past the shorter input");
+}
+
 void test_prog_assoc() {
 #if !defined(_WIN32) && defined(BSTS_RUNTIME_DEBUG_CHECKS)
   assert_child_aborts(call_alloc_closure_zero, "zero-capture closures must use alloc_boxed_pure_fn");
@@ -965,6 +1215,7 @@ int main(int argc, char** argv) {
   test_integer();
   test_float64();
   test_int64();
+  test_array_int64();
   test_prog_assoc();
   printf("success\n");
   return 0;

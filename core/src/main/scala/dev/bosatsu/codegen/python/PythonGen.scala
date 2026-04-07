@@ -1250,6 +1250,8 @@ object PythonGen {
         )
       private val emptyArray: Expression =
         makeArray(Code.MakeList(Nil), Code.Const.Zero, Code.Const.Zero)
+      private val maxArrayLenExpr: Expression =
+        Code.PyInt(java.math.BigInteger.valueOf(Int.MaxValue.toLong))
 
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
@@ -1793,37 +1795,47 @@ object PythonGen {
             Identifier.Name("tabulate_Array"),
             (
               { input =>
-                (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
-                  case (data, idx) =>
-                    Env.onLasts(input) {
-                      case n :: fn :: Nil =>
-                        val tabulated = Code
-                          .block(
-                            data := Code.MakeList(Code.Const.Zero :: Nil)
-                              .evalTimes(n),
-                            idx := Code.Const.Zero,
-                            Code.While(
-                              idx :< n,
-                              Code.block(
-                                selectItem(data, idx) := fn(idx),
-                                idx := idx + 1
-                              )
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (size, data, idx) =>
+                  Env.onLasts(input) {
+                    case n :: fn :: Nil =>
+                      val valid = (size :> Code.Const.Zero).evalAnd(
+                        !(size :> maxArrayLenExpr)
+                      )
+                      val tabulated = Code
+                        .block(
+                          data := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(size),
+                          idx := Code.Const.Zero,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              selectItem(data, idx) := fn(idx),
+                              idx := idx + 1
                             )
                           )
-                          .withValue(
-                            makeArray(data, Code.Const.Zero, n)
+                        )
+                        .withValue(
+                          makeArray(data, Code.Const.Zero, size)
+                        )
+                      Code
+                        .block(size := n)
+                        .withValue(
+                          Code.IfElse(
+                            NonEmptyList.one((valid, tabulated)),
+                            emptyArray
                           )
-                        Code.IfElse(
-                          NonEmptyList.one((n :> Code.Const.Zero, tabulated)),
-                          emptyArray
                         )
-                      case other =>
-                        // $COVERAGE-OFF$
-                        throw new IllegalStateException(
-                          s"expected arity 2 got: $other"
-                        )
-                      // $COVERAGE-ON$
-                    }
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
                 }
               },
               2
@@ -1949,7 +1961,7 @@ object PythonGen {
                       selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
                     Code.IfElse(
                       NonEmptyList.one((valid, item)),
-                      default(Code.Const.Unit)
+                      default(idx)
                     )
                   case other =>
                     // $COVERAGE-OFF$
@@ -1957,6 +1969,51 @@ object PythonGen {
                       s"expected arity 3 got: $other"
                     )
                   // $COVERAGE-ON$
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("foldl_with_index_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLasts(input) {
+                    case ary :: init :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          idx := Code.Const.Zero,
+                          acc := init,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              acc := fn(
+                                acc,
+                                selectItem(data, offset.evalPlus(idx)),
+                                idx
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(acc)
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
                 }
               },
               3
@@ -2076,6 +2133,51 @@ object PythonGen {
                             Code.block(
                               selectItem(out, idx) := fn(
                                 selectItem(data, offset.evalPlus(idx))
+                              ),
+                              idx := idx + 1
+                            )
+                          )
+                        )
+                        .withValue(makeArray(out, Code.Const.Zero, size))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("map_with_index_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, out) =>
+                  Env.onLasts(input) {
+                    case ary :: fn :: Nil =>
+                      Code
+                        .block(
+                          data := arrayData(ary),
+                          offset := arrayOffset(ary),
+                          size := arrayLen(ary),
+                          out := Code.MakeList(Code.Const.Zero :: Nil)
+                            .evalTimes(size),
+                          idx := Code.Const.Zero,
+                          Code.While(
+                            idx :< size,
+                            Code.block(
+                              selectItem(out, idx) := fn(
+                                selectItem(data, offset.evalPlus(idx)),
+                                idx
                               ),
                               idx := idx + 1
                             )
@@ -2232,6 +2334,368 @@ object PythonGen {
                             )
                           )
                           .withValue(makeArray(out, Code.Const.Zero, total))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("zip_map_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, out, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize,
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(pairLen),
+                            idx := Code.Const.Zero,
+                            Code.While(
+                              idx :< pairLen,
+                              Code.block(
+                                selectItem(out, idx) := fn(
+                                  selectItem(leftData, leftOffset.evalPlus(idx)),
+                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(makeArray(out, Code.Const.Zero, pairLen))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 3 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("zip_foldl_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: init :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize,
+                            idx := Code.Const.Zero,
+                            acc := init,
+                            Code.While(
+                              idx :< pairLen,
+                              Code.block(
+                                acc := fn(
+                                  acc,
+                                  selectItem(leftData, leftOffset.evalPlus(idx)),
+                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(acc)
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 4 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              4
+            )
+          ),
+          (
+            Identifier.Name("zip_sumf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize
+                          )
+                          .withValue(
+                            Code.IfElse(
+                              NonEmptyList.one(
+                                (
+                                  pairLen :> Code.Const.Zero,
+                                  Code
+                                    .block(
+                                      idx := Code.Const.One,
+                                      acc := fn(
+                                        selectItem(leftData, leftOffset),
+                                        selectItem(rightData, rightOffset)
+                                      ),
+                                      Code.While(
+                                        idx :< pairLen,
+                                        Code.block(
+                                          acc := acc.evalPlus(
+                                            fn(
+                                              selectItem(
+                                                leftData,
+                                                leftOffset.evalPlus(idx)
+                                              ),
+                                              selectItem(
+                                                rightData,
+                                                rightOffset.evalPlus(idx)
+                                              )
+                                            )
+                                          ),
+                                          idx := idx + 1
+                                        )
+                                      )
+                                    )
+                                    .withValue(acc)
+                                )
+                              ),
+                              Code.PyFloat(0.0)
+                            )
+                          )
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 3 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("sumf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLast(input.head) { ary =>
+                    Code
+                      .block(
+                        data := arrayData(ary),
+                        offset := arrayOffset(ary),
+                        size := arrayLen(ary)
+                      )
+                      .withValue(
+                        Code.IfElse(
+                          NonEmptyList.one(
+                            (
+                              size :> Code.Const.Zero,
+                              Code
+                                .block(
+                                  idx := Code.Const.One,
+                                  acc := selectItem(data, offset),
+                                  Code.While(
+                                    idx :< size,
+                                    Code.block(
+                                      acc := acc.evalPlus(
+                                        selectItem(data, offset.evalPlus(idx))
+                                      ),
+                                      idx := idx + 1
+                                    )
+                                  )
+                                )
+                                .withValue(acc)
+                            )
+                          ),
+                          Code.PyFloat(0.0)
+                        )
+                      )
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("sumsqf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc, item) =>
+                  Env.onLast(input.head) { ary =>
+                    Code
+                      .block(
+                        data := arrayData(ary),
+                        offset := arrayOffset(ary),
+                        size := arrayLen(ary)
+                      )
+                      .withValue(
+                        Code.IfElse(
+                          NonEmptyList.one(
+                            (
+                              size :> Code.Const.Zero,
+                              Code
+                                .block(
+                                  item := selectItem(data, offset),
+                                  idx := Code.Const.One,
+                                  acc := item.evalTimes(item),
+                                  Code.While(
+                                    idx :< size,
+                                    Code.block(
+                                      item := selectItem(data, offset.evalPlus(idx)),
+                                      acc := acc.evalPlus(item.evalTimes(item)),
+                                      idx := idx + 1
+                                    )
+                                  )
+                                )
+                                .withValue(acc)
+                            )
+                          ),
+                          Code.PyFloat(0.0)
+                        )
+                      )
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("dotf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, item, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize
+                          )
+                          .withValue(
+                            Code.IfElse(
+                              NonEmptyList.one(
+                                (
+                                  pairLen :> Code.Const.Zero,
+                                  Code
+                                    .block(
+                                      item := selectItem(leftData, leftOffset),
+                                      idx := Code.Const.One,
+                                      acc := item.evalTimes(
+                                        selectItem(rightData, rightOffset)
+                                      ),
+                                      Code.While(
+                                        idx :< pairLen,
+                                        Code.block(
+                                          item := selectItem(
+                                            leftData,
+                                            leftOffset.evalPlus(idx)
+                                          ),
+                                          acc := acc.evalPlus(
+                                            item.evalTimes(
+                                              selectItem(
+                                                rightData,
+                                                rightOffset.evalPlus(idx)
+                                              )
+                                            )
+                                          ),
+                                          idx := idx + 1
+                                        )
+                                      )
+                                    )
+                                    .withValue(acc)
+                                )
+                              ),
+                              Code.PyFloat(0.0)
+                            )
+                          )
                       case other =>
                         // $COVERAGE-OFF$
                         throw new IllegalStateException(

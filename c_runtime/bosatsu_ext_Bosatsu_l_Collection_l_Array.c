@@ -68,6 +68,11 @@ static _Bool bsts_array_index_in_range(BValue index, int len) {
          (bsts_integer_cmp(index, len_value) < 0);
 }
 
+static _Bool bsts_array_int64_index_in_range(BValue index, int len) {
+  int64_t idx = (int64_t)bsts_int64_to_bits(index);
+  return (idx >= 0) && (idx < (int64_t)len);
+}
+
 static int bsts_array_cmp(BValue cmp_fn, BValue left, BValue right) {
   BValue cmp = call_fn2(cmp_fn, left, right);
   ENUM_TAG tag = get_variant(cmp);
@@ -83,6 +88,14 @@ static int bsts_array_cmp(BValue cmp_fn, BValue left, BValue right) {
 
 static int bsts_min_int(int left, int right) {
   return left < right ? left : right;
+}
+
+static BValue bsts_boxf(double d) {
+  return bsts_float64_from_double(d);
+}
+
+static double bsts_unboxf(BValue v) {
+  return bsts_float64_to_double(v);
 }
 
 static void bsts_array_merge_pass(
@@ -153,24 +166,23 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_empty__Array() {
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(BValue n, BValue fn) {
-  BValue zero = bsts_integer_from_int(0);
-  if (bsts_integer_cmp(n, zero) <= 0) {
+  int64_t len64 = (int64_t)bsts_int64_to_bits(n);
+  if (len64 <= 0) {
     return bsts_array_empty();
   }
 
-  BValue max_int = bsts_integer_from_int(INT_MAX);
-  if (bsts_integer_cmp(n, max_int) > 0) {
+  if (len64 > (int64_t)INT_MAX) {
     return bsts_array_empty();
   }
 
-  int len = (int)bsts_integer_to_int32(n);
+  int len = (int)len64;
   if (len <= 0) {
     return bsts_array_empty();
   }
 
   BValue* data = bsts_array_alloc_data(len);
   for (int idx = 0; idx < len; idx++) {
-    data[idx] = call_fn1(fn, bsts_integer_from_int(idx));
+    data[idx] = call_fn1(fn, bsts_int64_from_int64((int64_t)idx));
   }
 
   return bsts_array_wrap(data, 0, len);
@@ -215,7 +227,7 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_to__List__Array(BValue array) {
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(BValue array) {
   BSTS_Array* arr = bsts_array_unbox(array);
-  return bsts_integer_from_int(arr->len);
+  return bsts_int64_from_int64((int64_t)arr->len);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BValue index, BValue default_fn, BValue map_fn) {
@@ -232,12 +244,28 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BV
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(BValue array, BValue index, BValue default_fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (bsts_array_index_in_range(index, arr->len)) {
-    int idx = (int)bsts_integer_to_int32(index);
+  if (bsts_array_int64_index_in_range(index, arr->len)) {
+    int idx = (int)((int64_t)bsts_int64_to_bits(index));
     return arr->data[arr->offset + idx];
   }
 
-  return call_fn1(default_fn, bsts_unit_value());
+  return call_fn1(default_fn, index);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__with__index__Array(BValue array, BValue init, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  BValue acc = init;
+  /* Public Array indices are relative to the visible slice, not arr->offset. */
+  for (int idx = 0; idx < arr->len; idx++) {
+    acc = call_fn3(
+        fn,
+        acc,
+        arr->data[arr->offset + idx],
+        bsts_int64_from_int64((int64_t)idx));
+  }
+
+  return acc;
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__Array(BValue array, BValue init, BValue fn) {
@@ -272,6 +300,24 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__Array(BValue array, BValue 
   BValue* data = bsts_array_alloc_data(arr->len);
   for (int idx = 0; idx < arr->len; idx++) {
     data[idx] = call_fn1(fn, arr->data[arr->offset + idx]);
+  }
+
+  return bsts_array_wrap(data, 0, arr->len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__with__index__Array(BValue array, BValue fn) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+
+  if (arr->len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BValue* data = bsts_array_alloc_data(arr->len);
+  for (int idx = 0; idx < arr->len; idx++) {
+    data[idx] = call_fn2(
+        fn,
+        arr->data[arr->offset + idx],
+        bsts_int64_from_int64((int64_t)idx));
   }
 
   return bsts_array_wrap(data, 0, arr->len);
@@ -367,6 +413,116 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_flat__map__Array(BValue array, B
   }
 
   return bsts_array_wrap(data, 0, total_len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__map__Array(BValue left, BValue right, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  if (pair_len <= 0) {
+    return bsts_array_empty();
+  }
+
+  BValue* data = bsts_array_alloc_data(pair_len);
+  for (int idx = 0; idx < pair_len; idx++) {
+    data[idx] = call_fn2(
+        fn,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]);
+  }
+
+  return bsts_array_wrap(data, 0, pair_len);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(BValue left, BValue right, BValue init, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  BValue acc = init;
+  for (int idx = 0; idx < pair_len; idx++) {
+    acc = call_fn3(
+        fn,
+        acc,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]);
+  }
+
+  return acc;
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__sumf__Array(BValue left, BValue right, BValue fn) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+
+  if (pair_len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  // Seed from the first visible pair so left-to-right reductions preserve
+  // sign-sensitive values like -0.0 instead of forcing an initial +0.0.
+  double acc = bsts_unboxf(call_fn2(
+      fn,
+      left_arr->data[left_arr->offset],
+      right_arr->data[right_arr->offset]));
+  for (int idx = 1; idx < pair_len; idx++) {
+    acc += bsts_unboxf(call_fn2(
+        fn,
+        left_arr->data[left_arr->offset + idx],
+        right_arr->data[right_arr->offset + idx]));
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(BValue array) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+  if (arr->len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  double acc = bsts_unboxf(arr->data[arr->offset]);
+  for (int idx = 1; idx < arr->len; idx++) {
+    acc += bsts_unboxf(arr->data[arr->offset + idx]);
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(BValue array) {
+  BSTS_Array* arr = bsts_array_unbox(array);
+  if (arr->len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  double first = bsts_unboxf(arr->data[arr->offset]);
+  double acc = first * first;
+  for (int idx = 1; idx < arr->len; idx++) {
+    double item = bsts_unboxf(arr->data[arr->offset + idx]);
+    acc += item * item;
+  }
+
+  return bsts_boxf(acc);
+}
+
+BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(BValue left, BValue right) {
+  BSTS_Array* left_arr = bsts_array_unbox(left);
+  BSTS_Array* right_arr = bsts_array_unbox(right);
+  int pair_len = bsts_min_int(left_arr->len, right_arr->len);
+  if (pair_len <= 0) {
+    return bsts_boxf(0.0);
+  }
+
+  double acc = bsts_unboxf(left_arr->data[left_arr->offset]) *
+      bsts_unboxf(right_arr->data[right_arr->offset]);
+  for (int idx = 1; idx < pair_len; idx++) {
+    acc += bsts_unboxf(left_arr->data[left_arr->offset + idx]) *
+        bsts_unboxf(right_arr->data[right_arr->offset + idx]);
+  }
+
+  return bsts_boxf(acc);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value) {
