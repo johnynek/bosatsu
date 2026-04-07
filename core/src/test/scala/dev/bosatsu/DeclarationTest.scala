@@ -31,6 +31,64 @@ class DeclarationTest extends munit.ScalaCheckSuite {
       case _ => genNonFree
     }
 
+  test("conditional matches binders scope if true arms in freeVars") {
+    import Declaration._
+
+    val genIfElse = for {
+      (binder, cond) <- Generators
+        .bindingMatchesConditionGen(Generators.simpleDecl(2))
+        .suchThat { case (binder, cond) => !cond.arg.freeVars(binder) }
+      trueFn <- Generators.bindIdentGen.suchThat(_ != binder)
+      elseName <- Generators.bindIdentGen.suchThat(n =>
+        (n != binder) && (n != trueFn)
+      )
+    } yield {
+      val trueBody =
+        Apply(Var(trueFn), NonEmptyList.one(Var(binder)), ApplyKind.Parens)(using
+          emptyRegion
+        )
+      val decl =
+        IfElse(
+          NonEmptyList.one((cond, OptIndent.same(trueBody))),
+          OptIndent.same(Var(elseName))
+        )(using emptyRegion)
+      (binder, decl)
+    }
+
+    forAll(genIfElse) { case (binder, decl) =>
+      val syntax = decl.toDoc.render(80)
+      assert(!decl.freeVars(binder), s"binder leaked from conditional arm:\n$syntax")
+      assert(decl.allNames(binder), s"binder missing from allNames:\n$syntax")
+    }
+  }
+
+  test("conditional matches binders scope ternary true arms in freeVars") {
+    import Declaration._
+
+    val genTernary = for {
+      (binder, cond) <- Generators
+        .bindingMatchesConditionGen(Generators.simpleDecl(2))
+        .suchThat { case (binder, cond) => !cond.arg.freeVars(binder) }
+      trueFn <- Generators.bindIdentGen.suchThat(_ != binder)
+      falseName <- Generators.bindIdentGen.suchThat(n =>
+        (n != binder) && (n != trueFn)
+      )
+    } yield {
+      val trueCase =
+        Apply(Var(trueFn), NonEmptyList.one(Var(binder)), ApplyKind.Parens)(using
+          emptyRegion
+        )
+      val decl = Ternary(trueCase, cond, Var(falseName))
+      (binder, decl)
+    }
+
+    forAll(genTernary) { case (binder, decl) =>
+      val syntax = decl.toDoc.render(80)
+      assert(!decl.freeVars(binder), s"binder leaked from ternary arm:\n$syntax")
+      assert(decl.allNames(binder), s"binder missing from allNames:\n$syntax")
+    }
+  }
+
   test("freeVarsSet is a subset of allVars") {
     forAll(genDecl) { decl =>
       val frees = decl.freeVars
@@ -264,6 +322,69 @@ x""")
     law("b", "12", """[b for b in b]""", Some("""[b for b in 12]"""))
     law("b", "12", """[b for b in b if b]""", Some("""[b for b in 12 if b]"""))
     law("b", "12", """Foo { b }""", Some("Foo { b: 12 }"))
+  }
+
+  test("substitute keeps conditional-match binders local to ternary true arms") {
+    import Declaration._
+
+    val binder = Identifier.Name("a")
+    val replacement = Identifier.Name("replacement")
+    val cond = Matches(
+      Var(Identifier.Name("subject")),
+      Pattern.Var(binder),
+      Some(Var(binder))
+    )(using emptyRegion)
+    val trueCase =
+      Apply(
+        Var(Identifier.Name("use_true")),
+        NonEmptyList.one(Var(binder)),
+        ApplyKind.Parens
+      )(using emptyRegion)
+    val falseCase =
+      Apply(
+        Var(Identifier.Name("use_false")),
+        NonEmptyList.one(Var(binder)),
+        ApplyKind.Parens
+      )(using emptyRegion)
+
+    val actual =
+      Declaration.substitute(binder, Var(replacement), Ternary(trueCase, cond, falseCase))
+
+    val expectedFalse =
+      Apply(
+        Var(Identifier.Name("use_false")),
+        NonEmptyList.one(Var(replacement)),
+        ApplyKind.Parens
+      )(using emptyRegion)
+
+    assertEquals(actual, Some(Ternary(trueCase, cond, expectedFalse)))
+  }
+
+  test("substitute rejects capture through conditional-match binders") {
+    import Declaration._
+
+    val binder = Identifier.Name("a")
+    val target = Identifier.Name("value")
+    val decl =
+      IfElse(
+        NonEmptyList.one(
+          (
+            Matches(Var(Identifier.Name("subject")), Pattern.Var(binder), None)(using
+              emptyRegion
+            ),
+            OptIndent.same(
+              Apply(
+                Var(Identifier.Name("use")),
+                NonEmptyList.one(Var(target)),
+                ApplyKind.Parens
+              )(using emptyRegion)
+            )
+          )
+        ),
+        OptIndent.same(Var(Identifier.Name("fallback")))
+      )(using emptyRegion)
+
+    assertEquals(Declaration.substitute(target, Var(binder), decl), None)
   }
 
   test("test freeVars with explicit examples") {

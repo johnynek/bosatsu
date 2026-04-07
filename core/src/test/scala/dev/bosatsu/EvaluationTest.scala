@@ -3187,6 +3187,50 @@ test = Assertion(fn(False), "")
     )
   }
 
+  test("conditional matches with bindings evaluate like nested matches") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def describe(xs: List[Int]) -> String:
+  if xs matches [a]:
+    int_to_String(a)
+  elif xs matches [a, *_]:
+    int_to_String(a.add(10))
+  else:
+    "empty"
+
+def pick(xs: List[Int]) -> String:
+  int_to_String(a) if xs matches [a] else "none"
+
+def guarded(xs: List[Int]) -> String:
+  int_to_String(a) if xs matches [a] if a matches 2 else "other"
+
+def mixed(c: Bool, xs: List[Int]) -> String:
+  if c:
+    "bool"
+  elif xs matches [a]:
+    int_to_String(a)
+  else:
+    "none"
+
+test = TestSuite("conditional match bindings", [
+  Assertion(describe([1]) matches "1", "if true"),
+  Assertion(describe([2, 3]) matches "12", "elif true"),
+  Assertion(describe([]) matches "empty", "else"),
+  Assertion(pick([4]) matches "4", "ternary true"),
+  Assertion(pick([]) matches "none", "ternary false"),
+  Assertion(guarded([2]) matches "2", "guard true"),
+  Assertion(guarded([3]) matches "other", "guard false"),
+  Assertion(mixed(False, [5]) matches "5", "mixed fallback"),
+  Assertion(mixed(True, [5]) matches "bool", "mixed first")
+])
+"""),
+      "Foo",
+      9
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List("""

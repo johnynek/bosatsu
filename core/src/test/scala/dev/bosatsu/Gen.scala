@@ -870,6 +870,28 @@ object Generators {
       Matches(fixa, p, fixGuard)(using emptyRegion)
     }
 
+  def bindingMatchesConditionGen(
+      argGen0: Gen[NonBinding]
+  ): Gen[(Identifier.Bindable, Declaration.Matches)] = {
+    import Declaration._
+
+    val argGen = argGen0.map {
+      case ann @ Annotation(_, _) => Parens(ann)(using emptyRegion)
+      case a @ (Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
+          Matches(_, _, Some(_)) | Ternary(_, _, _)) =>
+        Parens(a)(using emptyRegion)
+      case not => not
+    }
+
+    Gen.zip(argGen, bindIdentGen, Gen.oneOf(true, false)).map {
+      case (arg, binder, withGuard) =>
+        val guard =
+          if (withGuard) Some(Var(binder)(using emptyRegion))
+          else None
+        (binder, Matches(arg, Pattern.Var(binder), guard)(using emptyRegion))
+    }
+  }
+
   val genLit: Gen[Lit] = {
     val str = for {
       // q <- Gen.oneOf('\'', '"')

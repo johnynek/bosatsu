@@ -302,12 +302,14 @@ sealed abstract class Declaration derives CanEqual {
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
             val acc1 = loop(cond, bound, acc0)
-            loop(v.get, bound, acc1)
+            val bound1 = bound ++ Declaration.conditionalMatchBindings(cond)
+            loop(v.get, bound1, acc1)
           }
           loop(elseCase.get, bound, acc2)
         case Ternary(t, c, f) =>
-          val acc1 = loop(t, bound, acc)
-          val acc2 = loop(c, bound, acc1)
+          val acc1 = loop(c, bound, acc)
+          val bound1 = bound ++ Declaration.conditionalMatchBindings(c)
+          val acc2 = loop(t, bound1, acc1)
           loop(f, bound, acc2)
         case Lambda(args, body) =>
           val bound1 = bound ++ args.patternNames
@@ -395,89 +397,103 @@ sealed abstract class Declaration derives CanEqual {
   /** This returns *all* names in the declaration, bound or not
     */
   def allNames: SortedSet[Bindable] = {
-    def loop(decl: Declaration, acc: SortedSet[Bindable]): SortedSet[Bindable] =
+    def loop(
+        decl: Declaration,
+        bound: Set[Bindable],
+        acc: SortedSet[Bindable]
+    ): SortedSet[Bindable] =
       decl match {
-        case Annotation(term, _) => loop(term, acc)
+        case Annotation(term, _) => loop(term, bound, acc)
         case Apply(fn, args, _)  =>
-          (fn :: args).foldLeft(acc)((acc0, d) => loop(d, acc0))
+          (fn :: args).foldLeft(acc)((acc0, d) => loop(d, bound, acc0))
         case ApplyOp(left, op, right) =>
-          val acc0 = loop(left, acc)
-          loop(right, acc0 + op)
+          val acc0 = loop(left, bound, acc)
+          loop(right, bound, acc0 + op)
         case Binding(BindingStatement(n, v, in)) =>
-          val acc0 = loop(v, acc ++ n.names)
-          loop(in.padded, acc0)
-        case Comment(c)   => loop(c.on.padded, acc)
-        case CommentNB(c) => loop(c.on.padded, acc)
+          val bound1 = bound ++ n.names
+          val acc0 = loop(v, bound, acc ++ n.names)
+          loop(in.padded, bound1, acc0)
+        case Comment(c)   => loop(c.on.padded, bound, acc)
+        case CommentNB(c) => loop(c.on.padded, bound, acc)
         case DefFn(d)     =>
           // def sets up a binding to itself, which
           // may or may not be recursive
           val acc1 = (acc + d.name) ++ d.args.toList.flatMap(_.patternNames)
+          val boundRest = bound + d.name
+          val boundBody = boundRest ++ d.args.toList.flatMap(_.patternNames)
           val (body, rest) = d.result
-          val acc2 = loop(body.get, acc1)
-          loop(rest.padded, acc2)
+          val acc2 = loop(body.get, boundBody, acc1)
+          loop(rest.padded, boundRest, acc2)
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
-            val acc1 = loop(cond, acc0)
-            loop(v.get, acc1)
+            val acc1 = loop(cond, bound, acc0)
+            val bound1 = bound ++ Declaration.conditionalMatchBindings(cond)
+            loop(v.get, bound1, acc1)
           }
-          loop(elseCase.get, acc2)
+          loop(elseCase.get, bound, acc2)
         case la @ LeftApply(_, _, _, _) =>
-          loop(la.rewrite, acc)
+          loop(la.rewrite, bound, acc)
         case Ternary(t, c, f) =>
-          val acc1 = loop(t, acc)
-          val acc2 = loop(c, acc1)
-          loop(f, acc2)
+          val acc1 = loop(c, bound, acc)
+          val bound1 = bound ++ Declaration.conditionalMatchBindings(c)
+          val acc2 = loop(t, bound1, acc1)
+          loop(f, bound, acc2)
         case Lambda(args, body) =>
+          val bound1 = bound ++ args.patternNames
           val acc1 = acc ++ args.patternNames
-          loop(body, acc1)
+          loop(body, bound1, acc1)
         case Literal(_)               => acc
         case Match(_, typeName, args) =>
-          val acc1 = loop(typeName, acc)
+          val acc1 = loop(typeName, bound, acc)
           args.get.foldLeft(acc1) { case (acc0, MatchBranch(pat, guard, res)) =>
+            val bound1 = bound ++ pat.names
             val acc1 = acc0 ++ pat.names
-            val acc2 = guard.fold(acc1)(loop(_, acc1))
-            loop(res.get, acc2)
+            val acc2 = guard.fold(acc1)(loop(_, bound1, acc1))
+            loop(res.get, bound1, acc2)
           }
         case Matches(a, p, guard) =>
-          val acc1 = loop(a, acc ++ p.names)
-          guard.fold(acc1)(loop(_, acc1))
-        case Parens(p)        => loop(p, acc)
+          val bound1 = bound ++ p.names
+          val acc1 = loop(a, bound, acc ++ p.names)
+          guard.fold(acc1)(loop(_, bound1, acc1))
+        case Parens(p)        => loop(p, bound, acc)
         case TupleCons(items) =>
-          items.foldLeft(acc)((acc0, d) => loop(d, acc0))
+          items.foldLeft(acc)((acc0, d) => loop(d, bound, acc0))
         case Var(name: Bindable) => acc + name
         case Var(_)              => acc
         case StringDecl(nel)     =>
           nel.foldLeft(acc) {
-            case (acc0, StringDecl.StrExpr(decl))  => loop(decl, acc0)
-            case (acc0, StringDecl.CharExpr(decl)) => loop(decl, acc0)
+            case (acc0, StringDecl.StrExpr(decl))  => loop(decl, bound, acc0)
+            case (acc0, StringDecl.CharExpr(decl)) => loop(decl, bound, acc0)
             case (acc0, _)                         => acc0
           }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
-            loop(sori.value, acc0)
+            loop(sori.value, bound, acc0)
           }
         case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
-          val acc1 = loop(in, acc)
-          val acc2 = loop(ex.value, acc1 ++ b.names)
-          filter.fold(acc2)(loop(_, acc2))
+          val bound1 = bound ++ b.names
+          val acc1 = loop(in, bound, acc ++ b.names)
+          val acc2 = loop(ex.value, bound1, acc1)
+          filter.fold(acc2)(loop(_, bound1, acc2))
         case DictDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, kv) =>
-            val acc1 = loop(kv.key, acc0)
-            loop(kv.value, acc1)
+            val acc1 = loop(kv.key, bound, acc0)
+            loop(kv.value, bound, acc1)
           }
         case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
-          val acc1 = loop(in, acc)
-          val acc2 = loop(ex.key, acc1 ++ b.names)
-          val acc3 = loop(ex.value, acc2)
-          filter.fold(acc3)(loop(_, acc3))
+          val bound1 = bound ++ b.names
+          val acc1 = loop(in, bound, acc ++ b.names)
+          val acc2 = loop(ex.key, bound1, acc1)
+          val acc3 = loop(ex.value, bound1, acc2)
+          filter.fold(acc3)(loop(_, bound1, acc3))
         case RecordConstructor(_, args, updateFrom) =>
           val fromArgs = args.foldLeft(acc) {
-            case (acc, RecordArg.Pair(_, v)) => loop(v, acc)
+            case (acc, RecordArg.Pair(_, v)) => loop(v, bound, acc)
             case (acc, RecordArg.Simple(n))  => acc + n
           }
-          updateFrom.fold(fromArgs)(loop(_, fromArgs))
+          updateFrom.fold(fromArgs)(loop(_, bound, fromArgs))
       }
-    loop(this, SortedSet.empty)
+    loop(this, Set.empty, SortedSet.empty)
   }
 
   def replaceRegions(r: Region): Declaration =
@@ -529,6 +545,19 @@ object Declaration {
     case object Recur extends MatchKind(true, "recur")
     case object Loop extends MatchKind(true, "loop")
   }
+
+  @annotation.tailrec
+  def conditionalMatch(cond: NonBinding): Option[Matches] =
+    cond match {
+      case Annotation(of, _)         => conditionalMatch(of)
+      case Parens(nb: NonBinding)    => conditionalMatch(nb)
+      case Parens(_)                 => None
+      case m: Matches                => Some(m)
+      case _                         => None
+    }
+
+  def conditionalMatchBindings(cond: NonBinding): List[Bindable] =
+    conditionalMatch(cond).toList.flatMap(_.pattern.names)
 
   /** Try to substitute ex for ident in the expression: in
     *
@@ -616,13 +645,27 @@ object Declaration {
           }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse { case (cond, br) =>
-            (loop(cond), br.traverse(loopDec)).tupled
+            loop(cond).flatMap { cond1 =>
+              val pnames = Declaration.conditionalMatchBindings(cond1)
+              if (pnames.exists(masks)) None
+              else if (pnames.exists(shadows))
+                Some((cond1, br))
+              else
+                br.traverse(loopDec).map((cond1, _))
+            }
           }
           val elsec = elseCase.traverse(loopDec)
 
           (ifs, elsec).mapN(IfElse(_, _)(using decl.region))
         case Ternary(t, c, f) =>
-          (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
+          loop(c).flatMap { c1 =>
+            val pnames = Declaration.conditionalMatchBindings(c1)
+            if (pnames.exists(masks)) None
+            else if (pnames.exists(shadows))
+              loop(f).map(Ternary(t, c1, _))
+            else
+              (loop(t), loop(f)).mapN(Ternary(_, c1, _))
+          }
         case Lambda(args, body) =>
           // sets up a binding
           val pnames = args.patternNames

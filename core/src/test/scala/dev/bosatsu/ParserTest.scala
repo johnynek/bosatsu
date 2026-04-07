@@ -1655,6 +1655,60 @@ x"""
       "xs matches [*_, x, *_] if pred(x) else other"
     )
 
+    roundTrip(
+      Declaration.parser(""),
+      """if xs matches [a]:
+  fn(a)
+elif ys matches [b]:
+  gn(b)
+else:
+  h"""
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      """if xs matches [a]:
+  fn(a)
+elif ys matches [b]:
+  gn(b)
+else:
+  h"""
+    ) match {
+      case parsed @ Declaration.IfElse(ifCases, elseCase) =>
+        assertEquals(ifCases.length, 2)
+        assert(
+          ifCases.head._1.isInstanceOf[Declaration.Matches],
+          s"expected leading conditional matches, found: ${ifCases.head._1}"
+        )
+        assert(
+          ifCases.tail.head._1.isInstanceOf[Declaration.Matches],
+          s"expected elif conditional matches, found: ${ifCases.tail.head._1}"
+        )
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("fn"),
+            Identifier.Name("gn"),
+            Identifier.Name("h"),
+            Identifier.Name("xs"),
+            Identifier.Name("ys")
+          )
+        )
+        assertEquals(elseCase.get, Declaration.Var(Identifier.Name("h")))
+      case other =>
+        fail(s"expected if/elif with conditional matches, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
+      "fn(a) if xs matches [a] else g"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "fn(a) if xs matches [a] if pred(a) else g"
+    )
+
     unsafeParse(
       Declaration.parser(""),
       "xs matches [*_, x, *_] if pred(x) else other"
@@ -1680,6 +1734,95 @@ x"""
         assert(guard.allNames(Identifier.Name("x")))
       case other =>
         fail(s"expected guarded matches ternary, found: $other")
+    }
+
+    unsafeParse(
+      Declaration.parser(""),
+      "fn(a) if xs matches [a] else g"
+    ) match {
+      case parsed @ Declaration.Ternary(
+            Declaration.Apply(
+              Declaration.Var(Identifier.Name("fn")),
+              _,
+              Declaration.ApplyKind.Parens
+            ),
+            Declaration.Matches(
+              Declaration.Var(Identifier.Name("xs")),
+              _,
+              None
+            ),
+            Declaration.Var(Identifier.Name("g"))
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("fn"),
+            Identifier.Name("g"),
+            Identifier.Name("xs")
+          )
+        )
+      case other =>
+        fail(s"expected ternary with binding matches condition, found: $other")
+    }
+
+    unsafeParse(
+      Declaration.parser(""),
+      "fn(a) if xs matches [a] if pred(a) else g"
+    ) match {
+      case parsed @ Declaration.Ternary(
+            Declaration.Apply(
+              Declaration.Var(Identifier.Name("fn")),
+              _,
+              Declaration.ApplyKind.Parens
+            ),
+            Declaration.Matches(
+              Declaration.Var(Identifier.Name("xs")),
+              _,
+              Some(guard)
+            ),
+            Declaration.Var(Identifier.Name("g"))
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("fn"),
+            Identifier.Name("g"),
+            Identifier.Name("pred"),
+            Identifier.Name("xs")
+          )
+        )
+        assert(guard.freeVars(Identifier.Name("a")))
+      case other =>
+        fail(s"expected guarded ternary binding matches, found: $other")
+    }
+
+    unsafeParse(
+      Declaration.parser(""),
+      """if (xs matches [a]):
+  fn(a)
+else:
+  g"""
+    ) match {
+      case parsed @ Declaration.IfElse(
+            NonEmptyList(
+              (
+                Declaration.Parens(Declaration.Matches(Declaration.Var(Identifier.Name("xs")), _, None)),
+                _
+              ),
+              Nil
+            ),
+            _
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("fn"),
+            Identifier.Name("g"),
+            Identifier.Name("xs")
+          )
+        )
+      case other =>
+        fail(s"expected parenthesized conditional matches if, found: $other")
     }
 
     roundTrip(

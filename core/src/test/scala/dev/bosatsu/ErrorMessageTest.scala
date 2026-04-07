@@ -274,6 +274,54 @@ main = int_to_String(42) matches str
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
 
+  test("conditional match binders are not visible in ternary false branches") {
+    val source =
+      """package ConditionalTernaryScope
+        |
+        |main = int_to_String(a) if [1] matches [a] else int_to_String(a)
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `a`."), rendered)
+  }
+
+  test("conditional match binders are not visible in later elif arms") {
+    val source =
+      """package ConditionalElifScope
+        |
+        |main = if [1] matches [a]:
+        |  int_to_String(a)
+        |elif True:
+        |  int_to_String(a)
+        |else:
+        |  ""
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `a`."), rendered)
+  }
+
+  test("conditional match binders are not visible after the if expression") {
+    val source =
+      """package ConditionalAfterScope
+        |
+        |res = if [1] matches [a]:
+        |  int_to_String(a)
+        |else:
+        |  ""
+        |main = int_to_String(a)
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `a`."), rendered)
+  }
+
   test("nested guarded matches in a guard require parentheses") {
     evalFail(List("""
 package GuardAmbiguity

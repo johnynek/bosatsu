@@ -112,6 +112,25 @@ class TypedTotalityTest extends munit.FunSuite {
     }
     assert(!hasAlwaysTrue, errs.mkString(", "))
 
+  private def compilePackageErrors(statement: String): List[PackageError] =
+    val parsed = Parser.parse(Package.parser, statement) match {
+      case Validated.Valid((lm, parsed)) =>
+        ((0.toString, lm), parsed) :: Nil
+      case Validated.Invalid(errs) =>
+        fail(s"parse fail: $errs")
+    }
+
+    val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
+    Par.noParallelism {
+      PackageMap.resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+    } match {
+      case Ior.Left(es)    => es.toList
+      case Ior.Both(es, _) => es.toList
+      case Ior.Right(_)    => Nil
+    }
+
   test("Result[Never, Value] with only Ok branch is total") {
     assertTotal(
       """#
@@ -213,6 +232,41 @@ def vacuous(z: Never) -> Never:
         |
         |main = 42 matches y if True
         |""".stripMargin
+    )
+  }
+
+  test("conditional irrefutable matches use match-style totality diagnostics") {
+    val errs = compilePackageErrors(
+      """package ConditionalAlwaysTrue
+        |
+        |main = if 42 matches y:
+        |  y
+        |else:
+        |  0
+        |""".stripMargin
+    )
+
+    assert(
+      errs.exists {
+        case PackageError.TotalityCheckError(
+              _,
+              TotalityCheck.UnreachableBranches(_, _)
+            ) =>
+          true
+        case _ => false
+      },
+      errs.mkString(", ")
+    )
+    assert(
+      !errs.exists {
+        case PackageError.TotalityCheckError(
+              _,
+              TotalityCheck.MatchesAlwaysTrue(_)
+            ) =>
+          true
+        case _ => false
+      },
+      errs.mkString(", ")
     )
   }
 

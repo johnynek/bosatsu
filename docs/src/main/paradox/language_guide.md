@@ -544,6 +544,19 @@ contains_even = [1, 2, 3] matches [*_, x, *_] if is_even(x)
 Any names bound by the pattern are only in scope inside that guard. They are
 not available after the `matches` expression itself.
 
+The same scoped binding behavior works in `if` and `elif` conditions:
+```
+result = if xs matches [x]:
+  int_to_String(x)
+elif ys matches [y]:
+  int_to_String(y)
+else:
+  "none"
+```
+Names introduced by the conditional `matches` are available in that arm's
+guard and body only. They are not available in later `elif` arms, in `else`,
+or after the whole conditional.
+
 This also works with ternary syntax without extra parentheses:
 ```
 result = xs matches [*_, x, *_] if pred(x) else fallback

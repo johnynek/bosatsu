@@ -412,6 +412,103 @@ else:
     assertEquals(localName(branchList(3).expr), "e")
   }
 
+  test("conditional matches if and elif lower directly to nested matches") {
+    assertMainDesugarsAs(
+      """main = if xs matches [a]:
+  fn(a)
+else:
+  h""",
+      """main = match xs:
+  case [a]:
+    fn(a)
+  case _:
+    h"""
+    )
+
+    assertMainDesugarsAs(
+      """main = if xs matches [a]:
+  fn(a)
+elif ys matches [b]:
+  gn(b)
+else:
+  h""",
+      """main = match xs:
+  case [a]:
+    fn(a)
+  case _:
+    match ys:
+      case [b]:
+        gn(b)
+      case _:
+        h"""
+    )
+  }
+
+  test("mixed boolean and conditional matches keep boolean lowering around nested matches") {
+    assertMainDesugarsAs(
+      """main = if c:
+  t
+elif xs matches [a]:
+  fn(a)
+else:
+  h""",
+      """main = if c:
+  t
+else:
+  match xs:
+    case [a]:
+      fn(a)
+    case _:
+      h"""
+    )
+
+    assertMainDesugarsAs(
+      """main = if xs matches [a]:
+  fn(a)
+elif c:
+  t
+else:
+  h""",
+      """main = match xs:
+  case [a]:
+    fn(a)
+  case _:
+    if c:
+      t
+    else:
+      h"""
+    )
+  }
+
+  test("ternary conditional matches lower to match branches") {
+    assertMainDesugarsAs(
+      """main = fn(a) if xs matches [a] else h""",
+      """main = match xs:
+  case [a]:
+    fn(a)
+  case _:
+    h"""
+    )
+
+    assertMainDesugarsAs(
+      """main = fn(a) if xs matches [a] if pred(a) else h""",
+      """main = match xs:
+  case [a] if pred(a):
+    fn(a)
+  case _:
+    h"""
+    )
+
+    assertMainDesugarsAs(
+      """main = fn(a) if (xs matches [a]) else h""",
+      """main = match xs:
+  case [a]:
+    fn(a)
+  case _:
+    h"""
+    )
+  }
+
   test("zero-arg defs desugar to explicit unit-pattern defs") {
     assertMainDesugarsAs(
       """def later():
