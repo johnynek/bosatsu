@@ -371,16 +371,18 @@ main = mk
 
       assert(build.contains("2147483647"), build)
       assert(build.contains("while ___v"), build)
-      assert(
-        raw"lambda ___v\d+: ___v\d+\[2\]".r.findFirstIn(normalizedCode).nonEmpty,
-        normalizedCode
-      )
+      assert(normalizedCode.contains("int64_to_Int"), normalizedCode)
+      assert(normalizedCode.contains("int_low_bits_to_Int64"), normalizedCode)
       assert(indexed.contains("___bxs1[2]"), indexed)
       assert(indexed.contains("while ___v"), indexed)
       assert(mapped.contains("tuple(___v"), mapped)
       assert(miss.contains("return (lambda"), miss)
       assert(miss.contains("(___bidx0)"), miss)
-      assert(floatOps.contains("0.0"), floatOps)
+      assert(
+        floatOps.contains("___v13 = ___v13 + (___v11 * ___v8[___v9 + ___v12])"),
+        floatOps
+      )
+      assert(floatOps.contains("return (___v5, ___v14, ___v18)"), floatOps)
       assertEquals(deadPythonTemps(build), Set.empty, build)
       assertEquals(deadPythonTemps(indexed), Set.empty, indexed)
       assertEquals(deadPythonTemps(mapped), Set.empty, mapped)

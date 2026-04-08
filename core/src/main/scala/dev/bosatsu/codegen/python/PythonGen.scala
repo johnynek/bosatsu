@@ -872,6 +872,17 @@ object PythonGen {
       private def structModule: Env[Code.Ident] =
         Env.importLiteral(NonEmptyList.one(Code.Ident("struct")))
 
+      // Array intrinsics need concrete Int64 runtime helpers even when the
+      // surrounding package never mentions those globals in Bosatsu source.
+      private def progExtModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt")))
+
+      private def boxInt64(expr: Code.Expression): Env[Code.Expression] =
+        progExtModule.map(_.dot(Code.Ident("int_low_bits_to_Int64"))(expr))
+
+      private def unboxInt64(expr: Code.Expression): Env[Code.Expression] =
+        progExtModule.map(_.dot(Code.Ident("int64_to_Int"))(expr))
+
       private def unaryMath(name: String): List[ValueLike] => Env[ValueLike] = {
         input =>
           mathModule.flatMap { math =>
@@ -1800,35 +1811,39 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (size, data, idx) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case n :: fn :: Nil =>
-                      val valid = (size :> Code.Const.Zero).evalAnd(
-                        !(size :> maxArrayLenExpr)
-                      )
-                      val tabulated = Code
-                        .block(
-                          data := Code.MakeList(Code.Const.Zero :: Nil)
-                            .evalTimes(size),
-                          idx := Code.Const.Zero,
-                          Code.While(
-                            idx :< size,
-                            Code.block(
-                              selectItem(data, idx) := fn(idx),
-                              idx := idx + 1
+                      unboxInt64(n).flatMap { n1 =>
+                        boxInt64(idx).map { idx64 =>
+                          val valid = (size :> Code.Const.Zero).evalAnd(
+                            !(size :> maxArrayLenExpr)
+                          )
+                          val tabulated = Code
+                            .block(
+                              data := Code.MakeList(Code.Const.Zero :: Nil)
+                                .evalTimes(size),
+                              idx := Code.Const.Zero,
+                              Code.While(
+                                idx :< size,
+                                Code.block(
+                                  selectItem(data, idx) := fn(idx64),
+                                  idx := idx + 1
+                                )
+                              )
                             )
-                          )
-                        )
-                        .withValue(
-                          makeArray(data, Code.Const.Zero, size)
-                        )
-                      Code
-                        .block(size := n)
-                        .withValue(
-                          Code.IfElse(
-                            NonEmptyList.one((valid, tabulated)),
-                            emptyArray
-                          )
-                        )
+                            .withValue(
+                              makeArray(data, Code.Const.Zero, size)
+                            )
+                          Code
+                            .block(size := n1)
+                            .withValue(
+                              Code.IfElse(
+                                NonEmptyList.one((valid, tabulated)),
+                                emptyArray
+                              )
+                            )
+                        }
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -1901,7 +1916,7 @@ object PythonGen {
             Identifier.Name("size_Array"),
             (
               { input =>
-                Env.onLast(input.head)(arrayLen)
+                Env.onLastM(input.head)(ary => boxInt64(arrayLen(ary)))
               },
               1
             )
@@ -1953,16 +1968,22 @@ object PythonGen {
             Identifier.Name("get_or_Array"),
             (
               { input =>
-                Env.onLasts(input) {
+                Env.onLastsM(input) {
                   case ary :: idx :: default :: Nil =>
-                    val valid =
-                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
-                    val item =
-                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
-                    Code.IfElse(
-                      NonEmptyList.one((valid, item)),
-                      default(idx)
-                    )
+                    unboxInt64(idx).map { idx1 =>
+                      val valid =
+                        (!(idx1 :< Code.Const.Zero))
+                          .evalAnd(idx1 :< arrayLen(ary))
+                      val item =
+                        selectItem(
+                          arrayData(ary),
+                          arrayOffset(ary).evalPlus(idx1)
+                        )
+                      Code.IfElse(
+                        NonEmptyList.one((valid, item)),
+                        default(idx)
+                      )
+                    }
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(
@@ -1985,28 +2006,30 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, idx, acc) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: init :: fn :: Nil =>
-                      Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          idx := Code.Const.Zero,
-                          acc := init,
-                          Code.While(
-                            idx :< size,
-                            Code.block(
-                              acc := fn(
-                                acc,
-                                selectItem(data, offset.evalPlus(idx)),
-                                idx
-                              ),
-                              idx := idx + 1
+                      boxInt64(idx).map { idx64 =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            idx := Code.Const.Zero,
+                            acc := init,
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                acc := fn(
+                                  acc,
+                                  selectItem(data, offset.evalPlus(idx)),
+                                  idx64
+                                ),
+                                idx := idx + 1
+                              )
                             )
                           )
-                        )
-                        .withValue(acc)
+                          .withValue(acc)
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -2162,28 +2185,30 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, idx, out) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: fn :: Nil =>
-                      Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          out := Code.MakeList(Code.Const.Zero :: Nil)
-                            .evalTimes(size),
-                          idx := Code.Const.Zero,
-                          Code.While(
-                            idx :< size,
-                            Code.block(
-                              selectItem(out, idx) := fn(
-                                selectItem(data, offset.evalPlus(idx)),
-                                idx
-                              ),
-                              idx := idx + 1
+                      boxInt64(idx).map { idx64 =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(size),
+                            idx := Code.Const.Zero,
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                selectItem(out, idx) := fn(
+                                  selectItem(data, offset.evalPlus(idx)),
+                                  idx64
+                                ),
+                                idx := idx + 1
+                              )
                             )
                           )
-                        )
-                        .withValue(makeArray(out, Code.Const.Zero, size))
+                          .withValue(makeArray(out, Code.Const.Zero, size))
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
