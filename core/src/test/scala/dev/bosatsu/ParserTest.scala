@@ -1689,8 +1689,7 @@ x"""
         |elif bar matches Some(b):
         |  gn(b)
         |else:
-        |  h
-        |""".stripMargin
+        |  h""".stripMargin
     )
 
     unsafeParse(
@@ -1700,8 +1699,7 @@ x"""
         |elif bar matches Some(b):
         |  gn(b)
         |else:
-        |  h
-        |""".stripMargin
+        |  h""".stripMargin
     ) match {
       case parsed @ Declaration.IfElse(ifCases, _) =>
         assertEquals(ifCases.length, 2)
