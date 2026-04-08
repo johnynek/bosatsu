@@ -274,6 +274,63 @@ main = int_to_String(42) matches str
     assert(rendered.contains("Unknown name `x`."), rendered)
   }
 
+  test("conditional matches bindings do not leak to later elif arms or else") {
+    val source =
+      """package ConditionalScope
+        |
+        |main = if opt matches Some(x):
+        |  x
+        |elif pred(x):
+        |  1
+        |else:
+        |  x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("conditional matches ternary bindings do not leak to the false branch") {
+    val source =
+      """package ConditionalTernaryScope
+        |
+        |main = int_to_String(x) if opt matches Some(x) else x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("conditional matches preserve bad outer type annotations") {
+    val source =
+      """package ConditionalMatchAnnotation
+        |
+        |main = if ((((1, 2) matches (x, _)) : String)):
+        |  x
+        |else:
+        |  0
+        |""".stripMargin
+
+    val packs =
+      Map(
+        PackageName.parts("ConditionalMatchAnnotation") -> (
+          LocationMap(source),
+          "<test>"
+        )
+      )
+
+    evalFail(List(source)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(packs, Colorize.None)
+      assert(msg.contains("expected type String"), msg)
+      assert(msg.contains("found type Bool"), msg)
+      ()
+    }
+  }
+
   test("nested guarded matches in a guard require parentheses") {
     evalFail(List("""
 package GuardAmbiguity
