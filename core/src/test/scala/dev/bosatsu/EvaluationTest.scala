@@ -3187,6 +3187,44 @@ test = Assertion(fn(False), "")
     )
   }
 
+  test("conditional matches in if/elif and ternary evaluate like explicit matches") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def pick(left, right, flag):
+  if left matches Some(x):
+    x
+  elif right matches Some(y):
+    y
+  elif flag:
+    99
+  else:
+    0
+
+def guarded(opt):
+  if opt matches Some(x) if x.mod_Int(2) matches 0:
+    x
+  else:
+    77
+
+test = TestSuite("conditional matches", [
+  Assertion(pick(Some(1), Some(2), False) matches 1, "first arm"),
+  Assertion(pick(None, Some(2), False) matches 2, "elif binding arm"),
+  Assertion(pick(None, None, True) matches 99, "boolean fallback arm"),
+  Assertion(pick(None, None, False) matches 0, "else arm"),
+  Assertion(guarded(Some(4)) matches 4, "guard pass"),
+  Assertion(guarded(Some(3)) matches 77, "guard fail"),
+  Assertion(guarded(None) matches 77, "pattern fail"),
+  Assertion((int_to_String(v) if Some(5) matches Some(v) else "miss") matches "5", "ternary true"),
+  Assertion((int_to_String(v) if None matches Some(v) else "miss") matches "miss", "ternary false")
+])
+"""),
+      "Foo",
+      9
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(
