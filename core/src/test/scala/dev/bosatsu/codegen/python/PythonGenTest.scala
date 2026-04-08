@@ -275,6 +275,121 @@ main = mk
     }
   }
 
+  test("Array Int64 helpers lower to direct Python loops") {
+    val int64Pm = typeCheckPackage(
+      """package Bosatsu/Num/Int64
+        |
+        |export Int64
+        |
+        |external struct Int64
+        |""".stripMargin
+    )
+    val int64Iface =
+      Package.interfaceOf(int64Pm.toMap(PackageName.parts("Bosatsu", "Num", "Int64")))
+
+    val arrayPm = typeCheckPackage(
+      """package Bosatsu/Collection/Array
+        |
+        |from Bosatsu/Num/Int64 import Int64
+        |
+        |export Array, dotf_Array, foldl_with_index_Array, get_or_Array, map_with_index_Array, size_Array, sumf_Array, tabulate_Array, zip_sumf_Array
+        |exposes Bosatsu/Num/Int64
+        |
+        |external struct Array[a: +*]
+        |external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
+        |external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
+        |external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
+        |external def map_with_index_Array[a, b](ary: Array[a], fn: (a, Int64) -> b) -> Array[b]
+        |external def size_Array[a](ary: Array[a]) -> Int64
+        |external def sumf_Array(ary: Array[Float64]) -> Float64
+        |external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
+        |external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) -> Float64) -> Float64
+        |""".stripMargin,
+      int64Iface :: Nil
+    )
+    val arrayIface =
+      Package.interfaceOf(
+        arrayPm.toMap(PackageName.parts("Bosatsu", "Collection", "Array"))
+      )
+
+    val rootPm = typeCheckPackage(
+      """package Test
+        |
+        |from Bosatsu/Collection/Array import (
+        |  Array,
+        |  dotf_Array,
+        |  foldl_with_index_Array,
+        |  get_or_Array,
+        |  map_with_index_Array,
+        |  size_Array,
+        |  sumf_Array,
+        |  tabulate_Array,
+        |  zip_sumf_Array,
+        |)
+        |from Bosatsu/Num/Int64 import Int64
+        |
+        |def build(n: Int64):
+        |  tabulate_Array(n, _ -> 0)
+        |
+        |def miss(xs: Array[Int], idx: Int64):
+        |  get_or_Array(xs, idx, _ -> 0)
+        |
+        |def size_only(xs: Array[Int]):
+        |  size_Array(xs)
+        |
+        |def indexed(xs: Array[Int]):
+        |  foldl_with_index_Array(xs, 0, (acc, _, _) -> acc)
+        |
+        |def mapped(xs: Array[Int]):
+        |  map_with_index_Array(xs, (x, _) -> x)
+        |
+        |def float_ops(xs: Array[Float64], ys: Array[Float64]):
+        |  (sumf_Array(xs), dotf_Array(xs, ys), zip_sumf_Array(xs, ys, (_, _) -> 0.0))
+        |
+        |main = (build, miss, size_only, indexed, mapped, float_ops)
+        |""".stripMargin,
+      List(arrayIface, int64Iface)
+    )
+
+    val pm =
+      (PackageMap.empty + PackageMap.predefInferred) ++
+        int64Pm.toMap.values ++
+        arrayPm.toMap.values ++
+        rootPm.toMap.values
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Test"))._2
+      val code = doc.render(120)
+
+      val build = normalizeGeneratedTemps(extractPythonDef(code, "build"))
+      val miss = normalizeGeneratedTemps(extractPythonDef(code, "miss"))
+      val normalizedCode = normalizeGeneratedTemps(code)
+      val indexed = normalizeGeneratedTemps(extractPythonDef(code, "indexed"))
+      val mapped = normalizeGeneratedTemps(extractPythonDef(code, "mapped"))
+      val floatOps = normalizeGeneratedTemps(extractPythonDef(code, "float_ops"))
+
+      assert(build.contains("2147483647"), build)
+      assert(build.contains("while ___v"), build)
+      assert(normalizedCode.contains("int64_to_Int"), normalizedCode)
+      assert(normalizedCode.contains("int_low_bits_to_Int64"), normalizedCode)
+      assert(indexed.contains("___bxs1[2]"), indexed)
+      assert(indexed.contains("while ___v"), indexed)
+      assert(mapped.contains("tuple(___v"), mapped)
+      assert(miss.contains("return (lambda"), miss)
+      assert(miss.contains("(___bidx0)"), miss)
+      assert(
+        floatOps.contains("___v13 = ___v13 + (___v11 * ___v8[___v9 + ___v12])"),
+        floatOps
+      )
+      assert(floatOps.contains("return (___v5, ___v14, ___v18)"), floatOps)
+      assertEquals(deadPythonTemps(build), Set.empty, build)
+      assertEquals(deadPythonTemps(indexed), Set.empty, indexed)
+      assertEquals(deadPythonTemps(mapped), Set.empty, mapped)
+      assertEquals(deadPythonTemps(floatOps), Set.empty, floatOps)
+    }
+  }
+
   test("segmented end-anchored list search lowers to one suffix-positioning loop in Python") {
     val pm = typeCheckPackage("""package Test
 

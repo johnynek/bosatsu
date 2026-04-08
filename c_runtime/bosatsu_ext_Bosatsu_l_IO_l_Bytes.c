@@ -1,4 +1,5 @@
 #include "bosatsu_ext_Bosatsu_l_IO_l_Bytes.h"
+#include "bosatsu_array_internal.h"
 
 #include <gc.h>
 #include <limits.h>
@@ -6,13 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct
-{
-  BValue *data;
-  int offset;
-  int len;
-} BSTS_Array;
 
 BSTS_Bytes *bsts_bytes_unbox(BValue bytes)
 {

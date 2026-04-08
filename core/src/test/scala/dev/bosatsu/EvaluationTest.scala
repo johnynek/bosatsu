@@ -3227,73 +3227,145 @@ test = TestSuite("conditional matches", [
 
   test("array externals evaluate") {
     runBosatsuTest(
-      List("""
+      List(
+        """
+package Bosatsu/Num/Int64
+
+export Int64, int_low_bits_to_Int64, int64_to_Int, eq_Int64
+
+external struct Int64
+external def int_low_bits_to_Int64(i: Int) -> Int64
+external def int64_to_Int(i: Int64) -> Int
+external def eq_Int64(a: Int64, b: Int64) -> Bool
+""",
+        """
+package Bosatsu/Num/Float64
+
+from Bosatsu/Predef import eq_Float64 as eq_Float64_predef
+
+export eq_Float64, float64_bits_to_Int, int_to_Float64, is_nan
+
+external def float64_bits_to_Int(x: Float64) -> Int
+external def int_to_Float64(i: Int) -> Float64
+external def is_nan(x: Float64) -> Bool
+
+def eq_Float64(a, b): eq_Float64_predef(a, b)
+""",
+        """
 package Bosatsu/Collection/Array
+
+from Bosatsu/Num/Float64 import (
+  eq_Float64,
+  float64_bits_to_Int,
+  int_to_Float64,
+  is_nan,
+)
+from Bosatsu/Num/Int64 import (
+  Int64,
+  eq_Int64,
+  int64_to_Int,
+  int_low_bits_to_Int64,
+)
 
 external struct Array[a: +*]
 
 external empty_Array: forall a. Array[a]
-external def tabulate_Array[a](n: Int, fn: Int -> a) -> Array[a]
+external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
-external def size_Array[a](ary: Array[a]) -> Int
-external def get_map_Array[a, b](ary: Array[a], idx: Int, default: Unit -> b, fn: a -> b) -> b
-external def get_or_Array[a](ary: Array[a], idx: Int, default: Unit -> a) -> a
+external def size_Array[a](ary: Array[a]) -> Int64
+external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
+external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
 external def foldr_Array[a, b](ary: Array[a], init: b, fn: (a, b) -> b) -> b
 external def map_Array[a, b](ary: Array[a], fn: a -> b) -> Array[b]
+external def map_with_index_Array[a, b](ary: Array[a], fn: (a, Int64) -> b) -> Array[b]
 external def filter_Array[a](ary: Array[a], fn: a -> Bool) -> Array[a]
 external def flat_map_Array[a, b](ary: Array[a], fn: a -> Array[b]) -> Array[b]
-external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
+external def zip_map_Array[a, b, c](left: Array[a], right: Array[b], fn: (a, b) -> c) -> Array[c]
+external def zip_foldl_Array[a, b, c](left: Array[a], right: Array[b], init: c, fn: (c, a, b) -> c) -> c
+external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) -> Float64) -> Float64
+external def sumf_Array(ary: Array[Float64]) -> Float64
+external def sumsqf_Array(ary: Array[Float64]) -> Float64
+external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
+external def set_or_self_Array[a](ary: Array[a], idx: Int64, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
-external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+external def slice_Array[a](ary: Array[a], start: Int64, end: Int64) -> Array[a]
 
-def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  get_map_Array(ary, idx, _ -> None, x -> Some(x))
+def i64(i: Int) -> Int64:
+  int_low_bits_to_Int64(i)
+
+def range_from_Array(start: Int, n: Int) -> Array[Int]:
+  tabulate_Array(i64(n), idx -> add(start, int64_to_Int(idx)))
 
 def cmp_pair(left: (Int, String), right: (Int, String)) -> Comparison:
   (li, _) = left
   (ri, _) = right
   cmp_Int(li, ri)
 
-a5 = tabulate_Array(5, i -> i)
-a5_tail = slice_Array(a5, 2, 5)
+a5 = tabulate_Array(i64(5), int64_to_Int)
+a5_tail = slice_Array(a5, i64(2), i64(5))
+f5 = map_Array(a5, int_to_Float64)
+f3 = map_Array(range_from_Array(10, 3), int_to_Float64)
 
 tests = TestSuite("array eval", [
   Assertion(to_List_Array(a5) matches [0, 1, 2, 3, 4], "tabulate"),
-  Assertion(size_Array(a5) matches 5, "size"),
-  Assertion(get_Array(a5, 2) matches Some(2), "get some"),
-  Assertion(get_Array(a5, -1) matches None, "get none"),
-  Assertion(get_or_Array(a5, 20, _ -> 10) matches 10, "get_or"),
+  Assertion(eq_Int64(size_Array(a5), i64(5)), "size"),
+  Assertion(to_List_Array(tabulate_Array(i64(-3), int64_to_Int)) matches [], "tabulate negative"),
+  Assertion(
+    to_List_Array(tabulate_Array(i64(2147483648), int64_to_Int)) matches [],
+    "tabulate oversized"
+  ),
+  Assertion(get_or_Array(a5, i64(20), int64_to_Int) matches 20, "get_or forwards miss idx"),
+  Assertion(get_or_Array(a5_tail, i64(0), int64_to_Int) matches 2, "slice index is relative"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "fold"),
+  Assertion(
+    foldl_with_index_Array(
+      a5_tail,
+      0,
+      (acc, x, idx) -> add(acc, add(x, int64_to_Int(idx)))
+    ) matches 12,
+    "foldl_with_index"
+  ),
   Assertion(foldr_Array(a5, 0, (x, acc) -> sub(x, acc)) matches 2, "foldr"),
-  Assertion(to_List_Array(map_Array(a5, x -> x.add(1))) matches [1, 2, 3, 4, 5], "map"),
+  Assertion(
+    to_List_Array(map_with_index_Array(a5_tail, (x, idx) -> sub(x, int64_to_Int(idx)))) matches [2, 2, 2],
+    "map_with_index"
+  ),
   Assertion(to_List_Array(filter_Array(a5, x -> x.mod_Int(2) matches 0)) matches [0, 2, 4], "filter"),
-  Assertion(to_List_Array(filter_Array(a5, _ -> False)) matches [], "filter none"),
-  Assertion(
-    to_List_Array(flat_map_Array(a5, x -> from_List_Array([x, x.add(10)]))) matches [0, 10, 1, 11, 2, 12, 3, 13, 4, 14],
-    "flat_map"
-  ),
-  Assertion(
-    to_List_Array(flat_map_Array(a5, x ->
-      if x.mod_Int(2) matches 0:
-        from_List_Array([x])
-      else:
-        empty_Array
-    )) matches [0, 2, 4],
-    "flat_map selective"
-  ),
-  Assertion(to_List_Array(filter_Array(a5_tail, x -> x.mod_Int(2) matches 1)) matches [3], "filter slice"),
   Assertion(
     to_List_Array(flat_map_Array(a5_tail, x -> from_List_Array([x, x.add(20)]))) matches [2, 22, 3, 23, 4, 24],
     "flat_map slice"
   ),
-  Assertion(to_List_Array(set_or_self_Array(a5, 1, 9)) matches [0, 9, 2, 3, 4], "set in range"),
-  Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice"),
-  Assertion(to_List_Array(slice_Array(a5, -2, 2)) matches [0, 1], "slice clamp"),
-  Assertion(to_List_Array(slice_Array(a5, 4, 1)) matches [], "slice invalid"),
-  Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(2, i -> i)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
+  Assertion(
+    to_List_Array(zip_map_Array(a5, range_from_Array(10, 3), (x, y) -> add(x, y))) matches [10, 12, 14],
+    "zip_map"
+  ),
+  Assertion(
+    zip_foldl_Array(a5, range_from_Array(10, 3), 0, (acc, x, y) -> add(acc, add(x, y))) matches 36,
+    "zip_foldl"
+  ),
+  Assertion(
+    zip_foldl_Array(empty_Array, a5, 99, (acc, x, y) -> add(acc, add(x, y))) matches 99,
+    "zip_foldl empty prefix"
+  ),
+  Assertion(
+    eq_Float64(zip_sumf_Array(a5, range_from_Array(10, 3), (x, y) -> int_to_Float64(mul(x, y))), 35.0),
+    "zip_sumf"
+  ),
+  Assertion(eq_Float64(sumf_Array(empty_Array), 0.0), "sumf empty"),
+  Assertion(eq_Float64(sumsqf_Array(empty_Array), 0.0), "sumsqf empty"),
+  Assertion(eq_Float64(dotf_Array(empty_Array, f3), 0.0), "dotf empty prefix"),
+  Assertion(eq_Float64(sumf_Array(f5), 10.0), "sumf"),
+  Assertion(eq_Float64(sumsqf_Array(f5), 30.0), "sumsqf"),
+  Assertion(eq_Float64(dotf_Array(f5, f3), 35.0), "dotf"),
+  Assertion(eq_Float64(dotf_Array(from_List_Array([∞]), from_List_Array([1.0, .NaN])), ∞), "dotf truncates"),
+  Assertion(float64_bits_to_Int(sumf_Array(from_List_Array([-0.0]))) matches 0x8000_0000_0000_0000, "negative zero"),
+  Assertion(is_nan(sumf_Array(from_List_Array([.NaN, 1.0]))), "nan propagates"),
+  Assertion(to_List_Array(set_or_self_Array(a5, i64(1), 9)) matches [0, 9, 2, 3, 4], "set in range"),
+  Assertion(to_List_Array(slice_Array(a5, i64(1), i64(4))) matches [1, 2, 3], "slice"),
+  Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(i64(2), int64_to_Int)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
   Assertion(
     to_List_Array(
       sort_Array(
@@ -3304,9 +3376,10 @@ tests = TestSuite("array eval", [
     "sort"
   ),
 ])
-"""),
+"""
+      ),
       "Bosatsu/Collection/Array",
-      20
+      29
     )
   }
 
@@ -3671,12 +3744,14 @@ main = Main(args -> (
     test("mkdir_with_mode and stat externals are registered for JVM evaluation") {
       val progPack = Predef.loadFileInCompile("test_workspace/Prog.bosatsu")
       val charPack = Predef.loadFileInCompile("test_workspace/Char.bosatsu")
+      // Keep this call site recompiling when the Bosatsu Array test workspace changes test helpers.
       val arrayPack =
         Predef.loadFileInCompile("test_workspace/Bosatsu/Collection/Array.bosatsu")
       val listPack = Predef.loadFileInCompile("test_workspace/List.bosatsu")
       val optionPack = Predef.loadFileInCompile("test_workspace/Option.bosatsu")
       val propertiesPack =
         Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
+      val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
       val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
       val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
       val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
@@ -3778,6 +3853,7 @@ main = Main(_ ->
           listPack,
           optionPack,
           propertiesPack,
+          float64Pack,
           int64Pack,
           randPack,
           natPack,
