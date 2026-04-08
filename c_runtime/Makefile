@@ -65,8 +65,8 @@ bosatsu_runtime.o: bosatsu_runtime.h bosatsu_runtime.c bosatsu_decls_generated.h
 	$(CC) $(ALL_CPPFLAGS) $(CFLAGS) -Wall -Werror -c bosatsu_runtime.c
 
 # this has test code for the runtime and selected predef/prog externs
-test_exe: test.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Num_l_Float64.o bosatsu_ext_Bosatsu_l_Num_l_Int64.o bosatsu_ext_Bosatsu_l_Prog.o
-	$(CC) $(ALL_CPPFLAGS) $(CFLAGS) -Wall -o test_exe test.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Num_l_Float64.o bosatsu_ext_Bosatsu_l_Num_l_Int64.o bosatsu_ext_Bosatsu_l_Prog.o $(LDFLAGS) $(ALL_LIBS)
+test_exe: test.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_ext_Bosatsu_l_Num_l_Float64.o bosatsu_ext_Bosatsu_l_Num_l_Int64.o bosatsu_ext_Bosatsu_l_Prog.o
+	$(CC) $(ALL_CPPFLAGS) $(CFLAGS) -Wall -o test_exe test.c bosatsu_runtime.o bosatsu_ext_Bosatsu_l_Predef.o bosatsu_ext_Bosatsu_l_Collection_l_Array.o bosatsu_ext_Bosatsu_l_Num_l_Float64.o bosatsu_ext_Bosatsu_l_Num_l_Int64.o bosatsu_ext_Bosatsu_l_Prog.o $(LDFLAGS) $(ALL_LIBS)
 
 test_out: test_exe
 	./test_exe > output.log 2>&1 || { cat output.log; rm -f output.log; false; }
