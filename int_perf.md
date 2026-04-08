@@ -653,6 +653,65 @@ Questions:
 
 - Does branch overhead erase the win for common non-power-of-two cases?
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 300000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `mul_small63_pow2`
+  - `mul_big_pow2_pos`
+  - `mul_big_pow2_neg`
+  - `mul_big2_pow2_pos`
+  - `mul_big2_pow2_neg`
+- Reused control cases:
+  - `mul_big_small_pos`
+  - `mul_big2_small10`
+- Baseline medians:
+  - `mul_small63_pow2`: `12.27 ns/op`
+  - `mul_big_pow2_pos`: `16.79 ns/op`
+  - `mul_big_pow2_neg`: `16.43 ns/op`
+  - `mul_big2_pow2_pos`: `13.12 ns/op`
+  - `mul_big2_pow2_neg`: `12.71 ns/op`
+  - `mul_big_small_pos`: `17.21 ns/op`
+  - `mul_big2_small10`: `13.00 ns/op`
+
+Experimental result:
+
+- Tried routing bigint-times-small-power-of-two multiplication through `bsts_integer_shift_left`.
+- The best candidate version only routed positive small powers of two for mixed big-small multiplication, leaving negative small constants on the generic multiply path.
+- Added multiplication tests for bigint times `32` and `-32`.
+- Reran the same benchmark command: `./bench_exe 300000`
+- Candidate post-change medians:
+  - `mul_small63_pow2`: `12.39 ns/op`
+  - `mul_big_pow2_pos`: `16.32 ns/op`
+  - `mul_big_pow2_neg`: `16.69 ns/op`
+  - `mul_big2_pow2_pos`: `12.83 ns/op`
+  - `mul_big2_pow2_neg`: `12.81 ns/op`
+  - `mul_big_small_pos`: `17.52 ns/op`
+  - `mul_big2_small10`: `12.95 ns/op`
+
+Outcome:
+
+- Reverted the runtime change.
+- Kept the benchmark additions in `c_runtime/bench.c` and the semantic multiply tests in `c_runtime/test.c`.
+- The measured wins were too small and too inconsistent to justify the extra branch:
+  - `mul_big_pow2_pos`: about `3%` faster
+  - `mul_big2_pow2_pos`: about `2%` faster
+  - `mul_small63_pow2`: about `1%` slower
+  - `mul_big_pow2_neg`: about `2%` slower
+  - `mul_big2_pow2_neg`: about `1%` slower
+  - `mul_big_small_pos` control: about `2%` slower
+- This does not meet the "improves very confidently" threshold, especially after experiment 8 already made the generic shift path cheaper.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- If multiplication by powers of two is revisited, target only very large bigints where schoolbook multiplication cost dominates branch overhead.
+- A stronger follow-up may be a dedicated negative-right-shift optimization rather than trying to reuse shift improvements indirectly through multiply.
+
 ### 10. Faster Canonicalization Back to Small Ints
 
 Hypothesis:

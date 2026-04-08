@@ -239,6 +239,8 @@ int main(int argc, char** argv) {
 
   BValue small_pos = bsts_integer_from_int(1);
   BValue small_neg = bsts_integer_from_int(-1);
+  BValue small_pow2 = bsts_integer_from_int(32);
+  BValue small_pow2_neg = bsts_integer_from_int(-32);
   BValue small_10 = bsts_integer_from_int(10);
   BValue small_mask = bsts_integer_from_int(0x12345678);
   BValue small62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 12345);
@@ -299,6 +301,11 @@ int main(int argc, char** argv) {
   bench_add_big_small("add_big_small62_neg", iters, big_neg, small62_pos, small62_neg);
   bench_mul("mul_big_big_pos", iters, big_pos, big_pos_alt);
   bench_mul("mul_big_small63_direct", iters, big_pos, small63_pos);
+  bench_mul("mul_small63_pow2", iters, small63_pos, small_pow2);
+  bench_mul("mul_big_pow2_pos", iters, big_pos, small_pow2);
+  bench_mul("mul_big_pow2_neg", iters, big_pos, small_pow2_neg);
+  bench_mul("mul_big2_pow2_pos", iters, big2_pos, small_pow2);
+  bench_mul("mul_big2_pow2_neg", iters, big2_neg, small_pow2);
   bench_mul("mul_big2_small10", iters, big2_pos, small_10);
   bench_mul("mul_big2_small63_pos", iters, big2_pos, small63_pos);
   bench_mul("mul_big2_small63_neg", iters, big2_neg, small63_pos);

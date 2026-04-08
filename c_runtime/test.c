@@ -301,6 +301,8 @@ void test_integer() {
   BValue s62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 1234);
   BValue s62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 1234));
   BValue pow40 = bsts_integer_from_int64(INT64_C(1) << 40);
+  BValue pow2_32 = bsts_integer_from_int(32);
+  BValue pow2_neg_32 = bsts_integer_from_int(-32);
 
   uint32_t i128_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   BValue i128_pos = bsts_integer_from_words_copy(1, 4, i128_words);
@@ -394,6 +396,8 @@ void test_integer() {
     { "mul i32_pos i32_neg", i32_pos, i32_neg, "-93281312872650816" },
     { "mul i64_pos i32_pos", i64_pos, i32_pos, "400640188908870223300206720" },
     { "mul i128_pos i32_neg", i128_pos, i32_neg, "-7390507030444577022664749144420583314610266240" },
+    { "mul i128_pos 32", i128_pos, pow2_32, "774331430504535515673386165456158318080" },
+    { "mul i128_pos -32", i128_pos, pow2_neg_32, "-774331430504535515673386165456158318080" },
     { "mul i64_neg i64_neg", i64_neg, i64_neg, "1720736512232301123366780340925702400" },
   };
   for (size_t i = 0; i < sizeof(mul_cases) / sizeof(mul_cases[0]); i++) {
