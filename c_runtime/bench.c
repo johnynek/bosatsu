@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "gc.h"
 
 #include <stdint.h>
@@ -49,12 +50,36 @@ static void bench_add_small_small(const char* name, size_t iters, BValue left, B
   print_result(name, end - start, (uint64_t)iters);
 }
 
+static void bench_sub(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = ___bsts_g_Bosatsu_l_Predef_l_sub(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
 static void bench_mul_big_small(const char* name, size_t iters, BValue big, BValue small) {
   GC_gcollect();
   uint64_t start = now_ns();
   BValue acc = big;
   for (size_t i = 0; i < iters; i++) {
     acc = bsts_integer_times(big, small);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
+static void bench_not(const char* name, size_t iters, BValue value) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = value;
+  for (size_t i = 0; i < iters; i++) {
+    acc = ___bsts_g_Bosatsu_l_Predef_l_not__Int(value);
   }
   sink = acc;
   uint64_t end = now_ns();
@@ -206,12 +231,19 @@ int main(int argc, char** argv) {
   printf("iters=%zu\n", iters);
   bench_add_small_small("add_small_small", iters, small_pos, small_neg);
   bench_add_small_small("add_small_small62", iters, small62_pos, small62_neg);
+  bench_sub("sub_small_small", iters, small_pos, small_neg);
+  bench_sub("sub_small_small62", iters, small62_pos, small62_other);
+  bench_sub("sub_big_small62", iters, big_pos, small62_pos);
+  bench_sub("sub_small_big", iters, small62_pos, big_pos);
   bench_cmp_small_small("cmp_small_small", iters, small_pos, small_neg);
   bench_cmp_small_small("cmp_small_small62", iters, small62_pos, small62_other);
   bench_cmp_small_small("cmp_small_small62_neg", iters, small62_neg, small62_other_neg);
   bench_bitwise("and_small_small62", iters, small62_pos, small62_mask, '&');
   bench_bitwise("or_small_small62", iters, small62_pos, small62_other, '|');
   bench_bitwise("xor_small_small62", iters, small62_pos, small62_other, '^');
+  bench_not("not_small_small62", iters, small62_pos);
+  bench_not("not_big_pos", iters, big_pos);
+  bench_not("not_big_neg", iters, big_neg);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
   bench_add_big_small("add_big_small_neg", iters, big_neg, small_pos, small_neg);
   bench_add_big_small("add_big_small62_pos", iters, big_pos, small62_pos, small62_neg);

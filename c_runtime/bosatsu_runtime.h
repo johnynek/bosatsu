@@ -163,6 +163,8 @@ _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_add(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
+BValue bsts_integer_sub(BValue left, BValue right);
+// (&Integer, &Integer) -> Integer
 BValue bsts_integer_times(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_or(BValue left, BValue right);
@@ -179,6 +181,8 @@ int bsts_integer_cmp(BValue l, BValue r);
 // return the negative of this
 // Integer -> Integer
 BValue bsts_integer_negate(BValue v);
+// Integer -> Integer
+BValue bsts_integer_not(BValue v);
 // &Integer -> String
 BValue bsts_integer_to_string(BValue v);
 // String -> Option[Integer]

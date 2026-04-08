@@ -1424,6 +1424,88 @@ static _Bool bsts_mul_i64_overflow(int64_t left, int64_t right, int64_t* out) {
 }
 #endif
 
+static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Operand right_operand) {
+    BValue result = BSTS_BVALUE_NULL;
+    if (left_operand.sign == right_operand.sign) {
+        _Bool result_sign = left_operand.sign;
+        size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
+        uint32_t* result_words = (uint32_t*)calloc(max_len + 1, sizeof(uint32_t));
+        if (result_words == NULL) {
+            perror("failed to alloc result_words in bsts_integer_add");
+            abort();
+        }
+
+        uint64_t carry = 0;
+        size_t i = 0;
+        for (; i < max_len; i++) {
+            uint64_t left_word = (i < left_operand.len) ? left_operand.words[i] : 0;
+            uint64_t right_word = (i < right_operand.len) ? right_operand.words[i] : 0;
+            uint64_t sum = left_word + right_word + carry;
+            result_words[i] = (uint32_t)(sum & UINT32_C(0xffffffff));
+            carry = sum >> 32;
+        }
+        if (carry) {
+            result_words[i++] = (uint32_t)carry;
+        }
+        size_t result_len = i;
+
+        while (result_len > 1 && result_words[result_len - 1] == 0) {
+            result_len--;
+        }
+
+        result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+        free(result_words);
+    } else {
+        int cmp = compare_abs(left_operand.len, left_operand.words, right_operand.len, right_operand.words);
+        if (cmp == 0) {
+            result = bsts_integer_from_int(0);
+        } else {
+            BSTS_Int_Operand* larger;
+            BSTS_Int_Operand* smaller;
+            _Bool result_sign;
+            if (cmp > 0) {
+                larger = &left_operand;
+                smaller = &right_operand;
+                result_sign = left_operand.sign;
+            } else {
+                larger = &right_operand;
+                smaller = &left_operand;
+                result_sign = right_operand.sign;
+            }
+
+            size_t result_len = larger->len;
+            uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
+            if (result_words == NULL) {
+                perror("failed to calloc result_words in bsts_integer_add");
+                abort();
+            }
+
+            int64_t borrow = 0;
+            for (size_t i = 0; i < result_len; i++) {
+                int64_t large_word = (int64_t)larger->words[i];
+                int64_t small_word = (i < smaller->len) ? (int64_t)smaller->words[i] : 0;
+                int64_t diff = large_word - small_word - borrow;
+                if (diff < 0) {
+                    diff += ((int64_t)1 << 32);
+                    borrow = 1;
+                } else {
+                    borrow = 0;
+                }
+                result_words[i] = (uint32_t)(diff & UINT32_C(0xffffffff));
+            }
+
+            while (result_len > 1 && result_words[result_len - 1] == 0) {
+                result_len--;
+            }
+
+            result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
+            free(result_words);
+        }
+    }
+
+    return result;
+}
+
 BValue bsts_integer_add(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
@@ -1446,99 +1528,40 @@ BValue bsts_integer_add(BValue l, BValue r) {
         BSTS_Int_Operand left_operand;
         BSTS_Int_Operand right_operand;
 
-        // Prepare left operand
         bsts_integer_load_op(l, left_temp, &left_operand);
-        // Prepare right operand
         bsts_integer_load_op(r, right_temp, &right_operand);
-
-        BValue result = BSTS_BVALUE_NULL;
-        if (left_operand.sign == right_operand.sign) {
-            // Addition
-            _Bool result_sign = left_operand.sign;
-            size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
-            uint32_t* result_words = (uint32_t*)calloc(max_len + 1, sizeof(uint32_t));
-            if (result_words == NULL) {
-                perror("failed to alloc result_words in bsts_integer_add");
-                abort();
-            }
-
-            uint64_t carry = 0;
-            size_t i = 0;
-            for (; i < max_len; i++) {
-                uint64_t left_word = (i < left_operand.len) ? left_operand.words[i] : 0;
-                uint64_t right_word = (i < right_operand.len) ? right_operand.words[i] : 0;
-                uint64_t sum = left_word + right_word + carry;
-                result_words[i] = (uint32_t)(sum & 0xFFFFFFFF);
-                carry = sum >> 32;
-            }
-            if (carry) {
-                result_words[i++] = (uint32_t)carry;
-            }
-            size_t result_len = i;
-
-            // Normalize result
-            while (result_len > 1 && result_words[result_len - 1] == 0) {
-                result_len--;
-            }
-
-            result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-            free(result_words);
-        } else {
-            // Subtraction
-            // (-a) + b if |a| > |b|, then -(a - b)
-            // a + (-b) if |a| > |b|, then (a - b)
-            // a + (-b) if |a| < |b|, then -(b - a)
-            // (-a) + b if |a| < |b|, then (b - a)
-            int cmp = compare_abs(left_operand.len, left_operand.words, right_operand.len, right_operand.words);
-            if (cmp == 0) {
-                result = bsts_integer_from_int(0);
-            } else {
-                BSTS_Int_Operand* larger;
-                BSTS_Int_Operand* smaller;
-                _Bool result_sign;
-                if (cmp > 0) {
-                    larger = &left_operand;
-                    smaller = &right_operand;
-                    result_sign = left_operand.sign;
-                } else {
-                    larger = &right_operand;
-                    smaller = &left_operand;
-                    result_sign = right_operand.sign;
-                }
-
-                size_t result_len = larger->len;
-                uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
-                if (result_words == NULL) {
-                    perror("failed to calloc result_words in bsts_integer_add");
-                    abort();
-                }
-
-                int64_t borrow = 0;
-                for (size_t i = 0; i < result_len; i++) {
-                    int64_t large_word = (int64_t)larger->words[i];
-                    int64_t small_word = (i < smaller->len) ? (int64_t)smaller->words[i] : 0;
-                    int64_t diff = large_word - small_word - borrow;
-                    if (diff < 0) {
-                        diff += ((int64_t)1 << 32);
-                        borrow = 1;
-                    } else {
-                        borrow = 0;
-                    }
-                    result_words[i] = (uint32_t)(diff & 0xFFFFFFFF);
-                }
-
-                // Normalize result
-                while (result_len > 1 && result_words[result_len - 1] == 0) {
-                    result_len--;
-                }
-
-                result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-                free(result_words);
-            }
-        }
-
-        return result;
+        return bsts_integer_add_loaded(left_operand, right_operand);
     }
+}
+
+BValue bsts_integer_sub(BValue l, BValue r) {
+    _Bool l_is_small = IS_SMALL(l);
+    _Bool r_is_small = IS_SMALL(r);
+
+    if (r == (BValue)PURE_VALUE_TAG) {
+        return l;
+    }
+    if (l_is_small && r_is_small) {
+        int64_t l_int = GET_SMALL_INT(l);
+        int64_t r_int = GET_SMALL_INT(r);
+        return bsts_integer_from_int64(l_int - r_int);
+    }
+    if (l == (BValue)PURE_VALUE_TAG) {
+        return bsts_integer_negate(r);
+    }
+    if (r_is_small) {
+        return bsts_integer_add(l, bsts_integer_from_int64(-GET_SMALL_INT(r)));
+    }
+
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    bsts_integer_load_op(l, left_temp, &left_operand);
+    bsts_integer_load_op(r, right_temp, &right_operand);
+    right_operand.sign = !right_operand.sign;
+    return bsts_integer_add_loaded(left_operand, right_operand);
 }
 
 // Function to negate a BValue
@@ -1567,6 +1590,13 @@ BValue bsts_integer_negate(BValue v) {
         _Bool pos = integer->sign;
         return bsts_integer_from_words_copy(pos, integer->len, integer->words);
     }
+}
+
+BValue bsts_integer_not(BValue v) {
+    if (IS_SMALL(v)) {
+        return bsts_integer_from_int64(~GET_SMALL_INT(v));
+    }
+    return bsts_integer_sub(bsts_integer_from_int(-1), v);
 }
 
 // Helper f;unction to divide big integer by 10

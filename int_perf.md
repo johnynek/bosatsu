@@ -125,6 +125,60 @@ Experiments:
 - Add a direct `bsts_integer_not` and compare it to `negate(add(a, 1))`.
 - Check whether dedicated entrypoints help only small-small cases or also improve mixed-size paths.
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 1000000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `sub_small_small`
+  - `sub_small_small62`
+  - `sub_big_small62`
+  - `sub_small_big`
+  - `not_small_small62`
+  - `not_big_pos`
+  - `not_big_neg`
+- Baseline medians:
+  - `sub_small_small`: `3.26 ns/op`
+  - `sub_small_small62`: `3.21 ns/op`
+  - `sub_big_small62`: `35.23 ns/op`
+  - `sub_small_big`: `43.65 ns/op`
+  - `not_small_small62`: `3.73 ns/op`
+  - `not_big_pos`: `45.65 ns/op`
+  - `not_big_neg`: `42.48 ns/op`
+
+Experimental result:
+
+- Added direct `bsts_integer_sub` and `bsts_integer_not` entrypoints.
+- Updated the Predef wrappers to call those entrypoints directly.
+- Reran the same benchmark command: `./bench_exe 1000000`
+- Post-change medians:
+  - `sub_small_small`: `1.89 ns/op`
+  - `sub_small_small62`: `1.87 ns/op`
+  - `sub_big_small62`: `34.57 ns/op`
+  - `sub_small_big`: `35.23 ns/op`
+  - `not_small_small62`: `1.09 ns/op`
+  - `not_big_pos`: `39.38 ns/op`
+  - `not_big_neg`: `34.12 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `sub_small_small`: about `42%` faster
+  - `sub_small_small62`: about `42%` faster
+  - `sub_big_small62`: about `2%` faster
+  - `sub_small_big`: about `19%` faster
+  - `not_small_small62`: about `71%` faster
+  - `not_big_pos`: about `14%` faster
+  - `not_big_neg`: about `20%` faster
+- The biggest win came from avoiding composed helper chains for `not`, and from avoiding construction of an intermediate negated bigint for subtraction when the right-hand side is big.
+
+New ideas from this experiment:
+
+- Add a follow-up experiment for a direct bigint `not` implementation. `not` is now much better, but the non-small path still routes through subtraction from `-1`.
+- Add a focused experiment for `big - small` specialization. This path improved only slightly and likely still has avoidable generic-add overhead.
+
 ### 3. Expand Small-Int Range to 63 Payload Bits
 
 Hypothesis:
