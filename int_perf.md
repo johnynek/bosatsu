@@ -499,6 +499,52 @@ Experiments:
   - negative-positive mixed cases
   - small-big mixed masks
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 200000`
+- Samples: 5 runs, using the median `ns/op`
+- Reused benchmark cases:
+  - `and_big_big_pos`
+  - `or_big_big_pos`
+  - `xor_big_big_pos`
+  - `and_neg_mixed62`
+- Baseline medians:
+  - `and_big_big_pos`: `33.20 ns/op`
+  - `or_big_big_pos`: `33.81 ns/op`
+  - `xor_big_big_pos`: `32.76 ns/op`
+  - `and_neg_mixed62`: `31.20 ns/op`
+
+Experimental result:
+
+- Implemented the first direct sign-magnitude fast path: positive-positive bigint `and`, `or`, and `xor`.
+- For those cases, the runtime now operates directly on the magnitude words and writes the result straight into the final bigint object.
+- Left negative and mixed-sign cases on the existing conversion-based path for this experiment.
+- Reran the same benchmark command: `./bench_exe 200000`
+- Post-change medians:
+  - `and_big_big_pos`: `9.79 ns/op`
+  - `or_big_big_pos`: `9.89 ns/op`
+  - `xor_big_big_pos`: `9.65 ns/op`
+  - `and_neg_mixed62`: `30.95 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `and_big_big_pos`: about `71%` faster
+  - `or_big_big_pos`: about `71%` faster
+  - `xor_big_big_pos`: about `71%` faster
+  - `and_neg_mixed62`: about `1%` faster
+- The mixed negative control staying flat is important: it confirms the win is specifically from bypassing the sign-magnitude <-> two's-complement round-trip for positive-positive bigints.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Extend the direct bitwise path to positive-small and small-positive masks. Those should be nearly as simple as positive-positive bigints now that the wordwise path exists.
+- Tackle the negative cases separately. They still spend most of their time in the conversion pipeline and likely need a different algorithm than the positive path.
+
 ### 8. Direct Shift Implementations
 
 Hypothesis:

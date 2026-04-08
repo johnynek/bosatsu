@@ -1971,6 +1971,38 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     return result;
 }
 
+static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, const BSTS_Integer* right, int op) {
+    size_t min_len = (left->len < right->len) ? left->len : right->len;
+    size_t result_len = (op == '&')
+        ? min_len
+        : ((left->len > right->len) ? left->len : right->len);
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+
+    for (size_t i = 0; i < min_len; i++) {
+        switch (op) {
+            case '&':
+                result_words[i] = left->words[i] & right->words[i];
+                break;
+            case '|':
+                result_words[i] = left->words[i] | right->words[i];
+                break;
+            default:
+                result_words[i] = left->words[i] ^ right->words[i];
+                break;
+        }
+    }
+
+    if (op != '&') {
+        const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
+        for (size_t i = min_len; i < result_len; i++) {
+            result_words[i] = longer->words[i];
+        }
+    }
+
+    return bsts_integer_finish_allocated_words(1, result_len, result_integer);
+}
+
 // Function to perform bitwise AND on two BValues
 BValue bsts_integer_and(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
@@ -1980,6 +2012,13 @@ BValue bsts_integer_and(BValue l, BValue r) {
       int64_t lv = GET_SMALL_INT(l);
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv & rv);
+    }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '&');
+        }
     }
     // Determine maximum length in words
     // we need to leave space for maybe 1 extra word if we have -MAX
@@ -2142,6 +2181,13 @@ BValue bsts_integer_or(BValue l, BValue r) {
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv | rv);
     }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '|');
+        }
+    }
 
     // Determine maximum length in words
     // we need to leave space for maybe 1 extra word if we have -MAX
@@ -2201,6 +2247,13 @@ BValue bsts_integer_xor(BValue l, BValue r) {
       int64_t lv = GET_SMALL_INT(l);
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv ^ rv);
+    }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '^');
+        }
     }
 
     // Determine maximum length in words
