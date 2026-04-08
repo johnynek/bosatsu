@@ -4,7 +4,7 @@ set -euo pipefail
 export ASAN_OPTIONS='detect_leaks=0:halt_on_error=1:abort_on_error=1:check_initialization_order=1'
 export UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'
 
-SANITIZER_CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fopenmp-simd'
+SANITIZER_CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
 SANITIZER_LDFLAGS='-fsanitize=address,undefined'
 export SHA=$(./bosatsuj version -g)
 RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
@@ -14,7 +14,6 @@ CC_FLAGS=(
   --cc_flag=-g
   --cc_flag=-fno-omit-frame-pointer
   --cc_flag=-fsanitize=address,undefined
-  --cc_flag=-fopenmp-simd
   --cc_lib=-fsanitize=address,undefined
   --cc_lib=-lm
 )

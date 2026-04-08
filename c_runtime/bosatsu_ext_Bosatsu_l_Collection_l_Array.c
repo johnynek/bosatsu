@@ -472,7 +472,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(BValue array) {
   // this hot reduction path.
   const double* data = (const double*)(const void*)(arr->data + arr->offset);
   double acc = data[0];
-#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < arr->len; idx++) {
     acc += data[idx];
   }
@@ -488,7 +487,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(BValue array) {
 
   const double* data = (const double*)(const void*)(arr->data + arr->offset);
   double acc = data[0] * data[0];
-#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < arr->len; idx++) {
     acc += data[idx] * data[idx];
   }
@@ -507,7 +505,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(BValue left, BValue 
   const double* left_data = (const double*)(const void*)(left_arr->data + left_arr->offset);
   const double* right_data = (const double*)(const void*)(right_arr->data + right_arr->offset);
   double acc = left_data[0] * right_data[0];
-#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < pair_len; idx++) {
     acc += left_data[idx] * right_data[idx];
   }

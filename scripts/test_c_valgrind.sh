@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CFLAGS_VAL='-O1 -g -fno-omit-frame-pointer -fopenmp-simd'
+CFLAGS_VAL='-O1 -g -fno-omit-frame-pointer'
 export SHA=$(./bosatsuj version -g)
 RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
 VALGRIND_CC_FLAGS=(
   --cc_flag=-O1
   --cc_flag=-g
   --cc_flag=-fno-omit-frame-pointer
-  --cc_flag=-fopenmp-simd
   --cc_lib=-lm
 )
 VALGRIND_OPTS=(

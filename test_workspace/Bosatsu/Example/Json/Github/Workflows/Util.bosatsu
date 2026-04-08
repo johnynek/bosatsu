@@ -192,7 +192,7 @@ node_tool_eval_run_create_mode_cmd =
   "./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace"
 
 transpile_c_cmd =
-  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm"
+  "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
 
 def cat_lines(lines: List[String]) -> String:
   recur lines:
@@ -312,7 +312,7 @@ install_vendored_c_runtime_cmd =
     "export C_RUNTIME_ARCHIVE=\"\${RUNNER_TEMP}/bosatsu-c-runtime-\${SHA}.tar.gz\"",
     "rm -f \"$C_RUNTIME_ARCHIVE\"",
     "tar -czf \"$C_RUNTIME_ARCHIVE\" c_runtime",
-    "CFLAGS=\"-O1 -g -fopenmp-simd\" CPPFLAGS=\"-DBSTS_CI=1\" ./bosatsuj c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",
+    "CFLAGS=\"-O1 -g\" CPPFLAGS=\"-DBSTS_CI=1\" ./bosatsuj c-runtime install --repo_root . --archive \"$C_RUNTIME_ARCHIVE\" --git_sha \"$SHA\" --profile release",
     "",
   ])
 
@@ -332,10 +332,10 @@ run_c_runtime_ci =
     "eval \"$(python3 scripts/c_runtime_ci_env.py --sha \"$SHA\")\"",
     "cd c_runtime",
     "rm -f test_exe",
-    "CC=\"$C_RUNTIME_CC\" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g -fopenmp-simd\" && git diff --quiet || { git diff; false; }",
-    "CC=\"$C_RUNTIME_CC\" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g -fopenmp-simd\"",
+    "CC=\"$C_RUNTIME_CC\" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g\" && git diff --quiet || { git diff; false; }",
+    "CC=\"$C_RUNTIME_CC\" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g\"",
     "./test_exe && ./boehm_example",
-    "CC=\"$C_RUNTIME_CC\" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g -fopenmp-simd\"",
+    "CC=\"$C_RUNTIME_CC\" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS=\"$C_RUNTIME_CPPFLAGS\" LIBS=\"$C_RUNTIME_LIBS\" CFLAGS=\"-O1 -g\"",
     "./bench_exe 1000000 | tee bench_ci.txt",
     "cd ..",
     "python3 - <<'PY'",
@@ -357,18 +357,18 @@ run_lib_test_c =
   cat_lines([
     "./bosatsuj fetch",
     "mkdir c_out_lib",
-    "./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm",
+    "./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm",
     "echo \"now test without a given outdir\"",
-    "./bosatsuj test --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm",
+    "./bosatsuj test --cc_flag=-O0 --cc_lib=-lm",
     "",
   ])
 
 run_lib_build_c =
   cat_lines([
     "mkdir c_out_build",
-    "./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm",
+    "./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm",
     "./c_out_build/fib_bench 10",
-    "./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm",
+    "./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm",
     "./fib_bench_no_outdir 10",
     "",
   ])
