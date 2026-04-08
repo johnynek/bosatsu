@@ -1156,6 +1156,27 @@ main = is_one
     }
   }
 
+  test("eq_Float64 lowers to the direct predef helper") {
+    TestUtils.checkPackageMap("""
+main = eq_Float64
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("main"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(80)
+          assert(rendered.contains("___bsts_g_Bosatsu_l_Predef_l_eq__Float64"))
+      }
+    }
+  }
+
   def mockCodePointFn(bytes: Array[Byte], offset: Int): Int = {
     def s(i: Int) = bytes(offset + i).toInt & 0xff
 

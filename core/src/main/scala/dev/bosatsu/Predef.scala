@@ -192,6 +192,11 @@ object Predef {
       )
       .add(
         predefPackageName,
+        "eq_Float64",
+        FfiCall.Fn2(PredefImpl.eq_Float64(_, _))
+      )
+      .add(
+        predefPackageName,
         "gcd_Int",
         FfiCall.Fn2(PredefImpl.gcd_Int(_, _))
       )
@@ -897,6 +902,12 @@ object PredefImpl {
 
   def cmp_Float64(a: Value, b: Value): Value =
     Comparison.fromInt(compareFloat64Total(d(a), d(b)))
+
+  def eq_Float64(a: Value, b: Value): Value = {
+    val da = d(a)
+    val db = d(b)
+    bool((da == db) || (java.lang.Double.isNaN(da) && java.lang.Double.isNaN(db)))
+  }
 
   def abs_Float64(a: Value): Value = vf(java.lang.Math.abs(d(a)))
   def acos_Float64(a: Value): Value = vf(java.lang.Math.acos(d(a)))

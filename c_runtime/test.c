@@ -593,6 +593,12 @@ void test_float64() {
   assert(bsts_float64_cmp_total(one, two) < 0, "1.0 < 2.0");
   assert(bsts_float64_equals(neg_zero, pos_zero) == 1, "float equality treats signed zeros as equal");
   assert(bsts_float64_equals(nan1, nan2) == 1, "float equality matches all nan values");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(neg_zero, pos_zero)) == 1,
+      "predef eq_Float64 treats signed zeros as equal");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(nan1, nan2)) == 1,
+      "predef eq_Float64 treats all nan values as equal");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(one, two)) == 0,
+      "predef eq_Float64 is false for different finite values");
 
   for (size_t i = 0; i < sizeof(bits_cases) / sizeof(bits_cases[0]); i++) {
     BValue f = bsts_float64_from_bits(bits_cases[i]);

@@ -81,6 +81,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b) {
   return alloc_enum0(result + 1);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Float64(BValue a, BValue b) {
+  return bsts_float64_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
+}
+
 // a is a List[String]
 BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a) {
   BValue amut = a;

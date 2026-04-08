@@ -200,56 +200,23 @@ int bsts_char_code_point_from_value(BValue ch) {
   }
 }
 
-BValue bsts_float64_from_bits(uint64_t bits) {
-  return (BValue)bits;
-}
-
-uint64_t bsts_float64_to_bits(BValue v) {
-  return (uint64_t)v;
-}
-
-BValue bsts_float64_from_double(double d) {
-  union {
-    double d;
-    uint64_t u;
-  } conv;
-  conv.d = d;
-  return bsts_float64_from_bits(conv.u);
-}
-
-double bsts_float64_to_double(BValue v) {
-  union {
-    double d;
-    uint64_t u;
-  } conv;
-  conv.u = bsts_float64_to_bits(v);
-  return conv.d;
-}
-
-_Bool bsts_float64_equals(BValue left, BValue right) {
-  double l = bsts_float64_to_double(left);
-  double r = bsts_float64_to_double(right);
-  if (isnan(l) && isnan(r)) return 1;
-  return l == r;
-}
-
-int bsts_float64_cmp_total(BValue left, BValue right) {
-  double l = bsts_float64_to_double(left);
-  double r = bsts_float64_to_double(right);
-  _Bool l_nan = isnan(l);
-  _Bool r_nan = isnan(r);
-  if (l_nan) {
-    if (r_nan) {
-      return 0;
-    }
-    return -1;
+double bsts_round_ties_even(double d) {
+  double int_part = 0.0;
+  double frac = modf(d, &int_part);
+  double abs_frac = fabs(frac);
+  if (abs_frac < 0.5) {
+    return int_part;
   }
-  if (r_nan) {
-    return 1;
+  if (abs_frac > 0.5) {
+    return int_part + copysign(1.0, d);
   }
-  if (l < r) return -1;
-  if (l > r) return 1;
-  return 0;
+
+  double abs_int = fabs(int_part);
+  double rem2 = fmod(abs_int, 2.0);
+  if (rem2 == 0.0) {
+    return int_part;
+  }
+  return int_part + copysign(1.0, d);
 }
 
 // Closures:

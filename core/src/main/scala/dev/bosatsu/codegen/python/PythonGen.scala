@@ -981,6 +981,18 @@ object PythonGen {
         }
       }
 
+      private val eqFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            val bothNaN =
+              math.dot(Code.Ident("isnan"))(arg0).evalAnd(
+                math.dot(Code.Ident("isnan"))(arg1)
+              )
+            Code.Ternary(Code.Const.True, arg0 =:= arg1, bothNaN).simplify
+          }
+        }
+      }
+
       private val divFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
         mathModule.flatMap { math =>
           Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
@@ -1369,6 +1381,7 @@ object PythonGen {
             )
           ),
           (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
+          (Identifier.Name("eq_Float64"), (eqFloatFn, 2)),
           (
             Identifier.Name("shift_left_Int"),
             (
