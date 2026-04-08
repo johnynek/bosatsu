@@ -1058,8 +1058,8 @@ void test_array_int64() {
   BValue sliced =
       ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(
           base_ints,
-          bsts_integer_from_int(2),
-          bsts_integer_from_int(5));
+          bsts_int64_from_int64(2),
+          bsts_int64_from_int64(5));
 
   assert_int_string(
       ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(

@@ -55,14 +55,6 @@ static BValue bsts_array_empty(void) {
   return bsts_array_wrap(NULL, 0, 0);
 }
 
-static _Bool bsts_array_index_in_range(BValue index, int len) {
-  BValue zero = bsts_integer_from_int(0);
-  BValue len_value = bsts_integer_from_int(len);
-
-  return (bsts_integer_cmp(index, zero) >= 0) &&
-         (bsts_integer_cmp(index, len_value) < 0);
-}
-
 static _Bool bsts_array_int64_index_in_range(BValue index, int len) {
   int64_t idx = (int64_t)bsts_int64_to_bits(index);
   return (idx >= 0) && (idx < (int64_t)len);
@@ -225,8 +217,8 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(BValue array) {
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BValue index, BValue default_fn, BValue map_fn) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (bsts_array_index_in_range(index, arr->len)) {
-    int idx = (int)bsts_integer_to_int32(index);
+  if (bsts_array_int64_index_in_range(index, arr->len)) {
+    int idx = (int)((int64_t)bsts_int64_to_bits(index));
     return call_fn1(map_fn, arr->data[arr->offset + idx]);
   }
 
@@ -520,11 +512,11 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(BValue left, BValue 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_set__or__self__Array(BValue array, BValue index, BValue value) {
   BSTS_Array* arr = bsts_array_unbox(array);
 
-  if (!bsts_array_index_in_range(index, arr->len)) {
+  if (!bsts_array_int64_index_in_range(index, arr->len)) {
     return array;
   }
 
-  int idx = (int)bsts_integer_to_int32(index);
+  int idx = (int)((int64_t)bsts_int64_to_bits(index));
   BValue* data = bsts_array_alloc_data(arr->len);
 
   if (arr->len > 0) {
@@ -585,30 +577,23 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_concat__all__Array(BValue arrays
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(BValue array, BValue start, BValue end) {
   BSTS_Array* arr = bsts_array_unbox(array);
+  int64_t len64 = (int64_t)arr->len;
+  int64_t start64 = (int64_t)bsts_int64_to_bits(start);
+  int64_t end64 = (int64_t)bsts_int64_to_bits(end);
+  int64_t start1 = start64 < 0 ? 0 : start64;
+  int64_t end1 = end64 < 0 ? end64 : (end64 > len64 ? len64 : end64);
 
-  BValue zero = bsts_integer_from_int(0);
-  BValue len_value = bsts_integer_from_int(arr->len);
-
-  BValue start1 = bsts_integer_cmp(start, zero) < 0 ? zero : start;
-  BValue end1 = bsts_integer_cmp(end, len_value) > 0 ? len_value : end;
-
-  _Bool valid =
-      (bsts_integer_cmp(start1, zero) >= 0) &&
-      (bsts_integer_cmp(end1, zero) >= 0) &&
-      (bsts_integer_cmp(start1, end1) <= 0) &&
-      (bsts_integer_cmp(end1, len_value) <= 0);
-
-  if (!valid) {
+  if ((start1 < 0) || (end1 < 0) || (start1 > end1) || (end1 > len64)) {
     return bsts_array_empty();
   }
 
-  BValue slice_len_value = bsts_integer_add(end1, bsts_integer_negate(start1));
-  if (bsts_integer_cmp(slice_len_value, zero) <= 0) {
+  int64_t slice_len64 = end1 - start1;
+  if (slice_len64 <= 0) {
     return bsts_array_empty();
   }
 
-  int start_idx = (int)bsts_integer_to_int32(start1);
-  int slice_len = (int)bsts_integer_to_int32(slice_len_value);
+  int start_idx = (int)start1;
+  int slice_len = (int)slice_len64;
   return bsts_array_wrap(arr->data, arr->offset + start_idx, slice_len);
 }
 

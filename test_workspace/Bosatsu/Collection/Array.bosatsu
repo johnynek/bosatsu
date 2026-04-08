@@ -76,7 +76,7 @@ external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
 external def size_Array[a](ary: Array[a]) -> Int64
-external def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -> b, fn: a -> b) -> b
+external def get_map_Array[a, b](ary: Array[a], idx: Int64, default: () -> b, fn: a -> b) -> b
 external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
 external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
@@ -91,10 +91,10 @@ external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) ->
 external def sumf_Array(ary: Array[Float64]) -> Float64
 external def sumsqf_Array(ary: Array[Float64]) -> Float64
 external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
-external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
+external def set_or_self_Array[a](ary: Array[a], idx: Int64, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
-external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+external def slice_Array[a](ary: Array[a], start: Int64, end: Int64) -> Array[a]
 external def char_Array_to_String(chars: Array[Char]) -> String
 
 def string_to_Char_Array(s: String) -> Array[Char]:
@@ -115,7 +115,9 @@ def int_Array_to_String(code_points: Array[Int]) -> Option[String]:
   int_List_to_String(to_List_Array(code_points))
 
 def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  get_map_Array(ary, idx, () -> None, x -> Some(x))
+  match int_to_Int64(idx):
+    case Some(idx64): get_map_Array(ary, idx64, () -> None, x -> Some(x))
+    case None: None
 
 def index_in_range_Array[a](ary: Array[a], idx: Int) -> Bool:
   match int_to_Int64(idx):
@@ -129,7 +131,9 @@ def index_in_range_Array[a](ary: Array[a], idx: Int) -> Bool:
 
 def set_Array[a](ary: Array[a], idx: Int, value: a) -> Option[Array[a]]:
   if index_in_range_Array(ary, idx):
-    Some(set_or_self_Array(ary, idx, value))
+    match int_to_Int64(idx):
+      case Some(idx64): Some(set_or_self_Array(ary, idx64, value))
+      case None: None
   else:
     None
 
@@ -204,9 +208,9 @@ a1_diff = from_List_Array([9])
 a5_copy = from_List_Array([0, 1, 2, 3, 4])
 a5_first_diff = from_List_Array([99, 1, 2, 3, 4])
 a5_last_diff = from_List_Array([0, 1, 2, 3, 99])
-a5_tail = slice_Array(a5, 2, 5)
+a5_tail = slice_Array(a5, int_low_bits_to_Int64(2), int_low_bits_to_Int64(5))
 a_from = range_from_Array(10, 4)
-a_set = set_or_self_Array(a5, 2, 99)
+a_set = set_or_self_Array(a5, int_low_bits_to_Int64(2), 99)
 a_sorted = sort_Array(
   from_List_Array([(1, "a"), (0, "z"), (1, "b"), (1, "c")]),
   cmp_pair
@@ -275,7 +279,7 @@ indexed_slice_law = forall_Prop(
   "indexed Array functions use slice-relative visible indices",
   ((start, base_len, slice_start, visible_len)) -> (
     base = range_from_Array(start, base_len)
-    view = slice_Array(base, slice_start, slice_start.add(visible_len))
+    view = slice_Array(base, i64(slice_start), i64(slice_start.add(visible_len)))
     expected = int_range_list(start.add(slice_start), visible_len)
     mapped = to_List_Array(map_with_index_Array(view, (_, idx) -> int64_to_Int(idx)))
     mapped_expected = int_range_list(0, visible_len)
@@ -389,16 +393,16 @@ tests = TestSuite("Array tests", [
     "flat_map slice"
   ),
   Assertion(to_List_Array(a_set) matches [0, 1, 99, 3, 4], "set_or_self in range"),
-  Assertion(eq_ai(set_or_self_Array(a5, 9, 77), a5), "set_or_self out of range keeps self"),
+  Assertion(eq_ai(set_or_self_Array(a5, i64(9), 77), a5), "set_or_self out of range keeps self"),
   Assertion(set_in_range_ok(), "set_Array in range"),
   Assertion(set_Array(a5, 10, 8) matches None, "set_Array out of range"),
   Assertion(to_List_Array(concat_all_Array([a5, range_Array(3), empty_Array])) matches [0, 1, 2, 3, 4, 0, 1, 2], "concat_all"),
-  Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice mid"),
-  Assertion(to_List_Array(slice_Array(a5, -2, 2)) matches [0, 1], "slice clamps start"),
-  Assertion(to_List_Array(slice_Array(a5, 3, 99)) matches [3, 4], "slice clamps end"),
-  Assertion(to_List_Array(slice_Array(a5, 3, 3)) matches [], "slice empty"),
-  Assertion(to_List_Array(slice_Array(a5, 4, 1)) matches [], "slice invalid order"),
-  Assertion(to_List_Array(slice_Array(a5, 1, -1)) matches [], "slice invalid end"),
+  Assertion(to_List_Array(slice_Array(a5, i64(1), i64(4))) matches [1, 2, 3], "slice mid"),
+  Assertion(to_List_Array(slice_Array(a5, i64(-2), i64(2))) matches [0, 1], "slice clamps start"),
+  Assertion(to_List_Array(slice_Array(a5, i64(3), i64(99))) matches [3, 4], "slice clamps end"),
+  Assertion(to_List_Array(slice_Array(a5, i64(3), i64(3))) matches [], "slice empty"),
+  Assertion(to_List_Array(slice_Array(a5, i64(4), i64(1))) matches [], "slice invalid order"),
+  Assertion(to_List_Array(slice_Array(a5, i64(1), i64(-1))) matches [], "slice invalid end"),
   Assertion(get_or_Array(a5_tail, i64(0), int64_to_Int) matches 2, "slice index is relative"),
   Assertion(
     to_List_Array(zip_map_Array(a5, range_from_Array(10, 3), (l, r) -> add(l, r))) matches [10, 12, 14],
@@ -448,8 +452,8 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
   Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
-  Assertion(get_map_Array(a5, 3, () -> 100, x -> x.add(7)) matches 10, "get_map some"),
-  Assertion(get_map_Array(a5, 30, () -> 100, x -> x.add(7)) matches 100, "get_map none"),
+  Assertion(get_map_Array(a5, i64(3), () -> 100, x -> x.add(7)) matches 10, "get_map some"),
+  Assertion(get_map_Array(a5, i64(30), () -> 100, x -> x.add(7)) matches 100, "get_map none"),
   Assertion(index_in_range_Array(a5, 0), "index in range 0"),
   Assertion(index_in_range_Array(a5, 4), "index in range 4"),
   Assertion(index_in_range_Array(a5, 5) matches False, "index not in range"),

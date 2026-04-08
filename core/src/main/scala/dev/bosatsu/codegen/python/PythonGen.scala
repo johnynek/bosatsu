@@ -1943,16 +1943,22 @@ object PythonGen {
             Identifier.Name("get_map_Array"),
             (
               { input =>
-                Env.onLasts(input) {
+                Env.onLastsM(input) {
                   case ary :: idx :: default :: fn :: Nil =>
-                    val valid =
-                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
-                    val item =
-                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
-                    Code.IfElse(
-                      NonEmptyList.one((valid, fn(item))),
-                      default(Code.Const.Unit)
-                    )
+                    unboxInt64(idx).map { idx1 =>
+                      val valid =
+                        (!(idx1 :< Code.Const.Zero))
+                          .evalAnd(idx1 :< arrayLen(ary))
+                      val item =
+                        selectItem(
+                          arrayData(ary),
+                          arrayOffset(ary).evalPlus(idx1)
+                        )
+                      Code.IfElse(
+                        NonEmptyList.one((valid, fn(item))),
+                        default(Code.Const.Unit)
+                      )
+                    }
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(
@@ -2743,29 +2749,29 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, copied) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: idx :: value :: Nil =>
-                      val valid =
-                        (!(idx :< Code.Const.Zero))
-                          .evalAnd(idx :< arrayLen(ary))
-                      val updated = Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          copied := Code.Ident("list")(
-                            Code.SelectRange(
-                              data,
-                              Some(offset),
-                              Some(offset.evalPlus(size))
-                            )
-                          ),
-                          selectItem(copied, idx) := value
-                        )
-                        .withValue(
-                          makeArray(copied, Code.Const.Zero, size)
-                        )
-                      Code.IfElse(NonEmptyList.one((valid, updated)), ary)
+                      unboxInt64(idx).map { idx1 =>
+                        val valid =
+                          (!(idx1 :< Code.Const.Zero))
+                            .evalAnd(idx1 :< arrayLen(ary))
+                        val updated = Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            copied := Code.Ident("list")(
+                              Code.SelectRange(
+                                data,
+                                Some(offset),
+                                Some(offset.evalPlus(size))
+                              )
+                            ),
+                            selectItem(copied, idx1) := value
+                          )
+                          .withValue(makeArray(copied, Code.Const.Zero, size))
+                        Code.IfElse(NonEmptyList.one((valid, updated)), ary)
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -2934,42 +2940,49 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, start1, end1) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: start :: end :: Nil =>
-                      val nonNegStart = !(start1 :< Code.Const.Zero)
-                      val nonNegEnd = !(end1 :< Code.Const.Zero)
-                      val ordered = !(start1 :> end1)
-                      val endInRange = !(end1 :> size)
-                      val sliceLen = end1.evalMinus(start1)
-                      val valid = nonNegStart
-                        .evalAnd(nonNegEnd)
-                        .evalAnd(ordered)
-                        .evalAnd(endInRange)
-                        .evalAnd(sliceLen :> Code.Const.Zero)
+                      (unboxInt64(start), unboxInt64(end)).mapN {
+                        (startExpr, endExpr) =>
+                          val nonNegStart = !(start1 :< Code.Const.Zero)
+                          val nonNegEnd = !(end1 :< Code.Const.Zero)
+                          val ordered = !(start1 :> end1)
+                          val endInRange = !(end1 :> size)
+                          val sliceLen = end1.evalMinus(start1)
+                          val valid = nonNegStart
+                            .evalAnd(nonNegEnd)
+                            .evalAnd(ordered)
+                            .evalAnd(endInRange)
+                            .evalAnd(sliceLen :> Code.Const.Zero)
 
-                      val sliced = makeArray(
-                        data,
-                        offset.evalPlus(start1),
-                        sliceLen
-                      )
-                      Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          start1 := Code.Ternary(
-                            Code.Const.Zero,
-                            start :< Code.Const.Zero,
-                            start
-                          ),
-                          end1 := Code.Ternary(size, end :> size, end)
-                        )
-                        .withValue(
-                          Code.IfElse(
-                            NonEmptyList.one((valid, sliced)),
-                            emptyArray
+                          val sliced = makeArray(
+                            data,
+                            offset.evalPlus(start1),
+                            sliceLen
                           )
-                        )
+                          Code
+                            .block(
+                              data := arrayData(ary),
+                              offset := arrayOffset(ary),
+                              size := arrayLen(ary),
+                              start1 := Code.Ternary(
+                                Code.Const.Zero,
+                                startExpr :< Code.Const.Zero,
+                                startExpr
+                              ),
+                              end1 := Code.Ternary(
+                                size,
+                                endExpr :> size,
+                                endExpr
+                              )
+                            )
+                            .withValue(
+                              Code.IfElse(
+                                NonEmptyList.one((valid, sliced)),
+                                emptyArray
+                              )
+                            )
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(

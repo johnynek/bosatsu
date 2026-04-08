@@ -3789,6 +3789,9 @@ object PredefImpl {
     else if (idx.compareTo(BigInteger.valueOf(len.toLong)) >= 0) None
     else toIntExactIfRepresentable(idx)
 
+  private def inRangeInt64Index(idx: Long, len: Int): Option[Int] =
+    if (idx < 0L || idx >= len.toLong) None else Some(idx.toInt)
+
   private def copyView(arr: ArrayValue): Array[Value] =
     java.util.Arrays.copyOfRange(arr.data, arr.offset, arr.offset + arr.len)
 
@@ -4146,7 +4149,7 @@ object PredefImpl {
       fn: Value
   ): Value = {
     val arr = asArray(array)
-    inRangeIndex(i(index), arr.len) match {
+    inRangeInt64Index(asInt64(index), arr.len) match {
       case Some(idx) => fn.asFn(NonEmptyList(arr.data(arr.offset + idx), Nil))
       case None      => default.asFn(NonEmptyList(UnitValue, Nil))
     }
@@ -4449,7 +4452,7 @@ object PredefImpl {
 
   def set_or_self_Array(array: Value, index: Value, value: Value): Value = {
     val arr = asArray(array)
-    inRangeIndex(i(index), arr.len) match {
+    inRangeInt64Index(asInt64(index), arr.len) match {
       case Some(idx) =>
         val copied = copyView(arr)
         copied(idx) = value
@@ -4525,30 +4528,29 @@ object PredefImpl {
 
   def slice_Array(array: Value, start: Value, end: Value): Value = {
     val arr = asArray(array)
-    val lenBI = BigInteger.valueOf(arr.len.toLong)
-    val startBI = {
-      val raw = i(start)
-      if (raw.signum < 0) BigInteger.ZERO else raw
-    }
-    val endBI = {
-      val raw = i(end)
-      if (raw.compareTo(lenBI) > 0) lenBI else raw
-    }
+    val lenL = arr.len.toLong
+    val startRaw = asInt64(start)
+    val endRaw = asInt64(end)
+    val start1 = if (startRaw < 0L) 0L else startRaw
+    val end1 =
+      if (endRaw < 0L) endRaw
+      else if (endRaw > lenL) lenL
+      else endRaw
 
     val valid =
-      startBI.signum >= 0 &&
-        endBI.signum >= 0 &&
-        startBI.compareTo(endBI) <= 0 &&
-        endBI.compareTo(lenBI) <= 0
+      start1 >= 0L &&
+        end1 >= 0L &&
+        start1 <= end1 &&
+        end1 <= lenL
 
     if (!valid) emptyArray
     else {
-      val sliceLenBI = endBI.subtract(startBI)
-      if (sliceLenBI.signum <= 0) emptyArray
+      val sliceLen = end1 - start1
+      if (sliceLen <= 0L) emptyArray
       else {
-        val startIdx = startBI.intValue()
-        val sliceLen = sliceLenBI.intValue()
-        ExternalValue(ArrayValue(arr.data, arr.offset + startIdx, sliceLen))
+        ExternalValue(
+          ArrayValue(arr.data, arr.offset + start1.toInt, sliceLen.toInt)
+        )
       }
     }
   }

@@ -39,6 +39,9 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
         )
       )
 
+  private def int64(value: Int): Value =
+    ExternalValue(java.lang.Long.valueOf(value.toLong))
+
   private def floatArray(values: Vector[Double]): Value =
     if (values.isEmpty) PredefImpl.emptyArray
     else
@@ -81,7 +84,7 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
   test("map_with_index_Array uses visible slice indices") {
     forAll(genSliceCase) { case (values, start, end) =>
       val sliced =
-        PredefImpl.slice_Array(intArray(values), VInt(start), VInt(end))
+        PredefImpl.slice_Array(intArray(values), int64(start), int64(end))
       val mapped =
         PredefImpl.map_with_index_Array(
           sliced,
@@ -141,9 +144,10 @@ class ArrayInt64Laws extends munit.ScalaCheckSuite {
       case ((leftValues, leftStart, leftEnd), (rightValues, rightStart, rightEnd)) =>
         val leftSlice = leftValues.slice(leftStart, leftEnd)
         val rightSlice = rightValues.slice(rightStart, rightEnd)
-        val left = PredefImpl.slice_Array(floatArray(leftValues), VInt(leftStart), VInt(leftEnd))
+        val left =
+          PredefImpl.slice_Array(floatArray(leftValues), int64(leftStart), int64(leftEnd))
         val right =
-          PredefImpl.slice_Array(floatArray(rightValues), VInt(rightStart), VInt(rightEnd))
+          PredefImpl.slice_Array(floatArray(rightValues), int64(rightStart), int64(rightEnd))
 
         val sumExpected = leftSlice.foldLeft(0.0)(_ + _)
         val sumsqExpected = leftSlice.foldLeft(0.0) { (acc, item) =>

@@ -3250,10 +3250,10 @@ external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) ->
 external def sumf_Array(ary: Array[Float64]) -> Float64
 external def sumsqf_Array(ary: Array[Float64]) -> Float64
 external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
-external def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -> Array[a]
+external def set_or_self_Array[a](ary: Array[a], idx: Int64, value: a) -> Array[a]
 external def sort_Array[a](ary: Array[a], fn: (a, a) -> Comparison) -> Array[a]
 external def concat_all_Array[a](arrays: List[Array[a]]) -> Array[a]
-external def slice_Array[a](ary: Array[a], start: Int, end: Int) -> Array[a]
+external def slice_Array[a](ary: Array[a], start: Int64, end: Int64) -> Array[a]
 
 def i64(i: Int) -> Int64:
   int_low_bits_to_Int64(i)
@@ -3267,7 +3267,7 @@ def cmp_pair(left: (Int, String), right: (Int, String)) -> Comparison:
   cmp_Int(li, ri)
 
 a5 = tabulate_Array(i64(5), int64_to_Int)
-a5_tail = slice_Array(a5, 2, 5)
+a5_tail = slice_Array(a5, i64(2), i64(5))
 f5 = map_Array(a5, int_to_Float64)
 f3 = map_Array(range_from_Array(10, 3), int_to_Float64)
 
@@ -3325,8 +3325,8 @@ tests = TestSuite("array eval", [
   Assertion(eq_Float64(dotf_Array(from_List_Array([∞]), from_List_Array([1.0, .NaN])), ∞), "dotf truncates"),
   Assertion(float64_bits_to_Int(sumf_Array(from_List_Array([-0.0]))) matches 0x8000_0000_0000_0000, "negative zero"),
   Assertion(is_nan(sumf_Array(from_List_Array([.NaN, 1.0]))), "nan propagates"),
-  Assertion(to_List_Array(set_or_self_Array(a5, 1, 9)) matches [0, 9, 2, 3, 4], "set in range"),
-  Assertion(to_List_Array(slice_Array(a5, 1, 4)) matches [1, 2, 3], "slice"),
+  Assertion(to_List_Array(set_or_self_Array(a5, i64(1), 9)) matches [0, 9, 2, 3, 4], "set in range"),
+  Assertion(to_List_Array(slice_Array(a5, i64(1), i64(4))) matches [1, 2, 3], "slice"),
   Assertion(to_List_Array(concat_all_Array([a5, tabulate_Array(i64(2), int64_to_Int)])) matches [0, 1, 2, 3, 4, 0, 1], "concat"),
   Assertion(
     to_List_Array(
