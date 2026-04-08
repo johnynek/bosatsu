@@ -727,6 +727,62 @@ Experiments:
   - multiply
   - bigint add/sub
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 300000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `and_big_big_smallres`
+  - `xor_big_big_smallres`
+  - `shift_big_pos_right64_small`
+  - `shift_big_pos_right96_small`
+- Reused control cases:
+  - `and_big_big_pos`
+  - `shift_big_pos_right32`
+- Baseline medians:
+  - `and_big_big_pos`: `10.20 ns/op`
+  - `and_big_big_smallres`: `10.80 ns/op`
+  - `xor_big_big_smallres`: `11.07 ns/op`
+  - `shift_big_pos_right32`: `9.15 ns/op`
+  - `shift_big_pos_right64_small`: `9.31 ns/op`
+  - `shift_big_pos_right96_small`: `7.72 ns/op`
+
+Experimental result:
+
+- Added a cheap “too many words to ever be small” fast exit in `bsts_integer_from_words_copy` and `bsts_integer_finish_allocated_words`.
+- Added early small-result detection for positive-positive bigint `and` and `xor` when all words above the low 64 bits cancel out.
+- Added a no-allocation small-result path for positive right shifts when the shifted result is only 1-2 words long.
+- Added semantic tests covering bigint `and` / `xor` collapsing to immediates and bigint right shifts collapsing to immediates.
+- Reran the same benchmark command: `./bench_exe 300000`
+- Post-change medians:
+  - `and_big_big_pos`: `10.93 ns/op`
+  - `and_big_big_smallres`: `4.76 ns/op`
+  - `xor_big_big_smallres`: `4.83 ns/op`
+  - `shift_big_pos_right32`: `8.86 ns/op`
+  - `shift_big_pos_right64_small`: `4.56 ns/op`
+  - `shift_big_pos_right96_small`: `5.55 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median changes versus baseline:
+  - `and_big_big_smallres`: about `56%` faster
+  - `xor_big_big_smallres`: about `56%` faster
+  - `shift_big_pos_right64_small`: about `51%` faster
+  - `shift_big_pos_right96_small`: about `28%` faster
+  - `shift_big_pos_right32` control: about `3%` faster
+  - `and_big_big_pos` control: about `7%` slower
+- This is still a confident keep. The experiment materially improved the exact “big in, small out” cases it targeted, and the only notable tradeoff was a modest slowdown on the already-fast positive-positive bigint `and` path.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Extend small-result canonicalization to subtraction when large operands nearly cancel. That likely needs a stack temporary or a more specialized borrow-aware early check.
+- If the `and_big_big_pos` regression matters, split the bitwise small-result probe into a more selective heuristic so it only runs when the high words plausibly cancel.
+
 ### 11. Small-Int Constants and Identity Fast Paths
 
 Hypothesis:

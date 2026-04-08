@@ -1162,7 +1162,7 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     while ((size > 1) && (words[size - 1] == 0)) {
       size--;
     }
-    {
+    if (size <= 2U) {
       BValue maybe = bsts_maybe_small_int_words(is_pos, size, words);
       if (maybe) return maybe;
     }
@@ -1176,7 +1176,7 @@ static BValue bsts_integer_finish_allocated_words(_Bool is_pos, size_t size, BST
     while ((size > 1) && (integer->words[size - 1] == 0U)) {
       size--;
     }
-    {
+    if (size <= 2U) {
       BValue maybe = bsts_maybe_small_int_words(is_pos, size, integer->words);
       if (maybe) return maybe;
     }
@@ -1976,6 +1976,34 @@ static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, co
     size_t result_len = (op == '&')
         ? min_len
         : ((left->len > right->len) ? left->len : right->len);
+
+    if (op != '|') {
+        size_t max_len = (left->len > right->len) ? left->len : right->len;
+        _Bool maybe_small = 1;
+        for (size_t i = max_len; i > 2U; i--) {
+            size_t idx = i - 1U;
+            uint32_t left_word = (idx < left->len) ? left->words[idx] : 0U;
+            uint32_t right_word = (idx < right->len) ? right->words[idx] : 0U;
+            uint32_t result_word = (op == '&') ? (left_word & right_word) : (left_word ^ right_word);
+            if (result_word != 0U) {
+                maybe_small = 0;
+                break;
+            }
+        }
+        if (maybe_small) {
+            uint32_t small_words[2] = { 0U, 0U };
+            for (size_t i = 0; i < 2U; i++) {
+                uint32_t left_word = (i < left->len) ? left->words[i] : 0U;
+                uint32_t right_word = (i < right->len) ? right->words[i] : 0U;
+                small_words[i] = (op == '&') ? (left_word & right_word) : (left_word ^ right_word);
+            }
+            BValue maybe = bsts_maybe_small_int_words(1, 2U, small_words);
+            if (maybe != BSTS_BVALUE_NULL) {
+                return maybe;
+            }
+        }
+    }
+
     BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
     uint32_t* result_words = result_integer->words;
 
@@ -2453,6 +2481,30 @@ static BValue bsts_integer_shift_right_positive_loaded(BSTS_Int_Operand operand,
 
     size_t word_shift = (size_t)word_shift_u64;
     size_t result_len = operand.len - word_shift;
+
+    if (result_len <= 2U) {
+        uint32_t result_words[2] = { 0U, 0U };
+        if (bit_shift == 0U) {
+            for (size_t i = 0; i < result_len; i++) {
+                result_words[i] = operand.words[i + word_shift];
+            }
+        } else {
+            for (size_t i = 0; i < result_len; i++) {
+                uint64_t low = operand.words[i + word_shift];
+                uint64_t high =
+                    (i + word_shift + 1U < operand.len) ? operand.words[i + word_shift + 1U] : UINT64_C(0);
+                uint64_t combined = (high << 32U) | low;
+                result_words[i] = (uint32_t)((combined >> bit_shift) & UINT32_C(0xffffffff));
+            }
+        }
+        {
+            BValue maybe = bsts_maybe_small_int_words(1, result_len, result_words);
+            if (maybe != BSTS_BVALUE_NULL) {
+                return maybe;
+            }
+        }
+    }
+
     BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
     uint32_t* result_words = result_integer->words;
 

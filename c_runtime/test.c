@@ -307,6 +307,14 @@ void test_integer() {
   uint32_t i128_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   BValue i128_pos = bsts_integer_from_words_copy(1, 4, i128_words);
   BValue i128_neg = bsts_integer_from_words_copy(0, 4, i128_words);
+  uint32_t and_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xaaaaaaaa };
+  uint32_t and_small_right_words[4] = { 0xffffffff, 0x00000000, 0x55555555, 0x55555555 };
+  uint32_t xor_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
+  uint32_t xor_small_right_words[4] = { 0x9abcdef0, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
+  BValue and_small_left = bsts_integer_from_words_copy(1, 4, and_small_left_words);
+  BValue and_small_right = bsts_integer_from_words_copy(1, 4, and_small_right_words);
+  BValue xor_small_left = bsts_integer_from_words_copy(1, 4, xor_small_left_words);
+  BValue xor_small_right = bsts_integer_from_words_copy(1, 4, xor_small_right_words);
 
   uint32_t neg_small_words[1] = { 123 };
   BValue neg_small_big = bsts_integer_from_words_copy(0, 1, neg_small_words);
@@ -445,6 +453,13 @@ void test_integer() {
     assert_int_string(bsts_integer_xor(xor_cases[i].a, xor_cases[i].b), xor_cases[i].expected, xor_cases[i].name);
   }
 
+  BValue and_small_result = bsts_integer_and(and_small_left, and_small_right);
+  BValue xor_small_result = bsts_integer_xor(xor_small_left, xor_small_right);
+  assert_int_string(and_small_result, "305419896", "and big big small result");
+  assert_int_string(xor_small_result, "2290649224", "xor big big small result");
+  assert_is_small_int(and_small_result, "and big big small should canonicalize to immediate");
+  assert_is_small_int(xor_small_result, "xor big big small should canonicalize to immediate");
+
   struct IntShiftCase { const char* name; BValue value; int shift; const char* expected; };
   struct IntShiftCase shift_cases[] = {
     { "shift i32_pos << 5", i32_pos, 5, "9773436672" },
@@ -468,13 +483,19 @@ void test_integer() {
   BValue shift_twos_small = bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(40));
   BValue shift_small_left1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(1));
   BValue shift_small_right1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(-1));
+  BValue shift_big_right64_small = bsts_integer_shift_left(i128_pos, bsts_integer_from_int(-64));
+  BValue shift_big_right96_small = bsts_integer_shift_left(i128_pos, bsts_integer_from_int(-96));
   BValue shift_twos_big = bsts_integer_shift_left(pow40, bsts_integer_from_int(30));
   assert_int_string(shift_twos_small, "1099511627776", "shift twos small canonicalization");
   assert_int_string(shift_small_left1, "610839792", "shift small left1 canonicalization");
   assert_int_string(shift_small_right1, "152709948", "shift small right1 canonicalization");
+  assert_int_string(shift_big_right64_small, "1311768467463790320", "shift big right64 canonicalization");
+  assert_int_string(shift_big_right96_small, "305419896", "shift big right96 canonicalization");
   assert_is_small_int(shift_twos_small, "shift twos small should stay immediate");
   assert_is_small_int(shift_small_left1, "shift small left1 should stay immediate");
   assert_is_small_int(shift_small_right1, "shift small right1 should stay immediate");
+  assert_is_small_int(shift_big_right64_small, "shift big right64 should canonicalize to immediate");
+  assert_is_small_int(shift_big_right96_small, "shift big right96 should canonicalize to immediate");
   assert_is_big_int(shift_twos_big, "shift pow40 << 30 should spill to big-int");
 
   struct IntCmpCase { const char* name; BValue a; BValue b; int expected; };
