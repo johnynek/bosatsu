@@ -950,6 +950,49 @@ Experiments:
   - divide by larger powers of ten per step instead of one decimal digit at a time
 - Measure on large decimal inputs and outputs, not just arithmetic loops.
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 5000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `int_to_string_big16`
+  - `string_to_integer_big`
+  - `string_to_integer_big_neg`
+- Baseline medians:
+  - `int_to_string_big16`: `1255.80 ns/op`
+  - `string_to_integer_big`: `1983.60 ns/op`
+  - `string_to_integer_big_neg`: `1988.60 ns/op`
+
+Experimental result:
+
+- Replaced repeated `/ 10` formatting with repeated `/ 1_000_000_000`, emitting 9 decimal digits per step.
+- Replaced repeated big `* 10 + digit` parsing with repeated big `* 1_000_000_000 + chunk`, using 9-digit chunks.
+- Kept the existing bigint arithmetic for the chunk steps, so this is an algorithmic improvement rather than a representation change.
+- Reran the same benchmark command: `./bench_exe 5000`
+- Post-change medians:
+  - `int_to_string_big16`: `434.80 ns/op`
+  - `string_to_integer_big`: `307.80 ns/op`
+  - `string_to_integer_big_neg`: `373.80 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `int_to_string_big16`: about `65%` faster
+  - `string_to_integer_big`: about `84%` faster
+  - `string_to_integer_big_neg`: about `81%` faster
+- This is a strong keep. Long decimal parse/format was still one of the highest-overhead integer paths left in the runtime, and the base-`10^9` chunking removes most of that cost without complicating the bigint representation.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+  - A bounded `./test_exe` run still hit the same pre-existing oversized-string runtime issue already documented elsewhere in this file: `bsts_string_from_utf8_bytes_copy: string length 9223372036854775808 exceeds supported max (9223372036854775807)`.
+
+New ideas from this experiment:
+
+- If formatting is revisited again, compare manual 9-digit emission against `snprintf` for the leading chunk and maybe for all chunks.
+- Parsing could likely avoid one more layer of bigint work by accumulating several base-`10^9` chunks in `uint64_t` before promoting.
+
 ### 14. Division and Modulo Special Cases
 
 Hypothesis:

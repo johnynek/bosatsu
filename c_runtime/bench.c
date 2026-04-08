@@ -158,6 +158,30 @@ static void bench_shift(const char* name, size_t iters, BValue value, BValue shi
   print_result(name, end - start, (uint64_t)iters);
 }
 
+static void bench_int_to_string(const char* name, size_t iters, BValue value) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = value;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_integer_to_string(value);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
+static void bench_string_to_integer(const char* name, size_t iters, BValue value) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = value;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_string_to_integer(value);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
 static void bench_string_static_ctor(const char* name, size_t iters, const char* text) {
   size_t len = strlen(text);
   GC_gcollect();
@@ -285,6 +309,14 @@ int main(int argc, char** argv) {
   BValue s_small_need = bsts_string_from_utf8_bytes_static(2, "bc");
   BValue s_heap_1 = bsts_string_from_utf8_bytes_static(24, "abcdefghijklmnopqrstuvwx");
   BValue s_heap_2 = bsts_string_from_utf8_bytes_static(24, "abcdefghijklmnopqrstuvwx");
+  BValue s_big_dec =
+      bsts_string_from_utf8_bytes_static(
+          77,
+          "12345678901234567890123456789012345678901234567890123456789012345678901234567");
+  BValue s_big_dec_neg =
+      bsts_string_from_utf8_bytes_static(
+          78,
+          "-12345678901234567890123456789012345678901234567890123456789012345678901234567");
 
   printf("iters=%zu\n", iters);
   bench_add_small_small("add_small_small", iters, small_pos, small_neg);
@@ -364,6 +396,9 @@ int main(int argc, char** argv) {
   bench_shift("shift_big_pos_right96_small", iters, big_pos, shift_right96);
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
+  bench_int_to_string("int_to_string_big16", iters, big16_pos);
+  bench_string_to_integer("string_to_integer_big", iters, s_big_dec);
+  bench_string_to_integer("string_to_integer_big_neg", iters, s_big_dec_neg);
   bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnopqrstuvwx");
   bench_string_static_ctor("str_ctor_static_medium", iters, "abcdefghijklmnop");
   bench_string_static_ctor("str_ctor_static_small", iters, "hello");

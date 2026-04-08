@@ -1685,13 +1685,18 @@ BValue bsts_integer_not(BValue v) {
     return bsts_integer_sub(bsts_integer_from_int(-1), v);
 }
 
-// Helper f;unction to divide big integer by 10
-uint32_t bigint_divide_by_10(uint32_t* words, size_t len, uint32_t* quotient_words, size_t* quotient_len_ptr) {
+// Divide a positive magnitude by a small positive uint32 divisor.
+static uint32_t bigint_divide_by_u32(
+    uint32_t* words,
+    size_t len,
+    uint32_t divisor,
+    uint32_t* quotient_words,
+    size_t* quotient_len_ptr) {
     uint64_t remainder = 0;
     for (size_t i = len; i > 0; i--) {
         uint64_t dividend = (remainder << 32) | words[i - 1];
-        uint32_t quotient = (uint32_t)(dividend / 10);
-        remainder = dividend % 10;
+        uint32_t quotient = (uint32_t)(dividend / divisor);
+        remainder = dividend % divisor;
         quotient_words[i - 1] = quotient;
     }
 
@@ -1741,26 +1746,23 @@ BValue bsts_integer_to_string(BValue v) {
             return bsts_string_from_utf8_bytes_static(1, "0");
         }
 
-        // Estimate the maximum number of digits
+        // Estimate the maximum number of decimal digits.
         size_t bits = bigint->len * 32;
         size_t max_digits = (size_t)(bits * 0.30103) + 2; // +1 for sign, +1 for safety
-
-        // Allocate array for digits
-        char* digits = (char*)malloc(max_digits);
-        if (digits == NULL) {
-            // Memory allocation error
-            perror("failed to malloc digits in bsts_integer_to_string");
+        size_t max_chunks = (max_digits + 8U) / 9U;
+        uint32_t* chunks = (uint32_t*)malloc(max_chunks * sizeof(uint32_t));
+        if (chunks == NULL) {
+            perror("failed to malloc chunks in bsts_integer_to_string");
             abort();
         }
-
-        size_t digit_count = 0;
+        size_t chunk_count = 0;
 
         // Make a copy of the bigint words
         size_t len = bigint->len;
         uint32_t* words_copy = (uint32_t*)malloc(len * sizeof(uint32_t));
         if (words_copy == NULL) {
             // Memory allocation error
-            free(digits);
+            free(chunks);
             perror("failed to malloc words_copy in bsts_integer_to_string");
             abort();
         }
@@ -1769,7 +1771,7 @@ BValue bsts_integer_to_string(BValue v) {
         uint32_t* quotient_words = (uint32_t*)malloc(len * sizeof(uint32_t));
         if (quotient_words == NULL) {
             // Memory allocation error
-            free(digits);
+            free(chunks);
             free(words_copy);
             perror("failed to malloc quotient_words in bsts_integer_to_string");
             abort();
@@ -1778,13 +1780,13 @@ BValue bsts_integer_to_string(BValue v) {
         // Handle sign
         _Bool sign = bigint->sign;
 
-        // Repeatedly divide words_copy by 10
+        // Repeatedly divide by 1e9 to emit 9 decimal digits per step.
+        const uint32_t decimal_chunk_base = UINT32_C(1000000000);
         while (len > 0) {
             size_t quotient_len = 0;
-            uint32_t remainder = bigint_divide_by_10(words_copy, len, quotient_words, &quotient_len);
-
-            // Store the remainder as a digit
-            digits[digit_count++] = '0' + (char)remainder;
+            uint32_t remainder =
+                bigint_divide_by_u32(words_copy, len, decimal_chunk_base, quotient_words, &quotient_len);
+            chunks[chunk_count++] = remainder;
 
             // Prepare for next iteration
             len = quotient_len;
@@ -1796,22 +1798,41 @@ BValue bsts_integer_to_string(BValue v) {
         // Free the last quotient_words
         free(quotient_words);
 
-        // If negative, add '-' sign
-        if (sign) {
-            digits[digit_count++] = '-';
+        char first_chunk_buf[16];
+        int first_chunk_len = snprintf(
+            first_chunk_buf,
+            sizeof(first_chunk_buf),
+            "%u",
+            chunks[chunk_count - 1]);
+        if (first_chunk_len < 0) {
+            free(chunks);
+            free(words_copy);
+            perror("snprintf error in bsts_integer_to_string");
+            abort();
         }
 
-        // Now, reverse the digits to get the correct order
+        size_t digit_count =
+            (size_t)first_chunk_len + (chunk_count - 1U) * 9U + (sign ? 1U : 0U);
         BSTS_String* res = BSTS_PTR(BSTS_String, bsts_string_mut(digit_count));
         char* out = bsts_string_mut_data_ptr(res);
+        size_t out_pos = 0;
+        if (sign) {
+            out[out_pos++] = '-';
+        }
+        memcpy(out + out_pos, first_chunk_buf, (size_t)first_chunk_len);
+        out_pos += (size_t)first_chunk_len;
 
-        // reverse the data
-        for (size_t i = 0; i < digit_count; i++) {
-            out[i] = digits[digit_count - i - 1];
+        for (size_t i = chunk_count - 1U; i > 0U; i--) {
+            uint32_t chunk = chunks[i - 1U];
+            for (int digit = 8; digit >= 0; digit--) {
+                out[out_pos + (size_t)digit] = (char)('0' + (chunk % 10U));
+                chunk /= 10U;
+            }
+            out_pos += 9U;
         }
 
         // Free temporary allocations
-        free(digits);
+        free(chunks);
         free(words_copy);
 
         return BSTS_VALUE_FROM_PTR(res);
@@ -1834,27 +1855,36 @@ BValue bsts_string_to_integer(BValue v) {
   }
   // at least 1 character
 
+  size_t digit_count = slen - pos;
+  size_t first_chunk_len = digit_count % 9U;
+  if (first_chunk_len == 0U) first_chunk_len = 9U;
+
   int64_t acc = 0;
   _Bool use_big_acc = 0;
   BValue bacc = BSTS_BVALUE_NULL;
-  BValue ten = bsts_integer_from_int(10);
-  while(pos < slen) {
-    int32_t digit = (int32_t)(bytes[pos] - '0');
-    if ((digit < 0) || (9 < digit)) return alloc_enum0(0);
+  BValue billion = bsts_integer_from_int(1000000000);
+
+  while (pos < slen) {
+    size_t chunk_len = (pos == (sign ? 1U : 0U)) ? first_chunk_len : 9U;
+    uint32_t chunk = 0U;
+    for (size_t i = 0; i < chunk_len; i++) {
+      int32_t digit = (int32_t)(bytes[pos + i] - '0');
+      if ((digit < 0) || (9 < digit)) return alloc_enum0(0);
+      chunk = chunk * UINT32_C(10) + (uint32_t)digit;
+    }
 
     if (!use_big_acc) {
-      // Keep an int64 accumulator until the next decimal step would overflow.
-      if (acc > (INT64_MAX - digit) / 10) {
+      if (acc > (INT64_MAX - (int64_t)chunk) / INT64_C(1000000000)) {
         use_big_acc = 1;
         bacc = bsts_integer_from_int64(acc);
       } else {
-        acc = acc * 10 + digit;
-        pos++;
+        acc = acc * INT64_C(1000000000) + (int64_t)chunk;
+        pos += chunk_len;
         continue;
       }
     }
-    bacc = bsts_integer_add(bsts_integer_times(bacc, ten), bsts_integer_from_int(digit));
-    pos++;
+    bacc = bsts_integer_add(bsts_integer_times(bacc, billion), bsts_integer_from_uint64((uint64_t)chunk));
+    pos += chunk_len;
   }
 
   if (!use_big_acc) {
