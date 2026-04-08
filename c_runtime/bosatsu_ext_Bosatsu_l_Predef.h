@@ -20,6 +20,8 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b);
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Float64(BValue a, BValue b);
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_concat__String(BValue a);
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b);
