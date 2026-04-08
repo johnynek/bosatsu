@@ -467,9 +467,14 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(BValue array) {
     return bsts_boxf(0.0);
   }
 
-  double acc = bsts_unboxf(arr->data[arr->offset]);
+  // Arrays carrying Float64 data are laid out in pointer-sized slots as the
+  // raw IEEE-754 bit pattern; this avoids the per-element unboxing overhead in
+  // this hot reduction path.
+  const double* data = (const double*)(const void*)(arr->data + arr->offset);
+  double acc = data[0];
+#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < arr->len; idx++) {
-    acc += bsts_unboxf(arr->data[arr->offset + idx]);
+    acc += data[idx];
   }
 
   return bsts_boxf(acc);
@@ -481,11 +486,11 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(BValue array) {
     return bsts_boxf(0.0);
   }
 
-  double first = bsts_unboxf(arr->data[arr->offset]);
-  double acc = first * first;
+  const double* data = (const double*)(const void*)(arr->data + arr->offset);
+  double acc = data[0] * data[0];
+#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < arr->len; idx++) {
-    double item = bsts_unboxf(arr->data[arr->offset + idx]);
-    acc += item * item;
+    acc += data[idx] * data[idx];
   }
 
   return bsts_boxf(acc);
@@ -499,11 +504,12 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(BValue left, BValue 
     return bsts_boxf(0.0);
   }
 
-  double acc = bsts_unboxf(left_arr->data[left_arr->offset]) *
-      bsts_unboxf(right_arr->data[right_arr->offset]);
+  const double* left_data = (const double*)(const void*)(left_arr->data + left_arr->offset);
+  const double* right_data = (const double*)(const void*)(right_arr->data + right_arr->offset);
+  double acc = left_data[0] * right_data[0];
+#pragma omp simd reduction(+:acc)
   for (int idx = 1; idx < pair_len; idx++) {
-    acc += bsts_unboxf(left_arr->data[left_arr->offset + idx]) *
-        bsts_unboxf(right_arr->data[right_arr->offset + idx]);
+    acc += left_data[idx] * right_data[idx];
   }
 
   return bsts_boxf(acc);
