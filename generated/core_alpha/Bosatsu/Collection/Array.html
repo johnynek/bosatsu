@@ -32,7 +32,7 @@
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-71720795*
+0.0.0+1-3868a709*
 </div>
 </div>
 <div class="nav-toc">
@@ -79,7 +79,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <span class="home-icon">⌂</span>Bosatsu Documentation
 </a>
 <div class="version-number">
-0.0.0+1-71720795*
+0.0.0+1-3868a709*
 </div>
 </div>
 <div class="nav-toc">
@@ -122,10 +122,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-collection-array" name="bosatsu-collection-array" class="anchor"><span class="anchor-link"></span></a><code>Bosatsu/Collection/Array</code></h1>
 <p>source code: - <a href="https://github.com/johnynek/bosatsu/blob/main/test_workspace/Bosatsu/Collection/Array.bosatsu"><code>test_workspace/Bosatsu/Collection/Array.bosatsu</code></a></p>
+<p>public dependencies: <a href="../Num/Int64.html"><code>Bosatsu/Num/Int64</code></a></p>
 <h2><a href="#index" name="index" class="anchor"><span class="anchor-link"></span></a>Index</h2>
 <ul>
   <li>Types: <a href="#type-array"><code>Array</code></a></li>
-  <li>Values: <a href="#value-char-array-to-int-array"><code>char_Array_to_Int_Array</code></a>, <a href="#value-char-array-to-string"><code>char_Array_to_String</code></a>, <a href="#value-concat-all-array"><code>concat_all_Array</code></a>, <a href="#value-empty-array"><code>empty_Array</code></a>, <a href="#value-filter-array"><code>filter_Array</code></a>, <a href="#value-flat-map-array"><code>flat_map_Array</code></a>, <a href="#value-flatten-array"><code>flatten_Array</code></a>, <a href="#value-foldl-array"><code>foldl_Array</code></a>, <a href="#value-foldr-array"><code>foldr_Array</code></a>, <a href="#value-from-list-array"><code>from_List_Array</code></a>, <a href="#value-get-array"><code>get_Array</code></a>, <a href="#value-get-map-array"><code>get_map_Array</code></a>, <a href="#value-get-or-array"><code>get_or_Array</code></a>, <a href="#value-index-in-range-array"><code>index_in_range_Array</code></a>, <a href="#value-int-array-to-char-array"><code>int_Array_to_Char_Array</code></a>, <a href="#value-int-array-to-string"><code>int_Array_to_String</code></a>, <a href="#value-map-array"><code>map_Array</code></a>, <a href="#value-range-array"><code>range_Array</code></a>, <a href="#value-range-from-array"><code>range_from_Array</code></a>, <a href="#value-reverse-array"><code>reverse_Array</code></a>, <a href="#value-set-array"><code>set_Array</code></a>, <a href="#value-set-or-self-array"><code>set_or_self_Array</code></a>, <a href="#value-size-array"><code>size_Array</code></a>, <a href="#value-slice-array"><code>slice_Array</code></a>, <a href="#value-sort-array"><code>sort_Array</code></a>, <a href="#value-string-to-char-array"><code>string_to_Char_Array</code></a>, <a href="#value-string-to-int-array"><code>string_to_Int_Array</code></a>, <a href="#value-tabulate-array"><code>tabulate_Array</code></a>, <a href="#value-to-list-array"><code>to_List_Array</code></a></li>
+  <li>Values: <a href="#value-char-array-to-int-array"><code>char_Array_to_Int_Array</code></a>, <a href="#value-char-array-to-string"><code>char_Array_to_String</code></a>, <a href="#value-concat-all-array"><code>concat_all_Array</code></a>, <a href="#value-dotf-array"><code>dotf_Array</code></a>, <a href="#value-empty-array"><code>empty_Array</code></a>, <a href="#value-filter-array"><code>filter_Array</code></a>, <a href="#value-flat-map-array"><code>flat_map_Array</code></a>, <a href="#value-flatten-array"><code>flatten_Array</code></a>, <a href="#value-foldl-array"><code>foldl_Array</code></a>, <a href="#value-foldl-with-index-array"><code>foldl_with_index_Array</code></a>, <a href="#value-foldr-array"><code>foldr_Array</code></a>, <a href="#value-from-list-array"><code>from_List_Array</code></a>, <a href="#value-get-array"><code>get_Array</code></a>, <a href="#value-get-map-array"><code>get_map_Array</code></a>, <a href="#value-get-or-array"><code>get_or_Array</code></a>, <a href="#value-index-in-range-array"><code>index_in_range_Array</code></a>, <a href="#value-int-array-to-char-array"><code>int_Array_to_Char_Array</code></a>, <a href="#value-int-array-to-string"><code>int_Array_to_String</code></a>, <a href="#value-map-array"><code>map_Array</code></a>, <a href="#value-map-with-index-array"><code>map_with_index_Array</code></a>, <a href="#value-range-array"><code>range_Array</code></a>, <a href="#value-range-from-array"><code>range_from_Array</code></a>, <a href="#value-reverse-array"><code>reverse_Array</code></a>, <a href="#value-set-array"><code>set_Array</code></a>, <a href="#value-set-or-self-array"><code>set_or_self_Array</code></a>, <a href="#value-size-array"><code>size_Array</code></a>, <a href="#value-slice-array"><code>slice_Array</code></a>, <a href="#value-sort-array"><code>sort_Array</code></a>, <a href="#value-string-to-char-array"><code>string_to_Char_Array</code></a>, <a href="#value-string-to-int-array"><code>string_to_Int_Array</code></a>, <a href="#value-sumf-array"><code>sumf_Array</code></a>, <a href="#value-sumsqf-array"><code>sumsqf_Array</code></a>, <a href="#value-tabulate-array"><code>tabulate_Array</code></a>, <a href="#value-to-list-array"><code>to_List_Array</code></a>, <a href="#value-zip-foldl-array"><code>zip_foldl_Array</code></a>, <a href="#value-zip-map-array"><code>zip_map_Array</code></a>, <a href="#value-zip-sumf-array"><code>zip_sumf_Array</code></a></li>
 </ul>
 <h2><a href="#types" name="types" class="anchor"><span class="anchor-link"></span></a>Types</h2>
 <a id="type-array"></a>
@@ -147,6 +148,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#concat-all-array" name="concat-all-array" class="anchor"><span class="anchor-link"></span></a><code>concat_all_Array</code></h3>
 <p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def concat_all_Array[a](arrays: List[Array[a]]) -&gt; Array[a]
+</code></pre>
+<a id="value-dotf-array"></a>
+<h3><a href="#dotf-array" name="dotf-array" class="anchor"><span class="anchor-link"></span></a><code>dotf_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-float64"><code>Float64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def dotf_Array(left: Array[Float64], right: Array[Float64]) -&gt; Float64
 </code></pre>
 <a id="value-empty-array"></a>
 <h3><a href="#empty-array" name="empty-array" class="anchor"><span class="anchor-link"></span></a><code>empty_Array</code></h3>
@@ -173,6 +179,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>references: <a href="#type-array"><code>Array</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -&gt; b) -&gt; b
 </code></pre>
+<a id="value-foldl-with-index-array"></a>
+<h3><a href="#foldl-with-index-array" name="foldl-with-index-array" class="anchor"><span class="anchor-link"></span></a><code>foldl_with_index_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def foldl_with_index_Array[a,
+    b](ary: Array[a], init: b, fn: (b, a, Bosatsu/Num/Int64::Int64) -&gt; b) -&gt; b
+</code></pre>
 <a id="value-foldr-array"></a>
 <h3><a href="#foldr-array" name="foldr-array" class="anchor"><span class="anchor-link"></span></a><code>foldr_Array</code></h3>
 <p>references: <a href="#type-array"><code>Array</code></a></p>
@@ -185,23 +197,26 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <a id="value-get-array"></a>
 <h3><a href="#get-array" name="get-array" class="anchor"><span class="anchor-link"></span></a><code>get_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def get_Array[a](ary: Array[a], idx: Int) -&gt; Option[a]
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_Array[a](ary: Array[a], idx: Bosatsu/Num/Int64::Int64) -&gt; Option[a]
 </code></pre>
 <a id="value-get-map-array"></a>
 <h3><a href="#get-map-array" name="get-map-array" class="anchor"><span class="anchor-link"></span></a><code>get_map_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def get_map_Array[a, b](ary: Array[a], idx: Int, default: () -&gt; b, fn: a -&gt; b) -&gt; b
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_map_Array[a,
+    b
+](ary: Array[a], idx: Bosatsu/Num/Int64::Int64, default: Bosatsu/Num/Int64::Int64 -&gt; b, fn: a -&gt; b) -&gt; b
 </code></pre>
 <a id="value-get-or-array"></a>
 <h3><a href="#get-or-array" name="get-or-array" class="anchor"><span class="anchor-link"></span></a><code>get_or_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-unit"><code>Unit</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def get_or_Array[a](ary: Array[a], idx: Int, default: () -&gt; a) -&gt; a
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def get_or_Array[a
+](ary: Array[a], idx: Bosatsu/Num/Int64::Int64, default: Bosatsu/Num/Int64::Int64 -&gt; a) -&gt; a
 </code></pre>
 <a id="value-index-in-range-array"></a>
 <h3><a href="#index-in-range-array" name="index-in-range-array" class="anchor"><span class="anchor-link"></span></a><code>index_in_range_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-bool"><code>Bool</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def index_in_range_Array[a](ary: Array[a], idx: Int) -&gt; Bool
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-bool"><code>Bool</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def index_in_range_Array[a](ary: Array[a], idx: Bosatsu/Num/Int64::Int64) -&gt; Bool
 </code></pre>
 <a id="value-int-array-to-char-array"></a>
 <h3><a href="#int-array-to-char-array" name="int-array-to-char-array" class="anchor"><span class="anchor-link"></span></a><code>int_Array_to_Char_Array</code></h3>
@@ -217,6 +232,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <h3><a href="#map-array" name="map-array" class="anchor"><span class="anchor-link"></span></a><code>map_Array</code></h3>
 <p>references: <a href="#type-array"><code>Array</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def map_Array[a, b](ary: Array[a], fn: a -&gt; b) -&gt; Array[b]
+</code></pre>
+<a id="value-map-with-index-array"></a>
+<h3><a href="#map-with-index-array" name="map-with-index-array" class="anchor"><span class="anchor-link"></span></a><code>map_with_index_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def map_with_index_Array[a, b](ary: Array[a], fn: (a, Bosatsu/Num/Int64::Int64) -&gt; b) -&gt; Array[b]
 </code></pre>
 <a id="value-range-array"></a>
 <h3><a href="#range-array" name="range-array" class="anchor"><span class="anchor-link"></span></a><code>range_Array</code></h3>
@@ -235,23 +255,24 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </code></pre>
 <a id="value-set-array"></a>
 <h3><a href="#set-array" name="set-array" class="anchor"><span class="anchor-link"></span></a><code>set_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def set_Array[a](ary: Array[a], idx: Int, value: a) -&gt; Option[Array[a]]
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a>, <a href="../Predef.html#type-option"><code>Option</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def set_Array[a](ary: Array[a], idx: Bosatsu/Num/Int64::Int64, value: a) -&gt; Option[Array[a]]
 </code></pre>
 <a id="value-set-or-self-array"></a>
 <h3><a href="#set-or-self-array" name="set-or-self-array" class="anchor"><span class="anchor-link"></span></a><code>set_or_self_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def set_or_self_Array[a](ary: Array[a], idx: Int, value: a) -&gt; Array[a]
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def set_or_self_Array[a](ary: Array[a], idx: Bosatsu/Num/Int64::Int64, value: a) -&gt; Array[a]
 </code></pre>
 <a id="value-size-array"></a>
 <h3><a href="#size-array" name="size-array" class="anchor"><span class="anchor-link"></span></a><code>size_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def size_Array[a](ary: Array[a]) -&gt; Int
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def size_Array[a](ary: Array[a]) -&gt; Bosatsu/Num/Int64::Int64
 </code></pre>
 <a id="value-slice-array"></a>
 <h3><a href="#slice-array" name="slice-array" class="anchor"><span class="anchor-link"></span></a><code>slice_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def slice_Array[a](ary: Array[a], start: Int, end: Int) -&gt; Array[a]
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def slice_Array[a
+](ary: Array[a], start: Bosatsu/Num/Int64::Int64, end: Bosatsu/Num/Int64::Int64) -&gt; Array[a]
 </code></pre>
 <a id="value-sort-array"></a>
 <h3><a href="#sort-array" name="sort-array" class="anchor"><span class="anchor-link"></span></a><code>sort_Array</code></h3>
@@ -268,15 +289,40 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a>, <a href="../Predef.html#type-string"><code>String</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def string_to_Int_Array(s: String) -&gt; Array[Int]
 </code></pre>
+<a id="value-sumf-array"></a>
+<h3><a href="#sumf-array" name="sumf-array" class="anchor"><span class="anchor-link"></span></a><code>sumf_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-float64"><code>Float64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def sumf_Array(ary: Array[Float64]) -&gt; Float64
+</code></pre>
+<a id="value-sumsqf-array"></a>
+<h3><a href="#sumsqf-array" name="sumsqf-array" class="anchor"><span class="anchor-link"></span></a><code>sumsqf_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-float64"><code>Float64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def sumsqf_Array(ary: Array[Float64]) -&gt; Float64
+</code></pre>
 <a id="value-tabulate-array"></a>
 <h3><a href="#tabulate-array" name="tabulate-array" class="anchor"><span class="anchor-link"></span></a><code>tabulate_Array</code></h3>
-<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-int"><code>Int</code></a></p>
-<pre class="prettyprint"><code class="language-bosatsu">def tabulate_Array[a](n: Int, fn: Int -&gt; a) -&gt; Array[a]
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Num/Int64.html#type-int64"><code>Bosatsu/Num/Int64::Int64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def tabulate_Array[a](n: Bosatsu/Num/Int64::Int64, fn: Bosatsu/Num/Int64::Int64 -&gt; a) -&gt; Array[a]
 </code></pre>
 <a id="value-to-list-array"></a>
 <h3><a href="#to-list-array" name="to-list-array" class="anchor"><span class="anchor-link"></span></a><code>to_List_Array</code></h3>
 <p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-list"><code>List</code></a></p>
 <pre class="prettyprint"><code class="language-bosatsu">def to_List_Array[a](ary: Array[a]) -&gt; List[a]
+</code></pre>
+<a id="value-zip-foldl-array"></a>
+<h3><a href="#zip-foldl-array" name="zip-foldl-array" class="anchor"><span class="anchor-link"></span></a><code>zip_foldl_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def zip_foldl_Array[a, b, c](left: Array[a], right: Array[b], init: c, fn: (c, a, b) -&gt; c) -&gt; c
+</code></pre>
+<a id="value-zip-map-array"></a>
+<h3><a href="#zip-map-array" name="zip-map-array" class="anchor"><span class="anchor-link"></span></a><code>zip_map_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def zip_map_Array[a, b, c](left: Array[a], right: Array[b], fn: (a, b) -&gt; c) -&gt; Array[c]
+</code></pre>
+<a id="value-zip-sumf-array"></a>
+<h3><a href="#zip-sumf-array" name="zip-sumf-array" class="anchor"><span class="anchor-link"></span></a><code>zip_sumf_Array</code></h3>
+<p>references: <a href="#type-array"><code>Array</code></a>, <a href="../Predef.html#type-float64"><code>Float64</code></a></p>
+<pre class="prettyprint"><code class="language-bosatsu">def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) -&gt; Float64) -&gt; Float64
 </code></pre>
 <div class="nav-next">
 <p><strong>Next:</strong> <a href="../../../../generated/core_alpha/Bosatsu/Collection/Queue.html"><code>Bosatsu/Collection/Queue</code></a></p>
@@ -355,7 +401,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <script type="text/javascript" src="../../../../lib/prettify/prettify.js"></script>
 <script type="text/javascript" src="../../../../lib/prettify/lang-scala.js"></script>
 <script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-71720795-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.0.0+1-3868a709-SNAPSHOT', 'https://github.com/johnynek/bosatsu')});</script>
 
 
 </html>
