@@ -12,7 +12,7 @@ from Bosatsu/Num/Int64 import (
   cmp_Int64,
   eq_Int64,
   int64_to_Int,
-  int_low_bits_to_Int64,
+  int_low_bits_to_Int64 as i64,
   int_to_Int64,
 )
 from Bosatsu/Option import eq_Option
@@ -76,7 +76,7 @@ external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
 external def from_List_Array[a](xs: List[a]) -> Array[a]
 external def to_List_Array[a](ary: Array[a]) -> List[a]
 external def size_Array[a](ary: Array[a]) -> Int64
-external def get_map_Array[a, b](ary: Array[a], idx: Int64, default: () -> b, fn: a -> b) -> b
+external def get_map_Array[a, b](ary: Array[a], idx: Int64, default: Int64 -> b, fn: a -> b) -> b
 external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
 external def foldl_Array[a, b](ary: Array[a], init: b, fn: (b, a) -> b) -> b
 external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
@@ -114,26 +114,18 @@ def int_Array_to_Char_Array(code_points: Array[Int]) -> Option[Array[Char]]:
 def int_Array_to_String(code_points: Array[Int]) -> Option[String]:
   int_List_to_String(to_List_Array(code_points))
 
-def get_Array[a](ary: Array[a], idx: Int) -> Option[a]:
-  match int_to_Int64(idx):
-    case Some(idx64): get_map_Array(ary, idx64, () -> None, x -> Some(x))
-    case None: None
+def get_Array[a](ary: Array[a], idx: Int64) -> Option[a]:
+  get_map_Array(ary, idx, _ -> None, x -> Some(x))
 
-def index_in_range_Array[a](ary: Array[a], idx: Int) -> Bool:
-  match int_to_Int64(idx):
-    case Some(idx64):
-      if cmp_Int64(idx64, int_low_bits_to_Int64(0)) matches LT:
-        False
-      else:
-        cmp_Int64(idx64, size_Array(ary)) matches LT
-    case None:
-      False
+def index_in_range_Array[a](ary: Array[a], idx: Int64) -> Bool:
+  if cmp_Int64(idx, i64(0)) matches LT:
+    False
+  else:
+    cmp_Int64(idx, size_Array(ary)) matches LT
 
-def set_Array[a](ary: Array[a], idx: Int, value: a) -> Option[Array[a]]:
+def set_Array[a](ary: Array[a], idx: Int64, value: a) -> Option[Array[a]]:
   if index_in_range_Array(ary, idx):
-    match int_to_Int64(idx):
-      case Some(idx64): Some(set_or_self_Array(ary, idx64, value))
-      case None: None
+    Some(set_or_self_Array(ary, idx, value))
   else:
     None
 
@@ -142,10 +134,8 @@ def range_Array(n: Int) -> Array[Int]:
     case Some(n64): tabulate_Array(n64, int64_to_Int)
     case None: empty_Array
 
-def range_from_Array(start: Int, n: Int) -> Array[Int]:
-  match int_to_Int64(n):
-    case Some(n64): tabulate_Array(n64, i -> add(start, int64_to_Int(i)))
-    case None: empty_Array
+def range_from_Array(start: Int, n: Int64) -> Array[Int]:
+  tabulate_Array(n, i -> add(start, int64_to_Int(i)))
 
 def reverse_Array[a](ary: Array[a]) -> Array[a]:
   rev_list = foldl_Array(ary, [], (acc, x) -> [x, *acc])
@@ -158,13 +148,19 @@ def flatten_Array[a](arrays: Array[Array[a]]) -> Array[a]:
 ## test code below
 ########
 
-andb = and
-
 def eq_Array(eq_a: (a, a) -> Bool)(left: Array[a], right: Array[a]) -> Bool:
-  eq_List(eq_a)(to_List_Array(left), to_List_Array(right))
-
-def i64(i: Int) -> Int64:
-  int_low_bits_to_Int64(i)
+  if cmp_Int64(size_Array(left), size_Array(right)) matches EQ:
+    foldl_with_index_Array(
+      left,
+      True,
+      (acc, item, idx) ->
+        if acc:
+          get_map_Array(right, idx, _ -> False, right_item -> eq_a(item, right_item))
+        else:
+          False
+    )
+  else:
+    False
 
 def int_range_list(start: Int, len: Int) -> List[Int]:
   [add(start, offset) for offset in range(len)]
@@ -208,16 +204,16 @@ a1_diff = from_List_Array([9])
 a5_copy = from_List_Array([0, 1, 2, 3, 4])
 a5_first_diff = from_List_Array([99, 1, 2, 3, 4])
 a5_last_diff = from_List_Array([0, 1, 2, 3, 99])
-a5_tail = slice_Array(a5, int_low_bits_to_Int64(2), int_low_bits_to_Int64(5))
-a_from = range_from_Array(10, 4)
-a_set = set_or_self_Array(a5, int_low_bits_to_Int64(2), 99)
+a5_tail = slice_Array(a5, i64(2), i64(5))
+a_from = range_from_Array(10, i64(4))
+a_set = set_or_self_Array(a5, i64(2), 99)
 a_sorted = sort_Array(
   from_List_Array([(1, "a"), (0, "z"), (1, "b"), (1, "c")]),
   cmp_pair
 )
 
 def set_in_range_ok() -> Bool:
-  match set_Array(a5, 1, 8):
+  match set_Array(a5, i64(1), 8):
     case Some(arr): to_List_Array(arr) matches [0, 8, 2, 3, 4]
     case None: False
 
@@ -229,7 +225,7 @@ def int_to_char_array_some() -> Bool:
 rand_Int: Rand[Int] = map_Rand(int_range(200), i -> i.sub(100))
 rand_Array_and_Init: Rand[(Array[Int], Int)] = map_Rand(
   prod_Rand(prod_Rand(rand_Int, int_range(40)), rand_Int),
-  (((start, len), init)) -> (range_from_Array(start, len), init)
+  (((start, len), init)) -> (range_from_Array(start, i64(len)), init)
 )
 rand_StartAndLen: Rand[(Int, Int)] =
   map_Rand(prod_Rand(rand_Int, int_range(30)), ((start, len)) -> (start, len))
@@ -271,14 +267,14 @@ tabulate_law = forall_Prop(
     expected = int_range_list(start, len)
     size_ok = eq_Int64(size_Array(arr), n64)
     list_ok = eq_List(eq_Int)(to_List_Array(arr), expected)
-    Assertion(andb(size_ok, list_ok), "tabulate uses visible Int64 indices in ascending order")
+    Assertion(and(size_ok, list_ok), "tabulate uses visible Int64 indices in ascending order")
   ))
 
 indexed_slice_law = forall_Prop(
   rand_SliceCase,
   "indexed Array functions use slice-relative visible indices",
   ((start, base_len, slice_start, visible_len)) -> (
-    base = range_from_Array(start, base_len)
+    base = range_from_Array(start, i64(base_len))
     view = slice_Array(base, i64(slice_start), i64(slice_start.add(visible_len)))
     expected = int_range_list(start.add(slice_start), visible_len)
     mapped = to_List_Array(map_with_index_Array(view, (_, idx) -> int64_to_Int(idx)))
@@ -300,11 +296,11 @@ indexed_slice_law = forall_Prop(
         eq_Int(get_or_Array(view, i64(0), int64_to_Int), 0)
     miss_idx = visible_len.add(1)
     miss_ok = eq_Int(get_or_Array(view, i64(miss_idx), int64_to_Int), miss_idx)
-    ok = andb(
+    ok = and(
       head_ok,
-      andb(
+      and(
         miss_ok,
-        andb(
+        and(
           eq_List(eq_Int)(mapped, mapped_expected),
           eq_Int(folded, folded_expected)
         )
@@ -317,8 +313,8 @@ zip_and_float_law = forall_Prop(
   rand_ZipCase,
   "zip helpers and Float64 reductions follow list-prefix models",
   ((left_start, left_len, right_start, right_len)) -> (
-    left = range_from_Array(left_start, left_len)
-    right = range_from_Array(right_start, right_len)
+    left = range_from_Array(left_start, i64(left_len))
+    right = range_from_Array(right_start, i64(right_len))
     left_list = int_range_list(left_start, left_len)
     right_list = int_range_list(right_start, right_len)
     zipped = to_List_Array(zip_map_Array(left, right, (l, r) -> sub(l, r)))
@@ -334,11 +330,11 @@ zip_and_float_law = forall_Prop(
       zip_sumf_Array(left, right, (l, r) -> int_to_Float64(mul(l, r))),
       dotf_List(left_list, right_list)
     )
-    ok = andb(
+    ok = and(
       eq_List(eq_Int)(zipped, zipped_expected),
-      andb(
+      and(
         eq_Int(folded, folded_expected),
-        andb(sum_ok, andb(sumsq_ok, andb(dot_ok, zip_sum_ok)))
+        and(sum_ok, and(sumsq_ok, and(dot_ok, zip_sum_ok)))
       )
     )
     Assertion(ok, "zip helpers truncate to the visible prefix and Float64 reductions stay left to right")
@@ -355,10 +351,10 @@ tests = TestSuite("Array tests", [
   Assertion(eq_ai(a5, a5_copy), "eq_Array equal copy"),
   Assertion(eq_ai(a5, a5_first_diff) matches False, "eq_Array first element mismatch"),
   Assertion(eq_ai(a5, a5_last_diff) matches False, "eq_Array last element mismatch"),
-  Assertion(get_Array(a5, 0).eq_oi(Some(0)), "get first"),
-  Assertion(get_Array(a5, 4).eq_oi(Some(4)), "get last"),
-  Assertion(get_Array(a5, -1).eq_oi(None), "get negative"),
-  Assertion(get_Array(a5, 5).eq_oi(None), "get out of range"),
+  Assertion(get_Array(a5, i64(0)).eq_oi(Some(0)), "get first"),
+  Assertion(get_Array(a5, i64(4)).eq_oi(Some(4)), "get last"),
+  Assertion(get_Array(a5, i64(-1)).eq_oi(None), "get negative"),
+  Assertion(get_Array(a5, i64(5)).eq_oi(None), "get out of range"),
   Assertion(get_or_Array(a5, i64(2), int64_to_Int) matches 2, "get_or in range"),
   Assertion(get_or_Array(a5, i64(10), int64_to_Int) matches 10, "get_or fallback forwards idx"),
   Assertion(foldl_Array(a5, 0, add) matches 10, "foldl add"),
@@ -395,7 +391,7 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(a_set) matches [0, 1, 99, 3, 4], "set_or_self in range"),
   Assertion(eq_ai(set_or_self_Array(a5, i64(9), 77), a5), "set_or_self out of range keeps self"),
   Assertion(set_in_range_ok(), "set_Array in range"),
-  Assertion(set_Array(a5, 10, 8) matches None, "set_Array out of range"),
+  Assertion(set_Array(a5, i64(10), 8) matches None, "set_Array out of range"),
   Assertion(to_List_Array(concat_all_Array([a5, range_Array(3), empty_Array])) matches [0, 1, 2, 3, 4, 0, 1, 2], "concat_all"),
   Assertion(to_List_Array(slice_Array(a5, i64(1), i64(4))) matches [1, 2, 3], "slice mid"),
   Assertion(to_List_Array(slice_Array(a5, i64(-2), i64(2))) matches [0, 1], "slice clamps start"),
@@ -405,16 +401,16 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(slice_Array(a5, i64(1), i64(-1))) matches [], "slice invalid end"),
   Assertion(get_or_Array(a5_tail, i64(0), int64_to_Int) matches 2, "slice index is relative"),
   Assertion(
-    to_List_Array(zip_map_Array(a5, range_from_Array(10, 3), (l, r) -> add(l, r))) matches [10, 12, 14],
+    to_List_Array(zip_map_Array(a5, range_from_Array(10, i64(3)), (l, r) -> add(l, r))) matches [10, 12, 14],
     "zip_map truncates"
   ),
   Assertion(
-    zip_foldl_Array(a5, range_from_Array(10, 3), 0, (acc, l, r) -> add(acc, add(l, r))) matches 36,
+    zip_foldl_Array(a5, range_from_Array(10, i64(3)), 0, (acc, l, r) -> add(acc, add(l, r))) matches 36,
     "zip_foldl truncates"
   ),
   Assertion(
     eq_Float64(
-      zip_sumf_Array(a5, range_from_Array(10, 3), (l, r) -> int_to_Float64(mul(l, r))),
+      zip_sumf_Array(a5, range_from_Array(10, i64(3)), (l, r) -> int_to_Float64(mul(l, r))),
       35.0
     ),
     "zip_sumf truncates"
@@ -422,7 +418,7 @@ tests = TestSuite("Array tests", [
   Assertion(eq_Float64(sumf_Array(map_Array(a5, int_to_Float64)), 10.0), "sumf"),
   Assertion(eq_Float64(sumsqf_Array(map_Array(a5, int_to_Float64)), 30.0), "sumsqf"),
   Assertion(
-    eq_Float64(dotf_Array(map_Array(a5, int_to_Float64), map_Array(range_from_Array(10, 3), int_to_Float64)), 35.0),
+    eq_Float64(dotf_Array(map_Array(a5, int_to_Float64), map_Array(range_from_Array(10, i64(3)), int_to_Float64)), 35.0),
     "dotf truncates"
   ),
   Assertion(eq_Float64(sumf_Array(empty_Array), 0.0), "sumf empty"),
@@ -450,13 +446,13 @@ tests = TestSuite("Array tests", [
     "int_Array_to_String none"
   ),
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
-  Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
+  Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, i64(2)), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
-  Assertion(get_map_Array(a5, i64(3), () -> 100, x -> x.add(7)) matches 10, "get_map some"),
-  Assertion(get_map_Array(a5, i64(30), () -> 100, x -> x.add(7)) matches 100, "get_map none"),
-  Assertion(index_in_range_Array(a5, 0), "index in range 0"),
-  Assertion(index_in_range_Array(a5, 4), "index in range 4"),
-  Assertion(index_in_range_Array(a5, 5) matches False, "index not in range"),
+  Assertion(get_map_Array(a5, i64(3), _ -> 100, x -> x.add(7)) matches 10, "get_map some"),
+  Assertion(get_map_Array(a5, i64(30), _ -> 100, x -> x.add(7)) matches 100, "get_map none"),
+  Assertion(index_in_range_Array(a5, i64(0)), "index in range 0"),
+  Assertion(index_in_range_Array(a5, i64(4)), "index in range 4"),
+  Assertion(index_in_range_Array(a5, i64(5)) matches False, "index not in range"),
   run_Prop(foldr_reverse_law, 80, 4242),
   run_Prop(tabulate_law, 80, 5151),
   run_Prop(indexed_slice_law, 80, 6161),

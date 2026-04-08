@@ -1956,7 +1956,7 @@ object PythonGen {
                         )
                       Code.IfElse(
                         NonEmptyList.one((valid, fn(item))),
-                        default(Code.Const.Unit)
+                        default(idx1)
                       )
                     }
                   case other =>

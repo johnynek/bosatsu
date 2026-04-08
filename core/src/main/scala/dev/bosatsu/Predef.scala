@@ -4151,7 +4151,7 @@ object PredefImpl {
     val arr = asArray(array)
     inRangeInt64Index(asInt64(index), arr.len) match {
       case Some(idx) => fn.asFn(NonEmptyList(arr.data(arr.offset + idx), Nil))
-      case None      => default.asFn(NonEmptyList(UnitValue, Nil))
+      case None      => default.asFn(NonEmptyList(index, Nil))
     }
   }
 

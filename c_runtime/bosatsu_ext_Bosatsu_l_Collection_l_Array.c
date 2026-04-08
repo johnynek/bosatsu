@@ -165,8 +165,8 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(BValue n, BValue
   int len = (int)len64;
 
   BValue* data = bsts_array_alloc_data(len);
-  for (int idx = 0; idx < len; idx++) {
-    data[idx] = call_fn1(fn, bsts_int64_from_int64((int64_t)idx));
+  for (int64_t idx = 0; idx < len64; idx++) {
+    data[(int)idx] = call_fn1(fn, bsts_int64_from_int64(idx));
   }
 
   return bsts_array_wrap(data, 0, len);
@@ -222,7 +222,7 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__map__Array(BValue array, BV
     return call_fn1(map_fn, arr->data[arr->offset + idx]);
   }
 
-  return call_fn1(default_fn, bsts_unit_value());
+  return call_fn1(default_fn, index);
 }
 
 BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(BValue array, BValue index, BValue default_fn) {
