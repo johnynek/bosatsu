@@ -158,6 +158,30 @@ static void bench_shift(const char* name, size_t iters, BValue value, BValue shi
   print_result(name, end - start, (uint64_t)iters);
 }
 
+static void bench_div_mod(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_integer_div_mod(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
+static void bench_gcd(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
 static void bench_int_to_string(const char* name, size_t iters, BValue value) {
   GC_gcollect();
   uint64_t start = now_ns();
@@ -301,6 +325,8 @@ int main(int argc, char** argv) {
   BValue shift_right64 = bsts_integer_from_int(-64);
   BValue shift_right96 = bsts_integer_from_int(-96);
   BValue shift_right_word = bsts_integer_from_int(-32);
+  BValue pow2_65 = bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65));
+  BValue pow2_65_neg = bsts_integer_negate(pow2_65);
 
   BValue s_small_1 = bsts_string_from_utf8_bytes_static(5, "hello");
   BValue s_small_2 = bsts_string_from_utf8_bytes_static(5, "hello");
@@ -396,6 +422,12 @@ int main(int argc, char** argv) {
   bench_shift("shift_big_pos_right96_small", iters, big_pos, shift_right96);
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
+  bench_div_mod("divmod_big_pow2_pos", iters, big_pos, small_pow2);
+  bench_div_mod("divmod_big_neg_pow2_pos", iters, big_neg, small_pow2);
+  bench_div_mod("divmod_big_pow2_neg", iters, big_pos, small_pow2_neg);
+  bench_div_mod("divmod_big16_pow2_65", iters, big16_pos, pow2_65);
+  bench_div_mod("divmod_big16_pow2_65_neg", iters, big16_pos, pow2_65_neg);
+  bench_gcd("gcd_big16_pow2_65", iters, big16_pos, pow2_65);
   bench_int_to_string("int_to_string_big16", iters, big16_pos);
   bench_string_to_integer("string_to_integer_big", iters, s_big_dec);
   bench_string_to_integer("string_to_integer_big_neg", iters, s_big_dec_neg);

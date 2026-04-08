@@ -1004,6 +1004,65 @@ Experiments:
 - Fast path division/mod by small positive ints on small bigints.
 - Benchmark `gcd`, since it repeatedly calls `div_mod`.
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 100000`
+- Samples: 5 runs, using the median `ns/op`
+- Scoped this first pass to power-of-two divisors plus one `gcd` case that exercises `div_mod`.
+- Added benchmark cases:
+  - `divmod_big_pow2_pos`
+  - `divmod_big_neg_pow2_pos`
+  - `divmod_big_pow2_neg`
+  - `divmod_big16_pow2_65`
+  - `divmod_big16_pow2_65_neg`
+  - `gcd_big16_pow2_65`
+- Baseline medians:
+  - `divmod_big_pow2_pos`: `126.68 ns/op`
+  - `divmod_big_neg_pow2_pos`: `161.17 ns/op`
+  - `divmod_big_pow2_neg`: `162.43 ns/op`
+  - `divmod_big16_pow2_65`: `1626.33 ns/op`
+  - `divmod_big16_pow2_65_neg`: `1658.94 ns/op`
+  - `gcd_big16_pow2_65`: `2054.43 ns/op`
+
+Experimental result:
+
+- Scoped the experiment to a localized power-of-two fast path in `bsts_integer_div_mod`.
+- Added a detector for `abs(r) == 2^k` across both small ints and heap-backed bigints.
+- For those divisors, computed the positive quotient with a right shift and the positive remainder with `abs(l) & (abs(r) - 1)`, then reused the existing floor-division sign repair rules.
+- Left the general recursive divider untouched for non-power-of-two divisors and deferred the “small positive ints on small bigints” slice.
+- Reran the same benchmark command: `./bench_exe 100000`
+- Post-change medians:
+  - `divmod_big_pow2_pos`: `66.81 ns/op`
+  - `divmod_big_neg_pow2_pos`: `99.14 ns/op`
+  - `divmod_big_pow2_neg`: `93.28 ns/op`
+  - `divmod_big16_pow2_65`: `70.62 ns/op`
+  - `divmod_big16_pow2_65_neg`: `151.10 ns/op`
+  - `gcd_big16_pow2_65`: `516.31 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `divmod_big_pow2_pos`: about `47%` faster
+  - `divmod_big_neg_pow2_pos`: about `38%` faster
+  - `divmod_big_pow2_neg`: about `43%` faster
+  - `divmod_big16_pow2_65`: about `96%` faster
+  - `divmod_big16_pow2_65_neg`: about `91%` faster
+  - `gcd_big16_pow2_65`: about `75%` faster
+- The largest gains come from bypassing the recursive divider entirely when the divisor is a power of two, especially when that divisor is itself heap-backed.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+  - A focused standalone checker covering the new `32`, `2^65`, and `-2^65` cases, plus `gcd`, passed.
+  - Running the full `./test_exe` driver still hits the same pre-existing oversized-string runtime issue already noted elsewhere in this file.
+
+New ideas from this experiment:
+
+- Add a follow-up for small positive non-power-of-two divisors on 1-word and 2-word bigints. Those should be able to use a simple top-down word division rather than the recursive search path.
+- If `div_mod` becomes a larger hotspot, split `div`-only and `mod`-only entrypoints so callers that need just one result do not always allocate the pair.
+- Consider a direct power-of-two `mod` helper for `gcd`-like loops that only care about the remainder.
+
 ## Suggested Order
 
 The likely highest-value / lowest-risk experiments are:

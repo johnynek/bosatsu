@@ -538,6 +538,13 @@ void test_integer() {
     { "divmod i61_max 7", i61_max, bsts_integer_from_int(7), "329406144173384850", "1" },
     { "divmod i61_min 7", i61_min, bsts_integer_from_int(7), "-329406144173384851", "5" },
     { "divmod i128_neg i64_pos", i128_neg, i64_pos, "-18446744073709551617", "0" },
+    { "divmod i128_pos 32", i128_pos, bsts_integer_from_int(32), "756183037602085464524791177203279607", "16" },
+    { "divmod i128_neg 32", i128_neg, bsts_integer_from_int(32), "-756183037602085464524791177203279608", "16" },
+    { "divmod i128_pos -32", i128_pos, bsts_integer_from_int(-32), "-756183037602085464524791177203279608", "-16" },
+    { "divmod i128_neg -32", i128_neg, bsts_integer_from_int(-32), "756183037602085464524791177203279607", "-16" },
+    { "divmod i128_pos 2^65", i128_pos, bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65)), "655884233731895160", "1311768467463790320" },
+    { "divmod i128_neg 2^65", i128_neg, bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65)), "-655884233731895161", "35581719679955312912" },
+    { "divmod i128_pos -2^65", i128_pos, bsts_integer_negate(bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65))), "-655884233731895161", "-35581719679955312912" },
     { "divmod i64_pos 0", i64_pos, bsts_integer_from_int(0), "0", "1311768467463790320" },
   };
   for (size_t i = 0; i < sizeof(div_cases) / sizeof(div_cases[0]); i++) {
@@ -547,6 +554,13 @@ void test_integer() {
     assert_int_string(div, div_cases[i].div, div_cases[i].name);
     assert_int_string(mod, div_cases[i].mod, div_cases[i].name);
   }
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(
+          i128_pos,
+          bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65))),
+      "16",
+      "gcd i128_pos 2^65");
 
   struct StrToIntCase { const char* name; const char* text; const char* expected; };
   struct StrToIntCase str_cases[] = {

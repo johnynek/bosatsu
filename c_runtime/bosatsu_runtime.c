@@ -1229,6 +1229,32 @@ static unsigned bsts_u32_msb_index(uint32_t word) {
 #endif
 }
 
+static unsigned bsts_u32_ctz_nonzero(uint32_t word) {
+#if defined(__clang__) || defined(__GNUC__)
+  return (unsigned)__builtin_ctz(word);
+#else
+  unsigned idx = 0;
+  while ((word & 1U) == 0U) {
+    word >>= 1;
+    idx++;
+  }
+  return idx;
+#endif
+}
+
+static unsigned bsts_u64_ctz_nonzero(uint64_t word) {
+#if defined(__clang__) || defined(__GNUC__)
+  return (unsigned)__builtin_ctzll(word);
+#else
+  unsigned idx = 0;
+  while ((word & UINT64_C(1)) == UINT64_C(0)) {
+    word >>= 1;
+    idx++;
+  }
+  return idx;
+#endif
+}
+
 static inline _Bool bsts_bigint_get_bit(const BSTS_Integer* bi, size_t bit_index) {
   size_t word_index = bit_index >> 5;
   if (word_index >= bi->len) return 0;
@@ -3018,6 +3044,68 @@ int bsts_integer_cmp_zero(BValue v) {
   return integer->sign ? -1 : 1;
 }
 
+static _Bool bsts_integer_abs_power_of_two_shift(BValue value, uint64_t* shift_bits_out) {
+  if (IS_SMALL(value)) {
+    uint64_t magnitude = bsts_abs_i64(GET_SMALL_INT(value));
+    if ((magnitude == 0U) || ((magnitude & (magnitude - UINT64_C(1))) != 0U)) {
+      return 0;
+    }
+    *shift_bits_out = (uint64_t)bsts_u64_ctz_nonzero(magnitude);
+    return 1;
+  }
+
+  BSTS_Integer* integer = GET_BIG_INT(value);
+  size_t found_index = 0U;
+  uint32_t found_word = 0U;
+  for (size_t i = 0; i < integer->len; i++) {
+    uint32_t word = integer->words[i];
+    if (word == 0U) continue;
+    if (found_word != 0U) {
+      return 0;
+    }
+    found_word = word;
+    found_index = i;
+  }
+
+  if ((found_word == 0U) || ((found_word & (found_word - 1U)) != 0U)) {
+    return 0;
+  }
+
+  *shift_bits_out = (uint64_t)(found_index * 32U + bsts_u32_ctz_nonzero(found_word));
+  return 1;
+}
+
+static BValue bsts_integer_div_mod_power_of_two(BValue l, BValue r, uint64_t shift_bits) {
+  BValue one = bsts_integer_from_int(1);
+  _Bool left_neg = bsts_integer_lt_zero(l);
+  _Bool right_neg = bsts_integer_lt_zero(r);
+  BValue left_abs = left_neg ? bsts_integer_negate(l) : l;
+  BValue right_abs = right_neg ? bsts_integer_negate(r) : r;
+  BValue shift = bsts_integer_from_uint64(shift_bits);
+  BValue div = bsts_integer_shift_left(left_abs, bsts_integer_negate(shift));
+  BValue mod = bsts_integer_and(left_abs, bsts_integer_sub(right_abs, one));
+
+  if (!bsts_integer_is_zero(mod)) {
+    if (!left_neg) {
+      if (right_neg) {
+        div = bsts_integer_negate(bsts_integer_add(div, one));
+        mod = bsts_integer_sub(mod, right_abs);
+      }
+    } else {
+      if (!right_neg) {
+        div = bsts_integer_negate(bsts_integer_add(div, one));
+        mod = bsts_integer_sub(right_abs, mod);
+      } else {
+        mod = bsts_integer_negate(mod);
+      }
+    }
+  } else if (right_neg ^ left_neg) {
+    div = bsts_integer_negate(div);
+  }
+
+  return alloc_struct2(div, mod);
+}
+
 // (&Integer, &Integer) -> (Integer, Integer)
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r) {
@@ -3058,7 +3146,12 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
         // we define division by zero as (0, l)
         return alloc_struct2(bsts_integer_from_int(0), l);
     }
-    // TODO: we could handle the special case of r = 2^n with bit shifting
+    if ((!IS_SMALL(l) || !r_is_small)) {
+      uint64_t shift_bits = 0U;
+      if (bsts_integer_abs_power_of_two_shift(r, &shift_bits)) {
+        return bsts_integer_div_mod_power_of_two(l, r, shift_bits);
+      }
+    }
 
     // the general case is below
     uint32_t left_temp[2];
