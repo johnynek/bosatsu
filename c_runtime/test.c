@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include <limits.h>
 #include "bosatsu_ext_Bosatsu_l_Collection_l_Array.h"
 #include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
