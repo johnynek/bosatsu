@@ -85,14 +85,14 @@ void assert_option_int64_bits(BValue opt, uint64_t expected, const char* message
 }
 
 void assert_is_small_int(BValue value, const char* message) {
-  if ((value & (BValue)0x3) != (BValue)0x1) {
+  if ((value & (BValue)0x1) != (BValue)0x1) {
     printf("%s\nexpected small-int immediate\n", message);
     exit(1);
   }
 }
 
 void assert_is_big_int(BValue value, const char* message) {
-  if ((value & (BValue)0x3) != (BValue)0x0) {
+  if ((value & (BValue)0x1) != (BValue)0x0) {
     printf("%s\nexpected heap-backed integer\n", message);
     exit(1);
   }
@@ -281,6 +281,8 @@ void test_integer() {
   BValue i64_neg = bsts_integer_from_words_copy(0, 2, i64_words);
   BValue i61_max = bsts_integer_from_int64((INT64_C(1) << 61) - 1);
   BValue i61_min = bsts_integer_from_int64(-(INT64_C(1) << 61));
+  BValue i62_max = bsts_integer_from_int64((INT64_C(1) << 62) - 1);
+  BValue i62_min = bsts_integer_from_int64(-(INT64_C(1) << 62));
 
   uint32_t i61_max_mag_words[2] = { 0xffffffff, 0x1fffffff };
   uint32_t i61_min_mag_words[2] = { 0x00000000, 0x20000000 };
@@ -289,6 +291,13 @@ void test_integer() {
   BValue i61_min_from_words = bsts_integer_from_words_copy(0, 2, i61_min_mag_words);
   BValue i61_over = bsts_integer_from_words_copy(1, 2, i61_min_mag_words);
   BValue i61_under = bsts_integer_from_words_copy(0, 2, i61_under_mag_words);
+  uint32_t i62_max_mag_words[2] = { 0xffffffff, 0x3fffffff };
+  uint32_t i62_min_mag_words[2] = { 0x00000000, 0x40000000 };
+  uint32_t i62_under_mag_words[2] = { 0x00000001, 0x40000000 };
+  BValue i62_max_from_words = bsts_integer_from_words_copy(1, 2, i62_max_mag_words);
+  BValue i62_min_from_words = bsts_integer_from_words_copy(0, 2, i62_min_mag_words);
+  BValue i62_over = bsts_integer_from_words_copy(1, 2, i62_min_mag_words);
+  BValue i62_under = bsts_integer_from_words_copy(0, 2, i62_under_mag_words);
   BValue s62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 1234);
   BValue s62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 1234));
   BValue pow40 = bsts_integer_from_int64(INT64_C(1) << 40);
@@ -308,8 +317,12 @@ void test_integer() {
   assert_int_string(i64_neg, "-1311768467463790320", "i64_neg to_string");
   assert_int_string(i61_max, "2305843009213693951", "i61_max to_string");
   assert_int_string(i61_min, "-2305843009213693952", "i61_min to_string");
+  assert_int_string(i62_max, "4611686018427387903", "i62_max to_string");
+  assert_int_string(i62_min, "-4611686018427387904", "i62_min to_string");
   assert_int_string(i61_over, "2305843009213693952", "i61_over to_string");
   assert_int_string(i61_under, "-2305843009213693953", "i61_under to_string");
+  assert_int_string(i62_over, "4611686018427387904", "i62_over to_string");
+  assert_int_string(i62_under, "-4611686018427387905", "i62_under to_string");
   assert_int_string(s62_pos, "1099511629010", "s62_pos to_string");
   assert_int_string(s62_neg, "-1099511629010", "s62_neg to_string");
   assert_int_string(i128_pos, "24197857203266734864793317670504947440", "i128_pos to_string");
@@ -319,12 +332,18 @@ void test_integer() {
   assert_is_small_int(i64_neg, "i64_neg should be immediate");
   assert_is_small_int(i61_max, "i61_max should be immediate");
   assert_is_small_int(i61_min, "i61_min should be immediate");
+  assert_is_small_int(i62_max, "i62_max should be immediate");
+  assert_is_small_int(i62_min, "i62_min should be immediate");
   assert_is_small_int(i61_max_from_words, "i61_max_from_words should canonicalize to immediate");
   assert_is_small_int(i61_min_from_words, "i61_min_from_words should canonicalize to immediate");
+  assert_is_small_int(i62_max_from_words, "i62_max_from_words should canonicalize to immediate");
+  assert_is_small_int(i62_min_from_words, "i62_min_from_words should canonicalize to immediate");
+  assert_is_small_int(i61_over, "i61_over should now be immediate");
+  assert_is_small_int(i61_under, "i61_under should now be immediate");
   assert_is_small_int(s62_pos, "s62_pos should be immediate");
   assert_is_small_int(s62_neg, "s62_neg should be immediate");
-  assert_is_big_int(i61_over, "i61_over should spill to big-int");
-  assert_is_big_int(i61_under, "i61_under should spill to big-int");
+  assert_is_big_int(i62_over, "i62_over should spill to big-int");
+  assert_is_big_int(i62_under, "i62_under should spill to big-int");
 
   assert(bsts_integer_equals(i32_pos, i32_pos), "i32_pos equals self");
   assert(bsts_integer_equals(i32_pos, i32_pos_big), "i32_pos equals big");

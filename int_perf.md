@@ -199,6 +199,56 @@ Questions:
 - Is this actually an `Int` optimization, or a wider pure-value ABI change?
 - Does the added representation complexity pay for itself compared to cheaper local fast paths?
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 1000000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases targeting values just beyond the old `2^61` small-int cutoff:
+  - `add_small_small63`
+  - `sub_small_small63`
+  - `cmp_small_small63`
+  - `and_small_small63`
+  - `not_small_small63`
+- Baseline medians:
+  - `add_small_small63`: `3.78 ns/op`
+  - `sub_small_small63`: `25.74 ns/op`
+  - `cmp_small_small63`: `3.25 ns/op`
+  - `and_small_small63`: `76.40 ns/op`
+  - `not_small_small63`: `33.52 ns/op`
+
+Experimental result:
+
+- Expanded the Int-specific immediate encoding from 62 payload bits to 63 payload bits.
+- Updated the integer helpers, canonicalization, Nat macros used by the clang backend, and boundary tests accordingly.
+- Reran the same benchmark command: `./bench_exe 1000000`
+- Post-change medians:
+  - `add_small_small63`: `1.35 ns/op`
+  - `sub_small_small63`: `1.66 ns/op`
+  - `cmp_small_small63`: `1.32 ns/op`
+  - `and_small_small63`: `1.29 ns/op`
+  - `not_small_small63`: `1.35 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `add_small_small63`: about `64%` faster
+  - `sub_small_small63`: about `94%` faster
+  - `cmp_small_small63`: about `59%` faster
+  - `and_small_small63`: about `98%` faster
+  - `not_small_small63`: about `96%` faster
+- This experiment delivered the intended result: values just beyond the old `2^61` cutoff now behave like normal immediates instead of heap-backed bigints.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+  - Running `./test_exe` still emitted `bsts_string_from_utf8_bytes_copy: string length 9223372036854775808 exceeds supported max (9223372036854775807)`, which appears to be the same pre-existing runtime test issue seen before this experiment rather than a new encoding-specific failure.
+
+New ideas from this experiment:
+
+- Revisit experiment 1 under the 1-bit Int encoding. Raw tagged arithmetic may be more compelling now that the Int representation really is “any odd value is small.”
+- Add a Nat-focused benchmark set. Since the clang backend emits `BSTS_NAT_*` macros and those now step by `2` instead of `4`, Nat-heavy generated code should be measured directly.
+
 ### 4. BigInt Result Construction Without Temporary Copies
 
 Hypothesis:

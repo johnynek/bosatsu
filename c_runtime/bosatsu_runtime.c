@@ -16,18 +16,21 @@ _Static_assert(sizeof(void*) == 8, "Bosatsu runtime currently requires 64-bit po
 _Static_assert(sizeof(uintptr_t) == 8, "Bosatsu runtime assumes 64-bit uintptr_t");
 _Static_assert(sizeof(size_t) == 8, "Bosatsu runtime assumes 64-bit size_t");
 _Static_assert(sizeof(BSTS_String) == 24, "BSTS_String should remain 24 bytes on 64-bit platforms");
-_Static_assert(BSTS_SMALL_INT_PAYLOAD_BITS == 62, "small-int payload bits must remain 62");
+_Static_assert(BSTS_SMALL_INT_PAYLOAD_BITS == 63, "small-int payload bits must remain 63");
 
 /*
 There are a few kinds of values:
 
-1. pure values: small ints, characters, small strings that can fit into 63 bits.
+1. generic pure values: enum0 values, characters, small strings that can fit into 63 bits.
 2. pointers to gc'ed values
 
 to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
 boundaries:
   a. ends with 01: pure value
   b. ends with 00: gc pointer.
+
+Integer-specific helpers additionally treat any odd BValue as a small Int. This is
+safe because integer operations are type-directed.
 
 when it comes to functions there are two types, PureFn and closures. We have to box
   pointers to them, but when we know we have a global PureFn we can directly call it.
@@ -42,7 +45,7 @@ Char values are stored as tiny UTF-8 strings (1..4 bytes) in type-directed conte
 String values are either pointers to BSTS_String objects or tiny strings packed
 directly into the BValue word in type-directed contexts.
 
-Integer values are either pure values (signed values packed into 62 payload bits),
+Integer values are either odd immediates (signed values packed into 63 payload bits),
 or gced big integers
 */
 #define TAG_MASK ((uintptr_t)0x3)
@@ -282,11 +285,11 @@ typedef struct {
 } BSTS_Int_Operand;
 
 // Helper macros and functions
-#define IS_SMALL(v) IS_PURE_VALUE(v)
+#define IS_SMALL(v) (((v) & (BValue)((uintptr_t)0x1)) == (BValue)((uintptr_t)0x1))
 #define GET_BIG_INT(v) BSTS_PTR(BSTS_Integer, (v))
 
 static inline int64_t bsts_small_int_decode(BValue value) {
-  return ((int64_t)value) >> 2;
+  return ((int64_t)value) >> 1;
 }
 
 static inline _Bool bsts_small_int_fits_int64(int64_t value) {
@@ -294,7 +297,7 @@ static inline _Bool bsts_small_int_fits_int64(int64_t value) {
 }
 
 static inline BValue bsts_small_int_from_int64_unchecked(int64_t value) {
-  return (BValue)((((uint64_t)value) << 2) | PURE_VALUE_TAG);
+  return (BValue)((((uint64_t)value) << 1) | PURE_VALUE_TAG);
 }
 
 static inline BValue bsts_small_int_from_int64_maybe(int64_t value) {
@@ -1065,8 +1068,8 @@ static BValue bsts_maybe_small_int_words(_Bool is_pos, size_t size, const uint32
     uint64_t magnitude = (uint64_t)words[0];
     if (size == 2) {
       uint32_t high = words[1];
-      // Any high bits above payload bit 61 cannot fit in small-int form.
-      if (high > UINT32_C(0x20000000)) {
+      // Any high bits above payload bit 62 cannot fit in small-int form.
+      if (high > UINT32_C(0x40000000)) {
         return BSTS_BVALUE_NULL;
       }
       magnitude |= ((uint64_t)high << 32);
@@ -1083,7 +1086,7 @@ static BValue bsts_maybe_small_int_words(_Bool is_pos, size_t size, const uint32
       return bsts_small_int_from_int64_unchecked((int64_t)magnitude);
     }
 
-    uint64_t min_mag = UINT64_C(1) << 61;
+    uint64_t min_mag = UINT64_C(1) << 62;
     if (magnitude > min_mag) {
       return BSTS_BVALUE_NULL;
     }
@@ -1870,7 +1873,7 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
     free(result_twos);
 
-    // Canonicalize to immediate if the normalized magnitude fits 62 bits.
+    // Canonicalize to immediate if the normalized magnitude fits 63 bits.
     BValue maybe = bsts_maybe_small_int_words(!result_sign, result_len, result->words);
     if (maybe) {
       return maybe;

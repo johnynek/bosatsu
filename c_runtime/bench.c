@@ -217,6 +217,10 @@ int main(int argc, char** argv) {
   BValue small62_mask = bsts_integer_from_int64((INT64_C(1) << 40) + 0x12345678);
   BValue small62_other = bsts_integer_from_int64((INT64_C(1) << 39) + 0x55555555);
   BValue small62_other_neg = bsts_integer_from_int64(-((INT64_C(1) << 39) + 0x13579bdf));
+  BValue small63_pos = bsts_integer_from_int64((INT64_C(1) << 61) + 12345);
+  BValue small63_neg = bsts_integer_from_int64(-((INT64_C(1) << 61) + 12345));
+  BValue small63_mask = bsts_integer_from_int64((INT64_C(1) << 61) + 0x12345678);
+  BValue small63_other = bsts_integer_from_int64((INT64_C(1) << 60) + 0x55555555);
   BValue shift_left = bsts_integer_from_int(5);
   BValue shift_right = bsts_integer_from_int(-5);
 
@@ -231,17 +235,22 @@ int main(int argc, char** argv) {
   printf("iters=%zu\n", iters);
   bench_add_small_small("add_small_small", iters, small_pos, small_neg);
   bench_add_small_small("add_small_small62", iters, small62_pos, small62_neg);
+  bench_add_small_small("add_small_small63", iters, small63_pos, small63_neg);
   bench_sub("sub_small_small", iters, small_pos, small_neg);
   bench_sub("sub_small_small62", iters, small62_pos, small62_other);
+  bench_sub("sub_small_small63", iters, small63_pos, small63_other);
   bench_sub("sub_big_small62", iters, big_pos, small62_pos);
   bench_sub("sub_small_big", iters, small62_pos, big_pos);
   bench_cmp_small_small("cmp_small_small", iters, small_pos, small_neg);
   bench_cmp_small_small("cmp_small_small62", iters, small62_pos, small62_other);
   bench_cmp_small_small("cmp_small_small62_neg", iters, small62_neg, small62_other_neg);
+  bench_cmp_small_small("cmp_small_small63", iters, small63_pos, small63_other);
   bench_bitwise("and_small_small62", iters, small62_pos, small62_mask, '&');
   bench_bitwise("or_small_small62", iters, small62_pos, small62_other, '|');
   bench_bitwise("xor_small_small62", iters, small62_pos, small62_other, '^');
+  bench_bitwise("and_small_small63", iters, small63_pos, small63_mask, '&');
   bench_not("not_small_small62", iters, small62_pos);
+  bench_not("not_small_small63", iters, small63_pos);
   bench_not("not_big_pos", iters, big_pos);
   bench_not("not_big_neg", iters, big_neg);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
