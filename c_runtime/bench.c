@@ -37,6 +37,18 @@ static void bench_add_big_small(const char* name, size_t iters, BValue big, BVal
   print_result(name, end - start, (uint64_t)iters * 2ull);
 }
 
+static void bench_add_small_small(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_integer_add(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
 static void bench_mul_big_small(const char* name, size_t iters, BValue big, BValue small) {
   GC_gcollect();
   uint64_t start = now_ns();
@@ -45,6 +57,18 @@ static void bench_mul_big_small(const char* name, size_t iters, BValue big, BVal
     acc = bsts_integer_times(big, small);
   }
   sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
+static void bench_cmp_small_small(const char* name, size_t iters, BValue left, BValue right) {
+  int acc = 0;
+  GC_gcollect();
+  uint64_t start = now_ns();
+  for (size_t i = 0; i < iters; i++) {
+    acc += bsts_integer_cmp(left, right);
+  }
+  sink = bsts_integer_from_int(acc);
   uint64_t end = now_ns();
   print_result(name, end - start, (uint64_t)iters);
 }
@@ -166,6 +190,8 @@ int main(int argc, char** argv) {
   BValue small62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 12345);
   BValue small62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 12345));
   BValue small62_mask = bsts_integer_from_int64((INT64_C(1) << 40) + 0x12345678);
+  BValue small62_other = bsts_integer_from_int64((INT64_C(1) << 39) + 0x55555555);
+  BValue small62_other_neg = bsts_integer_from_int64(-((INT64_C(1) << 39) + 0x13579bdf));
   BValue shift_left = bsts_integer_from_int(5);
   BValue shift_right = bsts_integer_from_int(-5);
 
@@ -178,6 +204,14 @@ int main(int argc, char** argv) {
   BValue s_heap_2 = bsts_string_from_utf8_bytes_static(24, "abcdefghijklmnopqrstuvwx");
 
   printf("iters=%zu\n", iters);
+  bench_add_small_small("add_small_small", iters, small_pos, small_neg);
+  bench_add_small_small("add_small_small62", iters, small62_pos, small62_neg);
+  bench_cmp_small_small("cmp_small_small", iters, small_pos, small_neg);
+  bench_cmp_small_small("cmp_small_small62", iters, small62_pos, small62_other);
+  bench_cmp_small_small("cmp_small_small62_neg", iters, small62_neg, small62_other_neg);
+  bench_bitwise("and_small_small62", iters, small62_pos, small62_mask, '&');
+  bench_bitwise("or_small_small62", iters, small62_pos, small62_other, '|');
+  bench_bitwise("xor_small_small62", iters, small62_pos, small62_other, '^');
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
   bench_add_big_small("add_big_small_neg", iters, big_neg, small_pos, small_neg);
   bench_add_big_small("add_big_small62_pos", iters, big_pos, small62_pos, small62_neg);
