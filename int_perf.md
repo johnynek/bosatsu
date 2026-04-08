@@ -419,6 +419,66 @@ Experiments:
   - multiply by small constants
   - negative mixed-size arithmetic
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 500000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases targeting 2-word heap bigints just beyond the current immediate range:
+  - `add_big2_small63_pos`
+  - `add_big2_small63_neg`
+  - `sub_big2_small63`
+  - `sub_small63_big2`
+  - `mul_big2_small10`
+  - `mul_big2_small63_pos`
+  - `mul_big2_small63_neg`
+- Baseline medians:
+  - `add_big2_small63_pos`: `10.22 ns/op`
+  - `add_big2_small63_neg`: `10.79 ns/op`
+  - `sub_big2_small63`: `12.40 ns/op`
+  - `sub_small63_big2`: `11.27 ns/op`
+  - `mul_big2_small10`: `12.40 ns/op`
+  - `mul_big2_small63_pos`: `13.47 ns/op`
+  - `mul_big2_small63_neg`: `13.52 ns/op`
+
+Experimental result:
+
+- Added a `__int128` mixed-mode fast path for `add` and `sub` when the bigint operand is only 2 words long.
+- The fast path converts the 2-word sign-magnitude bigint to `__int128`, performs the arithmetic with the small operand, and then canonicalizes directly back to immediate-or-bigint.
+- Also tried the same approach for mixed `mul`, but reran the benchmark and reverted that part because it was not a confident win.
+- Final kept code reran the same benchmark command: `./bench_exe 500000`
+- Post-change medians:
+  - `add_big2_small63_pos`: `9.88 ns/op`
+  - `add_big2_small63_neg`: `1.85 ns/op`
+  - `sub_big2_small63`: `2.27 ns/op`
+  - `sub_small63_big2`: `2.35 ns/op`
+  - `mul_big2_small10`: `12.77 ns/op`
+  - `mul_big2_small63_pos`: `13.69 ns/op`
+  - `mul_big2_small63_neg`: `13.66 ns/op`
+
+Outcome:
+
+- Kept the mixed `add` / `sub` code.
+- Reverted the mixed `mul` specialization.
+- Median improvements versus baseline on the kept target cases:
+  - `add_big2_small63_pos`: about `3%` faster
+  - `add_big2_small63_neg`: about `83%` faster
+  - `sub_big2_small63`: about `82%` faster
+  - `sub_small63_big2`: about `79%` faster
+- The main win is avoiding the generic bigint add/sub machinery when a 2-word heap bigint and a small immediate can be folded straight through `__int128`, especially when the result collapses back to an immediate.
+- The multiply attempt did not meet the bar:
+  - `mul_big2_small10`: about `3%` slower in the final measurement
+  - `mul_big2_small63_pos`: about `2%` slower in the final measurement
+  - `mul_big2_small63_neg`: about `1%` slower in the final measurement
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Add a dedicated “big plus/minus small collapsing to immediate” benchmark family for 3-word and 4-word bigints. That may justify a broader early-out path without needing a full mixed-mode specialization.
+- If mixed multiply is revisited, do it with a more targeted case such as power-of-two or tiny-constant multiplication rather than a generic `__int128` detour.
+
 ### 7. Direct Sign-Magnitude Bitwise Operations
 
 Hypothesis:

@@ -313,6 +313,35 @@ static inline BValue bsts_small_int_from_int64_maybe(int64_t value) {
   return bsts_small_int_from_int64_unchecked(value);
 }
 
+#if defined(__SIZEOF_INT128__)
+static inline __int128 bsts_bigint_to_i128(const BSTS_Integer* integer) {
+  unsigned __int128 magnitude = (unsigned __int128)integer->words[0];
+  if (integer->len > 1U) {
+    magnitude |= ((unsigned __int128)integer->words[1]) << 32;
+  }
+  return integer->sign ? -(__int128)magnitude : (__int128)magnitude;
+}
+
+static BValue bsts_integer_from_i128(__int128 value) {
+  if ((value >= (__int128)BSTS_SMALL_INT_MIN) && (value <= (__int128)BSTS_SMALL_INT_MAX)) {
+    return bsts_small_int_from_int64_unchecked((int64_t)value);
+  }
+
+  unsigned __int128 magnitude = (value < 0) ? (unsigned __int128)(-value) : (unsigned __int128)value;
+  uint32_t words[4] = { 0U, 0U, 0U, 0U };
+  size_t size = 0U;
+  while (magnitude != 0U) {
+    words[size++] = (uint32_t)(magnitude & UINT32_C(0xffffffff));
+    magnitude >>= 32;
+  }
+  if (size == 0U) {
+    words[0] = 0U;
+    size = 1U;
+  }
+  return bsts_integer_from_words_copy(value >= 0, size, words);
+}
+#endif
+
 static inline uint64_t bsts_abs_i64(int64_t value) {
   if (value >= 0) return (uint64_t)value;
   uint64_t abs_value = (uint64_t)(-(value + 1));
@@ -1554,24 +1583,33 @@ BValue bsts_integer_add(BValue l, BValue r) {
         int64_t l_int = GET_SMALL_INT(l);
         int64_t r_int = GET_SMALL_INT(r);
         return bsts_integer_from_int64(l_int + r_int);
-    } else if (l == (BValue)PURE_VALUE_TAG) {
+    }
+#if defined(__SIZEOF_INT128__)
+    if (!l_is_small && r_is_small && (GET_BIG_INT(l)->len <= 2U)) {
+        return bsts_integer_from_i128(bsts_bigint_to_i128(GET_BIG_INT(l)) + (__int128)GET_SMALL_INT(r));
+    }
+    if (l_is_small && !r_is_small && (GET_BIG_INT(r)->len <= 2U)) {
+        return bsts_integer_from_i128((__int128)GET_SMALL_INT(l) + bsts_bigint_to_i128(GET_BIG_INT(r)));
+    }
+#endif
+    if (l == (BValue)PURE_VALUE_TAG) {
         // sub(x, y) is encoded as add(x, negate(y)), and in Bosatsu code
         // -y is encoded as 0 - y. We should have a negate in Predef, but don't currently.
         return r;
-    } else if (r == (BValue)PURE_VALUE_TAG) {
-        return l;
-    } else {
-        // At least one operand is a big integer
-
-        uint32_t left_temp[2];
-        uint32_t right_temp[2];
-        BSTS_Int_Operand left_operand;
-        BSTS_Int_Operand right_operand;
-
-        bsts_integer_load_op(l, left_temp, &left_operand);
-        bsts_integer_load_op(r, right_temp, &right_operand);
-        return bsts_integer_add_loaded(left_operand, right_operand);
     }
+    if (r == (BValue)PURE_VALUE_TAG) {
+        return l;
+    }
+
+    // At least one operand is a big integer
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    bsts_integer_load_op(l, left_temp, &left_operand);
+    bsts_integer_load_op(r, right_temp, &right_operand);
+    return bsts_integer_add_loaded(left_operand, right_operand);
 }
 
 BValue bsts_integer_sub(BValue l, BValue r) {
@@ -1586,6 +1624,14 @@ BValue bsts_integer_sub(BValue l, BValue r) {
         int64_t r_int = GET_SMALL_INT(r);
         return bsts_integer_from_int64(l_int - r_int);
     }
+#if defined(__SIZEOF_INT128__)
+    if (!l_is_small && r_is_small && (GET_BIG_INT(l)->len <= 2U)) {
+        return bsts_integer_from_i128(bsts_bigint_to_i128(GET_BIG_INT(l)) - (__int128)GET_SMALL_INT(r));
+    }
+    if (l_is_small && !r_is_small && (GET_BIG_INT(r)->len <= 2U)) {
+        return bsts_integer_from_i128((__int128)GET_SMALL_INT(l) - bsts_bigint_to_i128(GET_BIG_INT(r)));
+    }
+#endif
     if (l == (BValue)PURE_VALUE_TAG) {
         return bsts_integer_negate(r);
     }

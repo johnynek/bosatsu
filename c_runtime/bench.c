@@ -230,9 +230,12 @@ int main(int argc, char** argv) {
 
   uint32_t big_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   uint32_t big_words_alt[4] = { 0x76543210, 0x0fedcba9, 0x89abcdef, 0x13579bdf };
+  uint32_t big2_words[2] = { 0x12345678, 0x40000001 };
   BValue big_pos = bsts_integer_from_words_copy(1, 4, big_words);
   BValue big_pos_alt = bsts_integer_from_words_copy(1, 4, big_words_alt);
   BValue big_neg = bsts_integer_negate(big_pos);
+  BValue big2_pos = bsts_integer_from_words_copy(1, 2, big2_words);
+  BValue big2_neg = bsts_integer_negate(big2_pos);
 
   BValue small_pos = bsts_integer_from_int(1);
   BValue small_neg = bsts_integer_from_int(-1);
@@ -265,6 +268,8 @@ int main(int argc, char** argv) {
   bench_sub("sub_small_small", iters, small_pos, small_neg);
   bench_sub("sub_small_small62", iters, small62_pos, small62_other);
   bench_sub("sub_small_small63", iters, small63_pos, small63_other);
+  bench_sub("sub_big2_small63", iters, big2_pos, small63_pos);
+  bench_sub("sub_small63_big2", iters, small63_pos, big2_pos);
   bench_sub("sub_big_small62", iters, big_pos, small62_pos);
   bench_sub("sub_small_big", iters, small62_pos, big_pos);
   bench_cmp_small_small("cmp_small_small", iters, small_pos, small_neg);
@@ -281,12 +286,17 @@ int main(int argc, char** argv) {
   bench_not("not_big_neg", iters, big_neg);
   bench_add("add_big_big_pos", iters, big_pos, big_pos_alt);
   bench_add("add_big_small63_direct", iters, big_pos, small63_pos);
+  bench_add("add_big2_small63_pos", iters, big2_pos, small63_pos);
+  bench_add("add_big2_small63_neg", iters, big2_neg, small63_pos);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
   bench_add_big_small("add_big_small_neg", iters, big_neg, small_pos, small_neg);
   bench_add_big_small("add_big_small62_pos", iters, big_pos, small62_pos, small62_neg);
   bench_add_big_small("add_big_small62_neg", iters, big_neg, small62_pos, small62_neg);
   bench_mul("mul_big_big_pos", iters, big_pos, big_pos_alt);
   bench_mul("mul_big_small63_direct", iters, big_pos, small63_pos);
+  bench_mul("mul_big2_small10", iters, big2_pos, small_10);
+  bench_mul("mul_big2_small63_pos", iters, big2_pos, small63_pos);
+  bench_mul("mul_big2_small63_neg", iters, big2_neg, small63_pos);
   bench_mul_big_small("mul_big_small_pos", iters, big_pos, small_10);
   bench_mul_big_small("mul_big_small_neg", iters, big_neg, small_10);
   bench_mul_big_small("mul_big_small62_pos", iters, big_pos, small62_pos);
