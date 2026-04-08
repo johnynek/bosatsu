@@ -557,6 +557,84 @@ Experiments:
 - Implement direct arithmetic right shift for negative values without round-tripping through generic two's-complement buffers.
 - Compare shift-by-constant cases such as `1`, `5`, `31`, `32`, `63`, `64`.
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 200000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `shift_small_pos_left1`
+  - `shift_small_pos_right1`
+  - `shift_small63_left5`
+  - `shift_small63_right5`
+  - `shift_small63_left40`
+  - `shift_big_pos_left32`
+  - `shift_big_pos_right32`
+- Reused benchmark cases:
+  - `shift_big_pos_left`
+  - `shift_big_pos_right`
+  - `shift_neg_left`
+  - `shift_neg_right`
+- Baseline medians:
+  - `shift_small_pos_left1`: `19.15 ns/op`
+  - `shift_small_pos_right1`: `20.64 ns/op`
+  - `shift_small63_left5`: `20.07 ns/op`
+  - `shift_small63_right5`: `17.66 ns/op`
+  - `shift_small63_left40`: `18.87 ns/op`
+  - `shift_big_pos_left`: `30.95 ns/op`
+  - `shift_big_pos_right`: `32.52 ns/op`
+  - `shift_big_pos_left32`: `33.98 ns/op`
+  - `shift_big_pos_right32`: `36.48 ns/op`
+  - `shift_neg_left`: `53.64 ns/op`
+  - `shift_neg_right`: `58.16 ns/op`
+
+Experimental result:
+
+- Added direct sign-magnitude left shift for both positive and negative integers.
+- Added direct right shift for non-negative integers.
+- Added no-allocation immediate fast paths for non-negative small-int left/right shifts when the result stays immediate.
+- Left negative right shift on the existing two's-complement path for this experiment.
+- Added shift tests covering positive right shifts, word-boundary right shift, and negative left shift.
+- Reran the same benchmark command: `./bench_exe 200000`
+- Post-change medians:
+  - `shift_small_pos_left1`: `1.72 ns/op`
+  - `shift_small_pos_right1`: `1.85 ns/op`
+  - `shift_small63_left5`: `11.10 ns/op`
+  - `shift_small63_right5`: `1.85 ns/op`
+  - `shift_small63_left40`: `11.53 ns/op`
+  - `shift_big_pos_left`: `13.86 ns/op`
+  - `shift_big_pos_right`: `9.96 ns/op`
+  - `shift_big_pos_left32`: `12.26 ns/op`
+  - `shift_big_pos_right32`: `9.08 ns/op`
+  - `shift_neg_left`: `13.55 ns/op`
+  - `shift_neg_right`: `56.55 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `shift_small_pos_left1`: about `91%` faster
+  - `shift_small_pos_right1`: about `91%` faster
+  - `shift_small63_left5`: about `45%` faster
+  - `shift_small63_right5`: about `90%` faster
+  - `shift_small63_left40`: about `39%` faster
+  - `shift_big_pos_left`: about `55%` faster
+  - `shift_big_pos_right`: about `69%` faster
+  - `shift_big_pos_left32`: about `64%` faster
+  - `shift_big_pos_right32`: about `75%` faster
+  - `shift_neg_left`: about `75%` faster
+  - `shift_neg_right`: about `3%` faster
+- This split is exactly what the experiment intended: direct sign-magnitude shifting removes most of the cost for left shifts and for non-negative right shifts, while negative right shifts still pay for the old conversion path.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+  - Running `./test_exe` still emitted `bsts_string_from_utf8_bytes_copy: string length 9223372036854775808 exceeds supported max (9223372036854775807)` and did not give a clean tool-level exit, matching the same pre-existing test-run issue seen in earlier experiments.
+
+New ideas from this experiment:
+
+- Split negative right shift into its own experiment. The direct arithmetic formula `-((|x| + 2^k - 1) >> k)` is likely the right next target.
+- Revisit multiplication by powers of two now that `bsts_integer_shift_left` is much cheaper for exactly the mixed and bigint cases that matter.
+
 ### 9. Route Multiplication by Powers of Two Through Shift Logic
 
 Hypothesis:

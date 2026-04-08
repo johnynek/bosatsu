@@ -444,12 +444,16 @@ void test_integer() {
   struct IntShiftCase { const char* name; BValue value; int shift; const char* expected; };
   struct IntShiftCase shift_cases[] = {
     { "shift i32_pos << 5", i32_pos, 5, "9773436672" },
+    { "shift i32_neg << 1", i32_neg, 1, "-610839792" },
+    { "shift i32_pos >> 1", i32_pos, -1, "152709948" },
     { "shift i32_neg >> 5", i32_neg, -5, "-9544372" },
     { "shift i64_pos << 17", i64_pos, 17, "171936116567413924823040" },
+    { "shift pow40 >> 32", pow40, -32, "256" },
     { "shift i64_neg >> 17", i64_neg, -17, "-10007999171935" },
     { "shift pow40 << 5", pow40, 5, "35184372088832" },
     { "shift pow40 << 30", pow40, 30, "1180591620717411303424" },
     { "shift i128_pos << 33", i128_pos, 33, "207858010642617301217980562388315306121997844480" },
+    { "shift i128_pos >> 33", i128_pos, -33, "2817001333840509744453397308" },
     { "shift i128_neg >> 33", i128_neg, -33, "-2817001333840509744453397309" },
   };
   for (size_t i = 0; i < sizeof(shift_cases) / sizeof(shift_cases[0]); i++) {
@@ -458,9 +462,15 @@ void test_integer() {
   }
 
   BValue shift_twos_small = bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(40));
+  BValue shift_small_left1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(1));
+  BValue shift_small_right1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(-1));
   BValue shift_twos_big = bsts_integer_shift_left(pow40, bsts_integer_from_int(30));
   assert_int_string(shift_twos_small, "1099511627776", "shift twos small canonicalization");
+  assert_int_string(shift_small_left1, "610839792", "shift small left1 canonicalization");
+  assert_int_string(shift_small_right1, "152709948", "shift small right1 canonicalization");
   assert_is_small_int(shift_twos_small, "shift twos small should stay immediate");
+  assert_is_small_int(shift_small_left1, "shift small left1 should stay immediate");
+  assert_is_small_int(shift_small_right1, "shift small right1 should stay immediate");
   assert_is_big_int(shift_twos_big, "shift pow40 << 30 should spill to big-int");
 
   struct IntCmpCase { const char* name; BValue a; BValue b; int expected; };

@@ -250,8 +250,13 @@ int main(int argc, char** argv) {
   BValue small63_neg = bsts_integer_from_int64(-((INT64_C(1) << 61) + 12345));
   BValue small63_mask = bsts_integer_from_int64((INT64_C(1) << 61) + 0x12345678);
   BValue small63_other = bsts_integer_from_int64((INT64_C(1) << 60) + 0x55555555);
+  BValue shift_left_small = bsts_integer_from_int(1);
   BValue shift_left = bsts_integer_from_int(5);
+  BValue shift_left_word = bsts_integer_from_int(32);
+  BValue shift_left_large = bsts_integer_from_int(40);
+  BValue shift_right_small = bsts_integer_from_int(-1);
   BValue shift_right = bsts_integer_from_int(-5);
+  BValue shift_right_word = bsts_integer_from_int(-32);
 
   BValue s_small_1 = bsts_string_from_utf8_bytes_static(5, "hello");
   BValue s_small_2 = bsts_string_from_utf8_bytes_static(5, "hello");
@@ -310,8 +315,15 @@ int main(int argc, char** argv) {
   bench_bitwise("and_neg_mixed62", iters, big_neg, small62_mask, '&');
   bench_bitwise("or_neg_mixed62", iters, big_neg, small62_mask, '|');
   bench_bitwise("xor_neg_mixed62", iters, big_neg, small62_mask, '^');
+  bench_shift("shift_small_pos_left1", iters, small_pos, shift_left_small);
+  bench_shift("shift_small_pos_right1", iters, small_pos, shift_right_small);
+  bench_shift("shift_small63_left5", iters, small63_pos, shift_left);
+  bench_shift("shift_small63_right5", iters, small63_pos, shift_right);
+  bench_shift("shift_small63_left40", iters, small63_pos, shift_left_large);
   bench_shift("shift_big_pos_left", iters, big_pos, shift_left);
   bench_shift("shift_big_pos_right", iters, big_pos, shift_right);
+  bench_shift("shift_big_pos_left32", iters, big_pos, shift_left_word);
+  bench_shift("shift_big_pos_right32", iters, big_pos, shift_right_word);
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
   bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnopqrstuvwx");

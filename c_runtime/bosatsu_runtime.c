@@ -2412,6 +2412,67 @@ _Bool bsts_integer_lt_zero(BValue v) {
   }
 }
 
+static BValue bsts_integer_shift_left_loaded(BSTS_Int_Operand operand, uint64_t shift_abs_u64) {
+    uint64_t word_shift_u64 = shift_abs_u64 / 32U;
+    size_t bit_shift = (size_t)(shift_abs_u64 % 32U);
+
+    if (word_shift_u64 > (uint64_t)(SIZE_MAX - operand.len - 1U)) {
+        perror("shift amount too large in bsts_integer_shift_left_loaded");
+        abort();
+    }
+    size_t word_shift = (size_t)word_shift_u64;
+
+    size_t result_len = operand.len + word_shift + 1U;
+    if (result_len > (SIZE_MAX / sizeof(uint32_t))) {
+        perror("shift allocation too large in bsts_integer_shift_left_loaded");
+        abort();
+    }
+
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+    memset(result_words, 0, result_len * sizeof(uint32_t));
+
+    uint64_t carry = 0U;
+    for (size_t i = 0; i < operand.len; i++) {
+        uint64_t shifted = ((uint64_t)operand.words[i] << bit_shift) | carry;
+        result_words[i + word_shift] = (uint32_t)(shifted & UINT32_C(0xffffffff));
+        carry = shifted >> 32;
+    }
+    result_words[operand.len + word_shift] = (uint32_t)carry;
+
+    return bsts_integer_finish_allocated_words(!operand.sign, result_len, result_integer);
+}
+
+static BValue bsts_integer_shift_right_positive_loaded(BSTS_Int_Operand operand, uint64_t shift_abs_u64) {
+    uint64_t word_shift_u64 = shift_abs_u64 / 32U;
+    size_t bit_shift = (size_t)(shift_abs_u64 % 32U);
+
+    if (word_shift_u64 >= (uint64_t)operand.len) {
+        return bsts_integer_from_int(0);
+    }
+
+    size_t word_shift = (size_t)word_shift_u64;
+    size_t result_len = operand.len - word_shift;
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+
+    if (bit_shift == 0U) {
+        for (size_t i = 0; i < result_len; i++) {
+            result_words[i] = operand.words[i + word_shift];
+        }
+    } else {
+        for (size_t i = 0; i < result_len; i++) {
+            uint64_t low = operand.words[i + word_shift];
+            uint64_t high =
+                (i + word_shift + 1U < operand.len) ? operand.words[i + word_shift + 1U] : UINT64_C(0);
+            uint64_t combined = (high << 32U) | low;
+            result_words[i] = (uint32_t)((combined >> bit_shift) & UINT32_C(0xffffffff));
+        }
+    }
+
+    return bsts_integer_finish_allocated_words(1, result_len, result_integer);
+}
+
 static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
     _Bool l_is_small = IS_SMALL(l);
     size_t l_len = l_is_small ? bsts_small_twos_word_len(GET_SMALL_INT(l)) : (GET_BIG_INT(l)->len + 1);
@@ -2533,6 +2594,41 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     if (shift_amount == 0) {
         return l;
     }
+
+    if (shift_amount > 0) {
+        if (IS_SMALL(l)) {
+            int64_t small = GET_SMALL_INT(l);
+            if (small >= 0) {
+                uint64_t shift_abs_u64 = (uint64_t)shift_amount;
+                if (shift_abs_u64 < 63U &&
+                    (uint64_t)small <= ((uint64_t)BSTS_SMALL_INT_MAX >> (size_t)shift_abs_u64)) {
+                    return bsts_small_int_from_int64_unchecked(small << (size_t)shift_abs_u64);
+                }
+            }
+        }
+
+        uint32_t temp[2];
+        BSTS_Int_Operand operand;
+        bsts_integer_load_op(l, temp, &operand);
+        return bsts_integer_shift_left_loaded(operand, (uint64_t)shift_amount);
+    }
+
+    if (!bsts_integer_lt_zero(l)) {
+        if (IS_SMALL(l)) {
+            int64_t small = GET_SMALL_INT(l);
+            uint64_t shift_abs_u64 = bsts_abs_i64(shift_amount);
+            if (shift_abs_u64 >= 63U) {
+                return bsts_integer_from_int(0);
+            }
+            return bsts_small_int_from_int64_unchecked(small >> (size_t)shift_abs_u64);
+        }
+
+        uint32_t temp[2];
+        BSTS_Int_Operand operand;
+        bsts_integer_load_op(l, temp, &operand);
+        return bsts_integer_shift_right_positive_loaded(operand, bsts_abs_i64(shift_amount));
+    }
+
     return bsts_integer_shift_twos(l, shift_amount);
 }
 
