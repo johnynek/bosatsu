@@ -553,6 +553,23 @@ so names from the pattern are available in `pred(x)` but not in `fallback`.
 If the guard itself is another guarded `matches`, add parentheses around the
 inner expression to make the grouping explicit.
 
+`matches` can also appear directly as the condition of `if`, `elif`, and
+ternary expressions:
+```
+if foo matches Some(a):
+  use(a)
+elif bar matches Some(b):
+  use_other(b)
+else:
+  fallback
+
+result = use(a) if foo matches Some(a) else fallback
+```
+These forms behave the same as writing the equivalent explicit `match`, so any
+names bound by the pattern are available in the `matches` guard and the
+corresponding true arm only. They are not available in later `elif` branches,
+the `else` branch, or after the whole conditional.
+
 Patterns can bind the matched value with `as`:
 ```
 case Some(v) as whole: whole

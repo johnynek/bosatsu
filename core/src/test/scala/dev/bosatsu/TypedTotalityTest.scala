@@ -216,6 +216,46 @@ def vacuous(z: Never) -> Never:
     )
   }
 
+  test("irrefutable conditional matches still produce a totality diagnostic") {
+    val statement =
+      """package ConditionalIrrefutable
+        |
+        |main = if 42 matches y:
+        |  y
+        |else:
+        |  0
+        |""".stripMargin
+
+    val parsed = Parser.parse(Package.parser, statement) match {
+      case Validated.Valid((lm, parsed)) =>
+        ((0.toString, lm), parsed) :: Nil
+      case Validated.Invalid(errs) =>
+        fail(s"parse fail: $errs")
+    }
+
+    val withPre = PackageMap.withPredefA(("predef", LocationMap("")), parsed)
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    given Show[String] = Show.fromToString
+    val errs =
+      Par.noParallelism {
+        PackageMap
+          .resolveThenInfer(withPrePaths, Nil, CompileOptions.Default)
+          .left
+          .getOrElse(fail("expected totality error"))
+      }
+
+    val hasTotalityDiagnostic = errs.exists {
+      case PackageError.TotalityCheckError(
+            _,
+            TotalityCheck.MatchesAlwaysTrue(_) | TotalityCheck.UnreachableBranches(_, _)
+          ) =>
+        true
+      case _ => false
+    }
+
+    assert(hasTotalityDiagnostic, errs.toList.mkString(", "))
+  }
+
   test("forall scrutinee with phantom branch parameter is not total") {
     assertNonTotal(
       """#
