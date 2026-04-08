@@ -1111,6 +1111,19 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     return BSTS_VALUE_FROM_PTR(integer);
 }
 
+static BValue bsts_integer_finish_allocated_words(_Bool is_pos, size_t size, BSTS_Integer* integer) {
+    while ((size > 1) && (integer->words[size - 1] == 0U)) {
+      size--;
+    }
+    {
+      BValue maybe = bsts_maybe_small_int_words(is_pos, size, integer->words);
+      if (maybe) return maybe;
+    }
+    integer->len = size;
+    integer->sign = !is_pos;
+    return BSTS_VALUE_FROM_PTR(integer);
+}
+
 BValue bsts_integer_from_int64(int64_t result) {
   BValue maybe = bsts_small_int_from_int64_maybe(result);
   if (maybe != BSTS_BVALUE_NULL) {
@@ -1432,11 +1445,8 @@ static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Op
     if (left_operand.sign == right_operand.sign) {
         _Bool result_sign = left_operand.sign;
         size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
-        uint32_t* result_words = (uint32_t*)calloc(max_len + 1, sizeof(uint32_t));
-        if (result_words == NULL) {
-            perror("failed to alloc result_words in bsts_integer_add");
-            abort();
-        }
+        BSTS_Integer* result_integer = bsts_integer_alloc(max_len + 1);
+        uint32_t* result_words = result_integer->words;
 
         uint64_t carry = 0;
         size_t i = 0;
@@ -1456,8 +1466,7 @@ static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Op
             result_len--;
         }
 
-        result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-        free(result_words);
+        result = bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
     } else {
         int cmp = compare_abs(left_operand.len, left_operand.words, right_operand.len, right_operand.words);
         if (cmp == 0) {
@@ -1477,11 +1486,8 @@ static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Op
             }
 
             size_t result_len = larger->len;
-            uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
-            if (result_words == NULL) {
-                perror("failed to calloc result_words in bsts_integer_add");
-                abort();
-            }
+            BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+            uint32_t* result_words = result_integer->words;
 
             int64_t borrow = 0;
             for (size_t i = 0; i < result_len; i++) {
@@ -1501,8 +1507,7 @@ static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Op
                 result_len--;
             }
 
-            result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-            free(result_words);
+            result = bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
         }
     }
 
@@ -2027,11 +2032,9 @@ BValue bsts_integer_times(BValue left, BValue right) {
     bsts_integer_load_op(right, right_temp, &r_operand);
 
     size_t result_len = l_operand.len + r_operand.len;
-    uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
-    if (result_words == NULL) {
-        perror("failed to malloc result_words in bsts_integer_times");
-        abort();
-    }
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+    memset(result_words, 0, result_len * sizeof(uint32_t));
 
     for (size_t i = 0; i < l_operand.len; i++) {
         uint64_t carry = 0;
@@ -2050,9 +2053,7 @@ BValue bsts_integer_times(BValue left, BValue right) {
         result_len--;
     }
 
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
-    return result;
+    return bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
 }
 
 // Function to perform bitwise OR on two BValues

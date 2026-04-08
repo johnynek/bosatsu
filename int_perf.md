@@ -267,6 +267,64 @@ Experiments:
   - bitwise ops
   - shifts
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 200000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `add_big_big_pos`
+  - `add_big_small63_direct`
+  - `mul_big_big_pos`
+  - `mul_big_small63_direct`
+  - `and_big_big_pos`
+  - `shift_big_pos_left`
+  - `shift_big_pos_right`
+- Baseline medians:
+  - `add_big_big_pos`: `34.76 ns/op`
+  - `add_big_small63_direct`: `36.53 ns/op`
+  - `mul_big_big_pos`: `42.34 ns/op`
+  - `mul_big_small63_direct`: `37.77 ns/op`
+  - `and_big_big_pos`: `87.48 ns/op`
+  - `shift_big_pos_left`: `58.19 ns/op`
+  - `shift_big_pos_right`: `57.65 ns/op`
+
+Experimental result:
+
+- Added a direct-final-buffer path for bigint `add` and `times`.
+- Instead of building a heap temporary word array and then copying it into a fresh `BSTS_Integer`, these operations now allocate the final bigint object first and write results directly into `integer->words`.
+- Left bitwise and shift code unchanged on purpose, so they act as controls for this experiment.
+- Reran the same benchmark command: `./bench_exe 200000`
+- Post-change medians:
+  - `add_big_big_pos`: `12.31 ns/op`
+  - `add_big_small63_direct`: `13.20 ns/op`
+  - `mul_big_big_pos`: `22.16 ns/op`
+  - `mul_big_small63_direct`: `16.93 ns/op`
+  - `and_big_big_pos`: `86.43 ns/op`
+  - `shift_big_pos_left`: `57.00 ns/op`
+  - `shift_big_pos_right`: `57.45 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `add_big_big_pos`: about `65%` faster
+  - `add_big_small63_direct`: about `64%` faster
+  - `mul_big_big_pos`: about `48%` faster
+  - `mul_big_small63_direct`: about `55%` faster
+  - `and_big_big_pos`: about `1%` faster
+  - `shift_big_pos_left`: about `2%` faster
+  - `shift_big_pos_right`: about `0%` faster
+- The control cases staying essentially flat is useful here: it suggests the win is coming from eliminating the temp-buffer-plus-copy path in `add` and `times`, not from unrelated codegen noise in the benchmark binary.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Add a follow-up experiment for the two's-complement pipeline used by bitwise ops and shifts. Those paths likely need an in-place `from_twos` style constructor to see a similar benefit.
+- Add a "small result from big operands" benchmark set. Direct final allocation is excellent when the result stays big, but it may over-allocate when cancellation collapses back to an immediate.
+
 ### 5. Stack Buffers for Small BigInts
 
 Hypothesis:

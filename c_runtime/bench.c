@@ -50,12 +50,36 @@ static void bench_add_small_small(const char* name, size_t iters, BValue left, B
   print_result(name, end - start, (uint64_t)iters);
 }
 
+static void bench_add(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_integer_add(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
 static void bench_sub(const char* name, size_t iters, BValue left, BValue right) {
   GC_gcollect();
   uint64_t start = now_ns();
   BValue acc = left;
   for (size_t i = 0; i < iters; i++) {
     acc = ___bsts_g_Bosatsu_l_Predef_l_sub(left, right);
+  }
+  sink = acc;
+  uint64_t end = now_ns();
+  print_result(name, end - start, (uint64_t)iters);
+}
+
+static void bench_mul(const char* name, size_t iters, BValue left, BValue right) {
+  GC_gcollect();
+  uint64_t start = now_ns();
+  BValue acc = left;
+  for (size_t i = 0; i < iters; i++) {
+    acc = bsts_integer_times(left, right);
   }
   sink = acc;
   uint64_t end = now_ns();
@@ -205,7 +229,9 @@ int main(int argc, char** argv) {
   }
 
   uint32_t big_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
+  uint32_t big_words_alt[4] = { 0x76543210, 0x0fedcba9, 0x89abcdef, 0x13579bdf };
   BValue big_pos = bsts_integer_from_words_copy(1, 4, big_words);
+  BValue big_pos_alt = bsts_integer_from_words_copy(1, 4, big_words_alt);
   BValue big_neg = bsts_integer_negate(big_pos);
 
   BValue small_pos = bsts_integer_from_int(1);
@@ -253,20 +279,27 @@ int main(int argc, char** argv) {
   bench_not("not_small_small63", iters, small63_pos);
   bench_not("not_big_pos", iters, big_pos);
   bench_not("not_big_neg", iters, big_neg);
+  bench_add("add_big_big_pos", iters, big_pos, big_pos_alt);
+  bench_add("add_big_small63_direct", iters, big_pos, small63_pos);
   bench_add_big_small("add_big_small_pos", iters, big_pos, small_pos, small_neg);
   bench_add_big_small("add_big_small_neg", iters, big_neg, small_pos, small_neg);
   bench_add_big_small("add_big_small62_pos", iters, big_pos, small62_pos, small62_neg);
   bench_add_big_small("add_big_small62_neg", iters, big_neg, small62_pos, small62_neg);
+  bench_mul("mul_big_big_pos", iters, big_pos, big_pos_alt);
+  bench_mul("mul_big_small63_direct", iters, big_pos, small63_pos);
   bench_mul_big_small("mul_big_small_pos", iters, big_pos, small_10);
   bench_mul_big_small("mul_big_small_neg", iters, big_neg, small_10);
   bench_mul_big_small("mul_big_small62_pos", iters, big_pos, small62_pos);
   bench_mul_big_small("mul_big_small62_neg", iters, big_neg, small62_pos);
+  bench_bitwise("and_big_big_pos", iters, big_pos, big_pos_alt, '&');
   bench_bitwise("and_neg_mixed", iters, big_neg, small_mask, '&');
   bench_bitwise("or_neg_mixed", iters, big_neg, small_mask, '|');
   bench_bitwise("xor_neg_mixed", iters, big_neg, small_mask, '^');
   bench_bitwise("and_neg_mixed62", iters, big_neg, small62_mask, '&');
   bench_bitwise("or_neg_mixed62", iters, big_neg, small62_mask, '|');
   bench_bitwise("xor_neg_mixed62", iters, big_neg, small62_mask, '^');
+  bench_shift("shift_big_pos_left", iters, big_pos, shift_left);
+  bench_shift("shift_big_pos_right", iters, big_pos, shift_right);
   bench_shift("shift_neg_left", iters, big_neg, shift_left);
   bench_shift("shift_neg_right", iters, big_neg, shift_right);
   bench_string_static_ctor("str_ctor_static_heap", iters, "abcdefghijklmnopqrstuvwx");
