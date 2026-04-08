@@ -2534,6 +2534,8 @@ def eq_Comparison(left: Comparison, right: Comparison) -> Bool
 
 ### `eq_Float64`
 
+Float64 equality where `-0.0 == 0.0` and all `.NaN` values are equal.
+
 references: [`Bool`](#type-bool), [`Float64`](#type-float64)
 
 ```bosatsu
