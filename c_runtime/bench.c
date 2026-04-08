@@ -231,13 +231,21 @@ int main(int argc, char** argv) {
   uint32_t big_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   uint32_t big_words_alt[4] = { 0x76543210, 0x0fedcba9, 0x89abcdef, 0x13579bdf };
   uint32_t big2_words[2] = { 0x12345678, 0x40000001 };
+  uint32_t big16_words[16];
+  uint32_t big16_words_alt[16];
   uint32_t big_and_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xaaaaaaaa };
   uint32_t big_and_small_right_words[4] = { 0xffffffff, 0x00000000, 0x55555555, 0x55555555 };
   uint32_t big_xor_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
   uint32_t big_xor_small_right_words[4] = { 0x9abcdef0, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
+  for (size_t i = 0; i < 16; i++) {
+    big16_words[i] = (uint32_t)(0x11111111u * (uint32_t)(i + 1));
+    big16_words_alt[i] = (uint32_t)(0xf0f0f0f0u ^ (uint32_t)(0x01010101u * (uint32_t)i));
+  }
   BValue big_pos = bsts_integer_from_words_copy(1, 4, big_words);
   BValue big_pos_alt = bsts_integer_from_words_copy(1, 4, big_words_alt);
   BValue big_neg = bsts_integer_negate(big_pos);
+  BValue big16_pos = bsts_integer_from_words_copy(1, 16, big16_words);
+  BValue big16_pos_alt = bsts_integer_from_words_copy(1, 16, big16_words_alt);
   BValue big2_pos = bsts_integer_from_words_copy(1, 2, big2_words);
   BValue big2_neg = bsts_integer_negate(big2_pos);
   BValue big_and_small_left = bsts_integer_from_words_copy(1, 4, big_and_small_left_words);
@@ -324,13 +332,16 @@ int main(int argc, char** argv) {
   bench_mul_big_small("mul_big_small62_pos", iters, big_pos, small62_pos);
   bench_mul_big_small("mul_big_small62_neg", iters, big_neg, small62_pos);
   bench_bitwise("and_big_big_pos", iters, big_pos, big_pos_alt, '&');
+  bench_bitwise("and_big16_big16_pos", iters, big16_pos, big16_pos_alt, '&');
   bench_bitwise("and_big_big_smallres", iters, big_and_small_left, big_and_small_right, '&');
   bench_bitwise("and_big_zero", iters, big_pos, bsts_integer_from_int(0), '&');
   bench_bitwise("and_big_neg1", iters, big_pos, small_neg, '&');
   bench_bitwise("or_big_big_pos", iters, big_pos, big_pos_alt, '|');
+  bench_bitwise("or_big16_big16_pos", iters, big16_pos, big16_pos_alt, '|');
   bench_bitwise("or_big_zero", iters, big_pos, bsts_integer_from_int(0), '|');
   bench_bitwise("or_big_neg1", iters, big_pos, small_neg, '|');
   bench_bitwise("xor_big_big_pos", iters, big_pos, big_pos_alt, '^');
+  bench_bitwise("xor_big16_big16_pos", iters, big16_pos, big16_pos_alt, '^');
   bench_bitwise("xor_big_big_smallres", iters, big_xor_small_left, big_xor_small_right, '^');
   bench_bitwise("xor_big_zero", iters, big_pos, bsts_integer_from_int(0), '^');
   bench_bitwise("xor_big_neg1", iters, big_pos, small_neg, '^');

@@ -887,6 +887,55 @@ Questions:
 
 - Does this improve throughput enough to justify the refactor and portability constraints?
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 300000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases targeting larger positive-positive bigint bitwise loops:
+  - `and_big16_big16_pos`
+  - `or_big16_big16_pos`
+  - `xor_big16_big16_pos`
+- Reused control case:
+  - `and_big_big_pos`
+- Baseline medians:
+  - `and_big_big_pos`: `11.35 ns/op`
+  - `and_big16_big16_pos`: `18.77 ns/op`
+  - `or_big16_big16_pos`: `18.67 ns/op`
+  - `xor_big16_big16_pos`: `18.56 ns/op`
+
+Experimental result:
+
+- Scoped the experiment to a first credible prototype instead of a full storage rewrite.
+- Kept the existing `uint32_t` storage format, but changed the positive-positive bigint bitwise fast path to process larger operands in `uint64_t` chunks over the existing backing arrays.
+- Only enabled the chunked loop for larger results, leaving small cases on the existing `uint32_t` implementation.
+- Reran the same benchmark command: `./bench_exe 300000`
+- Post-change medians:
+  - `and_big_big_pos`: `11.01 ns/op`
+  - `and_big16_big16_pos`: `15.93 ns/op`
+  - `or_big16_big16_pos`: `14.59 ns/op`
+  - `xor_big16_big16_pos`: `15.18 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `and_big_big_pos` control: about `3%` faster
+  - `and_big16_big16_pos`: about `15%` faster
+  - `or_big16_big16_pos`: about `22%` faster
+  - `xor_big16_big16_pos`: about `18%` faster
+- This is enough to keep the local chunked implementation, but it does not yet justify claiming that a full stored-`uint64_t` bigint representation would be a net win. The experiment demonstrates that wider-limb style processing helps on larger hot loops, not that the full refactor is automatically worth it.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Split “64-bit limbs” into two separate follow-ups:
+  - storage-layout rewrite to actual `uint64_t` limbs
+  - local `uint64_t` chunk processing for specific hot paths
+- If the storage rewrite is attempted later, benchmark parse/format separately. Those paths may benefit differently from limb width than bitwise ops do.
+
 ### 13. Decimal Parse / Format Improvements
 
 Hypothesis:

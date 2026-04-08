@@ -1971,6 +1971,16 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     return result;
 }
 
+static inline uint64_t bsts_load_u64_chunk(const uint32_t* words, size_t pair_index) {
+    uint64_t chunk;
+    memcpy(&chunk, words + (pair_index * 2U), sizeof(chunk));
+    return chunk;
+}
+
+static inline void bsts_store_u64_chunk(uint32_t* words, size_t pair_index, uint64_t chunk) {
+    memcpy(words + (pair_index * 2U), &chunk, sizeof(chunk));
+}
+
 static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, const BSTS_Integer* right, int op) {
     size_t min_len = (left->len < right->len) ? left->len : right->len;
     size_t result_len = (op == '&')
@@ -2006,25 +2016,74 @@ static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, co
 
     BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
     uint32_t* result_words = result_integer->words;
-
-    for (size_t i = 0; i < min_len; i++) {
-        switch (op) {
-            case '&':
-                result_words[i] = left->words[i] & right->words[i];
-                break;
-            case '|':
-                result_words[i] = left->words[i] | right->words[i];
-                break;
-            default:
-                result_words[i] = left->words[i] ^ right->words[i];
-                break;
+    if (result_len >= 8U) {
+        size_t pair_count = min_len / 2U;
+        for (size_t i = 0; i < pair_count; i++) {
+            uint64_t left_chunk = bsts_load_u64_chunk(left->words, i);
+            uint64_t right_chunk = bsts_load_u64_chunk(right->words, i);
+            uint64_t result_chunk;
+            switch (op) {
+                case '&':
+                    result_chunk = left_chunk & right_chunk;
+                    break;
+                case '|':
+                    result_chunk = left_chunk | right_chunk;
+                    break;
+                default:
+                    result_chunk = left_chunk ^ right_chunk;
+                    break;
+            }
+            bsts_store_u64_chunk(result_words, i, result_chunk);
         }
-    }
 
-    if (op != '&') {
-        const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
-        for (size_t i = min_len; i < result_len; i++) {
-            result_words[i] = longer->words[i];
+        size_t tail_start = pair_count * 2U;
+        for (size_t i = tail_start; i < min_len; i++) {
+            switch (op) {
+                case '&':
+                    result_words[i] = left->words[i] & right->words[i];
+                    break;
+                case '|':
+                    result_words[i] = left->words[i] | right->words[i];
+                    break;
+                default:
+                    result_words[i] = left->words[i] ^ right->words[i];
+                    break;
+            }
+        }
+
+        if (op != '&') {
+            const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
+            size_t copy_pairs = (result_len - tail_start) / 2U;
+            size_t pair_start = tail_start / 2U;
+            for (size_t i = 0; i < copy_pairs; i++) {
+                uint64_t chunk = bsts_load_u64_chunk(longer->words, pair_start + i);
+                bsts_store_u64_chunk(result_words, pair_start + i, chunk);
+            }
+            size_t copied_tail = tail_start + (copy_pairs * 2U);
+            for (size_t i = copied_tail; i < result_len; i++) {
+                result_words[i] = longer->words[i];
+            }
+        }
+    } else {
+        for (size_t i = 0; i < min_len; i++) {
+            switch (op) {
+                case '&':
+                    result_words[i] = left->words[i] & right->words[i];
+                    break;
+                case '|':
+                    result_words[i] = left->words[i] | right->words[i];
+                    break;
+                default:
+                    result_words[i] = left->words[i] ^ right->words[i];
+                    break;
+            }
+        }
+
+        if (op != '&') {
+            const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
+            for (size_t i = min_len; i < result_len; i++) {
+                result_words[i] = longer->words[i];
+            }
         }
     }
 
