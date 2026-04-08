@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_array_internal.h"
 #include <limits.h>
 #include "bosatsu_ext_Bosatsu_l_Collection_l_Array.h"
 #include "bosatsu_ext_Bosatsu_l_Predef.h"
@@ -164,14 +165,8 @@ void assert_option_float_bits(BValue opt, uint64_t expected, const char* message
   assert_u64_equals(bsts_float64_to_bits(v), expected, message);
 }
 
-typedef struct {
-  BValue* data;
-  int offset;
-  int len;
-} TestBSTS_Array;
-
-static TestBSTS_Array* test_array_unbox(BValue array) {
-  return BSTS_PTR(TestBSTS_Array, array);
+static BSTS_Array* test_array_unbox(BValue array) {
+  return BSTS_PTR(BSTS_Array, array);
 }
 
 static BValue test_array_from_values(size_t len, const BValue* values) {
@@ -185,7 +180,7 @@ static BValue test_array_from_values(size_t len, const BValue* values) {
     memcpy(data, values, sizeof(BValue) * len);
   }
 
-  TestBSTS_Array* arr = (TestBSTS_Array*)GC_malloc(sizeof(TestBSTS_Array));
+  BSTS_Array* arr = (BSTS_Array*)GC_malloc(sizeof(BSTS_Array));
   if (arr == NULL) {
     perror("GC_malloc failure in test_array_from_values array");
     exit(1);
@@ -198,7 +193,7 @@ static BValue test_array_from_values(size_t len, const BValue* values) {
 }
 
 static void assert_int_array_equals(BValue array, const int* expected, size_t expected_len, const char* message) {
-  TestBSTS_Array* arr = test_array_unbox(array);
+  BSTS_Array* arr = test_array_unbox(array);
   if ((size_t)arr->len != expected_len) {
     printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
     exit(1);
@@ -214,7 +209,7 @@ static void assert_int_array_equals(BValue array, const int* expected, size_t ex
 }
 
 static void assert_int64_array_bits(BValue array, const uint64_t* expected, size_t expected_len, const char* message) {
-  TestBSTS_Array* arr = test_array_unbox(array);
+  BSTS_Array* arr = test_array_unbox(array);
   if ((size_t)arr->len != expected_len) {
     printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
     exit(1);

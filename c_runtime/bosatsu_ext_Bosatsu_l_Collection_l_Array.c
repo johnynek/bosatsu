@@ -1,4 +1,5 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_array_internal.h"
 
 #include <errno.h>
 #include <gc.h>
@@ -6,12 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct {
-  BValue* data;
-  int offset;
-  int len;
-} BSTS_Array;
 
 static BSTS_Array* bsts_array_unbox(BValue array) {
   return BSTS_PTR(BSTS_Array, array);
@@ -176,9 +171,6 @@ BValue ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(BValue n, BValue
   }
 
   int len = (int)len64;
-  if (len <= 0) {
-    return bsts_array_empty();
-  }
 
   BValue* data = bsts_array_alloc_data(len);
   for (int idx = 0; idx < len; idx++) {
