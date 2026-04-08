@@ -341,6 +341,69 @@ Questions:
 - Does stack usage stay reasonable in recursive or nested arithmetic paths?
 - Does this help enough once final result allocation is still required?
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 200000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `or_big_big_pos`
+  - `xor_big_big_pos`
+- Reused benchmark cases:
+  - `and_big_big_pos`
+  - `and_neg_mixed62`
+  - `shift_big_pos_left`
+  - `shift_big_pos_right`
+  - `shift_neg_left`
+  - `shift_neg_right`
+- Baseline medians:
+  - `and_big_big_pos`: `84.61 ns/op`
+  - `or_big_big_pos`: `83.00 ns/op`
+  - `xor_big_big_pos`: `82.29 ns/op`
+  - `and_neg_mixed62`: `82.56 ns/op`
+  - `shift_big_pos_left`: `56.20 ns/op`
+  - `shift_big_pos_right`: `56.95 ns/op`
+  - `shift_neg_left`: `78.58 ns/op`
+  - `shift_neg_right`: `79.81 ns/op`
+
+Experimental result:
+
+- Added a fixed local-buffer fast path for word temporaries up to `8` words.
+- Applied that helper to the temporary arrays used by bigint bitwise ops and the two's-complement shift pipeline.
+- Used stack buffers for `l_twos`, `r_twos`, `result_twos`, and `new_words` when the working size is small, with heap fallback for larger inputs.
+- Reran the same benchmark command: `./bench_exe 200000`
+- Post-change medians:
+  - `and_big_big_pos`: `34.45 ns/op`
+  - `or_big_big_pos`: `33.87 ns/op`
+  - `xor_big_big_pos`: `32.78 ns/op`
+  - `and_neg_mixed62`: `31.44 ns/op`
+  - `shift_big_pos_left`: `31.29 ns/op`
+  - `shift_big_pos_right`: `31.17 ns/op`
+  - `shift_neg_left`: `51.41 ns/op`
+  - `shift_neg_right`: `51.48 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `and_big_big_pos`: about `59%` faster
+  - `or_big_big_pos`: about `59%` faster
+  - `xor_big_big_pos`: about `60%` faster
+  - `and_neg_mixed62`: about `62%` faster
+  - `shift_big_pos_left`: about `44%` faster
+  - `shift_big_pos_right`: about `45%` faster
+  - `shift_neg_left`: about `35%` faster
+  - `shift_neg_right`: about `36%` faster
+- The main win here is simply removing heap allocation/free traffic for the common 4-6 word temporaries used by the current benchmark shapes.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Add a threshold-tuning experiment for the stack-buffer cap itself. `8` words worked well on these cases, but `4`, `16`, or per-operation thresholds may be better.
+- Add an in-place two's-complement-to-sign-magnitude experiment. Even after removing heap temps, negative bitwise and shift cases still spend noticeable time in the conversion pipeline.
+
 ### 6. Mixed-Mode Arithmetic Fast Paths
 
 Hypothesis:
