@@ -303,7 +303,7 @@ jobs:
           export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
           rm -f "$C_RUNTIME_ARCHIVE"
           tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
-          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
+          CFLAGS="-O1 -g -fopenmp-simd" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
           export SHA=$(./bosatsuj version -g)
@@ -329,7 +329,7 @@ jobs:
           print(f"validated {conf_path}")
           PY
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "check single assertion test output"
@@ -340,7 +340,7 @@ jobs:
           package Foo
           test = Assertion(True, "foo")
           EOF
-          ./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj tool transpile --input issue1642_repro/Foo.bosatsu c --outdir issue1642_repro/out --test --exe_out test_exe --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
           grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
           grep -Eq '^    passed: .*1' issue1642_repro/output.txt
@@ -348,15 +348,15 @@ jobs:
         run: |
           ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
       - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   testC-sanitizers:
@@ -427,7 +427,7 @@ jobs:
           export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
           rm -f "$C_RUNTIME_ARCHIVE"
           tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
-          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
+          CFLAGS="-O1 -g -fopenmp-simd" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
           export SHA=$(./bosatsuj version -g)
@@ -453,22 +453,22 @@ jobs:
           print(f"validated {conf_path}")
           PY
       - name: "generate and compile c code"
-        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
+        run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
       - name: "run test"
         run: |
           ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
       - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_flag=-fopenmp-simd --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   libPublishDryRun:
