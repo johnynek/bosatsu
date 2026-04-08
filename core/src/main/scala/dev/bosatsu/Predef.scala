@@ -791,6 +791,8 @@ object PredefImpl {
     }
   }
 
+  // Float64 -> Int rounding follows IEEE-754 ties-to-even. On the JVM the
+  // reference implementation is Math.rint, and the C runtime must match it.
   private def finiteDoubleToNearestInt(d: Double): BigInteger = {
     val rounded = java.lang.Math.rint(d)
     if (rounded == 0.0d) BigInteger.ZERO
@@ -821,6 +823,8 @@ object PredefImpl {
   private val Int64LowerInclusiveDouble = Long.MinValue.toDouble
   private val Int64UpperExclusiveDouble = -Int64LowerInclusiveDouble
 
+  // Same ties-to-even contract as finiteDoubleToNearestInt, with the Int64
+  // range restriction modeled as the exact floating interval [-2^63, 2^63).
   private def finiteDoubleToNearestInt64(d: Double): Option[Long] = {
     val rounded = java.lang.Math.rint(d)
     if ((rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble))

@@ -200,23 +200,53 @@ int bsts_char_code_point_from_value(BValue ch) {
   }
 }
 
+// Round finite Float64 to the nearest integer using IEEE-754 ties-to-even.
+// This matches the reference semantics used elsewhere in Bosatsu:
+//   * Scala/JVM: java.lang.Math.rint
+//   * Python backend/tests: round(x) on binary floats
+// Callers screen out NaN and infinities before reaching this helper.
 double bsts_round_ties_even(double d) {
-  double int_part = 0.0;
-  double frac = modf(d, &int_part);
-  double abs_frac = fabs(frac);
-  if (abs_frac < 0.5) {
-    return int_part;
-  }
-  if (abs_frac > 0.5) {
-    return int_part + copysign(1.0, d);
+  uint64_t bits = bsts_float64_to_bits(bsts_float64_from_double(d));
+  uint64_t abs_bits = bits & ~BSTS_FLOAT64_SIGN_MASK;
+
+  // All finite Float64 values with magnitude >= 2^52 are already integral.
+  if (abs_bits >= UINT64_C(0x4330000000000000)) {
+    return d;
   }
 
-  double abs_int = fabs(int_part);
-  double rem2 = fmod(abs_int, 2.0);
-  if (rem2 == 0.0) {
-    return int_part;
+  // Preserve the sign of zero for magnitudes that round to 0.
+  if (abs_bits < UINT64_C(0x3fe0000000000000)) {
+    return bsts_float64_to_double(
+        bsts_float64_from_bits(bits & BSTS_FLOAT64_SIGN_MASK));
   }
-  return int_part + copysign(1.0, d);
+
+  // Handle [0.5, 1.0) separately so exact 0.5 ties round to signed zero.
+  if (abs_bits < UINT64_C(0x3ff0000000000000)) {
+    if (abs_bits == UINT64_C(0x3fe0000000000000)) {
+      return bsts_float64_to_double(
+          bsts_float64_from_bits(bits & BSTS_FLOAT64_SIGN_MASK));
+    }
+    return (bits & BSTS_FLOAT64_SIGN_MASK) ? -1.0 : 1.0;
+  }
+
+  int exponent = (int)((abs_bits & BSTS_FLOAT64_EXP_MASK) >> 52) - 1023;
+  int fractional_bits = 52 - exponent;
+  uint64_t significand = (UINT64_C(1) << 52) | (abs_bits & BSTS_FLOAT64_FRAC_MASK);
+  uint64_t fractional_mask = (UINT64_C(1) << fractional_bits) - 1;
+  uint64_t fractional = significand & fractional_mask;
+
+  if (fractional == 0) {
+    return d;
+  }
+
+  uint64_t integer = significand >> fractional_bits;
+  uint64_t half = UINT64_C(1) << (fractional_bits - 1);
+  if ((fractional > half) || ((fractional == half) && (integer & UINT64_C(1)))) {
+    integer += 1;
+  }
+
+  double rounded = (double)integer;
+  return (bits & BSTS_FLOAT64_SIGN_MASK) ? -rounded : rounded;
 }
 
 // Closures:
