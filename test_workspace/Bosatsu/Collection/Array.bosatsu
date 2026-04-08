@@ -134,8 +134,10 @@ def range_Array(n: Int) -> Array[Int]:
     case Some(n64): tabulate_Array(n64, int64_to_Int)
     case None: empty_Array
 
-def range_from_Array(start: Int, n: Int64) -> Array[Int]:
-  tabulate_Array(n, i -> add(start, int64_to_Int(i)))
+def range_from_Array(start: Int, n: Int) -> Array[Int]:
+  match int_to_Int64(n):
+    case Some(n64): tabulate_Array(n64, i -> add(start, int64_to_Int(i)))
+    case None: empty_Array
 
 def reverse_Array[a](ary: Array[a]) -> Array[a]:
   rev_list = foldl_Array(ary, [], (acc, x) -> [x, *acc])
@@ -150,12 +152,13 @@ def flatten_Array[a](arrays: Array[Array[a]]) -> Array[a]:
 
 def eq_Array(eq_a: (a, a) -> Bool)(left: Array[a], right: Array[a]) -> Bool:
   if cmp_Int64(size_Array(left), size_Array(right)) matches EQ:
-    foldl_with_index_Array(
+    zip_foldl_Array(
       left,
+      right,
       True,
-      (acc, item, idx) ->
+      (acc, left_item, right_item) ->
         if acc:
-          get_map_Array(right, idx, _ -> False, right_item -> eq_a(item, right_item))
+          eq_a(left_item, right_item)
         else:
           False
     )
@@ -205,7 +208,7 @@ a5_copy = from_List_Array([0, 1, 2, 3, 4])
 a5_first_diff = from_List_Array([99, 1, 2, 3, 4])
 a5_last_diff = from_List_Array([0, 1, 2, 3, 99])
 a5_tail = slice_Array(a5, i64(2), i64(5))
-a_from = range_from_Array(10, i64(4))
+a_from = range_from_Array(10, 4)
 a_set = set_or_self_Array(a5, i64(2), 99)
 a_sorted = sort_Array(
   from_List_Array([(1, "a"), (0, "z"), (1, "b"), (1, "c")]),
@@ -225,7 +228,7 @@ def int_to_char_array_some() -> Bool:
 rand_Int: Rand[Int] = map_Rand(int_range(200), i -> i.sub(100))
 rand_Array_and_Init: Rand[(Array[Int], Int)] = map_Rand(
   prod_Rand(prod_Rand(rand_Int, int_range(40)), rand_Int),
-  (((start, len), init)) -> (range_from_Array(start, i64(len)), init)
+  (((start, len), init)) -> (range_from_Array(start, len), init)
 )
 rand_StartAndLen: Rand[(Int, Int)] =
   map_Rand(prod_Rand(rand_Int, int_range(30)), ((start, len)) -> (start, len))
@@ -274,7 +277,7 @@ indexed_slice_law = forall_Prop(
   rand_SliceCase,
   "indexed Array functions use slice-relative visible indices",
   ((start, base_len, slice_start, visible_len)) -> (
-    base = range_from_Array(start, i64(base_len))
+    base = range_from_Array(start, base_len)
     view = slice_Array(base, i64(slice_start), i64(slice_start.add(visible_len)))
     expected = int_range_list(start.add(slice_start), visible_len)
     mapped = to_List_Array(map_with_index_Array(view, (_, idx) -> int64_to_Int(idx)))
@@ -313,8 +316,8 @@ zip_and_float_law = forall_Prop(
   rand_ZipCase,
   "zip helpers and Float64 reductions follow list-prefix models",
   ((left_start, left_len, right_start, right_len)) -> (
-    left = range_from_Array(left_start, i64(left_len))
-    right = range_from_Array(right_start, i64(right_len))
+    left = range_from_Array(left_start, left_len)
+    right = range_from_Array(right_start, right_len)
     left_list = int_range_list(left_start, left_len)
     right_list = int_range_list(right_start, right_len)
     zipped = to_List_Array(zip_map_Array(left, right, (l, r) -> sub(l, r)))
@@ -401,16 +404,16 @@ tests = TestSuite("Array tests", [
   Assertion(to_List_Array(slice_Array(a5, i64(1), i64(-1))) matches [], "slice invalid end"),
   Assertion(get_or_Array(a5_tail, i64(0), int64_to_Int) matches 2, "slice index is relative"),
   Assertion(
-    to_List_Array(zip_map_Array(a5, range_from_Array(10, i64(3)), (l, r) -> add(l, r))) matches [10, 12, 14],
+    to_List_Array(zip_map_Array(a5, range_from_Array(10, 3), (l, r) -> add(l, r))) matches [10, 12, 14],
     "zip_map truncates"
   ),
   Assertion(
-    zip_foldl_Array(a5, range_from_Array(10, i64(3)), 0, (acc, l, r) -> add(acc, add(l, r))) matches 36,
+    zip_foldl_Array(a5, range_from_Array(10, 3), 0, (acc, l, r) -> add(acc, add(l, r))) matches 36,
     "zip_foldl truncates"
   ),
   Assertion(
     eq_Float64(
-      zip_sumf_Array(a5, range_from_Array(10, i64(3)), (l, r) -> int_to_Float64(mul(l, r))),
+      zip_sumf_Array(a5, range_from_Array(10, 3), (l, r) -> int_to_Float64(mul(l, r))),
       35.0
     ),
     "zip_sumf truncates"
@@ -418,7 +421,7 @@ tests = TestSuite("Array tests", [
   Assertion(eq_Float64(sumf_Array(map_Array(a5, int_to_Float64)), 10.0), "sumf"),
   Assertion(eq_Float64(sumsqf_Array(map_Array(a5, int_to_Float64)), 30.0), "sumsqf"),
   Assertion(
-    eq_Float64(dotf_Array(map_Array(a5, int_to_Float64), map_Array(range_from_Array(10, i64(3)), int_to_Float64)), 35.0),
+    eq_Float64(dotf_Array(map_Array(a5, int_to_Float64), map_Array(range_from_Array(10, 3), int_to_Float64)), 35.0),
     "dotf truncates"
   ),
   Assertion(eq_Float64(sumf_Array(empty_Array), 0.0), "sumf empty"),
@@ -446,7 +449,7 @@ tests = TestSuite("Array tests", [
     "int_Array_to_String none"
   ),
   Assertion(to_List_Array(reverse_Array(a5)) matches [4, 3, 2, 1, 0], "reverse"),
-  Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, i64(2)), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
+  Assertion(to_List_Array(flatten_Array(from_List_Array([range_Array(2), range_from_Array(10, 2), empty_Array]))) matches [0, 1, 10, 11], "flatten"),
   Assertion(to_List_Array(a_sorted) matches [(0, "z"), (1, "a"), (1, "b"), (1, "c")], "stable sort"),
   Assertion(get_map_Array(a5, i64(3), _ -> 100, x -> x.add(7)) matches 10, "get_map some"),
   Assertion(get_map_Array(a5, i64(30), _ -> 100, x -> x.add(7)) matches 100, "get_map none"),
