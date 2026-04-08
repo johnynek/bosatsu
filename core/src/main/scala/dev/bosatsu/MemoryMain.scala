@@ -264,6 +264,22 @@ object MemoryMain {
           )
         )
 
+      def systemStdout(command: String, args: List[String]) =
+        moduleIOMonad.raiseError(
+          new Exception(
+            s"systemStdout not supported in memory mode: systemStdout($command, $args)"
+          )
+        )
+
+      def env(name: String) =
+        moduleIOMonad.pure(None)
+
+      def hostOs =
+        moduleIOMonad.pure("memory")
+
+      def hostArch =
+        moduleIOMonad.pure("memory")
+
       def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
 
       def withTempPrefix[A](name: String)(fn: Path => F[A]): F[A] = {

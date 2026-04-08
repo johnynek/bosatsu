@@ -47,60 +47,40 @@ def unique_flags(parts):
     return out
 
 
-def has_gc_flags(parts):
-    for part in parts:
-        lower = part.lower()
-        if "libgc" in lower or "bdw-gc" in lower or lower == "-lgc":
-            return True
-    return False
-
-
-def pkg_config_flags(pkg_config, mode):
-    try:
-        out = subprocess.check_output(
-            [pkg_config, mode, "bdw-gc"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return []
-    return split_flags(out)
-
-
-def fallback_bdw_gc(os_type):
-    if os_type == "linux":
-        return [], ["-lgc"]
-
-    if os_type != "macos":
-        return [], []
-
-    candidates = [
-        ("/opt/homebrew/opt/bdw-gc/include", "/opt/homebrew/opt/bdw-gc/lib"),
-        ("/usr/local/opt/bdw-gc/include", "/usr/local/opt/bdw-gc/lib"),
-        ("/opt/local/include", "/opt/local/lib"),
-    ]
-
-    for include_dir, lib_dir in candidates:
-        header = os.path.join(include_dir, "gc.h")
-        if not os.path.isfile(header):
-            continue
-
-        static_lib = os.path.join(lib_dir, "libgc.a")
-        if os.path.isfile(static_lib):
-            return [f"-I{include_dir}"], [static_lib]
-
-        if os.path.isdir(lib_dir):
-            return [f"-I{include_dir}"], [f"-L{lib_dir}", "-lgc"]
-
-    return [], ["-lgc"]
-
-
 def resolve_cc_path(cc):
     # Keep supporting absolute paths while allowing simple executable names.
     if os.path.isabs(cc):
         return cc
     resolved = shutil.which(cc)
     return resolved if resolved else cc
+
+
+def split_cppflags(parts):
+    flags = []
+    iflags = []
+    takes_value = {"-I", "-isystem", "-iquote", "-F"}
+
+    idx = 0
+    while idx < len(parts):
+        part = parts[idx]
+        if part in takes_value:
+            iflags.append(part)
+            if idx + 1 < len(parts):
+                iflags.append(parts[idx + 1])
+                idx += 2
+                continue
+        if (
+            part.startswith("-I")
+            or part.startswith("-isystem")
+            or part.startswith("-iquote")
+            or part.startswith("-F")
+        ):
+            iflags.append(part)
+        else:
+            flags.append(part)
+        idx += 1
+
+    return flags, iflags
 
 
 def write_cc_conf(
@@ -112,7 +92,6 @@ def write_cc_conf(
     ldflags,
     libs,
     profile,
-    pkg_config,
 ):
     os_type = detect_os_type()
     bosatsu_dir = os.path.join(rootdir, ".bosatsuc", version)
@@ -126,32 +105,20 @@ def write_cc_conf(
     cppflags_parts = split_flags(cppflags)
     ldflags_parts = split_flags(ldflags)
     libs_parts = split_flags(libs)
-
-    provided_gc = has_gc_flags(cppflags_parts + ldflags_parts + libs_parts)
-    if provided_gc:
-        gc_cflags = []
-        gc_libs = []
-    else:
-        gc_cflags = pkg_config_flags(pkg_config, "--cflags")
-        gc_libs = pkg_config_flags(pkg_config, "--libs")
-        if not gc_cflags and not gc_libs:
-            fallback_cflags, fallback_libs = fallback_bdw_gc(os_type)
-            gc_cflags = fallback_cflags
-            gc_libs = fallback_libs
+    cpp_define_flags, cpp_include_flags = split_cppflags(cppflags_parts)
 
     flags = unique_flags(
         (
             profile_defaults[profile] if not cflags_parts else []
         )
-        + cppflags_parts
+        + cpp_define_flags
         + cflags_parts
     )
     iflags = unique_flags(
-        [f"-I{os.path.join(bosatsu_dir, 'include')}"] + gc_cflags
+        [f"-I{os.path.join(bosatsu_dir, 'include')}"] + cpp_include_flags
     )
     link_libs = unique_flags(
         [f"{os.path.join(bosatsu_dir, 'lib', 'bosatsu_platform.a')}"]
-        + gc_libs
         + ldflags_parts
         + libs_parts
         + ["-lm"]
@@ -249,7 +216,6 @@ def main():
         args.ldflags,
         args.libs,
         args.profile,
-        args.pkg_config,
     )
 
     for include_file in args.include:

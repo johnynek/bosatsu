@@ -245,7 +245,7 @@ class PathModuleTest extends munit.FunSuite {
   }
 
   test("tool test direct run of a file") {
-    val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
+    val deps = List("Nat", "List", "Bool", "Int64", "Rand", "Properties", "BinNat")
     val inputs =
       deps.map(n => s"--input test_workspace/${n}.bosatsu").mkString(" ")
     val out = run(

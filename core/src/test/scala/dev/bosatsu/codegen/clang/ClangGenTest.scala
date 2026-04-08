@@ -16,6 +16,7 @@ import dev.bosatsu.{
   Par,
   Parser,
   Platform,
+  Predef,
   PredefImpl,
   PackageName,
   TestUtils,
@@ -32,9 +33,28 @@ class ClangGenTest extends munit.ScalaCheckSuite {
       .withMinSuccessfulTests(if (Platform.isScalaJvm) 250000 else 1000)
       .withMaxDiscardRatio(10)
 
+  private val float64Pack =
+    Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
     val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
+  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
+    val parsed = srcs.zipWithIndex.map { case (src, idx) =>
+      val pack = Parser.unsafeParse(Package.parser, src)
+      ((s"test$idx", LocationMap(src)), pack)
+    }
+    val nel = NonEmptyList.fromListUnsafe(parsed)
     Par.noParallelism {
       PackageMap
         .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
@@ -1106,8 +1126,63 @@ main = a
             }
           )
         }
-      }
     }
+  }
+
+  test("Int64 literal conversions lower directly to raw Int64 constants") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import (
+          |  int_to_Int64,
+          |  int_low_bits_to_Int64,
+          |)
+          |
+          |safe_in = int_to_Int64(-9223372036854775808)
+          |safe_out = int_to_Int64(9223372036854775808)
+          |low_bits = int_low_bits_to_Int64(18446744073709551615)
+          |main = (safe_in, safe_out, low_bits)
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        assert(
+          rendered.contains("alloc_enum1(1, bsts_int64_from_int64(INT64_MIN))"),
+          rendered
+        )
+        assert(rendered.contains("alloc_enum0(0)"), rendered)
+        assert(rendered.contains("bsts_int64_from_int64(-1)"), rendered)
+        assert(
+          !rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64"
+          ),
+          rendered
+        )
+        assert(
+          !rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64"
+          ),
+          rendered
+        )
+        assert(!rendered.contains("bsts_integer_from_words_copy"), rendered)
+    }
+  }
 
   test("float literals with sign bit use unsigned bit literals") {
     TestUtils.checkPackageMap("""

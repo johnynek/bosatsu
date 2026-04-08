@@ -6,7 +6,7 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util.concurrent.Semaphore
-import dev.bosatsu.{Lit, PackageName, Par, Platform, TestUtils}
+import dev.bosatsu.{Identifier, Lit, PackageName, Par, Platform, TestUtils}
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import org.python.util.PythonInterpreter
@@ -90,6 +90,45 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   def isfromString(s: String): InputStream =
     new ByteArrayInputStream(s.getBytes("UTF-8"))
 
+  // Jython cannot import the checked-in ProgExt.py runtime because it uses
+  // Python 3 syntax. Keep a tiny Int64-only shim here for Jython execution and
+  // cover the shipped ProgExt.py path in PythonGenJvmTest instead.
+  private val jythonInt64Externals: Map[
+    (PackageName, Identifier.Bindable),
+    (PythonGen.Module, Code.Ident)
+  ] = {
+    val module = cats.data.NonEmptyList.one(Code.Ident("Int64Ext"))
+    val pack = PackageName.parts("Bosatsu", "Num", "Int64")
+    List(
+      "min_i64",
+      "max_i64",
+      "int_to_Int64",
+      "int_low_bits_to_Int64",
+      "int64_to_Int",
+      "int64_to_Float64",
+      "float64_to_Int64",
+      "add_Int64",
+      "sub_Int64",
+      "mul_Int64",
+      "div_Int64",
+      "mod_Int64",
+      "and_Int64",
+      "or_Int64",
+      "xor_Int64",
+      "not_Int64",
+      "shift_left_Int64",
+      "shift_right_Int64",
+      "shift_right_unsigned_Int64",
+      "popcount_Int64",
+      "eq_Int64",
+      "cmp_Int64"
+    ).iterator
+      .map { name =>
+        ((pack, Identifier.Name(name)), (module, Code.Ident(name)))
+      }
+      .toMap
+  }
+
   private def pyStringLiteral(str: String): String =
     s"'${str.replace("\\", "\\\\").replace("'", "\\'")}'"
 
@@ -124,6 +163,178 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       }
       Files.writeString(path, doc.renderTrim(80), StandardCharsets.UTF_8)
     }
+    Files.writeString(
+      root.resolve("Int64Ext.py"),
+      """import math
+|
+|_NONE = (0,)
+|_INT64_MIN = -(1 << 63)
+|_INT64_MAX = (1 << 63) - 1
+|_INT64_MASK = (1 << 64) - 1
+|_INT64_SIGN = 1 << 63
+|
+|def _some(value):
+|    return (1, value)
+|
+|def _norm(value):
+|    low = long(value) & _INT64_MASK
+|    if low >= _INT64_SIGN:
+|        return low - (1 << 64)
+|    return low
+|
+|def _cmp(left, right):
+|    if left < right:
+|        return 0
+|    if left == right:
+|        return 1
+|    return 2
+|
+|def _shift_left(value, count):
+|    count = long(count)
+|    value = long(value)
+|    if count == 0:
+|        return _norm(value)
+|    if count > 0:
+|        if count >= 64:
+|            return 0
+|        return _norm(value << count)
+|    count = -count
+|    if count >= 64:
+|        if value < 0:
+|            return -1
+|        return 0
+|    return _norm(value >> count)
+|
+|def _shift_right(value, count):
+|    count = long(count)
+|    value = long(value)
+|    if count == 0:
+|        return _norm(value)
+|    if count > 0:
+|        if count >= 64:
+|            if value < 0:
+|                return -1
+|            return 0
+|        return _norm(value >> count)
+|    count = -count
+|    if count >= 64:
+|        return 0
+|    return _norm(value << count)
+|
+|def _shift_right_unsigned(value, count):
+|    count = long(count)
+|    value = long(value)
+|    if count == 0:
+|        return _norm(value)
+|    if count > 0:
+|        if count >= 64:
+|            return 0
+|        return _norm((value & _INT64_MASK) >> count)
+|    count = -count
+|    if count >= 64:
+|        return 0
+|    return _norm(value << count)
+|
+|def _popcount(value):
+|    bits = long(value) & _INT64_MASK
+|    count = 0
+|    while bits:
+|        bits &= bits - 1
+|        count += 1
+|    return count
+|
+|min_i64 = _INT64_MIN
+|max_i64 = _INT64_MAX
+|
+|def int_to_Int64(value):
+|    value = long(value)
+|    if (_INT64_MIN <= value) and (value <= _INT64_MAX):
+|        return _some(value)
+|    return _NONE
+|
+|def int_low_bits_to_Int64(value):
+|    return _norm(value)
+|
+|def int64_to_Int(value):
+|    return long(value)
+|
+|def int64_to_Float64(value):
+|    return float(value)
+|
+|def float64_to_Int64(value):
+|    if math.isinf(value) or math.isnan(value):
+|        return _NONE
+|    floor_value = math.floor(value)
+|    frac = value - floor_value
+|    floor_int = long(floor_value)
+|    floor_plus_one = floor_int + 1
+|    if frac < 0.5:
+|        rounded = floor_int
+|    elif frac > 0.5:
+|        rounded = floor_plus_one
+|    elif (floor_int % 2) == 0:
+|        rounded = floor_int
+|    else:
+|        rounded = floor_plus_one
+|    return int_to_Int64(rounded)
+|
+|def add_Int64(left, right):
+|    return _norm(long(left) + long(right))
+|
+|def sub_Int64(left, right):
+|    return _norm(long(left) - long(right))
+|
+|def mul_Int64(left, right):
+|    return _norm(long(left) * long(right))
+|
+|def div_Int64(left, right):
+|    left = long(left)
+|    right = long(right)
+|    if right == 0:
+|        return 0
+|    if (left == _INT64_MIN) and (right == -1):
+|        return _INT64_MIN
+|    return _norm(left // right)
+|
+|def mod_Int64(left, right):
+|    left = long(left)
+|    right = long(right)
+|    if right == 0:
+|        return _norm(left)
+|    return _norm(left % right)
+|
+|def and_Int64(left, right):
+|    return _norm(long(left) & long(right))
+|
+|def or_Int64(left, right):
+|    return _norm(long(left) | long(right))
+|
+|def xor_Int64(left, right):
+|    return _norm(long(left) ^ long(right))
+|
+|def not_Int64(value):
+|    return _norm(~long(value))
+|
+|def shift_left_Int64(value, count):
+|    return _shift_left(value, count)
+|
+|def shift_right_Int64(value, count):
+|    return _shift_right(value, count)
+|
+|def shift_right_unsigned_Int64(value, count):
+|    return _shift_right_unsigned(value, count)
+|
+|def popcount_Int64(value):
+|    return _popcount(value)
+|
+|def eq_Int64(left, right):
+|    return long(left) == long(right)
+|
+|def cmp_Int64(left, right):
+|    return _cmp(long(left), long(right))
+|""".stripMargin,
+      StandardCharsets.UTF_8
+    )
     root
   }
 
@@ -270,7 +481,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val packMap =
         Par.noParallelism {
           val bosatsuPM = compileFile(path, extraPaths*)
-          PythonGen.renderSource(bosatsuPM, Map.empty, Map.empty)
+          PythonGen.renderSource(bosatsuPM, jythonInt64Externals, Map.empty)
         }
       val rendered = packMap(())
       val module = rendered(pn)._1
@@ -314,6 +525,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       PackageName.parts("PredefTests"),
       "test",
       "test_workspace/Float64.bosatsu",
+      "test_workspace/Int64.bosatsu",
       "test_workspace/Loops.bosatsu"
     )
   }
@@ -326,6 +538,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
         "tests",
         "test_workspace/Bosatsu/Collection/Array.bosatsu",
         "test_workspace/Properties.bosatsu",
+        "test_workspace/Int64.bosatsu",
         "test_workspace/Rand.bosatsu",
         "test_workspace/BinNat.bosatsu",
         "test_workspace/List.bosatsu",

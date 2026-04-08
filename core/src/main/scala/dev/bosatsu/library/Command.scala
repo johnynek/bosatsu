@@ -136,9 +136,9 @@ object Command {
     val privWithout = conf.privateDeps.filterNot(_.name == depName)
     visibility match {
       case DepVisibility.Public =>
-        conf.copy(publicDeps = pubWithout :+ dep, privateDeps = privWithout)
+        conf.copy(public_deps = pubWithout :+ dep, private_deps = privWithout)
       case DepVisibility.Private =>
-        conf.copy(publicDeps = pubWithout, privateDeps = privWithout :+ dep)
+        conf.copy(public_deps = pubWithout, private_deps = privWithout :+ dep)
     }
   }
 
@@ -1243,8 +1243,8 @@ object Command {
                   )
                 else moduleIOMonad.unit
               conf1 = cc.conf.copy(
-                publicDeps = pubRemoved,
-                privateDeps = privRemoved
+                public_deps = pubRemoved,
+                private_deps = privRemoved
               )
               out = confOutput(cc.confDir, conf1)
             } yield (out: Output[P])
@@ -2846,7 +2846,7 @@ object Command {
                           }
                           val conf1 = cc.conf.copy(
                             previous = Some(toDesc(hashedLib, uris)),
-                            nextVersion = cc.conf.nextVersion.nextPatch
+                            next_version = cc.conf.nextVersion.nextPatch
                           )
 
                           confOutput(cc.confDir, conf1)

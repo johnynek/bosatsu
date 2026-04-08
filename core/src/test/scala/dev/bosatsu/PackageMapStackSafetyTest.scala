@@ -109,10 +109,18 @@ class PackageMapStackSafetyTest extends munit.FunSuite {
     failure
   }
 
+  private def warmResolvePackages(): Unit =
+    PackageMap.resolvePackages(PackageMap.fromIterable(zafuShapedPackages), Nil) match {
+      case cats.data.Validated.Valid(_)   => ()
+      case cats.data.Validated.Invalid(e) =>
+        fail(s"unexpected warm-up resolve errors: ${e.toList.mkString(", ")}")
+    }
+
   Platform.onJvm(
     test("resolvePackages should not stack overflow on a zafu-shaped package DAG") {
       val stackBytes =
         sys.props.get("repro.stackBytes").fold(64L * 1024L)(_.toLong)
+      warmResolvePackages()
 
       runResolvePackagesOnSmallStack(stackBytes) match {
         case Some(_: StackOverflowError) =>
