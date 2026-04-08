@@ -325,9 +325,15 @@ int main(int argc, char** argv) {
   bench_mul_big_small("mul_big_small62_neg", iters, big_neg, small62_pos);
   bench_bitwise("and_big_big_pos", iters, big_pos, big_pos_alt, '&');
   bench_bitwise("and_big_big_smallres", iters, big_and_small_left, big_and_small_right, '&');
+  bench_bitwise("and_big_zero", iters, big_pos, bsts_integer_from_int(0), '&');
+  bench_bitwise("and_big_neg1", iters, big_pos, small_neg, '&');
   bench_bitwise("or_big_big_pos", iters, big_pos, big_pos_alt, '|');
+  bench_bitwise("or_big_zero", iters, big_pos, bsts_integer_from_int(0), '|');
+  bench_bitwise("or_big_neg1", iters, big_pos, small_neg, '|');
   bench_bitwise("xor_big_big_pos", iters, big_pos, big_pos_alt, '^');
   bench_bitwise("xor_big_big_smallres", iters, big_xor_small_left, big_xor_small_right, '^');
+  bench_bitwise("xor_big_zero", iters, big_pos, bsts_integer_from_int(0), '^');
+  bench_bitwise("xor_big_neg1", iters, big_pos, small_neg, '^');
   bench_bitwise("and_neg_mixed", iters, big_neg, small_mask, '&');
   bench_bitwise("or_neg_mixed", iters, big_neg, small_mask, '|');
   bench_bitwise("xor_neg_mixed", iters, big_neg, small_mask, '^');

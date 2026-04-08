@@ -803,6 +803,71 @@ Experiments:
   - bitwise identities listed above
 - Benchmark branch cost vs saved work.
 
+Baseline benchmark:
+
+- Benchmark binary: `c_runtime/bench_exe`
+- Command: `./bench_exe 500000`
+- Samples: 5 runs, using the median `ns/op`
+- Added benchmark cases:
+  - `and_big_zero`
+  - `and_big_neg1`
+  - `or_big_zero`
+  - `or_big_neg1`
+  - `xor_big_zero`
+  - `xor_big_neg1`
+- Reused control case:
+  - `and_big_big_pos`
+- Baseline medians:
+  - `and_big_big_pos`: `10.55 ns/op`
+  - `and_big_zero`: `33.37 ns/op`
+  - `and_big_neg1`: `31.89 ns/op`
+  - `or_big_zero`: `32.06 ns/op`
+  - `or_big_neg1`: `54.03 ns/op`
+  - `xor_big_zero`: `31.72 ns/op`
+  - `xor_big_neg1`: `51.84 ns/op`
+
+Experimental result:
+
+- Added direct identity handling for mixed-size bitwise ops involving small `0` and `-1`.
+- Implemented:
+  - `x & 0 -> 0`
+  - `x & -1 -> x`
+  - `x | 0 -> x`
+  - `x | -1 -> -1`
+  - `x ^ 0 -> x`
+  - `x ^ -1 -> not(x)`
+- Added semantic tests covering those identities on a bigint operand.
+- Reran the same benchmark command: `./bench_exe 500000`
+- Post-change medians:
+  - `and_big_big_pos`: `11.09 ns/op`
+  - `and_big_zero`: `1.88 ns/op`
+  - `and_big_neg1`: `1.60 ns/op`
+  - `or_big_zero`: `2.19 ns/op`
+  - `or_big_neg1`: `1.93 ns/op`
+  - `xor_big_zero`: `1.87 ns/op`
+  - `xor_big_neg1`: `15.25 ns/op`
+
+Outcome:
+
+- Kept the code.
+- Median improvements versus baseline:
+  - `and_big_zero`: about `94%` faster
+  - `and_big_neg1`: about `95%` faster
+  - `or_big_zero`: about `93%` faster
+  - `or_big_neg1`: about `96%` faster
+  - `xor_big_zero`: about `94%` faster
+  - `xor_big_neg1`: about `71%` faster
+  - `and_big_big_pos` control: about `5%` slower
+- This is still an easy keep. The identity cases were forcing fully generic bitwise code for no reason, and the fast paths remove almost all of that cost. The one control regression is small compared to the wins on the targeted workloads.
+- Validation:
+  - `make bench_exe` passed.
+  - `make test_exe` passed.
+
+New ideas from this experiment:
+
+- Add the same identity coverage for negative bigints and mixed-sign masks in the benchmark set. The current fast paths should already help there, but it is worth measuring explicitly.
+- If the small control regression becomes relevant, fold these constant checks into a shared helper to keep branch layout tighter across `and/or/xor`.
+
 ### 12. BigInt Limb Width Experiment
 
 Hypothesis:

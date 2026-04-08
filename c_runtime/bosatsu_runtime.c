@@ -2041,6 +2041,16 @@ BValue bsts_integer_and(BValue l, BValue r) {
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv & rv);
     }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return l;
+      if (lv == -1) return r;
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return r;
+      if (rv == -1) return l;
+    }
     if (!l_is_small && !r_is_small) {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         BSTS_Integer* r_big = GET_BIG_INT(r);
@@ -2209,6 +2219,16 @@ BValue bsts_integer_or(BValue l, BValue r) {
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv | rv);
     }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return r;
+      if (lv == -1) return l;
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return l;
+      if (rv == -1) return r;
+    }
     if (!l_is_small && !r_is_small) {
         BSTS_Integer* l_big = GET_BIG_INT(l);
         BSTS_Integer* r_big = GET_BIG_INT(r);
@@ -2275,6 +2295,16 @@ BValue bsts_integer_xor(BValue l, BValue r) {
       int64_t lv = GET_SMALL_INT(l);
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv ^ rv);
+    }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return r;
+      if (lv == -1) return bsts_integer_not(r);
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return l;
+      if (rv == -1) return bsts_integer_not(l);
     }
     if (!l_is_small && !r_is_small) {
         BSTS_Integer* l_big = GET_BIG_INT(l);

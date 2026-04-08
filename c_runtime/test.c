@@ -455,10 +455,24 @@ void test_integer() {
 
   BValue and_small_result = bsts_integer_and(and_small_left, and_small_right);
   BValue xor_small_result = bsts_integer_xor(xor_small_left, xor_small_right);
+  BValue and_zero_result = bsts_integer_and(i128_pos, bsts_integer_from_int(0));
+  BValue and_neg1_result = bsts_integer_and(i128_pos, bsts_integer_from_int(-1));
+  BValue or_zero_result = bsts_integer_or(i128_pos, bsts_integer_from_int(0));
+  BValue or_neg1_result = bsts_integer_or(i128_pos, bsts_integer_from_int(-1));
+  BValue xor_zero_result = bsts_integer_xor(i128_pos, bsts_integer_from_int(0));
+  BValue xor_neg1_result = bsts_integer_xor(i128_pos, bsts_integer_from_int(-1));
   assert_int_string(and_small_result, "305419896", "and big big small result");
   assert_int_string(xor_small_result, "2290649224", "xor big big small result");
+  assert_int_string(and_zero_result, "0", "and big zero");
+  assert_int_string(and_neg1_result, "24197857203266734864793317670504947440", "and big neg1");
+  assert_int_string(or_zero_result, "24197857203266734864793317670504947440", "or big zero");
+  assert_int_string(or_neg1_result, "-1", "or big neg1");
+  assert_int_string(xor_zero_result, "24197857203266734864793317670504947440", "xor big zero");
+  assert(bsts_integer_equals(xor_neg1_result, bsts_integer_not(i128_pos)), "xor big neg1 equals not");
   assert_is_small_int(and_small_result, "and big big small should canonicalize to immediate");
   assert_is_small_int(xor_small_result, "xor big big small should canonicalize to immediate");
+  assert_is_small_int(and_zero_result, "and big zero should be immediate");
+  assert_is_small_int(or_neg1_result, "or big neg1 should be immediate");
 
   struct IntShiftCase { const char* name; BValue value; int shift; const char* expected; };
   struct IntShiftCase shift_cases[] = {
