@@ -89,6 +89,9 @@ class BosatsuIntRuntimeLaws extends munit.ScalaCheckSuite {
   private def batchGen[A](gen: Gen[A], size: Int = 4): Gen[List[A]] =
     Gen.listOfN(size, gen)
 
+  private def safeXorExpected(left: BigInteger, right: BigInteger): BigInteger =
+    left.or(right).and(left.and(right).not())
+
   private def bosatsuInt(value: BigInteger): String =
     value.toString
 
@@ -164,7 +167,7 @@ class BosatsuIntRuntimeLaws extends munit.ScalaCheckSuite {
               s"or_$idx"
             ),
             assertion(
-              s"xor_Int(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches ${bosatsuInt(left.xor(right))}",
+              s"xor_Int(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches ${bosatsuInt(safeXorExpected(left, right))}",
               s"xor_$idx"
             ),
             assertion(

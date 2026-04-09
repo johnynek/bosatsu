@@ -41,6 +41,8 @@ tests = TestSuite("int runtime special cases", [
   Assertion(or_Int(big16_a, -1) matches -1, "or identity -1"),
   Assertion(eq_Int_runtime(xor_Int(big16_a, 0), big16_a), "xor identity zero"),
   Assertion(eq_Int_runtime(xor_Int(big16_a, -1), not_big16_a), "xor identity -1"),
+  Assertion(xor_Int(1, -9223372036854775808) matches -9223372036854775807, "mixed-sign xor boundary"),
+  Assertion(xor_Int(-9223372036854775808, 1) matches -9223372036854775807, "mixed-sign xor boundary commutative"),
   Assertion(and_Int(big16_a, big16_b) matches 39471121, "wide positive and"),
   Assertion(or_Int(big16_a, big16_b) matches 4682622825473988347072395844689749458622897213998524719806695894479313015127351864335472292348920627078640722619537364571395001405420379295444405, "wide positive or"),
   Assertion(xor_Int(big16_a, big16_b) matches 4682622825473988347072395844689749458622897213998524719806695894479313015127351864335472292348920627078640722619537364571395001405420379255973284, "wide positive xor"),
