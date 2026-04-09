@@ -55,6 +55,7 @@ tests = TestSuite("int runtime special cases", [
   Assertion(mod_Int(big_i128, -32) matches -16, "mod by negative small power of two"),
   Assertion(div(big_i128, pow2_65) matches 655884233731895160, "div by big power of two"),
   Assertion(mod_Int(big_i128, pow2_65) matches 1311768467463790320, "mod by big power of two"),
+  Assertion(div_mod(big_i128, pow2_65) matches (655884233731895160, 1311768467463790320), "div_mod by big power of two"),
   Assertion(div(big_i128, neg_pow2_65) matches -655884233731895161, "div by negative big power of two"),
   Assertion(mod_Int(big_i128, neg_pow2_65) matches -35581719679955312912, "mod by negative big power of two"),
   Assertion(gcd_Int(big_i128, pow2_65) matches 16, "gcd via power-of-two divmod"),

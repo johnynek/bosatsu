@@ -1321,6 +1321,33 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("div_mod"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                  val divExpr =
+                    Code
+                      .Ternary(
+                        Code.Op(a, Code.Const.Div, b),
+                        b, // 0 is false in python
+                        0
+                      )
+                      .simplify
+                  val modExpr =
+                    Code
+                      .Ternary(
+                        Code.Op(a, Code.Const.Mod, b),
+                        b, // 0 is false in python
+                        a
+                      )
+                      .simplify
+                  Code.MakeTuple(divExpr :: modExpr :: Nil)
+                }
+              },
+              2
+            )
+          ),
+          (
             Identifier.Name("addf"),
             (
               input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_)),

@@ -7,6 +7,6 @@ class BosatsuIntRuntimeTest extends munit.FunSuite {
     Predef.loadFileInCompile("test_workspace/IntRuntimeCases.bosatsu")
 
   test("Bosatsu Int tests exercise optimized runtime special cases") {
-    runBosatsuTest(List(runtimeCasesPack), "IntRuntimeCases", 38)
+    runBosatsuTest(List(runtimeCasesPack), "IntRuntimeCases", 39)
   }
 }

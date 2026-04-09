@@ -135,6 +135,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b) {
   return get_struct_index(divmod, 0);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_div__mod(BValue a, BValue b) {
+  return bsts_integer_div_mod(a, b);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_divf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) / bsts_float64_to_double(b));
 }

@@ -217,6 +217,10 @@ class BosatsuIntRuntimeLaws extends munit.ScalaCheckSuite {
               s"mod_$idx"
             ),
             assertion(
+              s"div_mod(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches (${bosatsuInt(expectedDiv)}, ${bosatsuInt(expectedMod)})",
+              s"div_mod_$idx"
+            ),
+            assertion(
               s"gcd_Int(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches ${bosatsuInt(expectedGcd)}",
               s"gcd_$idx"
             )
@@ -242,6 +246,10 @@ class BosatsuIntRuntimeLaws extends munit.ScalaCheckSuite {
             assertion(
               s"mod_Int(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches ${bosatsuInt(expectedMod)}",
               s"pow2_mod_$idx"
+            ),
+            assertion(
+              s"div_mod(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches (${bosatsuInt(expectedDiv)}, ${bosatsuInt(expectedMod)})",
+              s"pow2_div_mod_$idx"
             ),
             assertion(
               s"gcd_Int(${bosatsuInt(left)}, ${bosatsuInt(right)}) matches ${bosatsuInt(expectedGcd)}",
