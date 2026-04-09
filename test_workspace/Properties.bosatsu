@@ -8,10 +8,13 @@ exposes Bosatsu/Rand
 
 struct Prop(fn: Int -> Rand[Test])
 
+def operator +(a, b): a.add(b)
 def operator -(a, b): a.sub(b)
 def operator &(a, b): a.and_Int(b)
 def operator <<(a, b): a.shift_left_Int(b)
 def operator >>(a, b): a.shift_right_Int(b)
+def operator |(a, b): a.or_Int(b)
+def operator ^(a, b): a.xor_Int(b)
 
 
 def forall_Prop[a](rand: Rand[a], name: String, fn: a -> Test) -> Prop:
@@ -33,6 +36,25 @@ def run_Prop(prop: Prop, trials: Int, seed: Int) -> Test:
   run_Rand(rand, seed)
 
 signed64 = int_range(1 << 64).map_Rand(i -> i - (1 << 63))
+
+word32_bound = 1 << 32
+word32_rand = int_range(word32_bound)
+nonzero_word32_rand = int_range(word32_bound - 1).map_Rand(i -> i + 1)
+
+def from_words(words, acc):
+  loop words:
+    case []: acc
+    case [h, *t]: from_words(t, (acc << 32) + h)
+
+wide_positive_15 = prod_Rand(
+  nonzero_word32_rand,
+  sequence_Rand(replicate_List(word32_rand, 14))
+).map_Rand(((top, tail)) -> from_words(tail, top))
+
+wide_positive_16 = prod_Rand(
+  nonzero_word32_rand,
+  sequence_Rand(replicate_List(word32_rand, 15))
+).map_Rand(((top, tail)) -> from_words(tail, top))
 
 def operator ==(a, b): eq_Int(a, b)
 
@@ -69,11 +91,30 @@ positive_and_law = forall_Prop(
     Assertion(res, msg)
   ))
 
+wide_positive_mismatched_bitwise_law = forall_Prop(
+  wide_positive_16.prod_Rand(wide_positive_15),
+  "wide positive mismatched-width bitwise laws",
+  ((longer, shorter)) -> (
+    or_lr = longer | shorter
+    or_rl = shorter | longer
+    xor_lr = longer ^ shorter
+    xor_rl = shorter ^ longer
+    TestSuite("wide positive mismatched-width bitwise laws", [
+      Assertion((or_lr & shorter) == shorter, "or keeps all shorter bits"),
+      Assertion((or_lr & longer) == longer, "or keeps all longer bits"),
+      Assertion(or_lr == or_rl, "or is commutative for mismatched widths"),
+      Assertion((xor_lr & shorter) == (shorter & longer.not_Int()), "xor matches shorter masked complement"),
+      Assertion((xor_lr & longer) == (longer & shorter.not_Int()), "xor matches longer masked complement"),
+      Assertion(xor_lr == xor_rl, "xor is commutative for mismatched widths"),
+    ])
+  ))
+
 all_props = suite_Prop(
   "integer props", [
     not_law,
     shift_unshift_law,
     positive_and_law,
+    wide_positive_mismatched_bitwise_law,
   ])
   
 test = run_Prop(all_props, 100, 42)
