@@ -16,18 +16,21 @@ _Static_assert(sizeof(void*) == 8, "Bosatsu runtime currently requires 64-bit po
 _Static_assert(sizeof(uintptr_t) == 8, "Bosatsu runtime assumes 64-bit uintptr_t");
 _Static_assert(sizeof(size_t) == 8, "Bosatsu runtime assumes 64-bit size_t");
 _Static_assert(sizeof(BSTS_String) == 24, "BSTS_String should remain 24 bytes on 64-bit platforms");
-_Static_assert(BSTS_SMALL_INT_PAYLOAD_BITS == 62, "small-int payload bits must remain 62");
+_Static_assert(BSTS_SMALL_INT_PAYLOAD_BITS == 63, "small-int payload bits must remain 63");
 
 /*
 There are a few kinds of values:
 
-1. pure values: small ints, characters, small strings that can fit into 63 bits.
+1. generic pure values: enum0 values, characters, small strings that can fit into 63 bits.
 2. pointers to gc'ed values
 
 to distinguish these cases we allocate pointers such that they are aligned to at least 4 byte
 boundaries:
   a. ends with 01: pure value
   b. ends with 00: gc pointer.
+
+Integer-specific helpers additionally treat any odd BValue as a small Int. This is
+safe because integer operations are type-directed.
 
 when it comes to functions there are two types, PureFn and closures. We have to box
   pointers to them, but when we know we have a global PureFn we can directly call it.
@@ -42,7 +45,7 @@ Char values are stored as tiny UTF-8 strings (1..4 bytes) in type-directed conte
 String values are either pointers to BSTS_String objects or tiny strings packed
 directly into the BValue word in type-directed contexts.
 
-Integer values are either pure values (signed values packed into 62 payload bits),
+Integer values are either odd immediates (signed values packed into 63 payload bits),
 or gced big integers
 */
 #define TAG_MASK ((uintptr_t)0x3)
@@ -281,12 +284,20 @@ typedef struct {
     uint32_t* words;
 } BSTS_Int_Operand;
 
+#define BSTS_STACK_WORD_BUFFER_MAX 8U
+
+typedef struct {
+    uint32_t* words;
+    _Bool heap_allocated;
+    uint32_t stack[BSTS_STACK_WORD_BUFFER_MAX];
+} BSTS_Word_Buffer;
+
 // Helper macros and functions
-#define IS_SMALL(v) IS_PURE_VALUE(v)
+#define IS_SMALL(v) (((v) & (BValue)((uintptr_t)0x1)) == (BValue)((uintptr_t)0x1))
 #define GET_BIG_INT(v) BSTS_PTR(BSTS_Integer, (v))
 
 static inline int64_t bsts_small_int_decode(BValue value) {
-  return ((int64_t)value) >> 2;
+  return ((int64_t)value) >> 1;
 }
 
 static inline _Bool bsts_small_int_fits_int64(int64_t value) {
@@ -294,13 +305,42 @@ static inline _Bool bsts_small_int_fits_int64(int64_t value) {
 }
 
 static inline BValue bsts_small_int_from_int64_unchecked(int64_t value) {
-  return (BValue)((((uint64_t)value) << 2) | PURE_VALUE_TAG);
+  return (BValue)((((uint64_t)value) << 1) | PURE_VALUE_TAG);
 }
 
 static inline BValue bsts_small_int_from_int64_maybe(int64_t value) {
   if (!bsts_small_int_fits_int64(value)) return BSTS_BVALUE_NULL;
   return bsts_small_int_from_int64_unchecked(value);
 }
+
+#if defined(__SIZEOF_INT128__)
+static inline __int128 bsts_bigint_to_i128(const BSTS_Integer* integer) {
+  unsigned __int128 magnitude = (unsigned __int128)integer->words[0];
+  if (integer->len > 1U) {
+    magnitude |= ((unsigned __int128)integer->words[1]) << 32;
+  }
+  return integer->sign ? -(__int128)magnitude : (__int128)magnitude;
+}
+
+static BValue bsts_integer_from_i128(__int128 value) {
+  if ((value >= (__int128)BSTS_SMALL_INT_MIN) && (value <= (__int128)BSTS_SMALL_INT_MAX)) {
+    return bsts_small_int_from_int64_unchecked((int64_t)value);
+  }
+
+  unsigned __int128 magnitude = (value < 0) ? (unsigned __int128)(-value) : (unsigned __int128)value;
+  uint32_t words[4] = { 0U, 0U, 0U, 0U };
+  size_t size = 0U;
+  while (magnitude != 0U) {
+    words[size++] = (uint32_t)(magnitude & UINT32_C(0xffffffff));
+    magnitude >>= 32;
+  }
+  if (size == 0U) {
+    words[0] = 0U;
+    size = 1U;
+  }
+  return bsts_integer_from_words_copy(value >= 0, size, words);
+}
+#endif
 
 static inline uint64_t bsts_abs_i64(int64_t value) {
   if (value >= 0) return (uint64_t)value;
@@ -316,6 +356,30 @@ static inline size_t bsts_u64_to_words(uint64_t magnitude, uint32_t* words) {
 
 static inline size_t bsts_small_twos_word_len(int64_t value) {
   return (bsts_abs_i64(value) >> 32) == 0U ? 1U : 2U;
+}
+
+static void bsts_word_buffer_init(BSTS_Word_Buffer* buffer, size_t len, _Bool zero_init, const char* context) {
+  buffer->heap_allocated = 0;
+  if (len <= BSTS_STACK_WORD_BUFFER_MAX) {
+    buffer->words = buffer->stack;
+  } else {
+    buffer->words = (uint32_t*)malloc(len * sizeof(uint32_t));
+    if (buffer->words == NULL) {
+      perror(context);
+      abort();
+    }
+    buffer->heap_allocated = 1;
+  }
+
+  if (zero_init) {
+    memset(buffer->words, 0, len * sizeof(uint32_t));
+  }
+}
+
+static void bsts_word_buffer_release(BSTS_Word_Buffer* buffer) {
+  if (buffer->heap_allocated) {
+    free(buffer->words);
+  }
 }
 
 #if defined(__clang__) || defined(__GNUC__)
@@ -1065,8 +1129,8 @@ static BValue bsts_maybe_small_int_words(_Bool is_pos, size_t size, const uint32
     uint64_t magnitude = (uint64_t)words[0];
     if (size == 2) {
       uint32_t high = words[1];
-      // Any high bits above payload bit 61 cannot fit in small-int form.
-      if (high > UINT32_C(0x20000000)) {
+      // Any high bits above payload bit 62 cannot fit in small-int form.
+      if (high > UINT32_C(0x40000000)) {
         return BSTS_BVALUE_NULL;
       }
       magnitude |= ((uint64_t)high << 32);
@@ -1083,7 +1147,7 @@ static BValue bsts_maybe_small_int_words(_Bool is_pos, size_t size, const uint32
       return bsts_small_int_from_int64_unchecked((int64_t)magnitude);
     }
 
-    uint64_t min_mag = UINT64_C(1) << 61;
+    uint64_t min_mag = UINT64_C(1) << 62;
     if (magnitude > min_mag) {
       return BSTS_BVALUE_NULL;
     }
@@ -1098,13 +1162,26 @@ BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words) 
     while ((size > 1) && (words[size - 1] == 0)) {
       size--;
     }
-    {
+    if (size <= 2U) {
       BValue maybe = bsts_maybe_small_int_words(is_pos, size, words);
       if (maybe) return maybe;
     }
     BSTS_Integer* integer = bsts_integer_alloc(size);
     integer->sign = !is_pos; // sign: 0 for positive, 1 for negative
     memcpy(integer->words, words, size * sizeof(uint32_t));
+    return BSTS_VALUE_FROM_PTR(integer);
+}
+
+static BValue bsts_integer_finish_allocated_words(_Bool is_pos, size_t size, BSTS_Integer* integer) {
+    while ((size > 1) && (integer->words[size - 1] == 0U)) {
+      size--;
+    }
+    if (size <= 2U) {
+      BValue maybe = bsts_maybe_small_int_words(is_pos, size, integer->words);
+      if (maybe) return maybe;
+    }
+    integer->len = size;
+    integer->sign = !is_pos;
     return BSTS_VALUE_FROM_PTR(integer);
 }
 
@@ -1146,6 +1223,32 @@ static unsigned bsts_u32_msb_index(uint32_t word) {
 #else
   unsigned idx = 0;
   while (word >>= 1) {
+    idx++;
+  }
+  return idx;
+#endif
+}
+
+static unsigned bsts_u32_ctz_nonzero(uint32_t word) {
+#if defined(__clang__) || defined(__GNUC__)
+  return (unsigned)__builtin_ctz(word);
+#else
+  unsigned idx = 0;
+  while ((word & 1U) == 0U) {
+    word >>= 1;
+    idx++;
+  }
+  return idx;
+#endif
+}
+
+static unsigned bsts_u64_ctz_nonzero(uint64_t word) {
+#if defined(__clang__) || defined(__GNUC__)
+  return (unsigned)__builtin_ctzll(word);
+#else
+  unsigned idx = 0;
+  while ((word & UINT64_C(1)) == UINT64_C(0)) {
+    word >>= 1;
     idx++;
   }
   return idx;
@@ -1424,6 +1527,80 @@ static _Bool bsts_mul_i64_overflow(int64_t left, int64_t right, int64_t* out) {
 }
 #endif
 
+static BValue bsts_integer_add_loaded(BSTS_Int_Operand left_operand, BSTS_Int_Operand right_operand) {
+    BValue result = BSTS_BVALUE_NULL;
+    if (left_operand.sign == right_operand.sign) {
+        _Bool result_sign = left_operand.sign;
+        size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
+        BSTS_Integer* result_integer = bsts_integer_alloc(max_len + 1);
+        uint32_t* result_words = result_integer->words;
+
+        uint64_t carry = 0;
+        size_t i = 0;
+        for (; i < max_len; i++) {
+            uint64_t left_word = (i < left_operand.len) ? left_operand.words[i] : 0;
+            uint64_t right_word = (i < right_operand.len) ? right_operand.words[i] : 0;
+            uint64_t sum = left_word + right_word + carry;
+            result_words[i] = (uint32_t)(sum & UINT32_C(0xffffffff));
+            carry = sum >> 32;
+        }
+        if (carry) {
+            result_words[i++] = (uint32_t)carry;
+        }
+        size_t result_len = i;
+
+        while (result_len > 1 && result_words[result_len - 1] == 0) {
+            result_len--;
+        }
+
+        result = bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
+    } else {
+        int cmp = compare_abs(left_operand.len, left_operand.words, right_operand.len, right_operand.words);
+        if (cmp == 0) {
+            result = bsts_integer_from_int(0);
+        } else {
+            BSTS_Int_Operand* larger;
+            BSTS_Int_Operand* smaller;
+            _Bool result_sign;
+            if (cmp > 0) {
+                larger = &left_operand;
+                smaller = &right_operand;
+                result_sign = left_operand.sign;
+            } else {
+                larger = &right_operand;
+                smaller = &left_operand;
+                result_sign = right_operand.sign;
+            }
+
+            size_t result_len = larger->len;
+            BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+            uint32_t* result_words = result_integer->words;
+
+            int64_t borrow = 0;
+            for (size_t i = 0; i < result_len; i++) {
+                int64_t large_word = (int64_t)larger->words[i];
+                int64_t small_word = (i < smaller->len) ? (int64_t)smaller->words[i] : 0;
+                int64_t diff = large_word - small_word - borrow;
+                if (diff < 0) {
+                    diff += ((int64_t)1 << 32);
+                    borrow = 1;
+                } else {
+                    borrow = 0;
+                }
+                result_words[i] = (uint32_t)(diff & UINT32_C(0xffffffff));
+            }
+
+            while (result_len > 1 && result_words[result_len - 1] == 0) {
+                result_len--;
+            }
+
+            result = bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
+        }
+    }
+
+    return result;
+}
+
 BValue bsts_integer_add(BValue l, BValue r) {
     _Bool l_is_small = IS_SMALL(l);
     _Bool r_is_small = IS_SMALL(r);
@@ -1432,113 +1609,71 @@ BValue bsts_integer_add(BValue l, BValue r) {
         int64_t l_int = GET_SMALL_INT(l);
         int64_t r_int = GET_SMALL_INT(r);
         return bsts_integer_from_int64(l_int + r_int);
-    } else if (l == (BValue)PURE_VALUE_TAG) {
+    }
+#if defined(__SIZEOF_INT128__)
+    if (!l_is_small && r_is_small && (GET_BIG_INT(l)->len <= 2U)) {
+        return bsts_integer_from_i128(bsts_bigint_to_i128(GET_BIG_INT(l)) + (__int128)GET_SMALL_INT(r));
+    }
+    if (l_is_small && !r_is_small && (GET_BIG_INT(r)->len <= 2U)) {
+        return bsts_integer_from_i128((__int128)GET_SMALL_INT(l) + bsts_bigint_to_i128(GET_BIG_INT(r)));
+    }
+#endif
+    if (l == (BValue)PURE_VALUE_TAG) {
         // sub(x, y) is encoded as add(x, negate(y)), and in Bosatsu code
         // -y is encoded as 0 - y. We should have a negate in Predef, but don't currently.
         return r;
-    } else if (r == (BValue)PURE_VALUE_TAG) {
-        return l;
-    } else {
-        // At least one operand is a big integer
-
-        uint32_t left_temp[2];
-        uint32_t right_temp[2];
-        BSTS_Int_Operand left_operand;
-        BSTS_Int_Operand right_operand;
-
-        // Prepare left operand
-        bsts_integer_load_op(l, left_temp, &left_operand);
-        // Prepare right operand
-        bsts_integer_load_op(r, right_temp, &right_operand);
-
-        BValue result = BSTS_BVALUE_NULL;
-        if (left_operand.sign == right_operand.sign) {
-            // Addition
-            _Bool result_sign = left_operand.sign;
-            size_t max_len = (left_operand.len > right_operand.len) ? left_operand.len : right_operand.len;
-            uint32_t* result_words = (uint32_t*)calloc(max_len + 1, sizeof(uint32_t));
-            if (result_words == NULL) {
-                perror("failed to alloc result_words in bsts_integer_add");
-                abort();
-            }
-
-            uint64_t carry = 0;
-            size_t i = 0;
-            for (; i < max_len; i++) {
-                uint64_t left_word = (i < left_operand.len) ? left_operand.words[i] : 0;
-                uint64_t right_word = (i < right_operand.len) ? right_operand.words[i] : 0;
-                uint64_t sum = left_word + right_word + carry;
-                result_words[i] = (uint32_t)(sum & 0xFFFFFFFF);
-                carry = sum >> 32;
-            }
-            if (carry) {
-                result_words[i++] = (uint32_t)carry;
-            }
-            size_t result_len = i;
-
-            // Normalize result
-            while (result_len > 1 && result_words[result_len - 1] == 0) {
-                result_len--;
-            }
-
-            result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-            free(result_words);
-        } else {
-            // Subtraction
-            // (-a) + b if |a| > |b|, then -(a - b)
-            // a + (-b) if |a| > |b|, then (a - b)
-            // a + (-b) if |a| < |b|, then -(b - a)
-            // (-a) + b if |a| < |b|, then (b - a)
-            int cmp = compare_abs(left_operand.len, left_operand.words, right_operand.len, right_operand.words);
-            if (cmp == 0) {
-                result = bsts_integer_from_int(0);
-            } else {
-                BSTS_Int_Operand* larger;
-                BSTS_Int_Operand* smaller;
-                _Bool result_sign;
-                if (cmp > 0) {
-                    larger = &left_operand;
-                    smaller = &right_operand;
-                    result_sign = left_operand.sign;
-                } else {
-                    larger = &right_operand;
-                    smaller = &left_operand;
-                    result_sign = right_operand.sign;
-                }
-
-                size_t result_len = larger->len;
-                uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
-                if (result_words == NULL) {
-                    perror("failed to calloc result_words in bsts_integer_add");
-                    abort();
-                }
-
-                int64_t borrow = 0;
-                for (size_t i = 0; i < result_len; i++) {
-                    int64_t large_word = (int64_t)larger->words[i];
-                    int64_t small_word = (i < smaller->len) ? (int64_t)smaller->words[i] : 0;
-                    int64_t diff = large_word - small_word - borrow;
-                    if (diff < 0) {
-                        diff += ((int64_t)1 << 32);
-                        borrow = 1;
-                    } else {
-                        borrow = 0;
-                    }
-                    result_words[i] = (uint32_t)(diff & 0xFFFFFFFF);
-                }
-
-                // Normalize result
-                while (result_len > 1 && result_words[result_len - 1] == 0) {
-                    result_len--;
-                }
-
-                result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-                free(result_words);
-            }
-        }
-
-        return result;
     }
+    if (r == (BValue)PURE_VALUE_TAG) {
+        return l;
+    }
+
+    // At least one operand is a big integer
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    bsts_integer_load_op(l, left_temp, &left_operand);
+    bsts_integer_load_op(r, right_temp, &right_operand);
+    return bsts_integer_add_loaded(left_operand, right_operand);
+}
+
+BValue bsts_integer_sub(BValue l, BValue r) {
+    _Bool l_is_small = IS_SMALL(l);
+    _Bool r_is_small = IS_SMALL(r);
+
+    if (r == (BValue)PURE_VALUE_TAG) {
+        return l;
+    }
+    if (l_is_small && r_is_small) {
+        int64_t l_int = GET_SMALL_INT(l);
+        int64_t r_int = GET_SMALL_INT(r);
+        return bsts_integer_from_int64(l_int - r_int);
+    }
+#if defined(__SIZEOF_INT128__)
+    if (!l_is_small && r_is_small && (GET_BIG_INT(l)->len <= 2U)) {
+        return bsts_integer_from_i128(bsts_bigint_to_i128(GET_BIG_INT(l)) - (__int128)GET_SMALL_INT(r));
+    }
+    if (l_is_small && !r_is_small && (GET_BIG_INT(r)->len <= 2U)) {
+        return bsts_integer_from_i128((__int128)GET_SMALL_INT(l) - bsts_bigint_to_i128(GET_BIG_INT(r)));
+    }
+#endif
+    if (l == (BValue)PURE_VALUE_TAG) {
+        return bsts_integer_negate(r);
+    }
+    if (r_is_small) {
+        return bsts_integer_add(l, bsts_integer_from_int64(-GET_SMALL_INT(r)));
+    }
+
+    uint32_t left_temp[2];
+    uint32_t right_temp[2];
+    BSTS_Int_Operand left_operand;
+    BSTS_Int_Operand right_operand;
+
+    bsts_integer_load_op(l, left_temp, &left_operand);
+    bsts_integer_load_op(r, right_temp, &right_operand);
+    right_operand.sign = !right_operand.sign;
+    return bsts_integer_add_loaded(left_operand, right_operand);
 }
 
 // Function to negate a BValue
@@ -1569,13 +1704,25 @@ BValue bsts_integer_negate(BValue v) {
     }
 }
 
-// Helper f;unction to divide big integer by 10
-uint32_t bigint_divide_by_10(uint32_t* words, size_t len, uint32_t* quotient_words, size_t* quotient_len_ptr) {
+BValue bsts_integer_not(BValue v) {
+    if (IS_SMALL(v)) {
+        return bsts_integer_from_int64(~GET_SMALL_INT(v));
+    }
+    return bsts_integer_sub(bsts_integer_from_int(-1), v);
+}
+
+// Divide a positive magnitude by a small positive uint32 divisor.
+static uint32_t bigint_divide_by_u32(
+    uint32_t* words,
+    size_t len,
+    uint32_t divisor,
+    uint32_t* quotient_words,
+    size_t* quotient_len_ptr) {
     uint64_t remainder = 0;
     for (size_t i = len; i > 0; i--) {
         uint64_t dividend = (remainder << 32) | words[i - 1];
-        uint32_t quotient = (uint32_t)(dividend / 10);
-        remainder = dividend % 10;
+        uint32_t quotient = (uint32_t)(dividend / divisor);
+        remainder = dividend % divisor;
         quotient_words[i - 1] = quotient;
     }
 
@@ -1625,26 +1772,23 @@ BValue bsts_integer_to_string(BValue v) {
             return bsts_string_from_utf8_bytes_static(1, "0");
         }
 
-        // Estimate the maximum number of digits
+        // Estimate the maximum number of decimal digits.
         size_t bits = bigint->len * 32;
         size_t max_digits = (size_t)(bits * 0.30103) + 2; // +1 for sign, +1 for safety
-
-        // Allocate array for digits
-        char* digits = (char*)malloc(max_digits);
-        if (digits == NULL) {
-            // Memory allocation error
-            perror("failed to malloc digits in bsts_integer_to_string");
+        size_t max_chunks = (max_digits + 8U) / 9U;
+        uint32_t* chunks = (uint32_t*)malloc(max_chunks * sizeof(uint32_t));
+        if (chunks == NULL) {
+            perror("failed to malloc chunks in bsts_integer_to_string");
             abort();
         }
-
-        size_t digit_count = 0;
+        size_t chunk_count = 0;
 
         // Make a copy of the bigint words
         size_t len = bigint->len;
         uint32_t* words_copy = (uint32_t*)malloc(len * sizeof(uint32_t));
         if (words_copy == NULL) {
             // Memory allocation error
-            free(digits);
+            free(chunks);
             perror("failed to malloc words_copy in bsts_integer_to_string");
             abort();
         }
@@ -1653,7 +1797,7 @@ BValue bsts_integer_to_string(BValue v) {
         uint32_t* quotient_words = (uint32_t*)malloc(len * sizeof(uint32_t));
         if (quotient_words == NULL) {
             // Memory allocation error
-            free(digits);
+            free(chunks);
             free(words_copy);
             perror("failed to malloc quotient_words in bsts_integer_to_string");
             abort();
@@ -1662,13 +1806,13 @@ BValue bsts_integer_to_string(BValue v) {
         // Handle sign
         _Bool sign = bigint->sign;
 
-        // Repeatedly divide words_copy by 10
+        // Repeatedly divide by 1e9 to emit 9 decimal digits per step.
+        const uint32_t decimal_chunk_base = UINT32_C(1000000000);
         while (len > 0) {
             size_t quotient_len = 0;
-            uint32_t remainder = bigint_divide_by_10(words_copy, len, quotient_words, &quotient_len);
-
-            // Store the remainder as a digit
-            digits[digit_count++] = '0' + (char)remainder;
+            uint32_t remainder =
+                bigint_divide_by_u32(words_copy, len, decimal_chunk_base, quotient_words, &quotient_len);
+            chunks[chunk_count++] = remainder;
 
             // Prepare for next iteration
             len = quotient_len;
@@ -1680,22 +1824,41 @@ BValue bsts_integer_to_string(BValue v) {
         // Free the last quotient_words
         free(quotient_words);
 
-        // If negative, add '-' sign
-        if (sign) {
-            digits[digit_count++] = '-';
+        char first_chunk_buf[16];
+        int first_chunk_len = snprintf(
+            first_chunk_buf,
+            sizeof(first_chunk_buf),
+            "%u",
+            chunks[chunk_count - 1]);
+        if (first_chunk_len < 0) {
+            free(chunks);
+            free(words_copy);
+            perror("snprintf error in bsts_integer_to_string");
+            abort();
         }
 
-        // Now, reverse the digits to get the correct order
+        size_t digit_count =
+            (size_t)first_chunk_len + (chunk_count - 1U) * 9U + (sign ? 1U : 0U);
         BSTS_String* res = BSTS_PTR(BSTS_String, bsts_string_mut(digit_count));
         char* out = bsts_string_mut_data_ptr(res);
+        size_t out_pos = 0;
+        if (sign) {
+            out[out_pos++] = '-';
+        }
+        memcpy(out + out_pos, first_chunk_buf, (size_t)first_chunk_len);
+        out_pos += (size_t)first_chunk_len;
 
-        // reverse the data
-        for (size_t i = 0; i < digit_count; i++) {
-            out[i] = digits[digit_count - i - 1];
+        for (size_t i = chunk_count - 1U; i > 0U; i--) {
+            uint32_t chunk = chunks[i - 1U];
+            for (int digit = 8; digit >= 0; digit--) {
+                out[out_pos + (size_t)digit] = (char)('0' + (chunk % 10U));
+                chunk /= 10U;
+            }
+            out_pos += 9U;
         }
 
         // Free temporary allocations
-        free(digits);
+        free(chunks);
         free(words_copy);
 
         return BSTS_VALUE_FROM_PTR(res);
@@ -1718,27 +1881,36 @@ BValue bsts_string_to_integer(BValue v) {
   }
   // at least 1 character
 
+  size_t digit_count = slen - pos;
+  size_t first_chunk_len = digit_count % 9U;
+  if (first_chunk_len == 0U) first_chunk_len = 9U;
+
   int64_t acc = 0;
   _Bool use_big_acc = 0;
   BValue bacc = BSTS_BVALUE_NULL;
-  BValue ten = bsts_integer_from_int(10);
-  while(pos < slen) {
-    int32_t digit = (int32_t)(bytes[pos] - '0');
-    if ((digit < 0) || (9 < digit)) return alloc_enum0(0);
+  BValue billion = bsts_integer_from_int(1000000000);
+
+  while (pos < slen) {
+    size_t chunk_len = (pos == (sign ? 1U : 0U)) ? first_chunk_len : 9U;
+    uint32_t chunk = 0U;
+    for (size_t i = 0; i < chunk_len; i++) {
+      int32_t digit = (int32_t)(bytes[pos + i] - '0');
+      if ((digit < 0) || (9 < digit)) return alloc_enum0(0);
+      chunk = chunk * UINT32_C(10) + (uint32_t)digit;
+    }
 
     if (!use_big_acc) {
-      // Keep an int64 accumulator until the next decimal step would overflow.
-      if (acc > (INT64_MAX - digit) / 10) {
+      if (acc > (INT64_MAX - (int64_t)chunk) / INT64_C(1000000000)) {
         use_big_acc = 1;
         bacc = bsts_integer_from_int64(acc);
       } else {
-        acc = acc * 10 + digit;
-        pos++;
+        acc = acc * INT64_C(1000000000) + (int64_t)chunk;
+        pos += chunk_len;
         continue;
       }
     }
-    bacc = bsts_integer_add(bsts_integer_times(bacc, ten), bsts_integer_from_int(digit));
-    pos++;
+    bacc = bsts_integer_add(bsts_integer_times(bacc, billion), bsts_integer_from_uint64((uint64_t)chunk));
+    pos += chunk_len;
   }
 
   if (!use_big_acc) {
@@ -1773,7 +1945,7 @@ void sign_magnitude_to_twos_complement(_Bool sign, size_t len, uint32_t* words, 
 }
 
 // Function to convert two's complement to sign-magnitude representation
-void twos_complement_to_sign_magnitude(size_t len, uint32_t* words, _Bool* sign, size_t* result_len, uint32_t* result_words) {
+void twos_complement_to_sign_magnitude(size_t len, const uint32_t* words, _Bool* sign, size_t* result_len, uint32_t* result_words) {
     // Determine sign from the most significant bit
     uint32_t msb = words[len - 1];
     if (msb & 0x80000000) {
@@ -1832,15 +2004,14 @@ void bsts_integer_small_to_twos(int64_t value, uint32_t* target, size_t max_len)
   }
 }
 
-BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
+static BValue bsts_integer_from_twos_view(size_t max_len, const uint32_t* result_twos) {
     // Convert result from two's complement to sign-magnitude
     _Bool result_sign;
     size_t result_len = max_len;
     BSTS_Integer* result = bsts_integer_alloc(max_len);
     twos_complement_to_sign_magnitude(max_len, result_twos, &result_sign, &result_len, result->words);
-    free(result_twos);
 
-    // Canonicalize to immediate if the normalized magnitude fits 62 bits.
+    // Canonicalize to immediate if the normalized magnitude fits 63 bits.
     BValue maybe = bsts_maybe_small_int_words(!result_sign, result_len, result->words);
     if (maybe) {
       return maybe;
@@ -1848,6 +2019,124 @@ BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
     result->len = result_len;
     result->sign = result_sign;
     return BSTS_VALUE_FROM_PTR(result);
+}
+
+BValue bsts_integer_from_twos(size_t max_len, uint32_t* result_twos) {
+    BValue result = bsts_integer_from_twos_view(max_len, result_twos);
+    free(result_twos);
+    return result;
+}
+
+static inline uint64_t bsts_load_u64_chunk(const uint32_t* words, size_t pair_index) {
+    uint64_t chunk;
+    memcpy(&chunk, words + (pair_index * 2U), sizeof(chunk));
+    return chunk;
+}
+
+static inline void bsts_store_u64_chunk(uint32_t* words, size_t pair_index, uint64_t chunk) {
+    memcpy(words + (pair_index * 2U), &chunk, sizeof(chunk));
+}
+
+static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, const BSTS_Integer* right, int op) {
+    size_t min_len = (left->len < right->len) ? left->len : right->len;
+    size_t result_len = (op == '&')
+        ? min_len
+        : ((left->len > right->len) ? left->len : right->len);
+
+    if (op != '|') {
+        size_t max_len = (left->len > right->len) ? left->len : right->len;
+        _Bool maybe_small = 1;
+        for (size_t i = max_len; i > 2U; i--) {
+            size_t idx = i - 1U;
+            uint32_t left_word = (idx < left->len) ? left->words[idx] : 0U;
+            uint32_t right_word = (idx < right->len) ? right->words[idx] : 0U;
+            uint32_t result_word = (op == '&') ? (left_word & right_word) : (left_word ^ right_word);
+            if (result_word != 0U) {
+                maybe_small = 0;
+                break;
+            }
+        }
+        if (maybe_small) {
+            uint32_t small_words[2] = { 0U, 0U };
+            for (size_t i = 0; i < 2U; i++) {
+                uint32_t left_word = (i < left->len) ? left->words[i] : 0U;
+                uint32_t right_word = (i < right->len) ? right->words[i] : 0U;
+                small_words[i] = (op == '&') ? (left_word & right_word) : (left_word ^ right_word);
+            }
+            BValue maybe = bsts_maybe_small_int_words(1, 2U, small_words);
+            if (maybe != BSTS_BVALUE_NULL) {
+                return maybe;
+            }
+        }
+    }
+
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+    if (result_len >= 8U) {
+        size_t pair_count = min_len / 2U;
+        for (size_t i = 0; i < pair_count; i++) {
+            uint64_t left_chunk = bsts_load_u64_chunk(left->words, i);
+            uint64_t right_chunk = bsts_load_u64_chunk(right->words, i);
+            uint64_t result_chunk;
+            switch (op) {
+                case '&':
+                    result_chunk = left_chunk & right_chunk;
+                    break;
+                case '|':
+                    result_chunk = left_chunk | right_chunk;
+                    break;
+                default:
+                    result_chunk = left_chunk ^ right_chunk;
+                    break;
+            }
+            bsts_store_u64_chunk(result_words, i, result_chunk);
+        }
+
+        size_t tail_start = pair_count * 2U;
+        for (size_t i = tail_start; i < min_len; i++) {
+            switch (op) {
+                case '&':
+                    result_words[i] = left->words[i] & right->words[i];
+                    break;
+                case '|':
+                    result_words[i] = left->words[i] | right->words[i];
+                    break;
+                default:
+                    result_words[i] = left->words[i] ^ right->words[i];
+                    break;
+            }
+        }
+
+        if (op != '&') {
+            const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
+            for (size_t i = min_len; i < result_len; i++) {
+                result_words[i] = longer->words[i];
+            }
+        }
+    } else {
+        for (size_t i = 0; i < min_len; i++) {
+            switch (op) {
+                case '&':
+                    result_words[i] = left->words[i] & right->words[i];
+                    break;
+                case '|':
+                    result_words[i] = left->words[i] | right->words[i];
+                    break;
+                default:
+                    result_words[i] = left->words[i] ^ right->words[i];
+                    break;
+            }
+        }
+
+        if (op != '&') {
+            const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
+            for (size_t i = min_len; i < result_len; i++) {
+                result_words[i] = longer->words[i];
+            }
+        }
+    }
+
+    return bsts_integer_finish_allocated_words(1, result_len, result_integer);
 }
 
 // Function to perform bitwise AND on two BValues
@@ -1860,6 +2149,23 @@ BValue bsts_integer_and(BValue l, BValue r) {
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv & rv);
     }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return l;
+      if (lv == -1) return r;
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return r;
+      if (rv == -1) return l;
+    }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '&');
+        }
+    }
     // Determine maximum length in words
     // we need to leave space for maybe 1 extra word if we have -MAX
     size_t l_len = l_is_small ? bsts_small_twos_word_len(GET_SMALL_INT(l)) : (GET_BIG_INT(l)->len + 1);
@@ -1871,15 +2177,15 @@ BValue bsts_integer_and(BValue l, BValue r) {
         max_len = 1;
     }
 
-    // Allocate arrays for two's complement representations
-    uint32_t* l_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    uint32_t* r_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    if (l_twos == NULL || r_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to calloc l_twos or r_twos in bsts_integer_and");
-        abort();
-    }
+    BSTS_Word_Buffer l_twos_buffer;
+    BSTS_Word_Buffer r_twos_buffer;
+    BSTS_Word_Buffer result_twos_buffer;
+    bsts_word_buffer_init(&l_twos_buffer, max_len, 1, "failed to alloc l_twos in bsts_integer_and");
+    bsts_word_buffer_init(&r_twos_buffer, max_len, 1, "failed to alloc r_twos in bsts_integer_and");
+    bsts_word_buffer_init(&result_twos_buffer, max_len, 0, "failed to alloc result_twos in bsts_integer_and");
+    uint32_t* l_twos = l_twos_buffer.words;
+    uint32_t* r_twos = r_twos_buffer.words;
+    uint32_t* result_twos = result_twos_buffer.words;
 
     // Convert left operand to two's complement
     if (l_is_small) {
@@ -1898,22 +2204,16 @@ BValue bsts_integer_and(BValue l, BValue r) {
     }
 
     // Perform bitwise AND
-    uint32_t* result_twos = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to malloc result_twos in bsts_integer_and");
-        abort();
-    }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] & r_twos[i];
     }
 
-    free(l_twos);
-    free(r_twos);
+    bsts_word_buffer_release(&l_twos_buffer);
+    bsts_word_buffer_release(&r_twos_buffer);
 
-    // Convert result from two's complement to sign-magnitude
-    return bsts_integer_from_twos(max_len, result_twos);
+    BValue result = bsts_integer_from_twos_view(max_len, result_twos);
+    bsts_word_buffer_release(&result_twos_buffer);
+    return result;
 }
 
 // Function to multiply two BValues
@@ -1994,11 +2294,9 @@ BValue bsts_integer_times(BValue left, BValue right) {
     bsts_integer_load_op(right, right_temp, &r_operand);
 
     size_t result_len = l_operand.len + r_operand.len;
-    uint32_t* result_words = (uint32_t*)calloc(result_len, sizeof(uint32_t));
-    if (result_words == NULL) {
-        perror("failed to malloc result_words in bsts_integer_times");
-        abort();
-    }
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+    memset(result_words, 0, result_len * sizeof(uint32_t));
 
     for (size_t i = 0; i < l_operand.len; i++) {
         uint64_t carry = 0;
@@ -2017,9 +2315,7 @@ BValue bsts_integer_times(BValue left, BValue right) {
         result_len--;
     }
 
-    BValue result = bsts_integer_from_words_copy(!result_sign, result_len, result_words);
-    free(result_words);
-    return result;
+    return bsts_integer_finish_allocated_words(!result_sign, result_len, result_integer);
 }
 
 // Function to perform bitwise OR on two BValues
@@ -2030,6 +2326,23 @@ BValue bsts_integer_or(BValue l, BValue r) {
       int64_t lv = GET_SMALL_INT(l);
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv | rv);
+    }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return r;
+      if (lv == -1) return l;
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return l;
+      if (rv == -1) return r;
+    }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '|');
+        }
     }
 
     // Determine maximum length in words
@@ -2043,15 +2356,15 @@ BValue bsts_integer_or(BValue l, BValue r) {
         max_len = 1;
     }
 
-    // Allocate arrays for two's complement representations
-    uint32_t* l_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    uint32_t* r_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    if (l_twos == NULL || r_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to calloc l_twos or r_twos in bsts_integer_or");
-        abort();
-    }
+    BSTS_Word_Buffer l_twos_buffer;
+    BSTS_Word_Buffer r_twos_buffer;
+    BSTS_Word_Buffer result_twos_buffer;
+    bsts_word_buffer_init(&l_twos_buffer, max_len, 1, "failed to alloc l_twos in bsts_integer_or");
+    bsts_word_buffer_init(&r_twos_buffer, max_len, 1, "failed to alloc r_twos in bsts_integer_or");
+    bsts_word_buffer_init(&result_twos_buffer, max_len, 0, "failed to alloc result_twos in bsts_integer_or");
+    uint32_t* l_twos = l_twos_buffer.words;
+    uint32_t* r_twos = r_twos_buffer.words;
+    uint32_t* result_twos = result_twos_buffer.words;
 
     // Convert left operand to two's complement
     if (l_is_small) {
@@ -2070,21 +2383,16 @@ BValue bsts_integer_or(BValue l, BValue r) {
     }
 
     // Perform bitwise OR
-    uint32_t* result_twos = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to malloc result_twos in bsts_integer_or");
-        abort();
-    }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] | r_twos[i];
     }
 
-    free(l_twos);
-    free(r_twos);
+    bsts_word_buffer_release(&l_twos_buffer);
+    bsts_word_buffer_release(&r_twos_buffer);
 
-    return bsts_integer_from_twos(max_len, result_twos);
+    BValue result = bsts_integer_from_twos_view(max_len, result_twos);
+    bsts_word_buffer_release(&result_twos_buffer);
+    return result;
 }
 
 // Function to perform bitwise XOR on two BValues
@@ -2095,6 +2403,23 @@ BValue bsts_integer_xor(BValue l, BValue r) {
       int64_t lv = GET_SMALL_INT(l);
       int64_t rv = GET_SMALL_INT(r);
       return bsts_integer_from_int64(lv ^ rv);
+    }
+    if (l_is_small) {
+      int64_t lv = GET_SMALL_INT(l);
+      if (lv == 0) return r;
+      if (lv == -1) return bsts_integer_not(r);
+    }
+    if (r_is_small) {
+      int64_t rv = GET_SMALL_INT(r);
+      if (rv == 0) return l;
+      if (rv == -1) return bsts_integer_not(l);
+    }
+    if (!l_is_small && !r_is_small) {
+        BSTS_Integer* l_big = GET_BIG_INT(l);
+        BSTS_Integer* r_big = GET_BIG_INT(r);
+        if (!l_big->sign && !r_big->sign) {
+            return bsts_integer_bitwise_positive_bigints(l_big, r_big, '^');
+        }
     }
 
     // Determine maximum length in words
@@ -2108,15 +2433,15 @@ BValue bsts_integer_xor(BValue l, BValue r) {
         max_len = 1;
     }
 
-    // Allocate arrays for two's complement representations
-    uint32_t* l_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    uint32_t* r_twos = (uint32_t*)calloc(max_len, sizeof(uint32_t));
-    if (l_twos == NULL || r_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to calloc l_twos or r_twos in bsts_integer_xor");
-        abort();
-    }
+    BSTS_Word_Buffer l_twos_buffer;
+    BSTS_Word_Buffer r_twos_buffer;
+    BSTS_Word_Buffer result_twos_buffer;
+    bsts_word_buffer_init(&l_twos_buffer, max_len, 1, "failed to alloc l_twos in bsts_integer_xor");
+    bsts_word_buffer_init(&r_twos_buffer, max_len, 1, "failed to alloc r_twos in bsts_integer_xor");
+    bsts_word_buffer_init(&result_twos_buffer, max_len, 0, "failed to alloc result_twos in bsts_integer_xor");
+    uint32_t* l_twos = l_twos_buffer.words;
+    uint32_t* r_twos = r_twos_buffer.words;
+    uint32_t* result_twos = result_twos_buffer.words;
 
     // Convert left operand to two's complement
     if (l_is_small) {
@@ -2135,22 +2460,16 @@ BValue bsts_integer_xor(BValue l, BValue r) {
     }
 
     // Perform bitwise XOR
-    uint32_t* result_twos = (uint32_t*)malloc(max_len * sizeof(uint32_t));
-    if (result_twos == NULL) {
-        free(l_twos);
-        free(r_twos);
-        perror("failed to malloc result_twos in bsts_integer_xor");
-        abort();
-    }
     for (size_t i = 0; i < max_len; i++) {
         result_twos[i] = l_twos[i] ^ r_twos[i];
     }
 
-    free(l_twos);
-    free(r_twos);
+    bsts_word_buffer_release(&l_twos_buffer);
+    bsts_word_buffer_release(&r_twos_buffer);
 
-    // Convert result from two's complement to sign-magnitude
-    return bsts_integer_from_twos(max_len, result_twos);
+    BValue result = bsts_integer_from_twos_view(max_len, result_twos);
+    bsts_word_buffer_release(&result_twos_buffer);
+    return result;
 }
 
 // Function to compare two BValues
@@ -2259,14 +2578,97 @@ _Bool bsts_integer_lt_zero(BValue v) {
   }
 }
 
+static BValue bsts_integer_shift_left_loaded(BSTS_Int_Operand operand, uint64_t shift_abs_u64) {
+    uint64_t word_shift_u64 = shift_abs_u64 / 32U;
+    size_t bit_shift = (size_t)(shift_abs_u64 % 32U);
+
+    if (word_shift_u64 > (uint64_t)(SIZE_MAX - operand.len - 1U)) {
+        perror("shift amount too large in bsts_integer_shift_left_loaded");
+        abort();
+    }
+    size_t word_shift = (size_t)word_shift_u64;
+
+    size_t result_len = operand.len + word_shift + 1U;
+    if (result_len > (SIZE_MAX / sizeof(uint32_t))) {
+        perror("shift allocation too large in bsts_integer_shift_left_loaded");
+        abort();
+    }
+
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+    memset(result_words, 0, result_len * sizeof(uint32_t));
+
+    uint64_t carry = 0U;
+    for (size_t i = 0; i < operand.len; i++) {
+        uint64_t shifted = ((uint64_t)operand.words[i] << bit_shift) | carry;
+        result_words[i + word_shift] = (uint32_t)(shifted & UINT32_C(0xffffffff));
+        carry = shifted >> 32;
+    }
+    result_words[operand.len + word_shift] = (uint32_t)carry;
+
+    return bsts_integer_finish_allocated_words(!operand.sign, result_len, result_integer);
+}
+
+static BValue bsts_integer_shift_right_positive_loaded(BSTS_Int_Operand operand, uint64_t shift_abs_u64) {
+    uint64_t word_shift_u64 = shift_abs_u64 / 32U;
+    size_t bit_shift = (size_t)(shift_abs_u64 % 32U);
+
+    if (word_shift_u64 >= (uint64_t)operand.len) {
+        return bsts_integer_from_int(0);
+    }
+
+    size_t word_shift = (size_t)word_shift_u64;
+    size_t result_len = operand.len - word_shift;
+
+    if (result_len <= 2U) {
+        uint32_t result_words[2] = { 0U, 0U };
+        if (bit_shift == 0U) {
+            for (size_t i = 0; i < result_len; i++) {
+                result_words[i] = operand.words[i + word_shift];
+            }
+        } else {
+            for (size_t i = 0; i < result_len; i++) {
+                uint64_t low = operand.words[i + word_shift];
+                uint64_t high =
+                    (i + word_shift + 1U < operand.len) ? operand.words[i + word_shift + 1U] : UINT64_C(0);
+                uint64_t combined = (high << 32U) | low;
+                result_words[i] = (uint32_t)((combined >> bit_shift) & UINT32_C(0xffffffff));
+            }
+        }
+        {
+            BValue maybe = bsts_maybe_small_int_words(1, result_len, result_words);
+            if (maybe != BSTS_BVALUE_NULL) {
+                return maybe;
+            }
+        }
+    }
+
+    BSTS_Integer* result_integer = bsts_integer_alloc(result_len);
+    uint32_t* result_words = result_integer->words;
+
+    if (bit_shift == 0U) {
+        for (size_t i = 0; i < result_len; i++) {
+            result_words[i] = operand.words[i + word_shift];
+        }
+    } else {
+        for (size_t i = 0; i < result_len; i++) {
+            uint64_t low = operand.words[i + word_shift];
+            uint64_t high =
+                (i + word_shift + 1U < operand.len) ? operand.words[i + word_shift + 1U] : UINT64_C(0);
+            uint64_t combined = (high << 32U) | low;
+            result_words[i] = (uint32_t)((combined >> bit_shift) & UINT32_C(0xffffffff));
+        }
+    }
+
+    return bsts_integer_finish_allocated_words(1, result_len, result_integer);
+}
+
 static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
     _Bool l_is_small = IS_SMALL(l);
     size_t l_len = l_is_small ? bsts_small_twos_word_len(GET_SMALL_INT(l)) : (GET_BIG_INT(l)->len + 1);
-    uint32_t* l_twos = (uint32_t*)calloc(l_len, sizeof(uint32_t));
-    if (l_twos == NULL) {
-        perror("failed to calloc l_twos in bsts_integer_shift_left");
-        abort();
-    }
+    BSTS_Word_Buffer l_twos_buffer;
+    bsts_word_buffer_init(&l_twos_buffer, l_len, 1, "failed to alloc l_twos in bsts_integer_shift_left");
+    uint32_t* l_twos = l_twos_buffer.words;
     // Convert left operand to two's complement
     if (l_is_small) {
         bsts_integer_small_to_twos(GET_SMALL_INT(l), l_twos, l_len);
@@ -2286,7 +2688,7 @@ static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
         size_t bit_shift = (size_t)(shift_abs_u64 % 32U);
 
         if (word_shift_u64 > (uint64_t)(SIZE_MAX - l_len - 1U)) {
-            free(l_twos);
+            bsts_word_buffer_release(&l_twos_buffer);
             perror("shift amount too large in bsts_integer_shift_left");
             abort();
         }
@@ -2294,16 +2696,13 @@ static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
 
         size_t new_len = l_len + word_shift + 1; // +1 for possible carry
         if (new_len > (SIZE_MAX / sizeof(uint32_t))) {
-            free(l_twos);
+            bsts_word_buffer_release(&l_twos_buffer);
             perror("shift allocation too large in bsts_integer_shift_left");
             abort();
         }
-        uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
-        if (new_words == NULL) {
-            free(l_twos);
-            perror("failed to calloc new_words in bsts_integer_shift_left");
-            abort();
-        }
+        BSTS_Word_Buffer new_words_buffer;
+        bsts_word_buffer_init(&new_words_buffer, new_len, 1, "failed to alloc new_words in bsts_integer_shift_left");
+        uint32_t* new_words = new_words_buffer.words;
 
         // Shift bits
         uint64_t carry = 0;
@@ -2320,8 +2719,10 @@ static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
                 : UINT32_C(0x00000000);
         new_words[l_len + word_shift] = ((uint32_t)carry) | high_bits;
 
-        free(l_twos);
-        return bsts_integer_from_twos(new_len, new_words);
+        bsts_word_buffer_release(&l_twos_buffer);
+        BValue result = bsts_integer_from_twos_view(new_len, new_words);
+        bsts_word_buffer_release(&new_words_buffer);
+        return result;
     } else {
         // Right shift
         uint64_t word_shift_u64 = shift_abs_u64 / 32U;
@@ -2331,23 +2732,20 @@ static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
             // All bits are shifted out
             if (bsts_integer_lt_zero(l)) {
                 // Negative number, result is -1
-                free(l_twos);
+                bsts_word_buffer_release(&l_twos_buffer);
                 return bsts_integer_from_int(-1);
             } else {
                 // Positive number, result is 0
-                free(l_twos);
+                bsts_word_buffer_release(&l_twos_buffer);
                 return bsts_integer_from_int(0);
             }
         }
 
         size_t word_shift = (size_t)word_shift_u64;
         size_t new_len = l_len - word_shift;
-        uint32_t* new_words = (uint32_t*)calloc(new_len, sizeof(uint32_t));
-        if (new_words == NULL) {
-            free(l_twos);
-            perror("failed to calloc new_words in bsts_integer_shift_left");
-            abort();
-        }
+        BSTS_Word_Buffer new_words_buffer;
+        bsts_word_buffer_init(&new_words_buffer, new_len, 1, "failed to alloc new_words in bsts_integer_shift_left");
+        uint32_t* new_words = new_words_buffer.words;
 
         _Bool operand_sign = bsts_integer_lt_zero(l);
         uint32_t sign_extension =
@@ -2360,8 +2758,10 @@ static BValue bsts_integer_shift_twos(BValue l, int64_t shift_amount) {
             new_words[i] = (uint32_t)((combined >> bit_shift) & 0xFFFFFFFF);
         }
 
-        free(l_twos);
-        return bsts_integer_from_twos(new_len, new_words);
+        bsts_word_buffer_release(&l_twos_buffer);
+        BValue result = bsts_integer_from_twos_view(new_len, new_words);
+        bsts_word_buffer_release(&new_words_buffer);
+        return result;
     }
 }
 
@@ -2384,6 +2784,41 @@ BValue bsts_integer_shift_left(BValue l, BValue r) {
     if (shift_amount == 0) {
         return l;
     }
+
+    if (shift_amount > 0) {
+        if (IS_SMALL(l)) {
+            int64_t small = GET_SMALL_INT(l);
+            if (small >= 0) {
+                uint64_t shift_abs_u64 = (uint64_t)shift_amount;
+                if (shift_abs_u64 < 63U &&
+                    (uint64_t)small <= ((uint64_t)BSTS_SMALL_INT_MAX >> (size_t)shift_abs_u64)) {
+                    return bsts_small_int_from_int64_unchecked(small << (size_t)shift_abs_u64);
+                }
+            }
+        }
+
+        uint32_t temp[2];
+        BSTS_Int_Operand operand;
+        bsts_integer_load_op(l, temp, &operand);
+        return bsts_integer_shift_left_loaded(operand, (uint64_t)shift_amount);
+    }
+
+    if (!bsts_integer_lt_zero(l)) {
+        if (IS_SMALL(l)) {
+            int64_t small = GET_SMALL_INT(l);
+            uint64_t shift_abs_u64 = bsts_abs_i64(shift_amount);
+            if (shift_abs_u64 >= 63U) {
+                return bsts_integer_from_int(0);
+            }
+            return bsts_small_int_from_int64_unchecked(small >> (size_t)shift_abs_u64);
+        }
+
+        uint32_t temp[2];
+        BSTS_Int_Operand operand;
+        bsts_integer_load_op(l, temp, &operand);
+        return bsts_integer_shift_right_positive_loaded(operand, bsts_abs_i64(shift_amount));
+    }
+
     return bsts_integer_shift_twos(l, shift_amount);
 }
 
@@ -2602,6 +3037,68 @@ int bsts_integer_cmp_zero(BValue v) {
   return integer->sign ? -1 : 1;
 }
 
+static _Bool bsts_integer_abs_power_of_two_shift(BValue value, uint64_t* shift_bits_out) {
+  if (IS_SMALL(value)) {
+    uint64_t magnitude = bsts_abs_i64(GET_SMALL_INT(value));
+    if ((magnitude == 0U) || ((magnitude & (magnitude - UINT64_C(1))) != 0U)) {
+      return 0;
+    }
+    *shift_bits_out = (uint64_t)bsts_u64_ctz_nonzero(magnitude);
+    return 1;
+  }
+
+  BSTS_Integer* integer = GET_BIG_INT(value);
+  size_t found_index = 0U;
+  uint32_t found_word = 0U;
+  for (size_t i = 0; i < integer->len; i++) {
+    uint32_t word = integer->words[i];
+    if (word == 0U) continue;
+    if (found_word != 0U) {
+      return 0;
+    }
+    found_word = word;
+    found_index = i;
+  }
+
+  if ((found_word == 0U) || ((found_word & (found_word - 1U)) != 0U)) {
+    return 0;
+  }
+
+  *shift_bits_out = (uint64_t)(found_index * 32U + bsts_u32_ctz_nonzero(found_word));
+  return 1;
+}
+
+static BValue bsts_integer_div_mod_power_of_two(BValue l, BValue r, uint64_t shift_bits) {
+  BValue one = bsts_integer_from_int(1);
+  _Bool left_neg = bsts_integer_lt_zero(l);
+  _Bool right_neg = bsts_integer_lt_zero(r);
+  BValue left_abs = left_neg ? bsts_integer_negate(l) : l;
+  BValue right_abs = right_neg ? bsts_integer_negate(r) : r;
+  BValue shift = bsts_integer_from_uint64(shift_bits);
+  BValue div = bsts_integer_shift_left(left_abs, bsts_integer_negate(shift));
+  BValue mod = bsts_integer_and(left_abs, bsts_integer_sub(right_abs, one));
+
+  if (!bsts_integer_is_zero(mod)) {
+    if (!left_neg) {
+      if (right_neg) {
+        div = bsts_integer_negate(bsts_integer_add(div, one));
+        mod = bsts_integer_sub(mod, right_abs);
+      }
+    } else {
+      if (!right_neg) {
+        div = bsts_integer_negate(bsts_integer_add(div, one));
+        mod = bsts_integer_sub(right_abs, mod);
+      } else {
+        mod = bsts_integer_negate(mod);
+      }
+    }
+  } else if (right_neg ^ left_neg) {
+    div = bsts_integer_negate(div);
+  }
+
+  return alloc_struct2(div, mod);
+}
+
 // (&Integer, &Integer) -> (Integer, Integer)
 // div_mod(l, r) == (d, m) <=> l = r * d + m
 BValue bsts_integer_div_mod(BValue l, BValue r) {
@@ -2642,7 +3139,12 @@ BValue bsts_integer_div_mod(BValue l, BValue r) {
         // we define division by zero as (0, l)
         return alloc_struct2(bsts_integer_from_int(0), l);
     }
-    // TODO: we could handle the special case of r = 2^n with bit shifting
+    if ((!IS_SMALL(l) || !r_is_small)) {
+      uint64_t shift_bits = 0U;
+      if (bsts_integer_abs_power_of_two_shift(r, &shift_bits)) {
+        return bsts_integer_div_mod_power_of_two(l, r, shift_bits);
+      }
+    }
 
     // the general case is below
     uint32_t left_temp[2];

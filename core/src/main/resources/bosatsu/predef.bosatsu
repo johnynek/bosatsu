@@ -72,6 +72,7 @@ export (
   flat_map_List,
   foldl_List,
   foldr_List,
+  div_mod,
   gcd_Int,
   implies,
   get_key,
@@ -275,6 +276,8 @@ external def sub(a: Int, b: Int) -> Int
 external def mul(a: Int, b: Int) -> Int
 # Integer division rounded toward negative infinity; total with `div(a, 0) == 0`.
 external def div(a: Int, b: Int) -> Int
+# Integer division and modulus computed together; total with `div_mod(a, 0) == (0, a)`.
+external def div_mod(a: Int, b: Int) -> (Int, Int)
 # Integer equality.
 external def eq_Int(a: Int, b: Int) -> Bool
 # Greatest common divisor for two integers.

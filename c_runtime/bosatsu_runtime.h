@@ -29,9 +29,9 @@ static inline const void* bsts_bvalue_to_const_ptr(BValue value) {
 #define BSTS_STRING_INLINE16_FLAG (((size_t)1) << 63)
 #define BSTS_STRING_MAX_LEN ((size_t)(BSTS_STRING_INLINE16_FLAG - 1))
 
-#define BSTS_SMALL_INT_PAYLOAD_BITS 62
-#define BSTS_SMALL_INT_MIN (-(INT64_C(1) << 61))
-#define BSTS_SMALL_INT_MAX ((INT64_C(1) << 61) - 1)
+#define BSTS_SMALL_INT_PAYLOAD_BITS 63
+#define BSTS_SMALL_INT_MIN (-(INT64_C(1) << 62))
+#define BSTS_SMALL_INT_MAX ((INT64_C(1) << 62) - 1)
 
 typedef struct BSTS_String_View {
   size_t len;
@@ -56,8 +56,8 @@ typedef struct BSTS_String {
 // Nat values are encoded in integers
 // TODO: move these to functions implemented in bosatsu_runtime.c
 #define BSTS_NAT_0 ((BValue)((uintptr_t)0x1))
-#define BSTS_NAT_SUCC(n) ((BValue)((n) + (BValue)((uintptr_t)4)))
-#define BSTS_NAT_PREV(n) ((BValue)((n) - (BValue)((uintptr_t)4)))
+#define BSTS_NAT_SUCC(n) ((BValue)((n) + (BValue)((uintptr_t)2)))
+#define BSTS_NAT_PREV(n) ((BValue)((n) - (BValue)((uintptr_t)2)))
 #define BSTS_NAT_IS_0(n) ((n) == BSTS_NAT_0)
 #define BSTS_NAT_GT_0(n) ((n) != BSTS_NAT_0)
 
@@ -151,17 +151,19 @@ int32_t bsts_integer_to_int32(BValue bint);
 BValue bsts_integer_from_words_copy(_Bool is_pos, size_t size, uint32_t* words);
 // Integer-specific helper: callers must already know the value is an Integer.
 static inline _Bool bsts_integer_is_small(BValue value) {
-  return (value & (BValue)((uintptr_t)0x3)) == (BValue)((uintptr_t)0x1);
+  return (value & (BValue)((uintptr_t)0x1)) == (BValue)((uintptr_t)0x1);
 }
 // Integer-specific helper: callers must already know the value is a small Integer.
 static inline int64_t bsts_integer_small_value(BValue value) {
-  return ((int64_t)value) >> 2;
+  return ((int64_t)value) >> 1;
 }
 int bsts_integer_cmp_zero(BValue v);
 _Bool bsts_integer_is_zero(BValue v);
 _Bool bsts_integer_equals(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_add(BValue left, BValue right);
+// (&Integer, &Integer) -> Integer
+BValue bsts_integer_sub(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
 BValue bsts_integer_times(BValue left, BValue right);
 // (&Integer, &Integer) -> Integer
@@ -179,6 +181,8 @@ int bsts_integer_cmp(BValue l, BValue r);
 // return the negative of this
 // Integer -> Integer
 BValue bsts_integer_negate(BValue v);
+// Integer -> Integer
+BValue bsts_integer_not(BValue v);
 // &Integer -> String
 BValue bsts_integer_to_string(BValue v);
 // String -> Option[Integer]

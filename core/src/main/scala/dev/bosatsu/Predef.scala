@@ -176,6 +176,7 @@ object Predef {
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
+      .add(predefPackageName, "div_mod", FfiCall.Fn2(PredefImpl.div_mod(_, _)))
       .add(predefPackageName, "divf", FfiCall.Fn2(PredefImpl.divf(_, _)))
       .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
       .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
@@ -1093,6 +1094,16 @@ object PredefImpl {
       a.subtract(mod).divide(b)
     }
 
+  def divModBigInteger(a: BigInteger, b: BigInteger): (BigInteger, BigInteger) =
+    if (b == BigInteger.ZERO) (BigInteger.ZERO, a)
+    else if (b == BigInteger.ONE) (a, BigInteger.ZERO)
+    else if (b == BigInteger.ONE.negate()) (a.negate(), BigInteger.ZERO)
+    else {
+      val mod = modBigInteger(a, b)
+      val div = a.subtract(mod).divide(b)
+      (div, mod)
+    }
+
   def modBigInteger(a: BigInteger, b: BigInteger): BigInteger = {
     val s = b.signum
     if (s == 0) a
@@ -1113,6 +1124,11 @@ object PredefImpl {
 
   def div(a: Value, b: Value): Value =
     VInt(divBigInteger(i(a), i(b)))
+
+  def div_mod(a: Value, b: Value): Value = {
+    val (div, mod) = divModBigInteger(i(a), i(b))
+    Value.Tuple(VInt(div), VInt(mod))
+  }
 
   def divf(a: Value, b: Value): Value =
     vf(d(a) / d(b))

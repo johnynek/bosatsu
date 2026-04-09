@@ -135,6 +135,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b) {
   return get_struct_index(divmod, 0);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_div__mod(BValue a, BValue b) {
+  return bsts_integer_div_mod(a, b);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_divf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) / bsts_float64_to_double(b));
 }
@@ -183,8 +187,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_mod__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a) {
-  // ~x = (-1 - x)
-  return bsts_integer_negate(bsts_integer_add(a, bsts_integer_from_int(1)));
+  return bsts_integer_not(a);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_popcount__Int(BValue a) {
@@ -277,7 +280,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b) {
-  return ___bsts_g_Bosatsu_l_Predef_l_add(a, bsts_integer_negate(b));
+  return bsts_integer_sub(a, b);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b) {
