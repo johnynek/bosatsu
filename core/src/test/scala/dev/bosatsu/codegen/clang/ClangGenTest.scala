@@ -537,8 +537,8 @@ main = use
         )
         assert(!add1Fn.contains("call_fn2("), add1Fn)
         assert(!add1Fn.contains("___bsts_g_Test_l_add__alias2"), add1Fn)
+      }
     }
-  }
 
   test(
     "top-level unit-arg function remains direct when nested matches share False branches"

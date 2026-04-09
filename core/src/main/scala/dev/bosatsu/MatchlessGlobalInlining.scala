@@ -385,6 +385,24 @@ object MatchlessGlobalInlining {
           None
       }
 
+    def resolvedCalleeGlobal(
+        from: K,
+        pack: PackageName,
+        name: Bindable,
+        seen: Set[SummaryKey[K]]
+    ): Option[Global[K]] = {
+      val key = summaryKey(from, pack, name)
+      if (seen(key)) None
+      else
+        summaries.get(key) match {
+          case Some(ValueSummary(Global(nextFrom, nextPack, nextName), _, _, _)) =>
+            resolvedCalleeGlobal(nextFrom, nextPack, nextName, seen + key)
+              .orElse(Some(Global(nextFrom, nextPack, nextName)))
+          case _ =>
+            None
+        }
+    }
+
     def loop(ex: Expr[K]): Expr[K] =
       ex match {
         case Matchless.Lambda(captures, recursiveName, args, body) =>
@@ -501,20 +519,27 @@ object MatchlessGlobalInlining {
         args: NonEmptyList[Expr[K]]
     ): Option[Expr[K]] =
       fn match {
-        case Global(from, pack, name) =>
-          val key = summaryKey(from, pack, name)
-          summaries
-            .get(key)
-            .collect { case summary: LambdaSummary[K] => summary }
-            .flatMap { summary =>
-              shouldInline(summary, args, remainingInlineBudget).map { inlineCost =>
-                (summary, inlineCost)
-              }
+        case global @ Global(from, pack, name) =>
+          val resolvedOpt = resolvedCalleeGlobal(from, pack, name, Set.empty)
+          val resolved = resolvedOpt.getOrElse(global)
+          val maybeInlined =
+            resolved match {
+              case Global(resolvedFrom, resolvedPack, resolvedName) =>
+                summaries
+                  .get(summaryKey(resolvedFrom, resolvedPack, resolvedName))
+                  .collect { case summary: LambdaSummary[K] => summary }
+                  .flatMap { summary =>
+                    shouldInline(summary, args, remainingInlineBudget).map {
+                      inlineCost =>
+                        (summary, inlineCost)
+                    }
+                  }
+                  .map { case (summary, inlineCost) =>
+                    remainingInlineBudget = (remainingInlineBudget - inlineCost).max(0)
+                    loop(Matchless.inlineApplyArgs(summary.lambda, args))
+                  }
             }
-            .map { case (summary, inlineCost) =>
-              remainingInlineBudget = (remainingInlineBudget - inlineCost).max(0)
-              loop(Matchless.inlineApplyArgs(summary.lambda, args))
-            }
+          maybeInlined.orElse(resolvedOpt.map(_ => Matchless.App(resolved, args)))
         case _ =>
           None
       }
@@ -732,10 +757,12 @@ object MatchlessGlobalInlining {
   private def summarizeValue[K](
       expr: Expr[K]
   ): Option[InlineSummary[K]] = {
-    def knownValueNoGlobals(ex: Expr[K]): Option[Expr[K]] =
+    def knownValue(ex: Expr[K]): Option[Expr[K]] =
       ex match {
         case lit @ Matchless.Literal(_) =>
           Some(lit)
+        case global @ Matchless.Global(_, _, _) =>
+          Some(global)
         case enumExpr @ Matchless.MakeEnum(_, 0, _) =>
           Some(enumExpr)
         case structExpr @ Matchless.MakeStruct(0) =>
@@ -745,22 +772,22 @@ object MatchlessGlobalInlining {
         case Matchless.App(cons @ Matchless.MakeEnum(_, arity, _), args)
             if args.length == arity =>
           args.toList
-            .traverse(knownValueNoGlobals)
+            .traverse(knownValue)
             .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
         case Matchless.App(cons @ Matchless.MakeStruct(arity), args)
             if args.length == arity =>
           args.toList
-            .traverse(knownValueNoGlobals)
+            .traverse(knownValue)
             .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
         case Matchless.App(Matchless.SuccNat, NonEmptyList(arg, Nil)) =>
-          knownValueNoGlobals(arg)
+          knownValue(arg)
             .map(arg1 => Matchless.App(Matchless.SuccNat, NonEmptyList.one(arg1)))
         case Matchless.PrevNat(of) =>
-          knownValueNoGlobals(of).collect {
+          knownValue(of).collect {
             case Matchless.App(Matchless.SuccNat, NonEmptyList(prev, Nil)) => prev
           }
         case Matchless.GetEnumElement(arg, variant, index, size) =>
-          knownValueNoGlobals(arg).flatMap {
+          knownValue(arg).flatMap {
             case Matchless.App(Matchless.MakeEnum(v, arity, _), args)
                 if (v == variant) && (arity == size) =>
               args.toList.lift(index)
@@ -768,7 +795,7 @@ object MatchlessGlobalInlining {
               None
           }
         case Matchless.GetStructElement(arg, index, size) =>
-          knownValueNoGlobals(arg).flatMap {
+          knownValue(arg).flatMap {
             case Matchless.App(Matchless.MakeStruct(arity), args) if arity == size =>
               args.toList.lift(index)
             case value if (size == 1) && (index == 0) =>
@@ -790,7 +817,7 @@ object MatchlessGlobalInlining {
       Matchless.Expr.readsMutable(expr)
     ) None
     else
-      knownValueNoGlobals(expr).flatMap { value =>
+      knownValue(expr).flatMap { value =>
         val bodyWeight = Matchless.exprWeight(value)
         if (bodyWeight <= TinyBodyWeightBudget)
           Some(

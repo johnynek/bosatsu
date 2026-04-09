@@ -5356,6 +5356,109 @@ ${tmpLines}
     }
   }
 
+  test("optimized Matchless rewrites same-package callee alias chains") {
+    val pack = PackageName.parts("Alias", "Same")
+    val targetPack = PackageName.parts("Target", "Fn")
+    val targetName = Identifier.Name("target")
+    val aliasName = Identifier.Name("alias")
+    val alias2Name = Identifier.Name("alias2")
+    val useName = Identifier.Name("use")
+    val arg = Matchless.Literal(Lit.fromInt(1))
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          pack -> List(
+            (aliasName, Matchless.Global((), targetPack, targetName)),
+            (alias2Name, Matchless.Global((), pack, aliasName)),
+            (
+              useName,
+              Matchless.App(
+                Matchless.Global((), pack, alias2Name),
+                NonEmptyList.one(arg)
+              )
+            )
+          )
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(List(((), pack)))(_ => Nil)
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(pack).toMap.apply(useName)
+
+    assertEquals(
+      useExpr,
+      Matchless.App(
+        Matchless.Global((), targetPack, targetName),
+        NonEmptyList.one(arg)
+      )
+    )
+  }
+
+  test("optimized Matchless rewrites cross-package callee alias chains") {
+    val helperPack = PackageName.parts("Alias", "Cross", "Helper")
+    val callerPack = PackageName.parts("Alias", "Cross", "Caller")
+    val targetPack = PackageName.parts("Target", "Fn")
+    val targetName = Identifier.Name("target")
+    val aliasName = Identifier.Name("alias")
+    val alias2Name = Identifier.Name("alias2")
+    val useName = Identifier.Name("use")
+    val arg = Matchless.Literal(Lit.fromInt(1))
+
+    val rawCompiled =
+      SortedMap(
+        () -> Map(
+          helperPack -> List(
+            (aliasName, Matchless.Global((), targetPack, targetName)),
+            (alias2Name, Matchless.Global((), helperPack, aliasName))
+          ),
+          callerPack -> List(
+            (
+              useName,
+              Matchless.App(
+                Matchless.Global((), helperPack, alias2Name),
+                NonEmptyList.one(arg)
+              )
+            )
+          )
+        )
+      )
+    val topoSort =
+      dev.bosatsu.graph.Toposort.sort(
+        List(((), helperPack), ((), callerPack))
+      ) { case (_, pack) =>
+        if (pack == callerPack) List(((), helperPack)) else Nil
+      }
+
+    val optimized =
+      Par.withEC {
+        MatchlessGlobalInlining.optimize(
+          rawCompiled,
+          topoSort,
+          (_, _) => (),
+          Matchless.LocalPassOptions.Default
+        )
+      }
+    val useExpr = optimized(())(callerPack).toMap.apply(useName)
+
+    assertEquals(
+      useExpr,
+      Matchless.App(
+        Matchless.Global((), targetPack, targetName),
+        NonEmptyList.one(arg)
+      )
+    )
+  }
+
   test("optimized Matchless inlines tiny pure struct values through local aliases") {
     val helperPack = PackageName.parts("Helper", "Value")
     val callerPack = PackageName.parts("Caller", "Value")

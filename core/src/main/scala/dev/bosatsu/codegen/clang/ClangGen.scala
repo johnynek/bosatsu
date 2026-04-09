@@ -1454,7 +1454,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   key: (K, PackageName, Bindable),
                   seen: Set[(K, PackageName, Bindable)]
               ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] = {
-                val (depKey, pn, bn) = key
                 if (seen(key)) result(state, None)
                 else
                   state.allValues.get(key) match {
@@ -1466,6 +1465,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                       loop(state, nextKey, seen + key)
                     case None =>
                       // this is external
+                      val (depKey, pn, bn) = key
                       state.externals(depKey, pn, bn) match {
                         case Some((incl, ident, arity)) if arity > 0 =>
                           val withIncl = state.include(incl)
