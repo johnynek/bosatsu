@@ -71,6 +71,8 @@ class Int64Laws extends munit.ScalaCheckSuite {
   private def valueInt(v: BigInteger): Value =
     Value.VInt(v)
 
+  // Keep this model aligned with the documented Bosatsu contract:
+  // IEEE-754 ties-to-even rounding via Math.rint, then clamp to [-2^63, 2^63).
   private def modelFloat64ToInt64(value: Double): Option[Long] =
     if (!java.lang.Double.isFinite(value)) None
     else {

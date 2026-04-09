@@ -307,9 +307,8 @@ external def mulf(a: Float64, b: Float64) -> Float64
 external def divf(a: Float64, b: Float64) -> Float64
 # Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
-
-def eq_Float64(a: Float64, b: Float64) -> Bool:
-  cmp_Float64(a, b) matches EQ
+# Float64 equality where `-0.0 == 0.0` and all `.NaN` values are equal.
+external def eq_Float64(a: Float64, b: Float64) -> Bool
 
 # Repeat `item` `cnt` times.
 def replicate_List[a](item: a, cnt: Int) -> List[a]:

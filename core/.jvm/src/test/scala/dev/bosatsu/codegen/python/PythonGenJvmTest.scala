@@ -103,6 +103,7 @@ class PythonGenJvmTest extends munit.FunSuite {
     Par.withEC {
       val pm = TestUtils.compileFile(
         "test_workspace/Bosatsu/Collection/Array.bosatsu",
+        "test_workspace/Float64.bosatsu",
         "test_workspace/List.bosatsu",
         "test_workspace/Option.bosatsu",
         "test_workspace/Char.bosatsu",
@@ -131,6 +132,64 @@ class PythonGenJvmTest extends munit.FunSuite {
         s"unexpected list-backed empty array representation:\n$code"
       )
     }
+  }
+
+  test("Array Int64 helpers work through the shipped ProgExt runtime") {
+    val root = Files.createTempDirectory("bosatsu_python_array_runtime_test_")
+    try {
+      Par.withEC {
+        val pm = TestUtils.compileFile(
+          "test_workspace/Bosatsu/Collection/Array.bosatsu",
+          "test_workspace/Float64.bosatsu",
+          "test_workspace/List.bosatsu",
+          "test_workspace/Option.bosatsu",
+          "test_workspace/Char.bosatsu",
+          "test_workspace/Bool.bosatsu",
+          "test_workspace/Nat.bosatsu",
+          "test_workspace/BinNat.bosatsu",
+          "test_workspace/Int64.bosatsu",
+          "test_workspace/Rand.bosatsu",
+          "test_workspace/Properties.bosatsu"
+        )
+        val rendered = PythonGen.renderSource(pm, readProgExternals, Map.empty)
+        val packages = rendered(())
+        val moduleFile =
+          modulePath(
+            root,
+            packages(PackageName.parts("Bosatsu", "Collection", "Array"))._1
+          )
+
+        writeModules(packages, root)
+        Files.copy(Path.of("test_workspace/ProgExt.py"), root.resolve("ProgExt.py"))
+
+        val runner = root.resolve("run_array_tests.py")
+        Files.writeString(
+          runner,
+          runnerScript(
+            root.toAbsolutePath,
+            moduleFile.toAbsolutePath,
+            "tests",
+            "Bosatsu/Collection/Array"
+          ),
+          StandardCharsets.UTF_8
+        )
+
+        val stdout = new StringBuilder
+        val stderr = new StringBuilder
+        val exit =
+          Process(Seq("python3", runner.toString), root.toFile)
+            .!(ProcessLogger(
+              line => stdout.append(line).append('\n'): Unit,
+              line => stderr.append(line).append('\n'): Unit
+            ))
+
+        assertEquals(
+          exit,
+          0,
+          s"python3 runner failed\nstdout:\n$stdout\nstderr:\n$stderr"
+        )
+      }
+    } finally deleteRecursively(root)
   }
 
   test("Int64 wrapper smoke works through the shipped ProgExt runtime") {
