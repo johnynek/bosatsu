@@ -7,15 +7,16 @@ CC ?= cc
 PKG_CONFIG ?= pkg-config
 PROFILE ?= release
 CPPFLAGS ?=
-LDFLAGS ?=
 LIBS ?=
 VENDORED_DEPS ?= 0
 
 ifeq ($(PROFILE),debug)
 	CFLAGS ?= -O0 -g3
+	LDFLAGS ?=
 	RUNTIME_DEBUG_CPPFLAGS := -DBSTS_RUNTIME_DEBUG_CHECKS=1
 else ifeq ($(PROFILE),release)
-	CFLAGS ?= -O2
+	CFLAGS ?= -O3 -flto
+	LDFLAGS ?= -flto
 	RUNTIME_DEBUG_CPPFLAGS :=
 else
 $(error PROFILE must be one of: release, debug)
