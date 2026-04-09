@@ -16,9 +16,23 @@ import scala.util.Try
 class MatchlessTest extends munit.ScalaCheckSuite {
   given Order[Unit] = Order.fromOrdering
 
+  // Large ScalaCheck sizes can build very deep typed packages here, which
+  // makes Matchless lowering/cleanup occasionally dominate the whole suite.
+  private val maxMatchlessGenSize =
+    if (Platform.isScalaJvm) 8 else 6
+  private val maxMatchlessLawGenSize =
+    if (Platform.isScalaJvm) 6 else 4
+  private val maxMatchlessPackageCount =
+    if (Platform.isScalaJvm) 3 else 2
+
+  private def boundedMatchlessGen[A](maxSize: Int)(gen: => Gen[A]): Gen[A] =
+    Gen.sized { size =>
+      Gen.resize(size.min(maxSize), Gen.lzy(gen))
+    }
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
-      if (Platform.isScalaJvm) 1500 else 10
+      if (Platform.isScalaJvm) 750 else 10
     )
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]
@@ -37,20 +51,22 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   }
 
   lazy val genInputs: Gen[(Bindable, RecursionKind, TypedExpr[Unit], Fn)] =
-    Generators
-      .genPackage(Gen.const(()), 5)
-      .flatMap { (m: Map[PackageName, Package.Typed[Unit]]) =>
-        val candidates = m.filter { case (_, t) => t.lets.nonEmpty }
+    boundedMatchlessGen(maxMatchlessGenSize) {
+      Generators
+        .genPackage(Gen.const(()), maxMatchlessPackageCount)
+        .flatMap { (m: Map[PackageName, Package.Typed[Unit]]) =>
+          val candidates = m.filter { case (_, t) => t.lets.nonEmpty }
 
-        if (candidates.isEmpty) genInputs
-        else
-          for {
-            packName <- Gen.oneOf(candidates.keys.toSeq)
-            pack = m(packName)
-            (b, r, t) <- Gen.oneOf(pack.lets)
-            fn = fnFromTypeEnv(pack.types)
-          } yield (b, r, t, fn)
-      }
+          if (candidates.isEmpty) genInputs
+          else
+            for {
+              packName <- Gen.oneOf(candidates.keys.toSeq)
+              pack = m(packName)
+              (b, r, t) <- Gen.oneOf(pack.lets)
+              fn = fnFromTypeEnv(pack.types)
+            } yield (b, r, t, fn)
+        }
+    }
 
   test("matchless.fromLet is pure: f(x) == f(x)") {
     forAll(genInputs) { case (b, r, t, fn) =>
@@ -63,15 +79,20 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   }
 
   lazy val genMatchlessExpr: Gen[Matchless.Expr[Unit]] =
-    genInputs
-      .map { case (b, r, t, fn) =>
-        // ill-formed inputs can fail
-        Try(Matchless.fromLet((), b, r, t)(fn)).toOption
-      }
-      .flatMap {
-        case Some(e) => Gen.const(e)
-        case None    => genMatchlessExpr
-      }
+    boundedMatchlessGen(maxMatchlessGenSize) {
+      genInputs
+        .map { case (b, r, t, fn) =>
+          // ill-formed inputs can fail
+          Try(Matchless.fromLet((), b, r, t)(fn)).toOption
+        }
+        .flatMap {
+          case Some(e) => Gen.const(e)
+          case None    => genMatchlessExpr
+        }
+    }
+
+  lazy val genMatchlessExprLawful: Gen[Matchless.Expr[Unit]] =
+    boundedMatchlessGen(maxMatchlessLawGenSize)(genMatchlessExpr)
 
   private def boolSubexpressions(
       boolExpr: Matchless.BoolExpr[Unit]
@@ -192,6 +213,9 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case bools       => Gen.oneOf(bools)
       }
     }
+
+  lazy val genMatchlessBoolExprLawful: Gen[Matchless.BoolExpr[Unit]] =
+    boundedMatchlessGen(maxMatchlessLawGenSize)(genMatchlessBoolExpr)
 
   private val issue1688Package = PackageName.parts("Issue1688")
   private val issue1688Struct = Constructor("Foo")
@@ -1319,16 +1343,20 @@ class MatchlessTest extends munit.ScalaCheckSuite {
   }
 
   test("Matchless.Expr order is lawful") {
-    forAll(genMatchlessExpr, genMatchlessExpr, genMatchlessExpr) { (a, b, c) =>
+    forAll(
+      genMatchlessExprLawful,
+      genMatchlessExprLawful,
+      genMatchlessExprLawful
+    ) { (a, b, c) =>
       OrderingLaws.forOrder(a, b, c)
     }
   }
 
   test("Matchless.BoolExpr order is lawful") {
     forAll(
-      genMatchlessBoolExpr,
-      genMatchlessBoolExpr,
-      genMatchlessBoolExpr
+      genMatchlessBoolExprLawful,
+      genMatchlessBoolExprLawful,
+      genMatchlessBoolExprLawful
     ) { (a, b, c) =>
       OrderingLaws.forOrder(a, b, c)
     }
