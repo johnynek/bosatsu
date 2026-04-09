@@ -35,12 +35,13 @@ github.base_url=
 [`cmp_Bool`](#value-cmp-bool), [`cmp_Char`](#value-cmp-char),
 [`cmp_Comparison`](#value-cmp-comparison), [`cmp_Float64`](#value-cmp-float64),
 [`cmp_Int`](#value-cmp-int), [`cmp_String`](#value-cmp-string), [`concat`](#value-concat),
-[`concat_String`](#value-concat-string), [`div`](#value-div), [`divf`](#value-divf),
-[`empty_Dict`](#value-empty-dict), [`eq_Bool`](#value-eq-bool), [`eq_Char`](#value-eq-char),
-[`eq_Comparison`](#value-eq-comparison), [`eq_Float64`](#value-eq-float64),
-[`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string), [`flat_map_List`](#value-flat-map-list),
-[`foldl_List`](#value-foldl-list), [`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int),
-[`get_key`](#value-get-key), [`implies`](#value-implies), [`int_to_Char`](#value-int-to-char),
+[`concat_String`](#value-concat-string), [`div`](#value-div), [`div_mod`](#value-div-mod),
+[`divf`](#value-divf), [`empty_Dict`](#value-empty-dict), [`eq_Bool`](#value-eq-bool),
+[`eq_Char`](#value-eq-char), [`eq_Comparison`](#value-eq-comparison),
+[`eq_Float64`](#value-eq-float64), [`eq_Int`](#value-eq-int), [`eq_String`](#value-eq-string),
+[`flat_map_List`](#value-flat-map-list), [`foldl_List`](#value-foldl-list),
+[`foldr_List`](#value-foldr-list), [`gcd_Int`](#value-gcd-int), [`get_key`](#value-get-key),
+[`implies`](#value-implies), [`int_to_Char`](#value-int-to-char),
 [`int_to_String`](#value-int-to-string), [`items`](#value-items),
 [`length_List`](#value-length-list), [`length_String`](#value-length-string),
 [`map_List`](#value-map-list), [`mod_Int`](#value-mod-int), [`mul`](#value-mul),
@@ -2472,6 +2473,18 @@ references: [`Int`](#type-int)
 
 ```bosatsu
 def div(a: Int, b: Int) -> Int
+```
+
+<a id="value-div-mod"></a>
+
+### `div_mod`
+
+Integer division and modulus computed together; total with `div_mod(a, 0) == (0, a)`.
+
+references: [`Int`](#type-int), [`Tuple2`](#type-tuple2)
+
+```bosatsu
+def div_mod(a: Int, b: Int) -> (Int, Int)
 ```
 
 <a id="value-divf"></a>
