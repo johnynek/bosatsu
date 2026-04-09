@@ -202,7 +202,7 @@ Narrower case-based tests are still the right fit where code shape or carefully 
   Mitigation: treat the Matchless audit as part of the implementation plan and keep dedicated regression tests for IR traversal helpers.
 
 ## Rollout Notes
-- Merging this design doc is the `planned` milestone for this lane. Implementation can continue afterward from the same child issue.
+- Merging this design doc is the `planned` milestone for this lane. Implementation can continue afterward from child issue `#2320` (`https://github.com/johnynek/bosatsu/issues/2320`).
 - Land the Matchless IR change, evaluator support, and both backend lowerings together so no backend is left interpreting the new nodes indirectly.
 - No runtime ABI change is required for the first cut. If later profiling shows a missing runtime helper is worthwhile, that should be a follow-up optimization, not a prerequisite for this issue.
 - If one backend path proves unstable during rollout, disable the registry entry for that builtin family in that path and keep the generic lowering rather than backing out the whole design.
