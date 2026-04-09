@@ -494,6 +494,52 @@ main = use
     }
   }
 
+  test("top-level function alias chains stay direct calls in C") {
+    val pm = typeCheckPackages(
+      List(
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import (
+          |  Int64,
+          |  add_Int64,
+          |  int_low_bits_to_Int64 as i64,
+          |)
+          |
+          |add_alias = add_Int64
+          |add_alias2 = add_alias
+          |
+          |def add1(x: Int64) -> Int64:
+          |  add_alias2(x, i64(1))
+          |
+          |main = add1
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("add1"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val add1Fn = extractCFunction(rendered, "_l_add1(BValue")
+        assert(
+          add1Fn.contains("___bsts_g_Bosatsu_l_Num_l_Int64_l_add__Int64"),
+          add1Fn
+        )
+        assert(!add1Fn.contains("call_fn2("), add1Fn)
+        assert(!add1Fn.contains("___bsts_g_Test_l_add__alias2"), add1Fn)
+      }
+    }
+
   test(
     "top-level unit-arg function remains direct when nested matches share False branches"
   ) {
