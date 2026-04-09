@@ -2109,14 +2109,7 @@ static BValue bsts_integer_bitwise_positive_bigints(const BSTS_Integer* left, co
 
         if (op != '&') {
             const BSTS_Integer* longer = (left->len >= right->len) ? left : right;
-            size_t copy_pairs = (result_len - tail_start) / 2U;
-            size_t pair_start = tail_start / 2U;
-            for (size_t i = 0; i < copy_pairs; i++) {
-                uint64_t chunk = bsts_load_u64_chunk(longer->words, pair_start + i);
-                bsts_store_u64_chunk(result_words, pair_start + i, chunk);
-            }
-            size_t copied_tail = tail_start + (copy_pairs * 2U);
-            for (size_t i = copied_tail; i < result_len; i++) {
+            for (size_t i = min_len; i < result_len; i++) {
                 result_words[i] = longer->words[i];
             }
         }

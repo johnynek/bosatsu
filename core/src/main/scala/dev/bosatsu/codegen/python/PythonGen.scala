@@ -1623,15 +1623,16 @@ object PythonGen {
                 Env.onLast(input.head) { s =>
                   // int(s) if (s[0] == '-' and s[1:].isdigit()) or s.isdigit() else None
                   val isdigit = Code.Ident("isdigit")
-                  val isValid = Code.Op(
-                    (s.get(0) =:= Code.PyString("-")).evalAnd(
-                      Code
-                        .SelectRange(s, Some(Code.Const.One), None)
-                        .dot(isdigit)()
-                    ),
-                    Code.Const.Or,
-                    s.dot(isdigit)()
-                  )
+                  val hasLeadingMinus =
+                    (s =!= Code.PyString("")).evalAnd(
+                      (s.get(0) =:= Code.PyString("-")).evalAnd(
+                        Code
+                          .SelectRange(s, Some(Code.Const.One), None)
+                          .dot(isdigit)()
+                      )
+                    )
+                  val isValid =
+                    Code.Op(hasLeadingMinus, Code.Const.Or, s.dot(isdigit)())
 
                   Code.Ternary(
                     Code.MakeTuple(

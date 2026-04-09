@@ -315,6 +315,26 @@ void test_integer() {
   BValue and_small_right = bsts_integer_from_words_copy(1, 4, and_small_right_words);
   BValue xor_small_left = bsts_integer_from_words_copy(1, 4, xor_small_left_words);
   BValue xor_small_right = bsts_integer_from_words_copy(1, 4, xor_small_right_words);
+  uint32_t pos_mismatch_left_words[16] = {
+      123456789U, 0U, 0U, 2147483648U, 0U, 0U, 0U, 0U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 0U, 1U
+  };
+  uint32_t pos_mismatch_right_words[15] = {
+      987654321U, 0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U,
+      0U, 0U, 0U, 0U, 0U, 0U, 2147483648U
+  };
+  uint32_t pos_mismatch_or_words[16] = {
+      1071639989U, 0U, 2147483648U, 2147483648U, 0U, 0U, 0U, 2147483648U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U, 1U
+  };
+  uint32_t pos_mismatch_xor_words[16] = {
+      1032168868U, 0U, 2147483648U, 2147483648U, 0U, 0U, 0U, 2147483648U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U, 1U
+  };
+  BValue pos_mismatch_left = bsts_integer_from_words_copy(1, 16, pos_mismatch_left_words);
+  BValue pos_mismatch_right = bsts_integer_from_words_copy(1, 15, pos_mismatch_right_words);
+  BValue pos_mismatch_or_expected = bsts_integer_from_words_copy(1, 16, pos_mismatch_or_words);
+  BValue pos_mismatch_xor_expected = bsts_integer_from_words_copy(1, 16, pos_mismatch_xor_words);
 
   uint32_t neg_small_words[1] = { 123 };
   BValue neg_small_big = bsts_integer_from_words_copy(0, 1, neg_small_words);
@@ -373,12 +393,21 @@ void test_integer() {
   BValue add_i61_over = bsts_integer_add(i61_max, bsts_integer_from_int(1));
   BValue sub_i61_under = bsts_integer_add(i61_min, bsts_integer_from_int(-1));
   BValue neg_i61_min = bsts_integer_negate(i61_min);
+  BValue add_i62_over = bsts_integer_add(i62_max, bsts_integer_from_int(1));
+  BValue sub_i62_under = bsts_integer_add(i62_min, bsts_integer_from_int(-1));
+  BValue neg_i62_min = bsts_integer_negate(i62_min);
   assert_int_string(add_i61_over, "2305843009213693952", "add i61_max 1");
   assert_int_string(sub_i61_under, "-2305843009213693953", "sub i61_min 1");
   assert_int_string(neg_i61_min, "2305843009213693952", "negate i61_min");
-  assert_is_big_int(add_i61_over, "add i61_max 1 should spill to big-int");
-  assert_is_big_int(sub_i61_under, "sub i61_min 1 should spill to big-int");
-  assert_is_big_int(neg_i61_min, "negate i61_min should spill to big-int");
+  assert_int_string(add_i62_over, "4611686018427387904", "add i62_max 1");
+  assert_int_string(sub_i62_under, "-4611686018427387905", "sub i62_min 1");
+  assert_int_string(neg_i62_min, "4611686018427387904", "negate i62_min");
+  assert_is_small_int(add_i61_over, "add i61_max 1 should stay immediate");
+  assert_is_small_int(sub_i61_under, "sub i61_min 1 should stay immediate");
+  assert_is_small_int(neg_i61_min, "negate i61_min should stay immediate");
+  assert_is_big_int(add_i62_over, "add i62_max 1 should spill to big-int");
+  assert_is_big_int(sub_i62_under, "sub i62_min 1 should spill to big-int");
+  assert_is_big_int(neg_i62_min, "negate i62_min should spill to big-int");
 
   assert(bsts_integer_to_int32(i32_pos) == 305419896, "to_int32 i32_pos");
   assert(bsts_integer_to_int32(i32_neg) == -305419896, "to_int32 i32_neg");
@@ -469,6 +498,14 @@ void test_integer() {
   assert_int_string(or_neg1_result, "-1", "or big neg1");
   assert_int_string(xor_zero_result, "24197857203266734864793317670504947440", "xor big zero");
   assert(bsts_integer_equals(xor_neg1_result, bsts_integer_not(i128_pos)), "xor big neg1 equals not");
+  assert(bsts_integer_equals(
+      bsts_integer_or(pos_mismatch_left, pos_mismatch_right),
+      pos_mismatch_or_expected),
+      "or positive mismatched lengths");
+  assert(bsts_integer_equals(
+      bsts_integer_xor(pos_mismatch_left, pos_mismatch_right),
+      pos_mismatch_xor_expected),
+      "xor positive mismatched lengths");
   assert_is_small_int(and_small_result, "and big big small should canonicalize to immediate");
   assert_is_small_int(xor_small_result, "xor big big small should canonicalize to immediate");
   assert_is_small_int(and_zero_result, "and big zero should be immediate");
