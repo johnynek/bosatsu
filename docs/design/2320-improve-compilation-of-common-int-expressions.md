@@ -71,7 +71,7 @@ Add one literal-specialized node for ordinary `Lit` values:
 
 - `CompareLit(expr: CheapExpr[A], rel: CompareRel, lit: Lit)`
 
-If the implementation keeps `EqualsLit` and `LtEqLit` temporarily during the migration, cleanup should canonicalize toward `CompareLit` rather than continuing to grow the older split. The point is to have one literal-side comparison shape instead of accumulating more one-off nodes.
+`CompareLit` should be the only literal-side comparison node. Existing `EqualsLit` and `LtEqLit` uses should be migrated to it rather than retained alongside it.
 
 Important invariant: evaluating any compare node evaluates its operands exactly once, left before right, and has no side effects beyond evaluating those operands.
 
@@ -169,7 +169,7 @@ At minimum, update:
 - IR rendering for `tool show --ir matchless`
 - test helper traversals that pattern-match exhaustively on `BoolExpr` or `CheapExpr`
 
-Constant-folding should evaluate new compare nodes when both sides are known constants. If the older `EqualsLit` and `LtEqLit` nodes remain temporarily during implementation, they should fold forward into `CompareLit` or the new domain-specific nodes rather than staying the long-term canonical form.
+Constant-folding should evaluate new compare nodes when both sides are known constants, and any existing literal-side compare shapes should be normalized into `CompareLit` or the new domain-specific nodes.
 
 ## Behavioral Properties
 The change is correct when these properties hold.
