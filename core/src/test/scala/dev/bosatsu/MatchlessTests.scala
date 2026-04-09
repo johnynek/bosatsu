@@ -5253,6 +5253,42 @@ def seg_final_literal_char(s):
     }
   }
 
+  test("optimized Matchless inlines cross-package foldl_List step aliases") {
+    val helperPack = PackageName.parts("Matchless", "Global", "FoldlHelper")
+    val callerPack = PackageName.parts("Matchless", "Global", "FoldlCaller")
+    val useAlias = Identifier.Name("use_alias")
+    val foo = Identifier.Name("foo")
+    val foldlName = Identifier.Name("foldl_List")
+    val plus = Identifier.Operator("+")
+
+    checkOptimizedMatchlessPackages(
+      NonEmptyList.of(
+        """package Matchless/Global/FoldlHelper
+          |
+          |export operator +
+          |
+          |operator + = add
+          |""".stripMargin,
+        """package Matchless/Global/FoldlCaller
+          |
+          |from Matchless/Global/FoldlHelper import operator +
+          |
+          |foo = operator +
+          |
+          |def use_alias(items: List[Int]) -> Int:
+          |  items.foldl_List(0, foo)
+          |""".stripMargin
+      )
+    ) { compiled =>
+      val useExpr = compiled(callerPack).toMap.apply(useAlias)
+
+      assertEquals(containsGlobal(useExpr, helperPack, plus), false)
+      assertEquals(containsGlobal(useExpr, callerPack, foo), false)
+      assertEquals(containsGlobal(useExpr, PackageName.PredefName, foldlName), false)
+      assertEquals(Matchless.Expr.containsWhileExpr(useExpr), true)
+    }
+  }
+
   test("optimized Matchless applies a per-definition budget to repeated loop helper inlining") {
     val pack = PackageName.parts("Matchless", "Global", "Budget")
     val smallName = Identifier.Name("small")
