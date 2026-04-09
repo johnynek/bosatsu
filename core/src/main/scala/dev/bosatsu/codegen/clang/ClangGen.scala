@@ -1449,21 +1449,35 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               b: Bindable
           ): T[Option[(Code.Ident, Int)]] =
             StateT { s =>
-              val depKey = ns.depFor(k, pack)
-              val key = (depKey, pack, b)
-              s.allValues.get(key) match {
-                case Some((fn: Matchless.Lambda[K], ident)) if fn.captures.isEmpty =>
-                  result(s, Some((ident, fn.arity)))
-                case None =>
-                  // this is external
-                  s.externals(depKey, pack, b) match {
-                    case Some((incl, ident, arity)) if arity > 0 =>
-                      val withIncl = s.include(incl)
-                      result(withIncl, Some((ident, arity)))
-                    case _ => result(s, None)
+              def loop(
+                  state: State,
+                  key: (K, PackageName, Bindable),
+                  seen: Set[(K, PackageName, Bindable)]
+              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] = {
+                val (depKey, pn, bn) = key
+                if (seen(key)) result(state, None)
+                else
+                  state.allValues.get(key) match {
+                    case Some((fn: Matchless.Lambda[K], ident))
+                        if fn.captures.isEmpty =>
+                      result(state, Some((ident, fn.arity)))
+                    case Some((Matchless.Global(nextK, nextPack, nextB), _)) =>
+                      val nextKey = (ns.depFor(nextK, nextPack), nextPack, nextB)
+                      loop(state, nextKey, seen + key)
+                    case None =>
+                      // this is external
+                      state.externals(depKey, pn, bn) match {
+                        case Some((incl, ident, arity)) if arity > 0 =>
+                          val withIncl = state.include(incl)
+                          result(withIncl, Some((ident, arity)))
+                        case _ => result(state, None)
+                      }
+                    case _ =>
+                      result(state, None)
                   }
-                case _ => result(s, None)
               }
+
+              loop(s, (ns.depFor(k, pack), pack, b), Set.empty)
             }
 
           def directFn(b: Bindable): T[Option[DirectFnRef]] =
