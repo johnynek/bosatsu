@@ -1,9 +1,7 @@
 package dev.bosatsu
 
 import cats.Order
-import scala.annotation.nowarn
 
-@nowarn("msg=match may not be exhaustive")
 class Issue1633Test extends munit.FunSuite with ParTest {
   private val reproSource = """
 package MyLib/ReproMin8
@@ -94,6 +92,7 @@ main = parse_value(" null")
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
             Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
             Matchless.ZeroNat | Matchless.SuccNat =>
           false
@@ -101,6 +100,14 @@ main = parse_value(" null")
 
     def loopBool(b: Matchless.BoolExpr[A]): Boolean =
       b match {
+        case Matchless.CompareLit(expr, _, _) =>
+          loopExpr(expr)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
         case Matchless.EqualsLit(expr, _) =>
           loopExpr(expr)
         case Matchless.LtEqLit(expr, _) =>

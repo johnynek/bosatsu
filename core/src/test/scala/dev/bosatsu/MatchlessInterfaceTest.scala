@@ -4,9 +4,7 @@ import cats.Order
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.codegen.CompilationSource
-import scala.annotation.nowarn
 
-@nowarn("msg=match may not be exhaustive")
 class MatchlessInterfaceTest extends munit.FunSuite {
 
   private def typeCheck(
@@ -71,6 +69,14 @@ class MatchlessInterfaceTest extends munit.FunSuite {
       name: Identifier.Bindable
   ): Boolean =
     boolExpr match {
+      case Matchless.CompareLit(arg, _, _) =>
+        containsGlobal(arg, pack, name)
+      case Matchless.CompareInt(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
+      case Matchless.CompareInt64(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
+      case Matchless.CompareFloat64(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
       case Matchless.EqualsLit(arg, _) =>
         containsGlobal(arg, pack, name)
       case Matchless.LtEqLit(arg, _) =>

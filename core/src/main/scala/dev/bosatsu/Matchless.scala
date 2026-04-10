@@ -3497,6 +3497,32 @@ object Matchless {
   ): Boolean =
     compareRelHolds(rel, PredefImpl.compareFloat64Total(left, right))
 
+  private[bosatsu] val comparisonTrueVariants: Set[Int] =
+    Set(0, 1, 2)
+
+  // Match lowering observes Comparison values only through the LT/EQ/GT
+  // constructors, so every total boolean observation must collapse to one
+  // relation or a constant.
+  private[bosatsu] def comparisonObservation(
+      trueVariants: Set[Int]
+  ): Either[Boolean, CompareRel] =
+    if (trueVariants.isEmpty) Left(false)
+    else if (trueVariants == Set(0)) Right(CompareRel.Lt)
+    else if (trueVariants == Set(0, 1)) Right(CompareRel.Lte)
+    else if (trueVariants == Set(1)) Right(CompareRel.Eq)
+    else if (trueVariants == Set(1, 2)) Right(CompareRel.Gte)
+    else if (trueVariants == Set(2)) Right(CompareRel.Gt)
+    else if (trueVariants == Set(0, 2)) Right(CompareRel.Ne)
+    else if (trueVariants == comparisonTrueVariants) Left(true)
+    else {
+      // total boolean matches over Comparison only have these subsets
+      // $COVERAGE-OFF$
+      throw new IllegalStateException(
+        s"unexpected Comparison observation: $trueVariants"
+      )
+      // $COVERAGE-ON$
+    }
+
   private[bosatsu] def compareLiteralValues(
       left: Lit,
       rel: CompareRel,
@@ -3505,6 +3531,8 @@ object Matchless {
     (left, right) match {
       case (Lit.Integer(lhs), Lit.Integer(rhs)) =>
         Some(compareRelHolds(rel, lhs.compareTo(rhs)))
+      case (lhs: Lit.Chr, rhs: Lit.Chr) =>
+        Some(compareRelHolds(rel, Integer.compare(lhs.toCodePoint, rhs.toCodePoint)))
       case (lhs: Lit.StringMatchResult, rhs: Lit.StringMatchResult) =>
         Some(compareRelHolds(rel, lhs.asStr.compareTo(rhs.asStr)))
       case (lhs: Lit.Float64, rhs: Lit.Float64) =>
@@ -5578,27 +5606,6 @@ object Matchless {
       }
 
     val comparisonFamArities = 0 :: 0 :: 0 :: Nil
-    val comparisonTrueVariants = Set(0, 1, 2)
-
-    def comparisonObservation(
-        trueVariants: Set[Int]
-    ): Either[Boolean, CompareRel] =
-      if (trueVariants.isEmpty) Left(false)
-      else if (trueVariants == Set(0)) Right(CompareRel.Lt)
-      else if (trueVariants == Set(0, 1)) Right(CompareRel.Lte)
-      else if (trueVariants == Set(1)) Right(CompareRel.Eq)
-      else if (trueVariants == Set(1, 2)) Right(CompareRel.Gte)
-      else if (trueVariants == Set(2)) Right(CompareRel.Gt)
-      else if (trueVariants == Set(0, 2)) Right(CompareRel.Ne)
-      else if (trueVariants == comparisonTrueVariants) Left(true)
-      else {
-        // total boolean matches over Comparison only have these subsets
-        // $COVERAGE-OFF$
-        throw new IllegalStateException(
-          s"unexpected Comparison observation: $trueVariants"
-        )
-        // $COVERAGE-ON$
-      }
 
     def comparisonObservationFor(
         selector: CheapExpr[B],

@@ -280,6 +280,16 @@ object MatchlessToValue {
         right match {
           case Lit.Integer(value) =>
             compareIntValues(left, rel, BInt.fromBigInteger(value))
+          case rhs: Lit.Chr =>
+            left match {
+              case s: String if s.codePointCount(0, s.length) == 1 =>
+                Matchless.compareRelHolds(
+                  rel,
+                  Integer.compare(s.codePointAt(0), rhs.toCodePoint)
+                )
+              case _ =>
+                false
+            }
           case rhs: Lit.StringMatchResult =>
             left match {
               case s: String =>

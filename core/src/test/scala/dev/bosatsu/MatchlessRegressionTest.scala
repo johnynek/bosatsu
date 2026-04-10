@@ -5,9 +5,7 @@ import cats.data.NonEmptyList
 import dev.bosatsu.rankn.DataRepr
 import dev.bosatsu.rankn.Type
 import java.math.BigInteger
-import scala.annotation.nowarn
 
-@nowarn("msg=match may not be exhaustive")
 class MatchlessRegressionTest extends munit.FunSuite {
   private def nestedLetMut(depth: Int): Matchless.Expr[Unit] =
     (0 until depth).foldLeft[Matchless.Expr[Unit]](Matchless.MakeStruct(0)) {
@@ -149,6 +147,14 @@ class MatchlessRegressionTest extends munit.FunSuite {
 
   private def countBoolWhileExprs(b: Matchless.BoolExpr[Unit]): Int =
     b match {
+      case Matchless.CompareLit(expr, _, _) =>
+        countWhileExprs(expr)
+      case Matchless.CompareInt(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
+      case Matchless.CompareInt64(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
+      case Matchless.CompareFloat64(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
       case Matchless.EqualsLit(expr, _) =>
         countWhileExprs(expr)
       case Matchless.LtEqLit(expr, _) =>
@@ -177,6 +183,14 @@ class MatchlessRegressionTest extends munit.FunSuite {
         activeRecNames: Set[Identifier.Bindable]
     ): Int =
       b match {
+        case Matchless.CompareLit(expr, _, _) =>
+          loopExpr(expr, activeRecNames)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
         case Matchless.EqualsLit(expr, _) =>
           loopExpr(expr, activeRecNames)
         case Matchless.LtEqLit(expr, _) =>
@@ -250,6 +264,7 @@ class MatchlessRegressionTest extends munit.FunSuite {
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
             Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
             Matchless.ZeroNat | Matchless.SuccNat =>
           0
@@ -285,6 +300,10 @@ class MatchlessRegressionTest extends munit.FunSuite {
             loopCheap(left) ++ loopCheap(right)
           case Matchless.CompareFloat64(left, _, right) =>
             loopCheap(left) ++ loopCheap(right)
+          case Matchless.EqualsLit(expr, _) =>
+            loopCheap(expr)
+          case Matchless.LtEqLit(expr, _) =>
+            loopCheap(expr)
           case Matchless.EqualsNat(expr, _) =>
             loopCheap(expr)
           case Matchless.And(left, right) =>
