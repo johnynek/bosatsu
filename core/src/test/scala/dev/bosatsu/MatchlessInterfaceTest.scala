@@ -4,7 +4,9 @@ import cats.Order
 import cats.data.NonEmptyList
 import dev.bosatsu.IorMethods.IorExtension
 import dev.bosatsu.codegen.CompilationSource
+import scala.annotation.nowarn
 
+@nowarn("msg=match may not be exhaustive")
 class MatchlessInterfaceTest extends munit.FunSuite {
 
   private def typeCheck(

@@ -3165,6 +3165,47 @@ object PythonGen {
         ns: CompilationNamespace[K]
     ) {
       private type InlineSlots = Option[Vector[Expression]]
+      private val int64Package = PackageName.parts("Bosatsu", "Num", "Int64")
+
+      private def mathModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("math")))
+
+      private def progExtModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt")))
+
+      // Prefer the package-level external remap so Jython tests and any
+      // alternate Int64 runtime shims stay in sync with normal codegen.
+      private def applyExternalFn(
+          value: ValueLike,
+          arg: Code.Expression
+      ): Env[Code.Expression] =
+        Env
+          .onLastM(value)(fn => Env.pure[Code.ValueLike](fn(arg)))
+          .map {
+            case expr: Code.Expression => expr
+            case other =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected external application to stay expression-shaped, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+
+      private def boxInt64(expr: Code.Expression): Env[Code.Expression] =
+        remap(int64Package, Identifier.Name("int_low_bits_to_Int64")).flatMap {
+          case Some(vl) =>
+            applyExternalFn(vl, expr)
+          case None =>
+            progExtModule.map(_.dot(Code.Ident("_BosatsuInt64"))(expr))
+        }
+
+      private def unboxInt64(expr: Code.Expression): Env[Code.Expression] =
+        remap(int64Package, Identifier.Name("int64_to_Int")).flatMap {
+          case Some(vl) =>
+            applyExternalFn(vl, expr)
+          case None =>
+            progExtModule.map(_.dot(Code.Ident("int64_to_Int"))(expr))
+        }
 
       /*
        * enums with no fields are integers
@@ -3227,38 +3268,101 @@ object PythonGen {
           slotName: Option[Code.Ident],
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
-        ix match {
-          case EqualsLit(expr, lit: dev.bosatsu.Lit.Float64) =>
-            val literal = Code.litToExpr(lit)
-            if (java.lang.Double.isNaN(lit.toDouble)) {
-              Env.importLiteral(NonEmptyList.one(Code.Ident("math"))).flatMap {
-                math =>
-                  loop(expr, slotName, inlineSlots)
-                    .flatMap(
-                      Env.onLast(_)(ex => math.dot(Code.Ident("isnan"))(ex))
-                    )
-              }
-            } else {
-              loop(expr, slotName, inlineSlots)
-                .flatMap(Env.onLast(_)(ex => ex =:= literal))
+        def compareRelExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Code.Expression =
+          rel match {
+            case Matchless.CompareRel.Eq  => left =:= right
+            case Matchless.CompareRel.Ne  => left =!= right
+            case Matchless.CompareRel.Lt  => left :< right
+            case Matchless.CompareRel.Lte => !(right :< left)
+            case Matchless.CompareRel.Gt  => left :> right
+            case Matchless.CompareRel.Gte => !(left :< right)
+          }
+
+        def floatCmpExpr(
+            left: Code.Expression,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          mathModule.map { math =>
+            val leftNaN = math.dot(Code.Ident("isnan"))(left)
+            val rightNaN = math.dot(Code.Ident("isnan"))(right)
+            val neitherNaN = Code
+              .Ternary(
+                0,
+                left :< right,
+                Code.Ternary(1, left =:= right, 2)
+              )
+              .simplify
+            Code
+              .Ternary(
+                Code.Ternary(1, rightNaN, 0),
+                leftNaN,
+                Code.Ternary(2, rightNaN, neitherNaN)
+              )
+              .simplify
+          }
+
+        def compareFloatExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          floatCmpExpr(left, right).map { cmp =>
+            rel match {
+              case Matchless.CompareRel.Eq  => cmp =:= 1
+              case Matchless.CompareRel.Ne  => cmp =!= 1
+              case Matchless.CompareRel.Lt  => cmp =:= 0
+              case Matchless.CompareRel.Lte => cmp =!= 2
+              case Matchless.CompareRel.Gt  => cmp =:= 2
+              case Matchless.CompareRel.Gte => cmp =!= 0
             }
-          case EqualsLit(expr, lit) =>
+          }
+
+        ix match {
+          case CompareLit(expr, rel, lit: dev.bosatsu.Lit.Float64) =>
             val literal = Code.litToExpr(lit)
             loop(expr, slotName, inlineSlots)
-              .flatMap(Env.onLast(_)(ex => ex =:= literal))
-          case LtEqLit(expr, lit) =>
-            lit match {
-              case Lit.Integer(_) | Lit.Chr(_) =>
-                val literal = Code.litToExpr(lit)
-                loop(expr, slotName, inlineSlots)
-                  .flatMap(Env.onLast(_)(ex => !(literal :< ex)))
-              case _ =>
-                // $COVERAGE-OFF$
-                throw new IllegalStateException(
-                  s"LtEqLit only supports Int and Char literals, found: $lit"
-                )
-              // $COVERAGE-ON$
-            }
+              .flatMap(Env.onLastM(_)(ex => compareFloatExpr(ex, rel, literal)))
+          case CompareLit(expr, rel, lit) =>
+            val literal = Code.litToExpr(lit)
+            loop(expr, slotName, inlineSlots)
+              .flatMap(Env.onLast(_)(ex => compareRelExpr(ex, rel, literal)))
+          case CompareInt(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN(Env.onLast2(_, _)(compareRelExpr(_, rel, _)))
+          case CompareInt64(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN { (leftValue, rightValue) =>
+                Env.onLastsM(leftValue :: rightValue :: Nil) {
+                  case leftExpr :: rightExpr :: Nil =>
+                    (unboxInt64(leftExpr), unboxInt64(rightExpr)).mapN {
+                      compareRelExpr(_, rel, _)
+                    }
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected two Int64 operands, found: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
+          case CompareFloat64(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN { (leftValue, rightValue) =>
+                Env.onLastsM(leftValue :: rightValue :: Nil) {
+                  case leftExpr :: rightExpr :: Nil =>
+                    compareFloatExpr(leftExpr, rel, rightExpr)
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected two Float64 operands, found: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat, slotName, inlineSlots)
 
@@ -3625,6 +3729,8 @@ object PythonGen {
             // there is no need to
             loop(in, slotName, inlineSlots)
           case Literal(lit)         => Env.pure(Code.litToExpr(lit))
+          case LitInt64(value)      =>
+            boxInt64(Code.PyInt(java.math.BigInteger.valueOf(value)))
           case ifExpr @ If(_, _, _) =>
             val (ifs, last) = ifExpr.flatten
 

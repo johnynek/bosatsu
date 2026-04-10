@@ -1,7 +1,9 @@
 package dev.bosatsu
 
 import cats.Order
+import scala.annotation.nowarn
 
+@nowarn("msg=match may not be exhaustive")
 class Issue1633Test extends munit.FunSuite with ParTest {
   private val reproSource = """
 package MyLib/ReproMin8

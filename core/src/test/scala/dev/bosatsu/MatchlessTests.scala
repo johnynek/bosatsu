@@ -11,8 +11,10 @@ import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
 
 import scala.collection.immutable.SortedMap
+import scala.annotation.nowarn
 import scala.util.Try
 
+@nowarn("msg=match may not be exhaustive")
 class MatchlessTest extends munit.ScalaCheckSuite {
   given Order[Unit] = Order.fromOrdering
 
@@ -24,6 +26,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     if (Platform.isScalaJvm) 6 else 4
   private val maxMatchlessPackageCount =
     if (Platform.isScalaJvm) 3 else 2
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
 
   private def boundedMatchlessGen[A](maxSize: Int)(gen: => Gen[A]): Gen[A] =
     Gen.sized { size =>
@@ -267,6 +271,21 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def intLit(i: Int): TypedExpr[Unit] =
     TypedExpr.Literal(Lit.fromInt(i), rankn.Type.IntType, ())
+
+  private def evalExpr(expr: Matchless.Expr[Unit]): Value =
+    MatchlessToValue
+      .traverse[Vector, Unit](Vector(expr))((_, _, _) => Eval.now(Value.UnitValue))
+      .head
+      .value
+
+  private def evalBoolExpr(boolExpr: Matchless.BoolExpr[Unit]): Boolean =
+    evalExpr(
+      Matchless.If(
+        boolExpr,
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      )
+    ) == Value.VInt(1)
 
   private def pairCtorType(
       leftType: rankn.Type,
@@ -6404,6 +6423,153 @@ ${tmpLines}
           enableGlobalInlining = true
         ),
         namespace.compiled
+      )
+    }
+  }
+
+  test("CompareInt predicates agree with integer relation semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+
+    forAll(
+      Arbitrary.arbitrary[Int],
+      Arbitrary.arbitrary[Int],
+      Gen.oneOf(compareRels)
+    ) { (left, right, rel) =>
+      val predicate =
+        Matchless.CompareInt(
+          Matchless.Literal(Lit.fromInt(left)),
+          rel,
+          Matchless.Literal(Lit.fromInt(right))
+        )
+
+      assertEquals(
+        evalBoolExpr(predicate),
+        Matchless.compareRelHolds(rel, Integer.compare(left, right))
+      )
+    }
+  }
+
+  test("CompareInt64 predicates agree with signed Long relation semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+
+    forAll(
+      Arbitrary.arbitrary[Long],
+      Arbitrary.arbitrary[Long],
+      Gen.oneOf(compareRels)
+    ) { (left, right, rel) =>
+      val predicate =
+        Matchless.CompareInt64(
+          Matchless.LitInt64(left),
+          rel,
+          Matchless.LitInt64(right)
+        )
+
+      assertEquals(
+        evalBoolExpr(predicate),
+        Matchless.compareRelHolds(rel, java.lang.Long.compare(left, right))
+      )
+    }
+  }
+
+  test("CompareFloat64 predicates agree with total-order Float64 semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+    val rawBitsGen: Gen[Long] =
+      Gen.frequency(
+        (8, Arbitrary.arbitrary[Long]),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(Double.NaN))),
+        (
+          1,
+          Gen.const(
+            java.lang.Double.doubleToRawLongBits(
+              java.lang.Double.POSITIVE_INFINITY
+            )
+          )
+        ),
+        (
+          1,
+          Gen.const(
+            java.lang.Double.doubleToRawLongBits(
+              java.lang.Double.NEGATIVE_INFINITY
+            )
+          )
+        ),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(0.0d))),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(-0.0d)))
+      )
+
+    forAll(rawBitsGen, rawBitsGen, Gen.oneOf(compareRels)) {
+      (leftBits: Long, rightBits: Long, rel) =>
+        val left = java.lang.Double.longBitsToDouble(leftBits)
+        val right = java.lang.Double.longBitsToDouble(rightBits)
+        val predicate =
+          Matchless.CompareFloat64(
+            Matchless.Literal(Lit.Float64.fromRawLongBits(leftBits)),
+            rel,
+            Matchless.Literal(Lit.Float64.fromRawLongBits(rightBits))
+          )
+
+        assertEquals(
+          evalBoolExpr(predicate),
+          Matchless.compareRelHolds(rel, PredefImpl.compareFloat64Total(left, right))
+        )
+    }
+  }
+
+  test("literal Int64 conversions lower to LitInt64 and direct Option constructors") {
+    val src =
+      """package Test
+        |
+        |from Bosatsu/Num/Int64 import int_low_bits_to_Int64, int_to_Int64
+        |
+        |low_bits = int_low_bits_to_Int64(18446744073709551615)
+        |safe = int_to_Int64(-9223372036854775808)
+        |too_big = int_to_Int64(9223372036854775808)
+        |main = (low_bits, safe, too_big)
+        |""".stripMargin
+
+    Par.withEC {
+      TestUtils.testInferred(
+        List(int64Pack, src),
+        "Test", { (pm, packName) =>
+          val compiled =
+            MatchlessFromTypedExpr.compile(
+              (),
+              pm,
+              Matchless.LocalPassOptions.Default
+            )
+          val byName = compiled(packName).toMap
+          val lowBits = byName(Identifier.Name("low_bits"))
+          val safe = byName(Identifier.Name("safe"))
+          val tooBig = byName(Identifier.Name("too_big"))
+
+          assertEquals(lowBits, Matchless.LitInt64(-1L))
+          assert(safe.toString.contains("LitInt64(-9223372036854775808)"), safe.toString)
+          assert(
+            !tooBig.toString.contains("int__to__Int64"),
+            tooBig.toString
+          )
+        }
       )
     }
   }

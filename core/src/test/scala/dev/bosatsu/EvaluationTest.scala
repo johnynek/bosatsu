@@ -590,6 +590,72 @@ test = TestSuite("int64-eval", [
     )
   }
 
+  test("comparison observations preserve semantics across Int, Float64, and Int64") {
+    val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+    val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+
+    runBosatsuTest(
+      List(
+        float64Pack,
+        int64Pack,
+        """
+package Foo
+
+from Bosatsu/Num/Int64 import (
+  cmp_Int64,
+  eq_Int64,
+  int_low_bits_to_Int64,
+  int_to_Int64,
+)
+
+nan0 = divf(0.0, 0.0)
+
+def let_cmp():
+  cmp = cmp_Int(add(1, 2), sub(10, 7))
+  match cmp:
+    case LT | EQ: True
+    case GT: False
+
+test = TestSuite("comparison-lowering", [
+  Assertion(cmp_Int(-1, 0) matches LT | EQ, "int <= 0"),
+  Assertion(cmp_Int(7, 7) matches GT | EQ, "int >= dynamic"),
+  Assertion(
+    (
+      match cmp_Int(4, 5):
+        case LT: True
+        case GT: True
+        case _: False
+    ),
+    "explicit bool match"
+  ),
+  Assertion(eq_Int(0, 0), "eq_Int"),
+  Assertion(let_cmp(), "let-bound cmp observation"),
+  Assertion(eq_Float64(nan0, .NaN), "float equality keeps NaN behavior"),
+  Assertion(cmp_Float64(-0.0, 0.0) matches EQ, "float signed zero"),
+  Assertion(
+    eq_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(-1)),
+    "Int64 equality"
+  ),
+  Assertion(
+    cmp_Int64(int_low_bits_to_Int64(-1), int_low_bits_to_Int64(0)) matches LT | EQ,
+    "Int64 comparison"
+  ),
+  Assertion(
+    (
+      match int_to_Int64(9223372036854775808):
+        case None: True
+        case Some(_): False
+    ),
+    "Int64 literal conversion fallback"
+  ),
+])
+"""
+      ),
+      "Foo",
+      10
+    )
+  }
+
   test("use range") {
     evalTest(
       List("""

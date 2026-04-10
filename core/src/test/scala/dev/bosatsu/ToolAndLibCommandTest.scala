@@ -22,8 +22,10 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.charset.StandardCharsets
 import munit.FunSuite
 import org.typelevel.paiges.Doc
+import scala.annotation.nowarn
 import scala.collection.immutable.SortedMap
 
+@nowarn("msg=match may not be exhaustive")
 class ToolAndLibCommandTest extends FunSuite {
   private type ErrorOr[A] = Either[Throwable, A]
   private type StateIO[A] = MemoryMain.StateF[ErrorOr][A]
