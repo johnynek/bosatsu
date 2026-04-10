@@ -96,9 +96,13 @@ def write_cc_conf(
     os_type = detect_os_type()
     bosatsu_dir = os.path.join(rootdir, ".bosatsuc", version)
 
-    profile_defaults = {
-        "release": ["-O2"],
+    profile_cflag_defaults = {
+        "release": ["-O3", "-flto"],
         "debug": ["-O0", "-g3"],
+    }
+    profile_ldflag_defaults = {
+        "release": ["-flto"],
+        "debug": [],
     }
 
     cflags_parts = split_flags(cflags)
@@ -109,7 +113,7 @@ def write_cc_conf(
 
     flags = unique_flags(
         (
-            profile_defaults[profile] if not cflags_parts else []
+            profile_cflag_defaults[profile] if not cflags_parts else []
         )
         + cpp_define_flags
         + cflags_parts
@@ -119,6 +123,7 @@ def write_cc_conf(
     )
     link_libs = unique_flags(
         [f"{os.path.join(bosatsu_dir, 'lib', 'bosatsu_platform.a')}"]
+        + (profile_ldflag_defaults[profile] if not ldflags_parts else [])
         + ldflags_parts
         + libs_parts
         + ["-lm"]
