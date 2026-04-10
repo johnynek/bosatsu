@@ -293,7 +293,7 @@ object MatchlessToValue {
           case rhs: Lit.StringMatchResult =>
             left match {
               case s: String =>
-                Matchless.compareRelHolds(rel, s.compareTo(rhs.asStr))
+                Matchless.compareRelHolds(rel, StringUtil.codePointCompare(s, rhs.asStr))
               case _ =>
                 false
             }

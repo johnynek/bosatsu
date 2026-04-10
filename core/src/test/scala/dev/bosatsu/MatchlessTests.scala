@@ -6640,6 +6640,38 @@ ${tmpLines}
     }
   }
 
+  test("CompareLit String predicates use Bosatsu code point ordering for astral Unicode") {
+    val left = Lit.Str("\uE000")
+    val right = Lit.Str(new String(Character.toChars(0x10000)))
+    val compareRels = List(
+      Matchless.CompareRel.Eq -> false,
+      Matchless.CompareRel.Ne -> true,
+      Matchless.CompareRel.Lt -> true,
+      Matchless.CompareRel.Lte -> true,
+      Matchless.CompareRel.Gt -> false,
+      Matchless.CompareRel.Gte -> false
+    )
+
+    assert(StringUtil.codePointCompare(left.asStr, right.asStr) < 0)
+    assert(left.asStr.compareTo(right.asStr) > 0)
+
+    compareRels.foreach { case (rel, expected) =>
+      assertEquals(
+        Matchless.compareLiteralValues(left, rel, right),
+        Some(expected)
+      )
+
+      val predicate =
+        Matchless.CompareLit(
+          Matchless.Literal(left),
+          rel,
+          right
+        )
+
+      assertEquals(evalBoolExpr(predicate), expected)
+    }
+  }
+
   test("comparisonObservation matches Comparison constructor subset semantics") {
     val observationGen =
       Gen.oneOf(Matchless.comparisonTrueVariants.subsets.map(_.toSet).toList)

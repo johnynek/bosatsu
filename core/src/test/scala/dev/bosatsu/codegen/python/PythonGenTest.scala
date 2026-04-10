@@ -607,6 +607,39 @@ main = compare_three
     }
   }
 
+  test("CompareLit string predicates keep the Python string helper") {
+    val astral = new String(Character.toChars(0x10000))
+    val pm = typeCheckPackage(s"""package Test
+from Bosatsu/Predef import cmp_String
+
+def before_astral(s):
+  cmp_String(s, "$astral") matches LT
+
+main = before_astral
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val beforeAstral =
+        normalizeGeneratedTemps(extractPythonDef(code, "before_astral"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assert(!beforeAstral.contains("< u\"\\U00010000\""), beforeAstral)
+      assert(!beforeAstral.contains("""cmp_String"""), beforeAstral)
+      assert(
+        beforeAstral.contains("== 0") || beforeAstral.contains("0 =="),
+        beforeAstral
+      )
+    }
+  }
+
   test("CheckVariantSet guards compile to direct Python membership comparisons") {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")

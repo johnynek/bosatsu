@@ -3534,7 +3534,7 @@ object Matchless {
       case (lhs: Lit.Chr, rhs: Lit.Chr) =>
         Some(compareRelHolds(rel, Integer.compare(lhs.toCodePoint, rhs.toCodePoint)))
       case (lhs: Lit.StringMatchResult, rhs: Lit.StringMatchResult) =>
-        Some(compareRelHolds(rel, lhs.asStr.compareTo(rhs.asStr)))
+        Some(compareRelHolds(rel, StringUtil.codePointCompare(lhs.asStr, rhs.asStr)))
       case (lhs: Lit.Float64, rhs: Lit.Float64) =>
         Some(compareFloat64Values(lhs.toDouble, rel, rhs.toDouble))
       case _ =>

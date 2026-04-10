@@ -857,7 +857,7 @@ object PythonGen {
         }
       }
 
-      private val cmpStringFn: List[ValueLike] => Env[ValueLike] = { input =>
+      private[Impl] val cmpStringFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.ensureHelper(pyStringCmpHelperKey)(buildPyStringCmpHelper)
           .flatMap { helperName =>
             Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
@@ -3282,6 +3282,19 @@ object PythonGen {
             case Matchless.CompareRel.Gte => !(left :< right)
           }
 
+        def compareCmpExpr(
+            cmp: Code.Expression,
+            rel: Matchless.CompareRel
+        ): Code.Expression =
+          rel match {
+            case Matchless.CompareRel.Eq  => cmp =:= 1
+            case Matchless.CompareRel.Ne  => cmp =!= 1
+            case Matchless.CompareRel.Lt  => cmp =:= 0
+            case Matchless.CompareRel.Lte => cmp =!= 2
+            case Matchless.CompareRel.Gt  => cmp =:= 2
+            case Matchless.CompareRel.Gte => cmp =!= 0
+          }
+
         def floatCmpExpr(
             left: Code.Expression,
             right: Code.Expression
@@ -3310,18 +3323,40 @@ object PythonGen {
             rel: Matchless.CompareRel,
             right: Code.Expression
         ): Env[Code.Expression] =
-          floatCmpExpr(left, right).map { cmp =>
-            rel match {
-              case Matchless.CompareRel.Eq  => cmp =:= 1
-              case Matchless.CompareRel.Ne  => cmp =!= 1
-              case Matchless.CompareRel.Lt  => cmp =:= 0
-              case Matchless.CompareRel.Lte => cmp =!= 2
-              case Matchless.CompareRel.Gt  => cmp =:= 2
-              case Matchless.CompareRel.Gte => cmp =!= 0
+          floatCmpExpr(left, right).map(compareCmpExpr(_, rel))
+
+        def compareStringExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          PredefExternal
+            .cmpStringFn(left :: right :: Nil)
+            .flatMap(Env.onLast(_)(compareCmpExpr(_, rel)))
+            .map {
+              case expr: Code.Expression => expr
+              case other =>
+                // $COVERAGE-OFF$
+                throw new IllegalStateException(
+                  s"expected string comparison to stay expression-shaped, found: $other"
+                )
+              // $COVERAGE-ON$
             }
-          }
 
         ix match {
+          case CompareLit(expr, rel, lit: dev.bosatsu.Lit.Str) =>
+            val literal = Code.litToExpr(lit)
+            loop(expr, slotName, inlineSlots)
+              .flatMap(
+                Env.onLastM(_)(ex =>
+                  if (
+                    lit.toStr.isEmpty ||
+                    rel == Matchless.CompareRel.Eq ||
+                    rel == Matchless.CompareRel.Ne
+                  ) Env.pure(compareRelExpr(ex, rel, literal))
+                  else compareStringExpr(ex, rel, literal)
+                )
+              )
           case CompareLit(expr, rel, lit: dev.bosatsu.Lit.Float64) =>
             val literal = Code.litToExpr(lit)
             loop(expr, slotName, inlineSlots)
