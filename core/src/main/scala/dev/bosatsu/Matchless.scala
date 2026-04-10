@@ -3575,6 +3575,22 @@ object Matchless {
       case DataRepr.ZeroNat => 0
       case DataRepr.SuccNat => 1
     }
+    private def compareExprRelExpr[A: Order](
+        leftL: Expr[A],
+        relL: CompareRel,
+        rightL: Expr[A],
+        leftR: Expr[A],
+        relR: CompareRel,
+        rightR: Expr[A]
+    ): Int = {
+      val c1 = Order[Expr[A]].compare(leftL, leftR)
+      if (c1 != 0) c1
+      else {
+        val c2 = Order[CompareRel].compare(relL, relR)
+        if (c2 != 0) c2
+        else Order[Expr[A]].compare(rightL, rightR)
+      }
+    }
 
     given [A: Order]: Order[BoolExpr[A]] with {
       def compare(left: BoolExpr[A], right: BoolExpr[A]): Int =
@@ -3589,37 +3605,19 @@ object Matchless {
             }
 
           case (CompareInt(leftL, relL, rightL), CompareInt(leftR, relR, rightR)) =>
-            val c1 = Order[Expr[A]].compare(leftL, leftR)
-            if (c1 != 0) c1
-            else {
-              val c2 = Order[CompareRel].compare(relL, relR)
-              if (c2 != 0) c2
-              else Order[Expr[A]].compare(rightL, rightR)
-            }
+            compareExprRelExpr(leftL, relL, rightL, leftR, relR, rightR)
 
           case (
                 CompareInt64(leftL, relL, rightL),
                 CompareInt64(leftR, relR, rightR)
               ) =>
-            val c1 = Order[Expr[A]].compare(leftL, leftR)
-            if (c1 != 0) c1
-            else {
-              val c2 = Order[CompareRel].compare(relL, relR)
-              if (c2 != 0) c2
-              else Order[Expr[A]].compare(rightL, rightR)
-            }
+            compareExprRelExpr(leftL, relL, rightL, leftR, relR, rightR)
 
           case (
                 CompareFloat64(leftL, relL, rightL),
                 CompareFloat64(leftR, relR, rightR)
               ) =>
-            val c1 = Order[Expr[A]].compare(leftL, leftR)
-            if (c1 != 0) c1
-            else {
-              val c2 = Order[CompareRel].compare(relL, relR)
-              if (c2 != 0) c2
-              else Order[Expr[A]].compare(rightL, rightR)
-            }
+            compareExprRelExpr(leftL, relL, rightL, leftR, relR, rightR)
 
           case (EqualsNat(exprL, natL), EqualsNat(exprR, natR)) =>
             val c1 = Order[Expr[A]].compare(exprL, exprR)

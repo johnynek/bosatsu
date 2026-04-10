@@ -108,10 +108,6 @@ main = parse_value(" null")
           loopExpr(left) || loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) || loopExpr(right)
-        case Matchless.EqualsLit(expr, _) =>
-          loopExpr(expr)
-        case Matchless.LtEqLit(expr, _) =>
-          loopExpr(expr)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr)
         case Matchless.And(left, right) =>

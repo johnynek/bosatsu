@@ -155,10 +155,6 @@ class MatchlessRegressionTest extends munit.FunSuite {
         countWhileExprs(left) + countWhileExprs(right)
       case Matchless.CompareFloat64(left, _, right) =>
         countWhileExprs(left) + countWhileExprs(right)
-      case Matchless.EqualsLit(expr, _) =>
-        countWhileExprs(expr)
-      case Matchless.LtEqLit(expr, _) =>
-        countWhileExprs(expr)
       case Matchless.EqualsNat(expr, _) =>
         countWhileExprs(expr)
       case Matchless.And(left, right) =>
@@ -191,10 +187,6 @@ class MatchlessRegressionTest extends munit.FunSuite {
           loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
-        case Matchless.EqualsLit(expr, _) =>
-          loopExpr(expr, activeRecNames)
-        case Matchless.LtEqLit(expr, _) =>
-          loopExpr(expr, activeRecNames)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr, activeRecNames)
         case Matchless.And(left, right) =>
@@ -300,10 +292,6 @@ class MatchlessRegressionTest extends munit.FunSuite {
             loopCheap(left) ++ loopCheap(right)
           case Matchless.CompareFloat64(left, _, right) =>
             loopCheap(left) ++ loopCheap(right)
-          case Matchless.EqualsLit(expr, _) =>
-            loopCheap(expr)
-          case Matchless.LtEqLit(expr, _) =>
-            loopCheap(expr)
           case Matchless.EqualsNat(expr, _) =>
             loopCheap(expr)
           case Matchless.And(left, right) =>

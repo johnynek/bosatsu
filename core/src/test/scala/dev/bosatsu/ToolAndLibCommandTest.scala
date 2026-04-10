@@ -1020,10 +1020,6 @@ class ToolAndLibCommandTest extends FunSuite {
           loopExpr(left) || loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) || loopExpr(right)
-        case Matchless.EqualsLit(arg, _) =>
-          loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>

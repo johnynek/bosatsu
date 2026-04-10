@@ -190,10 +190,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(left) ++ loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) ++ loopExpr(right)
-        case Matchless.EqualsLit(e, _) =>
-          loopExpr(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopExpr(e)
         case Matchless.EqualsNat(e, _) =>
           loopExpr(e)
         case Matchless.And(l, r) =>
@@ -458,10 +454,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(left) || loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) || loopExpr(right)
-        case Matchless.EqualsLit(arg, _) =>
-          loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -526,10 +518,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(left) + loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) + loopExpr(right)
-        case Matchless.EqualsLit(arg, _) =>
-          loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -594,10 +582,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopExpr(left) + loopExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopExpr(left) + loopExpr(right)
-        case Matchless.EqualsLit(arg, _) =>
-          loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -762,10 +746,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         case Matchless.CompareFloat64(left, _, right) =>
           loopCheap(left)
           loopCheap(right)
-        case Matchless.EqualsLit(e, _) =>
-          loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -873,10 +853,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           exprFn(left) || exprFn(right)
         case Matchless.CompareFloat64(left, _, right) =>
           exprFn(left) || exprFn(right)
-        case Matchless.EqualsLit(e, _) =>
-          exprFn(e)
-        case Matchless.LtEqLit(e, _) =>
-          exprFn(e)
         case Matchless.EqualsNat(e, _) =>
           exprFn(e)
         case Matchless.And(l, r) =>
@@ -980,10 +956,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           withinWhileExpr(left) + withinWhileExpr(right)
         case Matchless.CompareFloat64(left, _, right) =>
           withinWhileExpr(left) + withinWhileExpr(right)
-        case Matchless.EqualsLit(e, _) =>
-          withinWhileExpr(e)
-        case Matchless.LtEqLit(e, _) =>
-          withinWhileExpr(e)
         case Matchless.EqualsNat(e, _) =>
           withinWhileExpr(e)
         case Matchless.And(l, r) =>
@@ -1014,10 +986,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           findWhiles(left) + findWhiles(right)
         case Matchless.CompareFloat64(left, _, right) =>
           findWhiles(left) + findWhiles(right)
-        case Matchless.EqualsLit(e, _) =>
-          findWhiles(e)
-        case Matchless.LtEqLit(e, _) =>
-          findWhiles(e)
         case Matchless.EqualsNat(e, _) =>
           findWhiles(e)
         case Matchless.And(l, r) =>
@@ -1120,10 +1088,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(left) + loopCheap(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopCheap(left) + loopCheap(right)
-        case Matchless.EqualsLit(e, _) =>
-          loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -1207,10 +1171,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
         case Matchless.CompareFloat64(left, _, right) =>
           loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
-        case Matchless.EqualsLit(e, _) =>
-          loopCheap(e, inConditionalBranch)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e, inConditionalBranch)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.And(l, r) =>
@@ -1316,10 +1276,6 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(left) + loopCheap(right)
         case Matchless.CompareFloat64(left, _, right) =>
           loopCheap(left) + loopCheap(right)
-        case Matchless.EqualsLit(e, _) =>
-          loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -1725,10 +1681,6 @@ main = select
             loopCheap(left) + loopCheap(right)
           case Matchless.CompareFloat64(left, _, right) =>
             loopCheap(left) + loopCheap(right)
-          case Matchless.EqualsLit(e, _) =>
-            loopCheap(e)
-          case Matchless.LtEqLit(e, _) =>
-            loopCheap(e)
           case Matchless.EqualsNat(e, _) =>
             loopCheap(e)
           case Matchless.And(l, r) =>
@@ -2409,10 +2361,6 @@ main = (cmp_guard, enum_guard)
           case Matchless.CompareFloat64(left, _, right) =>
             requireSubset(left)
             requireSubset(right)
-          case Matchless.EqualsLit(e, _) =>
-            requireSubset(e)
-          case Matchless.LtEqLit(e, _) =>
-            requireSubset(e)
           case Matchless.EqualsNat(e, _) =>
             requireSubset(e)
           case Matchless.And(l, r) =>
@@ -3282,10 +3230,6 @@ main = (cmp_guard, enum_guard)
           hasNestedProjectionCheap(left) || hasNestedProjectionCheap(right)
         case Matchless.CompareFloat64(left, _, right) =>
           hasNestedProjectionCheap(left) || hasNestedProjectionCheap(right)
-        case Matchless.EqualsLit(e, _) =>
-          hasNestedProjectionCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          hasNestedProjectionCheap(e)
         case Matchless.EqualsNat(e, _) =>
           hasNestedProjectionCheap(e)
         case Matchless.And(l, r) =>

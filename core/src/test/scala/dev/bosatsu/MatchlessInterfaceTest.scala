@@ -77,10 +77,6 @@ class MatchlessInterfaceTest extends munit.FunSuite {
         containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
       case Matchless.CompareFloat64(left, _, right) =>
         containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
-      case Matchless.EqualsLit(arg, _) =>
-        containsGlobal(arg, pack, name)
-      case Matchless.LtEqLit(arg, _) =>
-        containsGlobal(arg, pack, name)
       case Matchless.EqualsNat(arg, _) =>
         containsGlobal(arg, pack, name)
       case Matchless.And(left, right) =>
