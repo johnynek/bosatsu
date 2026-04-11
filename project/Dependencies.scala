@@ -19,9 +19,9 @@ object Dependencies {
     "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % "2.21.2"
   )
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.4")
-  lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.33")
+  lazy val http4sCore = Def.setting("org.http4s" %%% "http4s-core" % "0.23.34")
   lazy val http4sEmber =
-    Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.33")
+    Def.setting("org.http4s" %%% "http4s-ember-client" % "0.23.34")
   lazy val munit = Def.setting("org.scalameta" %%% "munit" % "1.2.4")
   lazy val munitScalaCheck =
     Def.setting("org.scalameta" %%% "munit-scalacheck" % "1.2.0")
