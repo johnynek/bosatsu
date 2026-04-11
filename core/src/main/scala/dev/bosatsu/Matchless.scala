@@ -3810,27 +3810,11 @@ object Matchless {
   object EqualsLit {
     def apply[A](expr: CheapExpr[A], lit: Lit): BoolExpr[A] =
       CompareLit(expr, CompareRel.Eq, lit)
-
-    def unapply[A](boolExpr: BoolExpr[A]): Option[(CheapExpr[A], Lit)] =
-      boolExpr match {
-        case CompareLit(expr, CompareRel.Eq, lit) =>
-          Some((expr, lit))
-        case _ =>
-          None
-      }
   }
 
   object LtEqLit {
     def apply[A](expr: CheapExpr[A], lit: Lit): BoolExpr[A] =
       CompareLit(expr, CompareRel.Lte, lit)
-
-    def unapply[A](boolExpr: BoolExpr[A]): Option[(CheapExpr[A], Lit)] =
-      boolExpr match {
-        case CompareLit(expr, CompareRel.Lte, lit) =>
-          Some((expr, lit))
-        case _ =>
-          None
-      }
   }
   case class EqualsNat[A](expr: CheapExpr[A], nat: DataRepr.Nat)
       extends BoolExpr[A]
@@ -5599,6 +5583,9 @@ object Matchless {
         right: Expr[B],
         value: Boolean
     ): F[Expr[B]] =
+      // A total Comparison observation can be constant, but evaluating the
+      // original cmp_* application still has to force both operands exactly
+      // once in source order because those expressions can contain effects.
       memoizeBinaryExpr(left, right) { (_, _) =>
         if (value) TrueExpr else FalseExpr
       }

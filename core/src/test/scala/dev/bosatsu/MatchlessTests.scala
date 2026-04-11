@@ -3503,8 +3503,8 @@ def small_spaces(rem):
       val expr = byName(Identifier.Name("small_spaces"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         true,
         expr.toString
@@ -3551,8 +3551,8 @@ def classify_char(ch):
       val expr = byName(Identifier.Name("classify_char"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         true,
         expr.toString
@@ -3603,8 +3603,8 @@ def classify_small(n):
       val expr = byName(Identifier.Name("classify_small"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         false,
         expr.toString
