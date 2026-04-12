@@ -5578,17 +5578,8 @@ object Matchless {
         If(comparePredicate(domain, leftCheap, rel, rightCheap), TrueExpr, FalseExpr)
       }
 
-    def lowerConstantBoolWithOperands(
-        left: Expr[B],
-        right: Expr[B],
-        value: Boolean
-    ): F[Expr[B]] =
-      // A total Comparison observation can be constant, but evaluating the
-      // original cmp_* application still has to force both operands exactly
-      // once in source order because those expressions can contain effects.
-      memoizeBinaryExpr(left, right) { (_, _) =>
-        if (value) TrueExpr else FalseExpr
-      }
+    def lowerConstantBool(value: Boolean): F[Expr[B]] =
+      Monad[F].pure(if (value) TrueExpr else FalseExpr)
 
     val comparisonFamArities = 0 :: 0 :: 0 :: Nil
 
@@ -5629,7 +5620,7 @@ object Matchless {
       } yield {
         observation match {
           case Left(boolValue) =>
-            lowerConstantBoolWithOperands(left, right, boolValue)
+            lowerConstantBool(boolValue)
           case Right(rel)      =>
             lowerBooleanCompare(domain, left, rel, right)
         }
@@ -8955,7 +8946,7 @@ object Matchless {
         } yield {
           comparisonObservation(trueVariants) match {
             case Left(value) =>
-              lowerConstantBoolWithOperands(left, right, value)
+              lowerConstantBool(value)
             case Right(rel)  =>
               lowerBooleanCompare(domain, left, rel, right)
           }
