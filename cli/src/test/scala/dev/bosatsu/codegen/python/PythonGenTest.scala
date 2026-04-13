@@ -122,11 +122,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       "popcount_Int64",
       "eq_Int64",
       "cmp_Int64"
-    ).iterator
-      .map { name =>
-        ((pack, Identifier.Name(name)), (module, Code.Ident(name)))
-      }
-      .toMap
+    ).iterator.map { name =>
+      ((pack, Identifier.Name(name)), (module, Code.Ident(name)))
+    }.toMap
   }
 
   private def pyStringLiteral(str: String): String =
@@ -355,7 +353,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
 
     JythonBarrier.run {
       try {
-        intr.exec(s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})")
+        intr.exec(
+          s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})"
+        )
         intr.execfile(natPath.toString)
         checkTest(intr.get("tests"), "Nat.bosatsu")
       } catch {
@@ -488,7 +488,9 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val root = writeModules(rendered)
       val moduleFile = modulePath(root, module)
 
-      intr.exec(s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})")
+      intr.exec(
+        s"import sys; sys.path.insert(0, ${pyStringLiteral(root.toString)})"
+      )
       intr.execfile(moduleFile.toString)
       checkTest(intr.get(testName), pn.asString)
 

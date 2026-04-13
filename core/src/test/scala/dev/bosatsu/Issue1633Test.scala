@@ -130,7 +130,11 @@ main = parse_value(" null")
     withRepro { (pm, _) =>
       given Order[Unit] = Order.fromOrdering
       val compiled =
-        MatchlessFromTypedExpr.compile((), pm, Matchless.LocalPassOptions.Default)
+        MatchlessFromTypedExpr.compile(
+          (),
+          pm,
+          Matchless.LocalPassOptions.Default
+        )
       val parseValueMatchless = compiled
         .getOrElse(
           reproPackage,

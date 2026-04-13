@@ -10,7 +10,7 @@ import dev.bosatsu.graph.Toposort
 import scala.collection.immutable.SortedMap
 
 object MatchlessGlobalInlining {
-  private final case class SummaryKey[K](
+  final private case class SummaryKey[K](
       scope: K,
       pack: PackageName,
       name: Bindable
@@ -77,46 +77,49 @@ object MatchlessGlobalInlining {
         .sorted(using Order[(K, PackageName)].toOrdering)
         .map(NonEmptyList.one)
 
-    layers.foldLeft((cleanedBase, Map.empty[SummaryKey[K], InlineSummary[K]])) {
-      case ((compiledAcc, summaryAcc), layer) =>
-        val tasks = layer.toList.map { case (scope, pack) =>
-          Par.start {
-            val lets =
-              cleanedBase
-                .get(scope)
-                .flatMap(_.get(pack))
-                .getOrElse(
-                  sys.error(
-                    s"missing cleaned Matchless package $pack in scope $scope during global inlining"
+    layers
+      .foldLeft((cleanedBase, Map.empty[SummaryKey[K], InlineSummary[K]])) {
+        case ((compiledAcc, summaryAcc), layer) =>
+          val tasks = layer.toList.map { case (scope, pack) =>
+            Par.start {
+              val lets =
+                cleanedBase
+                  .get(scope)
+                  .flatMap(_.get(pack))
+                  .getOrElse(
+                    sys.error(
+                      s"missing cleaned Matchless package $pack in scope $scope during global inlining"
+                    )
                   )
-                )
-            rewritePackage(
-              scope,
-              pack,
-              lets,
-              summaryAcc,
-              depFor,
-              localPassOptions
-            )
-          }
-        }
-
-        val layerResults = tasks.map(Par.await)
-
-        val nextCompiled =
-          layerResults.foldLeft(compiledAcc) {
-            case (acc, (scope, pack, lets, _)) =>
-              val scopeMap = acc.getOrElse(scope, Map.empty)
-              acc.updated(scope, scopeMap.updated(pack, lets))
+              rewritePackage(
+                scope,
+                pack,
+                lets,
+                summaryAcc,
+                depFor,
+                localPassOptions
+              )
+            }
           }
 
-        val nextSummaries =
-          layerResults.foldLeft(summaryAcc) { case (acc, (_, _, _, published)) =>
-            acc ++ published
-          }
+          val layerResults = tasks.map(Par.await)
 
-        (nextCompiled, nextSummaries)
-    }._1
+          val nextCompiled =
+            layerResults.foldLeft(compiledAcc) {
+              case (acc, (scope, pack, lets, _)) =>
+                val scopeMap = acc.getOrElse(scope, Map.empty)
+                acc.updated(scope, scopeMap.updated(pack, lets))
+            }
+
+          val nextSummaries =
+            layerResults.foldLeft(summaryAcc) {
+              case (acc, (_, _, _, published)) =>
+                acc ++ published
+            }
+
+          (nextCompiled, nextSummaries)
+      }
+      ._1
   }
 
   private def rewritePackage[K: Order](
@@ -126,7 +129,12 @@ object MatchlessGlobalInlining {
       priorSummaries: Map[SummaryKey[K], InlineSummary[K]],
       depFor: (K, PackageName) => K,
       localPassOptions: Matchless.LocalPassOptions
-  ): (K, PackageName, List[(Bindable, Expr[K])], Map[SummaryKey[K], InlineSummary[K]]) = {
+  ): (
+      K,
+      PackageName,
+      List[(Bindable, Expr[K])],
+      Map[SummaryKey[K], InlineSummary[K]]
+  ) = {
     val byName = cleanedLets.toMap
     val localOrder = localDependencyOrder(scope, pack, cleanedLets, depFor)
 
@@ -169,9 +177,8 @@ object MatchlessGlobalInlining {
       depFor: (K, PackageName) => K
   ): List[Bindable] = {
     case class LocalNode(index: Int, name: Bindable)
-    given Ordering[LocalNode] = Ordering.by((node: LocalNode) =>
-      (node.index, node.name)
-    )
+    given Ordering[LocalNode] =
+      Ordering.by((node: LocalNode) => (node.index, node.name))
 
     val nodeByName = lets.zipWithIndex.iterator.map { case ((name, _), idx) =>
       name -> LocalNode(idx, name)
@@ -187,11 +194,13 @@ object MatchlessGlobalInlining {
       )
 
     val topo = Toposort.sort(nodeByName.values) { node =>
-      collectGlobals(exprFor(node.name))
-        .iterator
+      collectGlobals(exprFor(node.name)).iterator
         .collect {
           case (from, `pack`, name)
-              if (name != node.name) && Order[K].eqv(depFor(from, pack), scope) =>
+              if (name != node.name) && Order[K].eqv(
+                depFor(from, pack),
+                scope
+              ) =>
             nodeByName.get(name)
         }
         .flatten
@@ -231,7 +240,10 @@ object MatchlessGlobalInlining {
             case Matchless.If(cond, thenExpr, elseExpr) =>
               loop(cond :: thenExpr :: elseExpr :: tail, acc)
             case Matchless.SwitchVariant(on, _, cases, default) =>
-              loop(on :: default.toList ::: cases.toList.map(_._2) ::: tail, acc)
+              loop(
+                on :: default.toList ::: cases.toList.map(_._2) ::: tail,
+                acc
+              )
             case Matchless.Always(cond, thenExpr) =>
               loop(cond :: thenExpr :: tail, acc)
             case Matchless.PrevNat(of) =>
@@ -260,11 +272,11 @@ object MatchlessGlobalInlining {
               loop(value :: in :: tail, acc)
             case Matchless.LetMutBool(_, in) =>
               loop(in :: tail, acc)
-            case Matchless.Local(_) | Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
-                Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
-                Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-                _: Matchless.SuccNat.type | _: Matchless.ZeroNat.type |
-                _: Matchless.TrueConst.type =>
+            case Matchless.Local(_) | Matchless.ClosureSlot(_) |
+                Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
+                Matchless.Literal(_) | Matchless.MakeEnum(_, _, _) |
+                Matchless.MakeStruct(_) | _: Matchless.SuccNat.type |
+                _: Matchless.ZeroNat.type | _: Matchless.TrueConst.type =>
               loop(tail, acc)
           }
         case _ =>
@@ -319,7 +331,7 @@ object MatchlessGlobalInlining {
         .flatMap {
           case summary: LambdaSummary[K] =>
             if (allowNonCheap) Some(summary.lambda) else None
-          case summary: ValueSummary[K]  =>
+          case summary: ValueSummary[K] =>
             if (allowNonCheap) Some(summary.value)
             else cheapReferenceValue(summary.value)
         }
@@ -335,7 +347,9 @@ object MatchlessGlobalInlining {
           else
             summaries.get(key).flatMap {
               case summary: ValueSummary[K] =>
-                knownSummaryValue(summary.value, seen + key).orElse(Some(summary.value))
+                knownSummaryValue(summary.value, seen + key).orElse(
+                  Some(summary.value)
+                )
               case _ =>
                 None
             }
@@ -351,18 +365,25 @@ object MatchlessGlobalInlining {
             if args.length == arity =>
           args.toList
             .traverse(knownSummaryValue(_, seen))
-            .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
+            .map(args1 =>
+              Matchless.App(cons, NonEmptyList.fromListUnsafe(args1))
+            )
         case Matchless.App(cons @ Matchless.MakeStruct(arity), args)
             if args.length == arity =>
           args.toList
             .traverse(knownSummaryValue(_, seen))
-            .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
+            .map(args1 =>
+              Matchless.App(cons, NonEmptyList.fromListUnsafe(args1))
+            )
         case Matchless.App(Matchless.SuccNat, NonEmptyList(arg, Nil)) =>
           knownSummaryValue(arg, seen)
-            .map(arg1 => Matchless.App(Matchless.SuccNat, NonEmptyList.one(arg1)))
+            .map(arg1 =>
+              Matchless.App(Matchless.SuccNat, NonEmptyList.one(arg1))
+            )
         case Matchless.PrevNat(of) =>
           knownSummaryValue(of, seen).collect {
-            case Matchless.App(Matchless.SuccNat, NonEmptyList(prev, Nil)) => prev
+            case Matchless.App(Matchless.SuccNat, NonEmptyList(prev, Nil)) =>
+              prev
           }
         case Matchless.GetEnumElement(arg, variant, index, size) =>
           knownSummaryValue(arg, seen).flatMap {
@@ -374,7 +395,8 @@ object MatchlessGlobalInlining {
           }
         case Matchless.GetStructElement(arg, index, size) =>
           knownSummaryValue(arg, seen).flatMap {
-            case Matchless.App(Matchless.MakeStruct(arity), args) if arity == size =>
+            case Matchless.App(Matchless.MakeStruct(arity), args)
+                if arity == size =>
               args.toList.lift(index)
             case value if (size == 1) && (index == 0) =>
               Some(value)
@@ -395,7 +417,9 @@ object MatchlessGlobalInlining {
       if (seen(key)) None
       else
         summaries.get(key) match {
-          case Some(ValueSummary(Global(nextFrom, nextPack, nextName), _, _, _)) =>
+          case Some(
+                ValueSummary(Global(nextFrom, nextPack, nextName), _, _, _)
+              ) =>
             resolvedCalleeGlobal(nextFrom, nextPack, nextName, seen + key)
               .orElse(Some(Global(nextFrom, nextPack, nextName)))
           case _ =>
@@ -535,11 +559,14 @@ object MatchlessGlobalInlining {
                     }
                   }
                   .map { case (summary, inlineCost) =>
-                    remainingInlineBudget = (remainingInlineBudget - inlineCost).max(0)
+                    remainingInlineBudget =
+                      (remainingInlineBudget - inlineCost).max(0)
                     loop(Matchless.inlineApplyArgs(summary.lambda, args))
                   }
             }
-          maybeInlined.orElse(resolvedOpt.map(_ => Matchless.App(resolved, args)))
+          maybeInlined.orElse(
+            resolvedOpt.map(_ => Matchless.App(resolved, args))
+          )
         case _ =>
           None
       }
@@ -551,7 +578,7 @@ object MatchlessGlobalInlining {
       summary: LambdaSummary[K],
       args: NonEmptyList[Expr[K]],
       remainingBudget: Int
-  ): Option[Int] = {
+  ): Option[Int] =
     if (summary.exposesFreeMutableAnon) None
     else if (summary.arity != args.length) None
     else {
@@ -624,22 +651,21 @@ object MatchlessGlobalInlining {
         else None
       }
     }
-  }
 
   private def shouldInlineReference[K](summary: InlineSummary[K]): Boolean =
     summary match {
       case summary: LambdaSummary[K] =>
         summary.lambda.captures.isEmpty &&
-          InlineBenefitModel.shouldInlineTinyReference(
-            summary.bodyWeight,
-            summary.containsWhileExpr
-          )
-      case summary: ValueSummary[K]  =>
+        InlineBenefitModel.shouldInlineTinyReference(
+          summary.bodyWeight,
+          summary.containsWhileExpr
+        )
+      case summary: ValueSummary[K] =>
         !summary.exposesFreeMutableAnon &&
-          InlineBenefitModel.shouldInlineTinyReference(
-            summary.bodyWeight,
-            summary.containsWhileExpr
-          )
+        InlineBenefitModel.shouldInlineTinyReference(
+          summary.bodyWeight,
+          summary.containsWhileExpr
+        )
     }
 
   private def resolvesToLambda[A](expr: Expr[A]): Option[Lambda[A]] =
@@ -665,15 +691,15 @@ object MatchlessGlobalInlining {
 
   private def isKnownArgumentValue[A](expr: Expr[A]): Boolean =
     expr match {
-      case Matchless.Literal(_) |
-          Matchless.MakeEnum(_, 0, _) |
-          Matchless.MakeStruct(0) |
-          Matchless.ZeroNat |
+      case Matchless.Literal(_) | Matchless.MakeEnum(_, 0, _) |
+          Matchless.MakeStruct(0) | Matchless.ZeroNat |
           (_: Matchless.TrueConst.type) =>
         true
-      case Matchless.App(Matchless.MakeEnum(_, arity, _), args) if args.length == arity =>
+      case Matchless.App(Matchless.MakeEnum(_, arity, _), args)
+          if args.length == arity =>
         args.forall(isKnownArgumentValue)
-      case Matchless.App(Matchless.MakeStruct(arity), args) if args.length == arity =>
+      case Matchless.App(Matchless.MakeStruct(arity), args)
+          if args.length == arity =>
         args.forall(isKnownArgumentValue)
       case Matchless.App(Matchless.SuccNat, NonEmptyList(arg, Nil)) =>
         isKnownArgumentValue(arg)
@@ -701,9 +727,11 @@ object MatchlessGlobalInlining {
                 false
             }) =>
         true
-      case Matchless.GetEnumElement(arg, _, _, _) if isDirectForwardedValue(arg) =>
+      case Matchless.GetEnumElement(arg, _, _, _)
+          if isDirectForwardedValue(arg) =>
         true
-      case Matchless.GetStructElement(arg, _, _) if isDirectForwardedValue(arg) =>
+      case Matchless.GetStructElement(arg, _, _)
+          if isDirectForwardedValue(arg) =>
         true
       case Matchless.PrevNat(of) if isDirectForwardedValue(of) =>
         true
@@ -736,7 +764,8 @@ object MatchlessGlobalInlining {
     Matchless.recoverTopLevelLambda(expr) match {
       case lam: Lambda[K] =>
         val bodyWeight = Matchless.exprWeight(expr)
-        if ((bodyWeight > InlineBodyWeightBudget) || lam.recursiveName.nonEmpty) None
+        if ((bodyWeight > InlineBodyWeightBudget) || lam.recursiveName.nonEmpty)
+          None
         else {
           Some(
             LambdaSummary(
@@ -773,18 +802,25 @@ object MatchlessGlobalInlining {
             if args.length == arity =>
           args.toList
             .traverse(knownValue)
-            .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
+            .map(args1 =>
+              Matchless.App(cons, NonEmptyList.fromListUnsafe(args1))
+            )
         case Matchless.App(cons @ Matchless.MakeStruct(arity), args)
             if args.length == arity =>
           args.toList
             .traverse(knownValue)
-            .map(args1 => Matchless.App(cons, NonEmptyList.fromListUnsafe(args1)))
+            .map(args1 =>
+              Matchless.App(cons, NonEmptyList.fromListUnsafe(args1))
+            )
         case Matchless.App(Matchless.SuccNat, NonEmptyList(arg, Nil)) =>
           knownValue(arg)
-            .map(arg1 => Matchless.App(Matchless.SuccNat, NonEmptyList.one(arg1)))
+            .map(arg1 =>
+              Matchless.App(Matchless.SuccNat, NonEmptyList.one(arg1))
+            )
         case Matchless.PrevNat(of) =>
           knownValue(of).collect {
-            case Matchless.App(Matchless.SuccNat, NonEmptyList(prev, Nil)) => prev
+            case Matchless.App(Matchless.SuccNat, NonEmptyList(prev, Nil)) =>
+              prev
           }
         case Matchless.GetEnumElement(arg, variant, index, size) =>
           knownValue(arg).flatMap {
@@ -796,7 +832,8 @@ object MatchlessGlobalInlining {
           }
         case Matchless.GetStructElement(arg, index, size) =>
           knownValue(arg).flatMap {
-            case Matchless.App(Matchless.MakeStruct(arity), args) if arity == size =>
+            case Matchless.App(Matchless.MakeStruct(arity), args)
+                if arity == size =>
               args.toList.lift(index)
             case value if (size == 1) && (index == 0) =>
               Some(value)
@@ -836,13 +873,17 @@ object MatchlessGlobalInlining {
     def loopExpr(ex: Expr[A], boundMuts: Set[Long]): Set[Long] =
       ex match {
         case Lambda(captures, _, _, body) =>
-          captures.iterator.foldLeft(loopExpr(body, boundMuts)) { case (acc, cap) =>
-            acc ++ loopExpr(cap, boundMuts)
+          captures.iterator.foldLeft(loopExpr(body, boundMuts)) {
+            case (acc, cap) =>
+              acc ++ loopExpr(cap, boundMuts)
           }
         case Matchless.WhileExpr(cond, effectExpr, result) =>
           val resultIds =
             if (boundMuts(result.ident)) Set.empty else Set(result.ident)
-          resultIds ++ loopBool(cond, boundMuts) ++ loopExpr(effectExpr, boundMuts)
+          resultIds ++ loopBool(cond, boundMuts) ++ loopExpr(
+            effectExpr,
+            boundMuts
+          )
         case Matchless.App(fn, args) =>
           args.iterator.foldLeft(loopExpr(fn, boundMuts)) { case (acc, arg) =>
             acc ++ loopExpr(arg, boundMuts)
@@ -852,14 +893,18 @@ object MatchlessGlobalInlining {
         case Matchless.LetMut(name, in) =>
           loopExpr(in, boundMuts + name.ident)
         case Matchless.If(cond, thenExpr, elseExpr) =>
-          loopBool(cond, boundMuts) ++ loopExpr(thenExpr, boundMuts) ++ loopExpr(
+          loopBool(cond, boundMuts) ++ loopExpr(
+            thenExpr,
+            boundMuts
+          ) ++ loopExpr(
             elseExpr,
             boundMuts
           )
         case Matchless.SwitchVariant(on, _, cases, default) =>
           loopExpr(on, boundMuts) ++
-            cases.iterator.foldLeft(Set.empty[Long]) { case (acc, (_, branch)) =>
-              acc ++ loopExpr(branch, boundMuts)
+            cases.iterator.foldLeft(Set.empty[Long]) {
+              case (acc, (_, branch)) =>
+                acc ++ loopExpr(branch, boundMuts)
             } ++
             default.fold(Set.empty[Long])(loopExpr(_, boundMuts))
         case Matchless.Always(cond, thenExpr) =>
@@ -872,10 +917,10 @@ object MatchlessGlobalInlining {
           loopExpr(ge.arg, boundMuts)
         case gs: Matchless.GetStructElement[?] =>
           loopExpr(gs.arg, boundMuts)
-        case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
-            Matchless.LocalAnon(_) | Matchless.Literal(_) |
-            Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
-            Matchless.SuccNat | Matchless.ZeroNat =>
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.Literal(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.MakeStruct(_) | Matchless.SuccNat | Matchless.ZeroNat =>
           Set.empty
       }
 

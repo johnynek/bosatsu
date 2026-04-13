@@ -53,9 +53,12 @@ object Edn {
       val mapLike: P[Edn] =
         (P.char('{') *> items0 <* P.char('}')).mapFilter { ls =>
           if ((ls.length % 2) == 0) {
-            val pairs = ls.grouped(2).collect {
-              case k :: v :: Nil => (k, v)
-            }.toList
+            val pairs = ls
+              .grouped(2)
+              .collect { case k :: v :: Nil =>
+                (k, v)
+              }
+              .toList
             Some(EMap(pairs))
           } else None
         }
@@ -84,13 +87,13 @@ object Edn {
   private def escapeEdnString(str: String): String = {
     val sb = new java.lang.StringBuilder(str.length)
     str.foreach {
-      case '"'  => sb.append("\\\"")
-      case '\\' => sb.append("\\\\")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case '\b' => sb.append("\\b")
-      case '\f' => sb.append("\\f")
+      case '"'                            => sb.append("\\\"")
+      case '\\'                           => sb.append("\\\\")
+      case '\n'                           => sb.append("\\n")
+      case '\r'                           => sb.append("\\r")
+      case '\t'                           => sb.append("\\t")
+      case '\b'                           => sb.append("\\b")
+      case '\f'                           => sb.append("\\f")
       case c if Character.isISOControl(c) =>
         sb.append(f"\\u${c.toInt}%04x")
       case c =>
@@ -104,11 +107,11 @@ object Edn {
 
   private def docOf(edn: Edn): Doc =
     edn match {
-      case _: ENil.type   => Doc.text("nil")
-      case EBool(true)    => Doc.text("true")
-      case EBool(false)   => Doc.text("false")
-      case EString(value) => renderString(value)
-      case ESymbol(value) => Doc.text(value)
+      case _: ENil.type    => Doc.text("nil")
+      case EBool(true)     => Doc.text("true")
+      case EBool(false)    => Doc.text("false")
+      case EString(value)  => renderString(value)
+      case ESymbol(value)  => Doc.text(value)
       case EKeyword(value) =>
         Doc.char(':') + Doc.text(value)
       case EList(items) =>

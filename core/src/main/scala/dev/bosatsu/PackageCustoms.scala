@@ -32,9 +32,11 @@ object PackageCustoms {
       noUselessBinds(pack, None) *>
       allImportsAreUsed(pack)
 
-  private def errorsOf[A](validated: ValidatedNec[PackageError, A]): List[PackageError] =
+  private def errorsOf[A](
+      validated: ValidatedNec[PackageError, A]
+  ): List[PackageError] =
     validated match {
-      case Validated.Valid(_)     => Nil
+      case Validated.Valid(_)      => Nil
       case Validated.Invalid(errs) =>
         errs.toChain.toList
     }
@@ -129,16 +131,20 @@ object PackageCustoms {
       .buildExports(nm, exports, types, lets) match {
       case Validated.Valid(builtExports) =>
         // We have a result, which we can continue to check
-        val pack = Package(nm, ilist, builtExports, (program, imap), exposesDecls)
+        val pack =
+          Package(nm, ilist, builtExports, (program, imap), exposesDecls)
         // We have to check the "customs" before any normalization
         // or optimization
-        (PackageCustoms(pack), checkDeclaredExposes(
-          nm,
-          exports,
-          types,
-          lets,
-          exposesDecls
-        )).mapN((p, _) => p) match {
+        (
+          PackageCustoms(pack),
+          checkDeclaredExposes(
+            nm,
+            exports,
+            types,
+            lets,
+            exposesDecls
+          )
+        ).mapN((p, _) => p) match {
           case Validated.Valid(p1)     => Ior.right(p1)
           case Validated.Invalid(errs) =>
             Ior.both(errs.toNonEmptyList, pack)
@@ -171,22 +177,23 @@ object PackageCustoms {
       lets: List[(Bindable, RecursionKind, TypedExpr[A])]
   ): Map[PackageName, NonEmptyList[String]] = {
     val grouped =
-      sourceExports.foldLeft(Map.empty[PackageName, List[String]]) { (acc, sourceExport) =>
-        ExportedName
-          .buildExports(packName, sourceExport :: Nil, types, lets)
-          .toOption match {
-          case None        => acc
-          case Some(built) =>
-            val exportName = renderSourceExport(sourceExport)
-            Package
-              .normalizeExposedDepPackages(
-                packName,
-                built.iterator.flatMap(_.tag.depPackages).toList
-              )
-              .foldLeft(acc) { (acc1, dep) =>
-                acc1.updated(dep, exportName :: acc1.getOrElse(dep, Nil))
-              }
-        }
+      sourceExports.foldLeft(Map.empty[PackageName, List[String]]) {
+        (acc, sourceExport) =>
+          ExportedName
+            .buildExports(packName, sourceExport :: Nil, types, lets)
+            .toOption match {
+            case None        => acc
+            case Some(built) =>
+              val exportName = renderSourceExport(sourceExport)
+              Package
+                .normalizeExposedDepPackages(
+                  packName,
+                  built.iterator.flatMap(_.tag.depPackages).toList
+                )
+                .foldLeft(acc) { (acc1, dep) =>
+                  acc1.updated(dep, exportName :: acc1.getOrElse(dep, Nil))
+                }
+          }
       }
 
     grouped.iterator.map { case (dep, names) =>
@@ -209,7 +216,7 @@ object PackageCustoms {
             decls.map(normalizeDeclaredExposes)
           )
         )
-      case _                                  =>
+      case _ =>
         val declared =
           exposesDecls match {
             case decl :: Nil => normalizeDeclaredExposes(decl)
@@ -222,7 +229,8 @@ object PackageCustoms {
         if (declared == actual) Validated.unit
         else {
           val missing = actual.filterNot(declared.toSet)
-          val missingCauses = missing.flatMap(dep => causeMap.get(dep).map(dep -> _)).toMap
+          val missingCauses =
+            missing.flatMap(dep => causeMap.get(dep).map(dep -> _)).toMap
           Validated.invalidNec(
             PackageError.ExposesMismatch(
               packName,
@@ -259,21 +267,21 @@ object PackageCustoms {
       e match {
         case Expr.Annotation(inner, _, _) =>
           loop(inner)
-        case Expr.Local(_, _)             =>
+        case Expr.Local(_, _) =>
           ()
-        case Expr.Generic(_, inner)       =>
+        case Expr.Generic(_, inner) =>
           loop(inner)
-        case Expr.Global(pack, name, _)   =>
+        case Expr.Global(pack, name, _) =>
           bldr += ((pack, name))
-        case Expr.App(fn, args, _)        =>
+        case Expr.App(fn, args, _) =>
           loop(fn)
           args.toList.foreach(loop)
-        case Expr.Lambda(_, inner, _)     =>
+        case Expr.Lambda(_, inner, _) =>
           loop(inner)
         case Expr.Let(_, bound, in, _, _) =>
           loop(bound)
           loop(in)
-        case Expr.Literal(_, _)           =>
+        case Expr.Literal(_, _) =>
           ()
         case Expr.Match(arg, branches, _) =>
           loop(arg)
@@ -308,11 +316,9 @@ object PackageCustoms {
       }
 
     val usedGlobals: Set[(PackageName, Identifier)] =
-      lets.iterator
-        .flatMap { case (_, _, expr) =>
-          usedGlobalsExpr(expr).iterator
-        }
-        .toSet
+      lets.iterator.flatMap { case (_, _, expr) =>
+        usedGlobalsExpr(expr).iterator
+      }.toSet
 
     val badImports: List[Import[PackageName, Unit]] =
       imports.iterator
@@ -551,7 +557,8 @@ object PackageCustoms {
       .flatMap(_.tag.typeAlias)
       .distinct
 
-    val exportedTE = TypeEnv.fromDefinitionsAndAliases(exportedTypes, exportedAliases)
+    val exportedTE =
+      TypeEnv.fromDefinitionsAndAliases(exportedTypes, exportedAliases)
 
     type Exp = ExportedName[Referant[V]]
     val exposedTypes: Iterator[(Exp, Type)] = exports.iterator.flatMap {
@@ -663,7 +670,7 @@ object PackageCustoms {
               case (pn, i: Identifier.Bindable) if pn == pack.name => i
             }
         )
-      case None              =>
+      case None =>
         // Compiled/cache-only packages erase Program.from, so this lint can
         // only run when the caller supplied source statements explicitly.
         Validated.unit
@@ -678,7 +685,7 @@ object PackageCustoms {
           case stmt: Statement => Some(stmt)
           case _               => None
         }
-      case _              =>
+      case _ =>
         None
     }
 }

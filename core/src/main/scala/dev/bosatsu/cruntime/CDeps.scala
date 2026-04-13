@@ -16,7 +16,8 @@ object CDeps {
       schema_version: Int,
       recipe_version: Int,
       dependencies: List[Dependency]
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   final case class Dependency(
       name: String,
@@ -27,7 +28,8 @@ object CDeps {
       recipe: String,
       options: Option[Json.JObject] = None,
       dependencies: Option[List[String]] = None
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   final case class BuildContext(
       os: String,
@@ -47,12 +49,14 @@ object CDeps {
       arch: String,
       toolchain_family: String,
       toolchain_version: String
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   final case class RuntimeRequirements(
       bosatsu_runtime_cppflags: List[String],
       generated_c_cppflags: List[String]
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
   final case class Metadata(
       schema_version: Int,
@@ -68,9 +72,10 @@ object CDeps {
       static_libs: List[String],
       system_link_flags: List[String],
       runtime_requirements: RuntimeRequirements
-  ) derives Json.Reader, Json.Writer
+  ) derives Json.Reader,
+        Json.Writer
 
-  private final case class BuildKeyInput(
+  final private case class BuildKeyInput(
       name: String,
       version: String,
       hash: String,
@@ -159,35 +164,43 @@ object CDeps {
       manifest: Manifest
   ): Either[String, List[Dependency]] = {
     val grouped = manifest.dependencies.groupBy(_.name)
-    grouped.collectFirst { case (name, deps) if deps.lengthCompare(1) > 0 => name } match {
+    grouped.collectFirst {
+      case (name, deps) if deps.lengthCompare(1) > 0 => name
+    } match {
       case Some(name) =>
         Left(s"duplicate dependency name in manifest: $name")
       case None =>
         val byName = manifest.dependencies.iterator.map(d => d.name -> d).toMap
         val ordered = scala.collection.mutable.ListBuffer.empty[Dependency]
 
-        def visit(dep: Dependency, active: List[String]): Either[String, Set[String]] =
+        def visit(
+            dep: Dependency,
+            active: List[String]
+        ): Either[String, Set[String]] =
           if (ordered.exists(_.name == dep.name)) Right(Set.empty)
           else if (active.contains(dep.name)) {
             val cycle = (dep.name :: active).reverse.mkString(" -> ")
             Left(s"dependency cycle detected: $cycle")
           } else {
-            dep.dependencies.getOrElse(Nil).foldLeft[Either[String, Unit]](Right(())) {
-              case (acc, depName) =>
-                acc.flatMap { _ =>
-                  byName.get(depName) match {
-                    case Some(next) =>
-                      visit(next, dep.name :: active).map(_ => ())
-                    case None =>
-                      Left(
-                        s"${dep.name} depends on missing vendored dependency: $depName"
-                      )
+            dep.dependencies
+              .getOrElse(Nil)
+              .foldLeft[Either[String, Unit]](Right(())) {
+                case (acc, depName) =>
+                  acc.flatMap { _ =>
+                    byName.get(depName) match {
+                      case Some(next) =>
+                        visit(next, dep.name :: active).map(_ => ())
+                      case None =>
+                        Left(
+                          s"${dep.name} depends on missing vendored dependency: $depName"
+                        )
+                    }
                   }
-                }
-            }.map { _ =>
-              if (!ordered.exists(_.name == dep.name)) ordered += dep
-              Set(dep.name)
-            }
+              }
+              .map { _ =>
+                if (!ordered.exists(_.name == dep.name)) ordered += dep
+                Set(dep.name)
+              }
           }
 
         manifest.dependencies.traverse_(visit(_, Nil)).map(_ => ordered.toList)
@@ -203,9 +216,7 @@ object CDeps {
     if (haystack.contains("clang-cl")) "clang-cl"
     else if (haystack.contains("apple clang") || haystack.contains("clang"))
       "clang"
-    else if (
-      haystack.contains("gcc") || haystack.contains("gnu compiler")
-    )
+    else if (haystack.contains("gcc") || haystack.contains("gnu compiler"))
       "gcc"
     else if (
       haystack.contains("microsoft") ||

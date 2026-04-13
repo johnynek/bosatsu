@@ -86,7 +86,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
 
     failure match {
       case Some(_: StackOverflowError) =>
-        fail("Matchless.fromLet should not overflow on deeply nested TypedExpr lets")
+        fail(
+          "Matchless.fromLet should not overflow on deeply nested TypedExpr lets"
+        )
       case Some(other) =>
         fail(s"unexpected failure compiling deep TypedExpr let-chain: $other")
       case None =>
@@ -207,8 +209,9 @@ class MatchlessRegressionTest extends munit.FunSuite {
           val recNamesInLambda = activeRecNames -- argNames
           val recNamesInBody =
             recursiveName match {
-              case Some(fnName) if !argNames(fnName) => recNamesInLambda + fnName
-              case _                                  => recNamesInLambda
+              case Some(fnName) if !argNames(fnName) =>
+                recNamesInLambda + fnName
+              case _ => recNamesInLambda
             }
           captures.map(loopExpr(_, recNamesInLambda)).sum +
             loopExpr(body, recNamesInBody)
@@ -347,7 +350,9 @@ def branch_blowup(args: L) -> Nat:
     assertMatchlessToValueNoStackOverflow(nestedLetMut(20000))
   }
 
-  test("MatchlessToValue evaluates static If conditions without dynamic branching") {
+  test(
+    "MatchlessToValue evaluates static If conditions without dynamic branching"
+  ) {
     val trueIf =
       Matchless.If(
         Matchless.TrueConst,
@@ -363,7 +368,9 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse(Vector(trueIf, falseIf))((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse(Vector(trueIf, falseIf))((_, _, _) =>
+          Eval.now(Value.UnitValue)
+        )
         .map(_.value)
 
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(4)))
@@ -459,9 +466,12 @@ def branch_blowup(args: L) -> Nat:
   }
 
   Platform.onJvm(
-    test("deep TypedExpr non-rec let chains lower to Matchless without stack overflow") {
+    test(
+      "deep TypedExpr non-rec let chains lower to Matchless without stack overflow"
+    ) {
       val depth = sys.props.get("repro.typedLetDepth").fold(10000)(_.toInt)
-      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      val stackBytes =
+        sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
       assertMatchlessFromLetNoStackOverflow(nestedTypedLet(depth), stackBytes)
     }
   )

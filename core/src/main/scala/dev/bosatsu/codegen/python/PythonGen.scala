@@ -705,7 +705,11 @@ object PythonGen {
       .transform { (k, pm) =>
         val testsK =
           if (ns.isRoot(k)) ns.testEntries
-          else Map.empty[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[Any]]]
+          else
+            Map.empty[PackageName, Either[
+              Package.TestDiscoveryError,
+              Package.TestEntry[Any]
+            ]]
         val evaluatorsK =
           if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
 
@@ -725,9 +729,13 @@ object PythonGen {
 
               val testStmt: Env[Option[Statement]] =
                 testsK.get(p) match {
-                  case Some(Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+                  case Some(
+                        Right(Package.TestEntry.PlainTest(bindable, _, _))
+                      ) =>
                     addUnitTest(bindable).map(Some(_))
-                  case Some(Right(Package.TestEntry.ProgTest(bindable, _, _)))  =>
+                  case Some(
+                        Right(Package.TestEntry.ProgTest(bindable, _, _))
+                      ) =>
                     addProgUnitTest(bindable).map(Some(_))
                   case _ =>
                     Env.pure(None)
@@ -858,7 +866,8 @@ object PythonGen {
       }
 
       private val cmpStringFn: List[ValueLike] => Env[ValueLike] = { input =>
-        Env.ensureHelper(pyStringCmpHelperKey)(buildPyStringCmpHelper)
+        Env
+          .ensureHelper(pyStringCmpHelperKey)(buildPyStringCmpHelper)
           .flatMap { helperName =>
             Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
               Code.Apply(helperName, arg0 :: arg1 :: Nil)
@@ -996,9 +1005,11 @@ object PythonGen {
         mathModule.flatMap { math =>
           Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
             val bothNaN =
-              math.dot(Code.Ident("isnan"))(arg0).evalAnd(
-                math.dot(Code.Ident("isnan"))(arg1)
-              )
+              math
+                .dot(Code.Ident("isnan"))(arg0)
+                .evalAnd(
+                  math.dot(Code.Ident("isnan"))(arg1)
+                )
             Code.Ternary(Code.Const.True, arg0 =:= arg1, bothNaN).simplify
           }
         }
@@ -1861,7 +1872,8 @@ object PythonGen {
                           )
                           val tabulated = Code
                             .block(
-                              data := Code.MakeList(Code.Const.Zero :: Nil)
+                              data := Code
+                                .MakeList(Code.Const.Zero :: Nil)
                                 .evalTimes(size),
                               idx := Code.Const.Zero,
                               Code.While(
@@ -2195,7 +2207,8 @@ object PythonGen {
                           data := arrayData(ary),
                           offset := arrayOffset(ary),
                           size := arrayLen(ary),
-                          out := Code.MakeList(Code.Const.Zero :: Nil)
+                          out := Code
+                            .MakeList(Code.Const.Zero :: Nil)
                             .evalTimes(size),
                           idx := Code.Const.Zero,
                           Code.While(
@@ -2240,7 +2253,8 @@ object PythonGen {
                             data := arrayData(ary),
                             offset := arrayOffset(ary),
                             size := arrayLen(ary),
-                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                            out := Code
+                              .MakeList(Code.Const.Zero :: Nil)
                               .evalTimes(size),
                             idx := Code.Const.Zero,
                             Code.While(
@@ -2375,7 +2389,8 @@ object PythonGen {
                                 idx := idx + 1
                               )
                             ),
-                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                            out := Code
+                              .MakeList(Code.Const.Zero :: Nil)
                               .evalTimes(total),
                             write := Code.Const.Zero,
                             partIdx := Code.Const.Zero,
@@ -2432,11 +2447,24 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap {
-                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, out, rightSize) =>
+                  case (
+                        leftData,
+                        leftOffset,
+                        rightData,
+                        rightOffset,
+                        pairLen,
+                        idx,
+                        out,
+                        rightSize
+                      ) =>
                     Env.onLasts(input) {
                       case left :: right :: fn :: Nil =>
                         val leftSize = arrayLen(left)
-                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        val minSize = Code.Ternary(
+                          leftSize,
+                          leftSize :< rightSize,
+                          rightSize
+                        )
                         Code
                           .block(
                             leftData := arrayData(left),
@@ -2445,15 +2473,22 @@ object PythonGen {
                             rightOffset := arrayOffset(right),
                             rightSize := arrayLen(right),
                             pairLen := minSize,
-                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                            out := Code
+                              .MakeList(Code.Const.Zero :: Nil)
                               .evalTimes(pairLen),
                             idx := Code.Const.Zero,
                             Code.While(
                               idx :< pairLen,
                               Code.block(
                                 selectItem(out, idx) := fn(
-                                  selectItem(leftData, leftOffset.evalPlus(idx)),
-                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                  selectItem(
+                                    leftData,
+                                    leftOffset.evalPlus(idx)
+                                  ),
+                                  selectItem(
+                                    rightData,
+                                    rightOffset.evalPlus(idx)
+                                  )
                                 ),
                                 idx := idx + 1
                               )
@@ -2486,11 +2521,24 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap {
-                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                  case (
+                        leftData,
+                        leftOffset,
+                        rightData,
+                        rightOffset,
+                        pairLen,
+                        idx,
+                        acc,
+                        rightSize
+                      ) =>
                     Env.onLasts(input) {
                       case left :: right :: init :: fn :: Nil =>
                         val leftSize = arrayLen(left)
-                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        val minSize = Code.Ternary(
+                          leftSize,
+                          leftSize :< rightSize,
+                          rightSize
+                        )
                         Code
                           .block(
                             leftData := arrayData(left),
@@ -2506,8 +2554,14 @@ object PythonGen {
                               Code.block(
                                 acc := fn(
                                   acc,
-                                  selectItem(leftData, leftOffset.evalPlus(idx)),
-                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                  selectItem(
+                                    leftData,
+                                    leftOffset.evalPlus(idx)
+                                  ),
+                                  selectItem(
+                                    rightData,
+                                    rightOffset.evalPlus(idx)
+                                  )
                                 ),
                                 idx := idx + 1
                               )
@@ -2540,11 +2594,24 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap {
-                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                  case (
+                        leftData,
+                        leftOffset,
+                        rightData,
+                        rightOffset,
+                        pairLen,
+                        idx,
+                        acc,
+                        rightSize
+                      ) =>
                     Env.onLasts(input) {
                       case left :: right :: fn :: Nil =>
                         val leftSize = arrayLen(left)
-                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        val minSize = Code.Ternary(
+                          leftSize,
+                          leftSize :< rightSize,
+                          rightSize
+                        )
                         Code
                           .block(
                             leftData := arrayData(left),
@@ -2684,7 +2751,10 @@ object PythonGen {
                                   Code.While(
                                     idx :< size,
                                     Code.block(
-                                      item := selectItem(data, offset.evalPlus(idx)),
+                                      item := selectItem(
+                                        data,
+                                        offset.evalPlus(idx)
+                                      ),
                                       acc := acc.evalPlus(item.evalTimes(item)),
                                       idx := idx + 1
                                     )
@@ -2717,11 +2787,25 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap {
-                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, item, rightSize) =>
+                  case (
+                        leftData,
+                        leftOffset,
+                        rightData,
+                        rightOffset,
+                        pairLen,
+                        idx,
+                        acc,
+                        item,
+                        rightSize
+                      ) =>
                     Env.onLasts(input) {
                       case left :: right :: Nil =>
                         val leftSize = arrayLen(left)
-                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        val minSize = Code.Ternary(
+                          leftSize,
+                          leftSize :< rightSize,
+                          rightSize
+                        )
                         Code
                           .block(
                             leftData := arrayData(left),
@@ -2935,7 +3019,8 @@ object PythonGen {
                               total := total.evalPlus(arrayLen(part))
                             )
                           ),
-                          data := Code.MakeList(Code.Const.Zero :: Nil)
+                          data := Code
+                            .MakeList(Code.Const.Zero :: Nil)
                             .evalTimes(total),
                           write := Code.Const.Zero,
                           partIdx := Code.Const.Zero,
@@ -3148,7 +3233,7 @@ object PythonGen {
             res <- body match {
               case expr: Expression =>
                 Env.pure(Code.Lambda(vars, expr))
-              case _                =>
+              case _ =>
                 val args = NonEmptyList.fromListUnsafe(vars)
                 for {
                   defName <- Env.newHoistedDefName
@@ -3412,7 +3497,11 @@ object PythonGen {
             )
           case lam =>
             capturedLambdaValue(lam, slotName, inlineSlots)
-              .flatMap(Env.onLast(_)(value => (name := value).withValue(Code.Const.Unit)))
+              .flatMap(
+                Env.onLast(_)(value =>
+                  (name := value).withValue(Code.Const.Unit)
+                )
+              )
               .map(Code.always)
         }
 

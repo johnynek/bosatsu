@@ -55,7 +55,10 @@ trait PlatformIO[F[_], Path] {
         }
       }
 
-  final inline def getOrError[A](oa: Option[A], inline msg: => Throwable): F[A] =
+  final inline def getOrError[A](
+      oa: Option[A],
+      inline msg: => Throwable
+  ): F[A] =
     oa match {
       case Some(a) => moduleIOMonad.pure(a)
       case None    => moduleIOMonad.raiseError(msg)
@@ -128,7 +131,7 @@ trait PlatformIO[F[_], Path] {
       fsDataType(current).flatMap {
         case Some(PlatformIO.FSDataType.Dir) =>
           hasGitMetadataEntry(current).map {
-            case true => Right(Some(current))
+            case true  => Right(Some(current))
             case false =>
               parent(current) match {
                 case Some(next) if !pathOrdering.equiv(next, current) =>
@@ -143,7 +146,7 @@ trait PlatformIO[F[_], Path] {
     moduleIOMonad.tailRecM(start)(searchStep)
   }
 
-  def gitTopLevel: F[Option[Path]] = {
+  def gitTopLevel: F[Option[Path]] =
     path(".") match {
       case Valid(a)   => gitTopLevelFrom(a)
       case Invalid(e) =>
@@ -151,7 +154,6 @@ trait PlatformIO[F[_], Path] {
           new Exception(s"could not find current directory: $e")
         )
     }
-  }
 
   final def writeOut(doc: Doc, out: Option[Path]): F[Unit] =
     out match {

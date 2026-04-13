@@ -3,14 +3,14 @@ package dev.bosatsu
 import cats.data.NonEmptyList
 
 object OperatorHints {
-  private sealed abstract class LitKind
+  sealed abstract private class LitKind
   private object LitKind {
     case object IntLit extends LitKind
     case object FloatLit extends LitKind
     case object StringLikeLit extends LitKind
   }
 
-  private final case class CallSite(
+  final private case class CallSite(
       left: Option[LitKind],
       right: Option[LitKind]
   ) {
@@ -60,7 +60,10 @@ object OperatorHints {
                   Expr.Local(opName: Identifier.Operator, tag),
                   NonEmptyList(left, right :: Nil)
                 )
-                if opName == op && regionContains(HasRegion.region(tag), region) =>
+                if opName == op && regionContains(
+                  HasRegion.region(tag),
+                  region
+                ) =>
               Some(
                 CallSite(
                   literalKind(left),
@@ -97,8 +100,8 @@ object OperatorHints {
         literalKind(inner)
       case Expr.Literal(lit, _) =>
         lit match {
-          case _: Lit.Integer => Some(LitKind.IntLit)
-          case _: Lit.Float64 => Some(LitKind.FloatLit)
+          case _: Lit.Integer          => Some(LitKind.IntLit)
+          case _: Lit.Float64          => Some(LitKind.FloatLit)
           case Lit.Str(_) | Lit.Chr(_) =>
             Some(LitKind.StringLikeLit)
         }
@@ -206,8 +209,8 @@ object OperatorHints {
     val distinctFns = functions.distinct
     val joined =
       distinctFns match {
-        case Nil           => ""
-        case one :: Nil    => one
+        case Nil               => ""
+        case one :: Nil        => one
         case one :: two :: Nil =>
           s"$one or $two"
         case many =>

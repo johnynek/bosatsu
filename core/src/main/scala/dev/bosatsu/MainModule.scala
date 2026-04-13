@@ -29,7 +29,7 @@ class MainModule[IO[_], Path](val platformIO: PlatformIO[IO, Path]) {
     if (isEvalCommandPath(args)) {
       // Only eval commands support passthrough args, and only after an explicit `--`.
       args.span(_ != argumentDelimiter) match {
-        case (prefix, Nil)          => (prefix, Nil)
+        case (prefix, Nil)         => (prefix, Nil)
         case (prefix, _ :: suffix) => (prefix, suffix)
       }
     } else (args, Nil)

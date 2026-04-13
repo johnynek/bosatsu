@@ -12,12 +12,11 @@ case class NameMap private (
   def maybeOr(that: NameMap): NameMap =
     NameMap.maybeOr(this, that)
 
-  def deterministic: Option[NameMap.Deterministic] =
-    {
-      val it = alternatives.iterator
-      val head = it.next()
-      if (it.hasNext) None else Some(head)
-    }
+  def deterministic: Option[NameMap.Deterministic] = {
+    val it = alternatives.iterator
+    val head = it.next()
+    if (it.hasNext) None else Some(head)
+  }
 
   // Convenience for deterministic alignments; disjunctive maps return empty.
   def superNames: Map[Bindable, NameMap.Rename] =
@@ -40,14 +39,17 @@ case class NameMap private (
   def substitutionAlternatives(
       fromNames: Set[Bindable]
   ): List[Map[Bindable, Bindable]] =
-    alternatives.iterator.flatMap { alt =>
-      val resolved = fromNames.iterator.map { from =>
-        alt.superToSub(from).map(from -> _)
-      }.toList
+    alternatives.iterator
+      .flatMap { alt =>
+        val resolved = fromNames.iterator.map { from =>
+          alt.superToSub(from).map(from -> _)
+        }.toList
 
-      if (resolved.forall(_.nonEmpty)) Some(resolved.flatten.toMap)
-      else None
-    }.toList.distinct
+        if (resolved.forall(_.nonEmpty)) Some(resolved.flatten.toMap)
+        else None
+      }
+      .toList
+      .distinct
 }
 
 object NameMap {
@@ -63,8 +65,8 @@ object NameMap {
   ) derives CanEqual {
     def superToSub(name: Bindable): Option[Bindable] =
       superNames.get(name) match {
-        case Some(Rename.Same)      => Some(name)
-        case Some(Rename.To(name1)) => Some(name1)
+        case Some(Rename.Same)           => Some(name)
+        case Some(Rename.To(name1))      => Some(name1)
         case Some(Rename.Removed) | None => None
       }
   }
@@ -93,7 +95,9 @@ object NameMap {
   ): Option[Alignment] =
     distinctChain(aligned.iterator).map(Alignment(_))
 
-  private def nameMapFromList(alts: IterableOnce[Deterministic]): Option[NameMap] =
+  private def nameMapFromList(
+      alts: IterableOnce[Deterministic]
+  ): Option[NameMap] =
     distinctChain(alts.iterator).map(NameMap(_))
 
   private def distinctChain[A](
@@ -140,15 +144,15 @@ object NameMap {
   /** Compute how binders change from `superPattern` to `subPattern`.
     *
     * This method is intended to be used only when:
-    * `TotalityCheck.difference(subPattern, superPattern).isEmpty`
-    * (i.e. `superPattern` subsumes `subPattern`). Without that precondition, a
+    * `TotalityCheck.difference(subPattern, superPattern).isEmpty` (i.e.
+    * `superPattern` subsumes `subPattern`). Without that precondition, a
     * returned map is not meaningful for implication-style reasoning.
     *
     * Even with the subsumption precondition, this can still return `None`
     * because the alignment is intentionally conservative/syntactic:
-    * 1. list/string patterns may be semantically compatible but not have the
-    *    same part-wise decomposition used by this aligner;
-    * 2. no viable disjunctive alignment remains after merging nested parts.
+    *   1. list/string patterns may be semantically compatible but not have the
+    *      same part-wise decomposition used by this aligner;
+    *   2. no viable disjunctive alignment remains after merging nested parts.
     */
   def alignSubsumedPatternNames[N, T](
       superPattern: Pattern[N, T],
@@ -223,7 +227,10 @@ object NameMap {
     (superPart, subPart) match {
       case (Pattern.ListPart.Item(superItem), Pattern.ListPart.Item(subItem)) =>
         alignSubsumedPatternNameTargets(superItem, subItem)
-      case (Pattern.ListPart.NamedList(superName), Pattern.ListPart.NamedList(subName)) =>
+      case (
+            Pattern.ListPart.NamedList(superName),
+            Pattern.ListPart.NamedList(subName)
+          ) =>
         Some(oneAlignment(Map(superName -> subName)))
       case (Pattern.ListPart.NamedList(_), Pattern.ListPart.WildList) =>
         Some(oneAlignment(Map.empty))
@@ -241,9 +248,15 @@ object NameMap {
       subPart: Pattern.StrPart
   ): Option[Alignment] =
     (superPart, subPart) match {
-      case (Pattern.StrPart.NamedStr(superName), Pattern.StrPart.NamedStr(subName)) =>
+      case (
+            Pattern.StrPart.NamedStr(superName),
+            Pattern.StrPart.NamedStr(subName)
+          ) =>
         Some(oneAlignment(Map(superName -> subName)))
-      case (Pattern.StrPart.NamedChar(superName), Pattern.StrPart.NamedChar(subName)) =>
+      case (
+            Pattern.StrPart.NamedChar(superName),
+            Pattern.StrPart.NamedChar(subName)
+          ) =>
         Some(oneAlignment(Map(superName -> subName)))
       case (Pattern.StrPart.NamedStr(_), Pattern.StrPart.WildStr) =>
         Some(oneAlignment(Map.empty))
@@ -311,7 +324,9 @@ object NameMap {
               Pattern.PositionalStruct(superName, superParams),
               Pattern.PositionalStruct(subName, subParams)
             )
-            if superName.equals(subName) && (superParams.length == subParams.length) =>
+            if superName.equals(
+              subName
+            ) && (superParams.length == subParams.length) =>
           superParams
             .zip(subParams)
             .foldLeft(Option(oneAlignment(Map.empty[Bindable, Bindable]))) {

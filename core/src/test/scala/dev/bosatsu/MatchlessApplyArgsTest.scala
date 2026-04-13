@@ -5,7 +5,9 @@ import cats.data.NonEmptyList
 import Identifier.Bindable
 
 class MatchlessApplyArgsTest extends munit.FunSuite {
-  test("Matchless.inlineApplyArgs keeps non-cheap arguments inside If branches") {
+  test(
+    "Matchless.inlineApplyArgs keeps non-cheap arguments inside If branches"
+  ) {
     val deferred = Identifier.Name("deferred")
     val expensive = Identifier.Name("expensive")
     val actual: Matchless.Expr[Unit] =
@@ -26,7 +28,11 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
       )
 
     Matchless.inlineApplyArgs(lam, NonEmptyList.one(actual)) match {
-      case Matchless.If(Matchless.TrueConst, thenExpr, Matchless.Literal(lit)) =>
+      case Matchless.If(
+            Matchless.TrueConst,
+            thenExpr,
+            Matchless.Literal(lit)
+          ) =>
         assertEquals(thenExpr, actual)
         assertEquals(lit, Lit.fromInt(0))
       case Matchless.Let(_, `actual`, _) =>
@@ -36,7 +42,9 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
     }
   }
 
-  test("Matchless.inlineApplyArgs keeps non-cheap arguments inside SwitchVariant branches") {
+  test(
+    "Matchless.inlineApplyArgs keeps non-cheap arguments inside SwitchVariant branches"
+  ) {
     val selector = Identifier.Name("selector")
     val deferred = Identifier.Name("deferred")
     val actual: Matchless.Expr[Unit] =
@@ -76,7 +84,9 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
     }
   }
 
-  test("Matchless.inlineApplyArgs directly substitutes single eager non-cheap arguments") {
+  test(
+    "Matchless.inlineApplyArgs directly substitutes single eager non-cheap arguments"
+  ) {
     val arg = Identifier.Name("arg")
     val consume = Identifier.Name("consume")
     val expensive = Identifier.Name("expensive")
@@ -102,11 +112,15 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
       case Matchless.Let(_, `actual`, _) =>
         fail("expected single eager use to substitute directly")
       case other =>
-        fail(s"expected direct substitution for the eager argument, found: $other")
+        fail(
+          s"expected direct substitution for the eager argument, found: $other"
+        )
     }
   }
 
-  test("Matchless.inlineApplyArgs memoizes repeated eager non-cheap arguments once") {
+  test(
+    "Matchless.inlineApplyArgs memoizes repeated eager non-cheap arguments once"
+  ) {
     val arg = Identifier.Name("arg")
     val consume = Identifier.Name("consume")
     val expensive = Identifier.Name("expensive")
@@ -141,7 +155,9 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
     }
   }
 
-  test("Matchless.inlineApplyArgs memoizes eager non-cheap args for cheap positions") {
+  test(
+    "Matchless.inlineApplyArgs memoizes eager non-cheap args for cheap positions"
+  ) {
     val arg = Identifier.Name("arg")
     val expensive = Identifier.Name("expensive")
     val actual: Matchless.Expr[Unit] =
@@ -166,7 +182,10 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
             Right(tmp),
             `actual`,
             Matchless.If(
-              Matchless.EqualsNat(Matchless.Local(tmpRef), rankn.DataRepr.ZeroNat),
+              Matchless.EqualsNat(
+                Matchless.Local(tmpRef),
+                rankn.DataRepr.ZeroNat
+              ),
               Matchless.Literal(ifTrue),
               Matchless.Literal(ifFalse)
             )
@@ -175,7 +194,9 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
         assertEquals(ifTrue, Lit.fromInt(1))
         assertEquals(ifFalse, Lit.fromInt(2))
       case other =>
-        fail(s"expected eager cheap-position use to memoize once, found: $other")
+        fail(
+          s"expected eager cheap-position use to memoize once, found: $other"
+        )
     }
   }
 
@@ -200,7 +221,10 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
             Right(tmp),
             Matchless.ZeroNat,
             Matchless.If(
-              Matchless.EqualsNat(Matchless.Local(tmpRef), rankn.DataRepr.ZeroNat),
+              Matchless.EqualsNat(
+                Matchless.Local(tmpRef),
+                rankn.DataRepr.ZeroNat
+              ),
               Matchless.Literal(ifTrue),
               Matchless.Literal(ifFalse)
             )
@@ -209,7 +233,9 @@ class MatchlessApplyArgsTest extends munit.FunSuite {
         assertEquals(ifTrue, Lit.fromInt(1))
         assertEquals(ifFalse, Lit.fromInt(2))
       case other =>
-        fail(s"expected ZeroNat to be memoized for the cheap position, found: $other")
+        fail(
+          s"expected ZeroNat to be memoized for the cheap position, found: $other"
+        )
     }
   }
 

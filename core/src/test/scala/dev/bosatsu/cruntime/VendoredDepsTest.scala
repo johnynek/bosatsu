@@ -47,7 +47,9 @@ class VendoredDepsTest extends munit.FunSuite {
     )
   }
 
-  test("bdwgc runtime requirements carry GC_THREADS for runtime and generated code") {
+  test(
+    "bdwgc runtime requirements carry GC_THREADS for runtime and generated code"
+  ) {
     val dep =
       dependency(
         "bdwgc",

@@ -35,7 +35,7 @@ object ShadowedBindingTypeCheck {
 
   private type Env = Map[Bindable, BoundInfo]
 
-  private final case class TypeContext(
+  final private case class TypeContext(
       renames: Map[Type.Var, Type.TyVar],
       nextId: Long
   ) {
@@ -77,7 +77,8 @@ object ShadowedBindingTypeCheck {
     if (Identifier.isSynthetic(name)) unitValid
     else
       env.get(name) match {
-        case Some(previous) if !previous.canonicalTpe.sameAs(current.canonicalTpe) =>
+        case Some(previous)
+            if !previous.canonicalTpe.sameAs(current.canonicalTpe) =>
           Validated.invalidNec(Error(name, previous, current))
         case _ =>
           unitValid
@@ -110,7 +111,9 @@ object ShadowedBindingTypeCheck {
         // non-synthetic arguments are the user-facing lambda parameters even
         // on region-only compiled artifacts.
         val checkableArgs: List[(Bindable, Type)] =
-          args.toList.filterNot { case (name, _) => Identifier.isSynthetic(name) }
+          args.toList.filterNot { case (name, _) =>
+            Identifier.isSynthetic(name)
+          }
         val (argCheck, lambdaEnv) =
           checkableArgs.foldLeft((unitValid, Map.empty[Bindable, BoundInfo])) {
             case ((acc, envAcc), (name, tpe)) =>
@@ -149,7 +152,9 @@ object ShadowedBindingTypeCheck {
         bindCheck *> rhsCheck *> bodyCheck
       case TypedExpr.Loop(args, body, tag) =>
         val argChecks =
-          args.traverse_ { case (_, init) => checkExpr(init, env, tctx, regionOf) }
+          args.traverse_ { case (_, init) =>
+            checkExpr(init, env, tctx, regionOf)
+          }
         val loopBinds = args.toList.map { case (name, init) =>
           val tpe = init.getType
           (

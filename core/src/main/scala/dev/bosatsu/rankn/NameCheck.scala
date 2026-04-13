@@ -33,7 +33,8 @@ object NameCheck {
   ): Chain[Infer.Error.NameError] = {
     case class ExprWork(expr: Expr[A], scope: Set[Bindable])
 
-    val errors = scala.collection.mutable.ListBuffer.empty[Infer.Error.NameError]
+    val errors =
+      scala.collection.mutable.ListBuffer.empty[Infer.Error.NameError]
     var stack: List[ExprWork] = ExprWork(expr, localScope) :: Nil
 
     while (stack.nonEmpty) {
@@ -101,10 +102,12 @@ object NameCheck {
       pack: PackageName,
       expr: Expr[A]
   ): Set[Bindable] =
-    expr.globals.iterator.collect {
-      case Expr.Global(`pack`, n, _) =>
+    expr.globals.iterator
+      .collect { case Expr.Global(`pack`, n, _) =>
         n.toBindable
-    }.flatten.toSet
+      }
+      .flatten
+      .toSet
 
   def checkLets[A: HasRegion](
       pack: PackageName,

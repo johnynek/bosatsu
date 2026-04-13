@@ -109,7 +109,11 @@ sealed abstract class Declaration derives CanEqual {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail
           .map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
-      case Ternary(Var(Identifier.Constructor("True")), m @ Matches(_, _, Some(_)), falseCase) =>
+      case Ternary(
+            Var(Identifier.Constructor("True")),
+            m @ Matches(_, _, Some(_)),
+            falseCase
+          ) =>
         m.toDoc + Doc.text(" else ") + falseCase.toDoc
       case Ternary(trueCase, cond, falseCase) =>
         Doc.intercalate(
@@ -163,8 +167,8 @@ sealed abstract class Declaration derives CanEqual {
       case m @ Matches(arg, p, guard) =>
         val da = arg match {
           // matches binds tighter than all these
-          case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) |
-              Match(_, _, _) | Matches(_, _, Some(_)) | Ternary(_, _, _) =>
+          case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
+              Matches(_, _, Some(_)) | Ternary(_, _, _) =>
             Parens(arg)(using m.region).toDoc
           case _ =>
             arg.toDoc
@@ -173,7 +177,8 @@ sealed abstract class Declaration derives CanEqual {
         def syntacticGuardParens(g: NonBinding): Boolean =
           g match {
             case Annotation(of, _) => syntacticGuardParens(of)
-            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+            case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) |
+                Ternary(_, _, _) =>
               true
             case _ =>
               false
@@ -182,7 +187,7 @@ sealed abstract class Declaration derives CanEqual {
         @annotation.tailrec
         def guardNeedsParens(g: NonBinding): Boolean =
           g match {
-            case Annotation(of, _) => guardNeedsParens(of)
+            case Annotation(of, _)      => guardNeedsParens(of)
             case Matches(_, _, Some(_)) =>
               true
             case g if syntacticGuardParens(g) =>
@@ -205,7 +210,9 @@ sealed abstract class Declaration derives CanEqual {
               }
             Doc.text(" if ") + gd
           }
-        da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p) + guardDoc
+        da + Doc.text(" matches ") + Document[Pattern.Parsed].document(
+          p
+        ) + guardDoc
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case TupleCons(h :: Nil) =>
@@ -545,8 +552,8 @@ object Declaration {
   object ConditionalMatch {
     def unapply(cond: NonBinding): Option[(Matches, List[TypeRef])] =
       cond match {
-        case m @ Matches(_, _, _)   => Some((m, Nil))
-        case Annotation(of, tpe)    =>
+        case m @ Matches(_, _, _) => Some((m, Nil))
+        case Annotation(of, tpe)  =>
           unapply(of).map { case (m, annots) => (m, tpe :: annots) }
         case Parens(of: NonBinding) => unapply(of)
         case _                      => None
@@ -658,7 +665,7 @@ object Declaration {
             val br1 = ConditionalMatch.unapply(cond) match {
               case Some((m, _)) =>
                 br.traverse(loopScopedDecl(_, m.pattern.names))
-              case None    => br.traverse(loopDec)
+              case None => br.traverse(loopDec)
             }
             (loop(cond), br1).tupled
           }
@@ -668,7 +675,7 @@ object Declaration {
         case Ternary(t, c, f) =>
           val t1 = ConditionalMatch.unapply(c) match {
             case Some((m, _)) => loopScopedNB(t, m.pattern.names)
-            case None    => loop(t)
+            case None         => loop(t)
           }
           (t1, loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
@@ -1359,7 +1366,9 @@ object Declaration {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
     val bp = Indy { indent =>
       val casePat: P[(Pattern.Parsed, Region)] =
-        ((P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser.region)
+        ((P.string(
+          "case"
+        ) *> Parser.spaces).with1 *> Pattern.matchParser.region)
           .map { case (region, pat) =>
             (pat, region)
           }
@@ -1386,7 +1395,9 @@ object Declaration {
       // Keep `loop` contextual in declaration position:
       // - `loop = ...` should remain a normal binding
       // - malformed recursion headers should commit once the header is chosen
-      ((((matchKindParser <* spaces).soft <* P.not(P.char('='))) ~ arg(indent)) <* maybeSpace)
+      ((((matchKindParser <* spaces).soft <* P.not(P.char('='))) ~ arg(
+        indent
+      )) <* maybeSpace)
     }
     OptIndent
       .block(left, branchList)
@@ -1562,7 +1573,8 @@ object Declaration {
   private object ParseMode {
     case object Decl extends ParseMode(true, false, false, true)
     case object NB extends ParseMode(false, false, false, true)
-    case object NBNoGuardedMatchesElse extends ParseMode(false, false, false, false)
+    case object NBNoGuardedMatchesElse
+        extends ParseMode(false, false, false, false)
     case object BranchArg extends ParseMode(false, true, false, true)
     case object BranchArgNoGuardedMatchesElse
         extends ParseMode(false, true, false, false)
@@ -1763,7 +1775,8 @@ object Declaration {
           def stripsSyntacticGuardParens(g: NonBinding): Boolean =
             g match {
               case Annotation(of, _) => stripsSyntacticGuardParens(of)
-              case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) | Ternary(_, _, _) =>
+              case Lambda(_, _) | IfElse(_, _) | Match(_, _, _) |
+                  Ternary(_, _, _) =>
                 true
               case _ =>
                 false
@@ -1771,7 +1784,8 @@ object Declaration {
 
           def stripSyntacticGuardParens(g: NonBinding): NonBinding =
             g match {
-              case Parens(inner: NonBinding) if stripsSyntacticGuardParens(inner) =>
+              case Parens(inner: NonBinding)
+                  if stripsSyntacticGuardParens(inner) =>
                 inner
               case _ =>
                 g
@@ -1850,7 +1864,7 @@ object Declaration {
               Right { (trueCase: NonBinding) =>
                 Ternary(trueCase, cond, falseCase)
               }
-            }
+          }
           val repair: P[Unit => (NonBinding => NonBinding)] =
             P.failWith("composed ternary expressions require parentheses")
 

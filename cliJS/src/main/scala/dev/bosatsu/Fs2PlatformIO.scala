@@ -336,7 +336,10 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
                             source = tempPath,
                             target = path,
                             // Reflink tries to do an atomic copy, and falls back to non-atomic if not
-                            CopyFlags(CopyFlag.Reflink, CopyFlag.ReplaceExisting)
+                            CopyFlags(
+                              CopyFlag.Reflink,
+                              CopyFlag.ReplaceExisting
+                            )
                           )
                           .as(Right(()))
                       } else {
@@ -353,7 +356,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
                     }
                 } else {
                   IO.pure(
-                    Left(FetchHashFailure.HttpStatus(uri, response.status.toString))
+                    Left(
+                      FetchHashFailure.HttpStatus(uri, response.status.toString)
+                    )
                   )
                 }
               }

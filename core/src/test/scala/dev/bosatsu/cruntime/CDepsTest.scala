@@ -21,10 +21,12 @@ class CDepsTest extends munit.FunSuite {
       hash = hash,
       source_subdir = "gc-8.2.8",
       recipe = CDeps.BdwgcCmakeStatic,
-      options = Some(Json.JObject(
-        ("threadsafe" -> Json.JBool(true)) ::
-          Nil
-      ))
+      options = Some(
+        Json.JObject(
+          ("threadsafe" -> Json.JBool(true)) ::
+            Nil
+        )
+      )
     )
 
   test("manifest parses vendored dependency entries") {
@@ -89,7 +91,9 @@ class CDepsTest extends munit.FunSuite {
     assertEquals(CDeps.parseManifestString(rendered), Right(manifest))
   }
 
-  test("build key is stable across env insertion order and changes with recipe inputs") {
+  test(
+    "build key is stable across env insertion order and changes with recipe inputs"
+  ) {
     val baseCtx =
       CDeps.BuildContext(
         os = "Darwin",
@@ -190,9 +194,12 @@ class CDepsTest extends munit.FunSuite {
       Left("bdwgc depends on missing vendored dependency: missing")
     )
     assert(
-      CDeps.orderedDependencies(cycle).left.exists(
-        _.contains("dependency cycle detected")
-      )
+      CDeps
+        .orderedDependencies(cycle)
+        .left
+        .exists(
+          _.contains("dependency cycle detected")
+        )
     )
   }
 

@@ -42,7 +42,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
             next = next + 1
             nm
           }
-      )
+        )
     )
   }
 
@@ -285,7 +285,9 @@ main = mk
         |""".stripMargin
     )
     val int64Iface =
-      Package.interfaceOf(int64Pm.toMap(PackageName.parts("Bosatsu", "Num", "Int64")))
+      Package.interfaceOf(
+        int64Pm.toMap(PackageName.parts("Bosatsu", "Num", "Int64"))
+      )
 
     val arrayPm = typeCheckPackage(
       """package Bosatsu/Collection/Array
@@ -367,7 +369,8 @@ main = mk
       val normalizedCode = normalizeGeneratedTemps(code)
       val indexed = normalizeGeneratedTemps(extractPythonDef(code, "indexed"))
       val mapped = normalizeGeneratedTemps(extractPythonDef(code, "mapped"))
-      val floatOps = normalizeGeneratedTemps(extractPythonDef(code, "float_ops"))
+      val floatOps =
+        normalizeGeneratedTemps(extractPythonDef(code, "float_ops"))
 
       assert(build.contains("2147483647"), build)
       assert(build.contains("while ___v"), build)
@@ -390,7 +393,9 @@ main = mk
     }
   }
 
-  test("segmented end-anchored list search lowers to one suffix-positioning loop in Python") {
+  test(
+    "segmented end-anchored list search lowers to one suffix-positioning loop in Python"
+  ) {
     val pm = typeCheckPackage("""package Test
 
 def find_before_one(xs):
@@ -404,13 +409,17 @@ main = find_before_one
       val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
       val doc = rendered(())(TestUtils.testPackage)._2
       val code = doc.render(120)
-      val findBeforeOne = normalizeGeneratedTemps(extractPythonDef(code, "find_before_one"))
+      val findBeforeOne =
+        normalizeGeneratedTemps(extractPythonDef(code, "find_before_one"))
       val whileCount = "while ___v".r.findAllMatchIn(findBeforeOne).length
 
       assertEquals(whileCount, 2, findBeforeOne)
       assert(findBeforeOne.contains("___v6 = ___v6[2]"), findBeforeOne)
       assert(findBeforeOne.contains("___v5 = ___v5[2]"), findBeforeOne)
-      assert(findBeforeOne.contains("(___v5[1] == 1) and (___v5[2][0] == 0)"), findBeforeOne)
+      assert(
+        findBeforeOne.contains("(___v5[1] == 1) and (___v5[2][0] == 0)"),
+        findBeforeOne
+      )
       assertEquals(deadPythonTemps(findBeforeOne), Set.empty, findBeforeOne)
     }
   }
@@ -431,26 +440,32 @@ def foo_before_bar(s):
 main = foo_before_bar
     """)
     Par.withEC {
-      val hasFooRendered = PythonGen.renderSource(hasFooPm, Map.empty, Map.empty)
+      val hasFooRendered =
+        PythonGen.renderSource(hasFooPm, Map.empty, Map.empty)
       val fooBeforeBarRendered =
         PythonGen.renderSource(fooBeforeBarPm, Map.empty, Map.empty)
       val hasFooCode =
-        hasFooRendered(())(TestUtils.testPackage)
-          ._2
+        hasFooRendered(())(TestUtils.testPackage)._2
           .render(120)
       val fooBeforeBarCode =
-        fooBeforeBarRendered(())(TestUtils.testPackage)
-          ._2
+        fooBeforeBarRendered(())(TestUtils.testPackage)._2
           .render(120)
-      val hasFoo = normalizeGeneratedTemps(extractPythonDef(hasFooCode, "has_foo"))
+      val hasFoo =
+        normalizeGeneratedTemps(extractPythonDef(hasFooCode, "has_foo"))
       val fooBeforeBar =
-        normalizeGeneratedTemps(extractPythonDef(fooBeforeBarCode, "foo_before_bar"))
+        normalizeGeneratedTemps(
+          extractPythonDef(fooBeforeBarCode, "foo_before_bar")
+        )
 
       assertEquals("while ___v".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
       assert(hasFoo.contains("""partition(u"foo")"""), hasFoo)
       assertEquals(deadPythonTemps(hasFoo), Set.empty, hasFoo)
 
-      assertEquals("while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2, true, fooBeforeBar)
+      assertEquals(
+        "while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2,
+        true,
+        fooBeforeBar
+      )
       assert(fooBeforeBar.contains("""partition(u"foo")"""), fooBeforeBar)
       assert(fooBeforeBar.contains("""partition(u"bar")"""), fooBeforeBar)
       assertEquals(deadPythonTemps(fooBeforeBar), Set.empty, fooBeforeBar)
@@ -469,8 +484,7 @@ main = compare_three
 
     Par.withEC {
       val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
-      val code = rendered(())(TestUtils.testPackage)
-        ._2
+      val code = rendered(())(TestUtils.testPackage)._2
         .render(120)
       val compareThree =
         normalizeGeneratedTemps(extractPythonDef(code, "compare_three"))
@@ -489,7 +503,9 @@ main = compare_three
     }
   }
 
-  test("CheckVariantSet guards compile to direct Python membership comparisons") {
+  test(
+    "CheckVariantSet guards compile to direct Python membership comparisons"
+  ) {
     val famArities = 0 :: 0 :: 0 :: 0 :: 0 :: Nil
     val arg = Identifier.Name("v")
     val body = Matchless.If(
@@ -557,9 +573,12 @@ main = compare_three
       def compiledWithMatchlessOptions(
           localPassOptions: Matchless.LocalPassOptions,
           enableGlobalInlining: Boolean
-      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
-        Unit
-      ]] =
+      ): scala.collection.immutable.SortedMap[
+        Unit,
+        MatchlessFromTypedExpr.Compiled[
+          Unit
+        ]
+      ] =
         compiled
       def exportedValues(
           packageName: PackageName
@@ -685,9 +704,12 @@ main = classify_char
       def compiledWithMatchlessOptions(
           localPassOptions: Matchless.LocalPassOptions,
           enableGlobalInlining: Boolean
-      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
-        Unit
-      ]] =
+      ): scala.collection.immutable.SortedMap[
+        Unit,
+        MatchlessFromTypedExpr.Compiled[
+          Unit
+        ]
+      ] =
         compiled
       def exportedValues(
           packageName: PackageName

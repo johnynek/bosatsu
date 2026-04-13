@@ -51,7 +51,9 @@ class TypedExprRecursionParitySeedRegressionTest
         if (recursionErrors.nonEmpty && recursionErrors.size == errs.length) {
           false
         } else {
-          val sourceMap = Map(packageName -> (LocationMap(source), "<generated>"))
+          val sourceMap = Map(
+            packageName -> (LocationMap(source), "<generated>")
+          )
           val msg = errs.toList
             .map(_.message(sourceMap, LocationMap.Colorize.None))
             .mkString("\n-----\n")
@@ -62,15 +64,16 @@ class TypedExprRecursionParitySeedRegressionTest
 
   property("phase 3 seed repro: legacy vs typed recursion parity") {
     // Regression for issue #1801.
-    forAll(WellTypedGen.wellTypedProgramGen(WellTypedGen.Config.phase3)) { program =>
-      val source = renderStatements(program.statements)
-      val legacy = legacyPass(program.statements)
-      val typed = typedPass(program.packageName, program.statements, source)
-      assertEquals(
-        typed,
-        legacy,
-        s"legacy/typed recursion mismatch for source:\n$source"
-      )
+    forAll(WellTypedGen.wellTypedProgramGen(WellTypedGen.Config.phase3)) {
+      program =>
+        val source = renderStatements(program.statements)
+        val legacy = legacyPass(program.statements)
+        val typed = typedPass(program.packageName, program.statements, source)
+        assertEquals(
+          typed,
+          legacy,
+          s"legacy/typed recursion mismatch for source:\n$source"
+        )
     }
   }
 }

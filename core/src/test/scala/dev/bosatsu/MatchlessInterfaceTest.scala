@@ -34,23 +34,31 @@ class MatchlessInterfaceTest extends munit.FunSuite {
         true
       case Matchless.Lambda(captures, _, _, body) =>
         captures.exists(containsGlobal(_, pack, name)) ||
-          containsGlobal(body, pack, name)
+        containsGlobal(body, pack, name)
       case Matchless.WhileExpr(cond, effectExpr, _) =>
-        containsGlobal(cond, pack, name) || containsGlobal(effectExpr, pack, name)
+        containsGlobal(cond, pack, name) || containsGlobal(
+          effectExpr,
+          pack,
+          name
+        )
       case Matchless.App(fn, args) =>
-        containsGlobal(fn, pack, name) || args.exists(containsGlobal(_, pack, name))
+        containsGlobal(fn, pack, name) || args.exists(
+          containsGlobal(_, pack, name)
+        )
       case Matchless.Let(_, value, in) =>
         containsGlobal(value, pack, name) || containsGlobal(in, pack, name)
       case Matchless.LetMut(_, in) =>
         containsGlobal(in, pack, name)
       case Matchless.If(cond, thenExpr, elseExpr) =>
         containsGlobal(cond, pack, name) ||
-          containsGlobal(thenExpr, pack, name) ||
-          containsGlobal(elseExpr, pack, name)
+        containsGlobal(thenExpr, pack, name) ||
+        containsGlobal(elseExpr, pack, name)
       case Matchless.SwitchVariant(on, _, cases, default) =>
         containsGlobal(on, pack, name) ||
-          cases.exists { case (_, branch) => containsGlobal(branch, pack, name) } ||
-          default.exists(containsGlobal(_, pack, name))
+        cases.exists { case (_, branch) =>
+          containsGlobal(branch, pack, name)
+        } ||
+        default.exists(containsGlobal(_, pack, name))
       case Matchless.Always(cond, thenExpr) =>
         containsGlobal(cond, pack, name) || containsGlobal(thenExpr, pack, name)
       case Matchless.PrevNat(of) =>
@@ -121,12 +129,18 @@ class MatchlessInterfaceTest extends munit.FunSuite {
     Par.withEC {
       given Order[Unit] = Order.fromOrdering
       val compiled =
-        MatchlessFromTypedExpr.compile((), fibPm, Matchless.LocalPassOptions.Default)
+        MatchlessFromTypedExpr.compile(
+          (),
+          fibPm,
+          Matchless.LocalPassOptions.Default
+        )
       assert(compiled.contains(PackageName.parts("My", "Fib")))
     }
   }
 
-  test("optimized Matchless only inlines imported helpers when implementations are available") {
+  test(
+    "optimized Matchless only inlines imported helpers when implementations are available"
+  ) {
     val helperPack = PackageName.parts("Helper", "Bool")
     val callerPack = PackageName.parts("Caller", "Bool")
     val choose = Identifier.Name("choose")
@@ -160,8 +174,10 @@ class MatchlessInterfaceTest extends munit.FunSuite {
     val combinedPm = helperPm ++ callerPm.toMap.values
 
     Par.withEC {
-      val optimizedWithImpl = CompilationSource.namespace(combinedPm).compiled(())
-      val optimizedIfaceOnly = CompilationSource.namespace(callerPm).compiled(())
+      val optimizedWithImpl =
+        CompilationSource.namespace(combinedPm).compiled(())
+      val optimizedIfaceOnly =
+        CompilationSource.namespace(callerPm).compiled(())
 
       assertEquals(
         containsGlobal(
@@ -179,11 +195,15 @@ class MatchlessInterfaceTest extends munit.FunSuite {
         ),
         true
       )
-      Matchless.recoverTopLevelLambda(optimizedWithImpl(callerPack).toMap.apply(use)) match {
+      Matchless.recoverTopLevelLambda(
+        optimizedWithImpl(callerPack).toMap.apply(use)
+      ) match {
         case Matchless.Lambda(Nil, None, _, Matchless.Literal(lit)) =>
           assertEquals(lit, Lit.fromInt(0))
         case other =>
-          fail(s"expected inlined helper to reduce to a constant-zero lambda, found: $other")
+          fail(
+            s"expected inlined helper to reduce to a constant-zero lambda, found: $other"
+          )
       }
     }
   }

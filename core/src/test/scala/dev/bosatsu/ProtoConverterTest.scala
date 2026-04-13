@@ -64,8 +64,7 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
       for {
         someValue <- genSmallInt
         noneValue <- genSmallInt
-      } yield
-        s"""package Proto/RoundTrip
+      } yield s"""package Proto/RoundTrip
            |
            |export main
            |
@@ -220,7 +219,9 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
     val x = Identifier.Name("x")
     val xExpr = TypedExpr.Local(x, intType, Region(1, 2))
     val loopExpr = TypedExpr.Loop(
-      NonEmptyList.one((x, TypedExpr.Literal(Lit.fromInt(1), intType, Region(2, 3)))),
+      NonEmptyList.one(
+        (x, TypedExpr.Literal(Lit.fromInt(1), intType, Region(2, 3)))
+      ),
       TypedExpr.Match(
         xExpr,
         NonEmptyList.of(
@@ -280,7 +281,9 @@ class ProtoConverterTest extends munit.ScalaCheckSuite with ParTest {
           tps <- ProtoConverter.buildTypes(ss.types.inOrder)
           pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
           patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
-          decoded = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
+          decoded = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
           res <- decoded.local[ProtoConverter.DecodeState](
             _.withTypes(tps).withPatterns(patTab)
           )
@@ -476,7 +479,11 @@ bar = 1
         |""".stripMargin
     )
     val iface = Package.interfaceOf(compiled)
-    law(iface, ProtoConverter.interfaceToProto, ProtoConverter.interfaceFromProto)
+    law(
+      iface,
+      ProtoConverter.interfaceToProto,
+      ProtoConverter.interfaceFromProto
+    )
   }
 
   test("compiled package roundtrip preserves local type aliases") {
@@ -513,7 +520,8 @@ bar = 1
         .strictToValidated
         .fold(
           errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
-          _.toMap.getOrElse(parsed.name, fail(s"missing package ${parsed.name}"))
+          _.toMap
+            .getOrElse(parsed.name, fail(s"missing package ${parsed.name}"))
         )
     }
   }
@@ -530,7 +538,7 @@ bar = 1
 
   private def roundTrip(pack: Package.Compiled): Package.Compiled =
     ProtoConverter.packageToProto(pack) match {
-      case Failure(err) => fail(s"failed to encode package: $err")
+      case Failure(err)       => fail(s"failed to encode package: $err")
       case Success(protoPack) =>
         ProtoConverter.packagesFromProto(Nil, protoPack :: Nil) match {
           case Failure(err) =>
@@ -538,7 +546,9 @@ bar = 1
           case Success((_, decoded :: Nil)) =>
             decoded
           case Success((_, other)) =>
-            fail(s"expected one package after roundtrip, got ${other.map(_.name)}")
+            fail(
+              s"expected one package after roundtrip, got ${other.map(_.name)}"
+            )
         }
     }
 
@@ -580,10 +590,14 @@ bar = 1
     val compiled = compilePackage(source)
     val roundTripped = roundTrip(compiled)
 
-    def branchesOf(pack: Package.Compiled): NonEmptyList[TypedExpr.Branch[Region]] = {
-      val selectExpr = pack.lets.collectFirst {
-        case (Identifier.Name("select"), _, te) => te
-      }.getOrElse(fail(s"missing select in ${pack.name}"))
+    def branchesOf(
+        pack: Package.Compiled
+    ): NonEmptyList[TypedExpr.Branch[Region]] = {
+      val selectExpr = pack.lets
+        .collectFirst { case (Identifier.Name("select"), _, te) =>
+          te
+        }
+        .getOrElse(fail(s"missing select in ${pack.name}"))
 
       stripWrappers(selectExpr) match {
         case TypedExpr.AnnotatedLambda(_, body, _) =>
@@ -601,7 +615,10 @@ bar = 1
     val decodedBranches = branchesOf(roundTripped)
 
     assert(originalBranches.exists(b => !b.patternRegion.eqv(Region.empty)))
-    assertEquals(decodedBranches.map(_.patternRegion), originalBranches.map(_.patternRegion))
+    assertEquals(
+      decodedBranches.map(_.patternRegion),
+      originalBranches.map(_.patternRegion)
+    )
   }
 
   test("packagesFromProto accepts interface/package name overlap") {
@@ -741,7 +758,8 @@ main = dep_value
   }
 
   test("interface proto decodes missing constructor default field as None") {
-    val iface = interfaceWithConstructorDefault(Some(Identifier.Name("default")))
+    val iface =
+      interfaceWithConstructorDefault(Some(Identifier.Name("default")))
     val protoIface = ProtoConverter.interfaceToProto(iface) match {
       case Success(p)   => p
       case Failure(err) => fail(s"failed to encode interface: $err")
@@ -782,7 +800,10 @@ main = dep_value
 
     val encodedDefaultTypeIdx =
       protoIface.definedTypes.head.constructors.head.params.head.defaultTypeOf
-    assert(encodedDefaultTypeIdx > 0, s"expected non-zero proto default type index")
+    assert(
+      encodedDefaultTypeIdx > 0,
+      s"expected non-zero proto default type index"
+    )
 
     val decoded = ProtoConverter.interfaceFromProto(protoIface) match {
       case Success(i)   => i
@@ -791,7 +812,9 @@ main = dep_value
     assertEquals(firstConstructorDefaultType(decoded), expectedType)
   }
 
-  test("interface proto decodes missing constructor default type field as None") {
+  test(
+    "interface proto decodes missing constructor default type field as None"
+  ) {
     val iface = interfaceWithConstructorDefault(
       Some(Identifier.Name("default")),
       Some(Type.IntType)

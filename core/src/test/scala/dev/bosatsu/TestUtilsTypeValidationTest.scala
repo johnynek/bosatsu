@@ -143,7 +143,9 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(res.isValid, renderErrors(res))
   }
 
-  test("validateTypes accepts higher-kinded application solved from result type") {
+  test(
+    "validateTypes accepts higher-kinded application solved from result type"
+  ) {
     val wrap = Type.Var.Bound("wrap")
     val f = Type.Var.Bound("f")
     val g = Type.Var.Bound("g")
@@ -205,7 +207,9 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(err.contains("illegal inferred type"), err)
   }
 
-  test("validateTypes rejects inconsistent instantiation of the same free bound var across app args") {
+  test(
+    "validateTypes rejects inconsistent instantiation of the same free bound var across app args"
+  ) {
     val a = Type.Var.Bound("a")
     val aType = Type.TyVar(a)
     val fnName = Identifier.Name("f")
@@ -226,7 +230,9 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(res.isInvalid, s"expected invalid but got valid: $err")
   }
 
-  test("validateTypes rejects inconsistent instantiation of the same free bound var across match branches") {
+  test(
+    "validateTypes rejects inconsistent instantiation of the same free bound var across match branches"
+  ) {
     val a = Type.Var.Bound("a")
     val aType = Type.TyVar(a)
     val input = Identifier.Name("input")
@@ -267,7 +273,9 @@ class TestUtilsTypeValidationTest extends munit.FunSuite {
     assert(res.isInvalid, s"expected invalid but got valid: $err")
   }
 
-  test("validateTypes rejects inconsistent instantiation of the same free bound var across recur args") {
+  test(
+    "validateTypes rejects inconsistent instantiation of the same free bound var across recur args"
+  ) {
     val a = Type.Var.Bound("a")
     val aType = Type.TyVar(a)
     val seed0 = Identifier.Name("seed0")

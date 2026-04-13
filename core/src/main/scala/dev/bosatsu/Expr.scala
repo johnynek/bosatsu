@@ -95,9 +95,9 @@ sealed abstract class Expr[T] derives CanEqual {
         expr.globals
       case Annotation(t, _, _) =>
         t.globals
-      case Local(_, _)         => Set.empty
-      case g @ Global(_, _, _) => Set.empty + g
-      case Lambda(_, res, _)   => res.globals
+      case Local(_, _)            => Set.empty
+      case g @ Global(_, _, _)    => Set.empty + g
+      case Lambda(_, res, _)      => res.globals
       case app @ App(fn, args, _) =>
         Expr.flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -263,7 +263,9 @@ object Expr {
     ): MatchExpr[T] =
       MatchExpr(matchKind, arg, branches, tag)
 
-    def unapply[T](m: MatchExpr[T]): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
+    def unapply[T](
+        m: MatchExpr[T]
+    ): Some[(Expr[T], NonEmptyList[Branch[T]], T)] =
       Some((m.arg, m.branches, m.tag))
   }
 
@@ -328,10 +330,10 @@ object Expr {
     */
   final def allNames[A](expr: Expr[A]): SortedSet[Bindable] =
     expr match {
-      case Annotation(e, _, _) => allNames(e)
-      case Local(name, _)      => SortedSet(name)
-      case Generic(_, in)      => allNames(in)
-      case Global(_, _, _)     => SortedSet.empty
+      case Annotation(e, _, _)    => allNames(e)
+      case Local(name, _)         => SortedSet(name)
+      case Generic(_, in)         => allNames(in)
+      case Global(_, _, _)        => SortedSet.empty
       case app @ App(fn, args, _) =>
         flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -450,7 +452,7 @@ object Expr {
       case Annotation(e, tpe, a) =>
         (traverseType[T, F](e, bound)(fn), fn(tpe, bound))
           .mapN(Annotation(_, _, a))
-      case v: Name[T]      => F.pure(v)
+      case v: Name[T]            => F.pure(v)
       case app @ App(f, args, t) =>
         flattenApp2(app) match {
           case Some((steps, last)) =>
@@ -462,7 +464,9 @@ object Expr {
                 traverseType[T, F](step.fn, bound)(fn),
                 traverseType[T, F](step.arg, bound)(fn),
                 acc
-              ).mapN((fn1, arg1, rhs1) => App(fn1, NonEmptyList.of(arg1, rhs1), step.tag))
+              ).mapN((fn1, arg1, rhs1) =>
+                App(fn1, NonEmptyList.of(arg1, rhs1), step.tag)
+              )
             }
             acc
           case None =>
@@ -487,7 +491,7 @@ object Expr {
       case Let(arg, exp, in, rec, tag) =>
         (traverseType[T, F](exp, bound)(fn), traverseType[T, F](in, bound)(fn))
           .mapN(Let(arg, _, _, rec, tag))
-      case l @ Literal(_, _)         => F.pure(l)
+      case l @ Literal(_, _)             => F.pure(l)
       case m @ Match(arg, branches, tag) =>
         val argB = traverseType[T, F](arg, bound)(fn)
         type B = Branch[T]
@@ -606,7 +610,8 @@ object Expr {
               items.reverseIterator.foreach {
                 case Pattern.ListPart.Item(pat) =>
                   stack = PatternWork(pat, bound) :: stack
-                case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+                case Pattern.ListPart.WildList |
+                    Pattern.ListPart.NamedList(_) =>
                   ()
               }
             case Pattern.Annotation(pat, tpe) =>

@@ -18,7 +18,11 @@ class ShapeTest extends munit.FunSuite {
   ): List[SolvedType] =
     Shape
       .solveAll((), te.allDefinedTypes.reverse)
-      .fold(errs => fail(errs.toString), identity, (errs, _) => fail(errs.toString))
+      .fold(
+        errs => fail(errs.toString),
+        identity,
+        (errs, _) => fail(errs.toString)
+      )
 
   private def solveAliases(
       imports: List[SolvedType],
@@ -36,8 +40,8 @@ class ShapeTest extends munit.FunSuite {
       }
 
     NonEmptyChain.fromSeq(errs.reverse) match {
-      case None if solved.isEmpty => Ior.Right(Nil)
-      case None                   => Ior.Right(solved.reverse)
+      case None if solved.isEmpty      => Ior.Right(Nil)
+      case None                        => Ior.Right(solved.reverse)
       case Some(nec) if solved.isEmpty =>
         Ior.Left(nec)
       case Some(nec) =>

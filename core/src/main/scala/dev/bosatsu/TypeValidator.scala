@@ -11,7 +11,8 @@ object TypeValidator {
   object TypeValidation {
     type Path = Chain[String]
     final case class Error(path: Path, message: String) {
-      override def toString: String = s"${path.iterator.mkString("/")}: $message"
+      override def toString: String =
+        s"${path.iterator.mkString("/")}: $message"
     }
     type Result[+A] = ValidatedNec[Error, A]
 
@@ -25,7 +26,7 @@ object TypeValidator {
   type TypeValidationError = TypeValidation.Error
   type TypeValidation[+A] = TypeValidation.Result[A]
 
-  private implicit final class PathOps(private val path: TypeValidation.Path)
+  implicit final private class PathOps(private val path: TypeValidation.Path)
       extends AnyVal {
     def /(name: String): TypeValidation.Path = path ++ Chain.one(name)
   }
@@ -68,8 +69,10 @@ object TypeValidator {
       root match {
         case tc: Type.TyConst =>
           env.getTypeAlias(tc) match {
-            case Some(alias) if alias.typeParams.lengthCompare(args.length) <= 0 =>
-              val (appliedArgs, tailArgs) = args.splitAt(alias.typeParams.length)
+            case Some(alias)
+                if alias.typeParams.lengthCompare(args.length) <= 0 =>
+              val (appliedArgs, tailArgs) =
+                args.splitAt(alias.typeParams.length)
               val subs =
                 alias.typeParams.iterator
                   .zip(appliedArgs.iterator)
@@ -113,9 +116,9 @@ object TypeValidator {
     loop
   }
 
-  /** Directional type-connectivity check used by validation:
-    * `from` can be widened into `to`.
-    * `freeBoundKinds` are the in-scope free bound vars and their kinds.
+  /** Directional type-connectivity check used by validation: `from` can be
+    * widened into `to`. `freeBoundKinds` are the in-scope free bound vars and
+    * their kinds.
     */
   private type SolvedFreeBounds = Map[Type.Var, Type]
   private case class RigidWitnesses(
@@ -238,8 +241,7 @@ object TypeValidator {
           case Some(inst) =>
             val freshSolutions =
               scopedFrees.flatMap { b =>
-                inst
-                  .subs
+                inst.subs
                   .get(b)
                   .map { case (_, tpe) =>
                     (b: Type.Var) -> thawRigidWitnesses(
@@ -256,7 +258,7 @@ object TypeValidator {
 
             val mergedOpt =
               freshSolutions.foldLeft(Option(solvedFreeBounds)) {
-                case (None, _) => None
+                case (None, _)              => None
                 case (Some(acc), (b, tpe0)) =>
                   val tpe = Type.substituteVar(tpe0, acc)
                   acc.get(b) match {
@@ -453,7 +455,8 @@ object TypeValidator {
     Either
       .catchNonFatal(assertValid(te))
       .leftMap(err =>
-        TypeValidation.Error(path, Option(err.getMessage).getOrElse(err.toString))
+        TypeValidation
+          .Error(path, Option(err.getMessage).getOrElse(err.toString))
       )
       .toValidatedNec
       .void
@@ -461,13 +464,11 @@ object TypeValidator {
   private def globalValuesFromTypeEnv(
       env: TypeEnv[Kind.Arg]
   ): Map[(PackageName, Identifier), Type] =
-    env.referencedPackages.iterator
-      .flatMap { p =>
-        env.localValuesOf(p).iterator.map { case (n, t) =>
-          ((p, n: Identifier), t)
-        }
+    env.referencedPackages.iterator.flatMap { p =>
+      env.localValuesOf(p).iterator.map { case (n, t) =>
+        ((p, n: Identifier), t)
       }
-      .toMap
+    }.toMap
 
   private def letGlobalValues[A](
       pack: PackageName,
@@ -495,8 +496,8 @@ object TypeValidator {
     ): TypeValidation[Bindings] =
       left.product(right).andThen { case (lbindings, rbindings) =>
         val collisions = lbindings.keySet & rbindings.keySet
-        val collisionValid = collisions.toList.sortBy(_.sourceCodeRepr).traverse_ {
-          name =>
+        val collisionValid =
+          collisions.toList.sortBy(_.sourceCodeRepr).traverse_ { name =>
             val leftType = lbindings(name)
             val rightType = rbindings(name)
             if (leftType.sameAs(rightType)) typeValidationPass
@@ -505,7 +506,7 @@ object TypeValidator {
                 at / name.sourceCodeRepr,
                 s"pattern binding type mismatch: existing ${leftType.show}, new ${rightType.show}"
               )
-        }
+          }
 
         collisionValid.as(lbindings ++ rbindings)
       }
@@ -568,7 +569,11 @@ object TypeValidator {
                 .toMap
             Validated.validNec(
               cf.args.map { arg =>
-                Type.quantify(foralls, exists, Type.substituteVar(arg.tpe, subMap))
+                Type.quantify(
+                  foralls,
+                  exists,
+                  Type.substituteVar(arg.tpe, subMap)
+                )
               }
             )
           }
@@ -641,24 +646,26 @@ object TypeValidator {
           ) *> loop(annType, inner, at / "annotation")
 
         case Pattern.PositionalStruct((pack, cons), args) =>
-          constructorArgTypes(at, expectedType, pack, cons).andThen { inferredArgs =>
-            val arityCheck =
-              if (args.lengthCompare(inferredArgs.length) == 0) typeValidationPass
-              else
-                typeValidationFail(
-                  at,
-                  s"constructor arg arity mismatch for ${pack.asString}::${cons.sourceCodeRepr}: expected ${inferredArgs.length}, got ${args.length}"
-                )
+          constructorArgTypes(at, expectedType, pack, cons).andThen {
+            inferredArgs =>
+              val arityCheck =
+                if (args.lengthCompare(inferredArgs.length) == 0)
+                  typeValidationPass
+                else
+                  typeValidationFail(
+                    at,
+                    s"constructor arg arity mismatch for ${pack.asString}::${cons.sourceCodeRepr}: expected ${inferredArgs.length}, got ${args.length}"
+                  )
 
-            val argChecks = args.toList
-              .zip(inferredArgs)
-              .zipWithIndex
-              .map { case ((innerPat, argType), idx) =>
-                loop(argType, innerPat, at / s"arg[$idx]")
-              }
-            val mergedArgs = mergeAll(at, argChecks)
+              val argChecks = args.toList
+                .zip(inferredArgs)
+                .zipWithIndex
+                .map { case ((innerPat, argType), idx) =>
+                  loop(argType, innerPat, at / s"arg[$idx]")
+                }
+              val mergedArgs = mergeAll(at, argChecks)
 
-            arityCheck *> mergedArgs
+              arityCheck *> mergedArgs
           }
 
         case Pattern.Union(head, rest) =>
@@ -667,15 +674,17 @@ object TypeValidator {
               loop(expectedType, innerPat, at / s"union[$idx]")
           }
           branchChecks.sequence.andThen { maps =>
-            val expectedNames = maps.headOption.map(_.keySet).getOrElse(Set.empty)
-            val sameNameChecks = maps.zipWithIndex.drop(1).map { case (m, idx) =>
-              if (m.keySet == expectedNames) typeValidationPass
-              else
-                typeValidationFail(
-                  at / s"union[$idx]",
-                  s"union branch binders differ: expected ${expectedNames.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}, got ${m.keySet.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}"
-                )
-            }
+            val expectedNames =
+              maps.headOption.map(_.keySet).getOrElse(Set.empty)
+            val sameNameChecks =
+              maps.zipWithIndex.drop(1).map { case (m, idx) =>
+                if (m.keySet == expectedNames) typeValidationPass
+                else
+                  typeValidationFail(
+                    at / s"union[$idx]",
+                    s"union branch binders differ: expected ${expectedNames.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}, got ${m.keySet.map(_.sourceCodeRepr).toList.sorted.mkString(", ")}"
+                  )
+              }
             val mergedMaps = mergeAll(at, maps.map(Validated.validNec(_)))
             sameNameChecks.sequence_ *> mergedMaps
           }
@@ -862,11 +871,12 @@ object TypeValidator {
           }
 
         // here we check P1 (using the annotated type on `fn` first)
-        val appDecomposition0 = consumeArgs(fn.getType, args.length, Nil, Map.empty)
+        val appDecomposition0 =
+          consumeArgs(fn.getType, args.length, Nil, Map.empty)
         val appDecomposition =
           appDecomposition0 match {
             case right @ Right(_) => right
-            case Left(_) =>
+            case Left(_)          =>
               // here we check P1 fallback: prefer env/local/global fn type if needed
               fn match {
                 case TypedExpr.Local(name, _, _) =>
@@ -921,7 +931,9 @@ object TypeValidator {
             val gotArgs = args.toList
             // here we check P3 pre-solve: use result type to seed substitution S
             val solveVars =
-              appBoundKinds.filterNot { case (v, _) => inScopeKinds.contains(v) }
+              appBoundKinds.filterNot { case (v, _) =>
+                inScopeKinds.contains(v)
+              }
             val solveToVars =
               Type
                 .freeBoundTyVars(te.getType :: Nil)
@@ -966,7 +978,8 @@ object TypeValidator {
                 .getOrElse(Map.empty)
             val expectedArgTypes =
               expectedArgTypes0.map(Type.substituteVar(_, solveSubMap))
-            val expectedResult = Type.substituteVar(expectedResult0, solveSubMap)
+            val expectedResult =
+              Type.substituteVar(expectedResult0, solveSubMap)
             val initialSolved: SolvedFreeBounds =
               solveSubMap
 
@@ -975,9 +988,11 @@ object TypeValidator {
               expectedArgTypes
                 .zip(gotArgs)
                 .zipWithIndex
-                .foldLeft(Validated.validNec(initialSolved): TypeValidation[
-                  SolvedFreeBounds
-                ]) { case (acc, ((expected, got), idx)) =>
+                .foldLeft(
+                  Validated.validNec(initialSolved): TypeValidation[
+                    SolvedFreeBounds
+                  ]
+                ) { case (acc, ((expected, got), idx)) =>
                   acc.andThen { solvedSoFar =>
                     typeWidensToOrFailWithSolved(
                       expected,
@@ -1108,9 +1123,11 @@ object TypeValidator {
                 loopArgTypes
                   .zip(args.toList)
                   .zipWithIndex
-                  .foldLeft(Validated.validNec(Map.empty): TypeValidation[
-                    SolvedFreeBounds
-                  ]) { case (acc, ((expected, got), idx)) =>
+                  .foldLeft(
+                    Validated.validNec(Map.empty): TypeValidation[
+                      SolvedFreeBounds
+                    ]
+                  ) { case (acc, ((expected, got), idx)) =>
                     acc.andThen { solvedSoFar =>
                       typeWidensToOrFailWithSolved(
                         expected,
@@ -1128,10 +1145,12 @@ object TypeValidator {
                 argTypeChecks.andThen { solvedAfterArgs =>
                   val solvedResultSubMap: Map[Type.Var, Type] =
                     solvedAfterArgs.iterator.collect {
-                      case (b: Type.Var.Bound, solved) if inScopeKinds.contains(b) =>
+                      case (b: Type.Var.Bound, solved)
+                          if inScopeKinds.contains(b) =>
                         (b: Type.Var) -> solved
                     }.toMap
-                  val solvedLoopType = Type.substituteVar(loopType, solvedResultSubMap)
+                  val solvedLoopType =
+                    Type.substituteVar(loopType, solvedResultSubMap)
                   typeWidensToOrFail(
                     solvedLoopType,
                     tpe,
@@ -1167,66 +1186,68 @@ object TypeValidator {
           path / "match" / "arg"
         )
 
-        val branchChecks = branches.toList.zipWithIndex.map { case (branch, idx) =>
-          val branchPath = path / "match" / s"branch[$idx]"
-          val branchLocals = patternBindingTypes(
-            arg.getType,
-            branch.pattern,
-            env,
-            inScopeKinds,
-            branchPath
-          )
-
-          val branchResultTypeCheck =
-            typeWidensToOrFail(
-              te.getType,
-              branch.expr.getType,
-              kindOf,
-              normalizeType,
-              inScopeKinds,
-              branchPath,
-              s"branch result type mismatch: expected ${te.getType.show}, got ${branch.expr.getType.show}"
-            )
-
-          branchLocals.andThen { localsFromPattern =>
-            val scope = locals ++ localsFromPattern
-            val guardCheck =
-              branch.guard match {
-                case None =>
-                  typeValidationPass
-                case Some(guard) =>
-                  val guardTypeCheck =
-                    if (guard.getType.sameAs(Type.BoolType)) typeValidationPass
-                    else
-                      typeValidationFail(
-                        branchPath / "guard",
-                        s"guard must be Bool, got ${guard.getType.show}"
-                      )
-                  (
-                    guardTypeCheck ::
-                      validateTypeConnections(
-                        guard,
-                        scope,
-                        globals,
-                        env,
-                        loopStack,
-                        inScopeKinds,
-                        branchPath / "guard"
-                      ) :: Nil
-                  ).sequence_
-              }
-
-            val branchExprCheck = validateTypeConnections(
-              branch.expr,
-              scope,
-              globals,
+        val branchChecks = branches.toList.zipWithIndex.map {
+          case (branch, idx) =>
+            val branchPath = path / "match" / s"branch[$idx]"
+            val branchLocals = patternBindingTypes(
+              arg.getType,
+              branch.pattern,
               env,
-              loopStack,
               inScopeKinds,
-              branchPath / "body"
+              branchPath
             )
-            (branchResultTypeCheck :: guardCheck :: branchExprCheck :: Nil).sequence_
-          }
+
+            val branchResultTypeCheck =
+              typeWidensToOrFail(
+                te.getType,
+                branch.expr.getType,
+                kindOf,
+                normalizeType,
+                inScopeKinds,
+                branchPath,
+                s"branch result type mismatch: expected ${te.getType.show}, got ${branch.expr.getType.show}"
+              )
+
+            branchLocals.andThen { localsFromPattern =>
+              val scope = locals ++ localsFromPattern
+              val guardCheck =
+                branch.guard match {
+                  case None =>
+                    typeValidationPass
+                  case Some(guard) =>
+                    val guardTypeCheck =
+                      if (guard.getType.sameAs(Type.BoolType))
+                        typeValidationPass
+                      else
+                        typeValidationFail(
+                          branchPath / "guard",
+                          s"guard must be Bool, got ${guard.getType.show}"
+                        )
+                    (
+                      guardTypeCheck ::
+                        validateTypeConnections(
+                          guard,
+                          scope,
+                          globals,
+                          env,
+                          loopStack,
+                          inScopeKinds,
+                          branchPath / "guard"
+                        ) :: Nil
+                    ).sequence_
+                }
+
+              val branchExprCheck = validateTypeConnections(
+                branch.expr,
+                scope,
+                globals,
+                env,
+                loopStack,
+                inScopeKinds,
+                branchPath / "body"
+              )
+              (branchResultTypeCheck :: guardCheck :: branchExprCheck :: Nil).sequence_
+            }
         }
 
         (argCheck :: branchChecks).sequence_
@@ -1240,7 +1261,9 @@ object TypeValidator {
       globalValues: Map[(PackageName, Identifier), Type],
       stage: String
   ): TypeValidation[Unit] = {
-    val localNames = lets.iterator.map { case (n, _, te) => (n, te.getType) }.toMap
+    val localNames = lets.iterator.map { case (n, _, te) =>
+      (n, te.getType)
+    }.toMap
 
     lets.map { case (name, _, te) =>
       val path = Chain.one(stage) / pack.asString / name.sourceCodeRepr
@@ -1372,10 +1395,19 @@ object TypeValidator {
       ]
   ): Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]] = {
     val unoptGlobals =
-      globalValuesFromTypeEnv(fullTypeEnv) ++ letGlobalValues(pack, unoptimized.lets)
+      globalValuesFromTypeEnv(fullTypeEnv) ++ letGlobalValues(
+        pack,
+        unoptimized.lets
+      )
     assertTypeValidationResult(
       "unoptimized",
-      validateLetList(pack, unoptimized.lets, fullTypeEnv, unoptGlobals, "unoptimized")
+      validateLetList(
+        pack,
+        unoptimized.lets,
+        fullTypeEnv,
+        unoptGlobals,
+        "unoptimized"
+      )
     )
 
     val loweredLets = TypedExprLoopRecurLowering.lowerAll(unoptimized.lets)
@@ -1395,7 +1427,10 @@ object TypeValidator {
     val normalizedLets =
       TypedExprNormalization.normalizeAll(pack, loweredLets, fullTypeEnv)
     val normalizedGlobals =
-      globalValuesFromTypeEnv(fullTypeEnv) ++ letGlobalValues(pack, normalizedLets)
+      globalValuesFromTypeEnv(fullTypeEnv) ++ letGlobalValues(
+        pack,
+        normalizedLets
+      )
     assertTypeValidationResult(
       "typed expr normalization",
       validateLetList(

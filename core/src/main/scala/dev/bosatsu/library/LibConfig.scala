@@ -53,7 +53,6 @@ case class LibConfig(
   def defaultMain: Option[PackageName] = default_main
   def docBaseUrl: Option[String] = doc_base_url
 
-
   /** validate then unvalidatedAssemble
     */
   def assemble[A: HasRegion](
@@ -924,7 +923,8 @@ object LibConfig {
       next_version = ver,
       previous = None,
       exported_packages = Nil,
-      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      all_packages =
+        LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
       public_deps = Nil,
       private_deps = Nil,
       default_main = None,

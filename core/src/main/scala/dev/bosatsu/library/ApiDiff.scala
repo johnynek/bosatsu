@@ -407,7 +407,8 @@ object ApiDiff {
 
       val rhsV =
         if (oldAlias.rhs.sameAs(newAlias.rhs)) {
-          Type.allConsts(oldAlias.rhs :: Nil)
+          Type
+            .allConsts(oldAlias.rhs :: Nil)
             .traverse { const =>
               diffConst(const).map(
                 _.map(diff => ChangedTransitiveType(newAlias.rhs, const, diff))
@@ -421,7 +422,10 @@ object ApiDiff {
       rhsV.map(kinds ::: _)
     }
 
-    def diffTarget(oldTarget: TypeTarget, newTarget: TypeTarget): V[List[Diff]] =
+    def diffTarget(
+        oldTarget: TypeTarget,
+        newTarget: TypeTarget
+    ): V[List[Diff]] =
       (oldTarget, newTarget) match {
         case (TypeTarget.Data(oldDt), TypeTarget.Data(newDt)) =>
           diffDT(oldDt, newDt)
@@ -568,7 +572,10 @@ object ApiDiff {
                               ) :: Nil
 
                           val defaultDiff =
-                            (oldParam.defaultBinding, newParam.defaultBinding) match {
+                            (
+                              oldParam.defaultBinding,
+                              newParam.defaultBinding
+                            ) match {
                               case (None, Some(_)) =>
                                 ConstructorParamDefaultAdded(
                                   pn,
@@ -674,7 +681,7 @@ object ApiDiff {
                 (typeTargetsOf(oldExp), typeTargetsOf(newExp)) match {
                   case (oldTarget :: Nil, newTarget :: Nil) =>
                     diffTarget(oldTarget, newTarget)
-                  case diff                         =>
+                  case diff =>
                     sys.error(
                       s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff"
                     )

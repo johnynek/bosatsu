@@ -11,7 +11,9 @@ import dev.bosatsu.rankn.Type
 class ShadowedBindingTypeCheckTest extends munit.FunSuite {
   private def collectUntypedVarPatterns[A](
       te: TypedExpr[A]
-  ): List[(Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])] = {
+  ): List[
+    (Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])
+  ] = {
     def loop(expr: TypedExpr[A]): List[
       (Pattern[(PackageName, Identifier.Constructor), Type], TypedExpr[A])
     ] =
@@ -53,7 +55,6 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     loop(te)
   }
 
-
   private def normalizeSource(source: String): String = {
     val lines = source.linesIterator.toList
     val nonEmpty = lines.filter(_.trim.nonEmpty)
@@ -81,7 +82,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
 
   private def positiveCheck(source: String): Unit =
     checkSource(source) match {
-      case Validated.Valid(()) => ()
+      case Validated.Valid(())     => ()
       case Validated.Invalid(errs) =>
         val all = errs.toNonEmptyList.toList
         fail(s"expected shadow check to pass, got errors: $all")
@@ -92,7 +93,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       TestUtils.testInferred(
         List(normalizeSource(source)),
         "Test",
-        { (_, _) => () }
+        (_, _) => ()
       )
     }
 
@@ -104,7 +105,7 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
       TestUtils.testInferred(
         packages.map(normalizeSource),
         mainPack,
-        { (_, _) => () }
+        (_, _) => ()
       )
     }
 
@@ -260,7 +261,9 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     }
   }
 
-  test("nested pattern binding cannot reuse the outer argument name with a new type") {
+  test(
+    "nested pattern binding cannot reuse the outer argument name with a new type"
+  ) {
     negativeCheck(
       """
       struct Box[x: *](a: x)
@@ -393,7 +396,9 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     )
   }
 
-  test("generic pattern destructuring assignment keeps alpha-equivalent binders") {
+  test(
+    "generic pattern destructuring assignment keeps alpha-equivalent binders"
+  ) {
     positiveCheck(
       """
       struct Nel[a](head: a, tail: List[a])
@@ -425,7 +430,9 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
     )
   }
 
-  test("optimized compile preserves pattern binder types after helper inlining") {
+  test(
+    "optimized compile preserves pattern binder types after helper inlining"
+  ) {
     optimizedCompilePackagesSucceeds(
       List(
         """
@@ -477,19 +484,30 @@ class ShadowedBindingTypeCheckTest extends munit.FunSuite {
         val natPack = PackageName.parts("Bosatsu", "Num", "Nat")
         val testsName = Identifier.Name("tests")
         val expr =
-          pm.toMap(natPack).lets.collectFirst {
-            case (`testsName`, _, te) => te
-          }.getOrElse(fail("missing Bosatsu/Num/Nat::tests"))
+          pm.toMap(natPack)
+            .lets
+            .collectFirst { case (`testsName`, _, te) =>
+              te
+            }
+            .getOrElse(fail("missing Bosatsu/Num/Nat::tests"))
 
         val bad = collectUntypedVarPatterns(expr)
-        assertEquals(bad, Nil, bad.map { case (pat, owner) =>
-          s"bad pattern: $pat\nowner: ${owner.reprString}"
-        }.mkString("\n\n"))
+        assertEquals(
+          bad,
+          Nil,
+          bad
+            .map { case (pat, owner) =>
+              s"bad pattern: $pat\nowner: ${owner.reprString}"
+            }
+            .mkString("\n\n")
+        )
       }
     }
   }
 
-  test("quantified non-equivalent shadows fail and messages hide internal renames") {
+  test(
+    "quantified non-equivalent shadows fail and messages hide internal renames"
+  ) {
     negativeCheck(
       """
       enum Box[a]: Box(value: a)
