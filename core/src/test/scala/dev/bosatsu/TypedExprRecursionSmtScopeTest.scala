@@ -6,7 +6,9 @@ import IorMethods.IorExtension
 import org.scalacheck.Prop.forAll
 import org.typelevel.paiges.Document
 
-class TypedExprRecursionSmtScopeTest extends munit.ScalaCheckSuite with ParTest {
+class TypedExprRecursionSmtScopeTest
+    extends munit.ScalaCheckSuite
+    with ParTest {
   override def scalaCheckTestParameters = {
     val base = super.scalaCheckTestParameters
     if (Platform.isScalaJvm) base.withMinSuccessfulTests(24)
@@ -42,7 +44,9 @@ class TypedExprRecursionSmtScopeTest extends munit.ScalaCheckSuite with ParTest 
           case _                                 => false
         }
         if (nonRecursion.nonEmpty) {
-          val sourceMap = Map(packageName -> (LocationMap(source), "<generated>"))
+          val sourceMap = Map(
+            packageName -> (LocationMap(source), "<generated>")
+          )
           val msg = errs.toList
             .map(_.message(sourceMap, LocationMap.Colorize.None))
             .mkString("\n-----\n")
@@ -53,26 +57,36 @@ class TypedExprRecursionSmtScopeTest extends munit.ScalaCheckSuite with ParTest 
   }
 
   property("phase 3 generated programs do not emit undeclared SMT vars") {
-    forAll(WellTypedGen.wellTypedProgramGen(WellTypedGen.Config.phase3)) { program =>
-      val source = renderStatements(program.statements)
-      val details = recursionErrorsOf(program.packageName, program.statements, source)
-        .collect {
-          case RecursionCheck.IntRecursionObligationFailed(_, _, _, _, _, Some(detail), _) =>
-            detail
+    forAll(WellTypedGen.wellTypedProgramGen(WellTypedGen.Config.phase3)) {
+      program =>
+        val source = renderStatements(program.statements)
+        val details =
+          recursionErrorsOf(program.packageName, program.statements, source)
+            .collect {
+              case RecursionCheck.IntRecursionObligationFailed(
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    Some(detail),
+                    _
+                  ) =>
+                detail
+            }
+
+        val bad = details.filter { detail =>
+          detail.contains("internal SMT script uses undeclared variables") ||
+          detail.contains("Trapped on unreachable instruction")
         }
 
-      val bad = details.filter { detail =>
-        detail.contains("internal SMT script uses undeclared variables") ||
-        detail.contains("Trapped on unreachable instruction")
-      }
-
-      assert(
-        bad.isEmpty,
-        s"""unexpected SMT script issue in recursion detail for source:
+        assert(
+          bad.isEmpty,
+          s"""unexpected SMT script issue in recursion detail for source:
            |$source
            |details:
            |${bad.mkString("\n---\n")}""".stripMargin
-      )
+        )
     }
   }
 }

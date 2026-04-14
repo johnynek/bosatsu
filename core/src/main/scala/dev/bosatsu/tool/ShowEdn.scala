@@ -61,8 +61,8 @@ object ShowEdn {
       !reservedSymbols(value) &&
       value.forall { ch =>
         !ch.isWhitespace &&
-          (ch != ':') &&
-          !",()[]{}\";`".contains(ch)
+        (ch != ':') &&
+        !",()[]{}\";`".contains(ch)
       }
   private def nameAtom(value: String): Edn =
     if (isSafeSymbolToken(value)) sym(value) else str(value)
@@ -106,7 +106,7 @@ object ShowEdn {
     edn match {
       case EString(v) => Right(v)
       case ESymbol(v) => Right(v)
-      case other      => err(s"expected symbol/string, found: ${rendered(other)}")
+      case other => err(s"expected symbol/string, found: ${rendered(other)}")
     }
 
   private def decodeKeywordArgs(items: List[Edn]): ErrorOr[Map[String, Edn]] = {
@@ -116,10 +116,10 @@ object ShowEdn {
         acc: Map[String, Edn]
     ): ErrorOr[Map[String, Edn]] =
       rest match {
-        case Nil => Right(acc)
+        case Nil                  => Right(acc)
         case key :: value :: tail =>
           asKeyword(key) match {
-            case Left(e) => Left(e)
+            case Left(e)  => Left(e)
             case Right(k) =>
               loop(tail, acc.updated(k, value))
           }
@@ -144,11 +144,17 @@ object ShowEdn {
   ): Option[Edn] =
     args.get(field)
 
-  private def parseAllWith[A](label: String, input: String, p: P[A]): ErrorOr[A] =
+  private def parseAllWith[A](
+      label: String,
+      input: String,
+      p: P[A]
+  ): ErrorOr[A] =
     p.parseAll(input).leftMap(e => s"failed to parse $label: $input, err: $e")
 
   private def decodePackageName(edn: Edn): ErrorOr[PackageName] =
-    asStringAtom(edn).flatMap(s => parseAllWith("package", s, PackageName.parser))
+    asStringAtom(edn).flatMap(s =>
+      parseAllWith("package", s, PackageName.parser)
+    )
 
   private def decodeIdentifier(edn: Edn): ErrorOr[Identifier] =
     asStringAtom(edn).flatMap(s =>
@@ -217,15 +223,28 @@ object ShowEdn {
   private def encodeKindArgBinder(item: (Type.Var.Bound, Kind.Arg)): Edn = {
     val (tv, arg) = item
     if ((arg.variance == Variance.in) && arg.kind.isType) nameAtom(tv.name)
-    else EVector(List(nameAtom(tv.name), encodeVariance(arg.variance), encodeKind(arg.kind)))
+    else
+      EVector(
+        List(
+          nameAtom(tv.name),
+          encodeVariance(arg.variance),
+          encodeKind(arg.kind)
+        )
+      )
   }
 
-  private def decodeKindArgBinder(edn: Edn): ErrorOr[(Type.Var.Bound, Kind.Arg)] =
+  private def decodeKindArgBinder(
+      edn: Edn
+  ): ErrorOr[(Type.Var.Bound, Kind.Arg)] =
     edn match {
       case ESymbol(name) => Right((Type.Var.Bound(name), Kind.Type.in))
       case EString(name) => Right((Type.Var.Bound(name), Kind.Type.in))
       case EVector(List(nameEdn, varianceEdn, kindEdn)) =>
-        (asStringAtom(nameEdn), decodeVariance(varianceEdn), decodeKind(kindEdn))
+        (
+          asStringAtom(nameEdn),
+          decodeVariance(varianceEdn),
+          decodeKind(kindEdn)
+        )
           .mapN { (nm, variance, kind) =>
             (Type.Var.Bound(nm), Kind.Arg(variance, kind))
           }
@@ -247,9 +266,12 @@ object ShowEdn {
     else {
       val pkgStr = symValue.substring(0, idx)
       val typeStr = symValue.substring(idx + separator.length)
-      (PackageName.parser.parseAll(pkgStr).toOption, Identifier.consParser
-        .parseAll(typeStr)
-        .toOption).mapN { (p, c) =>
+      (
+        PackageName.parser.parseAll(pkgStr).toOption,
+        Identifier.consParser
+          .parseAll(typeStr)
+          .toOption
+      ).mapN { (p, c) =>
         Type.Const.Defined(p, TypeName(c))
       }
     }
@@ -329,9 +351,10 @@ object ShowEdn {
           case Some(c) => Right(Type.TyConst(c))
           case None    => Right(Type.TyVar(Type.Var.Bound(s)))
         }
-      case EList(ESymbol("skolem") :: nameEdn :: kindEdn :: EBool(ex) :: idEdn :: Nil) =>
-        (asStringAtom(nameEdn), decodeKind(kindEdn), asStringAtom(idEdn))
-          .tupled
+      case EList(
+            ESymbol("skolem") :: nameEdn :: kindEdn :: EBool(ex) :: idEdn :: Nil
+          ) =>
+        (asStringAtom(nameEdn), decodeKind(kindEdn), asStringAtom(idEdn)).tupled
           .flatMap { case (name, kind, idStr) =>
             Either
               .catchNonFatal(idStr.toLong)
@@ -443,13 +466,13 @@ object ShowEdn {
           List(
             sym("pstr"),
             EVector(parts.toList.map {
-              case StrPart.WildStr      => kw("wild-str")
-              case StrPart.WildChar     => kw("wild-char")
-              case StrPart.NamedStr(n)  =>
+              case StrPart.WildStr     => kw("wild-str")
+              case StrPart.WildChar    => kw("wild-char")
+              case StrPart.NamedStr(n) =>
                 EList(List(sym("named-str"), nameAtom(n.sourceCodeRepr)))
               case StrPart.NamedChar(n) =>
                 EList(List(sym("named-char"), nameAtom(n.sourceCodeRepr)))
-              case StrPart.LitStr(s)    =>
+              case StrPart.LitStr(s) =>
                 EList(List(sym("lit-str"), str(s)))
             })
           )
@@ -459,16 +482,22 @@ object ShowEdn {
           List(
             sym("plist"),
             EVector(parts.map {
-              case ListPart.WildList      => kw("wild-list")
-              case ListPart.NamedList(n)  =>
+              case ListPart.WildList     => kw("wild-list")
+              case ListPart.NamedList(n) =>
                 EList(List(sym("named-list"), nameAtom(n.sourceCodeRepr)))
-              case ListPart.Item(pat)     =>
+              case ListPart.Item(pat) =>
                 EList(List(sym("item"), encodePattern(pat, quotePackageNames)))
             })
           )
         )
       case Pattern.Annotation(pattern, tpe) =>
-        EList(List(sym("pann"), encodePattern(pattern, quotePackageNames), encodeType(tpe)))
+        EList(
+          List(
+            sym("pann"),
+            encodePattern(pattern, quotePackageNames),
+            encodeType(tpe)
+          )
+        )
       case Pattern.PositionalStruct((pack, cons), params) =>
         EList(
           List(
@@ -481,7 +510,9 @@ object ShowEdn {
         EList(
           List(
             sym("punion"),
-            EVector((head :: rest.toList).map(encodePattern(_, quotePackageNames)))
+            EVector(
+              (head :: rest.toList).map(encodePattern(_, quotePackageNames))
+            )
           )
         )
     }
@@ -499,7 +530,9 @@ object ShowEdn {
       case EList(ESymbol("pvar") :: nameEdn :: Nil) =>
         decodeBindable(nameEdn).map(Pattern.Var(_))
       case EList(ESymbol("pnamed") :: nameEdn :: patEdn :: Nil) =>
-        (decodeBindable(nameEdn), decodePattern(patEdn)).mapN(Pattern.Named(_, _))
+        (decodeBindable(nameEdn), decodePattern(patEdn)).mapN(
+          Pattern.Named(_, _)
+        )
       case EList(ESymbol("pstr") :: partsEdn :: Nil) =>
         for {
           partsRaw <- asVector(partsEdn)
@@ -538,7 +571,9 @@ object ShowEdn {
           }
         } yield Pattern.ListPat(parts)
       case EList(ESymbol("pann") :: patEdn :: typeEdn :: Nil) =>
-        (decodePattern(patEdn), decodeType(typeEdn)).mapN(Pattern.Annotation(_, _))
+        (decodePattern(patEdn), decodeType(typeEdn)).mapN(
+          Pattern.Annotation(_, _)
+        )
       case EList(ESymbol("pstruct") :: fqnEdn :: paramsEdn :: Nil) =>
         for {
           fqn <- asStringAtom(fqnEdn)
@@ -548,8 +583,16 @@ object ShowEdn {
               err[Int](s"invalid constructor reference: $fqn")
             else Right(last)
           }
-          pack <- parseAllWith("package name", fqn.substring(0, idx), PackageName.parser)
-          cons <- parseAllWith("constructor", fqn.substring(idx + 1), Identifier.consParser)
+          pack <- parseAllWith(
+            "package name",
+            fqn.substring(0, idx),
+            PackageName.parser
+          )
+          cons <- parseAllWith(
+            "constructor",
+            fqn.substring(idx + 1),
+            Identifier.consParser
+          )
           paramsRaw <- asVector(paramsEdn)
           params <- paramsRaw.traverse(decodePattern)
         } yield Pattern.PositionalStruct((pack, cons), params)
@@ -557,9 +600,15 @@ object ShowEdn {
         for {
           patsRaw <- asVector(patsEdn)
           pats <- patsRaw.traverse(decodePattern)
-          head <- pats.headOption.toRight("union requires at least two patterns")
+          head <- pats.headOption.toRight(
+            "union requires at least two patterns"
+          )
           tail = pats.drop(1)
-          _ <- Either.cond(tail.nonEmpty, (), "union requires at least two patterns")
+          _ <- Either.cond(
+            tail.nonEmpty,
+            (),
+            "union requires at least two patterns"
+          )
         } yield Pattern.union(head, tail)
       case other =>
         err(s"invalid pattern: ${rendered(other)}")
@@ -606,7 +655,9 @@ object ShowEdn {
 
   private def decodeSolvedQuantifierMap(
       edn: Edn
-  ): ErrorOr[scala.collection.immutable.SortedMap[Type.Var.Bound, (Kind, Type)]] =
+  ): ErrorOr[
+    scala.collection.immutable.SortedMap[Type.Var.Bound, (Kind, Type)]
+  ] =
     for {
       raw <- asVector(edn)
       parsed <- raw.toList.traverse {
@@ -618,8 +669,8 @@ object ShowEdn {
             s"invalid quantifier solution: ${rendered(other)}"
           )
       }
-    } yield scala.collection.immutable.SortedMap.from(parsed)(
-      using Ordering.by[Type.Var.Bound, String](_.name)
+    } yield scala.collection.immutable.SortedMap.from(parsed)(using
+      Ordering.by[Type.Var.Bound, String](_.name)
     )
 
   private def encodeQuantifierEvidence(
@@ -640,7 +691,9 @@ object ShowEdn {
   ): ErrorOr[TypedExpr.QuantifierEvidence] =
     edn match {
       case EList(
-            ESymbol("qe") :: sourceEdn :: targetEdn :: forallEdn :: existsEdn :: Nil
+            ESymbol(
+              "qe"
+            ) :: sourceEdn :: targetEdn :: forallEdn :: existsEdn :: Nil
           ) =>
         (
           decodeType(sourceEdn),
@@ -659,11 +712,19 @@ object ShowEdn {
     te match {
       case TypedExpr.Generic(quant, in) =>
         EList(
-          List(sym("generic"), encodeQuant(quant), encodeTypedExpr(in, quotePackageNames))
+          List(
+            sym("generic"),
+            encodeQuant(quant),
+            encodeTypedExpr(in, quotePackageNames)
+          )
         )
       case TypedExpr.Annotation(term, coerce, None) =>
         EList(
-          List(sym("widen"), encodeType(coerce), encodeTypedExpr(term, quotePackageNames))
+          List(
+            sym("widen"),
+            encodeType(coerce),
+            encodeTypedExpr(term, quotePackageNames)
+          )
         )
       case TypedExpr.Annotation(term, coerce, Some(qev)) =>
         EList(
@@ -685,7 +746,9 @@ object ShowEdn {
           )
         )
       case TypedExpr.Local(name, tpe, ()) =>
-        EList(List(sym("local"), nameAtom(name.sourceCodeRepr), encodeType(tpe)))
+        EList(
+          List(sym("local"), nameAtom(name.sourceCodeRepr), encodeType(tpe))
+        )
       case TypedExpr.Global(pack, name, tpe, ()) =>
         EList(
           List(
@@ -718,7 +781,12 @@ object ShowEdn {
           List(
             sym("loop"),
             EVector(args.toList.map { case (name, rhs) =>
-              EVector(List(nameAtom(name.sourceCodeRepr), encodeTypedExpr(rhs, quotePackageNames)))
+              EVector(
+                List(
+                  nameAtom(name.sourceCodeRepr),
+                  encodeTypedExpr(rhs, quotePackageNames)
+                )
+              )
             }),
             encodeTypedExpr(body, quotePackageNames)
           )
@@ -766,10 +834,12 @@ object ShowEdn {
   private def decodeTypedExpr(edn: Edn): ErrorOr[TypedExpr[Unit]] =
     edn match {
       case EList(ESymbol("generic") :: quantEdn :: inEdn :: Nil) =>
-        (decodeQuant(quantEdn), decodeTypedExpr(inEdn)).mapN(TypedExpr.Generic(_, _))
+        (decodeQuant(quantEdn), decodeTypedExpr(inEdn)).mapN(
+          TypedExpr.Generic(_, _)
+        )
       case EList(ESymbol("widen") :: typeEdn :: termEdn :: Nil) =>
-        (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN {
-          (coerce, term) => TypedExpr.Annotation(term, coerce, None)
+        (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN { (coerce, term) =>
+          TypedExpr.Annotation(term, coerce, None)
         }
       case EList(
             ESymbol("instantiate") :: typeEdn :: evidenceEdn :: termEdn :: Nil
@@ -783,8 +853,8 @@ object ShowEdn {
         }
       case EList(ESymbol("ann") :: typeEdn :: termEdn :: Nil) =>
         // Backward-compatible decoder for older serialized forms.
-        (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN {
-          (coerce, term) => TypedExpr.Annotation(term, coerce, None)
+        (decodeType(typeEdn), decodeTypedExpr(termEdn)).mapN { (coerce, term) =>
+          TypedExpr.Annotation(term, coerce, None)
         }
       case EList(ESymbol("lambda") :: argsEdn :: bodyEdn :: Nil) =>
         for {
@@ -795,11 +865,15 @@ object ShowEdn {
             case other =>
               err[(Bindable, Type)](s"invalid lambda arg: ${rendered(other)}")
           }
-          nel <- NonEmptyList.fromList(args).toRight("lambda args cannot be empty")
+          nel <- NonEmptyList
+            .fromList(args)
+            .toRight("lambda args cannot be empty")
           body <- decodeTypedExpr(bodyEdn)
         } yield TypedExpr.AnnotatedLambda(nel, body, ())
       case EList(ESymbol("local") :: nameEdn :: typeEdn :: Nil) =>
-        (decodeBindable(nameEdn), decodeType(typeEdn)).mapN(TypedExpr.Local(_, _, ()))
+        (decodeBindable(nameEdn), decodeType(typeEdn)).mapN(
+          TypedExpr.Local(_, _, ())
+        )
       case EList(ESymbol("global") :: packEdn :: nameEdn :: typeEdn :: Nil) =>
         (
           decodePackageName(packEdn),
@@ -815,10 +889,18 @@ object ShowEdn {
           res <- decodeType(resultEdn)
         } yield TypedExpr.App(fn, nel, res, ())
       case EList(ESymbol("let") :: nameEdn :: rhsEdn :: bodyEdn :: Nil) =>
-        (decodeBindable(nameEdn), decodeTypedExpr(rhsEdn), decodeTypedExpr(bodyEdn))
+        (
+          decodeBindable(nameEdn),
+          decodeTypedExpr(rhsEdn),
+          decodeTypedExpr(bodyEdn)
+        )
           .mapN(TypedExpr.Let(_, _, _, RecursionKind.NonRecursive, ()))
       case EList(ESymbol("letrec") :: nameEdn :: rhsEdn :: bodyEdn :: Nil) =>
-        (decodeBindable(nameEdn), decodeTypedExpr(rhsEdn), decodeTypedExpr(bodyEdn))
+        (
+          decodeBindable(nameEdn),
+          decodeTypedExpr(rhsEdn),
+          decodeTypedExpr(bodyEdn)
+        )
           .mapN(TypedExpr.Let(_, _, _, RecursionKind.Recursive, ()))
       case EList(ESymbol("loop") :: argsEdn :: bodyEdn :: Nil) =>
         for {
@@ -831,18 +913,24 @@ object ShowEdn {
                 s"invalid loop binding: ${rendered(other)}"
               )
           }
-          nel <- NonEmptyList.fromList(args).toRight("loop args cannot be empty")
+          nel <- NonEmptyList
+            .fromList(args)
+            .toRight("loop args cannot be empty")
           body <- decodeTypedExpr(bodyEdn)
         } yield TypedExpr.Loop(nel, body, ())
       case EList(ESymbol("recur") :: argsEdn :: typeEdn :: Nil) =>
         for {
           argsRaw <- asVector(argsEdn)
           args <- argsRaw.traverse(decodeTypedExpr)
-          nel <- NonEmptyList.fromList(args).toRight("recur args cannot be empty")
+          nel <- NonEmptyList
+            .fromList(args)
+            .toRight("recur args cannot be empty")
           tpe <- decodeType(typeEdn)
         } yield TypedExpr.Recur(nel, tpe, ())
       case EList(ESymbol("lit") :: litEdn :: typeEdn :: Nil) =>
-        (decodeLit(litEdn), decodeType(typeEdn)).mapN(TypedExpr.Literal(_, _, ()))
+        (decodeLit(litEdn), decodeType(typeEdn)).mapN(
+          TypedExpr.Literal(_, _, ())
+        )
       case EList(ESymbol(matchKeyword) :: argEdn :: branchesEdn :: Nil)
           if Set("match", "recur", "loop")(matchKeyword) =>
         for {
@@ -856,14 +944,20 @@ object ShowEdn {
             case EList(
                   ESymbol("branch") :: patEdn :: guardEdn :: exprEdn :: Nil
                 ) =>
-              (decodePattern(patEdn), decodeTypedExpr(guardEdn), decodeTypedExpr(exprEdn))
+              (
+                decodePattern(patEdn),
+                decodeTypedExpr(guardEdn),
+                decodeTypedExpr(exprEdn)
+              )
                 .mapN { (pat, guard, expr) =>
                   TypedExpr.Branch(pat, Some(guard), expr)
                 }
             case other =>
               err[TypedExpr.Branch[Unit]](s"invalid branch: ${rendered(other)}")
           }
-          nel <- NonEmptyList.fromList(branches).toRight("match branches cannot be empty")
+          nel <- NonEmptyList
+            .fromList(branches)
+            .toRight("match branches cannot be empty")
           matchKind <- matchKeyword match {
             case "match" => Right(MatchKind.Match)
             case "recur" => Right(MatchKind.Recur)
@@ -897,7 +991,10 @@ object ShowEdn {
                       param.defaultType.toList.map(encodeType)
                 }
               EVector(
-                List(nameAtom(param.name.sourceCodeRepr), encodeType(param.tpe)) ++
+                List(
+                  nameAtom(param.name.sourceCodeRepr),
+                  encodeType(param.tpe)
+                ) ++
                   defaultPart
               )
             })
@@ -919,7 +1016,7 @@ object ShowEdn {
           name <- decodeConstructor(nameEdn)
           kv <- decodeKeywordArgs(rest)
           fields <- optionalField(kv, "fields") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(
                 _.traverse {
@@ -935,7 +1032,9 @@ object ShowEdn {
                     ).mapN { (name, tpe, defaultName) =>
                       ConstructorParam(name, tpe, Some(defaultName), None)
                     }
-                  case EVector(List(nameEdn, typeEdn, defaultEdn, defaultTypeEdn)) =>
+                  case EVector(
+                        List(nameEdn, typeEdn, defaultEdn, defaultTypeEdn)
+                      ) =>
                     (
                       decodeBindable(nameEdn),
                       decodeType(typeEdn),
@@ -957,7 +1056,7 @@ object ShowEdn {
               )
           }
           exists <- optionalField(kv, "exists") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeKindArgBinder))
           }
@@ -980,12 +1079,16 @@ object ShowEdn {
         if (dt.annotatedTypeParams.isEmpty) None
         else
           Some(
-            kw("params") -> EVector(dt.annotatedTypeParams.map(encodeKindArgBinder))
+            kw("params") -> EVector(
+              dt.annotatedTypeParams.map(encodeKindArgBinder)
+            )
           ),
         if (dt.constructors.isEmpty) None
         else
           Some(
-            kw("constructors") -> EVector(dt.constructors.map(encodeConstructorFn))
+            kw("constructors") -> EVector(
+              dt.constructors.map(encodeConstructorFn)
+            )
           )
       ).flatten
 
@@ -1000,12 +1103,12 @@ object ShowEdn {
           name <- decodeTypeName(nameEdn)
           kv <- decodeKeywordArgs(rest)
           params <- optionalField(kv, "params") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeKindArgBinder))
           }
           constructors <- optionalField(kv, "constructors") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeConstructorFn))
           }
@@ -1033,7 +1136,9 @@ object ShowEdn {
         if (ta.annotatedTypeParams.isEmpty) None
         else
           Some(
-            kw("params") -> EVector(ta.annotatedTypeParams.map(encodeKindArgBinder))
+            kw("params") -> EVector(
+              ta.annotatedTypeParams.map(encodeKindArgBinder)
+            )
           ),
         Some(kw("rhs") -> encodeType(ta.rhs))
       ).flatten
@@ -1049,7 +1154,7 @@ object ShowEdn {
           name <- decodeTypeName(nameEdn)
           kv <- decodeKeywordArgs(rest)
           params <- optionalField(kv, "params") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeKindArgBinder))
           }
@@ -1073,7 +1178,13 @@ object ShowEdn {
       case Referant.TypeAliasT(ta) =>
         EList(List(sym("ref-alias"), encodeTypeAlias(ta)))
       case Referant.Constructor(dt, fn) =>
-        EList(List(sym("ref-constructor"), encodeDefinedType(dt), encodeConstructorFn(fn)))
+        EList(
+          List(
+            sym("ref-constructor"),
+            encodeDefinedType(dt),
+            encodeConstructorFn(fn)
+          )
+        )
     }
 
   private def decodeReferant(edn: Edn): ErrorOr[Referant[Kind.Arg]] =
@@ -1085,8 +1196,8 @@ object ShowEdn {
       case EList(ESymbol("ref-alias") :: taEdn :: Nil) =>
         decodeTypeAlias(taEdn).map(Referant.TypeAliasT(_))
       case EList(ESymbol("ref-constructor") :: dtEdn :: fnEdn :: Nil) =>
-        (decodeDefinedType(dtEdn), decodeConstructorFn(fnEdn)).mapN {
-          (dt, fn) => Referant.Constructor(dt, fn)
+        (decodeDefinedType(dtEdn), decodeConstructorFn(fnEdn)).mapN { (dt, fn) =>
+          Referant.Constructor(dt, fn)
         }
       case other =>
         err(s"invalid referant: ${rendered(other)}")
@@ -1123,7 +1234,9 @@ object ShowEdn {
           local <- decodeIdentifier(localEdn)
           refsRaw <- asVector(refsEdn)
           refs <- refsRaw.traverse(decodeReferant)
-          nel <- NonEmptyList.fromList(refs).toRight("import item referants cannot be empty")
+          nel <- NonEmptyList
+            .fromList(refs)
+            .toRight("import item referants cannot be empty")
           args <- decodeKeywordArgs(rest)
           kind <- optionalField(args, "kind") match {
             case None =>
@@ -1177,7 +1290,9 @@ object ShowEdn {
           packageName <- decodePackageName(packageEdn)
           itemsRaw <- asVector(itemsEdn)
           decodedItems <- itemsRaw.traverse(decodeImportedName)
-          nel <- NonEmptyList.fromList(decodedItems).toRight("import items cannot be empty")
+          nel <- NonEmptyList
+            .fromList(decodedItems)
+            .toRight("import items cannot be empty")
         } yield Import(emptyInterface(packageName), nel)
       case other =>
         err(s"invalid import: ${rendered(other)}")
@@ -1214,7 +1329,9 @@ object ShowEdn {
         )
     }
 
-  private def decodeExport(edn: Edn): ErrorOr[ExportedName[Referant[Kind.Arg]]] =
+  private def decodeExport(
+      edn: Edn
+  ): ErrorOr[ExportedName[Referant[Kind.Arg]]] =
     edn match {
       case EList(ESymbol("export") :: kindEdn :: nameEdn :: tagEdn :: Nil) =>
         for {
@@ -1228,7 +1345,9 @@ object ShowEdn {
             case "constructor" =>
               decodeConstructor(nameEdn).map(ExportedName.Constructor(_, tag))
             case other =>
-              err[ExportedName[Referant[Kind.Arg]]](s"unknown export kind: $other")
+              err[ExportedName[Referant[Kind.Arg]]](
+                s"unknown export kind: $other"
+              )
           }
         } yield res
       case other =>
@@ -1305,7 +1424,9 @@ object ShowEdn {
         head.map(_ => NonEmptyList.fromListUnsafe(refs))
       }
       .toList
-      .sortBy(item => (item.localName.sourceCodeRepr, item.originalName.sourceCodeRepr))
+      .sortBy(item =>
+        (item.localName.sourceCodeRepr, item.originalName.sourceCodeRepr)
+      )
 
     imp.copy(items = NonEmptyList.fromListUnsafe(merged))
   }
@@ -1333,7 +1454,9 @@ object ShowEdn {
     }
   }
 
-  def normalizeForRoundTrip(pack: Package.Typed[Unit]): ErrorOr[Package.Typed[Unit]] = {
+  def normalizeForRoundTrip(
+      pack: Package.Typed[Unit]
+  ): ErrorOr[Package.Typed[Unit]] = {
     val imports1 = pack.imports
       .map(imp => imp.copy(pack = emptyInterface(imp.pack.name)))
       .map(normalizeImport)
@@ -1348,10 +1471,15 @@ object ShowEdn {
       ImportMap.fromImports(imports1)((_, _) => ImportMap.Unify.Error)
     NonEmptyList.fromList(collisions) match {
       case Some(nel) =>
-        val names = nel.toList.map { case (_, in) =>
-          in.localName.sourceCodeRepr
-        }.distinct.sorted
-        err(s"import collisions while normalizing package ${pack.name.asString}: ${names.mkString(", ")}")
+        val names = nel.toList
+          .map { case (_, in) =>
+            in.localName.sourceCodeRepr
+          }
+          .distinct
+          .sorted
+        err(
+          s"import collisions while normalizing package ${pack.name.asString}: ${names.mkString(", ")}"
+        )
       case None =>
         val prog0 = pack.program._1
         val prog1 =
@@ -1361,7 +1489,13 @@ object ShowEdn {
             externalDefs = prog0.externalDefs,
             from = ()
           )
-        Right(pack.copy(imports = imports1, exports = exports1, program = (prog1, importMap1)))
+        Right(
+          pack.copy(
+            imports = imports1,
+            exports = exports1,
+            program = (prog1, importMap1)
+          )
+        )
     }
   }
 
@@ -1380,8 +1514,8 @@ object ShowEdn {
       }
 
     val exportedTypes =
-      normalized.exports.collect {
-        case ExportedName.TypeName(name, _) => name.sourceCodeRepr
+      normalized.exports.collect { case ExportedName.TypeName(name, _) =>
+        name.sourceCodeRepr
       }
     val exportedValues =
       normalized.exports.collect {
@@ -1397,8 +1531,11 @@ object ShowEdn {
         if (exportedValues.isEmpty) None
         else Some(kw("exported-values") -> EVector(exportedValues.map(str))),
         if (normalized.exports.isEmpty) None
-        else Some(kw("exports") -> EVector(normalized.exports.map(encodeExport))),
-        Some(kw("types") -> EVector(localTypes.map(dt => encodeDefinedType(dt)))),
+        else
+          Some(kw("exports") -> EVector(normalized.exports.map(encodeExport))),
+        Some(
+          kw("types") -> EVector(localTypes.map(dt => encodeDefinedType(dt)))
+        ),
         Some(kw("externals") -> EVector(externals.map(encodeExternal))),
         Some(kw("defs") -> EVector(prog.lets.map(item => encodeTopLet(item))))
       ).flatten
@@ -1416,33 +1553,35 @@ object ShowEdn {
           args <- decodeKeywordArgs(argsRaw)
           name <- requiredField(args, "name").flatMap(decodePackageName)
           imports <- optionalField(args, "imports") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeImport))
           }
           exports <- optionalField(args, "exports") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeExport))
           }
           definedTypes <- optionalField(args, "types") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeDefinedType))
           }
           externals <- optionalField(args, "externals") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeExternal))
           }
           lets <- optionalField(args, "defs") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeTopLet))
           }
           // local external defs are stored for this package name
-          localTypeEnv = externals.foldLeft(TypeEnv.fromDefinitions(definedTypes)) {
-            case (acc, (extName, tpe)) => acc.addExternalValue(name, extName, tpe)
+          localTypeEnv = externals.foldLeft(
+            TypeEnv.fromDefinitions(definedTypes)
+          ) { case (acc, (extName, tpe)) =>
+            acc.addExternalValue(name, extName, tpe)
           }
           externalDefNames = externals.map(_._1)
           (collisions, importMap) =
@@ -1489,11 +1628,16 @@ object ShowEdn {
           args <- decodeKeywordArgs(argsRaw)
           name <- requiredField(args, "name").flatMap(decodePackageName)
           exports <- optionalField(args, "exports") match {
-            case None => Right(Nil)
+            case None        => Right(Nil)
             case Some(value) =>
               asVector(value).flatMap(_.traverse(decodeExport))
           }
-        } yield Package(name = name, imports = Nil, exports = exports, program = ())
+        } yield Package(
+          name = name,
+          imports = Nil,
+          exports = exports,
+          program = ()
+        )
       case other =>
         err(s"invalid interface: ${rendered(other)}")
     }
@@ -1532,7 +1676,9 @@ object ShowEdn {
   ): Edn = {
     val bucketedNames =
       imp.items.toList.flatMap(item =>
-        item.tag.toList.map(ref => importRefBucket(ref) -> importNameForShow(item))
+        item.tag.toList.map(ref =>
+          importRefBucket(ref) -> importNameForShow(item)
+        )
       )
 
     def bucketItems(bucket: String): List[Edn] =
@@ -1544,12 +1690,10 @@ object ShowEdn {
           val types = bucketItems("types")
           if (!includeTypes || types.isEmpty) None
           else Some(kw("types") -> EVector(types))
-        },
-        {
+        }, {
           val values = bucketItems("values")
           if (values.isEmpty) None else Some(kw("values") -> EVector(values))
-        },
-        {
+        }, {
           val ctors = bucketItems("ctors")
           if (ctors.isEmpty) None else Some(kw("ctors") -> EVector(ctors))
         }
@@ -1568,16 +1712,16 @@ object ShowEdn {
       exports: List[ExportedName[Referant[Kind.Arg]]]
   ): Option[Edn] = {
     val exportedTypes =
-      exports.collect {
-        case ExportedName.TypeName(name, _) => name.sourceCodeRepr
+      exports.collect { case ExportedName.TypeName(name, _) =>
+        name.sourceCodeRepr
       }
     val exportedCtors =
-      exports.collect {
-        case ExportedName.Constructor(name, _) => name.sourceCodeRepr
+      exports.collect { case ExportedName.Constructor(name, _) =>
+        name.sourceCodeRepr
       }
     val exportedValues =
-      exports.collect {
-        case ExportedName.Binding(name, _) => name.sourceCodeRepr
+      exports.collect { case ExportedName.Binding(name, _) =>
+        name.sourceCodeRepr
       }
 
     val items =
@@ -1604,7 +1748,11 @@ object ShowEdn {
     }
 
     EList(
-      List(sym("interface"), kw("name"), packageNameAtom(iface.name, quotePackageNames)) ++ attrs
+      List(
+        sym("interface"),
+        kw("name"),
+        packageNameAtom(iface.name, quotePackageNames)
+      ) ++ attrs
     )
   }
 
@@ -1639,17 +1787,29 @@ object ShowEdn {
           ),
         exportsMap.map(kw("exports") -> _),
         if (localTypes.isEmpty) None
-        else Some(
-          kw("types") -> EVector(localTypes.map(encodeDefinedType(_, quotePackageNames)))
-        ),
+        else
+          Some(
+            kw("types") -> EVector(
+              localTypes.map(encodeDefinedType(_, quotePackageNames))
+            )
+          ),
         if (externals.isEmpty) None
         else Some(kw("externals") -> EVector(externals.map(encodeExternal))),
         if (prog.lets.isEmpty) None
-        else Some(kw("defs") -> EVector(prog.lets.map(encodeTopLet(_, quotePackageNames))))
+        else
+          Some(
+            kw("defs") -> EVector(
+              prog.lets.map(encodeTopLet(_, quotePackageNames))
+            )
+          )
       ).flatten
 
     EList(
-      List(sym("package"), kw("name"), packageNameAtom(normalized.name, quotePackageNames)) ++
+      List(
+        sym("package"),
+        kw("name"),
+        packageNameAtom(normalized.name, quotePackageNames)
+      ) ++
         attrs.flatMap { case (k, v) => List(k, v) }
     )
   }
@@ -1658,7 +1818,9 @@ object ShowEdn {
       name: PackageName,
       quotePackageNames: Boolean
   ): Edn =
-    EList(List(sym("package"), kw("name"), packageNameAtom(name, quotePackageNames)))
+    EList(
+      List(sym("package"), kw("name"), packageNameAtom(name, quotePackageNames))
+    )
 
   private def intAtom(value: Int): Edn =
     sym(value.toString)
@@ -1702,9 +1864,13 @@ object ShowEdn {
             encodeLit(lit)
           )
         )
-      case Matchless.LtEqLit(arg, lit)   =>
+      case Matchless.LtEqLit(arg, lit) =>
         EList(
-          List(sym("lte-lit"), encodeMatchlessCheapExpr(arg, quotePackageNames), encodeLit(lit))
+          List(
+            sym("lte-lit"),
+            encodeMatchlessCheapExpr(arg, quotePackageNames),
+            encodeLit(lit)
+          )
         )
       case Matchless.EqualsNat(arg, nat) =>
         EList(
@@ -1714,7 +1880,7 @@ object ShowEdn {
             encodeNat(nat)
           )
         )
-      case Matchless.And(left, right)    =>
+      case Matchless.And(left, right) =>
         EList(
           List(
             sym("and"),
@@ -1780,15 +1946,20 @@ object ShowEdn {
         val attrs =
           List(
             if (captures.isEmpty) None
-            else Some(
-              kw("captures") -> EVector(captures.map(encodeMatchlessExpr(_, quotePackageNames)))
-            ),
+            else
+              Some(
+                kw("captures") -> EVector(
+                  captures.map(encodeMatchlessExpr(_, quotePackageNames))
+                )
+              ),
             recursiveName.map(name =>
               kw("recursive-name") -> nameAtom(name.sourceCodeRepr)
             ),
-            Some(kw("args") -> EVector(args.toList.map(arg =>
-              nameAtom(arg.sourceCodeRepr)
-            ))),
+            Some(
+              kw("args") -> EVector(
+                args.toList.map(arg => nameAtom(arg.sourceCodeRepr))
+              )
+            ),
             Some(kw("body") -> encodeMatchlessExpr(body, quotePackageNames))
           ).flatten
 
@@ -1857,7 +2028,12 @@ object ShowEdn {
           List(
             kw("fam-arities") -> EVector(famArities.map(intAtom)),
             kw("cases") -> EVector(cases.toList.map { case (variant, branch) =>
-              EVector(List(intAtom(variant), encodeMatchlessExpr(branch, quotePackageNames)))
+              EVector(
+                List(
+                  intAtom(variant),
+                  encodeMatchlessExpr(branch, quotePackageNames)
+                )
+              )
             })
           ) :::
             default.toList.map(expr =>
@@ -1865,7 +2041,10 @@ object ShowEdn {
             )
 
         EList(
-          List(sym("switch"), encodeMatchlessCheapExpr(on, quotePackageNames)) ++
+          List(
+            sym("switch"),
+            encodeMatchlessCheapExpr(on, quotePackageNames)
+          ) ++
             attrs.flatMap { case (k, v) => List(k, v) }
         )
       case Matchless.Always(cond, thenExpr) =>
@@ -1928,8 +2107,7 @@ object ShowEdn {
     val expr = Matchless.recoverTopLevelLambda(expr0)
     val defName =
       expr match {
-        case Matchless.Lambda(_, Some(recName), _, _)
-            if recName == name =>
+        case Matchless.Lambda(_, Some(recName), _, _) if recName == name =>
           "defrec"
         case _ =>
           "def"
@@ -1978,13 +2156,20 @@ object ShowEdn {
             )
           ),
         if (pack.defs.isEmpty) None
-        else Some(
-          kw("defs") -> EVector(pack.defs.map(encodeMatchlessTopLet(_, quotePackageNames)))
-        )
+        else
+          Some(
+            kw("defs") -> EVector(
+              pack.defs.map(encodeMatchlessTopLet(_, quotePackageNames))
+            )
+          )
       ).flatten
 
     EList(
-      List(sym("package"), kw("name"), packageNameAtom(pack.name, quotePackageNames)) ++
+      List(
+        sym("package"),
+        kw("name"),
+        packageNameAtom(pack.name, quotePackageNames)
+      ) ++
         attrs.flatMap { case (k, v) => List(k, v) }
     )
   }
@@ -2007,7 +2192,9 @@ object ShowEdn {
       fallbackMapField
     )
 
-  private def decodeKeywordPairs(items: List[Edn]): Option[List[(String, Edn)]] = {
+  private def decodeKeywordPairs(
+      items: List[Edn]
+  ): Option[List[(String, Edn)]] = {
     @annotation.tailrec
     def loop(
         rest: List[Edn],
@@ -2065,9 +2252,11 @@ object ShowEdn {
         val keyValues = items.collect { case (EKeyword(k), v) =>
           (k, ednToJson(v))
         }
-        if ((keyValues.size == items.size) && canUsePlainJsonObject(
+        if (
+          (keyValues.size == items.size) && canUsePlainJsonObject(
             keyValues.map(_._1)
-          ))
+          )
+        )
           Json.JObject(keyValues)
         else
           Json.JObject(
@@ -2176,7 +2365,9 @@ object ShowEdn {
             kw("typed-passes"),
             encodeTypedPasses(typed.typedPasses),
             kw("interfaces"),
-            EVector(typed.interfaces.map(encodeInterfaceForShow(_, quotePackageNames))),
+            EVector(
+              typed.interfaces.map(encodeInterfaceForShow(_, quotePackageNames))
+            ),
             kw("packages"),
             EVector(
               if (typed.packageNamesOnly)
@@ -2184,10 +2375,15 @@ object ShowEdn {
                   encodePackageNameOnlyForShow(p.name, quotePackageNames)
                 )
               else
-                typed.packages.map(p => normalizeForRoundTrip(p.void).fold(msg =>
-                  EList(List(sym("show-error"), str(msg), str(p.name.asString))),
-                  encodePackageForShow(_, quotePackageNames)
-                ))
+                typed.packages.map(p =>
+                  normalizeForRoundTrip(p.void).fold(
+                    msg =>
+                      EList(
+                        List(sym("show-error"), str(msg), str(p.name.asString))
+                      ),
+                    encodePackageForShow(_, quotePackageNames)
+                  )
+                )
             )
           )
         )
@@ -2208,19 +2404,22 @@ object ShowEdn {
                   encodePackageNameOnlyForShow(p.name, quotePackageNames)
                 )
               else
-                matchless.packages.map(encodeMatchlessPackageForShow(_, quotePackageNames))
+                matchless.packages.map(
+                  encodeMatchlessPackageForShow(_, quotePackageNames)
+                )
             )
           )
         )
     }
 
-  def packageDoc(pack: Package.Typed[Any]): Doc = {
+  def packageDoc(pack: Package.Typed[Any]): Doc =
     normalizeForRoundTrip(pack.void) match {
       case Right(normalized) => EdnCodec.toDoc(normalized)
       case Left(message)     =>
-        Edn.toDoc(EList(List(sym("show-error"), str(message), str(pack.name.asString))))
+        Edn.toDoc(
+          EList(List(sym("show-error"), str(message), str(pack.name.asString)))
+        )
     }
-  }
 
   def interfaceDoc(iface: Package.Interface): Doc =
     EdnCodec.toDoc(iface)

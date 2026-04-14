@@ -100,7 +100,7 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
   private def localName(expr: Expr[Declaration]): String =
     stripWrapperExpr(expr) match {
       case Expr.Local(Identifier.Name(name), _) => name
-      case other =>
+      case other                                =>
         fail(s"expected local name expression, got: $other")
     }
 
@@ -122,9 +122,9 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       expr: Expr[Declaration]
   ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
     expr match {
-      case Expr.Annotation(in, _, _) => genericBinders(in)
-      case Expr.Local(_, _)          => Nil
-      case Expr.Global(_, _, _)      => Nil
+      case Expr.Annotation(in, _, _)  => genericBinders(in)
+      case Expr.Local(_, _)           => Nil
+      case Expr.Global(_, _, _)       => Nil
       case Expr.Generic(typeVars, in) =>
         typeVars :: genericBinders(in)
       case Expr.App(fn, args, _) =>
@@ -203,7 +203,10 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), identity[Unit])
+        (
+          Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"),
+          identity[Unit]
+        )
       }
 
       val p1sz = p1.size
@@ -230,9 +233,12 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
 
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
-        (Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"), { _ =>
-          -idx
-        })
+        (
+          Identifier.Backticked(b.sourceCodeRepr + s"____${idx}"),
+          { _ =>
+            -idx
+          }
+        )
       }
 
       assert(p1 eq lets)
@@ -431,7 +437,9 @@ else:
     )
   }
 
-  test("mixed boolean and conditional chains lower with a nested fallback match") {
+  test(
+    "mixed boolean and conditional chains lower with a nested fallback match"
+  ) {
     assertMainDesugarsAs(
       """main = if c1:
         |  t1
@@ -468,7 +476,9 @@ else:
     )
   }
 
-  test("conditional matches ternary and guarded forms desugar like explicit matches") {
+  test(
+    "conditional matches ternary and guarded forms desugar like explicit matches"
+  ) {
     assertMainDesugarsAs(
       """main = fn(a) if foo matches (a, _) else h""",
       """main = match foo:
@@ -1367,7 +1377,9 @@ main = MyCons { head: 1 }
     )
   }
 
-  test("nested def reuses outer type parameter instead of introducing inner generic") {
+  test(
+    "nested def reuses outer type parameter instead of introducing inner generic"
+  ) {
     val code = """#
 def foo[a](lst: List[a]) -> Int:
   def loop(list: List[a], acc: Int) -> Int:
@@ -1413,7 +1425,9 @@ main = foo([1, 2, 3])
     assertEquals(generics.head.map(_._1.name).toList, List("a"))
   }
 
-  test("nested def with explicit inner type parameter introduces a second generic") {
+  test(
+    "nested def with explicit inner type parameter introduces a second generic"
+  ) {
     val code = """#
 def foo(lst: List[a]) -> Int:
   def loop[a](list: List[a], acc: Int) -> Int:
@@ -1432,6 +1446,9 @@ main = foo([1, 2, 3])
 
     val generics = genericBinders(fooExpr)
     assertEquals(generics.length, 2)
-    assertEquals(generics.map(_.map(_._1.name).toList), List(List("a"), List("a")))
+    assertEquals(
+      generics.map(_.map(_._1.name).toList),
+      List(List("a"), List("a"))
+    )
   }
 }

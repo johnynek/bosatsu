@@ -36,10 +36,10 @@ class PathModuleTest extends munit.FunSuite {
           "init",
           "--repo_root",
           repo.toString,
-        "--name",
-        "mylib",
-        "--repo_uri",
-        "https://example.com/mylib",
+          "--name",
+          "mylib",
+          "--repo_uri",
+          "https://example.com/mylib",
           "--src_root",
           "src",
           "--version",
@@ -94,7 +94,7 @@ class PathModuleTest extends munit.FunSuite {
         io.attempt.unsafeRunSync() match {
           case Right(out) =>
             out
-          case Left(err)  =>
+          case Left(err) =>
             fail(s"${err.getMessage}\ncommand: ${args.toList.mkString(" ")}")
         }
     }
@@ -106,7 +106,7 @@ class PathModuleTest extends munit.FunSuite {
         io.attempt.unsafeRunSync() match {
           case Right(code) =>
             code
-          case Left(err)   =>
+          case Left(err) =>
             fail(s"${err.getMessage}\ncommand: ${args.toList.mkString(" ")}")
         }
     }
@@ -122,8 +122,9 @@ class PathModuleTest extends munit.FunSuite {
     helpText.linesIterator
       .dropWhile(_ != "Subcommands:")
       .drop(1)
-      .collect { case line if line.startsWith("    ") && !line.startsWith("        ") =>
-        line.trim
+      .collect {
+        case line if line.startsWith("    ") && !line.startsWith("        ") =>
+          line.trim
       }
       .toList
 
@@ -235,17 +236,20 @@ class PathModuleTest extends munit.FunSuite {
         case Left(help) =>
           val msg = help.toString
           assert(
-            msg.contains("Unexpected option") || msg.contains("Unexpected argument"),
+            msg.contains("Unexpected option") || msg.contains(
+              "Unexpected argument"
+            ),
             msg
           )
-        case Right(_)   =>
+        case Right(_) =>
           fail(s"expected parse failure for command: $command")
       }
     }
   }
 
   test("tool test direct run of a file") {
-    val deps = List("Nat", "List", "Bool", "Int64", "Rand", "Properties", "BinNat")
+    val deps =
+      List("Nat", "List", "Bool", "Int64", "Rand", "Properties", "BinNat")
     val inputs =
       deps.map(n => s"--input test_workspace/${n}.bosatsu").mkString(" ")
     val out = run(
@@ -309,7 +313,7 @@ class PathModuleTest extends munit.FunSuite {
     PathModule.run(cmd) match {
       case Left(help) =>
         fail(s"got help: $help on command: ${cmd.mkString(" ")}")
-      case Right(io)  =>
+      case Right(io) =>
         io.attempt.unsafeRunSync() match {
           case Left(err) =>
             val msg = Option(err.getMessage).getOrElse(err.toString)

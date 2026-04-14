@@ -36,7 +36,8 @@ final class SourceConverter(
    */
   private val localTypeNames = localDefs.map(_.name).toSet
   private val localConstructors =
-    localDefs.collect { case tds: TypeDefinitionStatement => tds }
+    localDefs
+      .collect { case tds: TypeDefinitionStatement => tds }
       .flatMap(_.constructors)
       .toSet
 
@@ -460,7 +461,11 @@ final class SourceConverter(
         annots: List[TypeRef]
     ): Result[Option[Expr[Declaration]]] = {
       val trueExpr: Expr[Declaration] =
-        Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), condDecl)
+        Expr.Global(
+          PackageName.PredefName,
+          Identifier.Constructor("True"),
+          condDecl
+        )
 
       annots.reverse.traverse(toType(_, condDecl.region)).map {
         case Nil =>
@@ -553,7 +558,9 @@ final class SourceConverter(
             arg,
             NonEmptyList(
               Expr.Branch(pat, guard, body)(using condDecl.region),
-              Expr.Branch(Pattern.WildCard, None, elseC)(using elseTag.region) :: Nil
+              Expr.Branch(Pattern.WildCard, None, elseC)(using
+                elseTag.region
+              ) :: Nil
             ),
             condDecl
           )
@@ -568,7 +575,9 @@ final class SourceConverter(
     ): Result[Expr[Declaration]] = {
       val caseList = ifCases.toList
       val firstConditionalIdx =
-        caseList.indexWhere { case (cond, _) => ConditionalMatch.unapply(cond).nonEmpty }
+        caseList.indexWhere { case (cond, _) =>
+          ConditionalMatch.unapply(cond).nonEmpty
+        }
 
       if (firstConditionalIdx < 0)
         lowerBooleanIfElse(ifCases, loop(elseCase.get), elseCase.get, tag)
@@ -624,695 +633,717 @@ final class SourceConverter(
         case (acc, ReplaceTagFrame(tag)) =>
           acc.map(_.replaceTag(tag))
       }
-    } else decl match {
-      case Annotation(term, tpe) =>
-        (loop(term), toType(tpe, decl.region))
-          .parMapN(Expr.Annotation(_, _, decl))
-      case Apply(fn, args, ApplyKind.Parens0) =>
-        val unitExpr: Expr[Declaration] =
-          Expr.Global(PackageName.PredefName, unitName, decl)
-        val shapeChecked: Result[Unit] =
-          args.toList match {
-            case Declaration.TupleCons(Nil) :: Nil =>
-              success(())
-            case _ =>
-              SourceConverter.partial(
-                SourceConverter.InvalidParens0Apply(args.size, decl.region),
-                ()
-              )
-          }
-        fn match {
-          case Declaration.Var(cons: Constructor) =>
-            val withShape = (shapeChecked, loop(fn)).parMapN((_, fnExpr) => fnExpr)
-            SourceConverter.addErrorKeepGoing(
-              withShape,
-              SourceConverter.ConstructorEmptyParens(cons, decl.region)
-            )
-          case _ =>
-            // `f()` is sugar for `f(())`.
-            (shapeChecked, loop(fn))
-              .parMapN { (_, fnExpr) =>
-                Expr.buildApp(fnExpr, unitExpr :: Nil, decl)
-              }
-        }
-      case Apply(fn, args, _) =>
-        (loop(fn), args.toList.traverse(loop(_)))
-          .parMapN(Expr.buildApp(_, _, decl))
-      case ao @ ApplyOp(left, op, right) =>
-        val opVar: Expr[Declaration] =
-          resolveToVar(op, ao.opVar, bound, topBound)
-        (loop(left), loop(right)).parMapN { (l, r) =>
-          Expr.buildApp(opVar, l :: r :: Nil, decl)
-        }
-      case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
-        val erest = withBound(rest, pat.names)
-
-        val assignRegion = decl.region - value.region
-        def solvePat(
-            pat: Pattern.Parsed,
-            rrhs: Result[Expr[Declaration]]
-        ): Result[Expr[Declaration]] =
-          pat match {
-            case Pattern.Var(arg) =>
-              (erest, rrhs).parMapN { (e, rhs) =>
-                Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
-              }
-            case Pattern.Annotation(pat, tpe) =>
-              toType(tpe, assignRegion).flatMap { realTpe =>
-                // move the annotation to the right
-                // it's not ideal to use the Declaration of rhs, but it's better
-                // than the entire let
-                val newRhs = rrhs.map { r =>
-                  Expr.Annotation(r, realTpe, r.tag)
-                }
-                solvePat(pat, newRhs)
-              }
-            case Pattern.Named(nm, p) =>
-              // this is the same as creating a let nm = value first
-              (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
-                Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
-              }
-            case pat =>
-              // TODO: we need the region on the pattern... (https://github.com/johnynek/bosatsu/issues/132)
-              (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
-                (newPattern, e, rhs) =>
-                  val expBranches = NonEmptyList.of(
-                    Expr.Branch(newPattern, None, e)(using assignRegion)
-                  )
-                  Expr.Match(rhs, expBranches, decl)
-              }
-          }
-
-        solvePat(pat, loop(value))
-      case Comment(CommentStatement(_, Padding(_, decl))) =>
-        loop(decl).map(_.replaceTag(decl))
-      case CommentNB(CommentStatement(_, Padding(_, decl))) =>
-        loop(decl).map(_.replaceTag(decl))
-      case DefFn(defstmt @ DefStatement(_, _, _, _, _)) =>
-        val inExpr = defstmt.result match {
-          case (_, Padding(_, in)) =>
-            fromDecl(in, bound + defstmt.name, topBound, typeBound)
-        }
-        val newBindings =
-          defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
-        val typeBoundInBody = typeBound ++ defStatementTypeVars(defstmt)
-        val lambda = toLambdaExpr(defstmt, decl.region, success(decl))(res =>
-          fromDecl(res._1.get, bound ++ newBindings, topBound, typeBoundInBody)
-        )
-
-        (inExpr, lambda).parMapN { (in, lam0) =>
-          val lam =
-            defstmt.typeArgs match {
-              case Some(_) => lam0
-              case None    =>
-                // Nested defs without explicit type params should only quantify
-                // vars that are local to this lambda body:
-                // - typeBound contains vars already bound in outer scopes
-                //   (threaded from enclosing defs/annotations), so those stay shared.
-                // - inTypeVars are vars needed by the continuation after this def, so
-                //   quantifying them here would incorrectly hide them from `in`.
-                // Any remaining free vars belong to this def and become its implicit forall.
-                val inTypeVars = Expr.freeBoundTyVars(in).toSet
-                val localTypeVars = Expr.freeBoundTyVars(lam0).filterNot(tv =>
-                  typeBound(tv) || inTypeVars(tv)
+    } else
+      decl match {
+        case Annotation(term, tpe) =>
+          (loop(term), toType(tpe, decl.region))
+            .parMapN(Expr.Annotation(_, _, decl))
+        case Apply(fn, args, ApplyKind.Parens0) =>
+          val unitExpr: Expr[Declaration] =
+            Expr.Global(PackageName.PredefName, unitName, decl)
+          val shapeChecked: Result[Unit] =
+            args.toList match {
+              case Declaration.TupleCons(Nil) :: Nil =>
+                success(())
+              case _ =>
+                SourceConverter.partial(
+                  SourceConverter.InvalidParens0Apply(args.size, decl.region),
+                  ()
                 )
-                Expr.forAll(localTypeVars.map((_, Kind.Type)), lam0)
             }
-          // We rely on TypedExprRecursionCheck (post-typechecking) to rule out bad recursions
-          val boundName = defstmt.name
-          val rec =
-            if (UnusedLetCheck.freeBound(lam).contains(boundName))
-              RecursionKind.Recursive
-            else RecursionKind.NonRecursive
-          Expr.Let(boundName, lam, in, recursive = rec, decl)
-        }
-      case IfElse(ifCases, elseCase) =>
-        lowerIfElse(ifCases, elseCase, decl)
-      case tern @ Ternary(t, c, f) =>
-        loop(
-          IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(
-            using tern.region
+          fn match {
+            case Declaration.Var(cons: Constructor) =>
+              val withShape =
+                (shapeChecked, loop(fn)).parMapN((_, fnExpr) => fnExpr)
+              SourceConverter.addErrorKeepGoing(
+                withShape,
+                SourceConverter.ConstructorEmptyParens(cons, decl.region)
+              )
+            case _ =>
+              // `f()` is sugar for `f(())`.
+              (shapeChecked, loop(fn))
+                .parMapN { (_, fnExpr) =>
+                  Expr.buildApp(fnExpr, unitExpr :: Nil, decl)
+                }
+          }
+        case Apply(fn, args, _) =>
+          (loop(fn), args.toList.traverse(loop(_)))
+            .parMapN(Expr.buildApp(_, _, decl))
+        case ao @ ApplyOp(left, op, right) =>
+          val opVar: Expr[Declaration] =
+            resolveToVar(op, ao.opVar, bound, topBound)
+          (loop(left), loop(right)).parMapN { (l, r) =>
+            Expr.buildApp(opVar, l :: r :: Nil, decl)
+          }
+        case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
+          val erest = withBound(rest, pat.names)
+
+          val assignRegion = decl.region - value.region
+          def solvePat(
+              pat: Pattern.Parsed,
+              rrhs: Result[Expr[Declaration]]
+          ): Result[Expr[Declaration]] =
+            pat match {
+              case Pattern.Var(arg) =>
+                (erest, rrhs).parMapN { (e, rhs) =>
+                  Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
+                }
+              case Pattern.Annotation(pat, tpe) =>
+                toType(tpe, assignRegion).flatMap { realTpe =>
+                  // move the annotation to the right
+                  // it's not ideal to use the Declaration of rhs, but it's better
+                  // than the entire let
+                  val newRhs = rrhs.map { r =>
+                    Expr.Annotation(r, realTpe, r.tag)
+                  }
+                  solvePat(pat, newRhs)
+                }
+              case Pattern.Named(nm, p) =>
+                // this is the same as creating a let nm = value first
+                (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
+                  Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
+                }
+              case pat =>
+                // TODO: we need the region on the pattern... (https://github.com/johnynek/bosatsu/issues/132)
+                (convertPattern(pat, assignRegion), erest, rrhs).parMapN {
+                  (newPattern, e, rhs) =>
+                    val expBranches = NonEmptyList.of(
+                      Expr.Branch(newPattern, None, e)(using assignRegion)
+                    )
+                    Expr.Match(rhs, expBranches, decl)
+                }
+            }
+
+          solvePat(pat, loop(value))
+        case Comment(CommentStatement(_, Padding(_, decl))) =>
+          loop(decl).map(_.replaceTag(decl))
+        case CommentNB(CommentStatement(_, Padding(_, decl))) =>
+          loop(decl).map(_.replaceTag(decl))
+        case DefFn(defstmt @ DefStatement(_, _, _, _, _)) =>
+          val inExpr = defstmt.result match {
+            case (_, Padding(_, in)) =>
+              fromDecl(in, bound + defstmt.name, topBound, typeBound)
+          }
+          val newBindings =
+            defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
+          val typeBoundInBody = typeBound ++ defStatementTypeVars(defstmt)
+          val lambda = toLambdaExpr(defstmt, decl.region, success(decl))(res =>
+            fromDecl(
+              res._1.get,
+              bound ++ newBindings,
+              topBound,
+              typeBoundInBody
+            )
           )
-        )
-      case Lambda(args, body) =>
-        val argsRes = args.traverse(convertPattern(_, decl.region))
-        val bodyRes = withBound(body, args.patternNames)
-        (argsRes, bodyRes).parMapN { (args, body) =>
-          Expr.buildPatternLambda(args, body, decl)
-        }
-      case la @ LeftApply(_, _, _, _) =>
-        loop(la.rewrite).map(_.replaceTag(decl))
-      case Literal(lit) =>
-        success(Expr.Literal(lit, decl))
-      case Parens(p) =>
-        loop(p).map(_.replaceTag(decl))
-      case Var(ident) =>
-        success(resolveToVar(ident, decl, bound, topBound))
-      case Match(kind, arg, branches) =>
-        /*
-         * The source match mode (`match`/`recur`/`loop`) on tags is used by
-         * TypedExprRecursionCheck before lowering/normalization.
-         */
-        val expBranches = branches.get.traverse { branch =>
-          val pat = branch.pattern
-          val branchDecl = branch.body.get
-          val branchPatternRegion = branch.patternRegion
-          val newPattern = convertPattern(pat, branchPatternRegion)
-          val guardExpr = branch.guard.traverse(withBound(_, pat.names))
-          val bodyExpr = withBound(branchDecl, pat.names)
-          (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
-            val guard1 =
-              guard.filterNot(isPredefBoolConst(_, Constructor("True")))
-            Expr.Branch(pat, guard1, body)(using branchPatternRegion)
-          }
-        }
-        (loop(arg), expBranches).parMapN(Expr.Match(kind, _, _, decl))
-      case m @ Matches(a, p, guard) =>
-        // x matches p ==
-        // match x:
-        //   p: True
-        //   _: False
-        val hasPatternBindings = p.names.nonEmpty
-        val isDefinitelyTotal = p.definitelyTotal
-        val True: Expr[Declaration] =
-          Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
-        val False: Expr[Declaration] = Expr.Global(
-          PackageName.PredefName,
-          Identifier.Constructor("False"),
-          m
-        )
-        val guardExpr =
-          guard
-            .traverse(withBound(_, p.names))
-            .map(_.filterNot(isPredefBoolConst(_, Constructor("True"))))
 
-        // A syntactic guard keeps bindings local to the predicate even if the
-        // guard later fails to convert. Only a successfully-canonicalized
-        // `if True` is treated as effectively unguarded again.
-        val isEffectivelyUnguarded =
-          guard match {
-            case None => true
-            case Some(_) =>
-              guardExpr.toOption match {
-                case Some(None) => true
-                case _          => false
+          (inExpr, lambda).parMapN { (in, lam0) =>
+            val lam =
+              defstmt.typeArgs match {
+                case Some(_) => lam0
+                case None    =>
+                  // Nested defs without explicit type params should only quantify
+                  // vars that are local to this lambda body:
+                  // - typeBound contains vars already bound in outer scopes
+                  //   (threaded from enclosing defs/annotations), so those stay shared.
+                  // - inTypeVars are vars needed by the continuation after this def, so
+                  //   quantifying them here would incorrectly hide them from `in`.
+                  // Any remaining free vars belong to this def and become its implicit forall.
+                  val inTypeVars = Expr.freeBoundTyVars(in).toSet
+                  val localTypeVars = Expr
+                    .freeBoundTyVars(lam0)
+                    .filterNot(tv => typeBound(tv) || inTypeVars(tv))
+                  Expr.forAll(localTypeVars.map((_, Kind.Type)), lam0)
               }
+            // We rely on TypedExprRecursionCheck (post-typechecking) to rule out bad recursions
+            val boundName = defstmt.name
+            val rec =
+              if (UnusedLetCheck.freeBound(lam).contains(boundName))
+                RecursionKind.Recursive
+              else RecursionKind.NonRecursive
+            Expr.Let(boundName, lam, in, recursive = rec, decl)
           }
-
-        val rawPattern = convertPattern(p, m.region)
-        val checkedPattern =
-          if (isEffectivelyUnguarded && hasPatternBindings)
-            rawPattern.map(_.unbind)
-          else rawPattern
-        val withDiagnostics =
-          if (isEffectivelyUnguarded && hasPatternBindings) {
-            SourceConverter.addErrorKeepGoing(
-              checkedPattern,
-              SourceConverter.MatchesPatternBinding(p, m.region)
+        case IfElse(ifCases, elseCase) =>
+          lowerIfElse(ifCases, elseCase, decl)
+        case tern @ Ternary(t, c, f) =>
+          loop(
+            IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(
+              using tern.region
             )
-          } else checkedPattern
-        val checkedPattern1 =
-          if (isEffectivelyUnguarded && isDefinitelyTotal) {
-            SourceConverter.addErrorKeepGoing(
-              withDiagnostics,
-              SourceConverter.MatchesPatternAlwaysTrue(p, m.region)
-            )
-          } else withDiagnostics
-
-        checkMatchesGuardShape(guard).flatMap { _ =>
-          (loop(a), checkedPattern1, guardExpr).mapN { (a, p, guard1) =>
-            val tag =
-              if (guard.nonEmpty && guard1.isEmpty)
-                Matches(m.arg, m.pattern, None)(using m.region)
-              else m
-            val branches =
-              if (isDefinitelyTotal && guard1.isEmpty) {
-                NonEmptyList.one(
-                  Expr.Branch(Pattern.WildCard, None, True)(using m.region)
-                )
-              } else {
-                NonEmptyList(
-                  Expr.Branch(p, guard1, True)(using m.region),
-                  Expr.Branch(Pattern.WildCard, None, False)(using m.region) :: Nil
-                )
-              }
-            Expr.Match(a, branches, tag)
+          )
+        case Lambda(args, body) =>
+          val argsRes = args.traverse(convertPattern(_, decl.region))
+          val bodyRes = withBound(body, args.patternNames)
+          (argsRes, bodyRes).parMapN { (args, body) =>
+            Expr.buildPatternLambda(args, body, decl)
           }
-        }
-      case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
-      case s @ StringDecl(parts) =>
-        // a single string item should be converted
-        // to that thing,
-        // two or more should be converted this to concat_String([items])
-
-        def charToString(expr: Expr[Declaration]): Expr[Declaration] = {
-          val fnName: Expr[Declaration] =
+        case la @ LeftApply(_, _, _, _) =>
+          loop(la.rewrite).map(_.replaceTag(decl))
+        case Literal(lit) =>
+          success(Expr.Literal(lit, decl))
+        case Parens(p) =>
+          loop(p).map(_.replaceTag(decl))
+        case Var(ident) =>
+          success(resolveToVar(ident, decl, bound, topBound))
+        case Match(kind, arg, branches) =>
+          /*
+           * The source match mode (`match`/`recur`/`loop`) on tags is used by
+           * TypedExprRecursionCheck before lowering/normalization.
+           */
+          val expBranches = branches.get.traverse { branch =>
+            val pat = branch.pattern
+            val branchDecl = branch.body.get
+            val branchPatternRegion = branch.patternRegion
+            val newPattern = convertPattern(pat, branchPatternRegion)
+            val guardExpr = branch.guard.traverse(withBound(_, pat.names))
+            val bodyExpr = withBound(branchDecl, pat.names)
+            (newPattern, guardExpr, bodyExpr).parMapN { (pat, guard, body) =>
+              val guard1 =
+                guard.filterNot(isPredefBoolConst(_, Constructor("True")))
+              Expr.Branch(pat, guard1, body)(using branchPatternRegion)
+            }
+          }
+          (loop(arg), expBranches).parMapN(Expr.Match(kind, _, _, decl))
+        case m @ Matches(a, p, guard) =>
+          // x matches p ==
+          // match x:
+          //   p: True
+          //   _: False
+          val hasPatternBindings = p.names.nonEmpty
+          val isDefinitelyTotal = p.definitelyTotal
+          val True: Expr[Declaration] =
             Expr.Global(
               PackageName.PredefName,
-              Identifier.Name("char_to_String"),
-              expr.tag
+              Identifier.Constructor("True"),
+              m
             )
+          val False: Expr[Declaration] = Expr.Global(
+            PackageName.PredefName,
+            Identifier.Constructor("False"),
+            m
+          )
+          val guardExpr =
+            guard
+              .traverse(withBound(_, p.names))
+              .map(_.filterNot(isPredefBoolConst(_, Constructor("True"))))
 
-          Expr.buildApp(fnName, expr :: Nil, expr.tag)
-        }
+          // A syntactic guard keeps bindings local to the predicate even if the
+          // guard later fails to convert. Only a successfully-canonicalized
+          // `if True` is treated as effectively unguarded again.
+          val isEffectivelyUnguarded =
+            guard match {
+              case None    => true
+              case Some(_) =>
+                guardExpr.toOption match {
+                  case Some(None) => true
+                  case _          => false
+                }
+            }
 
-        val decls = parts.parTraverse {
-          case StringDecl.Literal(r, str) => loop(Literal(Lit(str))(using r))
-          case StringDecl.CharExpr(decl)  => loop(decl).map(charToString)
-          case StringDecl.StrExpr(decl)   => loop(decl)
-        }
+          val rawPattern = convertPattern(p, m.region)
+          val checkedPattern =
+            if (isEffectivelyUnguarded && hasPatternBindings)
+              rawPattern.map(_.unbind)
+            else rawPattern
+          val withDiagnostics =
+            if (isEffectivelyUnguarded && hasPatternBindings) {
+              SourceConverter.addErrorKeepGoing(
+                checkedPattern,
+                SourceConverter.MatchesPatternBinding(p, m.region)
+              )
+            } else checkedPattern
+          val checkedPattern1 =
+            if (isEffectivelyUnguarded && isDefinitelyTotal) {
+              SourceConverter.addErrorKeepGoing(
+                withDiagnostics,
+                SourceConverter.MatchesPatternAlwaysTrue(p, m.region)
+              )
+            } else withDiagnostics
 
-        decls.map {
-          case NonEmptyList(one, Nil) => one
-          case twoOrMore              =>
-            def listOf(
-                expr: List[Expr[Declaration]],
-                restDecl: Declaration
-            ): Expr[Declaration] =
-              expr match {
-                case Nil =>
-                  Expr.Global(
-                    PackageName.PredefName,
-                    Identifier.Constructor("EmptyList"),
-                    restDecl
+          checkMatchesGuardShape(guard).flatMap { _ =>
+            (loop(a), checkedPattern1, guardExpr).mapN { (a, p, guard1) =>
+              val tag =
+                if (guard.nonEmpty && guard1.isEmpty)
+                  Matches(m.arg, m.pattern, None)(using m.region)
+                else m
+              val branches =
+                if (isDefinitelyTotal && guard1.isEmpty) {
+                  NonEmptyList.one(
+                    Expr.Branch(Pattern.WildCard, None, True)(using m.region)
                   )
-                case h :: tail =>
-                  val cons = Expr.Global(
-                    PackageName.PredefName,
-                    Identifier.Constructor("NonEmptyList"),
-                    restDecl
+                } else {
+                  NonEmptyList(
+                    Expr.Branch(p, guard1, True)(using m.region),
+                    Expr.Branch(Pattern.WildCard, None, False)(using
+                      m.region
+                    ) :: Nil
                   )
-                  val tailExpr = listOf(tail, h.tag)
-                  Expr.buildApp(cons, h :: tailExpr :: Nil, restDecl)
-              }
+                }
+              Expr.Match(a, branches, tag)
+            }
+          }
+        case tc @ TupleCons(its)   => makeTuple(tc, its)(loop)
+        case s @ StringDecl(parts) =>
+          // a single string item should be converted
+          // to that thing,
+          // two or more should be converted this to concat_String([items])
 
+          def charToString(expr: Expr[Declaration]): Expr[Declaration] = {
             val fnName: Expr[Declaration] =
               Expr.Global(
                 PackageName.PredefName,
-                Identifier.Name("concat_String"),
-                s
+                Identifier.Name("char_to_String"),
+                expr.tag
               )
 
-            Expr.buildApp(fnName, listOf(twoOrMore.toList, s) :: Nil, s)
-        }
-      case l @ ListDecl(list) =>
-        list match {
-          case ListLang.Cons(items) =>
-            val revDecs: Result[List[SpliceOrItem[Expr[Declaration]]]] =
-              items.reverse.traverse {
-                case SpliceOrItem.Splice(s) =>
-                  loop(s).map(SpliceOrItem.Splice(_))
-                case SpliceOrItem.Item(item) =>
-                  loop(item).map(SpliceOrItem.Item(_))
-              }
-
-            val pn = PackageName.PredefName
-            def mkC(c: String): Expr[Declaration] =
-              Expr.Global(pn, Identifier.Constructor(c), l)
-            def mkN(c: String): Expr[Declaration] =
-              Expr.Global(pn, Identifier.Name(c), l)
-
-            val Empty: Expr[Declaration] = mkC("EmptyList")
-            def cons(
-                head: Expr[Declaration],
-                tail: Expr[Declaration]
-            ): Expr[Declaration] =
-              Expr.buildApp(mkC("NonEmptyList"), head :: tail :: Nil, l)
-
-            def concat(
-                headList: Expr[Declaration],
-                tail: Expr[Declaration]
-            ): Expr[Declaration] =
-              Expr.buildApp(mkN("concat"), headList :: tail :: Nil, l)
-
-            revDecs.map(_.foldLeft(Empty) {
-              case (tail, SpliceOrItem.Item(i)) =>
-                cons(i, tail)
-              case (Empty, SpliceOrItem.Splice(s)) =>
-                // concat(s, Empty) = s
-                s
-              case (tail, SpliceOrItem.Splice(s)) =>
-                concat(s, tail)
-            })
-          case ListLang.Comprehension(res, binding, in, filter) =>
-            /*
-             * [x for y in z] ==
-             * z.map_List(y ->
-             *   x)
-             *
-             * [x for y in z if w] =
-             * z.flat_map_List(y ->
-             *   if w: [x]
-             *   else: []
-             * )
-             *
-             * [*x for y in z] =
-             * z.flat_map_List(y ->
-             *   x
-             * )
-             *
-             * [*x for y in z if w] =
-             * z.flat_map_List(y ->
-             *   if w: x
-             *   else: []
-             * )
-             */
-            val pn = PackageName.PredefName
-            val opName = (res, filter) match {
-              case (SpliceOrItem.Item(_), None) =>
-                "map_List"
-              case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
-                "flat_map_List"
-            }
-            val newBound = binding.names
-            val opExpr: Expr[Declaration] =
-              Expr.Global(pn, Identifier.Name(opName), l)
-            val resExpr: Result[Expr[Declaration]] =
-              filter match {
-                case None       => withBound(res.value, newBound)
-                case Some(cond) =>
-                  // To do filters, we lift all results into lists,
-                  // so single items must be made singleton lists
-                  val empty: Expr[Declaration] =
-                    Expr.Global(pn, Identifier.Constructor("EmptyList"), cond)
-                  val ressing = res match {
-                    case SpliceOrItem.Item(r) =>
-                      val rdec: Declaration = r
-                      // here we lift the result into a a singleton list
-                      withBound(r, newBound).map { ritem =>
-                        Expr.App(
-                          Expr.Global(
-                            pn,
-                            Identifier.Constructor("NonEmptyList"),
-                            rdec
-                          ),
-                          NonEmptyList(ritem, empty :: Nil),
-                          rdec
-                        )
-                      }
-                    case SpliceOrItem.Splice(r) => withBound(r, newBound)
-                  }
-
-                  (withBound(cond, newBound), ressing).mapN { (c, sing) =>
-                    Expr.ifExpr(c, sing, empty, cond)
-                  }
-              }
-            (convertPattern(binding, decl.region), resExpr, loop(in)).mapN {
-              (newPattern, resExpr, in) =>
-                val fnExpr: Expr[Declaration] =
-                  Expr.buildPatternLambda(
-                    NonEmptyList.of(newPattern),
-                    resExpr,
-                    l
-                  )
-                Expr.buildApp(opExpr, in :: fnExpr :: Nil, l)
-            }
-        }
-      case l @ DictDecl(dict) =>
-        val pn = PackageName.PredefName
-        def mkN(n: String): Expr[Declaration] =
-          Expr.Global(pn, Identifier.Name(n), l)
-        val empty: Expr[Declaration] =
-          Expr.App(mkN("empty_Dict"), NonEmptyList.one(mkN("string_Order")), l)
-
-        def add(
-            dict: Expr[Declaration],
-            k: Expr[Declaration],
-            v: Expr[Declaration]
-        ): Expr[Declaration] = {
-          val fn = mkN("add_key")
-          Expr.buildApp(fn, dict :: k :: v :: Nil, l)
-        }
-        dict match {
-          case ListLang.Cons(items) =>
-            val revDecs: Result[List[KVPair[Expr[Declaration]]]] =
-              items.reverse.traverse { case KVPair(k, v) =>
-                (loop(k), loop(v)).mapN(KVPair(_, _))
-              }
-            revDecs.map(_.foldLeft(empty) { case (dict, KVPair(k, v)) =>
-              add(dict, k, v)
-            })
-          case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
-            /*
-             * { x: y for p in z} ==
-             * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
-             *   dict.add_key(x, y)
-             *   )
-             *
-             * { x: y for p in z if w } =
-             * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
-             *   if w: dict.add_key(x, y)
-             *   else: dict
-             *   )
-             */
-
-            val newBound = binding.names
-            val pn = PackageName.PredefName
-            val opExpr: Expr[Declaration] =
-              Expr.Global(pn, Identifier.Name("foldl_List"), l)
-            val dictSymbol = unusedNames(decl.allNames).next()
-            val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
-            val added = (withBound(k, newBound), withBound(v, newBound)).mapN(
-              add(init, _, _)
-            )
-
-            val resExpr: Result[Expr[Declaration]] = filter match {
-              case None        => added
-              case Some(cond0) =>
-                (added, withBound(cond0, newBound)).mapN { (added, cond) =>
-                  Expr.ifExpr(cond, added, init, cond0)
-                }
-            }
-            val newPattern = convertPattern(binding, decl.region)
-            (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
-              val foldFn =
-                Expr.buildPatternLambda(
-                  NonEmptyList(Pattern.Var(dictSymbol), pat :: Nil),
-                  res,
-                  l
-                )
-              Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
-            }
-        }
-      case rc @ RecordConstructor(name, args, updateFrom) =>
-        val (p, c) = nameToCons(name)
-        val cons: Expr[Declaration] = Expr.Global(p, c, rc)
-        def argExpr(
-            arg: RecordArg
-        ): (Bindable, Result[Expr[Declaration]]) =
-          arg match {
-            case RecordArg.Simple(b) =>
-              (b, success(resolveToVar(b, rc, bound, topBound)))
-            case RecordArg.Pair(k, v) =>
-              (k, loop(v))
+            Expr.buildApp(fnName, expr :: Nil, expr.tag)
           }
 
-        val mappingList = args.toList.map(argExpr)
-        val mapping =
-          mappingList.foldLeft(Map.empty[Bindable, Result[Expr[Declaration]]]) {
-            case (acc, (k, v)) => acc.updated(k, v)
+          val decls = parts.parTraverse {
+            case StringDecl.Literal(r, str) => loop(Literal(Lit(str))(using r))
+            case StringDecl.CharExpr(decl)  => loop(decl).map(charToString)
+            case StringDecl.StrExpr(decl)   => loop(decl)
           }
 
-        localTypeEnv.flatMap { env =>
-          env.getConstructor(p, c) match {
-            case Some((definedType, constructorFn)) =>
-              val params = constructorFn.args
-              val paramNamesList = params.map(_.name)
-              val paramNames = paramNamesList.toSet
-              // here are all the fields we don't understand
-              val extra = mappingList.collect {
-                case (k, _) if !paramNames(k) => k
-              }
-
-              def addUnexpectedFieldError[A](res: Result[A]): Result[A] =
-                NonEmptyList.fromList(extra) match {
-                  case None        => res
-                  case Some(extra) =>
-                    SourceConverter.addError(
-                      res,
-                      SourceConverter.UnexpectedField(
-                        name,
-                        rc,
-                        extra,
-                        paramNamesList,
-                        rc.region
-                      )
+          decls.map {
+            case NonEmptyList(one, Nil) => one
+            case twoOrMore              =>
+              def listOf(
+                  expr: List[Expr[Declaration]],
+                  restDecl: Declaration
+              ): Expr[Declaration] =
+                expr match {
+                  case Nil =>
+                    Expr.Global(
+                      PackageName.PredefName,
+                      Identifier.Constructor("EmptyList"),
+                      restDecl
                     )
+                  case h :: tail =>
+                    val cons = Expr.Global(
+                      PackageName.PredefName,
+                      Identifier.Constructor("NonEmptyList"),
+                      restDecl
+                    )
+                    val tailExpr = listOf(tail, h.tag)
+                    Expr.buildApp(cons, h :: tailExpr :: Nil, restDecl)
                 }
 
-              lazy val present =
-                mappingList.iterator
-                  .map(_._1)
-                  .foldLeft(SortedSet.empty[Bindable])(_ + _)
+              val fnName: Expr[Declaration] =
+                Expr.Global(
+                  PackageName.PredefName,
+                  Identifier.Name("concat_String"),
+                  s
+                )
 
-              def get(b: Bindable): Result[Expr[Declaration]] =
-                mapping.get(b) match {
-                  case Some(expr) => expr
-                  case None       =>
-                    params.find(_.name == b).flatMap(_.defaultBinding) match {
-                      case Some(defaultName) =>
-                        SourceConverter.success(Expr.Global(p, defaultName, rc))
-                      case None =>
-                        SourceConverter.failure(
-                          SourceConverter.MissingArg(
-                            name,
-                            rc,
-                            present,
-                            b,
-                            rc.region
-                          )
-                        )
-                    }
+              Expr.buildApp(fnName, listOf(twoOrMore.toList, s) :: Nil, s)
+          }
+        case l @ ListDecl(list) =>
+          list match {
+            case ListLang.Cons(items) =>
+              val revDecs: Result[List[SpliceOrItem[Expr[Declaration]]]] =
+                items.reverse.traverse {
+                  case SpliceOrItem.Splice(s) =>
+                    loop(s).map(SpliceOrItem.Splice(_))
+                  case SpliceOrItem.Item(item) =>
+                    loop(item).map(SpliceOrItem.Item(_))
                 }
 
-              updateFrom match {
-                case None =>
-                  val exprArgs = params.traverse(param => get(param.name))
+              val pn = PackageName.PredefName
+              def mkC(c: String): Expr[Declaration] =
+                Expr.Global(pn, Identifier.Constructor(c), l)
+              def mkN(c: String): Expr[Declaration] =
+                Expr.Global(pn, Identifier.Name(c), l)
 
-                  val res = exprArgs.map { args =>
-                    Expr.buildApp(cons, args.toList, rc)
-                  }
-                  addUnexpectedFieldError(res)
-                case Some(baseExpr) =>
-                  val duplicatedFields = {
-                    val (_, _, dupsRev) = mappingList.foldLeft(
-                      (
-                        Set.empty[Bindable],
-                        Set.empty[Bindable],
-                        List.empty[Bindable]
-                      )
-                    ) { case ((seen, dupSet, dupsRev), (field, _)) =>
-                      if (!seen(field))
-                        (seen + field, dupSet, dupsRev)
-                      else if (dupSet(field))
-                        (seen, dupSet, dupsRev)
-                      else
-                        (seen, dupSet + field, field :: dupsRev)
-                    }
-                    dupsRev.reverse
-                  }
+              val Empty: Expr[Declaration] = mkC("EmptyList")
+              def cons(
+                  head: Expr[Declaration],
+                  tail: Expr[Declaration]
+              ): Expr[Declaration] =
+                Expr.buildApp(mkC("NonEmptyList"), head :: tail :: Nil, l)
 
-                  val omitted = params.filterNot(p => mapping.contains(p.name))
-                  val freshNames = unusedNames(decl.allNames)
-                  val copyFromBase =
-                    omitted.iterator
-                      .map(param => (param.name, freshNames.next()))
-                      .toMap
+              def concat(
+                  headList: Expr[Declaration],
+                  tail: Expr[Declaration]
+              ): Expr[Declaration] =
+                Expr.buildApp(mkN("concat"), headList :: tail :: Nil, l)
 
-                  val patternArgs = params.map { param =>
-                    if (mapping.contains(param.name)) Pattern.WildCard
-                    else Pattern.Var(copyFromBase(param.name))
-                  }
-                  val updatedPattern =
-                    Pattern.PositionalStruct((p, c), patternArgs)
-
-                  val updatedArgs: Result[List[Expr[Declaration]]] =
-                    params.traverse { param =>
-                      mapping.get(param.name) match {
-                        case Some(explicit) => explicit
-                        case None           =>
-                          SourceConverter.success(
-                            Expr.Local(copyFromBase(param.name), rc)
-                          )
-                      }
-                    }
-
-                  val rebuilt = updatedArgs.map { args =>
-                    Expr.buildApp(cons, args, rc)
-                  }
-
-                  val matchExpr = (loop(baseExpr), rebuilt).parMapN {
-                    (scrutinee, rebuiltValue) =>
-                      val updateBranch =
-                        Expr.Branch(updatedPattern, None, rebuiltValue)(using
-                          rc.region
-                        )
-                      val branches =
-                        if (definedType.constructors.lengthCompare(1) == 0)
-                          NonEmptyList.one(updateBranch)
-                        else {
-                          val fallback = freshNames.next()
-                          NonEmptyList(
-                            updateBranch,
-                            Expr.Branch(
-                              Pattern.Var(fallback),
-                              None,
-                              Expr.Local(fallback, rc)
-                            )(using rc.region) :: Nil
+              revDecs.map(_.foldLeft(Empty) {
+                case (tail, SpliceOrItem.Item(i)) =>
+                  cons(i, tail)
+                case (Empty, SpliceOrItem.Splice(s)) =>
+                  // concat(s, Empty) = s
+                  s
+                case (tail, SpliceOrItem.Splice(s)) =>
+                  concat(s, tail)
+              })
+            case ListLang.Comprehension(res, binding, in, filter) =>
+              /*
+               * [x for y in z] ==
+               * z.map_List(y ->
+               *   x)
+               *
+               * [x for y in z if w] =
+               * z.flat_map_List(y ->
+               *   if w: [x]
+               *   else: []
+               * )
+               *
+               * [*x for y in z] =
+               * z.flat_map_List(y ->
+               *   x
+               * )
+               *
+               * [*x for y in z if w] =
+               * z.flat_map_List(y ->
+               *   if w: x
+               *   else: []
+               * )
+               */
+              val pn = PackageName.PredefName
+              val opName = (res, filter) match {
+                case (SpliceOrItem.Item(_), None) =>
+                  "map_List"
+                case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
+                  "flat_map_List"
+              }
+              val newBound = binding.names
+              val opExpr: Expr[Declaration] =
+                Expr.Global(pn, Identifier.Name(opName), l)
+              val resExpr: Result[Expr[Declaration]] =
+                filter match {
+                  case None       => withBound(res.value, newBound)
+                  case Some(cond) =>
+                    // To do filters, we lift all results into lists,
+                    // so single items must be made singleton lists
+                    val empty: Expr[Declaration] =
+                      Expr.Global(pn, Identifier.Constructor("EmptyList"), cond)
+                    val ressing = res match {
+                      case SpliceOrItem.Item(r) =>
+                        val rdec: Declaration = r
+                        // here we lift the result into a a singleton list
+                        withBound(r, newBound).map { ritem =>
+                          Expr.App(
+                            Expr.Global(
+                              pn,
+                              Identifier.Constructor("NonEmptyList"),
+                              rdec
+                            ),
+                            NonEmptyList(ritem, empty :: Nil),
+                            rdec
                           )
                         }
+                      case SpliceOrItem.Splice(r) => withBound(r, newBound)
+                    }
 
-                      Expr.Match(scrutinee, branches, rc)
+                    (withBound(cond, newBound), ressing).mapN { (c, sing) =>
+                      Expr.ifExpr(c, sing, empty, cond)
+                    }
+                }
+              (convertPattern(binding, decl.region), resExpr, loop(in)).mapN {
+                (newPattern, resExpr, in) =>
+                  val fnExpr: Expr[Declaration] =
+                    Expr.buildPatternLambda(
+                      NonEmptyList.of(newPattern),
+                      resExpr,
+                      l
+                    )
+                  Expr.buildApp(opExpr, in :: fnExpr :: Nil, l)
+              }
+          }
+        case l @ DictDecl(dict) =>
+          val pn = PackageName.PredefName
+          def mkN(n: String): Expr[Declaration] =
+            Expr.Global(pn, Identifier.Name(n), l)
+          val empty: Expr[Declaration] =
+            Expr.App(
+              mkN("empty_Dict"),
+              NonEmptyList.one(mkN("string_Order")),
+              l
+            )
+
+          def add(
+              dict: Expr[Declaration],
+              k: Expr[Declaration],
+              v: Expr[Declaration]
+          ): Expr[Declaration] = {
+            val fn = mkN("add_key")
+            Expr.buildApp(fn, dict :: k :: v :: Nil, l)
+          }
+          dict match {
+            case ListLang.Cons(items) =>
+              val revDecs: Result[List[KVPair[Expr[Declaration]]]] =
+                items.reverse.traverse { case KVPair(k, v) =>
+                  (loop(k), loop(v)).mapN(KVPair(_, _))
+                }
+              revDecs.map(_.foldLeft(empty) { case (dict, KVPair(k, v)) =>
+                add(dict, k, v)
+              })
+            case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
+              /*
+               * { x: y for p in z} ==
+               * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
+               *   dict.add_key(x, y)
+               *   )
+               *
+               * { x: y for p in z if w } =
+               * z.foldl_List(empty_Dict(stringOrder), (dict, p) ->
+               *   if w: dict.add_key(x, y)
+               *   else: dict
+               *   )
+               */
+
+              val newBound = binding.names
+              val pn = PackageName.PredefName
+              val opExpr: Expr[Declaration] =
+                Expr.Global(pn, Identifier.Name("foldl_List"), l)
+              val dictSymbol = unusedNames(decl.allNames).next()
+              val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
+              val added = (withBound(k, newBound), withBound(v, newBound)).mapN(
+                add(init, _, _)
+              )
+
+              val resExpr: Result[Expr[Declaration]] = filter match {
+                case None        => added
+                case Some(cond0) =>
+                  (added, withBound(cond0, newBound)).mapN { (added, cond) =>
+                    Expr.ifExpr(cond, added, init, cond0)
+                  }
+              }
+              val newPattern = convertPattern(binding, decl.region)
+              (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
+                val foldFn =
+                  Expr.buildPatternLambda(
+                    NonEmptyList(Pattern.Var(dictSymbol), pat :: Nil),
+                    res,
+                    l
+                  )
+                Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
+              }
+          }
+        case rc @ RecordConstructor(name, args, updateFrom) =>
+          val (p, c) = nameToCons(name)
+          val cons: Expr[Declaration] = Expr.Global(p, c, rc)
+          def argExpr(
+              arg: RecordArg
+          ): (Bindable, Result[Expr[Declaration]]) =
+            arg match {
+              case RecordArg.Simple(b) =>
+                (b, success(resolveToVar(b, rc, bound, topBound)))
+              case RecordArg.Pair(k, v) =>
+                (k, loop(v))
+            }
+
+          val mappingList = args.toList.map(argExpr)
+          val mapping =
+            mappingList.foldLeft(
+              Map.empty[Bindable, Result[Expr[Declaration]]]
+            ) { case (acc, (k, v)) =>
+              acc.updated(k, v)
+            }
+
+          localTypeEnv.flatMap { env =>
+            env.getConstructor(p, c) match {
+              case Some((definedType, constructorFn)) =>
+                val params = constructorFn.args
+                val paramNamesList = params.map(_.name)
+                val paramNames = paramNamesList.toSet
+                // here are all the fields we don't understand
+                val extra = mappingList.collect {
+                  case (k, _) if !paramNames(k) => k
+                }
+
+                def addUnexpectedFieldError[A](res: Result[A]): Result[A] =
+                  NonEmptyList.fromList(extra) match {
+                    case None        => res
+                    case Some(extra) =>
+                      SourceConverter.addError(
+                        res,
+                        SourceConverter.UnexpectedField(
+                          name,
+                          rc,
+                          extra,
+                          paramNamesList,
+                          rc.region
+                        )
+                      )
                   }
 
-                  val withDupErr =
-                    NonEmptyList.fromList(duplicatedFields) match {
-                      case None       => matchExpr
-                      case Some(dups) =>
+                lazy val present =
+                  mappingList.iterator
+                    .map(_._1)
+                    .foldLeft(SortedSet.empty[Bindable])(_ + _)
+
+                def get(b: Bindable): Result[Expr[Declaration]] =
+                  mapping.get(b) match {
+                    case Some(expr) => expr
+                    case None       =>
+                      params.find(_.name == b).flatMap(_.defaultBinding) match {
+                        case Some(defaultName) =>
+                          SourceConverter.success(
+                            Expr.Global(p, defaultName, rc)
+                          )
+                        case None =>
+                          SourceConverter.failure(
+                            SourceConverter.MissingArg(
+                              name,
+                              rc,
+                              present,
+                              b,
+                              rc.region
+                            )
+                          )
+                      }
+                  }
+
+                updateFrom match {
+                  case None =>
+                    val exprArgs = params.traverse(param => get(param.name))
+
+                    val res = exprArgs.map { args =>
+                      Expr.buildApp(cons, args.toList, rc)
+                    }
+                    addUnexpectedFieldError(res)
+                  case Some(baseExpr) =>
+                    val duplicatedFields = {
+                      val (_, _, dupsRev) = mappingList.foldLeft(
+                        (
+                          Set.empty[Bindable],
+                          Set.empty[Bindable],
+                          List.empty[Bindable]
+                        )
+                      ) { case ((seen, dupSet, dupsRev), (field, _)) =>
+                        if (!seen(field))
+                          (seen + field, dupSet, dupsRev)
+                        else if (dupSet(field))
+                          (seen, dupSet, dupsRev)
+                        else
+                          (seen, dupSet + field, field :: dupsRev)
+                      }
+                      dupsRev.reverse
+                    }
+
+                    val omitted =
+                      params.filterNot(p => mapping.contains(p.name))
+                    val freshNames = unusedNames(decl.allNames)
+                    val copyFromBase =
+                      omitted.iterator
+                        .map(param => (param.name, freshNames.next()))
+                        .toMap
+
+                    val patternArgs = params.map { param =>
+                      if (mapping.contains(param.name)) Pattern.WildCard
+                      else Pattern.Var(copyFromBase(param.name))
+                    }
+                    val updatedPattern =
+                      Pattern.PositionalStruct((p, c), patternArgs)
+
+                    val updatedArgs: Result[List[Expr[Declaration]]] =
+                      params.traverse { param =>
+                        mapping.get(param.name) match {
+                          case Some(explicit) => explicit
+                          case None           =>
+                            SourceConverter.success(
+                              Expr.Local(copyFromBase(param.name), rc)
+                            )
+                        }
+                      }
+
+                    val rebuilt = updatedArgs.map { args =>
+                      Expr.buildApp(cons, args, rc)
+                    }
+
+                    val matchExpr = (loop(baseExpr), rebuilt).parMapN {
+                      (scrutinee, rebuiltValue) =>
+                        val updateBranch =
+                          Expr.Branch(updatedPattern, None, rebuiltValue)(using
+                            rc.region
+                          )
+                        val branches =
+                          if (definedType.constructors.lengthCompare(1) == 0)
+                            NonEmptyList.one(updateBranch)
+                          else {
+                            val fallback = freshNames.next()
+                            NonEmptyList(
+                              updateBranch,
+                              Expr.Branch(
+                                Pattern.Var(fallback),
+                                None,
+                                Expr.Local(fallback, rc)
+                              )(using rc.region) :: Nil
+                            )
+                          }
+
+                        Expr.Match(scrutinee, branches, rc)
+                    }
+
+                    val withDupErr =
+                      NonEmptyList.fromList(duplicatedFields) match {
+                        case None       => matchExpr
+                        case Some(dups) =>
+                          SourceConverter.addErrorKeepGoing(
+                            matchExpr,
+                            SourceConverter.RecordUpdateDuplicateField(
+                              name,
+                              rc,
+                              dups,
+                              rc.region
+                            )
+                          )
+                      }
+
+                    val withExplicitErr =
+                      if (mapping.isEmpty)
                         SourceConverter.addErrorKeepGoing(
-                          matchExpr,
-                          SourceConverter.RecordUpdateDuplicateField(
+                          withDupErr,
+                          SourceConverter.RecordUpdateRequiresExplicitField(
                             name,
                             rc,
-                            dups,
                             rc.region
                           )
                         )
-                    }
+                      else withDupErr
 
-                  val withExplicitErr =
-                    if (mapping.isEmpty)
-                      SourceConverter.addErrorKeepGoing(
-                        withDupErr,
-                        SourceConverter.RecordUpdateRequiresExplicitField(
-                          name,
-                          rc,
-                          rc.region
+                    val withBaseErr =
+                      if (omitted.isEmpty)
+                        SourceConverter.addErrorKeepGoing(
+                          withExplicitErr,
+                          SourceConverter.RecordUpdateNoFieldsFromBase(
+                            name,
+                            rc,
+                            rc.region
+                          )
                         )
-                      )
-                    else withDupErr
+                      else withExplicitErr
 
-                  val withBaseErr =
-                    if (omitted.isEmpty)
-                      SourceConverter.addErrorKeepGoing(
-                        withExplicitErr,
-                        SourceConverter.RecordUpdateNoFieldsFromBase(
-                          name,
-                          rc,
-                          rc.region
+                    val withSingleConstructorErr =
+                      if (definedType.constructors.lengthCompare(1) == 0)
+                        withBaseErr
+                      else
+                        SourceConverter.addErrorKeepGoing(
+                          withBaseErr,
+                          SourceConverter.RecordUpdateRequiresSingleConstructor(
+                            name,
+                            definedType.name,
+                            definedType.constructors.size,
+                            rc,
+                            rc.region
+                          )
                         )
-                      )
-                    else withExplicitErr
 
-                  val withSingleConstructorErr =
-                    if (definedType.constructors.lengthCompare(1) == 0)
-                      withBaseErr
-                    else
-                      SourceConverter.addErrorKeepGoing(
-                        withBaseErr,
-                        SourceConverter.RecordUpdateRequiresSingleConstructor(
-                          name,
-                          definedType.name,
-                          definedType.constructors.size,
-                          rc,
-                          rc.region
-                        )
-                      )
-
-                  addUnexpectedFieldError(withSingleConstructorErr)
-              }
-            case None =>
-              SourceConverter.failure(
-                SourceConverter.UnknownConstructor(
-                  name,
-                  rc,
-                  env.typeConstructors.keysIterator.map(_._2).toList,
-                  decl.region
+                    addUnexpectedFieldError(withSingleConstructorErr)
+                }
+              case None =>
+                SourceConverter.failure(
+                  SourceConverter.UnknownConstructor(
+                    name,
+                    rc,
+                    env.typeConstructors.keysIterator.map(_._2).toList,
+                    decl.region
+                  )
                 )
-              )
+            }
           }
-        }
-    }
+      }
   }
 
   private def toType(t: TypeRef, region: Region): Result[Type] =
@@ -1524,9 +1555,8 @@ final class SourceConverter(
                   val constructorParams = params.zipWithIndex.map {
                     case ((name, tpe), idx) =>
                       val maybeDefaultType =
-                        argsWithType(idx)._1.default.map(_ =>
-                          closeDefaultParamType(tpe, kindHints)
-                        )
+                        argsWithType(idx)._1.default
+                          .map(_ => closeDefaultParamType(tpe, kindHints))
                       val defaultBinding =
                         maybeDefaultType.map { defaultType =>
                           defaultBindingForParam(
@@ -1537,7 +1567,12 @@ final class SourceConverter(
                           )
                         }
                       val defaultType = maybeDefaultType
-                      rankn.ConstructorParam(name, tpe, defaultBinding, defaultType)
+                      rankn.ConstructorParam(
+                        name,
+                        tpe,
+                        defaultBinding,
+                        defaultType
+                      )
                   }
                   val consFn = rankn.ConstructorFn(nm, constructorParams)
 
@@ -1569,23 +1604,25 @@ final class SourceConverter(
     toType(tas.body, tas.region)
       .flatMap(validateAliasTypeScope(_, tas.region, scopeEnv))
       .flatMap { rhs =>
-      val discovered =
-        Type.freeTyVars(rhs :: Nil).collect { case b @ Type.Var.Bound(_) => b }
-          .foldLeft(List.empty[Type.Var.Bound]) { (acc, tv) =>
-            if (acc.contains(tv)) acc
-            else acc :+ tv
-          }
+        val discovered =
+          Type
+            .freeTyVars(rhs :: Nil)
+            .collect { case b @ Type.Var.Bound(_) => b }
+            .foldLeft(List.empty[Type.Var.Bound]) { (acc, tv) =>
+              if (acc.contains(tv)) acc
+              else acc :+ tv
+            }
 
-      updateInferredWithDeclaredTypeArgs(tas.typeArgs, discovered, tas).map {
-        typeParams =>
-          rankn.TypeAlias(
-            pname,
-            TypeName(tas.name),
-            typeParams,
-            rhs
-          )
+        updateInferredWithDeclaredTypeArgs(tas.typeArgs, discovered, tas).map {
+          typeParams =>
+            rankn.TypeAlias(
+              pname,
+              TypeName(tas.name),
+              typeParams,
+              rhs
+            )
+        }
       }
-    }
 
   private def toEnumDefinition(
       pname: PackageName,
@@ -1832,9 +1869,10 @@ final class SourceConverter(
           val constructorParams = params.zipWithIndex.map {
             case ((name, tpe), idx) =>
               val maybeDefaultType =
-                item.args(idx).default.map(_ =>
-                  closeDefaultParamType(tpe, kindHints)
-                )
+                item
+                  .args(idx)
+                  .default
+                  .map(_ => closeDefaultParamType(tpe, kindHints))
               val defaultBinding =
                 maybeDefaultType.map { defaultType =>
                   defaultBindingForParam(
@@ -2218,7 +2256,7 @@ final class SourceConverter(
         d match {
           case td: TypeDefinitionStatement =>
             toDefinition(thisPackage, td).map(te.addDefinedType(_))
-          case ta: Statement.TypeAlias     =>
+          case ta: Statement.TypeAlias =>
             val scopeEnv = importedTypeEnv ++ TypeEnv.fromParsed(te)
             toTypeAlias(thisPackage, scopeEnv, ta).map(te.addTypeAlias(_))
         }
@@ -2388,7 +2426,7 @@ final class SourceConverter(
       b
     }.toSet
 
-  private def toTypeRef(tpe: Type): TypeRef = {
+  private def toTypeRef(tpe: Type): TypeRef =
     // This is only used to keep source-conversion progressing after reporting
     // invalid default syntax (default without explicit type). Skolems/metas
     // never escape final inferred types, but may exist in intermediate types.
@@ -2399,7 +2437,6 @@ final class SourceConverter(
       metaId => TypeRef.TypeVar(s"meta_$metaId"),
       defined => TypeRef.TypeName(defined.name)
     )
-  }
 
   private def defaultScopeCheck(
       constructorName: Constructor,
@@ -2447,7 +2484,7 @@ final class SourceConverter(
       tds match {
         case Struct(name, _, args) =>
           ConstructorData(name, args) :: Nil
-        case Enum(_, _, items)     =>
+        case Enum(_, _, items) =>
           items.get.toList.map(item => ConstructorData(item.name, item.args))
         case ExternalStruct(_, _) =>
           Nil
@@ -2455,40 +2492,44 @@ final class SourceConverter(
 
     type Acc = (Set[Bindable], List[Statement.ValueStatement], Set[Bindable])
 
-    constructors.foldLeft(success((topBound, Nil, Set.empty[Bindable])): Result[
-      Acc
-    ]) { (racc, ctor) =>
-      racc.flatMap { case (scope, statements, newNames) =>
-        env.getConstructorParams(thisPackage, ctor.constructor) match {
-          case None =>
-            SourceConverter.failure(
-              SourceConverter.UnknownConstructor(
-                ctor.constructor,
-                SourceConverter.ConstructorSyntax.Pat(
-                  Pattern.PositionalStruct(
-                    Pattern.StructKind.Named(
-                      ctor.constructor,
-                      Pattern.StructKind.Style.TupleLike
-                    ),
-                    Nil
-                  )
-                ),
-                env.typeConstructors.keysIterator.map(_._2).toList,
-                tds.region
+    constructors
+      .foldLeft(
+        success((topBound, Nil, Set.empty[Bindable])): Result[
+          Acc
+        ]
+      ) { (racc, ctor) =>
+        racc.flatMap { case (scope, statements, newNames) =>
+          env.getConstructorParams(thisPackage, ctor.constructor) match {
+            case None =>
+              SourceConverter.failure(
+                SourceConverter.UnknownConstructor(
+                  ctor.constructor,
+                  SourceConverter.ConstructorSyntax.Pat(
+                    Pattern.PositionalStruct(
+                      Pattern.StructKind.Named(
+                        ctor.constructor,
+                        Pattern.StructKind.Style.TupleLike
+                      ),
+                      Nil
+                    )
+                  ),
+                  env.typeConstructors.keysIterator.map(_._2).toList,
+                  tds.region
+                )
               )
-            )
-          case Some(params) =>
-            if (params.lengthCompare(ctor.args.length) != 0) {
-              success((scope, statements, newNames))
-            } else {
-              val constructorParamNames = ctor.args.iterator.map(_.name).toSet
-              val typeName = TypeName(tds.name)
+            case Some(params) =>
+              if (params.lengthCompare(ctor.args.length) != 0) {
+                success((scope, statements, newNames))
+              } else {
+                val constructorParamNames = ctor.args.iterator.map(_.name).toSet
+                val typeName = TypeName(tds.name)
 
-              ctor.args
-                .zip(params)
-                .zipWithIndex
-                .foldLeft(success((scope, statements, newNames)): Result[Acc]) {
-                  case (acc0, ((arg, param), idx)) =>
+                ctor.args
+                  .zip(params)
+                  .zipWithIndex
+                  .foldLeft(
+                    success((scope, statements, newNames)): Result[Acc]
+                  ) { case (acc0, ((arg, param), idx)) =>
                     acc0.flatMap { case (scope0, statements0, names0) =>
                       arg.default match {
                         case None =>
@@ -2531,11 +2572,12 @@ final class SourceConverter(
                               case None =>
                                 SourceConverter.addError(
                                   SourceConverter.successUnit,
-                                  SourceConverter.ConstructorDefaultRequiresTypeAnnotation(
-                                    ctor.constructor,
-                                    arg.name,
-                                    region
-                                  )
+                                  SourceConverter
+                                    .ConstructorDefaultRequiresTypeAnnotation(
+                                      ctor.constructor,
+                                      arg.name,
+                                      region
+                                    )
                                 )
                             }
 
@@ -2563,11 +2605,12 @@ final class SourceConverter(
                           }
                       }
                     }
-                }
-            }
+                  }
+              }
+          }
         }
       }
-    }.map { case (_, stmts, names) => (stmts, names) }
+      .map { case (_, stmts, names) => (stmts, names) }
   }
 
   private def valueStatementsWithDefaultHelpers(
@@ -2639,7 +2682,9 @@ final class SourceConverter(
               if (dstmt.name == bind) dstmt.copy(name = newNameV) else dstmt
             val res =
               if (
-                dstmt.args.toList.flatten.iterator.flatMap(_.names).exists(_ == bind)
+                dstmt.args.toList.flatten.iterator
+                  .flatMap(_.names)
+                  .exists(_ == bind)
               ) {
                 // the args are shadowing the binding, so we don't need to substitute
                 dstmt.result

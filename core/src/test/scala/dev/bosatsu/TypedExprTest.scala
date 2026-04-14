@@ -74,9 +74,9 @@ class TypedExprTest extends munit.ScalaCheckSuite {
       te: TypedExpr[Declaration]
   ): TypedExpr[Declaration] =
     te match {
-      case TypedExpr.Generic(_, in)       => stripLambdaWrappers(in)
+      case TypedExpr.Generic(_, in)         => stripLambdaWrappers(in)
       case TypedExpr.Annotation(term, _, _) => stripLambdaWrappers(term)
-      case other                          => other
+      case other                            => other
     }
 
   private def assertLambdaArgsFromLast(
@@ -254,7 +254,9 @@ y = match x:
 """)(te => assertEquals(TypedExpr.freeVars(te :: Nil), Nil))
   }
 
-  test("TypedExpr.sourceLambdaArgs returns source lambda args for var, annotation and wildcard patterns") {
+  test(
+    "TypedExpr.sourceLambdaArgs returns source lambda args for var, annotation and wildcard patterns"
+  ) {
     assertLambdaArgsFromLast(
       """
       main = (x, y) -> (
@@ -1173,7 +1175,10 @@ foo = _ -> 1
     val x = varTE("x", boolTpe)
     val guardExpr = varTE("f", boolTpe)
     val truePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
 
     val guardedTail = TypedExpr.Match(
       x,
@@ -1205,9 +1210,15 @@ foo = _ -> 1
     val x = varTE("x", boolTpe)
     val guardExpr = varTE("f", boolTpe)
     val truePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
     val falsePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("False")),
+        Nil
+      )
 
     val guardedTail = TypedExpr.Match(
       x,
@@ -1241,9 +1252,15 @@ foo = _ -> 1
     val guardExpr =
       TypedExpr.App(PredefEqInt, NonEmptyList.of(x, int(0)), boolTpe, ())
     val truePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
     val falsePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("False")),
+        Nil
+      )
 
     val guardedLeading = TypedExpr.Match(
       x,
@@ -1293,9 +1310,15 @@ foo = _ -> 1
     val topPat: Pattern[(PackageName, Constructor), Type] =
       Pattern.Annotation(Pattern.WildCard, intTpe)
     val truePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
     val falsePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("False")),
+        Nil
+      )
 
     val guardedLeading = TypedExpr.Match(
       x,
@@ -1453,7 +1476,9 @@ foo = _ -> 1
         assertEquals(branches1.head.guard, Some(guardExpr))
         assertEquals(branches1.head.expr, bool(true))
       case other =>
-        fail(s"expected guarded ambiguous search match to stay ordered, got: $other")
+        fail(
+          s"expected guarded ambiguous search match to stay ordered, got: $other"
+        )
     }
   }
 
@@ -1496,7 +1521,9 @@ foo = _ -> 1
         assertEquals(branches1.last.pattern, Pattern.WildCard)
         assertEquals(branches1.last.expr, bool(false))
       case other =>
-        fail(s"expected rewrite when guard ignores ambiguous bindings, got: $other")
+        fail(
+          s"expected rewrite when guard ignores ambiguous bindings, got: $other"
+        )
     }
   }
 
@@ -1505,7 +1532,10 @@ foo = _ -> 1
   ) {
     val x = varTE("x", intTpe)
     val truePat: Pattern[(PackageName, Constructor), Type] =
-      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+      Pattern.PositionalStruct(
+        (PackageName.PredefName, Constructor("True")),
+        Nil
+      )
     val topBoolPat: Pattern[(PackageName, Constructor), Type] =
       Pattern.Annotation(Pattern.WildCard, boolTpe)
 
@@ -1664,16 +1694,23 @@ foo = _ -> 1
       ()
     )
     val lamExpr =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((unitName, Type.UnitType)),
+        body,
+        ()
+      )
 
-    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    val normalized =
+      TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
     normalized match {
       case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
         assertEquals(args.length, 1)
         assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
         assert(countLet(lamBody) > 0, normalized.reprString)
       case other =>
-        fail(s"expected Unit lambda to remain outermost, got: ${other.reprString}")
+        fail(
+          s"expected Unit lambda to remain outermost, got: ${other.reprString}"
+        )
     }
   }
 
@@ -1688,9 +1725,14 @@ foo = _ -> 1
       ()
     )
     val lamExpr =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((unitName, Type.UnitType)),
+        body,
+        ()
+      )
 
-    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    val normalized =
+      TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
     normalized match {
       case TypedExpr.AnnotatedLambda(args, TypedExpr.Match(_, _, _), _) =>
         assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
@@ -1705,11 +1747,17 @@ foo = _ -> 1
     val unitName = Identifier.Name("unit")
     val fnType = Type.Fun(NonEmptyList.one(intTpe), intTpe)
     val opaque = app(varTE("f", fnType), int(1), intTpe)
-    val body = TypedExpr.App(PredefAdd, NonEmptyList.of(opaque, opaque), intTpe, ())
+    val body =
+      TypedExpr.App(PredefAdd, NonEmptyList.of(opaque, opaque), intTpe, ())
     val lamExpr =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((unitName, Type.UnitType)), body, ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((unitName, Type.UnitType)),
+        body,
+        ()
+      )
 
-    val normalized = TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
+    val normalized =
+      TypedExprNormalization.normalize(lamExpr).getOrElse(lamExpr)
     normalized match {
       case TypedExpr.Let(
             _,
@@ -1717,9 +1765,12 @@ foo = _ -> 1
             TypedExpr.AnnotatedLambda(args, _, _),
             RecursionKind.NonRecursive,
             _
-          ) if bound.void === opaque.void &&
+          )
+          if bound.void === opaque.void &&
             Type.normalize(args.head._2).sameAs(Type.UnitType) =>
-        fail(s"unexpected shared let hoisted above Unit thunk: ${normalized.reprString}")
+        fail(
+          s"unexpected shared let hoisted above Unit thunk: ${normalized.reprString}"
+        )
       case TypedExpr.AnnotatedLambda(args, lamBody, _) =>
         assert(Type.normalize(args.head._2).sameAs(Type.UnitType))
         assert(countExpr(lamBody, opaque) > 0, normalized.reprString)
@@ -1752,7 +1803,9 @@ foo = _ -> 1
       TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
 
     TypedExprNormalization.normalize(lamExpr) match {
-      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+      case Some(
+            TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)
+          ) =>
         assertEquals(branches.length, 1)
         assert(branches.head.guard.nonEmpty)
       case other =>
@@ -1783,11 +1836,15 @@ foo = _ -> 1
       TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, intTpe)), body, ())
 
     TypedExprNormalization.normalize(lamExpr) match {
-      case Some(TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)) =>
+      case Some(
+            TypedExpr.AnnotatedLambda(_, TypedExpr.Match(_, branches, _), _)
+          ) =>
         assertEquals(branches.length, 2)
         assert(branches.forall(_.guard.isEmpty))
       case other =>
-        fail(s"expected normalized lambda with unguarded match branches, got: $other")
+        fail(
+          s"expected normalized lambda with unguarded match branches, got: $other"
+        )
     }
   }
 
@@ -1952,7 +2009,7 @@ main = match Some(1):
           hasDirectSelfCall(ex) || hasDirectSelfCall(in)
         case TypedExpr.Loop(args, body, _) =>
           args.exists { case (_, init) => hasDirectSelfCall(init) } ||
-            hasDirectSelfCall(body)
+          hasDirectSelfCall(body)
         case TypedExpr.Recur(args, _, _) =>
           args.exists(hasDirectSelfCall)
         case TypedExpr.Match(arg, branches, _) =>
@@ -2004,7 +2061,11 @@ main = match Some(1):
     val xVar = TypedExpr.Local(xName, aTy, ())
 
     val lam =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((xName, aTy)), app(fVar, xVar, aTy), ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((xName, aTy)),
+        app(fVar, xVar, aTy),
+        ()
+      )
     val ann = TypedExpr.Annotation(lam, fnType, None)
     val polyDef = TypedExpr.Generic(
       TypedExpr.Quantification.ForAll(NonEmptyList.one((a, Kind.Type))),
@@ -2044,7 +2105,10 @@ main = match Some(1):
         ()
       )
 
-    val recurse = groupedCall(TypedExpr.App(PredefAdd, NonEmptyList.of(fnVar, int(1)), intTpe, ()), yVar)
+    val recurse = groupedCall(
+      TypedExpr.App(PredefAdd, NonEmptyList.of(fnVar, int(1)), intTpe, ()),
+      yVar
+    )
     val body = TypedExpr.Match(
       yVar,
       NonEmptyList.of(
@@ -2205,7 +2269,11 @@ main = match Some(1):
       ()
     )
     val innerLam =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((yName, intTpe)),
+        innerBody,
+        ()
+      )
     val withLetBetween =
       TypedExpr.Let(tmpName, int(2), innerLam, RecursionKind.NonRecursive, ())
     val expr = TypedExpr.AnnotatedLambda(
@@ -2272,10 +2340,17 @@ main = match Some(1):
     val partialSelf =
       TypedExpr.App(fVar, NonEmptyList.one(fnVar), innerFnType, ())
     val innerBody =
-      TypedExpr.Let(partialName, partialSelf, int(0), RecursionKind.NonRecursive, ())
+      TypedExpr.Let(
+        partialName,
+        partialSelf,
+        int(0),
+        RecursionKind.NonRecursive,
+        ()
+      )
     val expr = TypedExpr.AnnotatedLambda(
       NonEmptyList.one((fnArgName, intTpe)),
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ()),
+      TypedExpr
+        .AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ()),
       ()
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
@@ -2316,7 +2391,9 @@ main = match Some(1):
     assertEquals(TypedExprLoopRecurLowering.lower(root), None)
   }
 
-  test("loop/recur lowering skips grouped rewrite when loop/recur already appear") {
+  test(
+    "loop/recur lowering skips grouped rewrite when loop/recur already appear"
+  ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
     val yName = Identifier.Name("y")
@@ -2333,7 +2410,8 @@ main = match Some(1):
     )
     val expr = TypedExpr.AnnotatedLambda(
       NonEmptyList.one((fnArgName, intTpe)),
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), loopBody, ()),
+      TypedExpr
+        .AnnotatedLambda(NonEmptyList.one((yName, intTpe)), loopBody, ()),
       ()
     )
     val root = TypedExpr.Let(fName, expr, fVar, RecursionKind.Recursive, ())
@@ -2356,7 +2434,8 @@ main = match Some(1):
     val xVar = TypedExpr.Local(xName, intTpe, ())
     val yVar = TypedExpr.Local(yName, intTpe, ())
 
-    val wrappedHead = TypedExpr.Generic(q, TypedExpr.Annotation(fVar, fType, None))
+    val wrappedHead =
+      TypedExpr.Generic(q, TypedExpr.Annotation(fVar, fType, None))
     val groupedSelf = TypedExpr.App(
       TypedExpr.App(wrappedHead, NonEmptyList.one(xVar), innerFnType, ()),
       NonEmptyList.one(yVar),
@@ -2372,7 +2451,11 @@ main = match Some(1):
       ()
     )
     val innerLam =
-      TypedExpr.AnnotatedLambda(NonEmptyList.one((yName, intTpe)), innerBody, ())
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((yName, intTpe)),
+        innerBody,
+        ()
+      )
     val wrappedInner = TypedExpr.Generic(
       q,
       TypedExpr.Annotation(innerLam, innerFnType, None)
@@ -2545,7 +2628,9 @@ main = match Some(1):
     assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
   }
 
-  test("loop/recur lowerAll traverses grouped recursive top-level definitions") {
+  test(
+    "loop/recur lowerAll traverses grouped recursive top-level definitions"
+  ) {
     val fName = Identifier.Name("f")
     val xName = Identifier.Name("x")
     val yName = Identifier.Name("y")
@@ -2584,7 +2669,9 @@ main = match Some(1):
     assertEquals(SelfCallKind(fName, loweredExpr), SelfCallKind.NoCall)
   }
 
-  test("loop/recur lowering skips eta-expanded grouped calls with no inner groups") {
+  test(
+    "loop/recur lowering skips eta-expanded grouped calls with no inner groups"
+  ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
     val yName = Identifier.Name("y")
@@ -2783,7 +2870,9 @@ main = match Some(1):
     TestUtils.assertValid(lowered)
   }
 
-  test("loop/recur lowering handles grouped let branch shadowing combinations") {
+  test(
+    "loop/recur lowering handles grouped let branch shadowing combinations"
+  ) {
     val fName = Identifier.Name("f")
     val fnArgName = Identifier.Name("fn")
     val yName = Identifier.Name("y")
@@ -2850,7 +2939,9 @@ main = match Some(1):
     assertEquals(SelfCallKind(fName, lowered), SelfCallKind.NoCall)
   }
 
-  test("loop/recur lowering skips grouped rewrite on bare grouped self references") {
+  test(
+    "loop/recur lowering skips grouped rewrite on bare grouped self references"
+  ) {
     val fName = Identifier.Name("f")
     val xName = Identifier.Name("x")
     val yName = Identifier.Name("y")
@@ -3731,9 +3822,10 @@ x = Foo
             val acc1 = (acc | loop(branch.expr)) | branch.guard.fold(
               Set.empty[Type.Var]
             )(loop)
-            acc1 ++ allPatternTypesViaTraverseType(branch.pattern).iterator.collect {
-              case Type.TyVar(v) => v
-            }
+            acc1 ++ allPatternTypesViaTraverseType(branch.pattern).iterator
+              .collect { case Type.TyVar(v) =>
+                v
+              }
           }
       }
 
@@ -4082,7 +4174,9 @@ def f(x):
     assertEquals(ifNormalized, matchNormalized)
   }
 
-  test("package-local bool helpers normalize nested if matches into direct matches") {
+  test(
+    "package-local bool helpers normalize nested if matches into direct matches"
+  ) {
     val (_, helperNormalized) = inferLoweredAndNormalizedExpr(
       """
 def is_newline(ch): ch matches .'\n'
@@ -4130,14 +4224,17 @@ def loop(n, cnt):
           "Test",
           { (pm, mainPack) =>
             val pack = pm.toMap(mainPack)
-            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
-              case Some((_, _, te)) => te
-              case None             =>
-                fail(s"missing let loop in ${pack.lets.map(_._1)}")
-            }
-            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
-              loopExpr
-            )
+            val loopExpr =
+              pack.lets.find(_._1 == Identifier.Name("loop")) match {
+                case Some((_, _, te)) => te
+                case None             =>
+                  fail(s"missing let loop in ${pack.lets.map(_._1)}")
+              }
+            val lowered = TypedExprLoopRecurLowering
+              .lower(loopExpr)
+              .getOrElse(
+                loopExpr
+              )
             val normalized =
               TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
             out = Some(normalized)
@@ -4192,14 +4289,17 @@ def loop(n, cnt):
           "Test",
           { (pm, mainPack) =>
             val pack = pm.toMap(mainPack)
-            val loopExpr = pack.lets.find(_._1 == Identifier.Name("loop")) match {
-              case Some((_, _, te)) => te
-              case None             =>
-                fail(s"missing let loop in ${pack.lets.map(_._1)}")
-            }
-            val lowered = TypedExprLoopRecurLowering.lower(loopExpr).getOrElse(
-              loopExpr
-            )
+            val loopExpr =
+              pack.lets.find(_._1 == Identifier.Name("loop")) match {
+                case Some((_, _, te)) => te
+                case None             =>
+                  fail(s"missing let loop in ${pack.lets.map(_._1)}")
+              }
+            val lowered = TypedExprLoopRecurLowering
+              .lower(loopExpr)
+              .getOrElse(
+                loopExpr
+              )
             val normalized =
               TypedExprNormalization.normalize(lowered).getOrElse(lowered).void
             out = Some(normalized)
@@ -4379,7 +4479,7 @@ def use(y: Int) -> Int:
   fn = z -> y.add(z)
   fn(2).add(fn(3))
 """
-    ) { _ => () }
+    )(_ => ())
   }
 
   test("normalization keeps closures when recursive local loops escape") {
@@ -4420,10 +4520,12 @@ def sum_plus(y: Int, zs: L[Int]) -> Int:
       case NE(_, t): loop(t).add(y)
   loop(zs)
 """
-    ) { _ => () }
+    )(_ => ())
   }
 
-  test("normalization keeps closures when non-recursive local functions escape") {
+  test(
+    "normalization keeps closures when non-recursive local functions escape"
+  ) {
     val capturedName = Identifier.Name("y")
     val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
       """
@@ -4728,7 +4830,9 @@ def make(y: Int):
               branch.guard.traverse(traverse(_)(fn)),
               traverse(branch.expr)(fn)
             ).mapN { (pattern, guard, expr1) =>
-              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+              TypedExpr.Branch(pattern, guard, expr1)(using
+                branch.patternRegion
+              )
             }
           }
           (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
@@ -4793,8 +4897,9 @@ def make(y: Int):
               )(using branch.patternRegion)
             }
           }
-          (traverse(expr)(fn), tbranch, fn(tag)).mapN { (expr1, branches1, tag1) =>
-            TypedExpr.Match(expr1, branches1, tag1)
+          (traverse(expr)(fn), tbranch, fn(tag)).mapN {
+            (expr1, branches1, tag1) =>
+              TypedExpr.Match(expr1, branches1, tag1)
           }
       }
 
@@ -4995,8 +5100,7 @@ def make(y: Int):
     while (idx >= 0) {
       val name = Identifier.Name(s"n$idx")
       val rhs = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
-      cursor =
-        TypedExpr.Let(name, rhs, cursor, RecursionKind.NonRecursive, idx)
+      cursor = TypedExpr.Let(name, rhs, cursor, RecursionKind.NonRecursive, idx)
       idx = idx - 1
     }
     cursor
@@ -5061,8 +5165,8 @@ def make(y: Int):
   test("TypedExpr.traverseUp matches recursive oracle with Writer[Chain, _]") {
     forAll(genTypedExprInt) { te =>
       type W[X] = Writer[Chain[TypedExpr[Int]], X]
-      val record: TypedExpr[Int] => W[TypedExpr[Int]] = t =>
-        Writer(Chain.one(t), t)
+      val record: TypedExpr[Int] => W[TypedExpr[Int]] =
+        t => Writer(Chain.one(t), t)
 
       val got = te.traverseUp[W](record).run
       val expected = RecursiveTraverseOracle.traverseUp(te)(record).run
@@ -5071,9 +5175,13 @@ def make(y: Int):
   }
 
   Platform.onJvm(
-    test("TypedExpr traverseUp/traverse/map/folds are stack safe on deep let/app trees") {
-      val depth = sys.props.get("repro.typedExprTraverseDepth").fold(12000)(_.toInt)
-      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+    test(
+      "TypedExpr traverseUp/traverse/map/folds are stack safe on deep let/app trees"
+    ) {
+      val depth =
+        sys.props.get("repro.typedExprTraverseDepth").fold(12000)(_.toInt)
+      val stackBytes =
+        sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
 
       @volatile var failure: Option[Throwable] = None
 
@@ -5088,7 +5196,8 @@ def make(y: Int):
               def runChecks(label: String, expr: TypedExpr[Int]): Unit = {
                 val mapped = expr.map(_ + 1)
                 val traversed: TypedExpr[Int] = expr.traverse[Id, Int](_ + 1)
-                val traversedType: TypedExpr[Int] = expr.traverseType[Id](identity)
+                val traversedType: TypedExpr[Int] =
+                  expr.traverseType[Id](identity)
                 type W[X] = Writer[Int, X]
                 val (traverseUpCount, traverseUpRes) =
                   expr.traverseUp[W](t => Writer(1, t)).run
@@ -5147,7 +5256,8 @@ def make(y: Int):
       "TypedExpr recursive app utilities are stack safe on right-deep binary app chains"
     ) {
       val depth = sys.props.get("repro.typedExprApp2Depth").fold(4000)(_.toInt)
-      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+      val stackBytes =
+        sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
 
       @volatile var failure: Option[Throwable] = None
 
@@ -5165,9 +5275,15 @@ def make(y: Int):
               assert(expr.allTypes(Type.IntType))
               assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(expr, expr))
 
-              val subMap: Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
-                Map(Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) => loc))
-              val subRes = TypedExpr.substituteAll(subMap, expr, enterLambda = true)
+              val subMap
+                  : Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
+                Map(
+                  Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) =>
+                    loc
+                  )
+                )
+              val subRes =
+                TypedExpr.substituteAll(subMap, expr, enterLambda = true)
               assert(subRes.nonEmpty)
 
               val tsub = TypedExpr.substituteTypeVar(
@@ -5367,27 +5483,44 @@ def make(y: Int):
         assertEquals(coerce, Type.StrType)
         assertEquals(qev1.sourceAtSolve, Type.IntType)
         assertEquals(qev1.targetAtSolve, Type.StrType)
-        assertEquals(qev1.forallSolved.valuesIterator.map(_._2).toList, Type.IntType :: Nil)
-        assertEquals(qev1.existsHidden.valuesIterator.map(_._2).toList, Type.StrType :: Nil)
+        assertEquals(
+          qev1.forallSolved.valuesIterator.map(_._2).toList,
+          Type.IntType :: Nil
+        )
+        assertEquals(
+          qev1.existsHidden.valuesIterator.map(_._2).toList,
+          Type.StrType :: Nil
+        )
       case other =>
         fail(s"expected annotation with evidence, got: ${other.reprString}")
     }
 
-    assertEquals(Type.metaTvs(zonked.allTypes.toList), SortedSet.empty[Type.Meta])
+    assertEquals(
+      Type.metaTvs(zonked.allTypes.toList),
+      SortedSet.empty[Type.Meta]
+    )
   }
 
-  test("TypedExpr.quantify handles metas and skolems inside quantifier evidence") {
+  test(
+    "TypedExpr.quantify handles metas and skolems inside quantifier evidence"
+  ) {
     type S[A] = State[Map[Type.Meta, Type.Tau], A]
     val k = Kind.Type
-    val mForall = Type.Meta(k, 2001L, existential = false, RefSpace.constRef(None))
-    val mExists = Type.Meta(k, 2002L, existential = true, RefSpace.constRef(None))
+    val mForall =
+      Type.Meta(k, 2001L, existential = false, RefSpace.constRef(None))
+    val mExists =
+      Type.Meta(k, 2002L, existential = true, RefSpace.constRef(None))
     val exSkolem = Type.Var.Skolem("ex", k, existential = true, id = 99L)
     val qev = TypedExpr.QuantifierEvidence(
       sourceAtSolve = Type.TyMeta(mForall),
       targetAtSolve = Type.TyVar(exSkolem),
-      forallSolved = SortedMap(Type.Var.Bound("fa") -> (k, Type.TyMeta(mForall))),
+      forallSolved =
+        SortedMap(Type.Var.Bound("fa") -> (k, Type.TyMeta(mForall))),
       existsHidden = SortedMap(
-        Type.Var.Bound("ex") -> (k, Type.TyApply(Type.TyMeta(mExists), Type.TyVar(exSkolem)))
+        Type.Var.Bound("ex") -> (
+          k,
+          Type.TyApply(Type.TyMeta(mExists), Type.TyVar(exSkolem))
+        )
       )
     )
     val rho: TypedExpr.Rho[Unit] = TypedExpr.Rho.assertRho(
@@ -5413,7 +5546,10 @@ def make(y: Int):
         .runA(Map.empty)
         .value
 
-    assertEquals(Type.metaTvs(quantified.allTypes.toList), SortedSet.empty[Type.Meta])
+    assertEquals(
+      Type.metaTvs(quantified.allTypes.toList),
+      SortedSet.empty[Type.Meta]
+    )
     assert(
       !Type.freeTyVars(quantified.allTypes.toList).contains(exSkolem),
       quantified.reprString
@@ -5464,7 +5600,9 @@ def make(y: Int):
         assertEquals(coerce, target)
         assertEquals(ev1, evidence)
       case other =>
-        fail(s"expected annotation with reused evidence, got: ${other.reprString}")
+        fail(
+          s"expected annotation with reused evidence, got: ${other.reprString}"
+        )
     }
   }
 
@@ -5501,7 +5639,8 @@ def make(y: Int):
       TypedExpr.Local(Identifier.Name("f"), fnType, ())
     )
 
-    val instantiated = TypedExpr.instantiateTo(gen, Type.IntType, _ => None, None)
+    val instantiated =
+      TypedExpr.instantiateTo(gen, Type.IntType, _ => None, None)
 
     instantiated match {
       case TypedExpr.Annotation(term @ TypedExpr.Generic(_, _), coerce, None) =>

@@ -41,7 +41,10 @@ object Z3Api {
 
   type RunSmt2 = String => Either[RunError.ExecutionFailure, SolverOutput]
 
-  def run(script: SmtScript, runSmt2: RunSmt2): Either[RunError, StructuredResult] =
+  def run(
+      script: SmtScript,
+      runSmt2: RunSmt2
+  ): Either[RunError, StructuredResult] =
     run(script, parseModel = true, runSmt2)
 
   def run(
@@ -53,14 +56,17 @@ object Z3Api {
     runSmt2(smt2).flatMap(parse(_, smt2, parseModel && hasGetModel(script)))
   }
 
-  def runSmt2(smt2: String, runSmt2Fn: RunSmt2): Either[RunError, StructuredResult] =
+  def runSmt2(
+      smt2: String,
+      runSmt2Fn: RunSmt2
+  ): Either[RunError, StructuredResult] =
     runSmt2Fn(smt2).flatMap(parse(_, smt2, parseModel = false))
 
   private def parse(
       output: SolverOutput,
       smt2: String,
       parseModel: Boolean
-  ): Either[RunError, StructuredResult] = {
+  ): Either[RunError, StructuredResult] =
     parseStatusAndRemainder(output.stdout).flatMap { case (status, rest) =>
       val modelEither: Either[RunError, Option[Vector[SExpr]]] =
         status match {
@@ -89,7 +95,6 @@ object Z3Api {
         StructuredResult(status, model, smt2, output.stdout, output.stderr)
       }
     }
-  }
 
   private def hasGetModel(script: SmtScript): Boolean =
     script.commands.contains(SmtCommand.GetModel)
@@ -102,7 +107,11 @@ object Z3Api {
       Left(RunError.InvalidOutput("empty solver output", stdout, ""))
     else {
       val statusTokens =
-        List("sat" -> Status.Sat, "unsat" -> Status.Unsat, "unknown" -> Status.Unknown)
+        List(
+          "sat" -> Status.Sat,
+          "unsat" -> Status.Unsat,
+          "unknown" -> Status.Unknown
+        )
 
       statusTokens.iterator
         .map { case (token, status) =>
@@ -120,7 +129,8 @@ object Z3Api {
   }
 
   private def readToken(in: String, token: String): Option[String] =
-    if (in.startsWith(token) && boundary(in, token.length)) Some(in.substring(token.length))
+    if (in.startsWith(token) && boundary(in, token.length))
+      Some(in.substring(token.length))
     else None
 
   private def boundary(in: String, idx: Int): Boolean =

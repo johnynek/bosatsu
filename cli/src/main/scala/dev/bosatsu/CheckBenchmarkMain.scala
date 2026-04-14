@@ -11,14 +11,14 @@ object CheckBenchmarkMain extends IOApp {
   private val asyncProfilerPath =
     "~/Downloads/async-profiler-4.3-macos/bin/asprof"
 
-  private sealed trait CacheMode derives CanEqual
+  sealed private trait CacheMode derives CanEqual
   private object CacheMode {
     case object Default extends CacheMode
     case object NoCache extends CacheMode
     final case class Directory(path: Path) extends CacheMode
   }
 
-  private final case class Config(
+  final private case class Config(
       repoRoot: Path,
       name: Option[String] = None,
       filters: List[String] = Nil,
@@ -30,7 +30,7 @@ object CheckBenchmarkMain extends IOApp {
       color: Colorize = Colorize.None
   )
 
-  private final case class PartialConfig(
+  final private case class PartialConfig(
       repoRoot: Option[Path] = None,
       name: Option[String] = None,
       filters: List[String] = Nil,
@@ -42,7 +42,7 @@ object CheckBenchmarkMain extends IOApp {
       color: Colorize = Colorize.None
   )
 
-  private final case class IterationResult(
+  final private case class IterationResult(
       iteration: Long,
       elapsedNanos: Long,
       exitCode: ToolExitCode
@@ -51,7 +51,7 @@ object CheckBenchmarkMain extends IOApp {
       elapsedNanos.toDouble / 1000000000.0d
   }
 
-  private final case class BlockStats(
+  final private case class BlockStats(
       iterations: Int,
       elapsedNanos: Long
   ) {
@@ -63,7 +63,7 @@ object CheckBenchmarkMain extends IOApp {
       elapsedNanos.toDouble / 1000000000.0d
   }
 
-  private sealed trait ParseResult derives CanEqual
+  sealed private trait ParseResult derives CanEqual
   private object ParseResult {
     case object Help extends ParseResult
     final case class Invalid(message: String) extends ParseResult
@@ -312,7 +312,9 @@ object CheckBenchmarkMain extends IOApp {
     List(
       s"repoRoot=${config.repoRoot}",
       s"name=${config.name.getOrElse("(auto)")}",
-      s"filters=${if (config.filters.isEmpty) "(none)" else config.filters.mkString(",")}",
+      s"filters=${
+          if (config.filters.isEmpty) "(none)" else config.filters.mkString(",")
+        }",
       s"cache=$cacheSummary",
       s"mode=${if (config.loop) "loop" else "once"}",
       s"warmup=${config.warmupIterations}",
@@ -325,7 +327,7 @@ object CheckBenchmarkMain extends IOApp {
   private def runCheck(config: Config): IO[ToolExitCode] =
     IO.defer {
       PathModule.runAndReport(benchmarkArgs(config)) match {
-        case Right(io) => io
+        case Right(io)  => io
         case Left(help) =>
           IO.blocking {
             System.err.println(help.toString)
@@ -416,7 +418,9 @@ object CheckBenchmarkMain extends IOApp {
     else {
       IO.blocking {
         println(s"Starting warmup (${config.warmupIterations} iteration(s))...")
-      } *> runBlock(config, "warmup", 1L, config.warmupIterations).map(_.map(_ => ()))
+      } *> runBlock(config, "warmup", 1L, config.warmupIterations).map(
+        _.map(_ => ())
+      )
     }
 
   private def runOnce(config: Config): IO[ExitCode] =
@@ -432,7 +436,7 @@ object CheckBenchmarkMain extends IOApp {
             s"Measured run failed with exit code ${exitCode.toInt}."
           )
         }.as(ExitCode.Error)
-      case Right(stats)   =>
+      case Right(stats) =>
         IO.blocking {
           println(
             f"measured iterations=${stats.iterations}%d totalTime=${stats.seconds}%.3fs checks/s=${stats.iterationsPerSecond}%.3f"
@@ -454,7 +458,7 @@ object CheckBenchmarkMain extends IOApp {
               s"Measured block $block failed with exit code ${exitCode.toInt}."
             )
           }.as(ExitCode.Error)
-        case Right(stats)   =>
+        case Right(stats) =>
           val updatedTotalIterations = totalIterations + stats.iterations.toLong
           val updatedTotalElapsed = totalElapsedNanos + stats.elapsedNanos
           val totalChecksPerSecond =
@@ -486,9 +490,11 @@ object CheckBenchmarkMain extends IOApp {
       exitCode <- warmupResult match {
         case Left(exitCode) =>
           IO.blocking {
-            System.err.println(s"Warmup failed with exit code ${exitCode.toInt}.")
+            System.err.println(
+              s"Warmup failed with exit code ${exitCode.toInt}."
+            )
           }.as(ExitCode.Error)
-        case Right(())      =>
+        case Right(()) =>
           if (config.loop) loopForever(config)
           else runOnce(config)
       }

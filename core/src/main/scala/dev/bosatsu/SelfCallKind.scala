@@ -46,10 +46,10 @@ object SelfCallKind {
 
   private def isFn[A](n: Bindable, te: TypedExpr[A]): Boolean =
     te match {
-      case TypedExpr.Generic(_, in)    => isFn(n, in)
+      case TypedExpr.Generic(_, in)       => isFn(n, in)
       case TypedExpr.Annotation(te, _, _) => isFn(n, te)
-      case TypedExpr.Local(vn, _, _)   => vn == n
-      case _                           => false
+      case TypedExpr.Local(vn, _, _)      => vn == n
+      case _                              => false
     }
 
   private def applyWithMode[A](
@@ -59,9 +59,9 @@ object SelfCallKind {
       loopDepth: Int
   ): SelfCallKind =
     te match {
-      case TypedExpr.Generic(_, in)               =>
+      case TypedExpr.Generic(_, in) =>
         applyWithMode(n, in, loweredLoopRecur, loopDepth)
-      case TypedExpr.Annotation(te, _, _)         =>
+      case TypedExpr.Annotation(te, _, _) =>
         applyWithMode(n, te, loweredLoopRecur, loopDepth)
       case TypedExpr.AnnotatedLambda(as, body, _) =>
         // let fn = x -> fn(x) in fn(1)
@@ -111,7 +111,9 @@ object SelfCallKind {
         else {
           val bodyLoopDepth = if (loweredLoopRecur) loopDepth + 1 else loopDepth
 
-          argCalls.merge(applyWithMode(n, body, loweredLoopRecur, bodyLoopDepth))
+          argCalls.merge(
+            applyWithMode(n, body, loweredLoopRecur, bodyLoopDepth)
+          )
         }
       case TypedExpr.Recur(args, _, _) =>
         val argCalls =
@@ -139,7 +141,12 @@ object SelfCallKind {
                   else {
                     val guardCalls = branch.guard
                       .fold(SelfCallKind.NoCall: SelfCallKind)(
-                        applyWithMode(n, _, loweredLoopRecur, loopDepth).callNotTail
+                        applyWithMode(
+                          n,
+                          _,
+                          loweredLoopRecur,
+                          loopDepth
+                        ).callNotTail
                       )
                     guardCalls.merge(
                       applyWithMode(
@@ -161,9 +168,9 @@ object SelfCallKind {
     applyWithMode(n, te, false, 0)
 
   /** Same classification as [[apply]], but for cached typed trees after
-    * `TypedExprLoopRecurLowering`. In that representation a self tail-call
-    * may appear as `Loop(... Recur(...))`, so a `Recur` only counts as a
-    * tail self-call when it targets the innermost enclosing lowered loop.
+    * `TypedExprLoopRecurLowering`. In that representation a self tail-call may
+    * appear as `Loop(... Recur(...))`, so a `Recur` only counts as a tail
+    * self-call when it targets the innermost enclosing lowered loop.
     */
   def afterLoopRecurLowering[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =
     applyWithMode(n, te, true, 0)

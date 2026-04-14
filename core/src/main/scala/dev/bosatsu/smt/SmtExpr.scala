@@ -28,14 +28,18 @@ object SmtExpr {
   final case class Add(args: Vector[IntExpr]) extends SmtExpr[SmtSort.IntSort]
   final case class Sub(args: Vector[IntExpr]) extends SmtExpr[SmtSort.IntSort]
   final case class Mul(args: Vector[IntExpr]) extends SmtExpr[SmtSort.IntSort]
-  final case class Div(num: IntExpr, den: IntExpr) extends SmtExpr[SmtSort.IntSort]
-  final case class Mod(num: IntExpr, den: IntExpr) extends SmtExpr[SmtSort.IntSort]
+  final case class Div(num: IntExpr, den: IntExpr)
+      extends SmtExpr[SmtSort.IntSort]
+  final case class Mod(num: IntExpr, den: IntExpr)
+      extends SmtExpr[SmtSort.IntSort]
 
   // Int comparisons
-  final case class Lt(left: IntExpr, right: IntExpr) extends SmtExpr[SmtSort.BoolSort]
+  final case class Lt(left: IntExpr, right: IntExpr)
+      extends SmtExpr[SmtSort.BoolSort]
   final case class Lte(left: IntExpr, right: IntExpr)
       extends SmtExpr[SmtSort.BoolSort]
-  final case class Gt(left: IntExpr, right: IntExpr) extends SmtExpr[SmtSort.BoolSort]
+  final case class Gt(left: IntExpr, right: IntExpr)
+      extends SmtExpr[SmtSort.BoolSort]
   final case class Gte(left: IntExpr, right: IntExpr)
       extends SmtExpr[SmtSort.BoolSort]
   final case class EqInt(left: IntExpr, right: IntExpr)
@@ -86,8 +90,8 @@ object SmtExpr {
 
   private def simplifyBoolExpr(expr: BoolExpr): BoolExpr =
     expr match {
-      case BoolConst(_) | EqInt(_, _) | Lt(_, _) |
-          Lte(_, _) | Gt(_, _) | Gte(_, _) =>
+      case BoolConst(_) | EqInt(_, _) | Lt(_, _) | Lte(_, _) | Gt(_, _) |
+          Gte(_, _) =>
         expr
       case Not(in) =>
         simplifyBoolExpr(in) match {
@@ -99,7 +103,7 @@ object SmtExpr {
         val simp = args.map(simplifyBoolExpr)
         if (simp.contains(BoolConst.False)) BoolConst.False
         else And(simp.filterNot(_ == BoolConst.True))
-      case Or(args)  =>
+      case Or(args) =>
         val simp = args.map(simplifyBoolExpr)
         if (simp.contains(BoolConst.True)) BoolConst.True
         else Or(simp.filterNot(_ == BoolConst.False))
@@ -168,7 +172,7 @@ object SmtExpr {
     case Lt, Lte, Gt, Gte, Eq
   }
 
-  private final case class CompareFact(
+  final private case class CompareFact(
       left: IntExpr,
       rel: CompareRel,
       right: IntExpr
@@ -193,14 +197,17 @@ object SmtExpr {
       case CompareRel.Eq  => CompareRel.Eq
     }
 
-  private def compareRelImplies(found: CompareRel, target: CompareRel): Boolean =
+  private def compareRelImplies(
+      found: CompareRel,
+      target: CompareRel
+  ): Boolean =
     (found, target) match {
-      case (a, b) if a == b               => true
-      case (CompareRel.Gt, CompareRel.Gte)  => true
-      case (CompareRel.Lt, CompareRel.Lte)  => true
-      case (CompareRel.Eq, CompareRel.Gte)  => true
-      case (CompareRel.Eq, CompareRel.Lte)  => true
-      case _                                => false
+      case (a, b) if a == b                => true
+      case (CompareRel.Gt, CompareRel.Gte) => true
+      case (CompareRel.Lt, CompareRel.Lte) => true
+      case (CompareRel.Eq, CompareRel.Gte) => true
+      case (CompareRel.Eq, CompareRel.Lte) => true
+      case _                               => false
     }
 
   private def negateCompareFact(fact: CompareFact): Option[CompareFact] =
@@ -258,9 +265,9 @@ object SmtExpr {
         expr match {
           case Not(inner) =>
             compareFact(inner).flatMap(negateCompareFact)
-          case Or(args)   =>
+          case Or(args) =>
             orCompareFact(args)
-          case _          =>
+          case _ =>
             None
         }
       )
@@ -269,7 +276,7 @@ object SmtExpr {
     expr match {
       case And(args) =>
         args.iterator.flatMap(flattenConjuncts).toVector
-      case other     =>
+      case other =>
         Vector(other)
     }
 
@@ -379,7 +386,7 @@ object SmtExpr {
         Not(normalizeBoolForSolver(inner))
       case And(args) =>
         And(args.map(normalizeBoolForSolver))
-      case Or(args)  =>
+      case Or(args) =>
         Or(args.map(normalizeBoolForSolver))
       case Xor(left, right) =>
         Xor(
@@ -427,27 +434,25 @@ object SmtExpr {
 
     facts.contains(goal1) ||
     flatFacts.contains(goal1) ||
-      compareFact(goal1).exists(g =>
-        hasComparison(g.left, g.rel, g.right)
-      ) ||
+    compareFact(goal1).exists(g => hasComparison(g.left, g.rel, g.right)) ||
     (goal1 match {
       case Gte(left, right) =>
         hasComparison(left, CompareRel.Gte, right) ||
-          (right match {
-            case IntConst(zero) if zero == BigInt(0) =>
-              asSubByTerm(left).exists { case (base, by) =>
-                hasComparison(base, CompareRel.Gte, by) ||
-                (by match {
-                  case IntConst(c) => hasLowerBound(base, c)
-                  case _           => false
-                })
-              }
-            case _ =>
-              false
-          })
+        (right match {
+          case IntConst(zero) if zero == BigInt(0) =>
+            asSubByTerm(left).exists { case (base, by) =>
+              hasComparison(base, CompareRel.Gte, by) ||
+              (by match {
+                case IntConst(c) => hasLowerBound(base, c)
+                case _           => false
+              })
+            }
+          case _ =>
+            false
+        })
       case Lte(left, right) =>
         hasComparison(left, CompareRel.Lte, right)
-      case Lt(left, right)  =>
+      case Lt(left, right) =>
         hasComparison(left, CompareRel.Lt, right) ||
         asSubByTerm(left).exists { case (base, by) =>
           (base == right) &&

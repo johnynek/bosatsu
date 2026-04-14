@@ -376,7 +376,10 @@ x""")
       for {
         fn <- Generators.genNonBinding(2)
         args <- Generators.smallNonEmptyList(Generators.genNonBinding(2), 4)
-        kind <- Gen.oneOf(Declaration.ApplyKind.Dot, Declaration.ApplyKind.Parens)
+        kind <- Gen.oneOf(
+          Declaration.ApplyKind.Dot,
+          Declaration.ApplyKind.Parens
+        )
       } yield (
         Declaration.Apply(fn, args, kind)(using regionA),
         Declaration.Apply(fn, args, kind)(using regionB)

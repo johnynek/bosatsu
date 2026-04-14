@@ -1748,7 +1748,9 @@ x"""
         )
         assert(parsed.allNames(Identifier.Name("a")))
       case other =>
-        fail(s"expected parenthesized conditional matches ternary, found: $other")
+        fail(
+          s"expected parenthesized conditional matches ternary, found: $other"
+        )
     }
 
     roundTrip(

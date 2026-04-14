@@ -6,7 +6,15 @@ import java.math.BigInteger
 import java.nio.charset.StandardCharsets
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.{DataRepr, Type}
-import dev.bosatsu.{Identifier, InSetCompiler, Lit, Matchless, Package, Predef, PackageName}
+import dev.bosatsu.{
+  Identifier,
+  InSetCompiler,
+  Lit,
+  Matchless,
+  Package,
+  Predef,
+  PackageName
+}
 import dev.bosatsu.Matchless.Expr
 import dev.bosatsu.Identifier.Bindable
 import org.typelevel.paiges.Doc
@@ -562,7 +570,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               name <- getAnon(idx)
               vl <- innerToValue(expr)
             } yield (name := vl) +: Code.TrueLit
-          case TrueConst               => pv(Code.TrueLit)
+          case TrueConst => pv(Code.TrueLit)
           case LetBool(name @ Left(LocalAnon(_)), argV, in)
               if !Matchless.BoolExpr.usesBinding(in, name) =>
             (innerToValue(argV), boolToValue(in)).mapN { (value, result) =>
@@ -584,9 +592,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
         }
 
       object StringApi {
-        def fromString(s: String): T[Code.ValueLike] = {
+        def fromString(s: String): T[Code.ValueLike] =
           staticStringLiteral(s)
-        }
 
       }
 
@@ -695,7 +702,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
 
           case Lit.Str(toStr) => StringApi.fromString(toStr)
           case f: Lit.Float64 =>
-            val rawBits = BigInt(java.lang.Long.toUnsignedString(f.toRawLongBits))
+            val rawBits = BigInt(
+              java.lang.Long.toUnsignedString(f.toRawLongBits)
+            )
             pv(
               Code.Ident("bsts_float64_from_bits")(
                 Code.Ident("UINT64_C")(Code.IntLiteral(rawBits))
@@ -842,7 +851,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 case None         => result
               }
             }
-          case Let(name, argV, in)     =>
+          case Let(name, argV, in) =>
             handleLet(name, argV, innerToValue(in))
           case app @ App(_, _)       => innerApp(app)
           case Global(k, pack, name) =>
@@ -910,7 +919,9 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     Code.Switch(
                       variantName,
                       caseBlocks,
-                      defaultVL.map(v => Code.block(resultName := v, Code.Break))
+                      defaultVL.map(v =>
+                        Code.block(resultName := v, Code.Break)
+                      )
                     )
 
                   Code.WithValue(
@@ -1453,7 +1464,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   state: State,
                   key: (K, PackageName, Bindable),
                   seen: Set[(K, PackageName, Bindable)]
-              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] = {
+              ): EitherT[Eval, Error, (State, Option[(Code.Ident, Int)])] =
                 if (seen(key)) result(state, None)
                 else
                   state.allValues.get(key) match {
@@ -1461,7 +1472,8 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                         if fn.captures.isEmpty =>
                       result(state, Some((ident, fn.arity)))
                     case Some((Matchless.Global(nextK, nextPack, nextB), _)) =>
-                      val nextKey = (ns.depFor(nextK, nextPack), nextPack, nextB)
+                      val nextKey =
+                        (ns.depFor(nextK, nextPack), nextPack, nextB)
                       loop(state, nextKey, seen + key)
                     case None =>
                       // this is external
@@ -1475,7 +1487,6 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                     case _ =>
                       result(state, None)
                   }
-              }
 
               loop(s, (ns.depFor(k, pack), pack, b), Set.empty)
             }
@@ -1566,7 +1577,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                 cached <- read(_.staticStringCache.get(key))
                 ident <- cached match {
                   case Some(i) => monadImpl.pure(i)
-                  case None =>
+                  case None    =>
                     for {
                       ident <- newTopName("strlit")
                       _ <- declareStaticStringObject(ident)
@@ -1652,7 +1663,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
                   val runFn = entry match {
                     case Package.TestEntry.PlainTest(_, _, _) =>
                       Code.Ident("bsts_test_run")
-                    case Package.TestEntry.ProgTest(_, _, _)  =>
+                    case Package.TestEntry.ProgTest(_, _, _) =>
                       Code.Ident("bsts_test_run_prog")
                   }
                   (Code.StrLiteral(p.asString), i, runFn)

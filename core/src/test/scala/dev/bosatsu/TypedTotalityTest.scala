@@ -15,7 +15,8 @@ class TypedTotalityTest extends munit.FunSuite {
     val target = Name(name)
     lets.collectFirst { case (`target`, _, expr) => expr } match {
       case Some(expr) => expr
-      case None       => fail(s"missing let: $name in ${lets.map(_._1).mkString(", ")}")
+      case None       =>
+        fail(s"missing let: $name in ${lets.map(_._1).mkString(", ")}")
     }
   }
 
@@ -23,7 +24,7 @@ class TypedTotalityTest extends munit.FunSuite {
     checkEnvExpr(statement) { (env, lets) =>
       val expr = findLetExpr(lets, letName)
       TotalityCheck(env).checkExpr(expr) match {
-        case Validated.Valid(())    => ()
+        case Validated.Valid(())     => ()
         case Validated.Invalid(errs) => fail(errs.toList.mkString(", "))
       }
     }
@@ -98,9 +99,9 @@ class TypedTotalityTest extends munit.FunSuite {
       }
 
     val errs = res match {
-      case Ior.Left(es)     => es.toList
-      case Ior.Both(es, _)  => es.toList
-      case Ior.Right(_) => Nil
+      case Ior.Left(es)    => es.toList
+      case Ior.Both(es, _) => es.toList
+      case Ior.Right(_)    => Nil
     }
     val hasAlwaysTrue = errs.exists {
       case PackageError.TotalityCheckError(
@@ -247,7 +248,8 @@ def vacuous(z: Never) -> Never:
     val hasTotalityDiagnostic = errs.exists {
       case PackageError.TotalityCheckError(
             _,
-            TotalityCheck.MatchesAlwaysTrue(_) | TotalityCheck.UnreachableBranches(_, _)
+            TotalityCheck.MatchesAlwaysTrue(_) |
+            TotalityCheck.UnreachableBranches(_, _)
           ) =>
         true
       case _ => false
@@ -306,7 +308,7 @@ def deep_total(x: Result[Value, Value]) -> Value:
       }
 
       TotalityCheck(env).checkExpr(expr) match {
-        case Validated.Valid(())    => ()
+        case Validated.Valid(())     => ()
         case Validated.Invalid(errs) => fail(errs.toList.mkString(", "))
       }
     }

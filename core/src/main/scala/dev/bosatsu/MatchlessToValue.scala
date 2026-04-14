@@ -90,7 +90,10 @@ object MatchlessToValue {
       def updated(b: Bindable, v: Eval[Value]): LocalEnv =
         LocalEnv.Node(b, v, this)
 
-      def prependAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): LocalEnv = {
+      def prependAll(
+          bs: NonEmptyList[Bindable],
+          vs: NonEmptyList[Value]
+      ): LocalEnv = {
         val b = bs.iterator
         val v = vs.iterator
         var env: LocalEnv = this
@@ -151,9 +154,8 @@ object MatchlessToValue {
       def letMut(idx: Long): Scope =
         copy(muts = muts.updated(idx, new Cell))
 
-      def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope = {
+      def letAll(bs: NonEmptyList[Bindable], vs: NonEmptyList[Value]): Scope =
         copy(locals = locals.prependAll(bs, vs))
-      }
 
       def debugString: String =
         s"local keys: ${locals.keySet}, anon keys: ${anon.keySet}, anonMut keys: ${muts.keySet}\nextra=$extra"

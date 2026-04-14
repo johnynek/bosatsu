@@ -16,7 +16,13 @@ import dev.bosatsu.{
   Parser,
   Platform
 }
-import dev.bosatsu.rankn.{ConstructorFn, ConstructorParam, DefinedType, Type, TypeEnv}
+import dev.bosatsu.rankn.{
+  ConstructorFn,
+  ConstructorParam,
+  DefinedType,
+  Type,
+  TypeEnv
+}
 import dev.bosatsu.{
   ExportedName,
   Identifier,
@@ -74,11 +80,13 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
   private def firstConstructorParam(
       iface: Package.Interface
   ): ConstructorParam =
-    iface.exports.collectFirst {
-      case ExportedName.Constructor(_, Referant.Constructor(_, cf))
-          if cf.args.nonEmpty =>
-        cf.args.head
-    }.getOrElse(fail("expected constructor with at least one field"))
+    iface.exports
+      .collectFirst {
+        case ExportedName.Constructor(_, Referant.Constructor(_, cf))
+            if cf.args.nonEmpty =>
+          cf.args.head
+      }
+      .getOrElse(fail("expected constructor with at least one field"))
 
   private def normalized(pack: Package.Typed[Unit]): Package.Typed[Unit] =
     ShowEdn.normalizeForRoundTrip(pack) match {
@@ -122,8 +130,10 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         validateTypedExpr = false
       )
 
-    ShowSupport.matchlessShowValue(packs, request, pack =>
-      compiled.getOrElse(pack.name, Nil)
+    ShowSupport.matchlessShowValue(
+      packs,
+      request,
+      pack => compiled.getOrElse(pack.name, Nil)
     )
   }
 
@@ -167,7 +177,9 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         items.flatMap(collectPatternConstructorAtoms)
       case Edn.EMap(items) =>
         items.flatMap { case (key, value) =>
-          collectPatternConstructorAtoms(key) ::: collectPatternConstructorAtoms(value)
+          collectPatternConstructorAtoms(
+            key
+          ) ::: collectPatternConstructorAtoms(value)
         }
       case _ =>
         Nil
@@ -187,38 +199,39 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         Nil
     }
 
-  private def showValueWithMixedDepthGlobalPackages(): Output.ShowValue.Matchless =
+  private def showValueWithMixedDepthGlobalPackages()
+      : Output.ShowValue.Matchless =
     Output.ShowValue.Matchless(
-      packages =
-        Output.ShowValue.MatchlessPackage(
-          name = PackageName.parts("ShowEdn", "Sample"),
-          imports = Nil,
-          exportedValues = Nil,
-          externals = Nil,
-          defs = List(
-            Identifier.Name("main") ->
-              Matchless.App(
+      packages = Output.ShowValue.MatchlessPackage(
+        name = PackageName.parts("ShowEdn", "Sample"),
+        imports = Nil,
+        exportedValues = Nil,
+        externals = Nil,
+        defs = List(
+          Identifier.Name("main") ->
+            Matchless.App(
+              Matchless.Global(
+                (),
+                PackageName.parts("Bosatsu", "Prog"),
+                Identifier.Name("await")
+              ),
+              NonEmptyList.one(
                 Matchless.Global(
                   (),
-                  PackageName.parts("Bosatsu", "Prog"),
-                  Identifier.Name("await")
-                ),
-                NonEmptyList.one(
-                  Matchless.Global(
-                    (),
-                    PackageName.parts("Zafu", "Tool", "Cat"),
-                    Identifier.Name("emit_stderr_line")
-                  )
+                  PackageName.parts("Zafu", "Tool", "Cat"),
+                  Identifier.Name("emit_stderr_line")
                 )
               )
-          )
-        ) :: Nil,
+            )
+        )
+      ) :: Nil,
       typedPasses = CompileOptions.Default.enabledTypedPasses,
       matchlessPasses = Matchless.PassOptions.Default.enabledPasses,
       packageNamesOnly = false
     )
 
-  private def showValueWithMixedDepthPatternPackages(): Output.ShowValue.Typed = {
+  private def showValueWithMixedDepthPatternPackages()
+      : Output.ShowValue.Typed = {
     val shallowPattern =
       Pattern.PositionalStruct(
         (PackageName.parts("Foo"), Identifier.Constructor("Box")),
@@ -249,14 +262,13 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     val prog =
       Program(
         types = TypeEnv.empty,
-        lets =
-          List(
-            (
-              Identifier.Name("main"),
-              RecursionKind.NonRecursive,
-              matchExpr
-            )
-          ),
+        lets = List(
+          (
+            Identifier.Name("main"),
+            RecursionKind.NonRecursive,
+            matchExpr
+          )
+        ),
         externalDefs = Nil,
         from = ()
       )
@@ -299,7 +311,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       val json = ShowEdn.ednToJson(edn)
       val decoded = ShowEdn.jsonToEdn(json) match {
         case Right(value) => value
-        case Left(err)    => fail(s"failed to decode generated json ${json.render}: $err")
+        case Left(err)    =>
+          fail(s"failed to decode generated json ${json.render}: $err")
       }
       assertEquals(decoded, edn)
     }
@@ -309,7 +322,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
       val ifaces = packs.map(Package.interfaceOf)
-      val rendered = ShowEdn.showDoc(packs, ifaces, packageNamesOnly = false).render(120)
+      val rendered =
+        ShowEdn.showDoc(packs, ifaces, packageNamesOnly = false).render(120)
       Edn.parseAll(rendered) match {
         case Right(_)  => ()
         case Left(err) => fail(s"failed to parse showDoc output as EDN: $err")
@@ -321,7 +335,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     forAll(Generators.genPackage(Gen.const(()), 5)) { packMap =>
       val packs = packMap.values.toList.map(Package.typedFunctor.void)
       val ifaces = packs.map(Package.interfaceOf)
-      val rendered = ShowEdn.showJson(packs, ifaces, packageNamesOnly = false).render
+      val rendered =
+        ShowEdn.showJson(packs, ifaces, packageNamesOnly = false).render
       Json.parserFile.parseAll(rendered) match {
         case Right(Json.JObject(fields)) =>
           assertEquals(fields.toMap.get("$form"), Some(Json.JString("show")))
@@ -356,7 +371,9 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         }
 
         val rendered =
-          ShowEdn.showDoc(List(normalized), Nil, packageNamesOnly = false).render(120)
+          ShowEdn
+            .showDoc(List(normalized), Nil, packageNamesOnly = false)
+            .render(120)
         val showEdn = Edn.parseAll(rendered) match {
           case Right(value) => value
           case Left(err)    => fail(s"failed parsing showDoc EDN: $err")
@@ -370,7 +387,9 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
                   "packages"
                 ) :: EVector(packages) :: Nil
               ) =>
-            packages.headOption.getOrElse(fail("missing package in show output"))
+            packages.headOption.getOrElse(
+              fail("missing package in show output")
+            )
           case other =>
             fail(s"unexpected show output: ${Edn.toDoc(other).render(120)}")
         }
@@ -398,22 +417,26 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     }
     val param = firstConstructorParam(parsed)
     assertEquals(param.defaultBinding, expectedDefault)
-      assertEquals(param.defaultType, expectedType)
+    assertEquals(param.defaultType, expectedType)
   }
 
-  test("matchless showDoc output is parseable EDN without typed-only sections") {
+  test(
+    "matchless showDoc output is parseable EDN without typed-only sections"
+  ) {
     import Edn._
 
     val show = sampleMatchlessShowValue()
     val rendered = ShowEdn.showDoc(show).render(120)
     val parsed = Edn.parseAll(rendered) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to parse Matchless showDoc output: $err")
+      case Left(err) => fail(s"failed to parse Matchless showDoc output: $err")
     }
 
     parsed match {
       case EList(
-            ESymbol("show") :: EKeyword("ir") :: ESymbol("matchless") :: EKeyword(
+            ESymbol("show") :: EKeyword("ir") :: ESymbol(
+              "matchless"
+            ) :: EKeyword(
               "typed-passes"
             ) :: _ :: EKeyword("matchless-passes") :: _ :: EKeyword(
               "packages"
@@ -422,15 +445,20 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
         val packageEdn = packages.headOption.getOrElse(fail("missing package"))
         val packageFields = packageEdn match {
           case EList(ESymbol("package") :: _ :: _ :: args) =>
-            args.grouped(2).collect { case EKeyword(k) :: value :: Nil =>
-              k -> value
-            }.toMap
+            args
+              .grouped(2)
+              .collect { case EKeyword(k) :: value :: Nil =>
+                k -> value
+              }
+              .toMap
           case other =>
             fail(s"unexpected package form: ${Edn.toDoc(other).render(120)}")
         }
         assert(!packageFields.contains("types"))
       case other =>
-        fail(s"unexpected Matchless show output: ${Edn.toDoc(other).render(120)}")
+        fail(
+          s"unexpected Matchless show output: ${Edn.toDoc(other).render(120)}"
+        )
     }
   }
 
@@ -440,7 +468,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
     val rendered = ShowEdn.showDoc(show).render(120)
     val parsed = Edn.parseAll(rendered) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to parse Matchless showDoc output: $err")
+      case Left(err) => fail(s"failed to parse Matchless showDoc output: $err")
     }
     val packageAtoms = collectGlobalPackageAtoms(parsed)
 
@@ -448,7 +476,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       packageAtoms.map {
         case Edn.ESymbol(value) => value
         case Edn.EString(value) => value
-        case other              => fail(s"unexpected package atom in global: $other")
+        case other => fail(s"unexpected package atom in global: $other")
       },
       List("Bosatsu/Prog", "Zafu/Tool/Cat")
     )
@@ -456,18 +484,20 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       packageAtoms.map {
         case _: Edn.ESymbol => "symbol"
         case _: Edn.EString => "string"
-        case other          => fail(s"unexpected package atom in global: $other")
+        case other => fail(s"unexpected package atom in global: $other")
       }.distinct,
       List("string")
     )
   }
 
   test("matchless showJson renders package names consistently in globals") {
-    val rendered = ShowEdn.showJson(showValueWithMixedDepthGlobalPackages()).render
+    val rendered =
+      ShowEdn.showJson(showValueWithMixedDepthGlobalPackages()).render
 
     val parsed = Json.parserFile.parseAll(rendered) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to parse Matchless showJson output as JSON: $err")
+      case Left(err)    =>
+        fail(s"failed to parse Matchless showJson output as JSON: $err")
     }
     val packageAtoms = collectGlobalPackageJsonAtoms(parsed)
     assertEquals(
@@ -480,7 +510,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
 
     val decoded = ShowEdn.jsonToEdn(parsed) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to decode Matchless showJson output back to EDN: $err")
+      case Left(err)    =>
+        fail(s"failed to decode Matchless showJson output back to EDN: $err")
     }
     val decodedPackageAtoms = collectGlobalPackageAtoms(decoded)
 
@@ -488,7 +519,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       decodedPackageAtoms.map {
         case Edn.EString(value) => value
         case Edn.ESymbol(value) => value
-        case other              => fail(s"unexpected package atom in global: $other")
+        case other => fail(s"unexpected package atom in global: $other")
       },
       List("Bosatsu/Prog", "Zafu/Tool/Cat")
     )
@@ -496,14 +527,15 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       decodedPackageAtoms.map {
         case _: Edn.EString => "string"
         case _: Edn.ESymbol => "symbol"
-        case other          => fail(s"unexpected package atom in global: $other")
+        case other => fail(s"unexpected package atom in global: $other")
       }.distinct,
       List("string")
     )
   }
 
   test("typed showDoc renders constructor pattern package paths consistently") {
-    val rendered = ShowEdn.showDoc(showValueWithMixedDepthPatternPackages()).render(120)
+    val rendered =
+      ShowEdn.showDoc(showValueWithMixedDepthPatternPackages()).render(120)
     val parsed = Edn.parseAll(rendered) match {
       case Right(value) => value
       case Left(err)    => fail(s"failed to parse typed showDoc output: $err")
@@ -514,7 +546,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       constructorAtoms.map {
         case Edn.EString(value) => value
         case Edn.ESymbol(value) => value
-        case other              => fail(s"unexpected constructor atom in pattern: $other")
+        case other => fail(s"unexpected constructor atom in pattern: $other")
       },
       List("Foo/Box", "Foo/Bar/Box")
     )
@@ -522,17 +554,21 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       constructorAtoms.map {
         case _: Edn.EString => "string"
         case _: Edn.ESymbol => "symbol"
-        case other          => fail(s"unexpected constructor atom in pattern: $other")
+        case other => fail(s"unexpected constructor atom in pattern: $other")
       }.distinct,
       List("string")
     )
   }
 
-  test("typed showJson renders constructor pattern package paths consistently") {
-    val rendered = ShowEdn.showJson(showValueWithMixedDepthPatternPackages()).render
+  test(
+    "typed showJson renders constructor pattern package paths consistently"
+  ) {
+    val rendered =
+      ShowEdn.showJson(showValueWithMixedDepthPatternPackages()).render
     val parsed = Json.parserFile.parseAll(rendered) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to parse typed showJson output as JSON: $err")
+      case Left(err)    =>
+        fail(s"failed to parse typed showJson output as JSON: $err")
     }
     val constructorAtoms = collectPatternConstructorJsonAtoms(parsed)
     assertEquals(
@@ -545,7 +581,8 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
 
     val decoded = ShowEdn.jsonToEdn(parsed) match {
       case Right(value) => value
-      case Left(err)    => fail(s"failed to decode typed showJson output back to EDN: $err")
+      case Left(err)    =>
+        fail(s"failed to decode typed showJson output back to EDN: $err")
     }
     val decodedConstructorAtoms = collectPatternConstructorAtoms(decoded)
 
@@ -553,7 +590,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       decodedConstructorAtoms.map {
         case Edn.EString(value) => value
         case Edn.ESymbol(value) => value
-        case other              => fail(s"unexpected constructor atom in pattern: $other")
+        case other => fail(s"unexpected constructor atom in pattern: $other")
       },
       List("Foo/Box", "Foo/Bar/Box")
     )
@@ -561,7 +598,7 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       decodedConstructorAtoms.map {
         case _: Edn.EString => "string"
         case _: Edn.ESymbol => "symbol"
-        case other          => fail(s"unexpected constructor atom in pattern: $other")
+        case other => fail(s"unexpected constructor atom in pattern: $other")
       }.distinct,
       List("string")
     )

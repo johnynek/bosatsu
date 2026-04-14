@@ -25,7 +25,9 @@ class Issue2092Test extends munit.FunSuite {
     assert(out.contains("in 0.127s"), out)
   }
 
-  test("issue 2092: quiet mode keeps failures and timings while hiding passing details") {
+  test(
+    "issue 2092: quiet mode keeps failures and timings while hiding passing details"
+  ) {
     val report = Test.outputForTimed(
       List(
         PackageName.parts("Quiet", "Main") -> Some(
@@ -53,7 +55,9 @@ class Issue2092Test extends munit.FunSuite {
     assert(out.contains("in 0.005s"), out)
   }
 
-  test("issue 2092: packages with missing tests are excluded from timing rows") {
+  test(
+    "issue 2092: packages with missing tests are excluded from timing rows"
+  ) {
     val report = Test.outputForTimed(
       List(
         PackageName.parts("Missing", "Main") -> None,

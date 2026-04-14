@@ -1532,7 +1532,9 @@ main = consume(x)
     )
   }
 
-  test("applyViaInst falls back when existential argument witness remains abstract") {
+  test(
+    "applyViaInst falls back when existential argument witness remains abstract"
+  ) {
     parseProgram(
       """#
 struct Box[a](item: a)
@@ -2245,7 +2247,10 @@ x = 1
       alam(
         "xs",
         forallListA,
-        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+        matche(
+          v("xs"),
+          NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0)))
+        )
       )
 
     testType(term, typeFrom("(forall a. List[a]) -> Int"))
@@ -2267,7 +2272,10 @@ x = 1
       alam(
         "xs",
         listInt,
-        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+        matche(
+          v("xs"),
+          NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0)))
+        )
       )
 
     testType(term, typeFrom("List[Int] -> Int"))
@@ -2287,13 +2295,18 @@ x = 1
     val term =
       lambda(
         "xs",
-        matche(v("xs"), NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0))))
+        matche(
+          v("xs"),
+          NonEmptyList.of((nonEmptyPat, lit(1)), (anyListPat, lit(0)))
+        )
       )
 
     testType(term, typeFrom("forall a. List[a] -> Int"))
   }
 
-  test("pattern instantiation pushes forall through mixed-variance constructor args") {
+  test(
+    "pattern instantiation pushes forall through mixed-variance constructor args"
+  ) {
     parseProgram(
       """#
 struct Ret
@@ -2704,7 +2717,9 @@ main = branch
     )
   }
 
-  test("polymorphic match result can be instantiated at higher-order call sites") {
+  test(
+    "polymorphic match result can be instantiated at higher-order call sites"
+  ) {
     parseProgram(
       """#
 enum Option:

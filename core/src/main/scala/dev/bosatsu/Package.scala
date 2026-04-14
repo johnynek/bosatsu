@@ -1,7 +1,14 @@
 package dev.bosatsu
 
 import cats.{Applicative, Foldable, Functor, Order}
-import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec, ValidatedNel}
+import cats.data.{
+  Chain,
+  Ior,
+  NonEmptyList,
+  Validated,
+  ValidatedNec,
+  ValidatedNel
+}
 import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -108,9 +115,12 @@ final case class Package[A, B, C, +D](
         .toList
 
     val aliases =
-      expRef.iterator.collect { case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
-        ta
-      }.toList.distinct
+      expRef.iterator
+        .collect { case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+          ta
+        }
+        .toList
+        .distinct
 
     TypeEnv.fromDefinitionsAndAliases(definedTypes, aliases)
   }
@@ -244,20 +254,16 @@ object Package {
       tp: Typed[A]
   ): Either[TestDiscoveryError, Option[TestEntry[A]]] = {
     val indexedLets = tp.lets.zipWithIndex
-    val plainTests = indexedLets.collect {
-      case ((name, rec, te), idx) =>
-        testEntryForLet(name, rec, te).collect {
-          case plainTest @ TestEntry.PlainTest(_, _, _) => (idx, plainTest)
-        }
-    }
-      .flatten
-    val progTests = indexedLets.collect {
-      case ((name, rec, te), idx) =>
-        testEntryForLet(name, rec, te).collect {
-          case progTest @ TestEntry.ProgTest(_, _, _) => (idx, progTest)
-        }
-    }
-      .flatten
+    val plainTests = indexedLets.collect { case ((name, rec, te), idx) =>
+      testEntryForLet(name, rec, te).collect {
+        case plainTest @ TestEntry.PlainTest(_, _, _) => (idx, plainTest)
+      }
+    }.flatten
+    val progTests = indexedLets.collect { case ((name, rec, te), idx) =>
+      testEntryForLet(name, rec, te).collect {
+        case progTest @ TestEntry.ProgTest(_, _, _) => (idx, progTest)
+      }
+    }.flatten
 
     progTests.lastOption match {
       case None =>
@@ -308,7 +314,9 @@ object Package {
         Set(entry.bindable)
       case Right(None) =>
         Set.empty
-      case Left(TestDiscoveryError.PlainTestAfterProgTest(_, prog, plainAfter)) =>
+      case Left(
+            TestDiscoveryError.PlainTestAfterProgTest(_, prog, plainAfter)
+          ) =>
         plainAfter.toList.toSet + prog
     }
 
@@ -423,8 +431,8 @@ object Package {
               Doc.line
         }
         val x = exposes match {
-          case Nil               => Doc.empty
-          case exposeDecls       =>
+          case Nil         => Doc.empty
+          case exposeDecls =>
             val rendered =
               exposeDecls.flatMap { deps =>
                 if (deps.isEmpty) Nil
@@ -440,9 +448,9 @@ object Package {
               }
             if (rendered.isEmpty) Doc.empty
             else
-            Doc.line +
-              Doc.intercalate(Doc.line, rendered) +
-              Doc.line
+              Doc.line +
+                Doc.intercalate(Doc.line, rendered) +
+                Doc.line
         }
         val b = statments.map(Document[Statement].document(_))
         Doc.intercalate(Doc.empty, p :: i :: e :: x :: b)
@@ -457,7 +465,8 @@ object Package {
   private[bosatsu] val headerPackageNameParser: P[PackageName] =
     Padding
       .parser(
-        (P.string("package").soft ~ spaces) *> PackageName.parser <* headerEolParser,
+        (P.string("package")
+          .soft ~ spaces) *> PackageName.parser <* headerEolParser,
         headerSpaceCommentParser
       )
       .map(_.padded)
@@ -508,13 +517,12 @@ object Package {
       .map(_.padded)
       .rep0
 
-  def headerParser: P[Header] = {
+  def headerParser: P[Header] =
     (((headerPackageNameParser ~ headerImportsParser) ~ headerExportsParser) ~
       headerExposesParser)
-      .map {
-      case (((p, i), e), x) => (p, i, e, x)
-    }
-  }
+      .map { case (((p, i), e), x) =>
+        (p, i, e, x)
+      }
 
   def parser: P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     val body: P0[List[Statement]] = Statement.parser
@@ -546,7 +554,8 @@ object Package {
       Infer.Error.Combine(acc, next)
     }
 
-  private type ParsedLet = (Identifier.Bindable, RecursionKind, Expr[Declaration])
+  private type ParsedLet =
+    (Identifier.Bindable, RecursionKind, Expr[Declaration])
 
   private case class RemovedKindRefs(
       pack: PackageName,
@@ -570,7 +579,7 @@ object Package {
           false
         case Pattern.Named(_, inner) =>
           hasRemovedPatternRef(inner)
-        case Pattern.ListPat(items)  =>
+        case Pattern.ListPat(items) =>
           items.exists {
             case Pattern.ListPart.Item(inner) =>
               hasRemovedPatternRef(inner)
@@ -603,18 +612,18 @@ object Package {
           hasRemovedExprRef(fn) || args.exists(hasRemovedExprRef)
         case Expr.Lambda(args, inner, _) =>
           args.exists { case (_, ot) => ot.exists(hasRemovedTypeConst) } ||
-            hasRemovedExprRef(inner)
+          hasRemovedExprRef(inner)
         case Expr.Let(_, bound, in, _, _) =>
           hasRemovedExprRef(bound) || hasRemovedExprRef(in)
         case Expr.Literal(_, _) =>
           false
         case Expr.Match(arg, branches, _) =>
           hasRemovedExprRef(arg) ||
-            branches.exists { branch =>
-              hasRemovedPatternRef(branch.pattern) ||
-              branch.guard.exists(hasRemovedExprRef) ||
-              hasRemovedExprRef(branch.expr)
-            }
+          branches.exists { branch =>
+            hasRemovedPatternRef(branch.pattern) ||
+            branch.guard.exists(hasRemovedExprRef) ||
+            hasRemovedExprRef(branch.expr)
+          }
       }
   }
 
@@ -628,10 +637,11 @@ object Package {
       .concat(parsedTypeEnv.typeAliases.iterator.map(_.toTypeConst))
       .toSet
     val removedTypeStatements =
-      parsedTypeEnv0.orderedTypes.iterator.filterNot(stmt =>
-        parsedTypeConsts(stmt.toTypeConst)
-      ).toList
-    val removedTypeConsts = removedTypeStatements.iterator.map(_.toTypeConst).toSet
+      parsedTypeEnv0.orderedTypes.iterator
+        .filterNot(stmt => parsedTypeConsts(stmt.toTypeConst))
+        .toList
+    val removedTypeConsts =
+      removedTypeStatements.iterator.map(_.toTypeConst).toSet
     val removedConstructors = removedTypeStatements.iterator
       .collect { case ParsedTypeEnv.TypeStatement.Defined(dt) => dt }
       .flatMap(_.constructors.iterator.map(_.name))
@@ -650,9 +660,8 @@ object Package {
       val dependents: Map[Identifier.Bindable, Set[Identifier.Bindable]] =
         lets.iterator
           .flatMap { case (dependent, _, expr) =>
-            expr.globals.iterator.collect {
-              case Expr.Global(`pack`, n, _) =>
-                n.toBindable.map((_, dependent))
+            expr.globals.iterator.collect { case Expr.Global(`pack`, n, _) =>
+              n.toBindable.map((_, dependent))
             }.flatten
           }
           .toList
@@ -717,13 +726,13 @@ object Package {
 
   private def toErrs[A](v: ValidatedNel[A, Unit]): List[A] =
     v match {
-      case Validated.Valid(_)     => Nil
+      case Validated.Valid(_)      => Nil
       case Validated.Invalid(errs) => errs.toList
     }
 
   private def toErrsChain[A](v: ValidatedNec[A, Unit]): Chain[A] =
     v match {
-      case Validated.Valid(_)     => Chain.empty
+      case Validated.Valid(_)      => Chain.empty
       case Validated.Invalid(errs) => errs.toChain
     }
 
@@ -733,7 +742,7 @@ object Package {
       isPostponable: A => Boolean
   ): Ior[F[A], Unit] =
     v match {
-      case Validated.Valid(unit)  => Ior.right(unit)
+      case Validated.Valid(unit)   => Ior.right(unit)
       case Validated.Invalid(errs) =>
         if (Foldable[F].forall(errs)(isPostponable)) Ior.both(errs, ())
         else Ior.left(errs)
@@ -856,7 +865,7 @@ object Package {
 
           val nameCheckErrors: Ior[NonEmptyList[PackageError], Unit] =
             nameCheckErrorOpt match {
-              case None           =>
+              case None =>
                 Ior.right(())
               case Some(nameErrs) =>
                 val mergedError =
@@ -961,7 +970,9 @@ object Package {
                       TotalityCheck(fullTypeEnv).checkExpr(expr)
                     }
                     .leftMap(
-                      _.map(err => PackageError.TotalityCheckError(p, err): PackageError)
+                      _.map(err =>
+                        PackageError.TotalityCheckError(p, err): PackageError
+                      )
                     )
                 )
 
@@ -997,7 +1008,7 @@ object Package {
             nameCheckErrors,
             checkUnusedLets,
             inference
-          ).parMapN { (_, _, _, res) => res }
+          ).parMapN((_, _, _, res) => res)
         }
     }
   }
@@ -1009,8 +1020,7 @@ object Package {
     Statement.ExternalDef(
       name = todoName,
       typeArgs = None,
-      params =
-        (todoArgName, TypeRef.TypeVar("x")) :: Nil,
+      params = (todoArgName, TypeRef.TypeVar("x")) :: Nil,
       result = TypeRef.TypeForAll(
         NonEmptyList.one((TypeRef.TypeVar("a"), None)),
         TypeRef.TypeVar("a")

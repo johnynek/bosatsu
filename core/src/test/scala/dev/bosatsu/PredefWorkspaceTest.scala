@@ -3,11 +3,15 @@ package dev.bosatsu
 class PredefWorkspaceTest extends munit.FunSuite with ParTest {
   import TestUtils.*
 
-  private val loopsPack = Predef.loadFileInCompile("test_workspace/Loops.bosatsu")
-  private val float64Pack = Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
-  private val int64Pack = Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+  private val loopsPack =
+    Predef.loadFileInCompile("test_workspace/Loops.bosatsu")
+  private val float64Pack =
+    Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
   private val natPack = Predef.loadFileInCompile("test_workspace/Nat.bosatsu")
-  private val binNatPack = Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
+  private val binNatPack =
+    Predef.loadFileInCompile("test_workspace/BinNat.bosatsu")
   private val randPack = Predef.loadFileInCompile("test_workspace/Rand.bosatsu")
   private val propertiesPack =
     Predef.loadFileInCompile("test_workspace/Properties.bosatsu")
@@ -39,7 +43,14 @@ class PredefWorkspaceTest extends munit.FunSuite with ParTest {
 
   test("Int64 property tests run") {
     runBosatsuTest(
-      List(int64Pack, natPack, binNatPack, randPack, propertiesPack, int64PropertiesPack),
+      List(
+        int64Pack,
+        natPack,
+        binNatPack,
+        randPack,
+        propertiesPack,
+        int64PropertiesPack
+      ),
       "Int64Properties",
       900
     )

@@ -187,35 +187,36 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case other =>
                   Left(IllTyped(revPath.reverse, tpe, other))
               }
-            case Type.TyConst(`bytesTypeConst`) =>
-              {
-                case ExternalValue(bytes: PredefImpl.BytesValue) =>
-                  val out = new java.lang.StringBuilder
-                  out.append('<')
-                  var idx = 0
-                  while (idx < bytes.len) {
-                    val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
-                    if (idx > 0) {
-                      out.append(' '): Unit
-                    }
-                    if (intValue < 0x10) {
-                      out.append('0'): Unit
-                    }
-                    out.append(java.lang.Integer.toHexString(intValue))
-                    idx = idx + 1
+            case Type.TyConst(`bytesTypeConst`) => {
+              case ExternalValue(bytes: PredefImpl.BytesValue) =>
+                val out = new java.lang.StringBuilder
+                out.append('<')
+                var idx = 0
+                while (idx < bytes.len) {
+                  val intValue = bytes.data(bytes.offset + idx).toInt & 0xff
+                  if (idx > 0) {
+                    out.append(' '): Unit
                   }
-                  out.append('>')
-                  Right(Doc.text(out.toString))
-                case other =>
-                  Left(IllTyped(revPath.reverse, tpe, other))
-              }
-            case _ if Type.rootConst(tpe).contains(Type.TyConst(progTypeConst)) =>
-              {
-                case _: SumValue =>
-                  Right(Doc.text("Prog(...)"))
-                case other =>
-                  Left(IllTyped(revPath.reverse, tpe, other))
-              }
+                  if (intValue < 0x10) {
+                    out.append('0'): Unit
+                  }
+                  out.append(java.lang.Integer.toHexString(intValue))
+                  idx = idx + 1
+                }
+                out.append('>')
+                Right(Doc.text(out.toString))
+              case other =>
+                Left(IllTyped(revPath.reverse, tpe, other))
+            }
+            case _
+                if Type
+                  .rootConst(tpe)
+                  .contains(Type.TyConst(progTypeConst)) => {
+              case _: SumValue =>
+                Right(Doc.text("Prog(...)"))
+              case other =>
+                Left(IllTyped(revPath.reverse, tpe, other))
+            }
             case Type.TyVar(_) =>
               // we don't really know what to do with
               { _ => Right(Doc.text("<unknown>")) }

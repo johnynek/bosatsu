@@ -26,10 +26,10 @@ object TypedExprLoopRecurLowering {
 
   private def isSelfFn[A](name: Bindable, te: TypedExpr[A]): Boolean =
     te match {
-      case Generic(_, in)    => isSelfFn(name, in)
+      case Generic(_, in)       => isSelfFn(name, in)
       case Annotation(in, _, _) => isSelfFn(name, in)
-      case Local(vn, _, _)   => vn == name
-      case _                 => false
+      case Local(vn, _, _)      => vn == name
+      case _                    => false
     }
 
   private def rewriteTailCalls[A](
@@ -130,7 +130,10 @@ object TypedExprLoopRecurLowering {
 
   // Returns true if this expression contains a recur that targets the current loop.
   // Recur nodes in nested loops are ignored.
-  private def hasOuterRecur[A](te: TypedExpr[A], inNestedLoop: Boolean): Boolean =
+  private def hasOuterRecur[A](
+      te: TypedExpr[A],
+      inNestedLoop: Boolean
+  ): Boolean =
     te match {
       case Generic(_, in) =>
         hasOuterRecur(in, inNestedLoop)
@@ -168,9 +171,9 @@ object TypedExprLoopRecurLowering {
   @annotation.tailrec
   private def stripTypeWrappers[A](te: TypedExpr[A]): TypedExpr[A] =
     te match {
-      case Generic(_, in)    => stripTypeWrappers(in)
+      case Generic(_, in)       => stripTypeWrappers(in)
       case Annotation(in, _, _) => stripTypeWrappers(in)
-      case other             => other
+      case other                => other
     }
 
   private case class GroupedLambda[A](
@@ -295,9 +298,8 @@ object TypedExprLoopRecurLowering {
             case applied :: rest if applied.length == lambdaArgs.length =>
               val (innerHead, innerGroups) =
                 unapplyApp(stripTypeWrappers(lambdaBody), Nil)
-              if (
-                innerGroups.isEmpty || !isSelfHead(innerHead, canRecurHere)
-              ) None
+              if (innerGroups.isEmpty || !isSelfHead(innerHead, canRecurHere))
+                None
               else {
                 val lastGroup = innerGroups.last
                 val lambdaArgNames = lambdaArgs.toList.map(_._1)
@@ -513,21 +515,31 @@ object TypedExprLoopRecurLowering {
               !expectedVarsShadowed && fn.getType.sameAs(expectedFnType)
             else true
           selfHeadTypeStable &&
-            loop(fn, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
-            args.forall(
-              loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed)
-            )
+          loop(fn, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
+          args.forall(
+            loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed)
+          )
         case Let(arg, ex, in, rec, _) =>
           if (arg == fnName) {
             if (rec.isRecursive)
-              loop(ex, canRecur = false, expectedVarsInScope, expectedVarsShadowed) && loop(
-              in,
-              canRecur = false,
-              expectedVarsInScope,
-              expectedVarsShadowed
-            )
+              loop(
+                ex,
+                canRecur = false,
+                expectedVarsInScope,
+                expectedVarsShadowed
+              ) && loop(
+                in,
+                canRecur = false,
+                expectedVarsInScope,
+                expectedVarsShadowed
+              )
             else
-              loop(ex, canRecur, expectedVarsInScope, expectedVarsShadowed) && loop(
+              loop(
+                ex,
+                canRecur,
+                expectedVarsInScope,
+                expectedVarsShadowed
+              ) && loop(
                 in,
                 canRecur = false,
                 expectedVarsInScope,
@@ -549,27 +561,29 @@ object TypedExprLoopRecurLowering {
             expectedVarsShadowed
           )
         case Recur(args, _, _) =>
-          args.forall(loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed))
+          args.forall(
+            loop(_, canRecur, expectedVarsInScope, expectedVarsShadowed)
+          )
         case Match(arg, branches, _) =>
           loop(arg, canRecur, expectedVarsInScope, expectedVarsShadowed) &&
-            branches.forall { branch =>
-              val canRecurBranch =
-                canRecur && !branch.pattern.names.contains(fnName)
-              branch.guard.forall(
-                loop(
-                  _,
-                  canRecurBranch,
-                  expectedVarsInScope,
-                  expectedVarsShadowed
-                )
-              ) &&
+          branches.forall { branch =>
+            val canRecurBranch =
+              canRecur && !branch.pattern.names.contains(fnName)
+            branch.guard.forall(
               loop(
-                branch.expr,
+                _,
                 canRecurBranch,
                 expectedVarsInScope,
                 expectedVarsShadowed
               )
-            }
+            ) &&
+            loop(
+              branch.expr,
+              canRecurBranch,
+              expectedVarsInScope,
+              expectedVarsShadowed
+            )
+          }
         case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
           true
       }
@@ -640,11 +654,13 @@ object TypedExprLoopRecurLowering {
           }.toMap
 
           val substitutedBody =
-            TypedExpr.substituteAll(
-              renameMap,
-              grouped.terminalBody,
-              enterLambda = true
-            ).get
+            TypedExpr
+              .substituteAll(
+                renameMap,
+                grouped.terminalBody,
+                enterLambda = true
+              )
+              .get
 
           val helperFnType = Type.Fun(
             helperArgs.map(_._2),
@@ -697,41 +713,41 @@ object TypedExprLoopRecurLowering {
     val te = mono.expr
     def loop(expr: TypedExpr[A]): Option[TypedExpr[A]] =
       expr match {
-          case Generic(q, in) =>
-            loop(in).map(Generic(q, _))
-          case Annotation(in, tpe, qev) =>
-            loop(in).map(Annotation(_, tpe, qev))
-          case AnnotatedLambda(args, body, tag) =>
-            val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
-              .map(_._1)
-              .toSet + name
-            val fresh = Identifier.Bindable.freshSyntheticIterator(avoid)
-            val freshArgs =
-              args.map { case (_, tpe) =>
-                (fresh.next(), tpe)
-              }
-            val subMap = args.iterator
-              .map(_._1)
-              .zip(freshArgs.iterator.map {
-                case (n1, _) => { (loc: Local[A]) =>
-                  Local(n1, loc.tpe, loc.tag)
-                }
-              })
-              .toMap
-            val body1 =
-              TypedExpr.substituteAll(subMap, body, enterLambda = true).get
-            val recurBody =
-              rewriteTailCalls(name, body1, tailPos = true, canRecur = true)
-            if (!hasOuterRecur(recurBody, inNestedLoop = false)) None
-            else {
-              val loopArgs = freshArgs.zip(args).map {
-                case ((loopName, _), (argName, argTpe)) =>
-                  (loopName, Local(argName, argTpe, tag): TypedExpr[A])
-              }
-              Some(AnnotatedLambda(args, Loop(loopArgs, recurBody, tag), tag))
+        case Generic(q, in) =>
+          loop(in).map(Generic(q, _))
+        case Annotation(in, tpe, qev) =>
+          loop(in).map(Annotation(_, tpe, qev))
+        case AnnotatedLambda(args, body, tag) =>
+          val avoid = TypedExpr.allVarsSet(body :: Nil) ++ args.iterator
+            .map(_._1)
+            .toSet + name
+          val fresh = Identifier.Bindable.freshSyntheticIterator(avoid)
+          val freshArgs =
+            args.map { case (_, tpe) =>
+              (fresh.next(), tpe)
             }
-          case _ =>
-            None
+          val subMap = args.iterator
+            .map(_._1)
+            .zip(freshArgs.iterator.map {
+              case (n1, _) => { (loc: Local[A]) =>
+                Local(n1, loc.tpe, loc.tag)
+              }
+            })
+            .toMap
+          val body1 =
+            TypedExpr.substituteAll(subMap, body, enterLambda = true).get
+          val recurBody =
+            rewriteTailCalls(name, body1, tailPos = true, canRecur = true)
+          if (!hasOuterRecur(recurBody, inNestedLoop = false)) None
+          else {
+            val loopArgs = freshArgs.zip(args).map {
+              case ((loopName, _), (argName, argTpe)) =>
+                (loopName, Local(argName, argTpe, tag): TypedExpr[A])
+            }
+            Some(AnnotatedLambda(args, Loop(loopArgs, recurBody, tag), tag))
+          }
+        case _ =>
+          None
       }
 
     loop(te)
@@ -760,7 +776,8 @@ object TypedExprLoopRecurLowering {
           if (rec.isRecursive) {
             val mono0 = toMonomorphicRec(arg, expr1)
             // Phase 1: flatten grouped recursive self calls.
-            val expr1a = mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(expr1)
+            val expr1a =
+              mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(expr1)
             val expr1b =
               if (expr1a eq expr1) expr1
               else lowerExpr(expr1a)
@@ -768,8 +785,7 @@ object TypedExprLoopRecurLowering {
             toMonomorphicRec(arg, expr1b)
               .flatMap(lowerRecursiveBinding(_))
               .getOrElse(expr1b)
-          }
-          else expr1
+          } else expr1
         val in1 = lowerExpr(in)
         if ((expr2 eq expr) && (in1 eq in)) let
         else Let(arg, expr2, in1, rec, tag)
@@ -808,15 +824,15 @@ object TypedExprLoopRecurLowering {
       val loweredRec =
         if (rec.isRecursive) {
           val mono0 = toMonomorphicRec(n, lowered)
-          val lowered1 = mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(lowered)
+          val lowered1 =
+            mono0.flatMap(flattenGroupedSelfCalls(_)).getOrElse(lowered)
           val lowered2 =
             if (lowered1 eq lowered) lowered
             else lowerExpr(lowered1)
           toMonomorphicRec(n, lowered2)
             .flatMap(lowerRecursiveBinding(_))
             .getOrElse(lowered2)
-        }
-        else lowered
+        } else lowered
       (n, rec, loweredRec)
     }
 

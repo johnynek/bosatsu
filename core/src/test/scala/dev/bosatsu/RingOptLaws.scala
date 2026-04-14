@@ -446,7 +446,8 @@ class RingOptLaws extends munit.ScalaCheckSuite {
         Nil
 
     regressions.foreach { case (e, div, w) => law2(e, div, w) }
-    val law2Prop = forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
+    val law2Prop =
+      forAll((e: Expr[BigInt], div: BigInt, w: Weights) => law2(e, div, w))
     Prop.all(law1Prop, law2Prop)
   }
 
@@ -1065,7 +1066,11 @@ class RingOptLaws extends munit.ScalaCheckSuite {
   }
 
   property("normalize is commutative for Add") {
-    def law[A: Hash: Order: Show: Numeric](a: Expr[A], b: Expr[A], w: Weights) = {
+    def law[A: Hash: Order: Show: Numeric](
+        a: Expr[A],
+        b: Expr[A],
+        w: Weights
+    ) = {
       val left = normalize(a + b, w)
       val costLeft = w.cost(left)
       val right = normalize(b + a, w)
@@ -1102,7 +1107,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             ),
             Neg(
               Symbol(
-                BigInt("-155782816531683741903004619612818253648560646266504575984")
+                BigInt(
+                  "-155782816531683741903004619612818253648560646266504575984"
+                )
               )
             )
           ),
@@ -1272,7 +1279,9 @@ class RingOptLaws extends munit.ScalaCheckSuite {
               Integer(BigInt("-9223372036854775809"))
             ),
             Mult(
-              Integer(BigInt("-9327526714483220380375219972304915541328013433")),
+              Integer(
+                BigInt("-9327526714483220380375219972304915541328013433")
+              ),
               Add(
                 Symbol(BigInt("-19744576984966573129269796274849165441")),
                 Add(
@@ -1553,12 +1562,16 @@ class RingOptLaws extends munit.ScalaCheckSuite {
             Add(
               Zero,
               Symbol(
-                BigInt("-110669654550331471115483389665223738867131442269105218925")
+                BigInt(
+                  "-110669654550331471115483389665223738867131442269105218925"
+                )
               )
             )
           ),
           Add(
-            Symbol(BigInt("19032331167890620900154367247757747878169438074714195968")),
+            Symbol(
+              BigInt("19032331167890620900154367247757747878169438074714195968")
+            ),
             Integer(BigInt("6406209105737102121"))
           )
         ),
