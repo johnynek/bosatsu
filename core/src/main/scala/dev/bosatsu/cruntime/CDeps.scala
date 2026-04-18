@@ -75,6 +75,7 @@ object CDeps {
       version: String,
       hash: String,
       recipe: String,
+      options: Option[Json],
       recipe_version: Int,
       source_dependencies: List[String],
       transitive_build_keys: List[String],
@@ -118,6 +119,7 @@ object CDeps {
       dependency.version,
       dependency.hash.toIdent,
       dependency.recipe,
+      dependency.options.map(normalizeBuildKeyJson),
       context.recipe_version,
       dependency.dependencies.getOrElse(Nil).sorted,
       transitiveBuildKeys.sorted,
@@ -134,6 +136,21 @@ object CDeps {
       )
       .hex
   }
+
+  private def normalizeBuildKeyJson(json: Json): Json =
+    json match {
+      case Json.JArray(items) =>
+        Json.JArray(items.map(normalizeBuildKeyJson))
+      case obj: Json.JObject =>
+        val fields = obj.toMap
+        Json.JObject(
+          obj.keys.sorted.map { key =>
+            key -> normalizeBuildKeyJson(fields(key))
+          }
+        )
+      case other =>
+        other
+    }
 
   def normalizeOs(raw: String): String = {
     val lower = raw.toLowerCase(java.util.Locale.ROOT)

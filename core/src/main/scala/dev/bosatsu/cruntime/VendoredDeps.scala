@@ -38,6 +38,7 @@ object VendoredDeps {
   private val metadataFileName = "metadata.json"
   private val successFileName = "success"
   private val pkgConfigDir = List("lib", "pkgconfig")
+  private val noDescCatchExceptionRaise = "-DNO_DESC_CATCH_EXCEPTION_RAISE"
 
   def maybeLoadManifest[F[_], P](
       runtimeRoot: P
@@ -166,7 +167,7 @@ object VendoredDeps {
     for {
       _ <- ensureDir(publishRoot)(platformIO)
       _ <- ensureDir(buildDir)(platformIO)
-      _ <- runRecipe(dependency, sourceRoot, buildDir, prefix, context.profile)(
+      _ <- runRecipe(dependency, sourceRoot, buildDir, prefix, context)(
         platformIO
       )
       metadata <- buildMetadata(
@@ -246,11 +247,11 @@ object VendoredDeps {
       sourceRoot: P,
       buildDir: P,
       prefix: P,
-      profile: String
+      context: CDeps.BuildContext
   )(platformIO: PlatformIO[F, P]): F[Unit] =
     dependency.recipe match {
       case CDeps.BdwgcCmakeStatic =>
-        runBdwgcRecipe(dependency, sourceRoot, buildDir, prefix, profile)(
+        runBdwgcRecipe(dependency, sourceRoot, buildDir, prefix, context)(
           platformIO
         )
       case other =>
@@ -264,7 +265,7 @@ object VendoredDeps {
       sourceRoot: P,
       buildDir: P,
       prefix: P,
-      profile: String
+      context: CDeps.BuildContext
   )(platformIO: PlatformIO[F, P]): F[Unit] = {
     import platformIO.moduleIOMonad
 
@@ -277,20 +278,14 @@ object VendoredDeps {
         CliException.Basic("bdwgc recipe requires threadsafe=true")
       )
     else {
-      val buildType =
-        if (profile.equalsIgnoreCase("debug")) "Debug" else "Release"
-
       val configureArgs =
-        List(
-          "-S",
+        bdwgcConfigureArgs(
+          context.os,
+          context.profile,
           platformIO.pathToString(sourceRoot),
-          "-B",
           platformIO.pathToString(buildDir),
-          s"-DCMAKE_BUILD_TYPE=$buildType",
-          s"-DCMAKE_INSTALL_PREFIX=${platformIO.pathToString(prefix)}",
-          "-DBUILD_SHARED_LIBS=OFF",
-          "-DBUILD_TESTING=OFF",
-          "-Denable_threads=ON"
+          platformIO.pathToString(prefix),
+          context.relevant_env.get("CFLAGS")
         )
 
       platformIO.system("cmake", configureArgs) *>
@@ -305,6 +300,58 @@ object VendoredDeps {
         )
     }
   }
+
+  private[cruntime] def bdwgcConfigureArgs(
+      normalizedHostOs: String,
+      profile: String,
+      sourceRoot: String,
+      buildDir: String,
+      prefix: String,
+      inheritedCFlags: Option[String]
+  ): List[String] = {
+    val buildType =
+      if (profile.equalsIgnoreCase("debug")) "Debug" else "Release"
+
+    val maybeCFlags =
+      bdwgcCMakeCFlags(normalizedHostOs, inheritedCFlags).toList.map { flags =>
+        s"-DCMAKE_C_FLAGS=$flags"
+      }
+
+    List(
+      "-S",
+      sourceRoot,
+      "-B",
+      buildDir,
+      s"-DCMAKE_BUILD_TYPE=$buildType",
+      s"-DCMAKE_INSTALL_PREFIX=$prefix"
+    ) ::: maybeCFlags ::: List(
+      "-DBUILD_SHARED_LIBS=OFF",
+      "-DBUILD_TESTING=OFF",
+      "-Denable_threads=ON"
+    )
+  }
+
+  private def bdwgcCMakeCFlags(
+      normalizedHostOs: String,
+      inheritedCFlags: Option[String]
+  ): Option[String] =
+    if (CDeps.normalizeOs(normalizedHostOs) == "macos")
+      Some(appendCFlag(inheritedCFlags, noDescCatchExceptionRaise))
+    else None
+
+  private def appendCFlag(
+      inheritedCFlags: Option[String],
+      flag: String
+  ): String =
+    inheritedCFlags.map(_.trim).filter(_.nonEmpty) match {
+      case Some(existing)
+          if existing.split("\\s+").iterator.contains(flag) =>
+        existing
+      case Some(existing) =>
+        s"$existing $flag"
+      case None =>
+        flag
+    }
 
   private def optionBool(options: JObject, key: String): Option[Boolean] =
     options.toMap.get(key).collect { case JBool(value) => value }

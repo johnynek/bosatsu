@@ -2,8 +2,11 @@ package dev.bosatsu.cruntime
 
 import dev.bosatsu.{Json, Nullable}
 import dev.bosatsu.hashing.{Algo, HashValue}
+import org.scalacheck.Gen
+import org.scalacheck.Prop.forAll
+import scala.collection.immutable.ListMap
 
-class CDepsTest extends munit.FunSuite {
+class CDepsTest extends munit.ScalaCheckSuite {
   private val hash: Algo.WithAlgo[HashValue] =
     Algo.parseIdent
       .parseAll(
@@ -89,48 +92,103 @@ class CDepsTest extends munit.FunSuite {
     assertEquals(CDeps.parseManifestString(rendered), Right(manifest))
   }
 
-  test("build key is stable across env insertion order and changes with recipe inputs") {
-    val baseCtx =
-      CDeps.BuildContext(
-        os = "Darwin",
-        arch = "aarch64",
-        toolchain_family = "Clang",
-        compiler_path = "/usr/bin/cc",
-        compiler_version = "Apple clang version 17.0.0",
-        archiver_path = Nullable.fromOption(Some("/usr/bin/ar")),
-        archiver_version = Nullable.fromOption(Some("Apple ar")),
-        profile = "release",
-        recipe_version = 1,
-        relevant_env = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
-      )
-    val sameCtx =
-      baseCtx.copy(
-        relevant_env = Map("CC" -> "/usr/bin/cc", "CFLAGS" -> "-O2")
-      )
-    val differentCtx = baseCtx.copy(recipe_version = 2)
+  private def buildContext(
+      recipeVersion: Int = 1,
+      relevantEnv: Map[String, String] = Map.empty
+  ) =
+    CDeps.BuildContext(
+      os = "Darwin",
+      arch = "aarch64",
+      toolchain_family = "Clang",
+      compiler_path = "/usr/bin/cc",
+      compiler_version = "Apple clang version 17.0.0",
+      archiver_path = Nullable.fromOption(Some("/usr/bin/ar")),
+      archiver_version = Nullable.fromOption(Some("Apple ar")),
+      profile = "release",
+      recipe_version = recipeVersion,
+      relevant_env = relevantEnv
+    )
 
-    val first = CDeps.buildKey(dependency, baseCtx)
-    val second = CDeps.buildKey(dependency, sameCtx)
-    val third = CDeps.buildKey(dependency, differentCtx)
+  private val ccPathGen =
+    Gen.nonEmptyListOf(Gen.alphaLowerChar).map(chars => s"/usr/bin/${chars.mkString}")
 
-    assertEquals(first, second)
-    assertNotEquals(first, third)
+  private val cflagsGen =
+    Gen
+      .nonEmptyListOf(
+        Gen.oneOf("-O2", "-g", "-fPIC", "-DNDEBUG", "-Winvalid-offsetof")
+      )
+      .map(_.distinct.mkString(" "))
+
+  property("build key is stable across env insertion order and changes when options change") {
+    forAll(ccPathGen, cflagsGen) { (ccPath, cflags) =>
+      val orderedEnv = ListMap("CFLAGS" -> cflags, "CC" -> ccPath)
+      val reversedEnv = ListMap("CC" -> ccPath, "CFLAGS" -> cflags)
+      val changedOptions =
+        dependency.copy(options = Some(Json.JObject(
+          ("threadsafe" -> Json.JBool(false)) ::
+            Nil
+        )))
+
+      val first = CDeps.buildKey(dependency, buildContext(relevantEnv = orderedEnv))
+      val second =
+        CDeps.buildKey(dependency, buildContext(relevantEnv = reversedEnv))
+      val third =
+        CDeps.buildKey(changedOptions, buildContext(relevantEnv = reversedEnv))
+
+      assertEquals(first, second)
+      assertNotEquals(first, third)
+    }
+  }
+
+  test("build key changes when the recipe version changes") {
+    val first =
+      CDeps.buildKey(
+        dependency,
+        buildContext(relevantEnv = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc"))
+      )
+    val second =
+      CDeps.buildKey(
+        dependency,
+        buildContext(
+          recipeVersion = 2,
+          relevantEnv = Map("CFLAGS" -> "-O2", "CC" -> "/usr/bin/cc")
+        )
+      )
+
+    assertNotEquals(first, second)
+  }
+
+  test("build key normalizes dependency option object order") {
+    val left =
+      dependency.copy(options = Some(Json.JObject(
+        ("threadsafe" -> Json.JBool(true)) ::
+          ("extra" -> Json.JObject(
+            ("mode" -> Json.JString("pthread")) ::
+              ("strip" -> Json.JBool(false)) ::
+              Nil
+          )) ::
+          Nil
+      )))
+    val right =
+      dependency.copy(options = Some(Json.JObject(
+        ("extra" -> Json.JObject(
+          ("strip" -> Json.JBool(false)) ::
+            ("mode" -> Json.JString("pthread")) ::
+            Nil
+        )) ::
+          ("threadsafe" -> Json.JBool(true)) ::
+          Nil
+      )))
+
+    assertEquals(
+      CDeps.buildKey(left, buildContext()),
+      CDeps.buildKey(right, buildContext())
+    )
   }
 
   test("build key changes when transitive dependency identities change") {
     val ctx =
-      CDeps.BuildContext(
-        os = "macos",
-        arch = "arm64",
-        toolchain_family = "clang",
-        compiler_path = "/usr/bin/cc",
-        compiler_version = "Apple clang version 17.0.0",
-        archiver_path = Nullable.fromOption(Some("/usr/bin/ar")),
-        archiver_version = Nullable.fromOption(Some("Apple ar")),
-        profile = "release",
-        recipe_version = 1,
-        relevant_env = Map.empty
-      )
+      buildContext().copy(os = "macos", arch = "arm64", toolchain_family = "clang")
 
     val dep =
       dependency.copy(
