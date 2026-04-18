@@ -142,9 +142,10 @@ object CDeps {
       case Json.JArray(items) =>
         Json.JArray(items.map(normalizeBuildKeyJson))
       case obj: Json.JObject =>
+        val fields = obj.toMap
         Json.JObject(
           obj.keys.sorted.map { key =>
-            key -> normalizeBuildKeyJson(obj.toMap(key))
+            key -> normalizeBuildKeyJson(fields(key))
           }
         )
       case other =>
