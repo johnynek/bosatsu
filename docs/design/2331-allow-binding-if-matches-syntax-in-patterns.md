@@ -95,9 +95,11 @@ The new structure is needed in `Expr.Branch` and `TypedExpr.Branch`, where the c
 Introduce an explicit guard ADT in the untyped and typed IRs, conceptually:
 
 - `BoolGuard(expr)`
-- `MatchGuard(arg, pattern, guardOpt)`
+- `MatchGuard(arg, pattern, guardOpt, outerAnnotations)`
 
 `MatchGuard` reuses the same meaning as conditional `matches` in issue #2309: `arg` is tested against `pattern`, `guardOpt` runs in the inner pattern scope, and the successful branch body sees both the outer branch pattern bindings and the inner guard-pattern bindings.
+
+`outerAnnotations` represents any annotation wrappers that appeared on the whole guard condition before `ConditionalMatch.unapply` classified it. That field, or an equivalent wrapper structure, should be carried through source conversion so type inference can still validate the overall guard as a `Bool`-producing condition and report annotation errors at the guard boundary instead of silently discarding them.
 
 Use the existing `Declaration.ConditionalMatch.unapply` logic as the classifier for whole-guard conditional `matches`, including transparent `Parens` and `Annotation` wrappers. That keeps `if`/ternary and `match` branch scoping aligned.
 
@@ -158,9 +160,9 @@ The body-scope extension must happen only for top-level classified conditional `
 Instead:
 
 1. ordinary boolean guards lower to `BoolGuard`.
-2. top-level conditional `matches` guards lower to `MatchGuard`.
+2. top-level conditional `matches` guards lower to `MatchGuard`, including the preserved outer guard annotations from the source form.
 3. inner guard canonicalization (`if True` => no inner guard) should be applied before deciding whether the whole guard is effectively unguarded.
-4. outer annotations on the whole guard condition should be preserved the same way issue #2309 preserves bad conditional annotations, so annotated conditional-match guards still fail at the boolean-result level rather than silently disappearing.
+4. those preserved outer annotations should live on the `MatchGuard` node itself, so annotated conditional-match guards still fail at the boolean-result level rather than silently disappearing after classification.
 
 This keeps the scope-relevant information alive until typed inference and Matchless lowering, instead of trying to recover it later from synthetic nested matches.
 
@@ -183,7 +185,8 @@ Provide one guard-aware traversal/mapping surface in `Expr` and `TypedExpr`, the
 1. typecheck the outer branch pattern against the match scrutinee, yielding `outerBindings`.
 2. typecheck the branch guard:
    - `BoolGuard(expr)` runs under `outerBindings` and must produce `Bool`.
-   - `MatchGuard(arg, pattern, guardOpt)` runs under `outerBindings`, typechecks `arg`, typechecks `pattern` against `arg`'s type, yields `guardBindings`, and typechecks `guardOpt` as `Bool` under `outerBindings ++ guardBindings`.
+   - `MatchGuard(arg, pattern, guardOpt, outerAnnotations)` runs under `outerBindings`, infers `arg` as a `Sigma`, instantiates it to a `Rho` the same way the main match scrutinee is instantiated before pattern checking, typechecks `pattern` against that instantiated scrutinee type, yields `guardBindings`, and typechecks `guardOpt` as `Bool` under `outerBindings ++ guardBindings`.
+   - after the inner match succeeds, the reconstructed whole-guard condition, including `outerAnnotations`, must still validate as a `Bool`-position expression so annotation errors continue to surface at the branch guard.
 3. typecheck the branch body under `outerBindings ++ guardBindings`.
 
 This ordering is what gives the body the requested names without forcing early desugaring into nested matches.
@@ -248,7 +251,7 @@ Conceptually:
 2. run the existing pattern-match compilation helper on the inner guard pattern to obtain:
    - any additional binders introduced by the guard pattern
    - any boolean condition needed for failure and inner-guard rejection
-3. append those additional binders to the row bindings before lowering the rhs.
+3. append those additional binders after the outer pattern bindings in the row-bind sequence before lowering the rhs, so backend name resolution preserves the same right-most-wins shadowing rule as the typed branch body.
 4. if the guard is effectively unguarded, emit no additional boolean test.
 5. otherwise keep the outer branch guarded exactly once.
 
@@ -263,6 +266,8 @@ If `TypedExpr.Branch.guard` changes shape, typed-IR serialization and tooling mu
 3. `core/src/main/scala/dev/bosatsu/tool/ShowEdn.scala`
 
 The encoding needs an explicit guard kind. A decoder must not silently collapse an unknown match-style guard into a plain boolean guard or drop it entirely.
+
+Prefer a protobuf `oneof` for the branch guard encoding in `TypedAst.proto`, so `BoolGuard` and `MatchGuard` remain structurally distinct for decoders and round-tripping tools.
 
 ## Behavioral Properties And Invariants
 
