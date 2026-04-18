@@ -7,25 +7,25 @@
 
 - Flow: `small_job`
 - Issue: `#2323` Silence deprecated REFERENCED_DYNAMICALLY warnings from vendored BDWGC on macOS
-- Pending steps: `2`
-- Completed steps: `0`
+- Pending steps: `0`
+- Completed steps: `2`
 - Total steps: `2`
 
 ## Summary
 
-Silence the macOS linker warnings at the vendored BDWGC source by teaching the Bosatsu vendored-dependency recipe to build BDWGC without the deprecated `REFERENCED_DYNAMICALLY` `.desc` directives on Darwin. Keep the fix local to BDWGC, preserve inherited compile flags, and make sure updated Bosatsu builds actually rebuild the cached `libgc.a`.
+Silence the macOS linker warnings at the vendored BDWGC source by teaching the Bosatsu vendored-dependency recipe to build BDWGC without the deprecated `REFERENCED_DYNAMICALLY` `.desc` directives on Darwin. Keep the fix local to BDWGC, preserve inherited compile flags, make vendored caches rebuild when recipe-shaping options change, and verify the result with the repo-required gate plus a real macOS smoke build.
 
 ## Current State
 
-Bosatsu currently vendors BDWGC 8.2.8 via `c_runtime/deps.json` and builds it in `VendoredDeps.runBdwgcRecipe` with a fixed CMake configure argument list: static library only, no tests, threads enabled, and no Darwin-specific compile definitions. The manifest is still at `recipe_version = 1`, and `CDeps.buildKey` hashes dependency identity, context, and transitive build keys but does not include `dependency.options`, even though the recipe behavior already depends on options such as `threadsafe`. The required repo gate is `scripts/test_basic.sh`, which exercises Scala tests but does not rebuild vendored C dependencies on macOS.
+On this branch, `VendoredDeps` computes BDWGC CMake configure args through a small pure helper, appends `-DNO_DESC_CATCH_EXCEPTION_RAISE` only for Darwin/macOS builds without dropping inherited `CFLAGS`, and `CDeps.buildKey` now hashes normalized `dependency.options` so the checked-in BDWGC manifest already invalidates stale vendored caches. Focused `CDepsTest` and `VendoredDepsTest` coverage pins the option-aware build key behavior, object-order normalization, Darwin vs Linux configure args, debug vs release build types, and Darwin `CFLAGS` preservation. Verification is now complete on macOS arm64 as of 2026-04-18: `scripts/test_basic.sh` passed, `sbt -batch "cli/testOnly dev.bosatsu.GithubWorkflowJsonParityTest -- --log=failure"` passed after the earlier transient GitHub `504` cleared, a fresh `bosatsuj c-runtime install` plus `bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench` smoke run produced a runnable binary, and neither the install/build logs nor `nm -m` on vendored `libgc.a` showed the deprecated `REFERENCED_DYNAMICALLY` markers.
 
 ## Problem
 
-Recent Apple toolchains emit deprecated `REFERENCED_DYNAMICALLY` linker warnings because the vendored BDWGC build preserves Mach-O `.desc` directives in Darwin `os_dep.c`. Suppressing linker warnings globally would hide unrelated problems, so the fix needs to live in the vendored BDWGC recipe itself. A recipe-only code change is not sufficient unless Bosatsu also forces cached BDWGC rebuilds for users who already have `libgc.a`, and the current build key omits manifest `options`, which is an adjacent cache-correctness flaw for any build-shaping dependency option. The final slice needs to remove the Darwin warning at the dependency build, preserve existing user/compiler flags, and make the vendored cache identity and manifest invalidation explicit enough that the change is actually observed on developer machines.
+Recent Apple toolchains on `main` emit deprecated `REFERENCED_DYNAMICALLY` linker warnings whenever Bosatsu links against vendored BDWGC, obscuring normal macOS build output. Fixing the Darwin recipe alone was not sufficient until the branch also proved that vendored cache invalidation works, the repo-required gate is green again after the transient GitHub release fetch failure, and a real macOS rebuild removes the targeted warning from actual artifacts.
 
 ## Steps
 
-1. [ ] `refactor-build-key-and-bdwgc-flags` Make Vendored Build Inputs Explicit and Darwin-Aware
+1. [x] `refactor-build-key-and-bdwgc-flags` Make Vendored Build Inputs Explicit and Darwin-Aware
 
 Refactor the BDWGC recipe so the CMake configure arguments are assembled by a small pure helper that takes the normalized host OS, profile, relevant paths, and any inherited `CFLAGS`, then use that helper from `runBdwgcRecipe`. In the same slice, extend `CDeps.buildKey` to include `dependency.options` so manifest options are part of the vendored cache identity. With that plumbing in place, append `-DNO_DESC_CATCH_EXCEPTION_RAISE` only for Darwin/macOS BDWGC builds, while preserving any existing compiler flags instead of overwriting them.
 
@@ -46,15 +46,19 @@ Refactor the BDWGC recipe so the CMake configure arguments are assembled by a sm
 - Case-based unit tests for debug vs release profiles so `CMAKE_BUILD_TYPE` remains correct after the helper extraction.
 - Case-based unit test that empty inherited `CFLAGS` on macOS still produces a valid compile-flags entry containing `-DNO_DESC_CATCH_EXCEPTION_RAISE`.
 
-2. [ ] `bump-recipe-version-and-verify` Invalidate Cached BDWGC Builds and Verify the Slice
+#### Completion Notes
 
-Bump `c_runtime/deps.json` from `recipe_version = 1` to `recipe_version = 2` so the checked-in vendored manifest explicitly invalidates previously cached BDWGC builds under the updated recipe. Add a regression that parses the checked-in manifest and pins the expected BDWGC entry and recipe version, then verify the branch with the repo-required test gate. On a macOS toolchain, finish with a focused smoke check: rebuild vendored deps, build a representative Bosatsu executable or benchmark, and confirm the deprecated `REFERENCED_DYNAMICALLY` warnings no longer appear; optionally inspect `nm -m libgc.a` to confirm the symbols are no longer marked `[referenced dynamically]`.
+Extracted `VendoredDeps.bdwgcConfigureArgs` so `runBdwgcRecipe` now builds its CMake configure args from normalized host data and inherited flags instead of hardcoding a fixed list in place. Darwin builds append `-DNO_DESC_CATCH_EXCEPTION_RAISE` through `-DCMAKE_C_FLAGS=...` while preserving existing `CFLAGS`, including the already-present-define case. `CDeps.buildKey` now hashes recursively normalized `dependency.options`, so the checked-in BDWGC manifest already invalidates stale caches without a separate recipe-version bump. Added focused unit and ScalaCheck coverage for option-sensitive build keys, option-order normalization, Darwin/Linux arg differences, debug/release build types, and Darwin `CFLAGS` preservation.
+
+2. [x] `verify-required-gate-and-macos-smoke` Finish External Verification and macOS Smoke Testing
+
+Rerun the repo-required gate once the external GitHub release fetch used by `GithubWorkflowJsonParityTest` is healthy again, then finish with a real macOS smoke check: rebuild vendored deps, build a representative Bosatsu executable or benchmark, and confirm the deprecated `REFERENCED_DYNAMICALLY` warnings are gone. Optionally inspect `nm -m libgc.a` to confirm `catch_exception_raise*` are no longer marked `[referenced dynamically]`.
 
 #### Invariants
 
-- The checked-in vendored dependency manifest remains parseable and keeps the same BDWGC source pin while intentionally changing only recipe invalidation state.
-- Users picking up the new manifest do not silently reuse stale warning-producing BDWGC archives.
-- The PR is not reviewable until `scripts/test_basic.sh` passes.
+- BDWGC cache invalidation for the checked-in manifest now comes from the option-aware build key, so no additional manifest recipe-version bump is required for this fix.
+- The PR is not reviewable until `scripts/test_basic.sh` passes on a healthy network path.
+- macOS rebuilds must complete without the deprecated linker warnings.
 
 #### Property Tests
 
@@ -62,6 +66,10 @@ Bump `c_runtime/deps.json` from `recipe_version = 1` to `recipe_version = 2` so 
 
 #### Assertion Tests
 
-- Unit test that reads and parses the checked-in `c_runtime/deps.json` and asserts the expected `recipe_version` and BDWGC dependency shape.
 - `scripts/test_basic.sh`.
+- Focused rerun of `cli/testOnly dev.bosatsu.GithubWorkflowJsonParityTest` once the external GitHub release fetch stops returning 504.
 - Manual macOS smoke check: rebuild vendored deps, build a representative binary, and confirm the deprecated linker warnings are gone; optionally inspect `nm -m` output for `catch_exception_raise*`.
+
+#### Completion Notes
+
+Completed verification on 2026-04-18. `scripts/test_basic.sh` passed end-to-end, and a focused rerun of `dev.bosatsu.GithubWorkflowJsonParityTest` passed once the GitHub release fetch recovered from the earlier transient `504`. On macOS arm64, `sbt -batch "cli/assembly"` produced `bosatsuj`, a fresh `./bosatsuj c-runtime install --repo_root . --archive ... --git_sha 9e37e871cc3ae2caf4dfe1d216590d420e51e78c --profile release` rebuilt vendored BDWGC under `.bosatsuc`, and `./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O1 --cc_flag=-g --cc_lib=-lm` linked and ran successfully (`fib(10) = 89`). `nm -m` on the rebuilt vendored `libgc.a` still shows the `catch_exception_raise*` symbols, but no `[referenced dynamically]` marker remains, and neither install nor build logs emitted `ld: warning: REFERENCED_DYNAMICALLY flag on symbol ...`. The vendored BDWGC build still emits separate AppleClang compile-time deprecation warnings around `get_etext`/`get_end`/`getsectbynamefromheader_64`/`_dyld_bind_fully_image_containing_address`, but those are distinct upstream warnings and not the linker warning addressed by this issue.
