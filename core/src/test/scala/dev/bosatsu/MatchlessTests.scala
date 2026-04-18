@@ -24,6 +24,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
     if (Platform.isScalaJvm) 6 else 4
   private val maxMatchlessPackageCount =
     if (Platform.isScalaJvm) 3 else 2
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
 
   private def boundedMatchlessGen[A](maxSize: Int)(gen: => Gen[A]): Gen[A] =
     Gen.sized { size =>
@@ -180,10 +182,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def loopBool(b: Matchless.BoolExpr[Unit]): List[Matchless.SwitchVariant[Unit]] =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           loopExpr(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopExpr(e)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) ++ loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) ++ loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) ++ loopExpr(right)
         case Matchless.EqualsNat(e, _) =>
           loopExpr(e)
         case Matchless.And(l, r) =>
@@ -267,6 +273,21 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
   private def intLit(i: Int): TypedExpr[Unit] =
     TypedExpr.Literal(Lit.fromInt(i), rankn.Type.IntType, ())
+
+  private def evalExpr(expr: Matchless.Expr[Unit]): Value =
+    MatchlessToValue
+      .traverse[Vector, Unit](Vector(expr))((_, _, _) => Eval.now(Value.UnitValue))
+      .head
+      .value
+
+  private def evalBoolExpr(boolExpr: Matchless.BoolExpr[Unit]): Boolean =
+    evalExpr(
+      Matchless.If(
+        boolExpr,
+        Matchless.Literal(Lit(1)),
+        Matchless.Literal(Lit(0))
+      )
+    ) == Value.VInt(1)
 
   private def pairCtorType(
       leftType: rankn.Type,
@@ -425,10 +446,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def loopBool(ex: Matchless.BoolExpr[Unit]): Boolean =
       ex match {
-        case Matchless.EqualsLit(arg, _) =>
+        case Matchless.CompareLit(arg, _, _) =>
           loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -485,10 +510,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
       ex match {
-        case Matchless.EqualsLit(arg, _) =>
+        case Matchless.CompareLit(arg, _, _) =>
           loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -545,10 +574,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def loopBool(ex: Matchless.BoolExpr[Unit]): Int =
       ex match {
-        case Matchless.EqualsLit(arg, _) =>
+        case Matchless.CompareLit(arg, _, _) =>
           loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) + loopExpr(right)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>
@@ -694,17 +727,25 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(arg)
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
           ()
       }
     }
 
     def loopBool(b: Matchless.BoolExpr[Unit]): Unit =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
+        case Matchless.CompareInt(left, _, right) =>
+          loopCheap(left)
+          loopCheap(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopCheap(left)
+          loopCheap(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopCheap(left)
+          loopCheap(right)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -804,10 +845,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         boolFn: Matchless.BoolExpr[Unit] => Boolean
     ): Boolean =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           exprFn(e)
-        case Matchless.LtEqLit(e, _) =>
-          exprFn(e)
+        case Matchless.CompareInt(left, _, right) =>
+          exprFn(left) || exprFn(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          exprFn(left) || exprFn(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          exprFn(left) || exprFn(right)
         case Matchless.EqualsNat(e, _) =>
           exprFn(e)
         case Matchless.And(l, r) =>
@@ -895,6 +940,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           withinWhileExpr(gs.arg)
         case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
             Matchless.SuccNat =>
           0
@@ -902,10 +948,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def withinWhileBool(b: Matchless.BoolExpr[Unit]): Int =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           withinWhileExpr(e)
-        case Matchless.LtEqLit(e, _) =>
-          withinWhileExpr(e)
+        case Matchless.CompareInt(left, _, right) =>
+          withinWhileExpr(left) + withinWhileExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          withinWhileExpr(left) + withinWhileExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          withinWhileExpr(left) + withinWhileExpr(right)
         case Matchless.EqualsNat(e, _) =>
           withinWhileExpr(e)
         case Matchless.And(l, r) =>
@@ -928,10 +978,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
 
     def findWhilesBool(b: Matchless.BoolExpr[Unit]): Int =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           findWhiles(e)
-        case Matchless.LtEqLit(e, _) =>
-          findWhiles(e)
+        case Matchless.CompareInt(left, _, right) =>
+          findWhiles(left) + findWhiles(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          findWhiles(left) + findWhiles(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          findWhiles(left) + findWhiles(right)
         case Matchless.EqualsNat(e, _) =>
           findWhiles(e)
         case Matchless.And(l, r) =>
@@ -978,6 +1032,7 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           findWhiles(gs.arg)
         case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) | Matchless.ZeroNat |
             Matchless.SuccNat =>
           0
@@ -1018,16 +1073,21 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(arg)
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
           0
       }
 
     def loopBool(b: Matchless.BoolExpr[Unit]): Int =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
+        case Matchless.CompareInt(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -1093,7 +1153,8 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(arg, inConditionalBranch)
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
           false
       }
 
@@ -1102,10 +1163,14 @@ class MatchlessTest extends munit.ScalaCheckSuite {
         inConditionalBranch: Boolean
     ): Boolean =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           loopCheap(e, inConditionalBranch)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e, inConditionalBranch)
+        case Matchless.CompareInt(left, _, right) =>
+          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopCheap(left, inConditionalBranch) || loopCheap(right, inConditionalBranch)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e, inConditionalBranch)
         case Matchless.And(l, r) =>
@@ -1196,16 +1261,21 @@ class MatchlessTest extends munit.ScalaCheckSuite {
           loopCheap(arg)
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
           0
       }
 
     def loopBool(b: Matchless.BoolExpr[Unit]): Int =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           loopCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          loopCheap(e)
+        case Matchless.CompareInt(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopCheap(left) + loopCheap(right)
         case Matchless.EqualsNat(e, _) =>
           loopCheap(e)
         case Matchless.And(l, r) =>
@@ -1596,16 +1666,21 @@ main = select
             loopCheap(arg)
           case Matchless.Local(_) | Matchless.Global(_, _, _) |
               Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-              Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+              Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+              Matchless.LitInt64(_) =>
             0
         }
 
       def loopBool(b: Matchless.BoolExpr[Unit]): Int =
         b match {
-          case Matchless.EqualsLit(e, _) =>
+          case Matchless.CompareLit(e, _, _) =>
             loopCheap(e)
-          case Matchless.LtEqLit(e, _) =>
-            loopCheap(e)
+          case Matchless.CompareInt(left, _, right) =>
+            loopCheap(left) + loopCheap(right)
+          case Matchless.CompareInt64(left, _, right) =>
+            loopCheap(left) + loopCheap(right)
+          case Matchless.CompareFloat64(left, _, right) =>
+            loopCheap(left) + loopCheap(right)
           case Matchless.EqualsNat(e, _) =>
             loopCheap(e)
           case Matchless.And(l, r) =>
@@ -2275,10 +2350,17 @@ main = (cmp_guard, enum_guard)
 
       def checkBool(boolExpr: Matchless.BoolExpr[Unit]): Unit =
         boolExpr match {
-          case Matchless.EqualsLit(e, _) =>
+          case Matchless.CompareLit(e, _, _) =>
             requireSubset(e)
-          case Matchless.LtEqLit(e, _) =>
-            requireSubset(e)
+          case Matchless.CompareInt(left, _, right) =>
+            requireSubset(left)
+            requireSubset(right)
+          case Matchless.CompareInt64(left, _, right) =>
+            requireSubset(left)
+            requireSubset(right)
+          case Matchless.CompareFloat64(left, _, right) =>
+            requireSubset(left)
+            requireSubset(right)
           case Matchless.EqualsNat(e, _) =>
             requireSubset(e)
           case Matchless.And(l, r) =>
@@ -3133,16 +3215,21 @@ main = (cmp_guard, enum_guard)
           }
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.ClosureSlot(_) | Matchless.Literal(_) =>
+            Matchless.ClosureSlot(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
           false
       }
 
     def hasNestedProjectionBool(b: Matchless.BoolExpr[Unit]): Boolean =
       b match {
-        case Matchless.EqualsLit(e, _) =>
+        case Matchless.CompareLit(e, _, _) =>
           hasNestedProjectionCheap(e)
-        case Matchless.LtEqLit(e, _) =>
-          hasNestedProjectionCheap(e)
+        case Matchless.CompareInt(left, _, right) =>
+          hasNestedProjectionCheap(left) || hasNestedProjectionCheap(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          hasNestedProjectionCheap(left) || hasNestedProjectionCheap(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          hasNestedProjectionCheap(left) || hasNestedProjectionCheap(right)
         case Matchless.EqualsNat(e, _) =>
           hasNestedProjectionCheap(e)
         case Matchless.And(l, r) =>
@@ -3416,8 +3503,8 @@ def small_spaces(rem):
       val expr = byName(Identifier.Name("small_spaces"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         true,
         expr.toString
@@ -3464,8 +3551,8 @@ def classify_char(ch):
       val expr = byName(Identifier.Name("classify_char"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         true,
         expr.toString
@@ -3516,8 +3603,8 @@ def classify_small(n):
       val expr = byName(Identifier.Name("classify_small"))
       assertEquals(
         exprBoolSubexpressions(expr).exists {
-          case Matchless.LtEqLit(_, _) => true
-          case _                       => false
+          case Matchless.CompareLit(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
         },
         false,
         expr.toString
@@ -6404,6 +6491,245 @@ ${tmpLines}
           enableGlobalInlining = true
         ),
         namespace.compiled
+      )
+    }
+  }
+
+  test("CompareInt predicates agree with integer relation semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+
+    forAll(
+      Arbitrary.arbitrary[Int],
+      Arbitrary.arbitrary[Int],
+      Gen.oneOf(compareRels)
+    ) { (left, right, rel) =>
+      val predicate =
+        Matchless.CompareInt(
+          Matchless.Literal(Lit.fromInt(left)),
+          rel,
+          Matchless.Literal(Lit.fromInt(right))
+        )
+
+      assertEquals(
+        evalBoolExpr(predicate),
+        Matchless.compareRelHolds(rel, Integer.compare(left, right))
+      )
+    }
+  }
+
+  test("CompareInt64 predicates agree with signed Long relation semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+
+    forAll(
+      Arbitrary.arbitrary[Long],
+      Arbitrary.arbitrary[Long],
+      Gen.oneOf(compareRels)
+    ) { (left, right, rel) =>
+      val predicate =
+        Matchless.CompareInt64(
+          Matchless.LitInt64(left),
+          rel,
+          Matchless.LitInt64(right)
+        )
+
+      assertEquals(
+        evalBoolExpr(predicate),
+        Matchless.compareRelHolds(rel, java.lang.Long.compare(left, right))
+      )
+    }
+  }
+
+  test("CompareFloat64 predicates agree with total-order Float64 semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+    val rawBitsGen: Gen[Long] =
+      Gen.frequency(
+        (8, Arbitrary.arbitrary[Long]),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(Double.NaN))),
+        (
+          1,
+          Gen.const(
+            java.lang.Double.doubleToRawLongBits(
+              java.lang.Double.POSITIVE_INFINITY
+            )
+          )
+        ),
+        (
+          1,
+          Gen.const(
+            java.lang.Double.doubleToRawLongBits(
+              java.lang.Double.NEGATIVE_INFINITY
+            )
+          )
+        ),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(0.0d))),
+        (1, Gen.const(java.lang.Double.doubleToRawLongBits(-0.0d)))
+      )
+
+    forAll(rawBitsGen, rawBitsGen, Gen.oneOf(compareRels)) {
+      (leftBits: Long, rightBits: Long, rel) =>
+        val left = java.lang.Double.longBitsToDouble(leftBits)
+        val right = java.lang.Double.longBitsToDouble(rightBits)
+        val predicate =
+          Matchless.CompareFloat64(
+            Matchless.Literal(Lit.Float64.fromRawLongBits(leftBits)),
+            rel,
+            Matchless.Literal(Lit.Float64.fromRawLongBits(rightBits))
+          )
+
+        assertEquals(
+          evalBoolExpr(predicate),
+          Matchless.compareRelHolds(rel, PredefImpl.compareFloat64Total(left, right))
+        )
+    }
+  }
+
+  test("CompareLit Char predicates agree with code point relation semantics") {
+    val compareRels = List(
+      Matchless.CompareRel.Eq,
+      Matchless.CompareRel.Ne,
+      Matchless.CompareRel.Lt,
+      Matchless.CompareRel.Lte,
+      Matchless.CompareRel.Gt,
+      Matchless.CompareRel.Gte
+    )
+
+    forAll(
+      Arbitrary.arbitrary[Char],
+      Arbitrary.arbitrary[Char],
+      Gen.oneOf(compareRels)
+    ) { (left, right, rel) =>
+      val leftLit = Lit.fromCodePoint(left.toInt)
+      val rightLit = Lit.fromCodePoint(right.toInt)
+      val expected =
+        Matchless.compareRelHolds(rel, Integer.compare(left.toInt, right.toInt))
+
+      assertEquals(
+        Matchless.compareLiteralValues(leftLit, rel, rightLit),
+        Some(expected)
+      )
+
+      val predicate =
+        Matchless.CompareLit(
+          Matchless.Literal(leftLit),
+          rel,
+          rightLit
+        )
+
+      assertEquals(evalBoolExpr(predicate), expected)
+    }
+  }
+
+  test("CompareLit String predicates use Bosatsu code point ordering for astral Unicode") {
+    val left = Lit.Str("\uE000")
+    val right = Lit.Str(new String(Character.toChars(0x10000)))
+    val compareRels = List(
+      Matchless.CompareRel.Eq -> false,
+      Matchless.CompareRel.Ne -> true,
+      Matchless.CompareRel.Lt -> true,
+      Matchless.CompareRel.Lte -> true,
+      Matchless.CompareRel.Gt -> false,
+      Matchless.CompareRel.Gte -> false
+    )
+
+    assert(StringUtil.codePointCompare(left.asStr, right.asStr) < 0)
+    assert(left.asStr.compareTo(right.asStr) > 0)
+
+    compareRels.foreach { case (rel, expected) =>
+      assertEquals(
+        Matchless.compareLiteralValues(left, rel, right),
+        Some(expected)
+      )
+
+      val predicate =
+        Matchless.CompareLit(
+          Matchless.Literal(left),
+          rel,
+          right
+        )
+
+      assertEquals(evalBoolExpr(predicate), expected)
+    }
+  }
+
+  test("comparisonObservation matches Comparison constructor subset semantics") {
+    val observationGen =
+      Gen.oneOf(Matchless.comparisonTrueVariants.subsets.map(_.toSet).toList)
+
+    forAll(observationGen, Arbitrary.arbitrary[Int], Arbitrary.arbitrary[Int]) {
+      (trueVariants, left, right) =>
+        val cmp = Integer.compare(left, right)
+        val activeVariant =
+          if (cmp < 0) 0
+          else if (cmp == 0) 1
+          else 2
+        val expected = trueVariants(activeVariant)
+        val observed =
+          Matchless.comparisonObservation(trueVariants) match {
+            case Left(value) =>
+              value
+            case Right(rel)  =>
+              Matchless.compareRelHolds(rel, cmp)
+          }
+
+        assertEquals(observed, expected)
+    }
+  }
+
+  test("literal Int64 conversions lower to LitInt64 and direct Option constructors") {
+    val src =
+      """package Test
+        |
+        |from Bosatsu/Num/Int64 import int_low_bits_to_Int64, int_to_Int64
+        |
+        |low_bits = int_low_bits_to_Int64(18446744073709551615)
+        |safe = int_to_Int64(-9223372036854775808)
+        |too_big = int_to_Int64(9223372036854775808)
+        |main = (low_bits, safe, too_big)
+        |""".stripMargin
+
+    Par.withEC {
+      TestUtils.testInferred(
+        List(int64Pack, src),
+        "Test", { (pm, packName) =>
+          val compiled =
+            MatchlessFromTypedExpr.compile(
+              (),
+              pm,
+              Matchless.LocalPassOptions.Default
+            )
+          val byName = compiled(packName).toMap
+          val lowBits = byName(Identifier.Name("low_bits"))
+          val safe = byName(Identifier.Name("safe"))
+          val tooBig = byName(Identifier.Name("too_big"))
+
+          assertEquals(lowBits, Matchless.LitInt64(-1L))
+          assert(safe.toString.contains("LitInt64(-9223372036854775808)"), safe.toString)
+          assert(
+            !tooBig.toString.contains("int__to__Int64"),
+            tooBig.toString
+          )
+        }
       )
     }
   }

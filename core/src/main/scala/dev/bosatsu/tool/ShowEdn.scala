@@ -1683,6 +1683,16 @@ object ShowEdn {
       case DataRepr.SuccNat => sym("succ-nat")
     }
 
+  private def encodeCompareRel(rel: Matchless.CompareRel): Edn =
+    rel match {
+      case Matchless.CompareRel.Eq  => sym("eq")
+      case Matchless.CompareRel.Ne  => sym("ne")
+      case Matchless.CompareRel.Lt  => sym("lt")
+      case Matchless.CompareRel.Lte => sym("lte")
+      case Matchless.CompareRel.Gt  => sym("gt")
+      case Matchless.CompareRel.Gte => sym("gte")
+    }
+
   private def encodeMatchlessCheapExpr(
       expr: Matchless.CheapExpr[?],
       quotePackageNames: Boolean
@@ -1694,17 +1704,41 @@ object ShowEdn {
       quotePackageNames: Boolean
   ): Edn =
     expr match {
-      case Matchless.EqualsLit(arg, lit) =>
+      case Matchless.CompareLit(arg, rel, lit) =>
         EList(
           List(
-            sym("equals-lit"),
+            sym("compare-lit"),
             encodeMatchlessCheapExpr(arg, quotePackageNames),
+            encodeCompareRel(rel),
             encodeLit(lit)
           )
         )
-      case Matchless.LtEqLit(arg, lit)   =>
+      case Matchless.CompareInt(left, rel, right) =>
         EList(
-          List(sym("lte-lit"), encodeMatchlessCheapExpr(arg, quotePackageNames), encodeLit(lit))
+          List(
+            sym("compare-int"),
+            encodeMatchlessCheapExpr(left, quotePackageNames),
+            encodeCompareRel(rel),
+            encodeMatchlessCheapExpr(right, quotePackageNames)
+          )
+        )
+      case Matchless.CompareInt64(left, rel, right) =>
+        EList(
+          List(
+            sym("compare-int64"),
+            encodeMatchlessCheapExpr(left, quotePackageNames),
+            encodeCompareRel(rel),
+            encodeMatchlessCheapExpr(right, quotePackageNames)
+          )
+        )
+      case Matchless.CompareFloat64(left, rel, right) =>
+        EList(
+          List(
+            sym("compare-float64"),
+            encodeMatchlessCheapExpr(left, quotePackageNames),
+            encodeCompareRel(rel),
+            encodeMatchlessCheapExpr(right, quotePackageNames)
+          )
         )
       case Matchless.EqualsNat(arg, nat) =>
         EList(
@@ -1897,6 +1931,8 @@ object ShowEdn {
         )
       case Matchless.Literal(lit) =>
         EList(List(sym("lit"), encodeLit(lit)))
+      case Matchless.LitInt64(value) =>
+        EList(List(sym("lit-int64"), sym(value.toString)))
       case Matchless.MakeEnum(1, 0, 0 :: 0 :: Nil) =>
         EBool(true)
       case Matchless.MakeEnum(0, 0, 0 :: 0 :: Nil) =>

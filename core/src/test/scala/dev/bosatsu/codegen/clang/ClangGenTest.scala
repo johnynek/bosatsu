@@ -297,7 +297,7 @@ main = has_two
         val hasTwo = extractCFunction(rendered, "_l_has__two(BValue")
 
         val loopPattern =
-          """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*BValue __bsts_a_\d+ = alloc_enum0\(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\);\s*if \(get_variant_value\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
+          """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*if \(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
 
         assert(loopPattern.findFirstIn(hasTwo).nonEmpty, hasTwo)
         assertEquals(deadCTemps(hasTwo), Set.empty, hasTwo)
@@ -1277,14 +1277,17 @@ main = is_one
     }
   }
 
-  test("eq_Float64 lowers to the direct predef helper") {
+  test("eq_Float64 applications lower to the direct float equality helper") {
     TestUtils.checkPackageMap("""
-main = eq_Float64
+def same(a, b):
+  1 if eq_Float64(a, b) else 0
+
+main = same
 """) { pm =>
       val renderedE = Par.withEC {
         ClangGen(pm).renderMain(
           TestUtils.testPackage,
-          Identifier.Name("main"),
+          Identifier.Name("same"),
           Code.Ident("run_main")
         )
       }
@@ -1292,9 +1295,114 @@ main = eq_Float64
         case Left(err) =>
           fail(err.toString)
         case Right(doc) =>
-          val rendered = doc.render(80)
-          assert(rendered.contains("___bsts_g_Bosatsu_l_Predef_l_eq__Float64"))
+          val rendered = doc.render(120)
+          val same = extractCFunction(rendered, "_l_same(BValue")
+          assert(same.contains("bsts_float64_equals"), same)
+          assert(!same.contains("get_variant("), same)
       }
+    }
+  }
+
+  test("numeric comparison observations avoid Comparison tag inspection in C") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import eq_Int64, cmp_Int64
+          |
+          |def lte_zero(x):
+          |  cmp_Int(x, 0) matches LT | EQ
+          |
+          |def gte(x, y):
+          |  cmp_Int(x, y) matches GT | EQ
+          |
+          |def neq(x, y):
+          |  match cmp_Int(x, y):
+          |    case LT: True
+          |    case GT: True
+          |    case _: False
+          |
+          |def same_float(x, y):
+          |  1 if eq_Float64(x, y) else 0
+          |
+          |def neq_float(x, y):
+          |  cmp_Float64(x, y) matches LT | GT
+          |
+          |def same_i64(x, y):
+          |  1 if eq_Int64(x, y) else 0
+          |
+          |def gte_i64(x, y):
+          |  cmp_Int64(x, y) matches GT | EQ
+          |
+          |main = (
+          |  lte_zero,
+          |  gte,
+          |  neq,
+          |  same_float,
+          |  neq_float,
+          |  same_i64,
+          |  gte_i64,
+          |)
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+
+        val lteZero = extractCFunction(rendered, "_l_lte__zero(BValue")
+        assert(lteZero.contains("bsts_integer_cmp_zero"), lteZero)
+        assert(!lteZero.contains("get_variant("), lteZero)
+
+        val gte = extractCFunction(rendered, "_l_gte(BValue")
+        assert(gte.contains("bsts_integer_cmp"), gte)
+        assert(gte.contains(">= 0"), gte)
+        assert(!gte.contains("get_variant("), gte)
+
+        val neq = extractCFunction(rendered, "_l_neq(BValue")
+        assert(
+          neq.contains("bsts_integer_equals") || neq.contains("bsts_integer_cmp"),
+          neq
+        )
+        assert(!neq.contains("get_variant("), neq)
+
+        val sameFloat = extractCFunction(rendered, "_l_same__float(BValue")
+        assert(sameFloat.contains("bsts_float64_equals"), sameFloat)
+        assert(!sameFloat.contains("get_variant("), sameFloat)
+
+        val neqFloat = extractCFunction(rendered, "_l_neq__float(BValue")
+        assert(neqFloat.contains("bsts_float64_equals"), neqFloat)
+        assert(
+          neqFloat.contains("!") || neqFloat.contains("== 0"),
+          neqFloat
+        )
+        assert(!neqFloat.contains("get_variant("), neqFloat)
+
+        val sameI64 = extractCFunction(rendered, "_l_same__i64(BValue")
+        assert(sameI64.contains("bsts_int64_to_int64"), sameI64)
+        assert(
+          sameI64.contains("==") || sameI64.contains("!bsts_int64_to_int64"),
+          sameI64
+        )
+        assert(!sameI64.contains("get_variant("), sameI64)
+
+        val gteI64 = extractCFunction(rendered, "_l_gte__i64(BValue")
+        assert(gteI64.contains("bsts_int64_to_int64"), gteI64)
+        assert(gteI64.contains(">="), gteI64)
+        assert(!gteI64.contains("get_variant("), gteI64)
     }
   }
 

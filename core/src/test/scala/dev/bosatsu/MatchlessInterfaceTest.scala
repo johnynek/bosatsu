@@ -69,10 +69,14 @@ class MatchlessInterfaceTest extends munit.FunSuite {
       name: Identifier.Bindable
   ): Boolean =
     boolExpr match {
-      case Matchless.EqualsLit(arg, _) =>
+      case Matchless.CompareLit(arg, _, _) =>
         containsGlobal(arg, pack, name)
-      case Matchless.LtEqLit(arg, _) =>
-        containsGlobal(arg, pack, name)
+      case Matchless.CompareInt(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
+      case Matchless.CompareInt64(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
+      case Matchless.CompareFloat64(left, _, right) =>
+        containsGlobal(left, pack, name) || containsGlobal(right, pack, name)
       case Matchless.EqualsNat(arg, _) =>
         containsGlobal(arg, pack, name)
       case Matchless.And(left, right) =>

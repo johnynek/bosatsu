@@ -1012,10 +1012,14 @@ class ToolAndLibCommandTest extends FunSuite {
 
     def loopBool(ex: Matchless.BoolExpr[?]): Boolean =
       ex match {
-        case Matchless.EqualsLit(arg, _) =>
+        case Matchless.CompareLit(arg, _, _) =>
           loopExpr(arg)
-        case Matchless.LtEqLit(arg, _) =>
-          loopExpr(arg)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left) || loopExpr(right)
         case Matchless.EqualsNat(arg, _) =>
           loopExpr(arg)
         case Matchless.And(left, right) =>

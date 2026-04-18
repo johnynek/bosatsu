@@ -242,10 +242,14 @@ object MatchlessGlobalInlining {
               loop(ge.arg :: tail, acc)
             case gs: Matchless.GetStructElement[?] =>
               loop(gs.arg :: tail, acc)
-            case Matchless.EqualsLit(arg, _) =>
+            case Matchless.CompareLit(arg, _, _) =>
               loop(arg :: tail, acc)
-            case Matchless.LtEqLit(arg, _) =>
-              loop(arg :: tail, acc)
+            case Matchless.CompareInt(left, _, right) =>
+              loop(left :: right :: tail, acc)
+            case Matchless.CompareInt64(left, _, right) =>
+              loop(left :: right :: tail, acc)
+            case Matchless.CompareFloat64(left, _, right) =>
+              loop(left :: right :: tail, acc)
             case Matchless.EqualsNat(arg, _) =>
               loop(arg :: tail, acc)
             case Matchless.And(left, right) =>
@@ -261,7 +265,7 @@ object MatchlessGlobalInlining {
             case Matchless.LetMutBool(_, in) =>
               loop(in :: tail, acc)
             case Matchless.Local(_) | Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
-                Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+                Matchless.LocalAnonMut(_) | Matchless.Literal(_) | Matchless.LitInt64(_) |
                 Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
                 _: Matchless.SuccNat.type | _: Matchless.ZeroNat.type |
                 _: Matchless.TrueConst.type =>
@@ -287,7 +291,7 @@ object MatchlessGlobalInlining {
 
     def cheapReferenceValue(value: Expr[K]): Option[Matchless.CheapExpr[K]] =
       value match {
-        case lit @ Matchless.Literal(_) =>
+        case lit @ (Matchless.Literal(_) | Matchless.LitInt64(_)) =>
           Some(lit)
         case global @ Matchless.Global(_, _, _) =>
           Some(global)
@@ -339,7 +343,7 @@ object MatchlessGlobalInlining {
               case _ =>
                 None
             }
-        case lit @ Matchless.Literal(_) =>
+        case lit @ (Matchless.Literal(_) | Matchless.LitInt64(_)) =>
           Some(lit)
         case enumExpr @ Matchless.MakeEnum(_, 0, _) =>
           Some(enumExpr)
@@ -459,7 +463,7 @@ object MatchlessGlobalInlining {
           knownSummaryValue(rewritten, Set.empty).fold(rewritten: Expr[K])(loop)
         case Matchless.Local(_) | Matchless.ClosureSlot(_) |
             Matchless.LocalAnon(_) | Matchless.LocalAnonMut(_) |
-            Matchless.Literal(_) | Matchless.MakeEnum(_, _, _) |
+            Matchless.Literal(_) | Matchless.LitInt64(_) | Matchless.MakeEnum(_, _, _) |
             Matchless.MakeStruct(_) | Matchless.SuccNat | Matchless.ZeroNat =>
           ex
       }
@@ -492,10 +496,14 @@ object MatchlessGlobalInlining {
 
     def loopBool(ex: Matchless.BoolExpr[K]): Matchless.BoolExpr[K] =
       ex match {
-        case Matchless.EqualsLit(arg, lit) =>
-          Matchless.EqualsLit(loopCheap(arg), lit)
-        case Matchless.LtEqLit(arg, lit) =>
-          Matchless.LtEqLit(loopCheap(arg), lit)
+        case Matchless.CompareLit(arg, rel, lit) =>
+          Matchless.CompareLit(loopCheap(arg), rel, lit)
+        case Matchless.CompareInt(left, rel, right) =>
+          Matchless.CompareInt(loopCheap(left), rel, loopCheap(right))
+        case Matchless.CompareInt64(left, rel, right) =>
+          Matchless.CompareInt64(loopCheap(left), rel, loopCheap(right))
+        case Matchless.CompareFloat64(left, rel, right) =>
+          Matchless.CompareFloat64(loopCheap(left), rel, loopCheap(right))
         case Matchless.EqualsNat(arg, nat) =>
           Matchless.EqualsNat(loopCheap(arg), nat)
         case Matchless.And(left, right) =>
@@ -666,6 +674,7 @@ object MatchlessGlobalInlining {
   private def isKnownArgumentValue[A](expr: Expr[A]): Boolean =
     expr match {
       case Matchless.Literal(_) |
+          Matchless.LitInt64(_) |
           Matchless.MakeEnum(_, 0, _) |
           Matchless.MakeStruct(0) |
           Matchless.ZeroNat |
@@ -759,7 +768,7 @@ object MatchlessGlobalInlining {
   ): Option[InlineSummary[K]] = {
     def knownValue(ex: Expr[K]): Option[Expr[K]] =
       ex match {
-        case lit @ Matchless.Literal(_) =>
+        case lit @ (Matchless.Literal(_) | Matchless.LitInt64(_)) =>
           Some(lit)
         case global @ Matchless.Global(_, _, _) =>
           Some(global)
@@ -873,7 +882,7 @@ object MatchlessGlobalInlining {
         case gs: Matchless.GetStructElement[?] =>
           loopExpr(gs.arg, boundMuts)
         case Matchless.Local(_) | Matchless.Global(_, _, _) | Matchless.ClosureSlot(_) |
-            Matchless.LocalAnon(_) | Matchless.Literal(_) |
+            Matchless.LocalAnon(_) | Matchless.Literal(_) | Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
             Matchless.SuccNat | Matchless.ZeroNat =>
           Set.empty
@@ -884,10 +893,14 @@ object MatchlessGlobalInlining {
         boundMuts: Set[Long]
     ): Set[Long] =
       ex match {
-        case Matchless.EqualsLit(expr, _) =>
+        case Matchless.CompareLit(expr, _, _) =>
           loopExpr(expr, boundMuts)
-        case Matchless.LtEqLit(expr, _) =>
-          loopExpr(expr, boundMuts)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left, boundMuts) ++ loopExpr(right, boundMuts)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left, boundMuts) ++ loopExpr(right, boundMuts)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left, boundMuts) ++ loopExpr(right, boundMuts)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr, boundMuts)
         case Matchless.And(left, right) =>

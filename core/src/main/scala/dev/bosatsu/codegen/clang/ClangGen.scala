@@ -410,71 +410,179 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               }
         }
       // The type of this value must be a C _Bool
+      def compareRelBinOp(rel: Matchless.CompareRel): Code.BinOp =
+        rel match {
+          case Matchless.CompareRel.Eq  => Code.BinOp.Eq
+          case Matchless.CompareRel.Ne  => Code.BinOp.NotEq
+          case Matchless.CompareRel.Lt  => Code.BinOp.Lt
+          case Matchless.CompareRel.Lte => Code.BinOp.LtEq
+          case Matchless.CompareRel.Gt  => Code.BinOp.Gt
+          case Matchless.CompareRel.Gte => Code.BinOp.GtEq
+        }
+
+      def compareCmpResult(
+          cmp: Code.Expression,
+          rel: Matchless.CompareRel
+      ): Code.Expression =
+        cmp.bin(compareRelBinOp(rel), Code.IntLiteral.Zero)
+
+      def charCodePoint(expr: Code.Expression): Code.Expression =
+        Code.Ident("bsts_char_code_point_from_value")(expr)
+
+      def compareIntExpr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.ValueLike
+      ): T[Code.ValueLike] =
+        rel match {
+          case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_integer_equals"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .map {
+                case expr: Code.Expression
+                    if rel == Matchless.CompareRel.Ne =>
+                  !expr
+                case other =>
+                  other
+              }
+          case _ =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_integer_cmp"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+        }
+
+      def compareIntZeroExpr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel
+      ): T[Code.ValueLike] =
+        Code.ValueLike
+          .applyArgs(
+            Code.Ident("bsts_integer_cmp_zero"),
+            NonEmptyList.one(left)
+          )(newLocalName)
+          .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+
+      def compareInt64Expr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.Expression
+      ): T[Code.ValueLike] = {
+        val lhs = Code.Ident("bsts_int64_to_int64")(left)
+        val rhs = Code.Ident("bsts_int64_to_int64")(right)
+        pv(lhs.bin(compareRelBinOp(rel), rhs))
+      }
+
+      def compareFloat64Expr(
+          left: Code.Expression,
+          rel: Matchless.CompareRel,
+          right: Code.ValueLike
+      ): T[Code.ValueLike] =
+        rel match {
+          case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_float64_equals"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .map {
+                case expr: Code.Expression
+                    if rel == Matchless.CompareRel.Ne =>
+                  !expr
+                case other =>
+                  other
+              }
+          case _ =>
+            Code.ValueLike
+              .applyArgs(
+                Code.Ident("bsts_float64_cmp_total"),
+                NonEmptyList(left, right :: Nil)
+              )(newLocalName)
+              .flatMap(_.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName))
+        }
+
       def boolToValue(boolExpr: BoolExpr[K]): T[Code.ValueLike] =
         boolExpr match {
-          case EqualsLit(expr, lit) =>
+          case CompareLit(expr, rel, lit) =>
             innerToValue(expr).flatMap { vl =>
               lit match {
-                case c @ Lit.Chr(_) =>
-                  vl.onExpr(e => pv(equalsChar(e, c.toCodePoint)))(newLocalName)
+                case c: Lit.Chr =>
+                  vl.onExpr { e =>
+                    pv(charCodePoint(e).bin(compareRelBinOp(rel), Code.IntLiteral(c.toCodePoint)))
+                  }(newLocalName)
                 case Lit.Str(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_string_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
+                      rel match {
+                        case Matchless.CompareRel.Eq | Matchless.CompareRel.Ne =>
+                          Code.ValueLike
+                            .applyArgs(
+                              Code.Ident("bsts_string_equals"),
+                              NonEmptyList(e, litStr :: Nil)
+                            )(newLocalName)
+                            .map {
+                              case expr: Code.Expression
+                                  if rel == Matchless.CompareRel.Ne =>
+                                !expr
+                              case other =>
+                                other
+                            }
+                        case _ =>
+                          Code.ValueLike
+                            .applyArgs(
+                              Code.Ident("bsts_string_cmp"),
+                              NonEmptyList(e, litStr :: Nil)
+                            )(newLocalName)
+                            .flatMap(
+                              _.onExpr(cmp => pv(compareCmpResult(cmp, rel)))(newLocalName)
+                            )
+                      }
                     }
                   }(newLocalName)
                 case Lit.Integer(_) =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litStr =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_integer_equals"),
-                        NonEmptyList(e, litStr :: Nil)
-                      )(newLocalName)
+                      compareIntExpr(e, rel, litStr)
                     }
                   }(newLocalName)
                 case _: Lit.Float64 =>
                   vl.onExpr { e =>
                     literal(lit).flatMap { litFloat =>
-                      Code.ValueLike.applyArgs(
-                        Code.Ident("bsts_float64_equals"),
-                        NonEmptyList(e, litFloat :: Nil)
-                      )(newLocalName)
+                      compareFloat64Expr(e, rel, litFloat)
                     }
                   }(newLocalName)
               }
             }
-          case LtEqLit(expr, lit) =>
-            innerToValue(expr).flatMap { vl =>
-              lit match {
-                case Lit.Integer(_) =>
-                  vl.onExpr { e =>
-                    literal(lit).flatMap { litInt =>
-                      Code.ValueLike
-                        .applyArgs(
-                          Code.Ident("bsts_integer_cmp"),
-                          NonEmptyList(e, litInt :: Nil)
-                        )(newLocalName)
-                        .flatMap {
-                          _.onExpr(cmp =>
-                            pv(cmp.bin(Code.BinOp.LtEq, Code.IntLiteral.Zero))
-                          )(newLocalName)
-                        }
-                    }
-                  }(newLocalName)
-                case c: Lit.Chr =>
-                  vl.onExpr(e => pv(lessThanOrEqualChar(e, c.toCodePoint)))(
-                    newLocalName
-                  )
-                case _ =>
-                  // $COVERAGE-OFF$
-                  throw new IllegalStateException(
-                    s"LtEqLit only supports Int and Char literals, found: $lit"
-                  )
-                // $COVERAGE-ON$
-              }
+          case CompareInt(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr { leftExpr =>
+                rv.onExpr {
+                  case Code.Apply(
+                        Code.Ident("bsts_integer_from_int"),
+                        Code.IntLiteral(0) :: Nil
+                      ) =>
+                    compareIntZeroExpr(leftExpr, rel)
+                  case rightExpr =>
+                    compareIntExpr(leftExpr, rel, rightExpr)
+                }(newLocalName)
+              }(newLocalName)
+            }
+          case CompareInt64(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr(leftExpr => rv.onExpr(compareInt64Expr(leftExpr, rel, _))(newLocalName))(
+                newLocalName
+              )
+            }
+          case CompareFloat64(left, rel, right) =>
+            (innerToValue(left), innerToValue(right)).flatMapN { (lv, rv) =>
+              lv.onExpr(leftExpr => rv.onExpr(compareFloat64Expr(leftExpr, rel, _))(newLocalName))(
+                newLocalName
+              )
             }
           case EqualsNat(expr, nat) =>
             val fn = nat match {
@@ -881,6 +989,7 @@ class ClangGen[K](ns: CompilationNamespace[K]) {
               } yield decl +: res
             }
           case Literal(lit)                 => literal(lit)
+          case LitInt64(value)              => pv(int64LiteralExpr(value))
           case If(cond, thenExpr, elseExpr) =>
             (boolToValue(cond), innerToValue(thenExpr), innerToValue(elseExpr))
               .flatMapN { (c, thenC, elseC) =>

@@ -15,6 +15,7 @@ import dev.bosatsu.{
   PackageName,
   Par,
   Parser,
+  Predef,
   TestUtils
 }
 import dev.bosatsu.codegen.CompilationNamespace
@@ -28,6 +29,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   // PropertyCheckConfiguration(minSuccessful = 500)
 
   val PythonName = "[_A-Za-z][_A-Za-z0-9]*".r.pattern
+  private val float64Pack =
+    Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
 
   private def normalizeGeneratedTemps(code: String): String = {
     val tempName = "___[A-Za-z]\\d+".r
@@ -91,6 +96,20 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     Par.noParallelism {
       PackageMap
         .typeCheckParsed(nel, ifaces, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
+  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
+    val parsed = srcs.zipWithIndex.map { case (src, idx) =>
+      val pack = Parser.unsafeParse(Package.parser, src)
+      ((s"test$idx", LocationMap(src)), pack)
+    }
+    val nel = NonEmptyList.fromListUnsafe(parsed)
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }
@@ -189,18 +208,117 @@ main = has_two
       val code = doc.render(120)
       val hasTwo = normalizeGeneratedTemps(extractPythonDef(code, "has_two"))
       assert(hasTwo.contains("while ___v4:"), hasTwo)
-      assert(hasTwo.contains("if (___v2[1] == 2) == 1:"), hasTwo)
+      assert(hasTwo.contains("if ___v2[1] == 2:"), hasTwo)
       assert(hasTwo.contains("elif ___v3[0] == 1:"), hasTwo)
       assert(hasTwo.contains("___v3 = ___v3[2]"), hasTwo)
 
       val whileIdx = hasTwo.indexOf("while ___v4:")
-      val guardIdx = hasTwo.indexOf("if (___v2[1] == 2) == 1:")
+      val guardIdx = hasTwo.indexOf("if ___v2[1] == 2:")
       val advanceIdx = hasTwo.indexOf("___v3 = ___v3[2]")
 
       assert(whileIdx >= 0, hasTwo)
       assert(guardIdx > whileIdx, hasTwo)
       assert(advanceIdx > guardIdx, hasTwo)
       assertEquals(deadPythonTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("numeric comparison observations lower to direct Python comparisons") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import eq_Int64, cmp_Int64
+          |
+          |def lte_zero(x):
+          |  cmp_Int(x, 0) matches LT | EQ
+          |
+          |def gte(x, y):
+          |  cmp_Int(x, y) matches GT | EQ
+          |
+          |def neq(x, y):
+          |  match cmp_Int(x, y):
+          |    case LT: True
+          |    case GT: True
+          |    case _: False
+          |
+          |def same_float(x, y):
+          |  1 if eq_Float64(x, y) else 0
+          |
+          |def neq_float(x, y):
+          |  cmp_Float64(x, y) matches LT | GT
+          |
+          |def same_i64(x, y):
+          |  1 if eq_Int64(x, y) else 0
+          |
+          |def gte_i64(x, y):
+          |  cmp_Int64(x, y) matches GT | EQ
+          |
+          |main = (
+          |  lte_zero,
+          |  gte,
+          |  neq,
+          |  same_float,
+          |  neq_float,
+          |  same_i64,
+          |  gte_i64,
+          |)
+          |""".stripMargin
+      )
+    )
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parse("Test").get)._2
+      val code = doc.render(120)
+
+      val lteZero = normalizeGeneratedTemps(extractPythonDef(code, "lte_zero"))
+      assert(
+        lteZero.contains("return not (0 < ___") || lteZero.contains(" <= 0"),
+        lteZero
+      )
+      assert(!lteZero.contains("cmp_Int"), lteZero)
+
+      val gte = normalizeGeneratedTemps(extractPythonDef(code, "gte"))
+      assert(
+        gte.contains("return not (___") || gte.contains(" >= ___"),
+        gte
+      )
+      assert(!gte.contains("cmp_Int"), gte)
+
+      val neq = normalizeGeneratedTemps(extractPythonDef(code, "neq"))
+      assert(
+        neq.contains(" != ___") || neq.contains("return not (___"),
+        neq
+      )
+      assert(!neq.contains("cmp_Int"), neq)
+
+      val sameFloat =
+        normalizeGeneratedTemps(extractPythonDef(code, "same_float"))
+      assert(sameFloat.contains("isnan"), sameFloat)
+      assert(sameFloat.contains("== 1") || sameFloat.contains(" else "), sameFloat)
+      assert(!sameFloat.contains("eq_Float64"), sameFloat)
+      assert(!sameFloat.contains("cmp_Float64"), sameFloat)
+
+      val neqFloat =
+        normalizeGeneratedTemps(extractPythonDef(code, "neq_float"))
+      assert(neqFloat.contains("isnan"), neqFloat)
+      assert(!neqFloat.contains("cmp_Float64"), neqFloat)
+
+      val sameI64 = normalizeGeneratedTemps(extractPythonDef(code, "same_i64"))
+      assert(sameI64.contains("int64_to_Int"), sameI64)
+      assert(sameI64.contains("=="), sameI64)
+      assert(!sameI64.contains("eq_Int64"), sameI64)
+
+      val gteI64 = normalizeGeneratedTemps(extractPythonDef(code, "gte_i64"))
+      assert(gteI64.contains("int64_to_Int"), gteI64)
+      assert(
+        gteI64.contains(">=") || gteI64.contains("return not ("),
+        gteI64
+      )
+      assert(!gteI64.contains("cmp_Int64"), gteI64)
     }
   }
 
@@ -486,6 +604,39 @@ main = compare_three
         code
       )
       assert(!compareThree.contains("""encode(u"utf-8")"""), compareThree)
+    }
+  }
+
+  test("CompareLit string predicates keep the Python string helper") {
+    val astral = new String(Character.toChars(0x10000))
+    val pm = typeCheckPackage(s"""package Test
+from Bosatsu/Predef import cmp_String
+
+def before_astral(s):
+  cmp_String(s, "$astral") matches LT
+
+main = before_astral
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val beforeAstral =
+        normalizeGeneratedTemps(extractPythonDef(code, "before_astral"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assert(!beforeAstral.contains("< u\"\\U00010000\""), beforeAstral)
+      assert(!beforeAstral.contains("""cmp_String"""), beforeAstral)
+      assert(
+        beforeAstral.contains("== 0") || beforeAstral.contains("0 =="),
+        beforeAstral
+      )
     }
   }
 
