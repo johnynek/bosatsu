@@ -105,14 +105,14 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = v,
+      repo_uri = "repo",
+      next_version = v,
       previous = None,
-      exportedPackages = Nil,
-      allPackages = Nil,
-      publicDeps = depA :: Nil,
-      privateDeps = depB :: Nil,
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = Nil,
+      public_deps = depA :: Nil,
+      private_deps = depB :: Nil,
+      default_main = None
     )
 
     val res = conf.validatePacks(
@@ -162,14 +162,14 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = Nil,
-      allPackages = Nil,
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = Nil,
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
     )
 
     val res = conf.validatePacks(
@@ -209,12 +209,49 @@ class LibConfigTest extends munit.FunSuite {
   test("lib config doc_base_url json round-trips") {
     val conf = LibConfig
       .init(Name("root"), "repo", Version(0, 0, 1))
-      .copy(docBaseUrl = Some("https://docs.example.com/root/"))
+      .copy(doc_base_url = Some("https://docs.example.com/root/"))
 
     val encoded = Json.Writer.write(conf).render
     assert(encoded.contains("doc_base_url"), encoded)
     val decoded = decodeConfig(encoded)
     assertEquals(decoded.docBaseUrl, conf.docBaseUrl)
+  }
+
+  test("lib config default_main json round-trips via PackageName companion codecs") {
+    val conf = LibConfig
+      .init(Name("root"), "repo", Version(0, 0, 1))
+      .copy(default_main = Some(PackageName.parts("My", "Main")))
+
+    val decoded = decodeConfig(Json.Writer.write(conf).render)
+    assertEquals(decoded.defaultMain, conf.defaultMain)
+  }
+
+  test("lib config dep lists omit empty fields and decode missing fields as nil") {
+    val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
+    val encoded = Json.Writer.write(conf).render
+
+    assert(!encoded.contains("public_deps"), encoded)
+    assert(!encoded.contains("private_deps"), encoded)
+
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.publicDeps, Nil)
+    assertEquals(decoded.privateDeps, Nil)
+  }
+
+  test("lib config dep list serde omits nil fields but preserves non-empty deps") {
+    val privateDep = Library.dep("dep-lib", Version(1, 2, 3))
+    val conf = LibConfig
+      .init(Name("root"), "repo", Version(0, 0, 1))
+      .copy(private_deps = privateDep :: Nil)
+
+    val encoded = Json.Writer.write(conf).render
+
+    assert(!encoded.contains("public_deps"), encoded)
+    assert(encoded.contains("private_deps"), encoded)
+
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.publicDeps, Nil)
+    assertEquals(decoded.privateDeps, privateDep :: Nil)
   }
 
   test("assemble writes doc_base_url into library metadata") {
@@ -230,15 +267,15 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = List(LibConfig.PackageFilter.Name(pack.name)),
-      allPackages = List(LibConfig.PackageFilter.Name(pack.name)),
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None,
-      docBaseUrl = Some("https://docs.example.com/root")
+      exported_packages = List(LibConfig.PackageFilter.Name(pack.name)),
+      all_packages = List(LibConfig.PackageFilter.Name(pack.name)),
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None,
+      doc_base_url = Some("https://docs.example.com/root")
     )
 
     val assembled = conf.unvalidatedAssemble(
@@ -278,17 +315,17 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = List(LibConfig.PackageFilter.Name(userPack.name)),
-      allPackages = List(
+      exported_packages = List(LibConfig.PackageFilter.Name(userPack.name)),
+      all_packages = List(
         LibConfig.PackageFilter.Name(basePack.name),
         LibConfig.PackageFilter.Name(userPack.name)
       ),
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
     )
 
     val res = conf.validatePacks(

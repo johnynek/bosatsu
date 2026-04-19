@@ -6,6 +6,8 @@ export UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'
 
 SANITIZER_CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
 SANITIZER_LDFLAGS='-fsanitize=address,undefined'
+export SHA=$(./bosatsuj version -g)
+RUNTIME_ARCHIVE="${RUNNER_TEMP:-/tmp}/bosatsu-c-runtime-${SHA}.tar.gz"
 
 CC_FLAGS=(
   --cc_flag=-O1
@@ -16,19 +18,24 @@ CC_FLAGS=(
   --cc_lib=-lm
 )
 
+rm -f "$RUNTIME_ARCHIVE"
+tar -czf "$RUNTIME_ARCHIVE" c_runtime
+CFLAGS="$SANITIZER_CFLAGS" \
+LDFLAGS="$SANITIZER_LDFLAGS" \
+CPPFLAGS='-DBSTS_CI=1' \
+./bosatsuj c-runtime install --repo_root . --archive "$RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
+eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
+
 cd c_runtime
 rm -f test_exe
-make PROFILE=debug CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS" && git diff --quiet || { git diff; false; }
-make boehm_example PROFILE=release CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS"
-make install PROFILE=release CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS" CPPFLAGS='-DBSTS_CI=1'
+CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS" && git diff --quiet || { git diff; false; }
+CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS"
 ./test_exe
 ./boehm_example
-make bench_exe PROFILE=release CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS"
+CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="$SANITIZER_CFLAGS" LDFLAGS="$SANITIZER_LDFLAGS"
 ./bench_exe 200000 | tee bench_ci_sanitizers.txt
 cd ..
 
-export SHA
-SHA=$(./bosatsuj version -g)
 python3 - <<'PY'
 import json
 import os

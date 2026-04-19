@@ -302,12 +302,18 @@ sealed abstract class Declaration derives CanEqual {
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
             val acc1 = loop(cond, bound, acc0)
-            loop(v.get, bound, acc1)
+            val bound1 = ConditionalMatch
+              .unapply(cond)
+              .fold(bound) { case (m, _) => bound ++ m.pattern.names }
+            loop(v.get, bound1, acc1)
           }
           loop(elseCase.get, bound, acc2)
         case Ternary(t, c, f) =>
-          val acc1 = loop(t, bound, acc)
-          val acc2 = loop(c, bound, acc1)
+          val acc1 = loop(c, bound, acc)
+          val bound1 = ConditionalMatch
+            .unapply(c)
+            .fold(bound) { case (m, _) => bound ++ m.pattern.names }
+          val acc2 = loop(t, bound1, acc1)
           loop(f, bound, acc2)
         case Lambda(args, body) =>
           val bound1 = bound ++ args.patternNames
@@ -418,15 +424,21 @@ sealed abstract class Declaration derives CanEqual {
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
             val acc1 = loop(cond, acc0)
-            loop(v.get, acc1)
+            val acc2 = ConditionalMatch
+              .unapply(cond)
+              .fold(acc1) { case (m, _) => acc1 ++ m.pattern.names }
+            loop(v.get, acc2)
           }
           loop(elseCase.get, acc2)
         case la @ LeftApply(_, _, _, _) =>
           loop(la.rewrite, acc)
         case Ternary(t, c, f) =>
-          val acc1 = loop(t, acc)
-          val acc2 = loop(c, acc1)
-          loop(f, acc2)
+          val acc1 = loop(c, acc)
+          val acc2 = ConditionalMatch
+            .unapply(c)
+            .fold(acc1) { case (m, _) => acc1 ++ m.pattern.names }
+          val acc3 = loop(t, acc2)
+          loop(f, acc3)
         case Lambda(args, body) =>
           val acc1 = acc ++ args.patternNames
           loop(body, acc1)
@@ -530,6 +542,17 @@ object Declaration {
     case object Loop extends MatchKind(true, "loop")
   }
 
+  object ConditionalMatch {
+    def unapply(cond: NonBinding): Option[(Matches, List[TypeRef])] =
+      cond match {
+        case m @ Matches(_, _, _)   => Some((m, Nil))
+        case Annotation(of, tpe)    =>
+          unapply(of).map { case (m, annots) => (m, tpe :: annots) }
+        case Parens(of: NonBinding) => unapply(of)
+        case _                      => None
+      }
+  }
+
   /** Try to substitute ex for ident in the expression: in
     *
     * This can fail if the free variables in ex are shadowed above ident in in.
@@ -591,6 +614,22 @@ object Declaration {
           } else Some(ra)
       }
 
+    def loopScopedDecl(
+        body: Declaration,
+        pnames: Iterable[Bindable]
+    ): Option[Declaration] =
+      if (pnames.exists(masks)) None
+      else if (pnames.exists(shadows)) Some(body)
+      else loopDec(body)
+
+    def loopScopedNB(
+        body: NonBinding,
+        pnames: Iterable[Bindable]
+    ): Option[NonBinding] =
+      if (pnames.exists(masks)) None
+      else if (pnames.exists(shadows)) Some(body)
+      else loop(body)
+
     def loop(decl: NonBinding): Option[NonBinding] =
       decl match {
         case Annotation(term, tpe) =>
@@ -616,13 +655,22 @@ object Declaration {
           }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse { case (cond, br) =>
-            (loop(cond), br.traverse(loopDec)).tupled
+            val br1 = ConditionalMatch.unapply(cond) match {
+              case Some((m, _)) =>
+                br.traverse(loopScopedDecl(_, m.pattern.names))
+              case None    => br.traverse(loopDec)
+            }
+            (loop(cond), br1).tupled
           }
           val elsec = elseCase.traverse(loopDec)
 
           (ifs, elsec).mapN(IfElse(_, _)(using decl.region))
         case Ternary(t, c, f) =>
-          (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
+          val t1 = ConditionalMatch.unapply(c) match {
+            case Some((m, _)) => loopScopedNB(t, m.pattern.names)
+            case None    => loop(t)
+          }
+          (t1, loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
           // sets up a binding
           val pnames = args.patternNames

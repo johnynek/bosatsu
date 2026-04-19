@@ -147,10 +147,14 @@ class MatchlessRegressionTest extends munit.FunSuite {
 
   private def countBoolWhileExprs(b: Matchless.BoolExpr[Unit]): Int =
     b match {
-      case Matchless.EqualsLit(expr, _) =>
+      case Matchless.CompareLit(expr, _, _) =>
         countWhileExprs(expr)
-      case Matchless.LtEqLit(expr, _) =>
-        countWhileExprs(expr)
+      case Matchless.CompareInt(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
+      case Matchless.CompareInt64(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
+      case Matchless.CompareFloat64(left, _, right) =>
+        countWhileExprs(left) + countWhileExprs(right)
       case Matchless.EqualsNat(expr, _) =>
         countWhileExprs(expr)
       case Matchless.And(left, right) =>
@@ -175,10 +179,14 @@ class MatchlessRegressionTest extends munit.FunSuite {
         activeRecNames: Set[Identifier.Bindable]
     ): Int =
       b match {
-        case Matchless.EqualsLit(expr, _) =>
+        case Matchless.CompareLit(expr, _, _) =>
           loopExpr(expr, activeRecNames)
-        case Matchless.LtEqLit(expr, _) =>
-          loopExpr(expr, activeRecNames)
+        case Matchless.CompareInt(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
+        case Matchless.CompareInt64(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
+        case Matchless.CompareFloat64(left, _, right) =>
+          loopExpr(left, activeRecNames) + loopExpr(right, activeRecNames)
         case Matchless.EqualsNat(expr, _) =>
           loopExpr(expr, activeRecNames)
         case Matchless.And(left, right) =>
@@ -248,12 +256,91 @@ class MatchlessRegressionTest extends munit.FunSuite {
         case Matchless.Local(_) | Matchless.Global(_, _, _) |
             Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
             Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) |
             Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
             Matchless.ZeroNat | Matchless.SuccNat =>
           0
       }
 
     loopExpr(expr, Set.empty)
+  }
+
+  private def collectBoolExprs(
+      expr: Matchless.Expr[Unit]
+  ): List[Matchless.BoolExpr[Unit]] = {
+    def loopCheap(cheap: Matchless.CheapExpr[Unit]): List[Matchless.BoolExpr[Unit]] =
+      cheap match {
+        case Matchless.GetEnumElement(arg, _, _, _) =>
+          loopCheap(arg)
+        case Matchless.GetStructElement(arg, _, _) =>
+          loopCheap(arg)
+        case Matchless.Local(_) | Matchless.Global(_, _, _) |
+            Matchless.ClosureSlot(_) | Matchless.LocalAnon(_) |
+            Matchless.LocalAnonMut(_) | Matchless.Literal(_) |
+            Matchless.LitInt64(_) =>
+          Nil
+      }
+
+    def loopBool(boolExpr: Matchless.BoolExpr[Unit]): List[Matchless.BoolExpr[Unit]] = {
+      val nested =
+        boolExpr match {
+          case Matchless.CompareLit(expr, _, _) =>
+            loopCheap(expr)
+          case Matchless.CompareInt(left, _, right) =>
+            loopCheap(left) ++ loopCheap(right)
+          case Matchless.CompareInt64(left, _, right) =>
+            loopCheap(left) ++ loopCheap(right)
+          case Matchless.CompareFloat64(left, _, right) =>
+            loopCheap(left) ++ loopCheap(right)
+          case Matchless.EqualsNat(expr, _) =>
+            loopCheap(expr)
+          case Matchless.And(left, right) =>
+            loopBool(left) ++ loopBool(right)
+          case Matchless.CheckVariant(expr, _, _, _) =>
+            loopCheap(expr)
+          case Matchless.CheckVariantSet(expr, _, _, _) =>
+            loopCheap(expr)
+          case Matchless.SetMut(_, expr) =>
+            loopExpr(expr)
+          case Matchless.LetBool(_, value, in) =>
+            loopExpr(value) ++ loopBool(in)
+          case Matchless.LetMutBool(_, in) =>
+            loopBool(in)
+          case Matchless.TrueConst =>
+            Nil
+        }
+
+      boolExpr :: nested
+    }
+
+    def loopExpr(e: Matchless.Expr[Unit]): List[Matchless.BoolExpr[Unit]] =
+      e match {
+        case Matchless.Lambda(captures, _, _, body) =>
+          captures.toList.flatMap(loopExpr) ++ loopExpr(body)
+        case Matchless.WhileExpr(cond, effectExpr, _) =>
+          loopBool(cond) ++ loopExpr(effectExpr)
+        case Matchless.App(fn, args) =>
+          loopExpr(fn) ++ args.toList.flatMap(loopExpr)
+        case Matchless.Let(_, value, in) =>
+          loopExpr(value) ++ loopExpr(in)
+        case Matchless.LetMut(_, in) =>
+          loopExpr(in)
+        case Matchless.If(cond, thenExpr, elseExpr) =>
+          loopBool(cond) ++ loopExpr(thenExpr) ++ loopExpr(elseExpr)
+        case Matchless.SwitchVariant(on, _, cases, default) =>
+          loopCheap(on) ++ cases.toList.flatMap { case (_, branch) =>
+            loopExpr(branch)
+          } ++ default.toList.flatMap(loopExpr)
+        case Matchless.Always(cond, thenExpr) =>
+          loopBool(cond) ++ loopExpr(thenExpr)
+        case Matchless.PrevNat(of) =>
+          loopExpr(of)
+        case Matchless.MakeEnum(_, _, _) | Matchless.MakeStruct(_) |
+            Matchless.ZeroNat | Matchless.SuccNat | (_: Matchless.CheapExpr[Unit]) =>
+          Nil
+      }
+
+    loopExpr(expr)
   }
 
   test("polymorphic recursion lowers to while in Matchless without self-calls") {
@@ -402,7 +489,7 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
     assertEquals(evaluated, Vector(Value.VInt(1), Value.VInt(0)))
   }
@@ -450,12 +537,84 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
     assertEquals(
       evaluated,
       Vector(Value.VInt(1), Value.VInt(0), Value.VInt(1), Value.VInt(0))
     )
+  }
+
+  test("let-bound cmp_Int boolean observations lower to CompareInt") {
+    TestUtils.checkMatchless("""
+def observe(i, j):
+  cmp = cmp_Int(i, j)
+  match cmp:
+    case LT | EQ: True
+    case GT: False
+
+main = observe
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("observe"))
+      val bools = collectBoolExprs(expr)
+      val comparisonFamArities = 0 :: 0 :: 0 :: Nil
+
+      assert(
+        bools.exists {
+          case Matchless.CompareInt(_, Matchless.CompareRel.Lte, _) => true
+          case _                                                    => false
+        },
+        expr.toString
+      )
+      assert(
+        !bools.exists {
+          case Matchless.CheckVariant(_, _, _, famArities) =>
+            famArities == comparisonFamArities
+          case Matchless.CheckVariantSet(_, _, _, famArities) =>
+            famArities == comparisonFamArities
+          case _ =>
+            false
+        },
+        expr.toString
+      )
+    }
+  }
+
+  test("let-bound cmp_Int observations memoize non-cheap operands once") {
+    TestUtils.checkMatchless("""
+def observe(i, j):
+  cmp = cmp_Int(add(i, 1), sub(j, 2))
+  match cmp:
+    case LT: True
+    case GT: True
+    case _: False
+
+main = observe
+""") { binds =>
+      val byName = binds(TestUtils.testPackage).toMap
+      val expr = byName(Identifier.Name("observe"))
+      val compare =
+        collectBoolExprs(expr).collectFirst {
+          case c @ Matchless.CompareInt(_, Matchless.CompareRel.Ne, _) => c
+        }
+
+      def isMemoizedOperand(
+          cheap: Matchless.CheapExpr[Unit]
+      ): Boolean =
+        cheap match {
+          case Matchless.Local(_) | Matchless.LocalAnon(_) => true
+          case _                                           => false
+        }
+
+      compare match {
+        case Some(Matchless.CompareInt(left, _, right)) =>
+          assert(isMemoizedOperand(left), expr.toString)
+          assert(isMemoizedOperand(right), expr.toString)
+        case _ =>
+          fail(expr.toString)
+      }
+    }
   }
 
   Platform.onJvm(
@@ -525,7 +684,7 @@ def branch_blowup(args: L) -> Nat:
 
     val evaluated =
       MatchlessToValue
-        .traverse(evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
+        .traverse[Vector, Unit](evalExprs)((_, _, _) => Eval.now(Value.UnitValue))
         .map(_.value)
     assertEquals(
       evaluated,

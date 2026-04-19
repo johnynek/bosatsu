@@ -53,6 +53,7 @@ export (
   char_to_Int,
   char_List_to_String,
   char_to_String,
+  cmp_Char,
   cmp_Bool,
   cmp_Comparison,
   cmp_Int,
@@ -64,12 +65,14 @@ export (
   clear_Dict,
   empty_Dict,
   eq_Bool,
+  eq_Char,
   eq_Comparison,
   eq_Int,
   eq_Float64,
   flat_map_List,
   foldl_List,
   foldr_List,
+  div_mod,
   gcd_Int,
   implies,
   get_key,
@@ -273,6 +276,8 @@ external def sub(a: Int, b: Int) -> Int
 external def mul(a: Int, b: Int) -> Int
 # Integer division rounded toward negative infinity; total with `div(a, 0) == 0`.
 external def div(a: Int, b: Int) -> Int
+# Integer division and modulus computed together; total with `div_mod(a, 0) == (0, a)`.
+external def div_mod(a: Int, b: Int) -> (Int, Int)
 # Integer equality.
 external def eq_Int(a: Int, b: Int) -> Bool
 # Greatest common divisor for two integers.
@@ -305,9 +310,8 @@ external def mulf(a: Float64, b: Float64) -> Float64
 external def divf(a: Float64, b: Float64) -> Float64
 # Total Float64 comparison where all `.NaN` values are equal and ordered before non-`.NaN` values.
 external def cmp_Float64(a: Float64, b: Float64) -> Comparison
-
-def eq_Float64(a: Float64, b: Float64) -> Bool:
-  cmp_Float64(a, b) matches EQ
+# Float64 equality where `-0.0 == 0.0` and all `.NaN` values are equal.
+external def eq_Float64(a: Float64, b: Float64) -> Bool
 
 # Repeat `item` `cnt` times.
 def replicate_List[a](item: a, cnt: Int) -> List[a]:
@@ -342,11 +346,15 @@ external struct Char
 external def char_to_String(c: Char) -> String
 # Unicode code point value for a character.
 external def char_to_Int(c: Char) -> Int
+# Total character comparison in Unicode code-point order.
+external def cmp_Char(c0: Char, c1: Char) -> Comparison
+# Character equality.
+external def eq_Char(c0: Char, c1: Char) -> Bool
 # Concatenate a list of characters into a string.
 external def char_List_to_String(chars: List[Char]) -> String
 # Convert a Unicode code point to a character.
 external def int_to_Char(code_point: Int) -> Option[Char]
-# Total string comparison.
+# Total string comparison in Unicode code-point order.
 external def cmp_String(str0: String, str1: String) -> Comparison
 
 def eq_String(str0: String, str1: String) -> Bool:

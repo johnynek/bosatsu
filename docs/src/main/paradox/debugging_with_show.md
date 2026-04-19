@@ -25,7 +25,19 @@ This prints one `(package ...)` form with sections like `:imports`, `:types`,
 
 `--json` emits a deterministic JSON projection of the same `show` data. The
 top-level value is an object with `"$form": "show"` and fields such as
-`interfaces` and `packages`.
+`ir`, `typed-passes`, and `packages`. Typed output also includes
+`interfaces`.
+
+### Show Matchless IR instead of typedexpr
+
+```bash
+./bosatsuj show --name core_alpha --package Bosatsu/Char --ir matchless --color none
+```
+
+This lowers the selected package to Matchless before rendering. The top-level
+`show` form reports `:ir matchless` and `:matchless-passes`. Matchless output
+is intentionally value-only: it omits typed sections such as `:interfaces` and
+package `:types`.
 
 ### Show a single type
 
@@ -46,6 +58,16 @@ Use `--value <package::value>` to focus on one top-level value.
 This selects values that exist in compiled package output. If a helper value is
 fully inlined or otherwise eliminated, it will not be available by name.
 
+If you want to inspect values before a pass erases them, disable the relevant
+pass explicitly:
+
+```bash
+./bosatsuj show --name core_alpha \
+  --value Bosatsu/Num/Binary::helper \
+  --disable-typed-pass discard-unused \
+  --color none
+```
+
 You can mix selectors:
 
 ```bash
@@ -58,6 +80,54 @@ You can mix selectors:
 
 If no `--package`, `--type`, or `--value` is given, `show` shows all local
 library packages (the existing default behavior).
+
+## Pass controls
+
+Typed output keeps the current fixed pass order and lets you disable stages
+individually:
+
+```bash
+./bosatsuj show --name core_alpha \
+  --package Bosatsu/FibBench \
+  --disable-typed-pass loop-recur-lowering \
+  --disable-typed-pass normalize \
+  --color none
+```
+
+`library show` still accepts `--no-opt` as a compatibility alias for disabling
+all typed passes at once.
+
+Matchless output supports three named stages:
+
+```bash
+./bosatsuj show --name core_alpha \
+  --package Bosatsu/Char \
+  --ir matchless \
+  --disable-matchless-pass hoist-invariant-loop-lets \
+  --disable-matchless-pass reuse-constructors \
+  --color none
+```
+
+To inspect Matchless before and after namespace-level inlining, toggle
+`global-inlining`:
+
+```bash
+./bosatsuj show --name core_alpha \
+  --value Bosatsu/FibBench::fib \
+  --ir matchless \
+  --disable-matchless-pass global-inlining \
+  --color none
+```
+
+```bash
+./bosatsuj show --name core_alpha \
+  --value Bosatsu/FibBench::fib \
+  --ir matchless \
+  --color none
+```
+
+The first command shows raw lowered Matchless with local cleanup only. The
+second shows the default Matchless pipeline, including global inlining.
 
 ## Why this helps
 

@@ -198,7 +198,7 @@ class PathModuleTest extends munit.FunSuite {
         "--package",
         "MyLib/Foo"
       ) match {
-        case Output.ShowOutput(packs, _, _) =>
+        case Output.ShowOutput(Output.ShowValue.Typed(packs, _, _, _), _) =>
           assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
         case other =>
           fail(s"expected show output, got: $other")
@@ -245,7 +245,7 @@ class PathModuleTest extends munit.FunSuite {
   }
 
   test("tool test direct run of a file") {
-    val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
+    val deps = List("Nat", "List", "Bool", "Int64", "Rand", "Properties", "BinNat")
     val inputs =
       deps.map(n => s"--input test_workspace/${n}.bosatsu").mkString(" ")
     val out = run(

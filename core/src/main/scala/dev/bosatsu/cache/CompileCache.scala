@@ -31,7 +31,7 @@ object CompileCache {
         String
     )
 
-  private val schemaVersion = 3
+  private val schemaVersion = 4
   private val sentinelRegion = Region(0, 0)
   private val utf8 = StandardCharsets.UTF_8
   private val blake3 = Algo.blake3Algo
@@ -75,11 +75,15 @@ object CompileCache {
         s"${pn.asString}=${hash.toIdent(using blake3)}"
       }
       .mkString("\n")
+    val typedPasses =
+      key.compileOptions.enabledTypedPasses
+        .map(_.cliName)
+        .mkString(",")
     val payload =
       s"""schema:${key.schemaVersion}
          |package:${key.packageName.asString}
          |mode:${key.compileOptions.mode}
-         |optimize:${key.compileOptions.optimize}
+         |typed-passes:$typedPasses
          |compiler:${key.compilerIdentity}
          |phase:${key.phaseIdentity}
          |source:${key.sourceHash.toIdent(using blake3)}
@@ -214,12 +218,15 @@ object CompileCache {
         case Some(outputHash) =>
           val packagePath = casPath(outputHash)
           val read = platformIO.readBytes(packagePath).flatMap { bytes =>
-            moduleIOMonad.fromTry(decodeValue(key, bytes)).map {
-              case some @ Some(_) => some
-              case None           =>
-                statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
-                None
-            }
+            platformIO.canPromiseF
+              .compute(decodeValue(key, bytes))
+              .flatMap(moduleIOMonad.fromTry)
+              .map {
+                case some @ Some(_) => some
+                case None           =>
+                  statsUpdate { getCasDecodeMisses.incrementAndGet(); () }
+                  None
+              }
           }
           onError(
             read,

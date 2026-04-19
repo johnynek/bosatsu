@@ -1,7 +1,7 @@
 package Bosatsu/IO/Core
 
-from Bosatsu/Prog import Prog
-from Bosatsu/IO/Error import IOError
+from Bosatsu/Prog import Prog, ProgTest, pure, recover, await
+from Bosatsu/IO/Error import IOError, AlreadyExists, Unsupported, error_to_String
 from Bosatsu/IO/Bytes import Bytes
 from Bosatsu/Char import (
   string_to_Char_List,
@@ -23,6 +23,9 @@ export (
   Instant,
   Duration,
   duration_to_nanos,
+  PosixMode,
+  posix_mode,
+  posix_mode_to_Int,
   FileKind(),
   FileStat(),
   TempFile(),
@@ -47,6 +50,7 @@ export (
   list_dir,
   stat,
   mkdir,
+  mkdir_with_mode,
   remove,
   rename,
   get_env,
@@ -69,6 +73,7 @@ external struct Process
 # Opaque outside this package because constructors are not exported.
 struct Instant(epoch_nanos: Int)
 struct Duration(to_nanos: Int)
+struct PosixMode(bits: Int)
 
 enum FileKind:
   File
@@ -76,7 +81,7 @@ enum FileKind:
   Symlink
   Other
 
-struct FileStat(kind: FileKind, size_bytes: Int, mtime: Instant)
+struct FileStat(kind: FileKind, size_bytes: Int, mtime: Instant, posix_mode: Option[PosixMode])
 
 struct TempFile(path: Path, handle: Handle)
 
@@ -119,6 +124,7 @@ external def create_temp_dir(dir: Option[Path], prefix: String) -> Prog[IOError,
 external def list_dir(path: Path) -> Prog[IOError, List[Path]]
 external def stat(path: Path) -> Prog[IOError, Option[FileStat]]
 external def mkdir(path: Path, recursive: Bool) -> Prog[IOError, Unit]
+external def mkdir_with_mode(path: Path, recursive: Bool, mode: PosixMode) -> Prog[IOError, Unit]
 external def remove(path: Path, recursive: Bool) -> Prog[IOError, Unit]
 external def rename(from: Path, to: Path) -> Prog[IOError, Unit]
 external def get_env(name: String) -> Prog[IOError, Option[String]]
@@ -131,6 +137,19 @@ external def sleep(d: Duration) -> Prog[IOError, Unit]
 def duration_to_nanos(d: Duration) -> Int:
   Duration { to_nanos } = d
   to_nanos
+
+posix_mode_mask = 4095
+owner_write_execute_mask = 192
+
+def posix_mode(bits: Int) -> Option[PosixMode]:
+  if bits.and_Int(posix_mode_mask).eq_Int(bits):
+    Some(PosixMode(bits))
+  else:
+    None
+
+def posix_mode_to_Int(mode: PosixMode) -> Int:
+  PosixMode { bits } = mode
+  bits
 
 andb = and
 
@@ -443,3 +462,103 @@ def path_file_name(path: Path) -> Option[String]:
           Some(name)
       case None:
         Some(s0)
+
+def stat_posix_mode_bits(stat_res: Option[FileStat]) -> Option[Int]:
+  match stat_res:
+    case Some(FileStat { posix_mode: Some(mode), ... }):
+      Some(posix_mode_to_Int(mode))
+    case _:
+      None
+
+def stat_is_dir(stat_res: Option[FileStat]) -> Bool:
+  stat_res matches Some(FileStat { kind: Dir, ... })
+
+def mode_bits_eq(mode_bits: Option[Int], expect: Int) -> Bool:
+  mode_bits matches Some(bits) if bits.eq_Int(expect)
+
+def has_owner_write_execute(mode_bits: Option[Int]) -> Bool:
+  mode_bits matches Some(bits) if bits.and_Int(owner_write_execute_mask).eq_Int(owner_write_execute_mask)
+
+def root_has_posix_mode(stat_res: Option[FileStat]) -> Bool:
+  stat_posix_mode_bits(stat_res) matches Some(_)
+
+def is_unsupported_error(err: IOError) -> Bool:
+  err matches Unsupported(_)
+
+def is_already_exists_error(err: IOError) -> Bool:
+  err matches AlreadyExists(_)
+
+def mkdir_with_mode_unsupported(path: Path, recursive: Bool, mode: PosixMode) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- mkdir_with_mode(path, recursive, mode).await()
+      pure(False)
+    ),
+    err -> pure(is_unsupported_error(err))
+  )
+
+def mkdir_with_mode_already_exists(path: Path, mode: PosixMode) -> Prog[IOError, Bool]:
+  recover(
+    (
+      _ <- mkdir_with_mode(path, False, mode).await()
+      pure(False)
+    ),
+    err -> pure(is_already_exists_error(err))
+  )
+
+def cleanup_dir(path: Path) -> Prog[IOError, Unit]:
+  recover(remove(path, True), _ -> pure(()))
+
+def failed_tests(err: IOError) -> Test:
+  TestSuite("Bosatsu/IO/Core tests", [
+    Assertion(False, error_to_String(err))
+  ])
+
+tests = ProgTest(_ ->
+  recover((
+    root <- create_temp_dir(None, "bosatsu_mkdir_mode").await()
+    existing_leaf = path_join(root, Path("existing"))
+    _ <- mkdir(existing_leaf, True).await()
+    _ <- mkdir(existing_leaf, True).await()
+    existing_stat <- stat(existing_leaf).await()
+    root_stat <- stat(root).await()
+    suite <- (if root_has_posix_mode(root_stat):
+      (
+        leaf_mode = PosixMode(488)
+        stable_mode = PosixMode(448)
+        requested_existing_mode = PosixMode(493)
+        parent_dir = path_join(root, Path("parents"))
+        recursive_leaf = path_join(parent_dir, Path("leaf"))
+        stable_leaf = path_join(root, Path("stable"))
+        _ <- mkdir_with_mode(recursive_leaf, True, leaf_mode).await()
+        recursive_leaf_stat <- stat(recursive_leaf).await()
+        parent_stat <- stat(parent_dir).await()
+        _ <- mkdir_with_mode(stable_leaf, False, stable_mode).await()
+        stable_before <- stat(stable_leaf).await()
+        already_exists <- mkdir_with_mode_already_exists(stable_leaf, requested_existing_mode).await()
+        _ <- mkdir_with_mode(stable_leaf, True, requested_existing_mode).await()
+        stable_after <- stat(stable_leaf).await()
+        pure(TestSuite("Bosatsu/IO/Core tests", [
+          Assertion(stat_is_dir(existing_stat), "mkdir(path, True) succeeds when the leaf already exists"),
+          Assertion(root_has_posix_mode(root_stat), "stat exposes posix_mode when the host supports it"),
+          Assertion(mode_bits_eq(stat_posix_mode_bits(recursive_leaf_stat), 488), "mkdir_with_mode sets the requested leaf mode"),
+          Assertion(has_owner_write_execute(stat_posix_mode_bits(parent_stat)), "recursive mkdir_with_mode keeps created parents traversable"),
+          Assertion(mode_bits_eq(stat_posix_mode_bits(stable_before), 448), "mkdir_with_mode(path, False, mode) round-trips via stat"),
+          Assertion(already_exists, "mkdir_with_mode(path, False, mode) returns AlreadyExists on an existing directory"),
+          Assertion(mode_bits_eq(stat_posix_mode_bits(stable_after), 448), "mkdir_with_mode(path, True, mode) leaves an existing directory mode unchanged"),
+        ]))
+      )
+    else:
+      (
+        unsupported_leaf = path_join(root, Path("unsupported"))
+        unsupported <- mkdir_with_mode_unsupported(unsupported_leaf, False, PosixMode(488)).await()
+        pure(TestSuite("Bosatsu/IO/Core tests", [
+          Assertion(stat_is_dir(existing_stat), "mkdir(path, True) succeeds when the leaf already exists"),
+          Assertion(root_has_posix_mode(root_stat) matches False, "stat returns posix_mode = None when unsupported"),
+          Assertion(unsupported, "mkdir_with_mode returns Unsupported when the host cannot honor exact modes"),
+        ]))
+      )).await()
+    _ <- cleanup_dir(root).await()
+    pure(suite)
+  ), err -> pure(failed_tests(err)))
+)

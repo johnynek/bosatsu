@@ -386,7 +386,7 @@ object Value {
               Tuple(ExternalValue(k1: String) :: _),
               Tuple(ExternalValue(k2: String) :: _) :: _
             ) =>
-          Comparison.fromInt(k1.compareTo(k2))
+          Comparison.fromInt(StringUtil.codePointCompare(k1, k2))
         case badShape =>
           // $COVERAGE-OFF$
           sys.error(s"ill-typed in String Dict order: $badShape")

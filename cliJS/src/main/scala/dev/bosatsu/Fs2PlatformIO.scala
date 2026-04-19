@@ -157,6 +157,19 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       }
   }
 
+  def env(name: String): IO[Option[String]] =
+    IO {
+      val value = js.Dynamic.global.process.env.selectDynamic(name)
+      if (js.isUndefined(value) || value == null) None
+      else Some(value.asInstanceOf[String])
+    }
+
+  def hostOs: IO[String] =
+    IO(js.Dynamic.global.process.platform.asInstanceOf[String])
+
+  def hostArch: IO[String] =
+    IO(js.Dynamic.global.process.arch.asInstanceOf[String])
+
   val gitShaHead: IO[String] =
     systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
 

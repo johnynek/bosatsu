@@ -1684,6 +1684,75 @@ x"""
 
     roundTrip(
       Declaration.parser(""),
+      """if foo matches Some(a):
+        |  fn(a)
+        |elif bar matches Some(b):
+        |  gn(b)
+        |else:
+        |  h""".stripMargin
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      """if foo matches Some(a):
+        |  fn(a)
+        |elif bar matches Some(b):
+        |  gn(b)
+        |else:
+        |  h""".stripMargin
+    ) match {
+      case parsed @ Declaration.IfElse(ifCases, _) =>
+        assertEquals(ifCases.length, 2)
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("foo"),
+            Identifier.Name("fn"),
+            Identifier.Name("bar"),
+            Identifier.Name("gn"),
+            Identifier.Name("h")
+          )
+        )
+        assert(parsed.allNames(Identifier.Name("a")))
+        assert(parsed.allNames(Identifier.Name("b")))
+      case other =>
+        fail(s"expected conditional matches if/elif, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
+      "f(a) if foo matches Some(a) else g"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "f(a) if (foo matches Some(a)) else g"
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      "f(a) if (foo matches Some(a)) else g"
+    ) match {
+      case parsed @ Declaration.Ternary(
+            _,
+            Declaration.Parens(Declaration.Matches(_, _, None)),
+            Declaration.Var(Identifier.Name("g"))
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("f"),
+            Identifier.Name("foo"),
+            Identifier.Name("g")
+          )
+        )
+        assert(parsed.allNames(Identifier.Name("a")))
+      case other =>
+        fail(s"expected parenthesized conditional matches ternary, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
       "x matches p if (gx matches gp if gg) else y"
     )
 

@@ -44,6 +44,17 @@ object PackageName {
       case _               => None
     }
 
+  implicit val jsonReader: Json.Reader[PackageName] =
+    Json.Reader[String].mapEither("PackageName") { str =>
+      parse(str) match {
+        case Some(value) => Right(value)
+        case None        => Left(s"could not parse $str into package name")
+      }
+    }
+
+  implicit val jsonWriter: Json.Writer[PackageName] =
+    Json.Writer[String].contramap[PackageName](_.asString)
+
   implicit val order: Order[PackageName] =
     Order[String].contramap[PackageName](_.asString)
 

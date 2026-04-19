@@ -5,8 +5,8 @@ import cats.data.Validated
 import cats.effect.{IO, Resource}
 import cats.parse.{Parser => P}
 import dev.bosatsu.{MemoryMain, Package, Parser, Test, rankn}
-import dev.bosatsu.tool.Output
-import org.typelevel.paiges.{Doc, Document}
+import dev.bosatsu.tool.{Output, ShowEdn}
+import org.typelevel.paiges.Doc
 import org.scalajs.dom.window.localStorage
 
 import Action.Cmd
@@ -91,16 +91,8 @@ object Store {
           "html"
         )
         val handler: HandlerFn = {
-          case Output.ShowOutput(packs, ifaces, _) =>
-            val pdocs = packs.map { pack =>
-              Document[Package.Typed[Any]].document(pack)
-            }
-            val idocs = ifaces.map { iface =>
-              Document[Package.Interface].document(iface)
-            }
-
-            val doc = Doc.intercalate(Doc.hardLine, idocs ::: pdocs)
-            doc.render(80)
+          case Output.ShowOutput(show, _) =>
+            ShowEdn.showDoc(show).render(80)
           case other =>
             s"internal error. got unexpected result: $other"
         }
