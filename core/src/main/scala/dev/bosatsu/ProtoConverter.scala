@@ -838,8 +838,10 @@ object ProtoConverter {
                           )
                         )
                       }
-                    case _ =>
-                      Success(None)
+                    case _: proto.BranchGuard.Value.Empty.type =>
+                      Failure(
+                        new Exception(s"invalid unset branch guard in $ex")
+                      )
                   }
               }
 

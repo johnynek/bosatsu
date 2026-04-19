@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `1`
-- Completed steps: `6`
+- Pending steps: `0`
+- Completed steps: `7`
 - Total steps: `7`
 
 ## Summary
@@ -18,11 +18,11 @@ Finish scoped match-branch guards so every compiler phase and typed IR tool hono
 
 ## Current State
 
-The branch now carries scoped `MatchGuard` binders through typed substitution, alpha-renaming, `coerceFn`-driven type replacement, grouped loop/recur lowering, self-call classification, and recursion-check branch analysis, and those binder-aware paths are covered with focused `TypedExprTest`, `SelfCallKindTest`, and `TypedExprRecursionCheckTest` regressions. The repo-required `scripts/test_basic.sh` gate has been rerun successfully on this post-review revision. One approval blocker remains: `ProtoConverter.decodeGuard` still silently treats unexpected `BranchGuard` payloads as no guard instead of failing closed.
+The branch now carries scoped `MatchGuard` binders through typed substitution, alpha-renaming, `coerceFn`-driven type replacement, grouped loop/recur lowering, self-call classification, recursion-check branch analysis, and typed proto decoding. `ProtoConverter.decodeGuard` now fails closed on present-but-unset `BranchGuard` payloads instead of silently decoding them as `None`, and the new `ProtoConverterTest` regression covers that malformed typed-IR case. Verification passed with `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.ProtoConverterTest dev.bosatsu.TypedExprTest dev.bosatsu.TypedExprRecursionCheckTest"` and `scripts/test_basic.sh` on the post-review revision.
 
 ## Problem
 
-The language-semantics path for scoped match-branch binders is now aligned, but malformed or forward-incompatible typed proto input can still silently decode a present guard as if the branch were unguarded. The remaining work is now only `F3`: tighten `ProtoConverter.decodeGuard`, add the negative decode regression, and rerun the focused proto coverage plus the required gate on the final post-review branch state.
+The original insufficiency on this branch was that malformed or forward-incompatible typed proto input could silently decode a present guard as if the branch were unguarded. This round closed that `F3` gap with fail-fast decoding and regression coverage, so no issue-local implementation work remains on the current branch state.
 
 ## Steps
 
@@ -176,7 +176,7 @@ Close review findings `F1` and `F2` as one binder-scope follow-up. In `TypedExpr
 
 `TypedExpr.substituteAll` now filters substitutions separately for outer-pattern scope versus `MatchGuard` body scope, and `unshadowBranch` alpha-renames outer and guard-pattern binders independently so capture avoidance preserves right-most-wins semantics. `replaceVarType` now rewrites the guard scrutinee under outer bindings only, leaving guard-bound locals untouched in the optional inner guard and branch body. `TypedExprLoopRecurLowering` now keeps `MatchGuard` nodes intact during grouped rewrites and tail-call lowering while honoring the guard binder split, `SelfCallKind` no longer counts guard-shadowed branch bodies or inner guards as recursive self calls, and `TypedExprRecursionCheck` now checks the guard scrutinee before introducing guard-pattern binders for the inner guard/body path. Added focused `TypedExprTest`, `SelfCallKindTest`, and `TypedExprRecursionCheckTest` regressions, then reran `coreJVM/test:compile`, `coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.SelfCallKindTest dev.bosatsu.TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`.
 
-7. [ ] `harden-branch-guard-proto-decoding` Fail Fast on Invalid Typed BranchGuard Payloads
+7. [x] `harden-branch-guard-proto-decoding` Fail Fast on Invalid Typed BranchGuard Payloads
 
 Close review finding `F3` by tightening `ProtoConverter.decodeGuard` so a present `BranchGuard` message whose `oneof` is unset or otherwise unexpected is rejected instead of silently decoding to `None`. Keep valid `BoolGuard` and `MatchGuard` round-trips unchanged, but make malformed or forward-incompatible payloads fail closed so guarded branches cannot be decoded as unguarded ones. After the fix, rerun the focused typed/proto suites and the repo-required gate on the final post-review branch state.
 
@@ -194,3 +194,7 @@ Close review finding `F3` by tightening `ProtoConverter.decodeGuard` so a presen
 
 - Add a `ProtoConverterTest` negative decode regression for a branch with a present-but-empty or otherwise unrecognized `BranchGuard`, asserting decode failure instead of `Success(None)`.
 - Run `sbt "coreJVM/test:compile"`, focused `ProtoConverterTest`, `TypedExprTest`, and `TypedExprRecursionCheckTest` coverage, then rerun `scripts/test_basic.sh`.
+
+#### Completion Notes
+
+`ProtoConverter.decodeGuard` now treats a present `BranchGuard` whose `oneof` is unset as invalid typed-AST input and returns failure instead of `None`, so malformed or forward-incompatible payloads cannot erase guarded branches during decode. Added a `ProtoConverterTest` regression that mutates an encoded match branch to carry `Some(proto.BranchGuard())` and asserts decode failure, then reran `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.ProtoConverterTest dev.bosatsu.TypedExprTest dev.bosatsu.TypedExprRecursionCheckTest"` and `scripts/test_basic.sh`, all of which passed.

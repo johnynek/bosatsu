@@ -673,6 +673,72 @@ bar = 1
     testFn(expr)
   }
 
+  test("TypedExpr proto decode rejects present but unset branch guards") {
+    val intType = rankn.Type.IntType
+    val value = Identifier.Name("value")
+    val expr = TypedExpr.Match(
+      TypedExpr.Local(value, intType, Region(1, 2)),
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, Region(2, 3))
+        )(using Region(3, 4))
+      ),
+      Region(4, 5)
+    )
+
+    val decoded = ProtoConverter.runTab(ProtoConverter.typedExprToProto(expr)).flatMap {
+      case (ss, idx) =>
+        val decodedExpr = for {
+          rootExprProto <- ss.expressions.inOrder.lift(idx - 1) match {
+            case Some(exprProto) => Success(exprProto)
+            case None =>
+              Failure(new Exception(s"missing root expression at index $idx"))
+          }
+          matchProto <- rootExprProto.value match {
+            case proto.TypedExpr.Value.MatchExpr(m) => Success(m)
+            case other =>
+              Failure(new Exception(s"expected encoded match expr, got $other"))
+          }
+          mutatedRoot = rootExprProto.copy(
+            value = proto.TypedExpr.Value.MatchExpr(
+              matchProto.copy(
+                branches = matchProto.branches.updated(
+                  0,
+                  matchProto.branches.head.copy(guard = Some(proto.BranchGuard()))
+                )
+              )
+            )
+          )
+          mutatedExprs = ss.expressions.inOrder.updated(idx - 1, mutatedRoot)
+          ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
+          res <- {
+            for {
+              tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+              pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+              patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+              res <- ProtoConverter
+                .buildExprs(mutatedExprs)
+                .map(_(idx - 1))
+                .local[ProtoConverter.DecodeState](
+                  _.withTypes(tps).withPatterns(patTab)
+                )
+            } yield res
+          }.run(ds)
+        } yield res
+
+        decodedExpr
+    }
+
+    decoded match {
+      case Failure(err) =>
+        assert(err.getMessage.contains("invalid unset branch guard"))
+      case Success(decodedValue) =>
+        fail(s"expected invalid guard decode failure, got $decodedValue")
+    }
+  }
+
   test("packagesFromProto accepts interface/package name overlap") {
     forAll(Generators.genPackage(genRegion, 5)) { packMap =>
       val packs = packMap.values.toList
