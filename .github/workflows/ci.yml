@@ -35,7 +35,7 @@ jobs:
             --bosatsu_out="$generated_dir" \
             --proto_path=proto/src/main/protobuf \
             proto/src/main/protobuf/bosatsu/TypedAst.proto
-          ./bosatsuj lib fetch --repo_root . --name core_alpha
+          ./bosatsuj fetch --repo_root . --name core_alpha
           dep_hash="$(python3 -c 'import json, pathlib; conf = json.loads(pathlib.Path("test_workspace/core_alpha_conf.json").read_text()); print(conf["previous"]["hashes"][0].split(":", 1)[1])')"
           dep_path=".bosatsuc/cas/blake3/${dep_hash:0:2}/${dep_hash:2}"
           ./bosatsuj tool check \

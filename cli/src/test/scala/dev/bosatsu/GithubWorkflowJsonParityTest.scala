@@ -81,4 +81,25 @@ class GithubWorkflowJsonParityTest extends munit.FunSuite {
       )
     }
   }
+
+  test("ci workflow uses the current top-level fetch command for protobuf validation") {
+    val out = run(
+      "json",
+      "write",
+      "--name",
+      "core_alpha",
+      "--main",
+      "Bosatsu/Example/Json/Github/Workflows/Ci::workflow"
+    )
+
+    val rendered = out match {
+      case Output.JsonOutput(json, _) =>
+        json.render
+      case other =>
+        fail(s"expected JSON output, got: $other")
+    }
+
+    assert(rendered.contains("./bosatsuj fetch --repo_root . --name core_alpha"))
+    assert(!rendered.contains("./bosatsuj lib fetch --repo_root . --name core_alpha"))
+  }
 }
