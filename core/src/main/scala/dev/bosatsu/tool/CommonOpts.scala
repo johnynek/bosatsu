@@ -54,9 +54,6 @@ final class CommonOpts[F[_], P](platformIO: PlatformIO[F, P]) {
   val packageResolverOpts: Opts[PackageResolver[F, P]] =
     PackageResolver.opts(platformIO)
 
-  val noSearchPackageResolverOpts: Opts[PackageResolver[F, P]] =
-    PackageResolver.noSearchOpts(platformIO)
-
   val mainIdentifierOpt: Opts[MainIdentifier[P]] =
     MainIdentifier.opts(
       Opts.option[(PackageName, Option[Bindable])](

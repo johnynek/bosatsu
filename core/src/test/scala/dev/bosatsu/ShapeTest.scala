@@ -1,12 +1,68 @@
 package dev.bosatsu
 
-import dev.bosatsu.rankn.TypeEnv
+import cats.data.{Ior, NonEmptyChain, Validated}
+import dev.bosatsu.rankn.{DefinedType, ParsedTypeEnv, TypeAlias, TypeEnv}
+
 class ShapeTest extends munit.FunSuite {
+
+  private type SolvedType = DefinedType[Either[Shape.KnownShape, Kind.Arg]]
+  private type SolvedAlias = TypeAlias[Either[Shape.KnownShape, Kind.Arg]]
+
+  private def parsedTE(
+      teStr: String
+  ): ParsedTypeEnv[Option[Kind.Arg]] =
+    TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+
+  private def solveDefinedTypes(
+      te: ParsedTypeEnv[Option[Kind.Arg]]
+  ): List[SolvedType] =
+    Shape
+      .solveAll((), te.allDefinedTypes.reverse)
+      .fold(errs => fail(errs.toString), identity, (errs, _) => fail(errs.toString))
+
+  private def solveAliases(
+      imports: List[SolvedType],
+      aliases: List[TypeAlias[Option[Kind.Arg]]]
+  ): Ior[NonEmptyChain[Shape.Error], List[SolvedAlias]] = {
+    val (errs, solved) =
+      aliases.foldLeft((List.empty[Shape.Error], List.empty[SolvedAlias])) {
+        case ((errsAcc, solvedAcc), alias) =>
+          Shape.solveAlias((imports, solvedAcc), alias) match {
+            case Validated.Valid(good) =>
+              (errsAcc, good :: solvedAcc)
+            case Validated.Invalid(nec) =>
+              (nec.iterator.toList.reverse_:::(errsAcc), solvedAcc)
+          }
+      }
+
+    NonEmptyChain.fromSeq(errs.reverse) match {
+      case None if solved.isEmpty => Ior.Right(Nil)
+      case None                   => Ior.Right(solved.reverse)
+      case Some(nec) if solved.isEmpty =>
+        Ior.Left(nec)
+      case Some(nec) =>
+        Ior.Both(nec, solved.reverse)
+    }
+  }
+
+  private def parseShape(shapeStr: String): Shape.KnownShape =
+    Kind.parser.parseAll(shapeStr) match {
+      case Right(k) => Shape.shapeOf(k)
+      case Left(e)  => fail(s"parse error: $e")
+    }
+
+  private def getAlias(
+      aliases: List[TypeAlias[Option[Kind.Arg]]],
+      name: String
+  ): TypeAlias[Option[Kind.Arg]] =
+    aliases.find(_.name.asString == name).getOrElse {
+      fail(s"missing alias: $name")
+    }
 
   def makeTE(
       teStr: String
   ): Either[Any, TypeEnv[Either[Shape.KnownShape, Kind.Arg]]] = {
-    val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+    val te = parsedTE(teStr)
     Shape
       .solveAll((), te.allDefinedTypes.reverse)
       .fold(Left(_), Right(_), (a, _) => Left(a))
@@ -145,5 +201,72 @@ struct Foo(x: f[a], y: a[f])
     testIllShaped("""#
 struct Foo(x: f[a], y: f)
 """)
+  }
+
+  test("solveAlias infers alias shape from prior local types") {
+    val te = parsedTE("""#
+struct U
+struct Box(item: a)
+type Foo = Box[U]
+""")
+    val solvedDts = solveDefinedTypes(te)
+    val foo = getAlias(te.typeAliases.reverse, "Foo")
+
+    Shape.solveAlias(solvedDts, foo) match {
+      case Validated.Valid(alias) =>
+        assertEquals(Shape.ShapeOf(alias), parseShape("*"))
+      case Validated.Invalid(errs) =>
+        fail(errs.toString)
+    }
+  }
+
+  test("solveAliases supports alias chains") {
+    val te = parsedTE("""#
+struct U
+struct Box(item: a)
+type Foo = Box[U]
+type Bar = Foo
+type Wrap[a] = Box[a]
+""")
+    val solvedDts = solveDefinedTypes(te)
+
+    solveAliases(solvedDts, te.typeAliases.reverse) match {
+      case Ior.Right(aliases) =>
+        assertEquals(aliases.map(_.name.asString), List("Foo", "Bar", "Wrap"))
+        assertEquals(Shape.ShapeOf(aliases(0)), parseShape("*"))
+        assertEquals(Shape.ShapeOf(aliases(1)), parseShape("*"))
+        assertEquals(Shape.ShapeOf(aliases(2)), parseShape("* -> *"))
+      case Ior.Left(errs) =>
+        fail(errs.toString)
+      case Ior.Both(errs, _) =>
+        fail(errs.toString)
+    }
+  }
+
+  test("solveAliases keeps prior successes when a later alias fails") {
+    val te = parsedTE("""#
+struct U
+struct Box(item: a)
+type Good = Box[U]
+type Bad = Missing[U]
+""")
+    val solvedDts = solveDefinedTypes(te)
+
+    solveAliases(solvedDts, te.typeAliases.reverse) match {
+      case Ior.Both(errs, aliases) =>
+        assertEquals(aliases.map(_.name.asString), List("Good"))
+        assertEquals(Shape.ShapeOf(aliases.head), parseShape("*"))
+        assert(
+          errs.exists {
+            case Shape.UnknownConst(typeDecl, Shape.Source.AliasBody, _) =>
+              typeDecl.name.asString == "Bad"
+            case _ => false
+          }
+        )
+      case Ior.Left(errs) =>
+        fail(s"expected partial success, got only errors: ${errs.toString}")
+      case Ior.Right(aliases) =>
+        fail(s"expected alias failure, solved: ${aliases.map(_.name.asString)}")
+    }
   }
 }

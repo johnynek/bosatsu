@@ -1,144 +1,90 @@
 package dev.bosatsu
 
-import cats.data.NonEmptyList
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path}
+import java.util.Comparator
 import dev.bosatsu.tool.{ExitCode => ToolExitCode, Output}
-import org.scalacheck.{Arbitrary, Gen}
-import org.scalacheck.Prop.forAll
 import scala.concurrent.duration._
-import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 // allow us to unsafeRunSync
 import cats.effect.unsafe.implicits.global
 
-class PathModuleTest extends munit.ScalaCheckSuite {
+class PathModuleTest extends munit.FunSuite {
   override def munitTimeout: Duration = 6.minutes
 
-  import PathModule.platformIO.pathPackage
-
-  implicit val arbPath: Arbitrary[Path] =
-    Arbitrary {
-      val str = Gen.identifier
-
-      Gen.listOf(str).map(parts => Paths.get(parts.mkString("/")))
-    }
-
-  test("tool test some hand written examples") {
-    def pn(roots: List[String], file: String): Option[PackageName] =
-      pathPackage(roots.map(Paths.get(_)), Paths.get(file))
-
-    assertEquals(
-      pn(List("/root0", "/root1"), "/root0/Bar.bosatsu"),
-      Some(
-        PackageName(NonEmptyList.of("Bar"))
-      )
-    )
-    assertEquals(
-      pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu"),
-      Some(
-        PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assertEquals(
-      pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"),
-      Some(
-        PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assertEquals(
-      pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu"),
-      Some(
-        PackageName(NonEmptyList.of("Bar", "Baz"))
-      )
-    )
-    assertEquals(
-      pn(
-        List("/root0/ext", "/root0/Bar"),
-        "/root0/ext/Bar/Baz.bosatsu"
-      ),
-      Some(PackageName(NonEmptyList.of("Bar", "Baz")))
-    )
-    assertEquals(
-      pn(List("/root0"), "/root0/MyLib/Fib.bosatsu"),
-      Some(PackageName(NonEmptyList.of("MyLib", "Fib")))
-    )
-    assertEquals(
-      pn(List("/root0"), "/root0/mylib/fib.bosatsu"),
-      Some(PackageName(NonEmptyList.of("Mylib", "Fib")))
-    )
+  private def writeFile(path: Path, content: String): Unit = {
+    Files.createDirectories(path.getParent)
+    Files.writeString(path, content): Unit
   }
 
-  test("no roots means no Package") {
-    forAll { (p: Path) =>
-      assertEquals(pathPackage(Nil, p), None)
-    }
+  private def deleteRecursively(path: Path): Unit = {
+    val walk = Files.walk(path)
+    try {
+      walk.sorted(Comparator.reverseOrder()).forEach { p =>
+        Files.deleteIfExists(p)
+        ()
+      }
+    } finally walk.close()
   }
 
-  test("empty path is not okay for a package") {
-    forAll { (roots: List[Path]) =>
-      assertEquals(pathPackage(roots, Paths.get("")), None)
-    }
-  }
+  private def withLibraryRepo[A](fn: Path => A): A = {
+    val repo = Files.createTempDirectory("bosatsu-path-module-")
+    try {
+      Files.createDirectories(repo.resolve(".git"))
+      val initExit =
+        runAndReport(
+          "init",
+          "--repo_root",
+          repo.toString,
+        "--name",
+        "mylib",
+        "--repo_uri",
+        "https://example.com/mylib",
+          "--src_root",
+          "src",
+          "--version",
+          "0.0.1"
+        )
+      assertEquals(initExit, ToolExitCode.Success)
 
-  test("if we add to a path that becomes Package") {
-    def dropExtension(parts: List[String]): List[String] =
-      if (parts.isEmpty) Nil
-      else {
-        val init = parts.init
-        val last = parts.last
-        val idx = last.lastIndexOf('.')
-        val noExt = if (idx > 0) last.substring(0, idx) else last
-        init :+ noExt
-      }
-
-    def normalizePart(part: String): String =
-      if (part.isEmpty) part
-      else {
-        val ch = part.charAt(0)
-        if ('a' <= ch && ch <= 'z') ch.toUpper.toString + part.substring(1)
-        else part
-      }
-
-    def expected(parts: List[String]): Option[PackageName] = {
-      val noExt = dropExtension(parts)
-      val raw = noExt.mkString("/")
-      PackageName.parse(raw).orElse {
-        val normalized = noExt.map(normalizePart).mkString("/")
-        PackageName.parse(normalized)
-      }
-    }
-
-    def law(root: Path, otherRoots: List[Path], rest: Path) =
-      if (rest.toString != "" && root.toString != "") {
-        val path = root.resolve(rest)
-        val pack = expected(rest.asScala.map(_.toString).toList)
-        assertEquals(pathPackage(root :: otherRoots, path), pack)
-      }
-
-    val prop = forAll(law(_, _, _))
-    // some regressions:
-    val regressions: List[(Path, List[Path], Path)] =
-      List(
-        (Paths.get(""), Nil, Paths.get("/foo/bar")),
-        (Paths.get(""), List(Paths.get("")), Paths.get("/foo/bar"))
+      writeFile(
+        repo.resolve("src/Bosatsu/Prog.bosatsu"),
+        """package Bosatsu/Prog
+          |
+          |export Main(), Prog(), pure
+          |
+          |enum Prog[e, a]:
+          |  Pure(value: a)
+          |  Raise(err: e)
+          |
+          |struct Main(run: List[String] -> Prog[String, Int])
+          |
+          |def pure(a):
+          |  Pure(a)
+          |""".stripMargin
+      )
+      writeFile(
+        repo.resolve("src/MyLib/Foo.bosatsu"),
+        """package MyLib/Foo
+          |
+          |from Bosatsu/Prog import Main, pure
+          |
+          |export main, runner
+          |exposes Bosatsu/Prog
+          |
+          |main = 42
+          |
+          |runner = Main(args -> match args:
+          |  case [_, "--compact"]:
+          |    pure(0)
+          |  case _:
+          |    pure(1)
+          |)
+          |""".stripMargin
       )
 
-    regressions.foreach { case (r, o, e) => law(r, o, e) }
-    prop
-  }
-
-  test("if none of the roots are prefixes we have none") {
-    forAll { (r0: Path, roots0: List[Path], file: Path) =>
-      val roots = (r0 :: roots0).filterNot(_.toString == "")
-      val pack = pathPackage(roots, file)
-
-      val noPrefix = !roots.exists { r =>
-        file.asScala.toList.startsWith(r.asScala.toList)
-      }
-
-      if (noPrefix) assertEquals(pack, None)
-    }
+      fn(repo)
+    } finally deleteRecursively(repo)
   }
 
   def run(args: String*): Output[Path] =
@@ -165,8 +111,141 @@ class PathModuleTest extends munit.ScalaCheckSuite {
         }
     }
 
+  private def helpText(args: String*): String =
+    PathModule.run(args.toList) match {
+      case Left(help) => help.toString
+      case Right(_)   =>
+        fail(s"expected help output for command: ${args.toList.mkString(" ")}")
+    }
+
+  private def subcommands(helpText: String): List[String] =
+    helpText.linesIterator
+      .dropWhile(_ != "Subcommands:")
+      .drop(1)
+      .collect { case line if line.startsWith("    ") && !line.startsWith("        ") =>
+        line.trim
+      }
+      .toList
+
+  test("root help lists top-level commands in the intended order") {
+    val msg = helpText("--help")
+    assertEquals(
+      subcommands(msg),
+      List(
+        "check",
+        "test",
+        "build",
+        "json",
+        "doc",
+        "publish",
+        "eval",
+        "fetch",
+        "deps",
+        "list",
+        "show",
+        "assemble",
+        "init",
+        "tool",
+        "version",
+        "c-runtime"
+      )
+    )
+    assert(!msg.contains("\n  lib"), msg)
+  }
+
+  test("tool help lists subcommands in the intended order") {
+    assertEquals(
+      subcommands(helpText("tool", "--help")),
+      List(
+        "check",
+        "test",
+        "transpile",
+        "json",
+        "doc",
+        "eval",
+        "deps",
+        "show",
+        "assemble",
+        "extract-iface"
+      )
+    )
+  }
+
+  test("top-level library commands use repo mode") {
+    withLibraryRepo { repo =>
+      assertEquals(
+        runAndReport("check", "--repo_root", repo.toString),
+        ToolExitCode.Success
+      )
+
+      run(
+        "json",
+        "write",
+        "--repo_root",
+        repo.toString,
+        "--main",
+        "MyLib/Foo::main"
+      ) match {
+        case Output.JsonOutput(Json.JNumberStr("42"), _) => ()
+        case other                                       =>
+          fail(s"expected json output, got: $other")
+      }
+
+      run(
+        "show",
+        "--repo_root",
+        repo.toString,
+        "--package",
+        "MyLib/Foo"
+      ) match {
+        case Output.ShowOutput(Output.ShowValue.Typed(packs, _, _, _), _) =>
+          assertEquals(packs.map(_.name.asString), List("MyLib/Foo"))
+        case other =>
+          fail(s"expected show output, got: $other")
+      }
+    }
+  }
+
+  test("top-level eval --run accepts delimiter-separated args") {
+    withLibraryRepo { repo =>
+      assertEquals(
+        runAndReport(
+          "eval",
+          "--repo_root",
+          repo.toString,
+          "--main",
+          "MyLib/Foo::runner",
+          "--run",
+          "--",
+          "--compact"
+        ),
+        ToolExitCode.Success
+      )
+    }
+  }
+
+  test("tool subcommands reject removed package-root options") {
+    val badCommands = List(
+      "tool check --package_root test_workspace --input test_workspace/Foo.bosatsu",
+      "tool test --search --test_file test_workspace/Bar.bosatsu"
+    )
+
+    badCommands.foreach { command =>
+      PathModule.run(command.split("\\s+").toList) match {
+        case Left(help) =>
+          val msg = help.toString
+          assert(
+            msg.contains("Unexpected option") || msg.contains("Unexpected argument"),
+            msg
+          )
+        case Right(_)   =>
+          fail(s"expected parse failure for command: $command")
+      }
+    }
+  }
+
   test("tool test direct run of a file") {
-    val deps = List("Nat", "List", "Bool", "Rand", "Properties", "BinNat")
+    val deps = List("Nat", "List", "Bool", "Int64", "Rand", "Properties", "BinNat")
     val inputs =
       deps.map(n => s"--input test_workspace/${n}.bosatsu").mkString(" ")
     val out = run(
@@ -187,7 +266,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search run of a file") {
     val out = run(
-      "tool test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu"
+      "tool test --input test_workspace/Foo.bosatsu --test_file test_workspace/Bar.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -205,16 +284,45 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool eval --run executes Bosatsu/FibBench::main") {
     val cmd =
-      "tool eval --run --package_root test_workspace --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu 20"
+      "tool eval --run --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu 20"
         .split("\\s+")
         .toSeq
     val exitCode = runAndReport(cmd*)
     assertEquals(exitCode, ToolExitCode.Success)
   }
 
+  test("tool eval --run accepts delimiter-separated args") {
+    val cmd =
+      "tool eval --run --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu -- 20"
+        .split("\\s+")
+        .toSeq
+    val exitCode = runAndReport(cmd*)
+    assertEquals(exitCode, ToolExitCode.Success)
+  }
+
+  test("tool eval delimiter args without --run return trailing args error") {
+    val cmd =
+      "tool eval --main Bosatsu/FibBench::main --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu -- --compact"
+        .split("\\s+")
+        .toList
+
+    PathModule.run(cmd) match {
+      case Left(help) =>
+        fail(s"got help: $help on command: ${cmd.mkString(" ")}")
+      case Right(io)  =>
+        io.attempt.unsafeRunSync() match {
+          case Left(err) =>
+            val msg = Option(err.getMessage).getOrElse(err.toString)
+            assert(msg.contains("trailing args require --run"), msg)
+          case Right(out) =>
+            fail(s"expected trailing-args failure, got output: $out")
+        }
+    }
+  }
+
   test("tool test python transpile on the entire test_workspace") {
     val out = run(
-      "tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
+      "tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu python --outdir pyout --externals test_workspace/Prog.bosatsu_externals --evaluators test_workspace/Prog.bosatsu_eval"
         .split("\\s+")
         .toSeq*
     )
@@ -228,7 +336,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
   test("tool test search with json write") {
 
     val out = run(
-      "tool json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu"
+      "tool json write --input test_workspace/Foo.bosatsu --main_file test_workspace/Bar.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -248,7 +356,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search with json write --yaml") {
     val out = run(
-      "tool json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu --yaml"
+      "tool json write --input test_workspace/Foo.bosatsu --main_file test_workspace/Bar.bosatsu --yaml"
         .split("\\s+")
         .toSeq*
     )
@@ -266,7 +374,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search json apply") {
     val cmd =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/Num/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[2, 4]"
 
@@ -278,7 +386,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("tool test search json traverse") {
     val cmd =
-      "tool json traverse --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
+      "tool json traverse --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/Num/Nat::mult --json_string"
         .split("\\s+")
         .toList :+ "[[2, 4], [3, 5]]"
 
@@ -305,7 +413,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
     // ill-typed json fails
     val cmd =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult --json_string"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/Num/Nat::mult --json_string"
     fails(cmd, "[\"2\", 4]")
     fails(cmd, "[2, \"4\"]")
     // wrong arity
@@ -314,17 +422,17 @@ class PathModuleTest extends munit.ScalaCheckSuite {
     fails(cmd, "[]")
     // unknown command fails
     val badName =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::foooooo --json_string 23"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/Num/Nat::foooooo --json_string 23"
     fails(badName)
     val badPack =
-      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/DoesNotExist --json_string 23"
+      "tool json apply --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/DoesNotExist --json_string 23"
     fails(badPack)
     // bad json fails
     fails(cmd, "[\"2\", foo, bla]")
     fails(cmd, "[42, 31] and some junk")
     // exercise unsupported, we cannot write mult, it is a function
     fails(
-      "tool json write --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --package_root test_workspace/ --main Bosatsu/Num/Nat::mult"
+      "tool json write --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu --main Bosatsu/Num/Nat::mult"
     )
     // a bad main name triggers help
     PathModule.run(
@@ -346,7 +454,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
   test("tool test running all test in test_workspace") {
 
     val out = run(
-      "tool test --package_root test_workspace --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu"
+      "tool test --input_dir test_workspace --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu"
         .split("\\s+")
         .toSeq*
     )
@@ -364,7 +472,7 @@ class PathModuleTest extends munit.ScalaCheckSuite {
 
   test("evaluation by name with shadowing") {
     run(
-      "tool json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x"
+      "tool json write --input test_workspace/Foo.bosatsu --main Foo::x"
         .split("\\s+")
         .toSeq*
     ) match {

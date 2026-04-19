@@ -4,10 +4,13 @@ import cats.{Applicative, Functor, Order, Parallel}
 import scala.collection.immutable.SortedMap
 
 import cats.syntax.all._
+import scala.util.hashing.MurmurHash3
 
 /** There are all the distinct imported names and the original ImportedName
   */
 case class ImportMap[A, B](toMap: SortedMap[Identifier, (A, ImportedName[B])]) {
+  override lazy val hashCode: Int =
+    MurmurHash3.caseClassHash(this)
   def apply(name: Identifier): Option[(A, ImportedName[B])] =
     toMap.get(name)
 

@@ -20,7 +20,7 @@ class MemoryMain[G[_]](
 
   def runWith(
       files: Iterable[(Chain[String], String)],
-      packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
+      packages: Iterable[(Chain[String], List[Package.Compiled])] = Nil,
       interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
   )(
       cmd: List[String]
@@ -45,7 +45,7 @@ object MemoryMain {
   object FileContent {
     case class Str(str: String) extends FileContent
     case class Bytes(bytes: Array[Byte]) extends FileContent
-    case class Packages(ps: List[Package.Typed[Unit]]) extends FileContent
+    case class Packages(ps: List[Package.Compiled]) extends FileContent
     case class Interfaces(ifs: List[Package.Interface]) extends FileContent
     case class Lib(lib: Hashed[Algo.Blake3, proto.Library]) extends FileContent
   }
@@ -140,7 +140,7 @@ object MemoryMain {
 
     def from[G[_]](
         files: Iterable[(Chain[String], String)],
-        packages: Iterable[(Chain[String], List[Package.Typed[Unit]])] = Nil,
+        packages: Iterable[(Chain[String], List[Package.Compiled])] = Nil,
         interfaces: Iterable[(Chain[String], List[Package.Interface])] = Nil
     )(implicit G: MonadError[G, Throwable]): G[State] =
       for {
@@ -251,12 +251,34 @@ object MemoryMain {
               Validated.valid(Chain.fromSeq(string.split("/", -1).toIndexedSeq))
         }
       def pathToString(path: Chain[String]): String = path.mkString_("/")
+      def parent(p: Path): Option[Path] =
+        p.toList match {
+          case Nil      => None
+          case _ :: Nil => None
+          case items    => Some(Chain.fromSeq(items.init))
+        }
       def system(command: String, args: List[String]) =
         moduleIOMonad.raiseError(
           new Exception(
             s"system not supported in memory mode: system($command, $args)"
           )
         )
+
+      def systemStdout(command: String, args: List[String]) =
+        moduleIOMonad.raiseError(
+          new Exception(
+            s"systemStdout not supported in memory mode: systemStdout($command, $args)"
+          )
+        )
+
+      def env(name: String) =
+        moduleIOMonad.pure(None)
+
+      def hostOs =
+        moduleIOMonad.pure("memory")
+
+      def hostArch =
+        moduleIOMonad.pure("memory")
 
       def gitShaHead = moduleIOMonad.raiseError(new Exception("no git sha"))
 
@@ -400,7 +422,7 @@ object MemoryMain {
         else None
       }
 
-      def readPackages(paths: List[Path]): F[List[Package.Typed[Unit]]] =
+      def readPackages(paths: List[Path]): F[List[Package.Compiled]] =
         StateT
           .get[G, MemoryMain.State]
           .flatMap { files =>
@@ -419,7 +441,7 @@ object MemoryMain {
                       )
                     } yield packs._2
                   case other =>
-                    moduleIOMonad.raiseError[List[Package.Typed[Unit]]](
+                    moduleIOMonad.raiseError[List[Package.Compiled]](
                       new Exception(s"expect Packages content, found: $other")
                     )
                 }
@@ -504,14 +526,6 @@ object MemoryMain {
         path.toList.lastOption.exists(_.endsWith(str))
       }
 
-      def pathPackage(
-          roots: List[Path],
-          packFile: Path
-      ): Option[PackageName] =
-        PlatformIO.pathPackage(roots, packFile) { (root, pf) =>
-          relativize(root, pf).map(_.iterator.toList)
-        }
-
       def writeFC(p: Path, fc: FileContent): F[Unit] =
         StateT.modifyF { state =>
           state.withFile(p, fc) match {
@@ -534,8 +548,8 @@ object MemoryMain {
       ): F[Unit] =
         writeFC(path, FileContent.Interfaces(ifaces))
 
-      def writePackages[A](packs: List[Package.Typed[A]], path: Path): F[Unit] =
-        writeFC(path, FileContent.Packages(packs.map(_.void)))
+      def writePackages(packs: List[Package.Compiled], path: Path): F[Unit] =
+        writeFC(path, FileContent.Packages(packs))
 
       def writeBytes(path: Path, bytes: Array[Byte]): F[Unit] =
         writeFC(path, FileContent.Bytes(bytes.clone()))

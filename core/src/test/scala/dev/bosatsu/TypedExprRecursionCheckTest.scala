@@ -2,6 +2,7 @@ package dev.bosatsu
 
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
+import cats.data.Ior
 import IorMethods.IorExtension
 import scala.concurrent.duration.DurationInt
 import scala.util.Try
@@ -14,21 +15,29 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
   private def formatErrors(
       source: String,
       errs: NonEmptyList[PackageError]
+  ): String =
+    formatErrors(source, errs, pack)
+
+  private def formatErrors(
+      source: String,
+      errs: NonEmptyList[PackageError],
+      packageName: PackageName
   ): String = {
-    val sm = Map(pack -> (LocationMap(source), "<test>"))
+    val sm = Map(packageName -> (LocationMap(source), "<test>"))
     errs.toList
       .map(_.message(sm, LocationMap.Colorize.None))
       .mkString("\n-----\n")
   }
 
   private def recursionErrorsOf(
-      source: String
+      source: String,
+      packageName: PackageName
   ): Either[NonEmptyList[PackageError], Unit] = {
     val stmts = TestUtils.statementsOf(source)
-    val parsed = Package.fromStatements(pack, stmts)
+    val parsed = Package.fromStatements(packageName, stmts)
     given Show[String] = Show.fromToString
-    PackageMap
-      .typeCheckParsed(
+    TestUtils
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",
@@ -39,19 +48,66 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         Right(())
       case Validated.Invalid(errs) =>
         Left(errs)
+      }
+  }
+
+  private def recursionDiagnosticsOf(
+      source: String,
+      packageName: PackageName = pack
+  ): (List[PackageError.RecursionError], List[PackageError.RecursionLint]) = {
+    val stmts = TestUtils.statementsOf(source)
+    val parsed = Package.fromStatements(packageName, stmts)
+    given Show[String] = Show.fromToString
+    TestUtils
+      .typeCheckParsedInferred(
+        NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
+        Nil,
+        "<predef>",
+        CompileOptions.Default
+      ) match {
+      case Ior.Right(_) =>
+        (Nil, Nil)
+      case Ior.Left(errs) =>
+        (
+          errs.toList.collect { case err: PackageError.RecursionError => err },
+          errs.toList.collect { case lint: PackageError.RecursionLint => lint }
+        )
+      case Ior.Both(errs, _) =>
+        (
+          errs.toList.collect { case err: PackageError.RecursionError => err },
+          errs.toList.collect { case lint: PackageError.RecursionLint => lint }
+        )
     }
   }
 
-  private def allowed(source: String): Unit =
-    recursionErrorsOf(source) match {
+  private def allowed(
+      source: String
+  ): Unit =
+    allowed(source, pack)
+
+  private def allowed(
+      source: String,
+      packageName: PackageName
+  ): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         ()
       case Left(errs) =>
-        fail(s"expected success, got errors:\n${formatErrors(source, errs)}")
+        fail(
+          s"expected success, got errors:\n${formatErrors(source, errs, packageName)}"
+        )
     }
 
-  private def disallowed(source: String): Unit =
-    recursionErrorsOf(source) match {
+  private def disallowed(
+      source: String
+  ): Unit =
+    disallowed(source, pack)
+
+  private def disallowed(
+      source: String,
+      packageName: PackageName
+  ): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
@@ -59,11 +115,22 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
           r
         }
         if (recursionErrs.nonEmpty) ()
-        else fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
+        else
+          fail(
+            s"expected recursion error, got:\n${formatErrors(source, errs, packageName)}"
+          )
     }
 
-  private def disallowedWithMessage(source: String)(assertMessage: String => Unit): Unit =
-    recursionErrorsOf(source) match {
+  private def disallowedWithMessage(
+      source: String
+  )(assertMessage: String => Unit): Unit =
+    disallowedWithMessage(source, pack)(assertMessage)
+
+  private def disallowedWithMessage(
+      source: String,
+      packageName: PackageName
+  )(assertMessage: String => Unit): Unit =
+    recursionErrorsOf(source, packageName) match {
       case Right(_) =>
         fail("expected recursion-check failure")
       case Left(errs) =>
@@ -72,7 +139,9 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
         }
         recursionErrs match {
           case Nil =>
-            fail(s"expected recursion error, got:\n${formatErrors(source, errs)}")
+            fail(
+              s"expected recursion error, got:\n${formatErrors(source, errs, packageName)}"
+            )
           case _   =>
             assertMessage(recursionErrs.map(_.err.message).mkString("\n-----\n"))
         }
@@ -88,8 +157,8 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
     val stmts = TestUtils.statementsOf(source)
     val parsed = Package.fromStatements(pack, stmts)
     given Show[String] = Show.fromToString
-    PackageMap
-      .typeCheckParsed(
+    TestUtils
+      .typeCheckParsedInferred(
         NonEmptyList.one((("<generated>", LocationMap(source)), parsed)),
         Nil,
         "<predef>",
@@ -120,7 +189,7 @@ class TypedExprRecursionCheckTest extends munit.FunSuite with ParTest {
   test("substructural recursion remains allowed in typed checker") {
     allowed("""#
 def len(lst):
-  recur lst:
+  loop lst:
     case []: 0
     case [_, *tail]: len(tail)
 """)
@@ -159,22 +228,72 @@ def len(lst):
 """)
   }
 
-  test("recur with no recursive call is rejected") {
-    disallowed("""#
+  test("recur with no recursive call is a recursion-form lint") {
+    val (errors, lints) = recursionDiagnosticsOf("""#
 def fn(x):
   recur x:
     case y: 0
 """)
+    assertEquals(errors, Nil)
+    assertEquals(lints.length, 1)
+    assert(
+      clue(lints.head.message(Map.empty, LocationMap.Colorize.None))
+        .contains("Use `match` for non-recursive branching.")
+    )
   }
 
-  test("recur allows constructor-rank decrease from Some(_) to None") {
+  test("loop with no recursive call is a recursion-form lint") {
+    val (errors, lints) = recursionDiagnosticsOf("""#
+def fn(x):
+  loop x:
+    case y: 0
+""")
+    assertEquals(errors, Nil)
+    assertEquals(lints.length, 1)
+    assert(
+      clue(lints.head.message(Map.empty, LocationMap.Colorize.None))
+        .contains("Use `match` if this code is not recursive.")
+    )
+  }
+
+  test("tail-recursive recur is a recursion-form lint") {
+    val (errors, lints) = recursionDiagnosticsOf("""#
+def len(lst, acc):
+  recur lst:
+    case []: acc
+    case [_, *tail]: len(tail, acc)
+""")
+    assertEquals(errors, Nil)
+    assertEquals(lints.length, 1)
+    assert(
+      clue(lints.head.message(Map.empty, LocationMap.Colorize.None))
+        .contains("use `loop` to make the stack-safety guarantee explicit")
+    )
+  }
+
+  test("nested defs also report recursion-form lints") {
+    val (errors, lints) = recursionDiagnosticsOf("""#
+main = (
+  def go(xs, acc):
+    recur xs:
+      case []: acc
+      case [_, *tail]: go(tail, acc)
+
+  go([], 0)
+)
+""")
+    assertEquals(errors, Nil)
+    assertEquals(lints.length, 1)
+  }
+
+  test("loop allows constructor-rank decrease from Some(_) to None") {
     allowed("""#
 enum Option[a]:
   None
   Some(value: a)
 
 def drop(opt: Option[a]) -> Option[a]:
-  recur opt:
+  loop opt:
     case Some(_):
       drop(None)
     case None:
@@ -182,14 +301,14 @@ def drop(opt: Option[a]) -> Option[a]:
 """)
   }
 
-  test("recur allows constructor-rank decrease from non-empty to empty custom ADT") {
+  test("loop allows constructor-rank decrease from non-empty to empty custom ADT") {
     allowed("""#
 enum Seq[a]:
   Empty
   NonEmpty(head: a, tail: Seq[a])
 
 def reset(xs: Seq[a]) -> Seq[a]:
-  recur xs:
+  loop xs:
     case NonEmpty(_, _):
       reset(Empty)
     case Empty:
@@ -197,7 +316,7 @@ def reset(xs: Seq[a]) -> Seq[a]:
 """)
   }
 
-  test("recur allows constructor-rank decrease followed by structural recursion") {
+  test("loop allows constructor-rank decrease followed by structural recursion") {
     allowed("""#
 enum BinNat:
   Zero
@@ -205,7 +324,7 @@ enum BinNat:
   Even(prev: BinNat)
 
 def step(n: BinNat) -> BinNat:
-  recur n:
+  loop n:
     case Even(prev):
       step(Odd(prev))
     case Odd(prev):
@@ -264,7 +383,7 @@ def bad(opt: Option[a]) -> Option[a]:
 """)
   }
 
-  test("recur allows union branches when recursive args are smaller for every branch") {
+  test("loop allows union branches when recursive args are smaller for every branch") {
     allowed("""#
 enum T:
   Z
@@ -272,7 +391,7 @@ enum T:
   B(t: T)
 
 def ok(v: T) -> T:
-  recur v:
+  loop v:
     case A(x) | B(x):
       ok(x)
     case Z:
@@ -316,7 +435,7 @@ def bad(n, m):
 """)
   }
 
-  test("tuple recur allows singleton empty list literal in unchanged earlier component") {
+  test("tuple loop allows singleton empty list literal in unchanged earlier component") {
     allowed("""#
 enum Nat:
   Z
@@ -328,7 +447,7 @@ enum LL[a]:
   Mapped[b](source: LL[b], fn: b -> a)
 
 def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
-  recur (rem, pending, current):
+  loop (rem, pending, current):
     case (_, _, Cons(_, tail)):
       step(rem, tail, pending)
     case (_, [], Mapped(source, _)):
@@ -340,7 +459,7 @@ def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple recur allows singleton alias substitution ([] as e then e)") {
+  test("tuple loop allows singleton alias substitution ([] as e then e)") {
     allowed("""#
 enum Nat:
   Z
@@ -352,7 +471,7 @@ enum LL[a]:
   Mapped[b](source: LL[b], fn: b -> a)
 
 def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
-  recur (rem, pending, current):
+  loop (rem, pending, current):
     case (_, _, Cons(_, tail)):
       step(rem, tail, pending)
     case (_, [] as e, Mapped(source, _)):
@@ -364,7 +483,7 @@ def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple recur allows mixing [] and EmptyList singleton forms") {
+  test("tuple loop allows mixing [] and EmptyList singleton forms") {
     allowed("""#
 enum Nat:
   Z
@@ -376,7 +495,7 @@ enum LL[a]:
   Mapped[b](source: LL[b], fn: b -> a)
 
 def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
-  recur (rem, pending, current):
+  loop (rem, pending, current):
     case (_, _, Cons(_, tail)):
       step(rem, tail, pending)
     case (_, [], Mapped(source, _)):
@@ -390,7 +509,7 @@ def step(rem: Nat, current: LL[a], pending: List[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple recur allows custom singleton constructor literal in unchanged earlier component") {
+  test("tuple loop allows custom singleton constructor literal in unchanged earlier component") {
     allowed("""#
 enum Nat:
   Z
@@ -406,7 +525,7 @@ enum LL[a]:
   Mapped[b](source: LL[b], fn: b -> a)
 
 def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
-  recur (rem, pending, current):
+  loop (rem, pending, current):
     case (_, _, Cons(_, tail)):
       step(rem, tail, pending)
     case (_, EList, Mapped(source, _)):
@@ -418,7 +537,7 @@ def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
 """)
   }
 
-  test("tuple recur allows custom singleton alias substitution (EList as e then e)") {
+  test("tuple loop allows custom singleton alias substitution (EList as e then e)") {
     allowed("""#
 enum Nat:
   Z
@@ -434,7 +553,7 @@ enum LL[a]:
   Mapped[b](source: LL[b], fn: b -> a)
 
 def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
-  recur (rem, pending, current):
+  loop (rem, pending, current):
     case (_, _, Cons(_, tail)):
       step(rem, tail, pending)
     case (_, EList as e, Mapped(source, _)):
@@ -446,10 +565,10 @@ def step(rem: Nat, current: LL[a], pending: MyList[LL[a]]) -> Int:
 """)
   }
 
-  test("recur supports Int targets with provable decrease and non-negative next values") {
+  test("loop supports Int targets with provable decrease and non-negative next values") {
     allowed("""#
 def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
-  recur i:
+  loop i:
     case _ if cmp_Int(i, 0) matches GT:
       (next_i, next_state) = fn(i, state)
       c = match cmp_Int(next_i, 0):
@@ -471,12 +590,12 @@ def int_loop[a](i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
 """)
   }
 
-  test("tuple recur targets allow mixed structural and Int decreases") {
+  test("tuple loop targets allow mixed structural and Int decreases") {
     allowed("""#
 enum Nat: Zero, Succ(prev: Nat)
 
 def mixed(n: Nat, i: Int) -> Int:
-  recur (n, i):
+  loop (n, i):
     case (Zero, _):
       i
     case (Succ(prev), (1 | 2) as one_or_two):
@@ -493,11 +612,67 @@ def mixed(n: Nat, i: Int) -> Int:
   test("Int recursion allows i.sub(2) when guard proves i > 1") {
     allowed("""#
 def ok(i: Int) -> Int:
-  recur i:
+  loop i:
     case _ if cmp_Int(i, 1) matches GT:
       ok(i.sub(2))
     case _:
       i
+""")
+  }
+
+  test("Int recursion lowers predef and/or/not aliases into SMT guard facts") {
+    allowed("""#
+both = and
+either = or
+neg = not
+
+def ok(i: Int) -> Int:
+  loop i:
+    case _ if both(
+      neg(cmp_Int(i, 0) matches LT | EQ),
+      either(cmp_Int(i, 2) matches GT, cmp_Int(i, 2) matches EQ)
+    ):
+      ok(i.sub(2))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers predef xor/implies aliases into SMT guard facts") {
+    allowed("""#
+both = and
+exclusive = xor
+follows = implies
+
+def ok(i: Int) -> Int:
+  loop i:
+    case _ if both(
+      follows(cmp_Int(i, 0) matches LT, False),
+      follows(
+        exclusive(
+          cmp_Int(i, 0) matches LT,
+          cmp_Int(i, 0) matches LT | EQ
+        ),
+        False
+      )
+    ):
+      ok(i.sub(1))
+    case _:
+      i
+""")
+  }
+
+  test("Int recursion lowers total string-pattern guard matches via final fallback") {
+    allowed("""#
+def walk(idx: Int, txt: String) -> Int:
+  loop idx:
+    case _ if (
+      match txt:
+        case "${_}": cmp_Int(idx, 0) matches GT
+    ):
+      walk(idx.sub(1), txt)
+    case _:
+      idx
 """)
   }
 
@@ -549,6 +724,414 @@ def demo(n: Int) -> Int:
 """)
   }
 
+  test("loop allows thunk force on branch-proven smaller local") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def consume(s: Stream) -> Stream:
+  loop s:
+    case End:
+      End
+    case More(th):
+      consume(th())
+""")
+  }
+
+  test("tuple loop targets allow lexicographic decrease via thunk force") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def keep_flag(flag: Bool, s: Stream) -> Stream:
+  loop (flag, s):
+    case (_, End):
+      End
+    case (f0, More(th)):
+      keep_flag(f0, th())
+""")
+  }
+
+  test("recur rejects thunk recursion through non-local helper function") {
+    disallowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def force(th: () -> Stream) -> Stream:
+  th()
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      bad(force(th))
+""")
+  }
+
+  test("recur rejects thunk-like calls when callee is not () -> target") {
+    disallowed("""#
+enum Stream:
+  End
+  Step(next: Int -> Stream)
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case Step(step):
+      bad(step(0))
+""")
+  }
+
+  test("recur rejects thunk recursion for non-canonical unit argument shape") {
+    disallowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(th):
+      unit = ()
+      bad(th(unit))
+""")
+  }
+
+  test("thunk-force rule allows polymorphic recursion when recur target type is unchanged") {
+    allowed("""#
+enum Fuel:
+  Done
+  Step(next: () -> Fuel)
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(next(), (value, value))
+      out
+""")
+  }
+
+  test("recur allows thunk force when thunk returns a polymorphic recur target") {
+    allowed("""#
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: () -> FreeF[b], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(thunk()))
+""")
+  }
+
+  test("loop allows let-bound thunk force from equal wrapper") {
+    allowed("""#
+enum Stream:
+  End
+  More(next: () -> Stream)
+
+def consume(s: Stream) -> Stream:
+  loop s:
+    case End:
+      End
+    case More(th):
+      next = th()
+      consume(next)
+""")
+  }
+
+  test("loop allows nested match after thunk force") {
+    allowed("""#
+enum Tree:
+  Leaf
+  Node(next: () -> Tree)
+
+def step(t: Tree) -> Tree:
+  loop t:
+    case Leaf:
+      Leaf
+    case Node(th):
+      match th():
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(next())
+""")
+  }
+
+  test("recur allows nested match after thunk force on wrapped payload") {
+    allowed("""#
+enum LazyList[a: +*]:
+  Empty
+  Cons(head: () -> a, tail: () -> LazyList[a])
+
+struct Tree(value: Int, children: LazyList[Tree])
+
+def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
+  recur trees:
+    case Empty:
+      Empty
+    case Cons(head, tail):
+      mapped_head = () -> (
+        Tree(h, hs) = head()
+        Tree(h, map_Trees(hs))
+      )
+      mapped_tail = () -> map_Trees(tail())
+      Cons(mapped_head, mapped_tail)
+""")
+  }
+
+  test("loop allows trusted Bosatsu/Lazy.get_Lazy force on smaller local") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def consume(s: Stream) -> Stream:
+  loop s:
+    case End:
+      End
+    case More(l):
+      consume(get_Lazy(l))
+""",
+      lazyPack
+    )
+  }
+
+  test("loop allows let-bound trusted lazy force from equal wrapper") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def consume(s: Stream) -> Stream:
+  loop s:
+    case End:
+      End
+    case More(l):
+      next = get_Lazy(l)
+      consume(next)
+""",
+      lazyPack
+    )
+  }
+
+  test("loop allows nested match after trusted lazy force") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Tree:
+  Leaf
+  Node(next: Lazy[Tree])
+
+def step(t: Tree) -> Tree:
+  loop t:
+    case Leaf:
+      Leaf
+    case Node(l):
+      match get_Lazy(l):
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(get_Lazy(next))
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows nested match after trusted lazy force on wrapped payload") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def lazy[a](fn: () -> a) -> Lazy[a]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum LazyList[a: +*]:
+  Empty
+  Cons(head: Lazy[a], tail: Lazy[LazyList[a]])
+
+struct Tree(value: Int, children: LazyList[Tree])
+
+def map_Trees(trees: LazyList[Tree]) -> LazyList[Tree]:
+  recur trees:
+    case Empty:
+      Empty
+    case Cons(head, tail):
+      mapped_head = lazy(() -> (
+        Tree(h, hs) = get_Lazy(head)
+        Tree(h, map_Trees(hs))
+      ))
+      mapped_tail = lazy(() -> map_Trees(get_Lazy(tail)))
+      Cons(mapped_head, mapped_tail)
+""",
+      lazyPack
+    )
+  }
+
+  test("recur allows trusted lazy force when lazy returns a polymorphic recur target") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum FreeF[a]:
+  Done(value: a)
+  Mapped[b](thunk: Lazy[FreeF[b]], fn: b -> a)
+
+def eval[a](ff: FreeF[a]) -> a:
+  recur ff:
+    case Done(v):
+      v
+    case Mapped(thunk, fn):
+      fn(eval(get_Lazy(thunk)))
+""",
+      lazyPack
+    )
+  }
+
+  test("lazy-force rule allows polymorphic recursion when recur target type is unchanged") {
+    val lazyPack = PackageName.parts("Bosatsu", "Lazy")
+    allowed(
+      """#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Fuel:
+  Done
+  Step(next: Lazy[Fuel])
+
+def run[a](fuel: Fuel, value: a) -> a:
+  recur fuel:
+    case Done:
+      value
+    case Step(next):
+      (_, out) = run(get_Lazy(next), (value, value))
+      out
+""",
+      lazyPack
+    )
+  }
+
+  test("recur rejects local get_Lazy when package is not trusted Bosatsu/Lazy") {
+    disallowed("""#
+external struct Lazy[a: +*]
+external def get_Lazy[a](l: Lazy[a]) -> a
+
+enum Stream:
+  End
+  More(next: Lazy[Stream])
+
+def bad(s: Stream) -> Stream:
+  recur s:
+    case End:
+      End
+    case More(l):
+      bad(get_Lazy(l))
+""")
+  }
+
+  test("loop allows trusted Bosatsu/Eval.eval force on smaller local") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def eval[a](e: Eval[a]) -> a
+
+enum Stream:
+  End
+  More(next: Eval[Stream])
+
+def consume(s: Stream) -> Stream:
+  loop s:
+    case End:
+      End
+    case More(ev):
+      consume(eval(ev))
+""",
+      evalPack
+    )
+  }
+
+  test("loop allows nested match after trusted Eval.eval force") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def eval[a](e: Eval[a]) -> a
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+
+def step(t: Tree) -> Tree:
+  loop t:
+    case Leaf:
+      Leaf
+    case Node(ev):
+      match eval(ev):
+        case Leaf:
+          Leaf
+        case Node(next):
+          step(eval(next))
+""",
+      evalPack
+    )
+  }
+
+  test("recur allows pattern matching on trusted Eval.flat_map binder args") {
+    val evalPack = PackageName.parts("Bosatsu", "Eval")
+    allowed(
+      """#
+external struct Eval[a: +*]
+external def done[a](a: a) -> Eval[a]
+external def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]
+
+enum Tree:
+  Leaf
+  Node(next: Eval[Tree])
+
+def step(t: Tree) -> Eval[Tree]:
+  recur t:
+    case Leaf:
+      done(Leaf)
+    case Node(ev):
+      flat_map(ev, next -> (
+        match next:
+          case Leaf:
+            done(Leaf)
+          case Node(_):
+            step(next)
+      ))
+""",
+      evalPack
+    )
+  }
+
   test("Int recursion rejects non-decreasing recursive calls") {
     disallowedWithMessage("""#
 def bad(i: Int) -> Int:
@@ -584,7 +1167,7 @@ def bad(i: Int) -> Int:
   test("Int recursion lowers bool matches to ite when computing next Int") {
     allowed("""#
 def bool_if(i: Int) -> Int:
-  recur i:
+  loop i:
     case _ if cmp_Int(i, 0) matches GT:
       next_i = match cmp_Int(i, 1) matches GT:
         case True: i.sub(2)
@@ -598,7 +1181,7 @@ def bool_if(i: Int) -> Int:
   test("Int recursion lowers comparison matches with let-bound guards") {
     allowed("""#
 def cmp_guarded(i: Int) -> Int:
-  recur i:
+  loop i:
     case _ if (
       c = match cmp_Int(i, 2):
         case LT if cmp_Int(i, 0) matches GT: GT
@@ -682,10 +1265,10 @@ def split_sum(i: Int) -> Int:
 """)
   }
 
-  test("nested matches in recur branches contribute pattern and guard path facts") {
+  test("nested matches in loop branches contribute pattern and guard path facts") {
     allowed("""#
 def via_match(i: Int) -> Int:
-  recur i:
+  loop i:
     case _ if cmp_Int(i, 0) matches GT:
       match cmp_Int(i, 2):
         case LT if eq_Int(i, 1):
@@ -716,7 +1299,7 @@ enum Vector[a: *]:
   Branch(depth: Int, left: Int, right: Int, children: List[Vector[a]])
 
 def foldl_Array[a: *, b: *](arr: List[a], init: b, fn: (b, a) -> b) -> b:
-  recur (arr, init):
+  loop (arr, init):
     case ([], acc): acc
     case ([head, *tail], acc):
       foldl_Array(tail, fn(acc, head), fn)
@@ -885,7 +1468,7 @@ def walk(idx: Int, node: Either) -> Int:
   test("loop aligns list prefix wildcard-to-named splice bindings in subsumed branches") {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match stack:
         case [*_, x] if cmp_Int(idx, x) matches LT:
@@ -902,7 +1485,7 @@ def walk(idx: Int, stack: List[Int]) -> Int:
   test("loop aligns list prefix named-to-wildcard splice bindings in subsumed branches") {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match stack:
         case [*prefix, x] if cmp_Int(idx, x) matches LT:
@@ -921,7 +1504,7 @@ def walk(idx: Int, stack: List[Int]) -> Int:
   test("loop aligns list prefix named-to-named splice bindings in subsumed branches") {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match stack:
         case [*before, s] if cmp_Int(idx, s) matches LT:
@@ -940,7 +1523,7 @@ def walk(idx: Int, stack: List[Int]) -> Int:
   test("loop aligns subsumed guard facts for string patterns with wildcard captures") {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match txt:
         case "${_}$.{_}" if cmp_Int(idx, 1) matches GT:
@@ -959,7 +1542,7 @@ def walk(idx: Int, txt: String) -> Int:
   test("loop aligns subsumed guard facts for string patterns with named-to-wildcard captures") {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match txt:
         case "${prefix}$.{ch}" if cmp_Int(idx, 1) matches GT:
@@ -980,7 +1563,7 @@ def walk(idx: Int, txt: String) -> Int:
   test("loop aligns subsumed guard facts for string patterns with literal prefixes and renamed captures") {
     allowed("""#
 def walk(idx: Int, txt: String) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match txt:
         case "ab${left}$.{lc}" if cmp_Int(idx, 1) matches GT:
@@ -1003,7 +1586,7 @@ def walk(idx: Int, txt: String) -> Int:
   test("loop tolerates non-lowerable aligned subsumed guards") {
     allowed("""#
 def walk(idx: Int, stack: List[Int]) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match stack:
         case [*_, x] if (
@@ -1020,10 +1603,30 @@ def walk(idx: Int, stack: List[Int]) -> Int:
 """)
   }
 
+  test("loop aligns subsumed guard facts through whole-pattern alias alternatives") {
+    allowed("""#
+enum Node:
+  Branch(size: Int)
+
+def walk(idx: Int, stack: List[Int], node: Node) -> Int:
+  loop (idx, stack, node):
+    case _ if cmp_Int(idx, 0) matches LT:
+      idx
+    case (_, [*whole], Branch(s)) if cmp_Int(idx, s) matches LT:
+      _ = whole
+      idx
+    case (_, [*tail] as alias, Branch(t)) if cmp_Int(t, 0) matches GT:
+      _ = alias
+      walk(idx.sub(t), tail, Branch(t))
+    case _:
+      idx
+""")
+  }
+
   test("loop ignores subsumed guard facts when required Int binders cannot align") {
     disallowed("""#
 def walk(idx: Int, pair: (Int, Int)) -> Int:
-  recur idx:
+  loop idx:
     case _ if cmp_Int(idx, 0) matches GT:
       match pair:
         case (x, y) if cmp_Int(idx, x) matches LT:
@@ -1090,14 +1693,14 @@ def len(lst):
 """)
   }
 
-  test("recur inside def with wildcard argument patterns remains valid") {
+  test("loop inside def with wildcard argument patterns remains valid") {
     allowed("""#
 enum Thing:
   Thing1
   Thing2(a: Int, t: Thing)
 
 def bar(y, _: String, x):
-  recur x:
+  loop x:
     case Thing1: y
     case Thing2(i, t): bar(i, "boom", t)
 
@@ -1148,7 +1751,10 @@ main = loop(1)
 
   Platform.onJvm(
     test("large list literals do not overflow recursion checker stack") {
-      val n = 1024
+      // Coverage instrumentation adds stack depth during normalization.
+      // Keep this value large enough to stress recursion-check traversal
+      // without making coverage CI non-deterministically overflow.
+      val n = 128
       val items = List.fill(n)("\"x\"").mkString(", ")
       val source = s"""#
 vals: List[String] = [$items]

@@ -2,17 +2,8 @@ package StringPatternBranchTests
 
 export tests
 
-def andb(a: Bool, b: Bool) -> Bool:
-  if a:
-    b
-  else:
-    False
-
-def notb(a: Bool) -> Bool:
-  if a:
-    False
-  else:
-    True
+andb = and
+notb = not
 
 tests = TestSuite("String pattern branch tests", [
   Assertion(uncons_String("") matches None, "uncons empty"),

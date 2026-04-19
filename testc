@@ -26,7 +26,6 @@ check_create_mode_output() {
 
 ./bosatsuj tool transpile \
   --input test_workspace/Issue1633.bosatsu \
-  --package_root test_workspace/ \
   c --test --filter Issue1633 --outdir "$tmp_dir"
 
 cp c_runtime/*.h "$tmp_dir"/
@@ -81,7 +80,6 @@ cc $GC_CFLAGS -O2 -Wall -o "$tmp_dir/test_exe" \
   --input test_workspace/Bosatsu/IO/Core.bosatsu \
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu \
-  --package_root test_workspace/ \
   c --main Bosatsu/LsExample --outdir "$tmp_dir"
 
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/output.c" -o "$tmp_dir/ls_output.o"
@@ -107,7 +105,6 @@ check_ls_output "$ls_output"
   --input test_workspace/Bosatsu/IO/Bytes.bosatsu \
   --input test_workspace/Bosatsu/IO/Std.bosatsu \
   --input test_workspace/Bosatsu/IO/CreateModeMain.bosatsu \
-  --package_root test_workspace/ \
   c --main Bosatsu/IO/CreateModeMain --outdir "$tmp_dir"
 
 cc $GC_CFLAGS -O2 -Wall -c "$tmp_dir/output.c" -o "$tmp_dir/create_mode_output.o"

@@ -5,6 +5,7 @@ import cats.MonadError
 import cats.data.{NonEmptyChain, StateT, Validated, ValidatedNec}
 import cats.syntax.all._
 import dev.bosatsu.hashing.{Algo, Hashed, HashValue}
+import dev.bosatsu.graph.CanPromise
 import dev.bosatsu.tool.CliException
 import dev.bosatsu.{
   Kind,
@@ -216,35 +217,41 @@ object DecodedLibrary {
   def decode[F[_], A: Algo](
       protoLib: Hashed[A, proto.Library],
       dependencyIfaces: Iterable[Package.Interface] = Nil
-  )(implicit F: MonadError[F, Throwable]): F[DecodedLibrary[A]] =
+  )(implicit
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
+  ): F[DecodedLibrary[A]] =
     for {
-      ifsImpls <- F.fromTry(
-        ProtoConverter
-          .packagesFromProto(
-            protoLib.arg.exportedIfaces,
-            protoLib.arg.internalPackages,
-            dependencyIfaces
-          )
-      )
-      (ifs, impls) = ifsImpls
-      // TODO: should verify somewhere that all the package names are distinct, but since this is presumed to be
-      // a good library maybe that's a waste
       version <- F.fromEither(versionOf(protoLib))
-    } yield DecodedLibrary[A](
-      Name(protoLib.arg.name),
-      version,
-      protoLib.hash,
-      protoLib.arg,
-      ifs,
-      PackageMap(
-        impls.iterator.map(pack => (pack.name, pack)).to(SortedMap)
-      )
-    )
+      decoded <- C
+        .compute {
+          ProtoConverter
+            .packagesFromProto(
+              protoLib.arg.exportedIfaces,
+              protoLib.arg.internalPackages,
+              dependencyIfaces
+            )
+            .map { case (ifs, impls) =>
+              DecodedLibrary[A](
+                Name(protoLib.arg.name),
+                version,
+                protoLib.hash,
+                protoLib.arg,
+                ifs,
+                PackageMap(
+                  impls.iterator.map(pack => (pack.name, pack)).to(SortedMap)
+                )
+              )
+            }
+        }
+        .flatMap(F.fromTry)
+    } yield decoded
 
   def decodeWithDeps[F[_], A: Algo](
       protoLib: Hashed[A, proto.Library]
   )(getDep: proto.LibDependency => F[Hashed[A, proto.Library]])(implicit
-      F: MonadError[F, Throwable]
+      F: MonadError[F, Throwable],
+      C: CanPromise[F]
   ): F[DecodedLibrary[A]] = {
     type Key = (Name, Version)
     type Cache = Map[Key, DecodedLibrary[A]]

@@ -17,6 +17,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.md)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.md)
 * [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.md)
+* [Prog Concurrency API Design](prog_concurrency_design.md)
 * [`recur ... by int_decrease` Design](recur_int_decrease_design.md)
 @@@
 
@@ -34,6 +35,7 @@ This section collects implementation design documents for Bosatsu.
 * [Issue 1732: Match-Site Struct/Tuple Scrutinee Elision in `Matchless`](issue_1732_match_site_struct_scrutinee_elision_design.html)
 * [Lexicographic `recur` Tuple Design](lexicographic_recur_design.html)
 * [Minimal IO Functions for Basic Tools (`core_alpha` + `Prog`)](minimal_prog_io_tools_design.html)
+* [Prog Concurrency API Design](prog_concurrency_design.html)
 * [`recur ... by int_decrease` Design](recur_int_decrease_design.html)
 
 ## Notes

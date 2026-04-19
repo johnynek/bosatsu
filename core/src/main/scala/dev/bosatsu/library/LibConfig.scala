@@ -7,6 +7,7 @@ import cats.syntax.all._
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import dev.bosatsu.{
+  HasRegion,
   Json,
   Kind,
   Package,
@@ -33,23 +34,32 @@ import LibConfig.{
 
 case class LibConfig(
     name: Name,
-    repoUri: String,
-    nextVersion: Version,
+    repo_uri: String,
+    next_version: Version,
     previous: Option[proto.LibDescriptor],
-    exportedPackages: List[LibConfig.PackageFilter],
-    allPackages: List[LibConfig.PackageFilter],
-    publicDeps: List[proto.LibDependency],
-    privateDeps: List[proto.LibDependency],
-    defaultMain: Option[PackageName],
-    docBaseUrl: Option[String] = None
+    exported_packages: List[LibConfig.PackageFilter],
+    all_packages: List[LibConfig.PackageFilter],
+    public_deps: List[proto.LibDependency],
+    private_deps: List[proto.LibDependency],
+    default_main: Option[PackageName],
+    doc_base_url: Option[String] = None
 ) {
+  def repoUri: String = repo_uri
+  def nextVersion: Version = next_version
+  def exportedPackages: List[LibConfig.PackageFilter] = exported_packages
+  def allPackages: List[LibConfig.PackageFilter] = all_packages
+  def publicDeps: List[proto.LibDependency] = public_deps
+  def privateDeps: List[proto.LibDependency] = private_deps
+  def defaultMain: Option[PackageName] = default_main
+  def docBaseUrl: Option[String] = doc_base_url
+
 
   /** validate then unvalidatedAssemble
     */
-  def assemble(
+  def assemble[A: HasRegion](
       vcsIdent: String,
       previous: Option[DecodedLibrary[Algo.Blake3]],
-      packs: List[Package.Typed[Any]],
+      packs: List[Package.Typed[A]],
       deps: List[DecodedLibrary[Algo.Blake3]],
       publicDepClosureLibs: List[DecodedLibrary[Algo.Blake3]],
       prevPublicDepLibs: List[DecodedLibrary[Algo.Blake3]]
@@ -479,7 +489,7 @@ case class LibConfig(
       val validSet = validDepPacks.toSet
 
       exportedPacks.traverse_ { p =>
-        val depOn = p.visibleDepPackages
+        val depOn = p.exposedDepPackages
         val invalidDeps = depOn.filterNot(validSet)
         invalidDeps.traverse_ { badPn =>
           val msg =
@@ -513,7 +523,7 @@ case class LibConfig(
       val prop5 = {
         val exportedLibs = (for {
           p <- exportedPacks
-          visPack <- p.visibleDepPackages
+          visPack <- p.exposedDepPackages
           libName = packToLibName.get(visPack)
         } yield libName).toSet
 
@@ -570,7 +580,7 @@ case class LibConfig(
       validateDeps(deps)
 
   // just build the library without any validations
-  def unvalidatedAssemble[A](
+  def unvalidatedAssemble[A: HasRegion](
       previous: Option[DecodedLibrary[Algo.Blake3]],
       vcsIdent: String,
       packs: List[Package.Typed[A]],
@@ -910,15 +920,15 @@ object LibConfig {
   def init(name: Name, repoUri: String, ver: Version): LibConfig =
     LibConfig(
       name = name,
-      repoUri = repoUri,
-      nextVersion = ver,
+      repo_uri = repoUri,
+      next_version = ver,
       previous = None,
-      Nil,
-      LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
-      Nil,
-      Nil,
-      None,
-      None
+      exported_packages = Nil,
+      all_packages = LibConfig.PackageFilter.Regex(Pattern.compile(".*")) :: Nil,
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None,
+      doc_base_url = None
     )
 
   /** Compute the list of unused transitive dependencies if we can solve for
@@ -1229,77 +1239,7 @@ object LibConfig {
   }
 
   implicit val libConfigWriter: Json.Writer[LibConfig] =
-    Json.Writer.from[LibConfig] { lc =>
-      import Json.Writer.write
-      import lc._
-
-      implicit val writePn: Json.Writer[PackageName] =
-        Json.Writer[String].contramap[PackageName](_.asString)
-
-      Json.JObject(
-        ("name" -> write(name)) ::
-          ("repo_uri" -> write(repoUri)) ::
-          ("next_version" -> write(nextVersion)) ::
-          (previous match {
-            case None    => Nil
-            case Some(p) => ("previous" -> write(p)) :: Nil
-          }) :::
-          ("exported_packages" -> write(exportedPackages)) ::
-          ("all_packages" -> write(allPackages)) ::
-          (if (publicDeps.isEmpty) Nil
-           else ("public_deps" -> write(publicDeps)) :: Nil) :::
-          (if (privateDeps.isEmpty) Nil
-           else ("private_deps" -> write(privateDeps)) :: Nil) :::
-          (defaultMain match {
-            case None     => Nil
-            case Some(dm) => ("default_main" -> write(dm)) :: Nil
-          }) :::
-          (docBaseUrl match {
-            case None      => Nil
-            case Some(url) => ("doc_base_url" -> write(url)) :: Nil
-          }) :::
-          Nil
-      )
-    }
+    Json.Writer.derived[LibConfig]
   implicit val libConfigReader: Json.Reader[LibConfig] =
-    new Json.Reader.Obj[LibConfig] {
-      implicit val readPn: Json.Reader[PackageName] =
-        Json.Reader[String].mapEither("PackageName") { str =>
-          PackageName.parse(str) match {
-            case None        => Left(s"could not parse $str into package name")
-            case Some(value) => Right(value)
-          }
-        }
-      def describe: String = "LibConfig"
-      def readObj(
-          from: Json.Reader.FromObj
-      ): Either[(String, Json, Json.Path), LibConfig] =
-        for {
-          name <- from.field[Name]("name")
-          repoUri <- from.field[String]("repo_uri")
-          nextVersion <- from.field[Version]("next_version")
-          previous <- from.optional[proto.LibDescriptor]("previous")
-          exportedPackages <- from.field[List[PackageFilter]](
-            "exported_packages"
-          )
-          allPackages <- from.field[List[PackageFilter]]("all_packages")
-          publicDeps <- from.optional[List[proto.LibDependency]]("public_deps")
-          privateDeps <- from.optional[List[proto.LibDependency]](
-            "private_deps"
-          )
-          defaultMain <- from.optional[PackageName]("default_main")
-          docBaseUrl <- from.optional[String]("doc_base_url")
-        } yield LibConfig(
-          name = name,
-          repoUri = repoUri,
-          nextVersion = nextVersion,
-          previous = previous,
-          exportedPackages = exportedPackages,
-          allPackages = allPackages,
-          publicDeps = publicDeps.toList.flatten,
-          privateDeps = privateDeps.toList.flatten,
-          defaultMain = defaultMain,
-          docBaseUrl = docBaseUrl
-        )
-    }
+    Json.Reader.derived[LibConfig]
 }

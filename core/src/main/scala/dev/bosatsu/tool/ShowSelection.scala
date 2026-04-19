@@ -268,6 +268,8 @@ object ShowSelection {
         val neededByType = item.tag.exists {
           case Referant.DefinedT(dt) =>
             neededTypeConsts(dt.toTypeConst)
+          case Referant.TypeAliasT(ta) =>
+            neededTypeConsts(ta.toTypeConst)
           case Referant.Constructor(dt, _) =>
             neededTypeConsts(dt.toTypeConst)
           case Referant.Value(_) =>

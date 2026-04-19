@@ -1,6 +1,7 @@
 package dev.bosatsu
 
-import cats.data.{NonEmptyList, State, Writer}
+import cats.{Applicative, Eq, Eval, Id, Monad}
+import cats.data.{Chain, NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop
@@ -18,6 +19,26 @@ class TypedExprTest extends munit.ScalaCheckSuite {
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 500 else 50
     )
+
+  private val predefInterface: Package.Interface =
+    Package.interfaceOf(PackageMap.predefCompiled)
+
+  private val predefResolvedImport
+      : Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]] = {
+    val items =
+      predefInterface.exports
+        .groupBy(_.name)
+        .iterator
+        .map { case (name, exports) =>
+          ImportedName.OriginalName(
+            name,
+            NonEmptyList.fromListUnsafe(exports.map(_.tag))
+          )
+        }
+        .toList
+
+    Import(predefInterface, NonEmptyList.fromListUnsafe(items))
+  }
 
   /** Assert two bits of code normalize to the same thing
     */
@@ -1147,6 +1168,73 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites terminal guarded bool branches to branch expressions"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops terminal False fallback when its pattern is a subset"
+  ) {
+    val x = varTE("x", boolTpe)
+    val guardExpr = varTE("f", boolTpe)
+    val truePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
+    val falsePat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
+
+    val guardedTail = TypedExpr.Match(
+      x,
+      NonEmptyList.of(
+        TypedExpr.Branch(truePat, None, bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(falsePat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, x)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, truePat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, bool(true))
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected subset-pruned terminal bool rewrite, got: $other")
+    }
+  }
+
+  test(
     "normalization rewrites leading wildcard guards to a bool selector match"
   ) {
     val x = varTE("x", intTpe)
@@ -1248,6 +1336,171 @@ foo = _ -> 1
   }
 
   test(
+    "normalization rewrites terminal guarded bool branches for deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, suffixPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewritten trailing bool match, got: $other")
+    }
+  }
+
+  test(
+    "normalization drops redundant terminal False fallback after rewriting deterministic search bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val emptyPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(Nil)
+    val suffixPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(emptyPat, None, bool(false)),
+        TypedExpr.Branch(suffixPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(suffixPat, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.toList.count(_.pattern == suffixPat), 1)
+        assertEquals(branches1.last.pattern, suffixPat)
+        assertEquals(branches1.last.guard, None)
+        assertEquals(branches1.last.expr, guardExpr)
+      case other =>
+        fail(s"expected redundant False fallback to be removed, got: $other")
+    }
+  }
+
+  test(
+    "normalization keeps terminal guarded bool branches when search bindings are ambiguous"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val ambiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(ambiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    val normalized =
+      TypedExprNormalization.normalize(guardedTail).getOrElse(guardedTail)
+
+    normalized match {
+      case TypedExpr.Match(arg1, branches1, _) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, ambiguousPat)
+        assertEquals(branches1.head.guard, Some(guardExpr))
+        assertEquals(branches1.head.expr, bool(true))
+      case other =>
+        fail(s"expected guarded ambiguous search match to stay ordered, got: $other")
+    }
+  }
+
+  test(
+    "normalization rewrites terminal guarded bool branches when the guard ignores ambiguous bindings"
+  ) {
+    val listIntTpe = Type.apply1(Type.ListType, intTpe)
+    val xs = varTE("xs", listIntTpe)
+    val xName = Identifier.Name("x")
+    val yName = Identifier.Name("y")
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val partiallyAmbiguousPat: Pattern[(PackageName, Constructor), Type] =
+      Pattern.ListPat(
+        Pattern.ListPart.Item(Pattern.Var(xName)) ::
+          Pattern.ListPart.WildList ::
+          Pattern.ListPart.Item(Pattern.Var(yName)) ::
+          Pattern.ListPart.WildList ::
+          Nil
+      )
+    val expectedPat = partiallyAmbiguousPat.filterVars(Set(xName))
+    val guardExpr =
+      TypedExpr.App(PredefEqInt, NonEmptyList.of(xExpr, int(2)), boolTpe, ())
+
+    val guardedTail = TypedExpr.Match(
+      xs,
+      NonEmptyList.of(
+        TypedExpr.Branch(partiallyAmbiguousPat, Some(guardExpr), bool(true)),
+        TypedExpr.Branch(Pattern.WildCard, None, bool(false))
+      ),
+      ()
+    )
+
+    TypedExprNormalization.normalize(guardedTail) match {
+      case Some(TypedExpr.Match(arg1, branches1, _)) =>
+        assertEquals(arg1, xs)
+        assertEquals(branches1.length, 2)
+        assertEquals(branches1.head.pattern, expectedPat)
+        assertEquals(branches1.head.guard, None)
+        assertEquals(branches1.head.expr, guardExpr)
+        assertEquals(branches1.last.pattern, Pattern.WildCard)
+        assertEquals(branches1.last.expr, bool(false))
+      case other =>
+        fail(s"expected rewrite when guard ignores ambiguous bindings, got: $other")
+    }
+  }
+
+  test(
     "normalization flattens bool selector matches with a nameless top fallback pattern"
   ) {
     val x = varTE("x", intTpe)
@@ -1326,6 +1579,47 @@ foo = _ -> 1
       case other =>
         fail(s"expected normalized match expression, got: $other")
     }
+  }
+
+  test("normalization sinks lets through annotations around matches") {
+    val xName = Identifier.Name("x")
+    val unaryInt = Type.Fun(NonEmptyList.one(intTpe), intTpe)
+    val opaque = app(varTE("opaque", unaryInt), int(1), intTpe)
+    val xExpr = TypedExpr.Local(xName, intTpe, ())
+    val yExpr = varTE("y", intTpe)
+    val wrappedMatch =
+      TypedExpr.Annotation(
+        TypedExpr.Match(
+          yExpr,
+          NonEmptyList.of(
+            TypedExpr.Branch(Pattern.Literal(Lit.fromInt(0)), None, int(0)),
+            TypedExpr.Branch(Pattern.WildCard, None, xExpr)
+          ),
+          ()
+        ),
+        intTpe,
+        None
+      )
+    val root =
+      TypedExpr.Let(xName, opaque, wrappedMatch, RecursionKind.NonRecursive, ())
+
+    val normalized = TypedExprNormalization.normalize(root).getOrElse(root)
+    val (arg1, branches1) =
+      normalized match {
+        case TypedExpr.Annotation(TypedExpr.Match(arg, branches, _), tpe, _) =>
+          assert(Type.normalize(tpe).sameAs(intTpe))
+          (arg, branches)
+        case TypedExpr.Match(arg, branches, _) =>
+          (arg, branches)
+        case other =>
+          fail(s"expected match after sinking, got: ${other.reprString}")
+      }
+
+    assertEquals(arg1, yExpr)
+    assertEquals(branches1.length, 2)
+    assertEquals(branches1.head.expr, int(0))
+    assertEquals(branches1.last.expr.void, opaque.void)
+    assertEquals(countLet(normalized), 0, normalized.reprString)
   }
 
   test(
@@ -2884,7 +3178,7 @@ enum Nat: Z, S(prev: Nat)
 def inc(n: Nat) -> Nat: S(n)
 
 def len[a](list: List[a], acc: Nat) -> Nat:
-  recur list:
+  loop list:
     case EmptyList: acc
     case NonEmptyList(_, tail): len(tail, inc(acc))
     """) { pm =>
@@ -2906,7 +3200,7 @@ enum Nat: Z, S(prev: Nat)
 enum Box[a]: Box(value: a)
 
 def poly[a](n: Nat, x: a) -> Nat:
-  recur n:
+  loop n:
     case Z: Z
     case S(prev): poly(prev, Box(x))
     """) { pm =>
@@ -3543,6 +3837,22 @@ x = Foo
     }
   }
 
+  test("TypedExpr.traverseType matches recursive oracle with writer chain") {
+    type W[X] = Writer[Chain[Type], X]
+    val chainEq = Eq[Chain[Type]]
+    val fn: Type => W[Type] = t => Writer(Chain.one(t), t)
+
+    forAll(genTypedExpr) { te =>
+      val oldRes = RecursiveTraverseTypeOracle.traverse(te)(fn)
+      val newRes = te.traverseType(fn)
+      assert(
+        chainEq.eqv(oldRes.written, newRes.written),
+        s"type traversal mismatch:\nold=${oldRes.written.toList}\nnew=${newRes.written.toList}\nexpr=${te.reprString}"
+      )
+      assertEquals(newRes.value, oldRes.value)
+    }
+  }
+
   test("TypedExpr.allTypes matches traverseType oracle") {
     forAll(genTypedExpr) { te =>
       assertEquals(te.allTypes, allTypesViaTraverseType(te))
@@ -3640,7 +3950,12 @@ x = Foo
   ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     val (fullTypeEnv, unoptProgram) =
-      Package.inferBodyUnopt(TestUtils.testPackage, Nil, Nil, stmts) match {
+      Package.inferBodyUnopt(
+        TestUtils.testPackage,
+        predefResolvedImport :: Nil,
+        Nil,
+        stmts
+      ) match {
         case cats.data.Ior.Right(res) =>
           res
         case cats.data.Ior.Both(errs, _) =>
@@ -3670,28 +3985,74 @@ x = Foo
     (unoptimizedExpr, normalizedExpr)
   }
 
-  test("if matches normalizes to same code as equivalent match") {
-    def normalizedFromPackage(packSrc: String): TypedExpr[Unit] =
-      Par.withEC {
-        var out: Option[TypedExpr[Unit]] = None
-        TestUtils.testInferred(
-          List(packSrc),
-          "Test",
-          { (pm, mainPack) =>
-            val pack = pm.toMap(mainPack)
-            val fExpr = pack.lets.find(_._1 == Identifier.Name("f")) match {
-              case Some((_, _, te)) => te
-              case None => fail(s"missing let f in ${pack.lets.map(_._1)}")
-            }
-            val normalized =
-              TypedExprNormalization.normalize(fExpr).getOrElse(fExpr).void
-            out = Some(normalized)
-          }
-        )
-        out.getOrElse(fail("failed to infer normalized expression for f"))
+  def inferLoweredAndNormalizedExpr(
+      statement: String,
+      letName: String
+  ): (TypedExpr[Declaration], TypedExpr[Declaration]) = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    val (fullTypeEnv, unoptProgram) =
+      Package.inferBodyUnopt(
+        TestUtils.testPackage,
+        predefResolvedImport :: Nil,
+        Nil,
+        stmts
+      ) match {
+        case cats.data.Ior.Right(res) =>
+          res
+        case cats.data.Ior.Both(errs, _) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
+        case cats.data.Ior.Left(errs) =>
+          fail(s"inference failure:\n${errs.toList.mkString("\n")}")
       }
 
-    val ifNormalized = normalizedFromPackage(
+    val targetName = Identifier.Name(letName)
+    val loweredLets = TypedExprLoopRecurLowering.lowerAll(unoptProgram.lets)
+    val loweredExpr = loweredLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing lowered let: $letName in ${loweredLets.map(_._1)}")
+    }
+    val normalizedLets =
+      TypedExprNormalization.normalizeAll(
+        TestUtils.testPackage,
+        loweredLets,
+        fullTypeEnv
+      )
+    val normalizedExpr = normalizedLets.find(_._1 == targetName) match {
+      case Some((_, _, te)) => te
+      case None             =>
+        fail(s"missing normalized let: $letName in ${normalizedLets.map(_._1)}")
+    }
+    (loweredExpr, normalizedExpr)
+  }
+
+  private def normalizedLetFromPackage(
+      packSrc: String,
+      letName: String
+  ): TypedExpr[Unit] =
+    Par.withEC {
+      var out: Option[TypedExpr[Unit]] = None
+      TestUtils.testInferred(
+        List(packSrc),
+        "Test",
+        { (pm, mainPack) =>
+          val pack = pm.toMap(mainPack)
+          val target = Identifier.Name(letName)
+          val te = pack.lets.find(_._1 == target) match {
+            case Some((_, _, expr)) => expr
+            case None               =>
+              fail(s"missing let $letName in ${pack.lets.map(_._1)}")
+          }
+          out = Some(TypedExprNormalization.normalize(te).getOrElse(te).void)
+        }
+      )
+      out.getOrElse(
+        fail(s"failed to infer normalized expression for $letName")
+      )
+    }
+
+  test("if matches normalizes to same code as equivalent match") {
+    val ifNormalized = normalizedLetFromPackage(
       """
 package Test
 
@@ -3700,10 +4061,11 @@ enum E: Left(l), Right(r)
 def f(x):
   if x matches Left(_): 1
   else: -1
-"""
+""",
+      "f"
     )
 
-    val matchNormalized = normalizedFromPackage(
+    val matchNormalized = normalizedLetFromPackage(
       """
 package Test
 
@@ -3713,10 +4075,39 @@ def f(x):
   match x:
     case Left(_): 1
     case _: -1
-"""
+""",
+      "f"
     )
 
     assertEquals(ifNormalized, matchNormalized)
+  }
+
+  test("package-local bool helpers normalize nested if matches into direct matches") {
+    val (_, helperNormalized) = inferLoweredAndNormalizedExpr(
+      """
+def is_newline(ch): ch matches .'\n'
+
+def step(ch, line):
+  if is_newline(ch):
+    line.add(1)
+  else:
+    line
+""",
+      "step"
+    )
+
+    val (_, matchNormalized) = inferLoweredAndNormalizedExpr(
+      """
+def step(ch, line):
+  match ch:
+    case .'\n': line.add(1)
+    case _: line
+""",
+      "step"
+    )
+
+    assertEquals(helperNormalized.void, matchNormalized.void)
+    assertEquals(countMatch(helperNormalized), 1, helperNormalized.reprString)
   }
 
   test(
@@ -3730,7 +4121,7 @@ def f(x):
 package Test
 
 def loop(n, cnt):
-  recur n:
+  loop n:
     case _ if cmp_Int(n, 0) matches GT:
       loop(n.div(2), cnt.add(1))
     case _:
@@ -3792,7 +4183,7 @@ def loop(n, cnt):
 package Test
 
 def loop(n, cnt):
-  recur n:
+  loop n:
     case _ if cmp_Int(n, 0) matches LT | EQ:
       cnt
     case _:
@@ -3885,7 +4276,7 @@ enum L[a]: E, NE(head: a, tail: L[a])
 x = (
   def go(y, z):
     def loop(z):
-      recur z:
+      loop z:
         case E: y
         case NE(_, t): loop(t)
 
@@ -3901,7 +4292,7 @@ enum L[a]: E, NE(head: a, tail: L[a])
 x = (
   def go(y, z):
     def loop(z):
-      recur z:
+      loop z:
         case E: y
         case NE(_, t): loop(t)
 
@@ -3959,6 +4350,38 @@ x = (
     )
   }
 
+  test("normalization rewrites non-escaping non-recursive local closures") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+""",
+      "use"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assertEquals(
+      countLambdaCapturing(normalizedExpr, capturedName),
+      0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("closure rewrite keeps normalized non-recursive locals type valid") {
+    checkLast(
+      """
+def use(y: Int) -> Int:
+  fn = z -> y.add(z)
+  fn(2).add(fn(3))
+"""
+    ) { _ => () }
+  }
+
   test("normalization keeps closures when recursive local loops escape") {
     val fnName = Identifier.Name("fn")
     val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
@@ -3981,6 +4404,42 @@ def makeLoop(fn):
     )
     assert(
       countLambdaCapturing(normalizedExpr, fnName) > 0,
+      normalizedExpr.reprString
+    )
+  }
+
+  test("closure rewrite keeps normalized recursive locals type valid") {
+    checkLast(
+      """
+enum L[a]: E, NE(head: a, tail: L[a])
+
+def sum_plus(y: Int, zs: L[Int]) -> Int:
+  def loop(lst):
+    recur lst:
+      case E: y
+      case NE(_, t): loop(t).add(y)
+  loop(zs)
+"""
+    ) { _ => () }
+  }
+
+  test("normalization keeps closures when non-recursive local functions escape") {
+    val capturedName = Identifier.Name("y")
+    val (unoptimizedExpr, normalizedExpr) = inferUnoptimizedAndNormalizedExpr(
+      """
+def make(y: Int):
+  fn = z -> y.add(z)
+  fn
+""",
+      "make"
+    )
+
+    assert(
+      countLambdaCapturing(unoptimizedExpr, capturedName) > 0,
+      unoptimizedExpr.reprString
+    )
+    assert(
+      countLambdaCapturing(normalizedExpr, capturedName) > 0,
       normalizedExpr.reprString
     )
   }
@@ -4200,6 +4659,557 @@ def makeLoop(fn):
       assert(TypedExpr.toArgsBody(arity, te) ne null)
     }
   }
+
+  private object RecursiveTraverseTypeOracle {
+    def traverse[F[_]: Applicative, A](
+        self: TypedExpr[A]
+    )(fn: Type => F[Type]): F[TypedExpr[A]] =
+      self match {
+        case gen @ TypedExpr.Generic(quant, expr) =>
+          // params shadow below, so they are not free values
+          // and can easily create bugs if passed into fn
+          val params = quant.vars
+          val shadowed: Set[Type.Var.Bound] =
+            params.toList.iterator.map(_._1).toSet
+          val shadowFn: Type => F[Type] = {
+            case tvar @ Type.TyVar(v: Type.Var.Bound) if shadowed(v) =>
+              Applicative[F].pure(tvar)
+            case notShadowed =>
+              fn(notShadowed)
+          }
+
+          val paramsF = params.traverse_(v => fn(Type.TyVar(v._1)))
+          (paramsF *> fn(gen.getType) *> traverse(expr)(shadowFn))
+            .map(TypedExpr.Generic(quant, _))
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          (
+            traverse(of)(fn),
+            fn(tpe),
+            qev.traverse(_.traverseTypes(fn))
+          ).mapN(TypedExpr.Annotation(_, _, _))
+        case lam @ TypedExpr.AnnotatedLambda(args, res, tag) =>
+          val a1 = args.traverse { case (n, t) => fn(t).map(n -> _) }
+          fn(lam.getType) *> (a1, traverse(res)(fn)).mapN {
+            TypedExpr.AnnotatedLambda(_, _, tag)
+          }
+        case TypedExpr.Local(v, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Local(v, _, tag))
+        case TypedExpr.Global(p, v, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Global(p, v, _, tag))
+        case TypedExpr.App(f, args, tpe, tag) =>
+          (traverse(f)(fn), args.traverse(traverse(_)(fn)), fn(tpe))
+            .mapN {
+              TypedExpr.App(_, _, _, tag)
+            }
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          (traverse(exp)(fn), traverse(in)(fn)).mapN {
+            TypedExpr.Let(v, _, _, rec, tag)
+          }
+        case TypedExpr.Loop(args, body, tag) =>
+          (
+            args.traverse { case (v, expr) =>
+              traverse(expr)(fn).map((v, _))
+            },
+            traverse(body)(fn)
+          ).mapN {
+            TypedExpr.Loop(_, _, tag)
+          }
+        case TypedExpr.Recur(args, tpe, tag) =>
+          (args.traverse(traverse(_)(fn)), fn(tpe)).mapN {
+            TypedExpr.Recur(_, _, tag)
+          }
+        case TypedExpr.Literal(lit, tpe, tag) =>
+          fn(tpe).map(TypedExpr.Literal(lit, _, tag))
+        case TypedExpr.Match(expr, branches, tag) =>
+          // all branches have the same type:
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.pattern.traverseType(fn),
+              branch.guard.traverse(traverse(_)(fn)),
+              traverse(branch.expr)(fn)
+            ).mapN { (pattern, guard, expr1) =>
+              TypedExpr.Branch(pattern, guard, expr1)(using branch.patternRegion)
+            }
+          }
+          (traverse(expr)(fn), tbranch).mapN(TypedExpr.Match(_, _, tag))
+      }
+  }
+
+  private object RecursiveTraverseOracle {
+    def traverse[F[_]: Applicative, T, S](
+        typedExprT: TypedExpr[T]
+    )(fn: T => F[S]): F[TypedExpr[S]] =
+      typedExprT match {
+        case TypedExpr.Generic(params, expr) =>
+          traverse(expr)(fn).map(TypedExpr.Generic(params, _))
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          traverse(of)(fn).map(TypedExpr.Annotation(_, tpe, qev))
+        case TypedExpr.AnnotatedLambda(args, res, tag) =>
+          (traverse(res)(fn), fn(tag)).mapN {
+            TypedExpr.AnnotatedLambda(args, _, _)
+          }
+        case TypedExpr.Local(v, tpe, tag) =>
+          fn(tag).map(TypedExpr.Local(v, tpe, _))
+        case TypedExpr.Global(p, v, tpe, tag) =>
+          fn(tag).map(TypedExpr.Global(p, v, tpe, _))
+        case TypedExpr.App(f, args, tpe, tag) =>
+          (
+            traverse(f)(fn),
+            args.traverse(arg => traverse(arg)(fn)),
+            fn(tag)
+          ).mapN {
+            TypedExpr.App(_, _, tpe, _)
+          }
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          (traverse(exp)(fn), traverse(in)(fn), fn(tag)).mapN {
+            TypedExpr.Let(v, _, _, rec, _)
+          }
+        case TypedExpr.Loop(args, body, tag) =>
+          (
+            args.traverse { case (v, expr) =>
+              traverse(expr)(fn).map((v, _))
+            },
+            traverse(body)(fn),
+            fn(tag)
+          ).mapN {
+            TypedExpr.Loop(_, _, _)
+          }
+        case TypedExpr.Recur(args, tpe, tag) =>
+          (args.traverse(arg => traverse(arg)(fn)), fn(tag)).mapN {
+            TypedExpr.Recur(_, tpe, _)
+          }
+        case TypedExpr.Literal(lit, tpe, tag) =>
+          fn(tag).map(TypedExpr.Literal(lit, tpe, _))
+        case TypedExpr.Match(expr, branches, tag) =>
+          val tbranch = branches.traverse { branch =>
+            (
+              branch.guard.traverse(guard => traverse(guard)(fn)),
+              traverse(branch.expr)(fn)
+            ).mapN { (guard, expr1) =>
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
+            }
+          }
+          (traverse(expr)(fn), tbranch, fn(tag)).mapN { (expr1, branches1, tag1) =>
+            TypedExpr.Match(expr1, branches1, tag1)
+          }
+      }
+
+    def traverseUp[F[_]: Monad, A](
+        te: TypedExpr[A]
+    )(fn: TypedExpr[A] => F[TypedExpr[A]]): F[TypedExpr[A]] = {
+      // be careful not to mistake loop with fn
+      def loop(term: TypedExpr[A]): F[TypedExpr[A]] = traverseUp(term)(fn)
+      val mon = Monad[F]
+
+      te match {
+        case TypedExpr.Generic(params, expr) =>
+          loop(expr).flatMap { fx =>
+            fn(TypedExpr.Generic(params, fx))
+          }
+        case TypedExpr.Annotation(of, tpe, qev) =>
+          loop(of).flatMap { o2 =>
+            fn(TypedExpr.Annotation(o2, tpe, qev))
+          }
+        case TypedExpr.AnnotatedLambda(args, res, tag) =>
+          loop(res).flatMap { res1 =>
+            fn(TypedExpr.AnnotatedLambda(args, res1, tag))
+          }
+        case v @ (TypedExpr.Global(_, _, _, _) | TypedExpr.Local(_, _, _) |
+            TypedExpr.Literal(_, _, _)) =>
+          fn(v)
+        case TypedExpr.App(f, args, tpe, tag) =>
+          mon
+            .map2(loop(f), args.traverse(loop(_))) { (f1, args1) =>
+              TypedExpr.App(f1, args1, tpe, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Let(v, exp, in, rec, tag) =>
+          mon
+            .map2(loop(exp), loop(in)) { (exp1, in1) =>
+              TypedExpr.Let(v, exp1, in1, rec, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Loop(args, body, tag) =>
+          mon
+            .map2(
+              args.traverse { case (v, expr) =>
+                loop(expr).map((v, _))
+              },
+              loop(body)
+            ) { (args1, body1) =>
+              TypedExpr.Loop(args1, body1, tag)
+            }
+            .flatMap(fn)
+        case TypedExpr.Recur(args, tpe, tag) =>
+          args.traverse(loop(_)).map(TypedExpr.Recur(_, tpe, tag)).flatMap(fn)
+        case TypedExpr.Match(expr, branches, tag) =>
+          val tbranch = branches.traverse { branch =>
+            mon.map2(
+              branch.guard.traverse(loop(_)),
+              loop(branch.expr)
+            ) { (guard, expr1) =>
+              TypedExpr.Branch(
+                branch.pattern,
+                guard,
+                expr1
+              )(using branch.patternRegion)
+            }
+          }
+          mon
+            .map2(loop(expr), tbranch) { (expr1, branches1) =>
+              TypedExpr.Match(expr1, branches1, tag)
+            }
+            .flatMap(fn)
+      }
+    }
+
+    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B =
+      typedExprA match {
+        case TypedExpr.Generic(_, e) =>
+          foldLeft(e, b)(f)
+        case TypedExpr.Annotation(e, _, _) =>
+          foldLeft(e, b)(f)
+        case TypedExpr.AnnotatedLambda(_, e, tag) =>
+          val b1 = foldLeft(e, b)(f)
+          f(b1, tag)
+        case n: TypedExpr.Name[A] =>
+          f(b, n.tag)
+        case TypedExpr.App(fn, args, _, tag) =>
+          val b1 = foldLeft(fn, b)(f)
+          val b2 = args.foldLeft(b1)((bnext, a) => foldLeft(a, bnext)(f))
+          f(b2, tag)
+        case TypedExpr.Let(_, exp, in, _, tag) =>
+          val b1 = foldLeft(exp, b)(f)
+          val b2 = foldLeft(in, b1)(f)
+          f(b2, tag)
+        case TypedExpr.Loop(args, body, tag) =>
+          val b1 = args.foldLeft(b) { case (bnext, (_, expr)) =>
+            foldLeft(expr, bnext)(f)
+          }
+          val b2 = foldLeft(body, b1)(f)
+          f(b2, tag)
+        case TypedExpr.Recur(args, _, tag) =>
+          val b1 = args.foldLeft(b)((bnext, a) => foldLeft(a, bnext)(f))
+          f(b1, tag)
+        case TypedExpr.Literal(_, _, tag) =>
+          f(b, tag)
+        case TypedExpr.Match(arg, branches, tag) =>
+          val b1 = foldLeft(arg, b)(f)
+          val b2 = branches.foldLeft(b1) { case (bnext, branch) =>
+            val bnext1 = branch.guard.fold(bnext)(foldLeft(_, bnext)(f))
+            foldLeft(branch.expr, bnext1)(f)
+          }
+          f(b2, tag)
+      }
+
+    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(
+        f: (A, Eval[B]) => Eval[B]
+    ): Eval[B] = typedExprA match {
+      case TypedExpr.Generic(_, e) =>
+        foldRight(e, lb)(f)
+      case TypedExpr.Annotation(e, _, _) =>
+        foldRight(e, lb)(f)
+      case TypedExpr.AnnotatedLambda(_, e, tag) =>
+        val lb1 = f(tag, lb)
+        foldRight(e, lb1)(f)
+      case n: TypedExpr.Name[A] =>
+        f(n.tag, lb)
+      case TypedExpr.App(fn, args, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = args.toList.foldRight(b1)((a, bnext) => foldRight(a, bnext)(f))
+        foldRight(fn, b2)(f)
+      case TypedExpr.Let(_, exp, in, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(in, b1)(f)
+        foldRight(exp, b2)(f)
+      case TypedExpr.Loop(args, body, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(body, b1)(f)
+        args.toList.foldRight(b2) { case ((_, expr), bnext) =>
+          foldRight(expr, bnext)(f)
+        }
+      case TypedExpr.Recur(args, _, tag) =>
+        val b1 = f(tag, lb)
+        args.toList.foldRight(b1)((a, bnext) => foldRight(a, bnext)(f))
+      case TypedExpr.Literal(_, _, tag) =>
+        f(tag, lb)
+      case TypedExpr.Match(arg, branches, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = branches.foldRight(b1) { case (branch, bnext) =>
+          val bnext1 = foldRight(branch.expr, bnext)(f)
+          branch.guard.fold(bnext1)(foldRight(_, bnext1)(f))
+        }
+        foldRight(arg, b2)(f)
+    }
+
+    def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
+      te match {
+        case TypedExpr.Generic(tv, in) =>
+          TypedExpr.Generic(tv, map(in)(fn))
+        case TypedExpr.Annotation(term, tpe, qev) =>
+          TypedExpr.Annotation(map(term)(fn), tpe, qev)
+        case TypedExpr.AnnotatedLambda(args, expr, tag) =>
+          TypedExpr.AnnotatedLambda(args, map(expr)(fn), fn(tag))
+        case l @ TypedExpr.Local(_, _, _) =>
+          l.copy(tag = fn(l.tag))
+        case g @ TypedExpr.Global(_, _, _, _) =>
+          g.copy(tag = fn(g.tag))
+        case TypedExpr.App(fnT, args, tpe, tag) =>
+          TypedExpr.App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
+        case TypedExpr.Let(b, e, in, r, t) =>
+          TypedExpr.Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+        case TypedExpr.Loop(args, body, tag) =>
+          TypedExpr.Loop(
+            args.map { case (b, expr) => (b, map(expr)(fn)) },
+            map(body)(fn),
+            fn(tag)
+          )
+        case TypedExpr.Recur(args, tpe, tag) =>
+          TypedExpr.Recur(args.map(a => map(a)(fn)), tpe, fn(tag))
+        case lit @ TypedExpr.Literal(_, _, _) =>
+          lit.copy(tag = fn(lit.tag))
+        case TypedExpr.Match(arg, branches, tag) =>
+          TypedExpr.Match(
+            map(arg)(fn),
+            branches.map { branch =>
+              TypedExpr.Branch(
+                branch.pattern,
+                branch.guard.map(map(_)(fn)),
+                map(branch.expr)(fn)
+              )(using branch.patternRegion)
+            },
+            fn(tag)
+          )
+      }
+  }
+
+  private def deepLetChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("base"), intT, -1)
+    var idx = depth - 1
+    while (idx >= 0) {
+      val name = Identifier.Name(s"n$idx")
+      val rhs = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor =
+        TypedExpr.Let(name, rhs, cursor, RecursionKind.NonRecursive, idx)
+      idx = idx - 1
+    }
+    cursor
+  }
+
+  private def deepAppChain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    val fnT = Type.Fun(NonEmptyList.one(intT), intT)
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("f"), fnT, -1)
+    var idx = 0
+    while (idx < depth) {
+      val arg = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor = TypedExpr.App(cursor, NonEmptyList.one(arg), intT, idx)
+      idx = idx + 1
+    }
+    cursor
+  }
+
+  private def deepRightApp2Chain(depth: Int): TypedExpr[Int] = {
+    val intT = Type.IntType
+    val fnT = Type.Fun(NonEmptyList.of(intT, intT), intT)
+    var cursor: TypedExpr[Int] =
+      TypedExpr.Local(Identifier.Name("z"), intT, -1)
+    var idx = depth - 1
+    while (idx >= 0) {
+      val fn = TypedExpr.Local(Identifier.Name(s"f$idx"), fnT, idx)
+      val arg = TypedExpr.Literal(Lit.fromInt(idx), intT, idx)
+      cursor = TypedExpr.App(fn, NonEmptyList.of(arg, cursor), intT, idx)
+      idx = idx - 1
+    }
+    cursor
+  }
+
+  test("TypedExpr traverse/map/folds match recursive oracle") {
+    forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, seed) =>
+      val mapFn: Int => Int = i => (i * 31) + seed
+      assertEquals(te.map(mapFn), RecursiveTraverseOracle.map(te)(mapFn))
+
+      val foldFn: (Int, Int) => Int = (acc, i) => (acc * 17) + i + 1
+      assertEquals(
+        te.foldLeft(seed)(foldFn),
+        RecursiveTraverseOracle.foldLeft(te, seed)(foldFn)
+      )
+
+      val foldRightFn: (Int, Eval[Int]) => Eval[Int] =
+        (i, eb) => eb.map(b => (b * 13) ^ (i + seed))
+      assertEquals(
+        te.foldRight(Eval.now(seed))(foldRightFn).value,
+        RecursiveTraverseOracle.foldRight(te, Eval.now(seed))(foldRightFn).value
+      )
+
+      type W[X] = Writer[List[Int], X]
+      val traverseFn: Int => W[Int] = i => Writer(List(i), i + seed)
+      assertEquals(
+        te.traverse(traverseFn).run,
+        RecursiveTraverseOracle.traverse(te)(traverseFn).run
+      )
+    }
+  }
+
+  test("TypedExpr.traverseUp matches recursive oracle with Writer[Chain, _]") {
+    forAll(genTypedExprInt) { te =>
+      type W[X] = Writer[Chain[TypedExpr[Int]], X]
+      val record: TypedExpr[Int] => W[TypedExpr[Int]] = t =>
+        Writer(Chain.one(t), t)
+
+      val got = te.traverseUp[W](record).run
+      val expected = RecursiveTraverseOracle.traverseUp(te)(record).run
+      assertEquals(got, expected)
+    }
+  }
+
+  Platform.onJvm(
+    test("TypedExpr traverseUp/traverse/map/folds are stack safe on deep let/app trees") {
+      val depth = sys.props.get("repro.typedExprTraverseDepth").fold(12000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+
+      @volatile var failure: Option[Throwable] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              val letExpr = deepLetChain(depth)
+              val appExpr = deepAppChain(depth)
+
+              def runChecks(label: String, expr: TypedExpr[Int]): Unit = {
+                val mapped = expr.map(_ + 1)
+                val traversed: TypedExpr[Int] = expr.traverse[Id, Int](_ + 1)
+                val traversedType: TypedExpr[Int] = expr.traverseType[Id](identity)
+                type W[X] = Writer[Int, X]
+                val (traverseUpCount, traverseUpRes) =
+                  expr.traverseUp[W](t => Writer(1, t)).run
+
+                val expectedTagCount = (2 * depth) + 1
+                val leftCount = expr.foldLeft(0)((count, _) => count + 1)
+                val rightCount =
+                  expr.foldRight(Eval.now(0))((_, eb) => eb.map(_ + 1)).value
+                val mappedCount = mapped.foldLeft(0)((count, _) => count + 1)
+                val traversedCount =
+                  traversed.foldLeft(0)((count, _) => count + 1)
+                val traversedTypeCount =
+                  traversedType.foldLeft(0)((count, _) => count + 1)
+                val traverseUpResCount =
+                  traverseUpRes.foldLeft(0)((count, _) => count + 1)
+                assertEquals(leftCount, expectedTagCount, label)
+                assertEquals(rightCount, expectedTagCount, label)
+                assertEquals(mappedCount, expectedTagCount, label)
+                assertEquals(traversedCount, expectedTagCount, label)
+                assertEquals(traversedTypeCount, expectedTagCount, label)
+                assertEquals(traverseUpCount, expectedTagCount, label)
+                assertEquals(traverseUpResCount, expectedTagCount, label)
+              }
+
+              runChecks("let", letExpr)
+              runChecks("app", appExpr)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-expr-traverse-small-stack",
+        stackBytes
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(so: StackOverflowError) =>
+          val trace = so.getStackTrace.iterator.take(40).mkString("\n")
+          fail(
+            s"TypedExpr traverse/map/folds overflowed on deep trees (depth=$depth, stackBytes=$stackBytes)\n$trace"
+          )
+        case Some(other) =>
+          val trace = other.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"unexpected failure: $other\n$trace")
+        case None =>
+          ()
+      }
+    }
+  )
+
+  Platform.onJvm(
+    test(
+      "TypedExpr recursive app utilities are stack safe on right-deep binary app chains"
+    ) {
+      val depth = sys.props.get("repro.typedExprApp2Depth").fold(4000)(_.toInt)
+      val stackBytes = sys.props.get("repro.stackBytes").fold(96L * 1024L)(_.toLong)
+
+      @volatile var failure: Option[Throwable] = None
+
+      val thread = new Thread(
+        null,
+        new Runnable {
+          def run(): Unit =
+            try {
+              val expr = deepRightApp2Chain(depth)
+              val expectedNameCount = depth + 1
+
+              assertEquals(expr.size, (2 * depth) + 1)
+              assertEquals(expr.freeVarsDup.length, expectedNameCount)
+              assertEquals(expr.allVarsDup.length, expectedNameCount)
+              assert(expr.allTypes(Type.IntType))
+              assert(TypedExpr.eqTypedExpr(using Eq[Int]).eqv(expr, expr))
+
+              val subMap: Map[Bindable, TypedExpr.Local[Int] => TypedExpr[Int]] =
+                Map(Identifier.Name("missing") -> ((loc: TypedExpr.Local[Int]) => loc))
+              val subRes = TypedExpr.substituteAll(subMap, expr, enterLambda = true)
+              assert(subRes.nonEmpty)
+
+              val tsub = TypedExpr.substituteTypeVar(
+                expr,
+                Map((Type.Var.Bound("a"): Type.Var) -> Type.IntType)
+              )
+              assertEquals(tsub.size, expr.size)
+
+              val quantified: TypedExpr[Int] =
+                TypedExpr.quantify[Id, Int](
+                  Map.empty,
+                  TypedExpr.Rho.assertRho(expr),
+                  (_: Type.Meta) => None,
+                  (_: Type.Meta, _: Type.Tau) => ()
+                )
+              assertEquals(quantified.size, expr.size)
+            } catch {
+              case t: Throwable =>
+                failure = Some(t)
+            }
+        },
+        "typed-expr-app2-small-stack",
+        stackBytes
+      )
+
+      thread.start()
+      thread.join()
+
+      failure match {
+        case Some(so: StackOverflowError) =>
+          val trace = so.getStackTrace.iterator.take(40).mkString("\n")
+          fail(
+            s"TypedExpr recursive app utilities overflowed on right-deep app2 chains (depth=$depth, stackBytes=$stackBytes)\n$trace"
+          )
+        case Some(other) =>
+          val trace = other.getStackTrace.iterator.take(40).mkString("\n")
+          fail(s"unexpected failure: $other\n$trace")
+        case None =>
+          ()
+      }
+    }
+  )
 
   test("TypedExpr.fold matches traverse") {
     def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {

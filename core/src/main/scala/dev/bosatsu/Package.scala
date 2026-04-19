@@ -1,7 +1,7 @@
 package dev.bosatsu
 
-import cats.{Functor, Order, Applicative}
-import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
+import cats.{Applicative, Foldable, Functor, Order}
+import cats.data.{Chain, Ior, NonEmptyList, Validated, ValidatedNec, ValidatedNel}
 import cats.syntax.all._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -19,12 +19,13 @@ final case class Package[A, B, C, +D](
     name: PackageName,
     imports: List[Import[A, B]],
     exports: List[ExportedName[C]],
-    program: D
+    program: D,
+    exposes: List[List[PackageName]] = Nil
 ) {
 
-  // It is really important to cache the hashcode and these large dags if
-  // we use them as hash keys
-  final override val hashCode: Int =
+  // These large immutable dags are sometimes used as hash keys, but computing
+  // the hash eagerly is expensive during package construction.
+  override lazy val hashCode: Int =
     MurmurHash3.caseClassHash(this)
 
   override def equals(that: Any): Boolean =
@@ -34,7 +35,8 @@ final case class Package[A, B, C, +D](
           name.equals(p.name) &&
           imports.equals(p.imports) &&
           exports.equals(p.exports) &&
-          program.equals(p.program)
+          program.equals(p.program) &&
+          exposes.equals(p.exposes)
         }
       case _ => false
     }
@@ -43,12 +45,12 @@ final case class Package[A, B, C, +D](
     copy(imports = i :: imports)
 
   def mapProgram[D1](fn: D => D1): Package[A, B, C, D1] =
-    Package(name, imports, exports, fn(program))
+    Package(name, imports, exports, fn(program), exposes)
 
   def replaceImports[A1, B1](
       newImports: List[Import[A1, B1]]
   ): Package[A1, B1, C, D] =
-    Package(name, newImports, exports, program)
+    Package(name, newImports, exports, program, exposes)
 
   def getExport[T](
       i: ImportedName[T]
@@ -66,6 +68,9 @@ final case class Package[A, B, C, +D](
       .distinct
       .sorted
 
+  def exposedDepPackages[K](implicit ev: C <:< Referant[K]): List[PackageName] =
+    Package.normalizeExposedDepPackages(name, visibleDepPackages)
+
   /** These are all the types that are exported with constructors deleted for
     * opaque types
     */
@@ -73,12 +78,13 @@ final case class Package[A, B, C, +D](
     type ListEN[+Z] = List[ExportedName[Z]]
     val expRef: List[ExportedName[Referant[K]]] =
       ev.substituteCo[ListEN](exports)
-    TypeEnv.fromDefinitions(
+    val definedTypes =
       expRef
         .groupByNel { e =>
           e.tag match {
             case Referant.DefinedT(dt)       => Some(dt.toTypeConst)
             case Referant.Constructor(dt, _) => Some(dt.toTypeConst)
+            case Referant.TypeAliasT(_)      => None
             case Referant.Value(_)           => None
           }
         }
@@ -92,7 +98,7 @@ final case class Package[A, B, C, +D](
           val dt = exps.head.tag match {
             case Referant.Constructor(dt, _) => dt
             case Referant.DefinedT(dt)       => dt
-            case Referant.Value(_)           =>
+            case _                           =>
               sys.error("impossible since we have Some(tc)")
           }
 
@@ -100,7 +106,13 @@ final case class Package[A, B, C, +D](
           else dt
         }
         .toList
-    )
+
+    val aliases =
+      expRef.iterator.collect { case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+        ta
+      }.toList.distinct
+
+    TypeEnv.fromDefinitionsAndAliases(definedTypes, aliases)
   }
 }
 
@@ -139,9 +151,15 @@ object Package {
     TypedProgram[T]
   ]
   type Inferred = Typed[Declaration]
+  type Compiled = Typed[Region]
 
   type Header =
-    (PackageName, List[Import[PackageName, Unit]], List[ExportedName[Unit]])
+    (
+        PackageName,
+        List[Import[PackageName, Unit]],
+        List[ExportedName[Unit]],
+        List[List[PackageName]]
+    )
 
   val typedFunctor: Functor[Typed] =
     new Functor[Typed] {
@@ -153,6 +171,23 @@ object Package {
         fa.copy(program = (prog.copy(lets = mapLet), imap))
       }
     }
+
+  def toCompiled[A: HasRegion](pack: Typed[A]): Compiled = {
+    val withRegions = typedFunctor.map(pack)(tag => HasRegion.region(tag))
+    // Serialized compiled artifacts never retain the parsed-source payload in
+    // Program.from, so drop it before crossing the cache/compiler boundary.
+    dropSourceOnlyExposes(setProgramFrom(withRegions, ()))
+  }
+
+  def normalizeExposedDepPackages(
+      packageName: PackageName,
+      deps: Iterable[PackageName]
+  ): List[PackageName] =
+    deps.iterator
+      .filterNot(pn => (pn == packageName) || (pn == PackageName.PredefName))
+      .toSet
+      .toList
+      .sorted
 
   sealed trait TestEntry[+A] {
     def bindable: Identifier.Bindable
@@ -186,6 +221,17 @@ object Package {
     ) extends TestDiscoveryError
   }
 
+  private def testEntryForLet[A](
+      bindable: Identifier.Bindable,
+      recursionKind: RecursionKind,
+      expr: TypedExpr[A]
+  ): Option[TestEntry[A]] =
+    if (expr.getType.sameAs(Type.TestType)) {
+      Some(TestEntry.PlainTest(bindable, recursionKind, expr))
+    } else if (expr.getType.sameAs(Type.ProgTestType)) {
+      Some(TestEntry.ProgTest(bindable, recursionKind, expr))
+    } else None
+
   /** Return the selected test entry for a package.
     *
     * Discovery rules:
@@ -199,13 +245,19 @@ object Package {
   ): Either[TestDiscoveryError, Option[TestEntry[A]]] = {
     val indexedLets = tp.lets.zipWithIndex
     val plainTests = indexedLets.collect {
-      case ((name, rec, te), idx) if te.getType.sameAs(Type.TestType) =>
-        (idx, TestEntry.PlainTest(name, rec, te))
+      case ((name, rec, te), idx) =>
+        testEntryForLet(name, rec, te).collect {
+          case plainTest @ TestEntry.PlainTest(_, _, _) => (idx, plainTest)
+        }
     }
+      .flatten
     val progTests = indexedLets.collect {
-      case ((name, rec, te), idx) if te.getType.sameAs(Type.ProgTestType) =>
-        (idx, TestEntry.ProgTest(name, rec, te))
+      case ((name, rec, te), idx) =>
+        testEntryForLet(name, rec, te).collect {
+          case progTest @ TestEntry.ProgTest(_, _, _) => (idx, progTest)
+        }
     }
+      .flatten
 
     progTests.lastOption match {
       case None =>
@@ -237,6 +289,17 @@ object Package {
     testEntry(tp).toOption.flatten.collect {
       case TestEntry.PlainTest(bindable, recursionKind, expr) =>
         (bindable, recursionKind, expr)
+    }
+
+  /** Return the selected top-level test value if this bindable has test type.
+    */
+  def testEntryForBindable[A](
+      tp: Typed[A],
+      bindable: Identifier.Bindable
+  ): Option[TestEntry[A]] =
+    tp.lets.collectFirstSome { case (name, recursionKind, expr) =>
+      if (name == bindable) testEntryForLet(name, recursionKind, expr)
+      else None
     }
 
   def testRootBindables[A](tp: Typed[A]): Set[Identifier.Bindable] =
@@ -316,8 +379,16 @@ object Package {
   def fromStatements(pn: PackageName, stmts: List[Statement]): Package.Parsed =
     Package(pn, Nil, Nil, stmts)
 
+  // `exposes` is a checked source declaration, but compiled/interfaces already
+  // carry the exported typed API it is derived from. Dropping it keeps those
+  // artifacts unchanged and avoids storing redundant header spelling.
+  private def dropSourceOnlyExposes[A, B, C, D](
+      pack: Package[A, B, C, D]
+  ): Package[A, B, C, D] =
+    pack.copy(exposes = Nil)
+
   def interfaceOf[A](inferred: Typed[A]): Interface =
-    inferred.mapProgram(_ => ()).replaceImports(Nil)
+    dropSourceOnlyExposes(inferred.mapProgram(_ => ()).replaceImports(Nil))
 
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = (t.program._1.copy(from = newFrom), t.program._2))
@@ -325,7 +396,7 @@ object Package {
   implicit val document
       : Document[Package[PackageName, Unit, Unit, List[Statement]]] =
     Document.instance[Package.Parsed] {
-      case Package(name, imports, exports, statments) =>
+      case Package(name, imports, exports, statments, exposes) =>
         val p =
           Doc.text("package ") + Document[PackageName].document(name) + Doc.line
         val i = imports match {
@@ -351,47 +422,104 @@ object Package {
               ) +
               Doc.line
         }
+        val x = exposes match {
+          case Nil               => Doc.empty
+          case exposeDecls       =>
+            val rendered =
+              exposeDecls.flatMap { deps =>
+                if (deps.isEmpty) Nil
+                else {
+                  List(
+                    Doc.text("exposes ") +
+                      Doc.intercalate(
+                        Doc.text(", "),
+                        deps.map(Document[PackageName].document)
+                      )
+                  )
+                }
+              }
+            if (rendered.isEmpty) Doc.empty
+            else
+            Doc.line +
+              Doc.intercalate(Doc.line, rendered) +
+              Doc.line
+        }
         val b = statments.map(Document[Statement].document(_))
-        Doc.intercalate(Doc.empty, p :: i :: e :: b)
+        Doc.intercalate(Doc.empty, p :: i :: e :: x :: b)
     }
 
-  def headerParser(defaultPack: Option[PackageName]): P0[Header] = {
-    val spaceComment: P0[Unit] =
-      (Parser.spaces.? ~ CommentStatement.commentPart.?).void
+  private[bosatsu] val headerSpaceCommentParser: P0[Unit] =
+    (Parser.spaces.? ~ CommentStatement.commentPart.?).void
 
-    val eol = spaceComment <* Parser.termination
-    val parsePack = Padding
+  private[bosatsu] val headerEolParser: P0[Unit] =
+    headerSpaceCommentParser <* Parser.termination
+
+  private[bosatsu] val headerPackageNameParser: P[PackageName] =
+    Padding
       .parser(
-        (P.string("package").soft ~ spaces) *> PackageName.parser <* eol,
-        spaceComment
+        (P.string("package").soft ~ spaces) *> PackageName.parser <* headerEolParser,
+        headerSpaceCommentParser
       )
       .map(_.padded)
-    val pname: P0[PackageName] =
-      defaultPack match {
-        case None    => parsePack
-        case Some(p) => parsePack.?.map(_.getOrElse(p))
-      }
 
-    val im =
-      Padding.parser(Import.parser <* eol, spaceComment).map(_.padded).rep0
-    val ex = Padding
+  private[bosatsu] val headerImportsParser
+      : P0[List[Import[PackageName, Unit]]] =
+    Padding
+      .parser(Import.parser <* headerEolParser, headerSpaceCommentParser)
+      .map(_.padded)
+      .rep0
+
+  private[bosatsu] val headerExportsParser: P0[List[ExportedName[Unit]]] = {
+    val exportLine = Padding
       .parser(
         (P.string("export")
           .soft ~ spaces) *> ExportedName.parser.itemsMaybeParens
-          .map(_._2) <* eol,
-        spaceComment
+          .map(_._2) <* headerEolParser,
+        headerSpaceCommentParser
       )
       .map(_.padded)
 
-    (pname, im, Parser.nonEmptyListToList(ex)).tupled
+    Parser.nonEmptyListToList(exportLine)
   }
 
-  def parser(
-      defaultPack: Option[PackageName]
-  ): P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
+  private[bosatsu] val headerExposeItemsParser: P[List[PackageName]] =
+    PackageName.parser.parensLines0Cut.backtrack.orElse(
+      PackageName.parser.nonEmptyListOfWs(Parser.maybeSpace).map(_.toList)
+    )
+
+  private[bosatsu] val headerExposeDeclParser: P[List[PackageName]] =
+    (P.string("exposes").soft ~ spaces) *> headerExposeItemsParser
+
+  private[bosatsu] val headerExposesParser: P0[List[List[PackageName]]] =
+    Padding
+      .parser(
+        headerExposeDeclParser <* headerEolParser,
+        headerSpaceCommentParser
+      )
+      .map(_.padded)
+      .rep0
+
+  private[bosatsu] val headerExposeRegionsParser: P0[List[Region]] =
+    Padding
+      .parser(
+        headerExposeDeclParser.region.map(_._1) <* headerEolParser,
+        headerSpaceCommentParser
+      )
+      .map(_.padded)
+      .rep0
+
+  def headerParser: P[Header] = {
+    (((headerPackageNameParser ~ headerImportsParser) ~ headerExportsParser) ~
+      headerExposesParser)
+      .map {
+      case (((p, i), e), x) => (p, i, e, x)
+    }
+  }
+
+  def parser: P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     val body: P0[List[Statement]] = Statement.parser
-    (headerParser(defaultPack), body)
-      .mapN { case ((p, i, e), b) => Package(p, i, e, b) }
+    (headerParser, body)
+      .mapN { case ((p, i, e, x), b) => Package(p, i, e, b, x) }
   }
 
   /** After having type checked the imports, we now type check the body in order
@@ -416,6 +544,199 @@ object Package {
   ): Infer.Error =
     errs.tail.foldLeft(errs.head: Infer.Error) { (acc, next) =>
       Infer.Error.Combine(acc, next)
+    }
+
+  private type ParsedLet = (Identifier.Bindable, RecursionKind, Expr[Declaration])
+
+  private case class RemovedKindRefs(
+      pack: PackageName,
+      removedTypeConsts: Set[Type.Const.Defined],
+      removedConstructors: Set[Identifier.Constructor]
+  ) {
+    def isEmpty: Boolean =
+      removedTypeConsts.isEmpty && removedConstructors.isEmpty
+
+    def hasRemovedTypeConst(tpe: Type): Boolean =
+      Type.allConsts(tpe :: Nil).exists { tyConst =>
+        removedTypeConsts(tyConst.tpe.toDefined)
+      }
+
+    def hasRemovedPatternRef(
+        pat: Pattern[(PackageName, Identifier.Constructor), Type]
+    ): Boolean =
+      pat match {
+        case Pattern.WildCard | Pattern.Literal(_) | Pattern.Var(_) |
+            Pattern.StrPat(_) =>
+          false
+        case Pattern.Named(_, inner) =>
+          hasRemovedPatternRef(inner)
+        case Pattern.ListPat(items)  =>
+          items.exists {
+            case Pattern.ListPart.Item(inner) =>
+              hasRemovedPatternRef(inner)
+            case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+              false
+          }
+        case Pattern.Annotation(inner, tpe) =>
+          hasRemovedTypeConst(tpe) || hasRemovedPatternRef(inner)
+        case Pattern.PositionalStruct((`pack`, ctor), params) =>
+          removedConstructors(ctor) || params.exists(hasRemovedPatternRef)
+        case Pattern.PositionalStruct(_, params) =>
+          params.exists(hasRemovedPatternRef)
+        case Pattern.Union(head, tail) =>
+          hasRemovedPatternRef(head) || tail.exists(hasRemovedPatternRef)
+      }
+
+    def hasRemovedExprRef[A](expr: Expr[A]): Boolean =
+      expr match {
+        case Expr.Annotation(inner, tpe, _) =>
+          hasRemovedTypeConst(tpe) || hasRemovedExprRef(inner)
+        case Expr.Local(_, _) =>
+          false
+        case Expr.Generic(_, inner) =>
+          hasRemovedExprRef(inner)
+        case Expr.Global(`pack`, ctor: Identifier.Constructor, _) =>
+          removedConstructors(ctor)
+        case Expr.Global(_, _, _) =>
+          false
+        case Expr.App(fn, args, _) =>
+          hasRemovedExprRef(fn) || args.exists(hasRemovedExprRef)
+        case Expr.Lambda(args, inner, _) =>
+          args.exists { case (_, ot) => ot.exists(hasRemovedTypeConst) } ||
+            hasRemovedExprRef(inner)
+        case Expr.Let(_, bound, in, _, _) =>
+          hasRemovedExprRef(bound) || hasRemovedExprRef(in)
+        case Expr.Literal(_, _) =>
+          false
+        case Expr.Match(arg, branches, _) =>
+          hasRemovedExprRef(arg) ||
+            branches.exists { branch =>
+              hasRemovedPatternRef(branch.pattern) ||
+              branch.guard.exists(hasRemovedExprRef) ||
+              hasRemovedExprRef(branch.expr)
+            }
+      }
+  }
+
+  private def removedKindRefs(
+      pack: PackageName,
+      parsedTypeEnv0: ParsedTypeEnv[Option[Kind.Arg]],
+      parsedTypeEnv: ParsedTypeEnv[Kind.Arg]
+  ): RemovedKindRefs = {
+    val parsedTypeConsts = parsedTypeEnv.allDefinedTypes.iterator
+      .map(_.toTypeConst)
+      .concat(parsedTypeEnv.typeAliases.iterator.map(_.toTypeConst))
+      .toSet
+    val removedTypeStatements =
+      parsedTypeEnv0.orderedTypes.iterator.filterNot(stmt =>
+        parsedTypeConsts(stmt.toTypeConst)
+      ).toList
+    val removedTypeConsts = removedTypeStatements.iterator.map(_.toTypeConst).toSet
+    val removedConstructors = removedTypeStatements.iterator
+      .collect { case ParsedTypeEnv.TypeStatement.Defined(dt) => dt }
+      .flatMap(_.constructors.iterator.map(_.name))
+      .toSet
+
+    RemovedKindRefs(pack, removedTypeConsts, removedConstructors)
+  }
+
+  private def transitiveDependents(
+      pack: PackageName,
+      lets: List[ParsedLet],
+      roots: Set[Identifier.Bindable]
+  ): Set[Identifier.Bindable] =
+    if (roots.isEmpty) Set.empty
+    else {
+      val dependents: Map[Identifier.Bindable, Set[Identifier.Bindable]] =
+        lets.iterator
+          .flatMap { case (dependent, _, expr) =>
+            expr.globals.iterator.collect {
+              case Expr.Global(`pack`, n, _) =>
+                n.toBindable.map((_, dependent))
+            }.flatten
+          }
+          .toList
+          .groupBy(_._1)
+          .iterator
+          .map { case (dependency, pairs) =>
+            (dependency, pairs.iterator.map(_._2).toSet)
+          }
+          .toMap
+
+      val blocked = scala.collection.mutable.Set.empty[Identifier.Bindable]
+      val queue = scala.collection.mutable.Queue.empty[Identifier.Bindable]
+
+      roots.foreach { root =>
+        blocked += root
+        queue.enqueue(root)
+      }
+
+      while (queue.nonEmpty) {
+        val next = queue.dequeue()
+        dependents.getOrElse(next, Set.empty).foreach { dependent =>
+          if (!blocked(dependent)) {
+            blocked += dependent
+            queue.enqueue(dependent)
+          }
+        }
+      }
+
+      blocked.toSet
+    }
+
+  private def letsForTypeChecking(
+      pack: PackageName,
+      parsedTypeEnv0: ParsedTypeEnv[Option[Kind.Arg]],
+      parsedTypeEnv: ParsedTypeEnv[Kind.Arg],
+      lets: List[ParsedLet]
+  ): List[ParsedLet] = {
+    val removed = removedKindRefs(pack, parsedTypeEnv0, parsedTypeEnv)
+    if (removed.isEmpty) lets
+    else {
+      val roots = lets.iterator.collect {
+        case (name, _, expr) if removed.hasRemovedExprRef(expr) =>
+          name
+      }.toSet
+      val blocked = transitiveDependents(pack, lets, roots)
+      if (blocked.isEmpty) lets
+      else lets.filterNot { case (name, _, _) => blocked(name) }
+    }
+  }
+
+  private def diagnosticsToIor[A](
+      errors: List[PackageError],
+      value: => A
+  ): Ior[NonEmptyList[PackageError], A] =
+    NonEmptyList.fromList(errors) match {
+      case None =>
+        Ior.right(value)
+      case Some(errs) =>
+        if (errs.forall(PackageError.isPostponable)) Ior.both(errs, value)
+        else Ior.left(errs)
+    }
+
+  private def toErrs[A](v: ValidatedNel[A, Unit]): List[A] =
+    v match {
+      case Validated.Valid(_)     => Nil
+      case Validated.Invalid(errs) => errs.toList
+    }
+
+  private def toErrsChain[A](v: ValidatedNec[A, Unit]): Chain[A] =
+    v match {
+      case Validated.Valid(_)     => Chain.empty
+      case Validated.Invalid(errs) => errs.toChain
+    }
+
+  private def toIorPostponable[F[_]: Foldable, A](
+      v: Validated[F[A], Unit]
+  )(
+      isPostponable: A => Boolean
+  ): Ior[F[A], Unit] =
+    v match {
+      case Validated.Valid(unit)  => Ior.right(unit)
+      case Validated.Invalid(errs) =>
+        if (Foldable[F].forall(errs)(isPostponable)) Ior.both(errs, ())
+        else Ior.left(errs)
     }
 
   /** Infer the types but do not optimize/normalize the lets. `exports` can be
@@ -450,7 +771,7 @@ object Package {
       }
 
     lazy val typeDefRegions: Map[Type.Const.Defined, Region] =
-      stmts.iterator.collect { case tds: TypeDefinitionStatement =>
+      stmts.iterator.collect { case tds: TypeStatement =>
         Type.Const.Defined(p, TypeName(tds.name)) -> tds.region
       }.toMap
 
@@ -460,23 +781,23 @@ object Package {
       }.toMap
 
     optProg.flatMap {
-      case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
+      case Program((importedTypeEnv, parsedTypeEnv0), lets, extDefs, _) =>
         val inferVarianceParsed
             : Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
           KindFormula
-            .solveShapesAndKinds(
-              importedTypeEnv,
-              parsedTypeEnv.allDefinedTypes.reverse
-            )
+            .solveShapesAndKinds(importedTypeEnv, parsedTypeEnv0)
             .bimap(
               necError =>
                 necError
                   .map(PackageError.KindInferenceError(p, _, typeDefRegions))
                   .toNonEmptyList,
-              infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
+              identity
             )
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
+          val letsForChecks =
+            letsForTypeChecking(p, parsedTypeEnv0, parsedTypeEnv, lets)
+
           val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
           /*
@@ -525,12 +846,13 @@ object Package {
               .toMap
 
           val localTypeNames: Set[TypeName] =
-            fullTypeEnv.definedTypes.keysIterator.collect { case (`p`, tn) =>
+            (fullTypeEnv.definedTypes.keysIterator ++
+              fullTypeEnv.typeAliases.keysIterator).collect { case (`p`, tn) =>
               tn
             }.toSet
 
           val (nameCheckErrorOpt, nameCheckResult) =
-            NameCheck.checkLets(p, lets, withFQN)
+            NameCheck.checkLets(p, letsForChecks, withFQN)
 
           val nameCheckErrors: Ior[NonEmptyList[PackageError], Unit] =
             nameCheckErrorOpt match {
@@ -550,7 +872,7 @@ object Package {
                     PackageError.TypeErrorIn(
                       mergedError,
                       p,
-                      lets,
+                      letsForChecks,
                       theseExternals,
                       letNameRegions,
                       localTypeNames
@@ -560,100 +882,11 @@ object Package {
             }
 
           val exprDagBindableChecks: Ior[NonEmptyList[PackageError], Unit] =
-            PackageCustoms
-              .checkExprDagBindables(p, imps, exports, lets, extDefs)
-              .leftMap(_.toNonEmptyList)
-              .toIor
+            toIorPostponable(
+              PackageCustoms
+                .checkExprDagBindables(p, imps, exports, lets, extDefs)
+            )(PackageError.isPostponable).leftMap(_.toNonEmptyList)
 
-          val inferenceEither
-              : Either[
-                NonEmptyList[PackageError],
-                (
-                    TypeEnv[Kind.Arg],
-                    Program[
-                      TypeEnv[Kind.Arg],
-                      TypedExpr[Declaration],
-                      List[Statement]
-                    ]
-                )
-              ] = Infer
-            // Blocked lets (with direct/transitive name errors) are excluded,
-            // so missing-name diagnostics come from NameCheck exactly once.
-            .typeCheckLets(p, nameCheckResult.typecheckLets, theseExternals)
-            .runFully(
-              withFQN,
-              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
-              (fullTypeEnv ++ dependencyTypeEnv).toKindMap
-            )
-            .leftMap { tpeErr =>
-              NonEmptyList.one[PackageError](
-                PackageError.TypeErrorIn(
-                  tpeErr,
-                  p,
-                  lets,
-                  theseExternals,
-                  letNameRegions,
-                  localTypeNames
-                )
-              )
-            }
-            .flatMap { typedLets =>
-              val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
-
-              val recursionCheck: ValidatedNel[PackageError, Unit] =
-                TypedExprRecursionCheck
-                .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
-                .leftMap(
-                  _.map(err => PackageError.RecursionError(p, err): PackageError)
-                    .toNonEmptyList
-                )
-
-              def shadowedBindingTypeCheck
-                  : ValidatedNel[PackageError, Unit] =
-                ShadowedBindingTypeCheck
-                  .checkLets(p, typedLets)
-                  .leftMap(
-                    _.map(err =>
-                      PackageError.ShadowedBindingTypeError(
-                        p,
-                        err,
-                        localTypeNames
-                      ): PackageError
-                    ).toNonEmptyList
-                  )
-
-              val totalityCheck: ValidatedNel[PackageError, Unit] =
-                typedLets
-                  .traverse_ { case (_, _, expr) =>
-                    TotalityCheck(fullTypeEnv).checkExpr(expr)
-                  }
-                  .leftMap { errs =>
-                    errs.map(PackageError.TotalityCheckError(p, _))
-                  }
-
-              (recursionCheck, shadowedBindingTypeCheck, totalityCheck)
-                .mapN { (_, _, _) =>
-                  (fullTypeEnv, Program(typeEnv, typedLets, extDefs, stmts))
-                }
-                .toEither
-            }
-
-          val checkUnusedLets: ValidatedNel[PackageError, Unit] =
-            lets
-              .traverse_ { case (_, _, expr) =>
-                UnusedLetCheck.check(expr)
-              }
-              .leftMap { errs =>
-                NonEmptyList.one(
-                  PackageError.UnusedLetError(p, errs.toNonEmptyList)
-                )
-              }
-
-          /*
-           * Checks accumulate errors, but have no return value:
-           * warning: if we refactor this from validated, we need parMap on Ior to get this
-           * error accumulation
-           */
           val inference: Ior[
             NonEmptyList[PackageError],
             (
@@ -664,15 +897,105 @@ object Package {
                   List[Statement]
                 ]
             )
-          ] =
-            Validated.fromEither(inferenceEither).toIor
+          ] = Infer
+            // Blocked lets (with direct/transitive name errors) are excluded,
+            // so missing-name diagnostics come from NameCheck exactly once.
+            .typeCheckLets(p, nameCheckResult.typecheckLets, theseExternals)
+            .runFully(
+              withFQN,
+              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
+              (fullTypeEnv ++ dependencyTypeEnv).toKindMap,
+              (fullTypeEnv ++ dependencyTypeEnv).allTypeAliases.iterator
+                .map(ta => ta.toTypeConst -> ta)
+                .toMap
+            )
+            .leftMap { tpeErr =>
+              NonEmptyList.one[PackageError](
+                PackageError.TypeErrorIn(
+                  tpeErr,
+                  p,
+                  letsForChecks,
+                  theseExternals,
+                  letNameRegions,
+                  localTypeNames
+                )
+              )
+            }
+            .toIor
+            .flatMap { typedLets =>
+              val topLevelDefs = TypedExprRecursionCheck.topLevelDefArgs(stmts)
+
+              val recursionIssues: Chain[PackageError] =
+                toErrsChain(
+                  TypedExprRecursionCheck
+                    .checkLets(p, fullTypeEnv, typedLets, topLevelDefs)
+                    .leftMap(
+                      _.map {
+                        case err: RecursionCheck.Error =>
+                          PackageError.RecursionError(p, err): PackageError
+                        case lint: RecursionCheck.Lint =>
+                          PackageError.RecursionLint(p, lint): PackageError
+                      }
+                    )
+                )
+
+              val shadowedBindingErrors: Chain[PackageError] =
+                toErrsChain(
+                  ShadowedBindingTypeCheck
+                    .checkLets(p, typedLets)
+                    .leftMap(
+                      _.map(err =>
+                        PackageError.ShadowedBindingTypeError(
+                          p,
+                          err,
+                          localTypeNames
+                        ): PackageError
+                      )
+                    )
+                )
+
+              val totalityErrors: List[PackageError] =
+                toErrs(
+                  typedLets
+                    .traverse_ { case (_, _, expr) =>
+                      TotalityCheck(fullTypeEnv).checkExpr(expr)
+                    }
+                    .leftMap(
+                      _.map(err => PackageError.TotalityCheckError(p, err): PackageError)
+                    )
+                )
+
+              // Preserve lint diagnostics alongside hard failures, but only
+              // keep the typed program on the success path when every
+              // diagnostic is postponable.
+              diagnosticsToIor(
+                (recursionIssues ++ shadowedBindingErrors).toList ::: totalityErrors,
+                (
+                  fullTypeEnv,
+                  Program(typeEnv, typedLets, extDefs, stmts)
+                )
+              )
+            }
+
+          val checkUnusedLets: Ior[NonEmptyList[PackageError], Unit] =
+            toIorPostponable(
+              letsForChecks
+                .traverse_ { case (_, _, expr) =>
+                  UnusedLetCheck.check(expr)
+                }
+                .leftMap(errs =>
+                  NonEmptyList.one[PackageError](
+                    PackageError.UnusedLetError(p, errs.toNonEmptyList)
+                  )
+                )
+            )(PackageError.isPostponable)
 
           // Name errors force a Left result, but we still collect any
           // independent inference and import/export diagnostics in the same run.
           (
             exprDagBindableChecks,
             nameCheckErrors,
-            checkUnusedLets.toIor,
+            checkUnusedLets,
             inference
           ).parMapN { (_, _, _, res) => res }
         }
@@ -698,7 +1021,7 @@ object Package {
     ExportedName.Binding(todoName, ())
 
   private lazy val predefEmitPackage: Package.Parsed =
-    parser(None).parse(Predef.predefString) match {
+    parser.parse(Predef.predefString) match {
       case Right((_, pack)) =>
         // Make function defs:
         def paramType(n: Int) =

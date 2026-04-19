@@ -137,7 +137,12 @@ object BosatsuInt {
         case (a: java.lang.Integer, b: java.lang.Integer) =>
           java.lang.Integer.valueOf(a.intValue() ^ b.intValue())
         case _ =>
-          fromBigInteger(t.toBigInteger.xor(that.toBigInteger))
+          val left = t.toBigInteger
+          val right = that.toBigInteger
+          // Scala.js BigInteger.xor is broken for some mixed-sign cases
+          // (for example 1 xor Long.MinValue). Use an equivalent identity
+          // that relies on the working and/or/not implementations instead.
+          fromBigInteger(left.or(right).and(left.and(right).not()))
       }
 
     inline def unary_~ : Tpe =

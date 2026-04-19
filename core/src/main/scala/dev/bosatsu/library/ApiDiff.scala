@@ -1,7 +1,7 @@
 package dev.bosatsu.library
 
 import cats.data.{Ior, NonEmptyList, ValidatedNec}
-import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
+import dev.bosatsu.rankn.{ConstructorFn, DefinedType, Type, TypeAlias, TypeEnv}
 import dev.bosatsu.{
   ExportedName,
   Identifier,
@@ -103,6 +103,47 @@ object ApiDiff {
       ) +
         Document[Kind].document(oldDt.kindOf) + Doc.text(" to kind ") +
         Document[Kind].document(newDt.kindOf)
+  }
+
+  case class ChangedAliasKind(
+      pack: PackageName,
+      oldAlias: TypeAlias[Kind.Arg],
+      newAlias: TypeAlias[Kind.Arg]
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMajor
+    def toDoc =
+      Type.fullyResolvedDocument.document(oldAlias.toTypeTyConst) + Doc.text(
+        " changes from kind "
+      ) +
+        Document[Kind].document(oldAlias.kindOf) + Doc.text(" to kind ") +
+        Document[Kind].document(newAlias.kindOf)
+  }
+
+  case class ChangedAliasRhs(
+      pack: PackageName,
+      oldAlias: TypeAlias[Kind.Arg],
+      newAlias: TypeAlias[Kind.Arg]
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMajor
+    def toDoc =
+      Type.fullyResolvedDocument.document(oldAlias.toTypeTyConst) + Doc.text(
+        " changes from alias body "
+      ) +
+        Type.fullyResolvedDocument.document(oldAlias.rhs) + Doc.text(" to ") +
+        Type.fullyResolvedDocument.document(newAlias.rhs)
+  }
+
+  case class ChangedTypeDefForm(
+      pack: PackageName,
+      tycons: Type.TyConst,
+      oldForm: String,
+      newForm: String
+  ) extends Diff {
+    def isValidWhen(dk: Version.DiffKind) = dk.isMajor
+    def toDoc =
+      Type.fullyResolvedDocument.document(tycons) + Doc.text(
+        show" changes from $oldForm to $newForm"
+      )
   }
 
   case class ChangedTransitiveType(
@@ -338,6 +379,95 @@ object ApiDiff {
   ): V[List[Diff]] = {
     import Error._
 
+    sealed trait TypeTarget {
+      def toTypeTyConst: Type.TyConst
+    }
+    object TypeTarget {
+      final case class Data(dt: DefinedType[Kind.Arg]) extends TypeTarget {
+        val toTypeTyConst = dt.toTypeTyConst
+      }
+      final case class Alias(ta: TypeAlias[Kind.Arg]) extends TypeTarget {
+        val toTypeTyConst = ta.toTypeTyConst
+      }
+
+      def label(tt: TypeTarget): String =
+        tt match {
+          case Data(_)  => "data type"
+          case Alias(_) => "type alias"
+        }
+    }
+
+    def diffTA(
+        oldAlias: TypeAlias[Kind.Arg],
+        newAlias: TypeAlias[Kind.Arg]
+    ): V[List[Diff]] = {
+      val kinds =
+        if (oldAlias.kindOf == newAlias.kindOf) Nil
+        else ChangedAliasKind(pn, oldAlias, newAlias) :: Nil
+
+      val rhsV =
+        if (oldAlias.rhs.sameAs(newAlias.rhs)) {
+          Type.allConsts(oldAlias.rhs :: Nil)
+            .traverse { const =>
+              diffConst(const).map(
+                _.map(diff => ChangedTransitiveType(newAlias.rhs, const, diff))
+              )
+            }
+            .map(_.flatten)
+        } else {
+          (ChangedAliasRhs(pn, oldAlias, newAlias) :: Nil).validNec
+        }
+
+      rhsV.map(kinds ::: _)
+    }
+
+    def diffTarget(oldTarget: TypeTarget, newTarget: TypeTarget): V[List[Diff]] =
+      (oldTarget, newTarget) match {
+        case (TypeTarget.Data(oldDt), TypeTarget.Data(newDt)) =>
+          diffDT(oldDt, newDt)
+        case (TypeTarget.Alias(oldAlias), TypeTarget.Alias(newAlias)) =>
+          diffTA(oldAlias, newAlias)
+        case (oldT, newT) =>
+          (ChangedTypeDefForm(
+            pn,
+            oldT.toTypeTyConst,
+            TypeTarget.label(oldT),
+            TypeTarget.label(newT)
+          ) :: Nil).validNec
+      }
+
+    def diffConst(const: Type.TyConst): V[List[Diff]] = {
+      val oldTarget =
+        prevEnv
+          .toDefinedType(const.tpe)
+          .map(TypeTarget.Data(_))
+          .orElse(prevEnv.toTypeAlias(const.tpe).map(TypeTarget.Alias(_)))
+      val newTarget =
+        curEnv
+          .toDefinedType(const.tpe)
+          .map(TypeTarget.Data(_))
+          .orElse(curEnv.toTypeAlias(const.tpe).map(TypeTarget.Alias(_)))
+
+      (oldTarget, newTarget) match {
+        case (Some(oldT), Some(newT)) =>
+          diffTarget(oldT, newT)
+        case (None, _) =>
+          MissingTransitiveType(
+            pn,
+            const,
+            const,
+            MissingEnv.Previous
+          ).invalidNec
+        case (_, None) =>
+          MissingTransitiveType(
+            pn,
+            const,
+            const,
+            MissingEnv.Current
+          ).invalidNec
+      }
+    }
+
     def diffType(oldTpe: Type, newTpe: Type): V[List[Diff]] =
       // this should be the only valid case, otherwise there were multiple things previously
       if (oldTpe.sameAs(newTpe)) {
@@ -346,30 +476,9 @@ object ApiDiff {
 
         consts
           .traverse { const =>
-            val oldDtOpt = prevEnv.getType(const)
-            val newDtOpt = curEnv.getType(const)
-
-            (oldDtOpt, newDtOpt) match {
-              case (Some(oldDt), Some(newDt)) =>
-                diffDT(oldDt, newDt)
-                  .map(
-                    _.map(diff => ChangedTransitiveType(newTpe, const, diff))
-                  )
-              case (None, _) =>
-                MissingTransitiveType(
-                  pn,
-                  oldTpe,
-                  const,
-                  MissingEnv.Previous
-                ).invalidNec
-              case (_, None) =>
-                MissingTransitiveType(
-                  pn,
-                  oldTpe,
-                  const,
-                  MissingEnv.Current
-                ).invalidNec
-            }
+            diffConst(const).map(
+              _.map(diff => ChangedTransitiveType(newTpe, const, diff))
+            )
           }
           .map(_.flatten)
       } else {
@@ -544,23 +653,27 @@ object ApiDiff {
                     )
                 }
               case cons: Identifier.Constructor =>
-                def typesOf(
+                def typeTargetsOf(
                     nel: NonEmptyList[ExportedName[R]]
-                ): List[DefinedType[Kind.Arg]] =
+                ): List[TypeTarget] =
                   nel.toList
                     .collect {
-                      case ExportedName.TypeName(_, Referant.DefinedT(dt)) => dt
+                      case ExportedName.TypeName(_, Referant.DefinedT(dt)) =>
+                        TypeTarget.Data(dt)
+                      case ExportedName.TypeName(_, Referant.TypeAliasT(ta)) =>
+                        TypeTarget.Alias(ta)
                       case ExportedName.Constructor(
                             _,
                             Referant.Constructor(dt, _)
                           ) =>
-                        dt
+                        TypeTarget.Data(dt)
                     }
                     .distinct
-                    .sortBy(_.toTypeConst: Type.Const)
+                    .sortBy(_.toTypeTyConst: Type)
 
-                (typesOf(oldExp), typesOf(newExp)) match {
-                  case (oldDt :: Nil, newDt :: Nil) => diffDT(oldDt, newDt)
+                (typeTargetsOf(oldExp), typeTargetsOf(newExp)) match {
+                  case (oldTarget :: Nil, newTarget :: Nil) =>
+                    diffTarget(oldTarget, newTarget)
                   case diff                         =>
                     sys.error(
                       s"invariant violation: have Constructor=$cons but unexpected diff of not exactly one type: diff=$diff"

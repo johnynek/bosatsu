@@ -7,29 +7,29 @@
 # Effect(f) => (5, f)
 
 import errno as _errno
+import math
 import os
 import shutil
 import stat as _stat
+import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Optional, Tuple, Union
 
 def pure(a): return (0, a)
 def raise_error(e): return (1, e)
 def flat_map(p, f):
-  if p[0] == 2:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (2, base_prog, lambda a: flat_map(prior_fn(a), f))
+  # Keep the program tree as-is. The evaluator loop already handles nested
+  # FlatMap nodes iteratively, while recursive reassociation can overflow
+  # Python's call stack on deep left-associated chains.
   return (2, p, f)
 
 def recover(p, f):
-  if p[0] == 3:
-    base_prog = p[1]
-    prior_fn = p[2]
-    return (3, base_prog, lambda a: recover(prior_fn(a), f))
+  # As with flat_map above, avoid recursive tree rewrites here and let the
+  # evaluator handle nested Recover nodes iteratively.
   return (3, p, f)
 def apply_fix(a, f): return (4, a, f)
 # this is a thunk we run
@@ -45,6 +45,69 @@ def observe(value):
     _observe_sink = ()
     return _pure_unit
   return effect(fn)
+
+class _BosatsuVar:
+    __slots__ = ("_value", "_lock")
+
+    def __init__(self, value):
+        self._value = value
+        self._lock = threading.Lock()
+
+def _as_bosatsu_var(value):
+    if isinstance(value, _BosatsuVar):
+        return value
+    return None
+
+def new_var(initial):
+    return effect(lambda: pure(_BosatsuVar(initial)))
+
+def get(var_value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            return pure(cell._value)
+
+    return effect(fn)
+
+def set(var_value, value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            cell._value = value
+            return _pure_unit
+
+    return effect(fn)
+
+def swap(var_value, new_value):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            old_value = cell._value
+            cell._value = new_value
+            return pure(old_value)
+
+    return effect(fn)
+
+def update(var_value, callback):
+    def fn():
+        cell = _as_bosatsu_var(var_value)
+        if cell is None:
+            raise ValueError(f"invalid Var value: {var_value!r}")
+        with cell._lock:
+            updated = callback(cell._value)
+            if not isinstance(updated, tuple) or len(updated) != 2:
+                raise ValueError(f"invalid Var update result: {updated!r}")
+            next_value, result = updated
+            cell._value = next_value
+            return pure(result)
+
+    return effect(fn)
 
 _IOERR_NOT_FOUND = 0
 _IOERR_ACCESS_DENIED = 1
@@ -67,6 +130,8 @@ _IOERR_TIMED_OUT = 17
 _IOERR_BROKEN_PIPE = 18
 _IOERR_UNSUPPORTED = 19
 _IOERR_OTHER = 20
+_POSIX_MODE_MASK = 0o7777
+_OWNER_WRITE_EXECUTE_MASK = 0o300
 
 def _ioerr(tag: int, context: str):
     return (tag, context)
@@ -169,6 +234,90 @@ def _as_bosatsu_bytes(value):
     if isinstance(value, _BosatsuBytes):
         return value
     return None
+
+class _BosatsuInt64:
+    __slots__ = ("value",)
+
+    def __init__(self, value: int):
+        self.value = _normalize_int64_bits(int(value))
+
+def _as_bosatsu_int64(value):
+    if isinstance(value, _BosatsuInt64):
+        return value
+    return None
+
+_INT64_MASK = (1 << 64) - 1
+_INT64_SIGN = 1 << 63
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
+
+def _normalize_int64_bits(value: int) -> int:
+    low_bits = int(value) & _INT64_MASK
+    if low_bits >= _INT64_SIGN:
+        return low_bits - (1 << 64)
+    return low_bits
+
+def _box_int64(value: int):
+    return _BosatsuInt64(value)
+
+def _expect_int64(value):
+    wrapped = _as_bosatsu_int64(value)
+    if wrapped is None:
+        raise ValueError(f"invalid Int64 value: {value!r}")
+    return wrapped.value
+
+def _shift_left_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return 0
+        return _normalize_int64_bits(value << shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return -1 if value < 0 else 0
+    return _normalize_int64_bits(value >> shift_abs)
+
+def _shift_right_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return -1 if value < 0 else 0
+        return _normalize_int64_bits(value >> shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return 0
+    return _normalize_int64_bits(value << shift_abs)
+
+def _shift_right_unsigned_int64(value: int, count: int) -> int:
+    shift = int(count)
+    if shift == 0:
+        return _normalize_int64_bits(value)
+    if shift > 0:
+        if shift >= 64:
+            return 0
+        return _normalize_int64_bits((value & _INT64_MASK) >> shift)
+
+    shift_abs = -shift
+    if shift_abs >= 64:
+        return 0
+    return _normalize_int64_bits(value << shift_abs)
+
+def _popcount_int64(value: int) -> int:
+    bits = int(value) & _INT64_MASK
+    count = 0
+    while bits:
+        bits &= bits - 1
+        count += 1
+    return count
+
+min_i64 = _box_int64(_INT64_MIN)
+max_i64 = _box_int64(_INT64_MAX)
 
 def _bytes_view_slice(value: _BosatsuBytes):
     start = value.offset
@@ -288,6 +437,93 @@ def _to_bool(v) -> bool:
             return False
     return bool(v)
 
+def _to_posix_mode_bits(mode_value):
+    if isinstance(mode_value, int):
+        bits = int(mode_value)
+    elif isinstance(mode_value, tuple) and len(mode_value) >= 1:
+        bits = int(mode_value[0])
+    else:
+        raise ValueError(f"invalid PosixMode value: {mode_value!r}")
+
+    if bits < 0 or bits > _POSIX_MODE_MASK:
+        raise ValueError(f"invalid PosixMode bits: {bits!r}")
+    return bits
+
+def _stat_posix_mode_bits(st):
+    if os.name == "nt":
+        return None
+    return _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+
+def _join_normalized_path(base: str, child: str) -> str:
+    if base == "":
+        return child
+    if base.endswith("/"):
+        return base + child
+    return base + "/" + child
+
+def _split_normalized_path(path_s: str):
+    drive, tail = os.path.splitdrive(path_s)
+    absolute = tail.startswith("/")
+    root = ""
+    if drive:
+        root = drive + ("/" if absolute else "")
+    elif absolute:
+        root = "/"
+
+    without_root = tail[1:] if absolute else tail
+    parts = [part for part in without_root.split("/") if part != ""]
+    return (root, parts)
+
+def _raise_existing_path_error(path_s: str, leaf: bool):
+    if leaf:
+        raise FileExistsError(_errno.EEXIST, os.strerror(_errno.EEXIST), path_s)
+    raise NotADirectoryError(_errno.ENOTDIR, os.strerror(_errno.ENOTDIR), path_s)
+
+def _ensure_directory_at_path(path_s: str, leaf: bool):
+    # mkdir -p should keep traversing through symlinked directory components.
+    if os.path.isdir(path_s):
+        return os.stat(path_s)
+    _raise_existing_path_error(path_s, leaf)
+
+def _set_directory_mode(path_s: str, mode_bits: int):
+    os.chmod(path_s, mode_bits & _POSIX_MODE_MASK)
+
+def _repair_parent_directory_mode(path_s: str):
+    st = os.lstat(path_s)
+    current_bits = _stat.S_IMODE(st.st_mode) & _POSIX_MODE_MASK
+    repaired_bits = current_bits | _OWNER_WRITE_EXECUTE_MASK
+    if repaired_bits != current_bits:
+        os.chmod(path_s, repaired_bits)
+
+def _mkdir_recursive(path_s: str, leaf_mode_bits=None):
+    root, parts = _split_normalized_path(path_s)
+    if len(parts) == 0:
+        if root != "":
+            _ensure_directory_at_path(path_s, True)
+        return
+
+    current = root
+    last_index = len(parts) - 1
+    for idx, part in enumerate(parts):
+        current = _join_normalized_path(current, part)
+        is_leaf = idx == last_index
+        created = False
+        try:
+            if leaf_mode_bits is None or not is_leaf:
+                os.mkdir(current)
+            else:
+                os.mkdir(current, leaf_mode_bits)
+            created = True
+        except FileExistsError:
+            _ensure_directory_at_path(current, is_leaf)
+
+        if created and leaf_mode_bits is not None:
+            if is_leaf:
+                _set_directory_mode(current, leaf_mode_bits)
+            else:
+                # Parent directories need owner write/execute after umask masking.
+                _repair_parent_directory_mode(current)
+
 def _as_handle(value):
     if isinstance(value, _CoreHandle):
         return value
@@ -337,12 +573,99 @@ def _bosatsu_list_to_pylist(lst):
 def _kind_from_lstat(st):
     mode = st.st_mode
     if _stat.S_ISREG(mode):
-        return (0,)  # File
+        return 0  # File
     if _stat.S_ISDIR(mode):
-        return (1,)  # Dir
+        return 1  # Dir
     if _stat.S_ISLNK(mode):
-        return (2,)  # Symlink
-    return (3,)      # Other
+        return 2  # Symlink
+    return 3      # Other
+
+# Bosatsu/Num/Int64 externals
+def int_to_Int64(value):
+    raw = int(value)
+    if _INT64_MIN <= raw <= _INT64_MAX:
+        return _some(_box_int64(raw))
+    return _none
+
+def int_low_bits_to_Int64(value):
+    return _box_int64(int(value))
+
+def int64_to_Int(value):
+    return _expect_int64(value)
+
+def int64_to_Float64(value):
+    return float(_expect_int64(value))
+
+def float64_to_Int64(value):
+    fvalue = float(value)
+    if not math.isfinite(fvalue):
+        return _none
+
+    rounded = round(fvalue)
+    if _INT64_MIN <= rounded <= _INT64_MAX:
+        return _some(_box_int64(rounded))
+    return _none
+
+def add_Int64(left, right):
+    return _box_int64(_expect_int64(left) + _expect_int64(right))
+
+def sub_Int64(left, right):
+    return _box_int64(_expect_int64(left) - _expect_int64(right))
+
+def mul_Int64(left, right):
+    return _box_int64(_expect_int64(left) * _expect_int64(right))
+
+def div_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if rhs == 0:
+        return _box_int64(0)
+    if lhs == _INT64_MIN and rhs == -1:
+        return _box_int64(_INT64_MIN)
+    return _box_int64(lhs // rhs)
+
+def mod_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if rhs == 0:
+        return _box_int64(lhs)
+    return _box_int64(lhs % rhs)
+
+def and_Int64(left, right):
+    return _box_int64(_expect_int64(left) & _expect_int64(right))
+
+def or_Int64(left, right):
+    return _box_int64(_expect_int64(left) | _expect_int64(right))
+
+def xor_Int64(left, right):
+    return _box_int64(_expect_int64(left) ^ _expect_int64(right))
+
+def not_Int64(value):
+    return _box_int64(~_expect_int64(value))
+
+def shift_left_Int64(value, count):
+    return _box_int64(_shift_left_int64(_expect_int64(value), count))
+
+def shift_right_Int64(value, count):
+    return _box_int64(_shift_right_int64(_expect_int64(value), count))
+
+def shift_right_unsigned_Int64(value, count):
+    return _box_int64(_shift_right_unsigned_int64(_expect_int64(value), count))
+
+def popcount_Int64(value):
+    return _popcount_int64(_expect_int64(value))
+
+def eq_Int64(left, right):
+    return _expect_int64(left) == _expect_int64(right)
+
+def cmp_Int64(left, right):
+    lhs = _expect_int64(left)
+    rhs = _expect_int64(right)
+    if lhs < rhs:
+        return 0
+    if lhs > rhs:
+        return 2
+    return 1
 
 # Bosatsu/Lazy externals
 def lazy(fn):
@@ -360,6 +683,78 @@ def get_Lazy(lazy_value):
     l._forced = True
     l._thunk = None
     return value
+
+# Bosatsu/Eval externals
+_EVAL_LEAF_DONE = 0
+_EVAL_LEAF_LAZY = 1
+_EVAL_LEAF_ALWAYS = 2
+
+_EVAL_PURE = 0
+_EVAL_FLAT_MAP = 1
+
+_EVAL_STACK_LAST = 0
+_EVAL_STACK_MORE = 1
+
+_EVAL_LOOP_RUN_STACK = 0
+_EVAL_LOOP_RUN_EVAL = 1
+
+def _eval_leaf_value(leaf):
+    tag = leaf[0]
+    if tag == _EVAL_LEAF_DONE:
+        return leaf[1]
+    if tag == _EVAL_LEAF_LAZY:
+        return get_Lazy(leaf[1])
+    if tag == _EVAL_LEAF_ALWAYS:
+        return leaf[1](())
+    raise ValueError(f"invalid Eval.Leaf value: {leaf!r}")
+
+def eval_loop(loop):
+    loop_tag = loop[0]
+    if loop_tag == _EVAL_LOOP_RUN_EVAL:
+        run_eval = True
+    elif loop_tag == _EVAL_LOOP_RUN_STACK:
+        run_eval = False
+    else:
+        raise ValueError(f"invalid Eval.Loop value: {loop!r}")
+
+    current = loop[1]
+    stack = loop[2]
+
+    while True:
+        if run_eval:
+            eval_tag = current[0]
+            if eval_tag == _EVAL_PURE:
+                current = _eval_leaf_value(current[1])
+                run_eval = False
+                continue
+            if eval_tag != _EVAL_FLAT_MAP:
+                raise ValueError(f"invalid Eval value: {current!r}")
+
+            prev = current[1]
+            fn = current[2]
+            current = prev
+            stack = (_EVAL_STACK_MORE, fn, stack)
+            continue
+
+        stack_tag = stack[0]
+        if stack_tag == _EVAL_STACK_MORE:
+            current = stack[1](current)
+            stack = stack[2]
+            run_eval = True
+            continue
+        if stack_tag != _EVAL_STACK_LAST:
+            raise ValueError(f"invalid Eval.Stack value: {stack!r}")
+
+        next_eval = stack[1](current)
+        next_tag = next_eval[0]
+        if next_tag == _EVAL_PURE:
+            return _eval_leaf_value(next_eval[1])
+        if next_tag != _EVAL_FLAT_MAP:
+            raise ValueError(f"invalid Eval value: {next_eval!r}")
+
+        current = next_eval[1]
+        stack = (_EVAL_STACK_LAST, next_eval[2])
+        run_eval = True
 
 # Bosatsu/IO/Bytes externals
 empty_Bytes = _BosatsuBytes(b"", 0, 0)
@@ -579,7 +974,7 @@ def utf8_Char_at(bytes_value, idx):
     else:
         return _none
 
-    return _some(chr(codepoint))
+    return _some(struct.pack(">I", codepoint).decode("utf-32-be"))
 
 # Bosatsu/IO/Core externals
 path_sep = os.sep
@@ -1033,7 +1428,8 @@ def stat_path(path):
 
         kind = _kind_from_lstat(st)
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
-        file_stat = (kind, int(st.st_size), int(mtime_ns))
+        posix_mode_bits = _stat_posix_mode_bits(st)
+        file_stat = (kind, int(st.st_size), int(mtime_ns), _none if posix_mode_bits is None else _some(int(posix_mode_bits)))
         return pure(_some(file_stat))
 
     return effect(fn)
@@ -1047,12 +1443,36 @@ def mkdir_path(path, recursive):
 
         try:
             if _to_bool(recursive):
-                os.makedirs(path_s)
+                _mkdir_recursive(path_s)
             else:
                 os.mkdir(path_s)
             return _pure_unit
         except OSError as exc:
             return raise_error(_ioerror_from_errno(exc.errno, f"creating directory: {path_s}"))
+
+    return effect(fn)
+
+def mkdir_with_mode(path, recursive, mode):
+    def fn():
+        try:
+            path_s = _to_path_string(path)
+            mode_bits = _to_posix_mode_bits(mode)
+        except ValueError as exc:
+            return raise_error(_invalid_argument(str(exc)))
+
+        call_context = f"creating directory with mode: {path_s}"
+        if os.name == "nt":
+            return raise_error(_unsupported(call_context))
+
+        try:
+            if _to_bool(recursive):
+                _mkdir_recursive(path_s, mode_bits)
+            else:
+                os.mkdir(path_s, mode_bits)
+                _set_directory_mode(path_s, mode_bits)
+            return _pure_unit
+        except OSError as exc:
+            return raise_error(_ioerror_from_errno(exc.errno, call_context))
 
     return effect(fn)
 
@@ -1318,7 +1738,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
     s = decode_buf()
     if s is not None:
         # Covers:
-        #   - Got exactly `requested` bytes and they’re valid
+        #   - Got exactly `requested` bytes and they're valid
         #   - Got fewer than `requested` bytes due to EOF but still valid
         #   - requested == 0 -> empty buffer -> ""
         return (True, s)
@@ -1357,7 +1777,7 @@ def _read_utf8_chunk(requested: int) -> Tuple[bool, Union[str, tuple]]:
         if s is not None:
             return (True, s)
 
-    # Still invalid after up to 4 extra bytes → true UTF-8 error
+    # Still invalid after up to 4 extra bytes -> true UTF-8 error
     return (False, _ioerr(_IOERR_INVALID_UTF8, "decoding bytes from stdin"))
 
 def read_stdin_utf8_bytes(cnt):
@@ -1382,22 +1802,22 @@ def step_fix(arg, fixfn):
   fixed = lambda a: (4, a, fixfn)
   return fixfn(fixed)(arg)
 
-def _prog_from_main(main):
-  args = py_to_bosatsu_list(sys.argv[1:])
-  if callable(main):
-    return main(args)
-  if isinstance(main, tuple) and len(main) > 0 and callable(main[0]):
-    return main[0](args)
-  return main
+def _prog_from_args(fn_value, args):
+  bosatsu_args = py_to_bosatsu_list(args)
+  if callable(fn_value):
+    return fn_value(bosatsu_args)
+  if isinstance(fn_value, tuple) and len(fn_value) > 0 and callable(fn_value[0]):
+    return fn_value[0](bosatsu_args)
+  return fn_value
 
-# main: List[String] -> Prog[String, Int]
-def run(main):
-  # the stack ADT:
+def _prog_from_main(main):
+  return _prog_from_args(main, sys.argv[1:])
+
+def _run_prog_value(arg):
   done = (0,)
   def fmstep(fn, stack): return (1, fn, stack)
   def recstep(fn, stack): return (2, fn, stack)
 
-  arg = _prog_from_main(main)
   stack = done
   while True:
     prog_tag = arg[0]
@@ -1410,8 +1830,7 @@ def run(main):
       item = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the result must be an int
-        sys.exit(item)
+        return (True, item)
       elif stack_tag == 1:
         #fmstep
         fn = stack[1]
@@ -1428,8 +1847,7 @@ def run(main):
       err = arg[1]
       stack_tag = stack[0]
       if stack_tag == 0:
-        #done, the top error must be a string
-        raise Exception(err) 
+        return (False, err)
       elif stack_tag == 1:
         #fmstep, but this is an error, just pop
         stack = stack[2]
@@ -1447,3 +1865,17 @@ def run(main):
       arg = step_fix(arg[1], arg[2])
     else:
       raise Exception(f"invalid Prog tag: {prog_tag}")
+
+# main: List[String] -> Prog[String, Int]
+def run(main):
+  ok, value = _run_prog_value(_prog_from_main(main))
+  if ok:
+    sys.exit(value)
+  raise Exception(value)
+
+def run_test(prog_test, args=None):
+  run_args = [] if args is None else list(args)
+  ok, value = _run_prog_value(_prog_from_args(prog_test, run_args))
+  if ok:
+    return value
+  raise AssertionError(f"ProgTest raised uncaught error: {value!r}")

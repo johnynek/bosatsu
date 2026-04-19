@@ -5,7 +5,7 @@ import cats.data.Validated
 class ParserHintsTest extends munit.FunSuite {
 
   private def parseFailure(source: String): Parser.Error.ParseFailure =
-    Parser.parse(Package.parser(None), source) match {
+    Parser.parse(Package.parser, source) match {
       case Validated.Valid(_) =>
         fail(s"expected parse failure for:\n$source")
       case Validated.Invalid(errs) =>

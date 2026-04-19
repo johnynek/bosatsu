@@ -21,7 +21,12 @@ import java.nio.charset.{
   CodingErrorAction,
   StandardCharsets
 }
-import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.{
+  BasicFileAttributes,
+  FileTime,
+  PosixFileAttributes,
+  PosixFilePermission
+}
 import java.nio.file.{
   AccessDeniedException,
   DirectoryNotEmptyException,
@@ -36,7 +41,7 @@ import java.nio.file.{
   Paths,
   StandardOpenOption
 }
-import java.util.Locale
+import java.util.{EnumSet, Locale}
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 import scala.util.DynamicVariable
@@ -60,6 +65,8 @@ object Predef {
     PackageName.parts("Bosatsu", "Collection", "Array")
   private def float64PackageName: PackageName =
     PackageName.parts("Bosatsu", "Num", "Float64")
+  private def int64PackageName: PackageName =
+    PackageName.parts("Bosatsu", "Num", "Int64")
   private def progPackageName: PackageName =
     PackageName.parts("Bosatsu", "Prog")
   private def ioBytesPackageName: PackageName =
@@ -68,6 +75,8 @@ object Predef {
     PackageName.parts("Bosatsu", "IO", "Core")
   private def lazyPackageName: PackageName =
     PackageName.parts("Bosatsu", "Lazy")
+  private def evalPackageName: PackageName =
+    PackageName.parts("Bosatsu", "Eval")
 
   private def addIoBytesExternals(externals: Externals): Externals =
     externals
@@ -167,11 +176,12 @@ object Predef {
       .add(predefPackageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(predefPackageName, "addf", FfiCall.Fn2(PredefImpl.addf(_, _)))
       .add(predefPackageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
+      .add(predefPackageName, "div_mod", FfiCall.Fn2(PredefImpl.div_mod(_, _)))
       .add(predefPackageName, "divf", FfiCall.Fn2(PredefImpl.divf(_, _)))
       .add(predefPackageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
       .add(predefPackageName, "subf", FfiCall.Fn2(PredefImpl.subf(_, _)))
       .add(predefPackageName, "mul", FfiCall.Fn2(PredefImpl.mul(_, _)))
-      .add(predefPackageName, "timesf", FfiCall.Fn2(PredefImpl.timesf(_, _)))
+      .add(predefPackageName, "mulf", FfiCall.Fn2(PredefImpl.mulf(_, _)))
       .add(predefPackageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
       .add(
         predefPackageName,
@@ -182,6 +192,11 @@ object Predef {
         predefPackageName,
         "cmp_Float64",
         FfiCall.Fn2(PredefImpl.cmp_Float64(_, _))
+      )
+      .add(
+        predefPackageName,
+        "eq_Float64",
+        FfiCall.Fn2(PredefImpl.eq_Float64(_, _))
       )
       .add(
         predefPackageName,
@@ -242,6 +257,16 @@ object Predef {
         predefPackageName,
         "char_to_Int",
         FfiCall.Fn1(PredefImpl.char_to_Int(_))
+      )
+      .add(
+        predefPackageName,
+        "cmp_Char",
+        FfiCall.Fn2(PredefImpl.cmp_Char(_, _))
+      )
+      .add(
+        predefPackageName,
+        "eq_Char",
+        FfiCall.Fn2(PredefImpl.eq_Char(_, _))
       )
       .add(
         predefPackageName,
@@ -310,6 +335,11 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "foldl_with_index_Array",
+        FfiCall.Fn3(PredefImpl.foldl_with_index_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
         "foldl_Array",
         FfiCall.Fn3(PredefImpl.foldl_Array(_, _, _))
       )
@@ -325,6 +355,11 @@ object Predef {
       )
       .add(
         arrayPackageName,
+        "map_with_index_Array",
+        FfiCall.Fn2(PredefImpl.map_with_index_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
         "filter_Array",
         FfiCall.Fn2(PredefImpl.filter_Array(_, _))
       )
@@ -332,6 +367,36 @@ object Predef {
         arrayPackageName,
         "flat_map_Array",
         FfiCall.Fn2(PredefImpl.flat_map_Array(_, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_map_Array",
+        FfiCall.Fn3(PredefImpl.zip_map_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_foldl_Array",
+        FfiCall.Fn4(PredefImpl.zip_foldl_Array(_, _, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "zip_sumf_Array",
+        FfiCall.Fn3(PredefImpl.zip_sumf_Array(_, _, _))
+      )
+      .add(
+        arrayPackageName,
+        "sumf_Array",
+        FfiCall.Fn1(PredefImpl.sumf_Array(_))
+      )
+      .add(
+        arrayPackageName,
+        "sumsqf_Array",
+        FfiCall.Fn1(PredefImpl.sumsqf_Array(_))
+      )
+      .add(
+        arrayPackageName,
+        "dotf_Array",
+        FfiCall.Fn2(PredefImpl.dotf_Array(_, _))
       )
       .add(
         arrayPackageName,
@@ -438,11 +503,118 @@ object Predef {
         "int_to_Float64",
         FfiCall.Fn1(PredefImpl.int_to_Float64(_))
       )
+      .add(int64PackageName, "min_i64", FfiCall.Const(PredefImpl.min_i64))
+      .add(int64PackageName, "max_i64", FfiCall.Const(PredefImpl.max_i64))
+      .add(
+        int64PackageName,
+        "int_to_Int64",
+        FfiCall.Fn1(PredefImpl.int_to_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "int_low_bits_to_Int64",
+        FfiCall.Fn1(PredefImpl.int_low_bits_to_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "int64_to_Int",
+        FfiCall.Fn1(PredefImpl.int64_to_Int(_))
+      )
+      .add(
+        int64PackageName,
+        "int64_to_Float64",
+        FfiCall.Fn1(PredefImpl.int64_to_Float64(_))
+      )
+      .add(
+        int64PackageName,
+        "float64_to_Int64",
+        FfiCall.Fn1(PredefImpl.float64_to_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "add_Int64",
+        FfiCall.Fn2(PredefImpl.add_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "sub_Int64",
+        FfiCall.Fn2(PredefImpl.sub_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "mul_Int64",
+        FfiCall.Fn2(PredefImpl.mul_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "div_Int64",
+        FfiCall.Fn2(PredefImpl.div_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "mod_Int64",
+        FfiCall.Fn2(PredefImpl.mod_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "and_Int64",
+        FfiCall.Fn2(PredefImpl.and_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "or_Int64",
+        FfiCall.Fn2(PredefImpl.or_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "xor_Int64",
+        FfiCall.Fn2(PredefImpl.xor_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "not_Int64",
+        FfiCall.Fn1(PredefImpl.not_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "shift_left_Int64",
+        FfiCall.Fn2(PredefImpl.shift_left_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "shift_right_Int64",
+        FfiCall.Fn2(PredefImpl.shift_right_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "shift_right_unsigned_Int64",
+        FfiCall.Fn2(PredefImpl.shift_right_unsigned_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "popcount_Int64",
+        FfiCall.Fn1(PredefImpl.popcount_Int64(_))
+      )
+      .add(
+        int64PackageName,
+        "eq_Int64",
+        FfiCall.Fn2(PredefImpl.eq_Int64(_, _))
+      )
+      .add(
+        int64PackageName,
+        "cmp_Int64",
+        FfiCall.Fn2(PredefImpl.cmp_Int64(_, _))
+      )
       .add(lazyPackageName, "lazy", FfiCall.Fn1(PredefImpl.lazy_Lazy(_)))
       .add(
         lazyPackageName,
         "get_Lazy",
         FfiCall.Fn1(PredefImpl.get_Lazy(_))
+      )
+      .add(
+        evalPackageName,
+        "eval_loop",
+        FfiCall.Fn1(PredefImpl.eval_loop_Eval(_))
       )
       .add(progPackageName, "pure", FfiCall.Fn1(PredefImpl.prog_pure(_)))
       .add(
@@ -464,6 +636,31 @@ object Predef {
         progPackageName,
         "observe",
         FfiCall.Fn1(PredefImpl.prog_observe(_))
+      )
+      .add(
+        progPackageName,
+        "new_var",
+        FfiCall.Fn1(PredefImpl.prog_new_var(_))
+      )
+      .add(
+        progPackageName,
+        "update",
+        FfiCall.Fn2(PredefImpl.prog_var_update(_, _))
+      )
+      .add(
+        progPackageName,
+        "set",
+        FfiCall.Fn2(PredefImpl.prog_var_set(_, _))
+      )
+      .add(
+        progPackageName,
+        "get",
+        FfiCall.Fn1(PredefImpl.prog_var_get(_))
+      )
+      .add(
+        progPackageName,
+        "swap",
+        FfiCall.Fn2(PredefImpl.prog_var_swap(_, _))
       )
       .add(
         progPackageName,
@@ -494,6 +691,11 @@ object PredefImpl {
     Require(offset >= 0, s"offset must be >= 0: $offset")
     Require(len >= 0, s"len must be >= 0: $len")
     Require(offset + len <= data.length, s"invalid view ($offset, $len)")
+  }
+
+  object Int64Value {
+    def apply(value: Long): java.lang.Long =
+      java.lang.Long.valueOf(value)
   }
 
   final case class LazyCell(state: AtomicReference[Either[Value, Value]])
@@ -540,6 +742,18 @@ object PredefImpl {
       case VFloat(v) => v
       case _         => sys.error(s"expected float64: $a")
     }
+
+  private def asInt64(a: Value): Long =
+    a.asExternal.toAny match {
+      case value: java.lang.Long => value.longValue
+      case other             =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected Int64 external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
+  private def vi64(v: Long): Value =
+    ExternalValue(Int64Value(v))
 
   private def vf(v: Double): Value =
     VFloat(v)
@@ -618,6 +832,8 @@ object PredefImpl {
     }
   }
 
+  // Float64 -> Int rounding follows IEEE-754 ties-to-even. On the JVM the
+  // reference implementation is Math.rint, and the C runtime must match it.
   private def finiteDoubleToNearestInt(d: Double): BigInteger = {
     val rounded = java.lang.Math.rint(d)
     if (rounded == 0.0d) BigInteger.ZERO
@@ -643,6 +859,78 @@ object PredefImpl {
     }
   }
 
+  // Long.MaxValue.toDouble also rounds to 2^63, so the signed Int64 range is
+  // best modeled as the exact floating interval [-2^63, 2^63).
+  private val Int64LowerInclusiveDouble = Long.MinValue.toDouble
+  private val Int64UpperExclusiveDouble = -Int64LowerInclusiveDouble
+
+  // Same ties-to-even contract as finiteDoubleToNearestInt, with the Int64
+  // range restriction modeled as the exact floating interval [-2^63, 2^63).
+  private def finiteDoubleToNearestInt64(d: Double): Option[Long] = {
+    val rounded = java.lang.Math.rint(d)
+    if ((rounded < Int64LowerInclusiveDouble) || (rounded >= Int64UpperExclusiveDouble))
+      None
+    else Some(rounded.toLong)
+  }
+
+  private val Int64MinBI = BigInteger.valueOf(Long.MinValue)
+  private val Int64MaxBI = BigInteger.valueOf(Long.MaxValue)
+  private val Int64WidthBI = BigInteger.valueOf(64L)
+
+  private def shiftLeftInt64(value: Long, amount: BigInteger): Long =
+    if (amount.signum == 0) value
+    else if (amount.signum > 0) {
+      if (amount.compareTo(Int64WidthBI) >= 0) 0L
+      else value << amount.intValue()
+    } else {
+      val absAmount = amount.negate()
+      if (absAmount.compareTo(Int64WidthBI) >= 0) {
+        if (value < 0L) -1L else 0L
+      } else value >> absAmount.intValue()
+    }
+
+  private def shiftRightInt64(value: Long, amount: BigInteger): Long =
+    if (amount.signum == 0) value
+    else if (amount.signum > 0) {
+      if (amount.compareTo(Int64WidthBI) >= 0) {
+        if (value < 0L) -1L else 0L
+      } else value >> amount.intValue()
+    } else {
+      val absAmount = amount.negate()
+      if (absAmount.compareTo(Int64WidthBI) >= 0) 0L
+      else value << absAmount.intValue()
+    }
+
+  private def shiftRightUnsignedInt64(value: Long, amount: BigInteger): Long =
+    if (amount.signum == 0) value
+    else if (amount.signum > 0) {
+      if (amount.compareTo(Int64WidthBI) >= 0) 0L
+      else value >>> amount.intValue()
+    } else {
+      val absAmount = amount.negate()
+      if (absAmount.compareTo(Int64WidthBI) >= 0) 0L
+      else value << absAmount.intValue()
+    }
+
+  private def floorDivInt64(left: Long, right: Long): Long =
+    if (right == 0L) 0L
+    else if ((left == Long.MinValue) && (right == -1L)) Long.MinValue
+    else {
+      val quot = left / right
+      val rem = left % right
+      if ((rem != 0L) && ((left ^ right) < 0L)) quot - 1L
+      else quot
+    }
+
+  private def floorModInt64(left: Long, right: Long): Long =
+    if (right == 0L) left
+    else if ((left == Long.MinValue) && (right == -1L)) 0L
+    else {
+      val rem = left % right
+      if ((rem != 0L) && ((left ^ right) < 0L)) rem + right
+      else rem
+    }
+
   private def asArray(a: Value): ArrayValue =
     a.asExternal.toAny match {
       case arr: ArrayValue => arr
@@ -667,6 +955,16 @@ object PredefImpl {
       case other              =>
         // $COVERAGE-OFF$
         sys.error(s"expected lazy external value, found: $other")
+      // $COVERAGE-ON$
+    }
+
+  private def asVar(a: Value): AtomicReference[Value] =
+    a.asExternal.toAny match {
+      case cell: AtomicReference[?] =>
+        cell.asInstanceOf[AtomicReference[Value]]
+      case other                    =>
+        // $COVERAGE-OFF$
+        sys.error(s"expected var external value, found: $other")
       // $COVERAGE-ON$
     }
 
@@ -697,6 +995,91 @@ object PredefImpl {
     loop
   }
 
+  private def evalLeaf_Eval(leaf: Value): Value = {
+    val sum = leaf.asSum
+    sum.variant match {
+      case EvalLeafTagDone =>
+        sum.value.get(0)
+      case EvalLeafTagLazyLeaf =>
+        get_Lazy(sum.value.get(0))
+      case EvalLeafTagAlways =>
+        callFn1(sum.value.get(0), UnitValue)
+      case other =>
+        sys.error(s"invalid Eval.Leaf tag: $other")
+    }
+  }
+
+  private def evalStackLast_Eval(fn: Value): Value =
+    SumValue(EvalStackTagLast, ProductValue.single(fn))
+
+  private def evalStackMore_Eval(first: Value, rest: Value): Value =
+    SumValue(EvalStackTagMore, ProductValue.fromList(first :: rest :: Nil))
+
+  def eval_loop_Eval(loopValue: Value): Value = {
+    val init = loopValue.asSum
+    var runEval = init.variant match {
+      case EvalLoopTagRunStack => false
+      case EvalLoopTagRunEval  => true
+      case other               => sys.error(s"invalid Eval.Loop tag: $other")
+    }
+    var current = init.value.get(0)
+    var stack = init.value.get(1)
+
+    while (true) {
+      if (runEval) {
+        val eval = current.asSum
+        eval.variant match {
+          case EvalTagPure =>
+            current = evalLeaf_Eval(eval.value.get(0))
+            runEval = false
+
+          case EvalTagFlatMap =>
+            val prev = eval.value.get(0)
+            val fn = eval.value.get(1)
+            current = prev
+            stack = evalStackMore_Eval(fn, stack)
+            runEval = true
+
+          case other =>
+            sys.error(s"invalid Eval tag: $other")
+        }
+      } else {
+        val stackSum = stack.asSum
+        stackSum.variant match {
+          case EvalStackTagLast =>
+            val fn = stackSum.value.get(0)
+            val nextEval = callFn1(fn, current).asSum
+            nextEval.variant match {
+              case EvalTagPure =>
+                return evalLeaf_Eval(nextEval.value.get(0))
+
+              case EvalTagFlatMap =>
+                val prev = nextEval.value.get(0)
+                val flatMapFn = nextEval.value.get(1)
+                current = prev
+                stack = evalStackLast_Eval(flatMapFn)
+                runEval = true
+
+              case other =>
+                sys.error(s"invalid Eval tag: $other")
+            }
+
+          case EvalStackTagMore =>
+            val firstFn = stackSum.value.get(0)
+            current = callFn1(firstFn, current)
+            stack = stackSum.value.get(1)
+            runEval = true
+
+          case other =>
+            sys.error(s"invalid Eval.Stack tag: $other")
+        }
+      }
+    }
+
+    // unreachable
+    UnitValue
+  }
+
   def add(a: Value, b: Value): Value =
     ExternalValue(addInt(intRaw(a), intRaw(b)))
 
@@ -709,6 +1092,16 @@ object PredefImpl {
     else {
       val mod = modBigInteger(a, b)
       a.subtract(mod).divide(b)
+    }
+
+  def divModBigInteger(a: BigInteger, b: BigInteger): (BigInteger, BigInteger) =
+    if (b == BigInteger.ZERO) (BigInteger.ZERO, a)
+    else if (b == BigInteger.ONE) (a, BigInteger.ZERO)
+    else if (b == BigInteger.ONE.negate()) (a.negate(), BigInteger.ZERO)
+    else {
+      val mod = modBigInteger(a, b)
+      val div = a.subtract(mod).divide(b)
+      (div, mod)
     }
 
   def modBigInteger(a: BigInteger, b: BigInteger): BigInteger = {
@@ -732,6 +1125,11 @@ object PredefImpl {
   def div(a: Value, b: Value): Value =
     VInt(divBigInteger(i(a), i(b)))
 
+  def div_mod(a: Value, b: Value): Value = {
+    val (div, mod) = divModBigInteger(i(a), i(b))
+    Value.Tuple(VInt(div), VInt(mod))
+  }
+
   def divf(a: Value, b: Value): Value =
     vf(d(a) / d(b))
 
@@ -744,7 +1142,7 @@ object PredefImpl {
   def mul(a: Value, b: Value): Value =
     ExternalValue(mulInt(intRaw(a), intRaw(b)))
 
-  def timesf(a: Value, b: Value): Value =
+  def mulf(a: Value, b: Value): Value =
     vf(d(a) * d(b))
 
   def eq_Int(a: Value, b: Value): Value =
@@ -755,6 +1153,12 @@ object PredefImpl {
 
   def cmp_Float64(a: Value, b: Value): Value =
     Comparison.fromInt(compareFloat64Total(d(a), d(b)))
+
+  def eq_Float64(a: Value, b: Value): Value = {
+    val da = d(a)
+    val db = d(b)
+    bool((da == db) || (java.lang.Double.isNaN(da) && java.lang.Double.isNaN(db)))
+  }
 
   def abs_Float64(a: Value): Value = vf(java.lang.Math.abs(d(a)))
   def acos_Float64(a: Value): Value = vf(java.lang.Math.acos(d(a)))
@@ -816,6 +1220,82 @@ object PredefImpl {
   def int_to_Float64(a: Value): Value =
     vf(intRaw(a).toDouble)
 
+  val min_i64: Value = vi64(Long.MinValue)
+  val max_i64: Value = vi64(Long.MaxValue)
+
+  def int_to_Int64(a: Value): Value = {
+    val value = i(a)
+    if ((value.compareTo(Int64MinBI) >= 0) && (value.compareTo(Int64MaxBI) <= 0))
+      Value.VOption.some(vi64(value.longValue()))
+    else Value.VOption.none
+  }
+
+  def int_low_bits_to_Int64(a: Value): Value =
+    vi64(i(a).longValue())
+
+  def int64_to_Int(a: Value): Value =
+    Value.VInt(BigInteger.valueOf(asInt64(a)))
+
+  def int64_to_Float64(a: Value): Value =
+    int_to_Float64(int64_to_Int(a))
+
+  def float64_to_Int64(a: Value): Value = {
+    val value = d(a)
+    if (java.lang.Double.isFinite(value))
+      finiteDoubleToNearestInt64(value) match {
+        case Some(v) => Value.VOption.some(vi64(v))
+        case None    => Value.VOption.none
+      }
+    else Value.VOption.none
+  }
+
+  def add_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) + asInt64(b))
+
+  def sub_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) - asInt64(b))
+
+  def mul_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) * asInt64(b))
+
+  def div_Int64(a: Value, b: Value): Value =
+    vi64(floorDivInt64(asInt64(a), asInt64(b)))
+
+  def mod_Int64(a: Value, b: Value): Value =
+    vi64(floorModInt64(asInt64(a), asInt64(b)))
+
+  def and_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) & asInt64(b))
+
+  def or_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) | asInt64(b))
+
+  def xor_Int64(a: Value, b: Value): Value =
+    vi64(asInt64(a) ^ asInt64(b))
+
+  def not_Int64(a: Value): Value =
+    vi64(~asInt64(a))
+
+  def shift_left_Int64(a: Value, b: Value): Value =
+    vi64(shiftLeftInt64(asInt64(a), i(b)))
+
+  def shift_right_Int64(a: Value, b: Value): Value =
+    vi64(shiftRightInt64(asInt64(a), i(b)))
+
+  def shift_right_unsigned_Int64(a: Value, b: Value): Value =
+    vi64(shiftRightUnsignedInt64(asInt64(a), i(b)))
+
+  def popcount_Int64(a: Value): Value =
+    Value.VInt(BigInteger.valueOf(java.lang.Long.bitCount(asInt64(a)).toLong))
+
+  def eq_Int64(a: Value, b: Value): Value =
+    bool(asInt64(a) == asInt64(b))
+
+  def cmp_Int64(a: Value, b: Value): Value =
+    Comparison.fromInt(
+      java.lang.Long.compare(asInt64(a), asInt64(b))
+    )
+
   def mod_Int(a: Value, b: Value): Value =
     VInt(modBigInteger(i(a), i(b)))
 
@@ -835,6 +1315,19 @@ object PredefImpl {
     VInt(gcdBigInteger(i(a), i(b)))
 
   private val MaxIntBI = BigInteger.valueOf(Int.MaxValue.toLong)
+
+  private val EvalLeafTagDone = 0
+  private val EvalLeafTagLazyLeaf = 1
+  private val EvalLeafTagAlways = 2
+
+  private val EvalTagPure = 0
+  private val EvalTagFlatMap = 1
+
+  private val EvalStackTagLast = 0
+  private val EvalStackTagMore = 1
+
+  private val EvalLoopTagRunStack = 0
+  private val EvalLoopTagRunEval = 1
 
   private val ProgTagPure = 0
   private val ProgTagRaise = 1
@@ -942,6 +1435,58 @@ object PredefImpl {
         // Clear quickly so long benchmark loops do not retain observed values.
         observedProgValueSink.set(UnitValue)
         prog_pure(UnitValue)
+      }
+    )
+
+  def prog_new_var(a: Value): Value =
+    prog_effect(
+      a,
+      initial => prog_pure(ExternalValue(new AtomicReference[Value](initial)))
+    )
+
+  def prog_var_get(cellValue: Value): Value =
+    prog_effect(cellValue, cell => prog_pure(asVar(cell).get()))
+
+  def prog_var_set(cellValue: Value, newValue: Value): Value =
+    prog_effect2(
+      cellValue,
+      newValue,
+      (cell, value) => {
+        asVar(cell).set(value)
+        prog_pure(UnitValue)
+      }
+    )
+
+  def prog_var_swap(cellValue: Value, newValue: Value): Value =
+    prog_effect2(
+      cellValue,
+      newValue,
+      (cell, value) => prog_pure(asVar(cell).getAndSet(value))
+    )
+
+  def prog_var_update(cellValue: Value, fn: Value): Value =
+    prog_effect2(
+      cellValue,
+      fn,
+      (cellValue0, updateFn) => {
+        val cell = asVar(cellValue0)
+
+        @annotation.tailrec
+        def loop(): Value = {
+          val current = cell.get()
+          callFn1(updateFn, current) match {
+            case pair: ProductValue if pair.values.length == 2 =>
+              val next = pair.get(0)
+              val result = pair.get(1)
+              // CAS retries may invoke updateFn more than once under contention.
+              if (cell.compareAndSet(current, next)) prog_pure(result)
+              else loop()
+            case other =>
+              sys.error(s"invalid Prog.update result: $other")
+          }
+        }
+
+        loop()
       }
     )
 
@@ -1157,6 +1702,12 @@ object PredefImpl {
   private val OneBillionBI = BigInteger.valueOf(1000000000L)
   private val OneMillionBI = BigInteger.valueOf(1000000L)
   private val LongMaxBI = BigInteger.valueOf(Long.MaxValue)
+  private val PosixModeMask = 4095
+  private val PosixPermissionMask = 511
+  private val PosixSpecialBitsMask = PosixModeMask ^ PosixPermissionMask
+  private val OwnerWriteExecuteMask = 192
+  private val UnixStatAttributeView =
+    "unix:size,lastModifiedTime,isRegularFile,isDirectory,isSymbolicLink,mode"
 
   private sealed trait HandleValue derives CanEqual
   private case object HandleStdin extends HandleValue
@@ -1938,23 +2489,282 @@ object PredefImpl {
       }
     } yield ()
 
-  private def basicFileStatValue(attrs: BasicFileAttributes): Value = {
-    val kindTag =
-      if (attrs.isSymbolicLink) 2
-      else if (attrs.isRegularFile) 0
-      else if (attrs.isDirectory) 1
-      else 3
-    val mtimeInstant = attrs.lastModifiedTime.toInstant
-    val mtimeNanos =
-      BigInteger
-        .valueOf(mtimeInstant.getEpochSecond)
-        .multiply(OneBillionBI)
-        .add(BigInteger.valueOf(mtimeInstant.getNano.toLong))
+  private def fileKindTag(
+      isSymbolicLink: Boolean,
+      isRegularFile: Boolean,
+      isDirectory: Boolean
+  ): Int =
+    if (isSymbolicLink) 2
+    else if (isRegularFile) 0
+    else if (isDirectory) 1
+    else 3
+
+  private def instantToNanos(instant: java.time.Instant): BigInteger =
+    BigInteger
+      .valueOf(instant.getEpochSecond)
+      .multiply(OneBillionBI)
+      .add(BigInteger.valueOf(instant.getNano.toLong))
+
+  private def fileStatValue(
+      kindTag: Int,
+      size: Long,
+      mtime: FileTime,
+      posixModeBits: Option[Int]
+  ): Value =
     ProductValue.fromList(
       fileKindValue(kindTag) ::
-        VInt(BigInteger.valueOf(attrs.size)) ::
-        instantValueFromNanos(mtimeNanos) :: Nil
+        VInt(BigInteger.valueOf(size)) ::
+        instantValueFromNanos(instantToNanos(mtime.toInstant)) ::
+        optionValue(posixModeBits.map(bits => VInt(BigInteger.valueOf(bits.toLong)))) :: Nil
     )
+
+  private def basicFileStatValue(attrs: BasicFileAttributes): Value =
+    fileStatValue(
+      fileKindTag(attrs.isSymbolicLink, attrs.isRegularFile, attrs.isDirectory),
+      attrs.size,
+      attrs.lastModifiedTime,
+      None
+    )
+
+  private def unixFileStatValue(
+      attrs: java.util.Map[String, AnyRef]
+  ): Value = {
+    val kindTag =
+      fileKindTag(
+        attrs.get("isSymbolicLink").asInstanceOf[java.lang.Boolean].booleanValue,
+        attrs.get("isRegularFile").asInstanceOf[java.lang.Boolean].booleanValue,
+        attrs.get("isDirectory").asInstanceOf[java.lang.Boolean].booleanValue
+      )
+    val size = attrs.get("size").asInstanceOf[java.lang.Long].longValue
+    val mtime = attrs.get("lastModifiedTime").asInstanceOf[FileTime]
+    val modeBits =
+      attrs.get("mode").asInstanceOf[java.lang.Integer].intValue & PosixModeMask
+    fileStatValue(kindTag, size, mtime, Some(modeBits))
+  }
+
+  private def posixPermissionsToModeBits(
+      permissions: java.util.Set[PosixFilePermission]
+  ): Int = {
+    val iterator = permissions.iterator()
+    var modeBits = 0
+    while (iterator.hasNext) {
+      val permission = iterator.next().nn
+      modeBits =
+        modeBits | (if (permission eq PosixFilePermission.OWNER_READ) 256
+                    else if (permission eq PosixFilePermission.OWNER_WRITE) 128
+                    else if (permission eq PosixFilePermission.OWNER_EXECUTE) 64
+                    else if (permission eq PosixFilePermission.GROUP_READ) 32
+                    else if (permission eq PosixFilePermission.GROUP_WRITE) 16
+                    else if (permission eq PosixFilePermission.GROUP_EXECUTE) 8
+                    else if (permission eq PosixFilePermission.OTHERS_READ) 4
+                    else if (permission eq PosixFilePermission.OTHERS_WRITE) 2
+                    else 1)
+    }
+    modeBits
+  }
+
+  private def modeBitsToPosixPermissions(
+      modeBits: Int
+  ): java.util.Set[PosixFilePermission] = {
+    val permissions = EnumSet.noneOf(classOf[PosixFilePermission])
+
+    def addIf(mask: Int, permission: PosixFilePermission): Unit =
+      if ((modeBits & mask) == mask) {
+        permissions.add(permission): Unit
+      }
+
+    addIf(256, PosixFilePermission.OWNER_READ)
+    addIf(128, PosixFilePermission.OWNER_WRITE)
+    addIf(64, PosixFilePermission.OWNER_EXECUTE)
+    addIf(32, PosixFilePermission.GROUP_READ)
+    addIf(16, PosixFilePermission.GROUP_WRITE)
+    addIf(8, PosixFilePermission.GROUP_EXECUTE)
+    addIf(4, PosixFilePermission.OTHERS_READ)
+    addIf(2, PosixFilePermission.OTHERS_WRITE)
+    addIf(1, PosixFilePermission.OTHERS_EXECUTE)
+    permissions
+  }
+
+  private def posixFileStatValue(
+      attrs: PosixFileAttributes
+  ): Value = {
+    val modeBits = posixPermissionsToModeBits(attrs.permissions())
+    fileStatValue(
+      fileKindTag(attrs.isSymbolicLink, attrs.isRegularFile, attrs.isDirectory),
+      attrs.size,
+      attrs.lastModifiedTime,
+      Some(modeBits)
+    )
+  }
+
+  private def asPosixModeBits(
+      value: Value,
+      context: String
+  ): Either[Value, Int] =
+    asInt(value, context).flatMap { bi =>
+      if (bi.signum < 0 || bi.compareTo(BigInteger.valueOf(PosixModeMask.toLong)) > 0)
+        Left(ioerror_invalid_argument(context))
+      else Right(bi.intValue)
+    }
+
+  private def readCurrentPosixMode(
+      path: JPath,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = Files.readAttributes(
+        path,
+        classOf[PosixFileAttributes],
+        LinkOption.NOFOLLOW_LINKS
+      )
+      Right(posixPermissionsToModeBits(attrs.permissions()))
+    } catch {
+      case _: UnsupportedOperationException =>
+        Left(ioerror_known(IOErrorTagUnsupported, context))
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def readCurrentMode(
+      path: JPath,
+      context: String
+  ): Either[Value, Int] =
+    try {
+      val attrs = Files.readAttributes(path, "unix:mode", LinkOption.NOFOLLOW_LINKS)
+      Right(attrs.get("mode").asInstanceOf[java.lang.Integer].intValue & PosixModeMask)
+    } catch {
+      case _: UnsupportedOperationException =>
+        // Some stores expose PosixFileAttributeView without the wider unix view.
+        readCurrentPosixMode(path, context)
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def setCurrentPosixMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    if ((modeBits & PosixSpecialBitsMask) != 0)
+      Left(
+        ioerror_known(
+          IOErrorTagUnsupported,
+          s"$context: Posix view does not expose special permission bits"
+        )
+      )
+    else
+      try {
+        val _ = Files.setPosixFilePermissions(
+          path,
+          modeBitsToPosixPermissions(modeBits)
+        )
+        Right(())
+      } catch {
+        case _: UnsupportedOperationException =>
+          Left(ioerror_known(IOErrorTagUnsupported, context))
+        case NonFatal(t) =>
+          Left(ioerror_from_throwable(context, t))
+      }
+
+  private def setCurrentMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] =
+    try {
+      val _ = Files.setAttribute(
+        path,
+        "unix:mode",
+        Integer.valueOf(modeBits & PosixModeMask),
+        LinkOption.NOFOLLOW_LINKS
+      )
+      Right(())
+    } catch {
+      case _: UnsupportedOperationException =>
+        // Fall back to the narrower POSIX permission view when unix mode bits
+        // are unavailable on the host file store.
+        setCurrentPosixMode(path, modeBits, context)
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def ensureExistingDirectory(
+      path: JPath,
+      context: String,
+      leaf: Boolean
+  ): Either[Value, Unit] =
+    try {
+      // mkdir -p should treat a symlinked directory component as traversable.
+      if (Files.isDirectory(path)) Right(())
+      else if (leaf) Left(ioerror_known(IOErrorTagAlreadyExists, context))
+      else Left(ioerror_known(IOErrorTagNotDirectory, context))
+    } catch {
+      case NonFatal(t) =>
+        Left(ioerror_from_throwable(context, t))
+    }
+
+  private def createDirectoryRecursiveWithMode(
+      path: JPath,
+      modeBits: Int,
+      context: String
+  ): Either[Value, Unit] = {
+    val root = Option(path.getRoot)
+    val nameCount = path.getNameCount
+
+    if (nameCount == 0) {
+      root match {
+        case Some(_) => ensureExistingDirectory(path, context, leaf = true)
+        case None    => Right(())
+      }
+    } else {
+      var current: JPath = root.orNull
+      var index = 0
+      while (index < nameCount) {
+        val next = path.getName(index)
+        current =
+          if (current eq null) next
+          else current.resolve(next)
+        val isLeaf = index == (nameCount - 1)
+        val created =
+          try {
+            Files.createDirectory(current)
+            true
+          } catch {
+            case _: FileAlreadyExistsException =>
+              ensureExistingDirectory(current, context, leaf = isLeaf) match {
+                case Right(_)  => false
+                case Left(err) => return Left(err)
+              }
+            case NonFatal(t) =>
+              return Left(ioerror_from_throwable(context, t))
+          }
+
+        if (created) {
+          if (isLeaf)
+            setCurrentMode(current, modeBits, context) match {
+              case Right(_)  => ()
+              case Left(err) => return Left(err)
+            }
+          else
+            // Newly created parents need owner write/execute preserved after umask.
+            readCurrentMode(current, context) match {
+              case Right(existingBits) =>
+                val repairedBits = existingBits | OwnerWriteExecuteMask
+                if (repairedBits != existingBits)
+                  setCurrentMode(current, repairedBits, context) match {
+                    case Right(_)  => ()
+                    case Left(err) => return Left(err)
+                  }
+              case Left(err) =>
+                return Left(err)
+            }
+        }
+
+        index = index + 1
+      }
+
+      Right(())
+    }
   }
 
   private def removePathRecursive(path: JPath): Either[Value, Unit] =
@@ -2417,13 +3227,35 @@ object PredefImpl {
           javaPath <- asJavaPath(pathValue, "invalid path for stat")
           statValue <- {
             try {
-              val attrs = Files.readAttributes(
-                javaPath,
-                classOf[BasicFileAttributes],
-                LinkOption.NOFOLLOW_LINKS
-              )
-              Right(Some(basicFileStatValue(attrs)))
+              val attrs =
+                Files.readAttributes(
+                  javaPath,
+                  UnixStatAttributeView,
+                  LinkOption.NOFOLLOW_LINKS
+                )
+              Right(Some(unixFileStatValue(attrs)))
             } catch {
+              case _: UnsupportedOperationException =>
+                try {
+                  val attrs = Files.readAttributes(
+                    javaPath,
+                    classOf[PosixFileAttributes],
+                    LinkOption.NOFOLLOW_LINKS
+                  )
+                  Right(Some(posixFileStatValue(attrs)))
+                } catch {
+                  case _: UnsupportedOperationException =>
+                    val attrs = Files.readAttributes(
+                      javaPath,
+                      classOf[BasicFileAttributes],
+                      LinkOption.NOFOLLOW_LINKS
+                    )
+                    Right(Some(basicFileStatValue(attrs)))
+                  case _: NoSuchFileException =>
+                    Right(None)
+                  case NonFatal(t)            =>
+                    Left(ioerror_from_throwable("stat", t))
+                }
               case _: NoSuchFileException =>
                 Right(None)
               case NonFatal(t)            =>
@@ -2456,6 +3288,46 @@ object PredefImpl {
               case NonFatal(t) =>
                 Left(ioerror_from_throwable("mkdir", t))
             }
+          }
+        } yield ()
+
+        result match {
+          case Right(_)  => prog_pure(UnitValue)
+          case Left(err) => prog_raise_error(err)
+        }
+      }
+    )
+
+  def prog_core_mkdir_with_mode(
+      path: Value,
+      recursive: Value,
+      mode: Value
+  ): Value =
+    prog_effect3(
+      path,
+      recursive,
+      mode,
+      (pathValue, recursiveValue, modeValue) => {
+        val result = for {
+          javaPath <- asJavaPath(pathValue, "invalid path for mkdir_with_mode")
+          recursiveFlag <- asBool(recursiveValue)
+          modeBits <- asPosixModeBits(
+            modeValue,
+            "invalid PosixMode for mkdir_with_mode"
+          )
+          callContext =
+            s"mkdir_with_mode(path=${javaPath.toString}, recursive=$recursiveFlag)"
+          _ <- {
+            if (recursiveFlag)
+              createDirectoryRecursiveWithMode(javaPath, modeBits, callContext)
+            else
+              try {
+                Files.createDirectory(javaPath)
+                setCurrentMode(javaPath, modeBits, callContext)
+              } catch {
+                case NonFatal(t) =>
+                  Left(ioerror_from_throwable(callContext, t))
+              }
           }
         } yield ()
 
@@ -2948,6 +3820,9 @@ object PredefImpl {
     else if (idx.compareTo(BigInteger.valueOf(len.toLong)) >= 0) None
     else toIntExactIfRepresentable(idx)
 
+  private def inRangeInt64Index(idx: Long, len: Int): Option[Int] =
+    if (idx < 0L || idx >= len.toLong) None else Some(idx.toInt)
+
   private def copyView(arr: ArrayValue): Array[Value] =
     java.util.Arrays.copyOfRange(arr.data, arr.offset, arr.offset + arr.len)
 
@@ -3246,16 +4121,16 @@ object PredefImpl {
   }
 
   def tabulate_Array(size: Value, fn: Value): Value = {
-    val sizeBI = i(size)
-    if (sizeBI.signum <= 0) emptyArray
-    else if (sizeBI.compareTo(MaxIntBI) > 0) emptyArray
+    val size64 = asInt64(size)
+    if (size64 <= 0L) emptyArray
+    else if (size64 > Int.MaxValue.toLong) emptyArray
     else {
-      val sz = sizeBI.intValue()
+      val sz = size64.toInt
       val data = new Array[Value](sz)
       val fnT = fn.asFn
       var idx = 0
       while (idx < sz) {
-        data(idx) = fnT(NonEmptyList(VInt(idx), Nil))
+        data(idx) = fnT(NonEmptyList(vi64(idx.toLong), Nil))
         idx = idx + 1
       }
       ExternalValue(ArrayValue(data, 0, sz))
@@ -3296,7 +4171,7 @@ object PredefImpl {
   }
 
   def size_Array(array: Value): Value =
-    VInt(asArray(array).len)
+    vi64(asArray(array).len.toLong)
 
   def get_map_Array(
       array: Value,
@@ -3305,14 +4180,34 @@ object PredefImpl {
       fn: Value
   ): Value = {
     val arr = asArray(array)
-    inRangeIndex(i(index), arr.len) match {
+    inRangeInt64Index(asInt64(index), arr.len) match {
       case Some(idx) => fn.asFn(NonEmptyList(arr.data(arr.offset + idx), Nil))
-      case None      => default.asFn(NonEmptyList(UnitValue, Nil))
+      case None      => default.asFn(NonEmptyList(index, Nil))
     }
   }
 
   def get_or_Array(array: Value, index: Value, default: Value): Value =
-    get_map_Array(array, index, default, FnValue.identity)
+    {
+      val arr = asArray(array)
+      val idx = asInt64(index)
+      if (idx >= 0L && idx < arr.len.toLong) arr.data(arr.offset + idx.toInt)
+      else default.asFn(NonEmptyList(index, Nil))
+    }
+
+  def foldl_with_index_Array(array: Value, init: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    // Public indices are relative to the visible slice, never the backing offset.
+    while (idx < arr.len) {
+      acc = fnT(
+        NonEmptyList(acc, arr.data(arr.offset + idx) :: vi64(idx.toLong) :: Nil)
+      )
+      idx = idx + 1
+    }
+    acc
+  }
 
   def foldl_Array(array: Value, init: Value, fn: Value): Value = {
     val arr = asArray(array)
@@ -3347,6 +4242,23 @@ object PredefImpl {
       var idx = 0
       while (idx < arr.len) {
         mapped(idx) = fnT(NonEmptyList(arr.data(arr.offset + idx), Nil))
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(mapped, 0, arr.len))
+    }
+  }
+
+  def map_with_index_Array(array: Value, fn: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[Value](arr.len)
+      var idx = 0
+      while (idx < arr.len) {
+        mapped(idx) = fnT(
+          NonEmptyList(arr.data(arr.offset + idx), vi64(idx.toLong) :: Nil)
+        )
         idx = idx + 1
       }
       ExternalValue(ArrayValue(mapped, 0, arr.len))
@@ -3438,9 +4350,140 @@ object PredefImpl {
     }
   }
 
+  def zip_map_Array(left: Value, right: Value, fn: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen == 0) emptyArray
+    else {
+      val fnT = fn.asFn
+      val mapped = new Array[Value](pairLen)
+      var idx = 0
+      while (idx < pairLen) {
+        mapped(idx) = fnT(
+          NonEmptyList(
+            leftArr.data(leftArr.offset + idx),
+            rightArr.data(rightArr.offset + idx) :: Nil
+          )
+        )
+        idx = idx + 1
+      }
+      ExternalValue(ArrayValue(mapped, 0, pairLen))
+    }
+  }
+
+  def zip_foldl_Array(
+      left: Value,
+      right: Value,
+      init: Value,
+      fn: Value
+  ): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    val fnT = fn.asFn
+    var idx = 0
+    var acc = init
+    while (idx < pairLen) {
+      acc = fnT(
+        NonEmptyList(
+          acc,
+          leftArr.data(leftArr.offset + idx) ::
+            rightArr.data(rightArr.offset + idx) ::
+            Nil
+        )
+      )
+      idx = idx + 1
+    }
+    acc
+  }
+
+  def zip_sumf_Array(left: Value, right: Value, fn: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen <= 0) vf(0.0)
+    else {
+      val fnT = fn.asFn
+      // Seed from the first visible pair so left-to-right reductions preserve
+      // sign-sensitive values like -0.0 instead of forcing an initial +0.0.
+      var acc = d(
+        fnT(
+          NonEmptyList(
+            leftArr.data(leftArr.offset),
+            rightArr.data(rightArr.offset) :: Nil
+          )
+        )
+      )
+      var idx = 1
+      while (idx < pairLen) {
+        val v =
+          fnT(
+            NonEmptyList(
+              leftArr.data(leftArr.offset + idx),
+              rightArr.data(rightArr.offset + idx) :: Nil
+            )
+          )
+        acc = acc + d(v)
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def sumf_Array(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) vf(0.0)
+    else {
+      var acc = d(arr.data(arr.offset))
+      var idx = 1
+      while (idx < arr.len) {
+        acc = acc + d(arr.data(arr.offset + idx))
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def sumsqf_Array(array: Value): Value = {
+    val arr = asArray(array)
+    if (arr.len <= 0) vf(0.0)
+    else {
+      val first = d(arr.data(arr.offset))
+      var acc = first * first
+      var idx = 1
+      while (idx < arr.len) {
+        val item = d(arr.data(arr.offset + idx))
+        acc = acc + (item * item)
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
+  def dotf_Array(left: Value, right: Value): Value = {
+    val leftArr = asArray(left)
+    val rightArr = asArray(right)
+    val pairLen = math.min(leftArr.len, rightArr.len)
+    if (pairLen <= 0) vf(0.0)
+    else {
+      var acc =
+        d(leftArr.data(leftArr.offset)) * d(rightArr.data(rightArr.offset))
+      var idx = 1
+      while (idx < pairLen) {
+        acc =
+          acc + (d(leftArr.data(leftArr.offset + idx)) * d(
+            rightArr.data(rightArr.offset + idx)
+          ))
+        idx = idx + 1
+      }
+      vf(acc)
+    }
+  }
+
   def set_or_self_Array(array: Value, index: Value, value: Value): Value = {
     val arr = asArray(array)
-    inRangeIndex(i(index), arr.len) match {
+    inRangeInt64Index(asInt64(index), arr.len) match {
       case Some(idx) =>
         val copied = copyView(arr)
         copied(idx) = value
@@ -3516,30 +4559,29 @@ object PredefImpl {
 
   def slice_Array(array: Value, start: Value, end: Value): Value = {
     val arr = asArray(array)
-    val lenBI = BigInteger.valueOf(arr.len.toLong)
-    val startBI = {
-      val raw = i(start)
-      if (raw.signum < 0) BigInteger.ZERO else raw
-    }
-    val endBI = {
-      val raw = i(end)
-      if (raw.compareTo(lenBI) > 0) lenBI else raw
-    }
+    val lenL = arr.len.toLong
+    val startRaw = asInt64(start)
+    val endRaw = asInt64(end)
+    val start1 = if (startRaw < 0L) 0L else startRaw
+    val end1 =
+      if (endRaw < 0L) endRaw
+      else if (endRaw > lenL) lenL
+      else endRaw
 
     val valid =
-      startBI.signum >= 0 &&
-        endBI.signum >= 0 &&
-        startBI.compareTo(endBI) <= 0 &&
-        endBI.compareTo(lenBI) <= 0
+      start1 >= 0L &&
+        end1 >= 0L &&
+        start1 <= end1 &&
+        end1 <= lenL
 
     if (!valid) emptyArray
     else {
-      val sliceLenBI = endBI.subtract(startBI)
-      if (sliceLenBI.signum <= 0) emptyArray
+      val sliceLen = end1 - start1
+      if (sliceLen <= 0L) emptyArray
       else {
-        val startIdx = startBI.intValue()
-        val sliceLen = sliceLenBI.intValue()
-        ExternalValue(ArrayValue(arr.data, arr.offset + startIdx, sliceLen))
+        ExternalValue(
+          ArrayValue(arr.data, arr.offset + start1.toInt, sliceLen.toInt)
+        )
       }
     }
   }
@@ -3570,7 +4612,7 @@ object PredefImpl {
   def cmp_String(a: Value, b: Value): Value =
     (a, b) match {
       case (Value.Str(sa), Value.Str(sb)) =>
-        Value.Comparison.fromInt(sa.compareTo(sb))
+        Value.Comparison.fromInt(StringUtil.codePointCompare(sa, sb))
       case other => sys.error(s"type error: $other")
     }
 
@@ -3585,6 +4627,28 @@ object PredefImpl {
     item match {
       case Value.Str(s) =>
         Value.VInt(BigInteger.valueOf(s.codePointAt(0).toLong))
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def cmp_Char(a: Value, b: Value): Value =
+    (a, b) match {
+      case (Value.Str(sa), Value.Str(sb)) =>
+        Value.Comparison.fromInt(
+          java.lang.Integer.compare(sa.codePointAt(0), sb.codePointAt(0))
+        )
+      case other =>
+        // $COVERAGE-OFF$
+        sys.error(s"type error: $other")
+      // $COVERAGE-ON$
+    }
+
+  def eq_Char(a: Value, b: Value): Value =
+    (a, b) match {
+      case (Value.Str(sa), Value.Str(sb)) =>
+        bool(sa == sb)
       case other =>
         // $COVERAGE-OFF$
         sys.error(s"type error: $other")
