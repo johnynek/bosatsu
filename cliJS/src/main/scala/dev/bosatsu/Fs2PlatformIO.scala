@@ -59,19 +59,8 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
   def pathToString(p: Path): String = p.toString
 
   override def gitTopLevel: IO[Option[Path]] = {
-    def searchStep(current: Path): IO[Either[Path, Option[Path]]] =
-      fsDataType(current).flatMap {
-        case Some(PlatformIO.FSDataType.Dir) =>
-          fsDataType(resolve(current, ".git"))
-            .map {
-              case Some(PlatformIO.FSDataType.Dir) => Right(Some(current))
-              case _ => Left(resolve(current, ".."))
-            }
-        case _ => moduleIOMonad.pure(Right(None))
-      }
-
     val start = Path(js.Dynamic.global.process.cwd().asInstanceOf[String])
-    moduleIOMonad.tailRecM(start)(searchStep)
+    gitTopLevelFrom(start)
   }
 
   def withTempPrefix[A](name: String)(fn: Path => IO[A]): IO[A] = {
@@ -168,6 +157,19 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
       }
   }
 
+  def env(name: String): IO[Option[String]] =
+    IO {
+      val value = js.Dynamic.global.process.env.selectDynamic(name)
+      if (js.isUndefined(value) || value == null) None
+      else Some(value.asInstanceOf[String])
+    }
+
+  def hostOs: IO[String] =
+    IO(js.Dynamic.global.process.platform.asInstanceOf[String])
+
+  def hostArch: IO[String] =
+    IO(js.Dynamic.global.process.arch.asInstanceOf[String])
+
   val gitShaHead: IO[String] =
     systemStdout("git", "rev-parse" :: "HEAD" :: Nil).map(_.trim)
 
@@ -203,6 +205,9 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
             }
       }
 
+  def parent(p: Path): Option[Path] =
+    p.parent
+
   private def read[A <: GeneratedMessage](
       path: Path
   )(implicit A: GeneratedMessageCompanion[A]): IO[A] =
@@ -231,7 +236,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
         }
       }
 
-  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+  def readPackages(paths: List[Path]): IO[List[Package.Compiled]] =
     paths
       .parTraverse { path =>
         for {
@@ -419,7 +424,7 @@ object Fs2PlatformIO extends PlatformIO[IO, Path] {
     IO.fromTry(ProtoConverter.interfacesToProto(interfaces))
       .flatMap(write(_, path))
 
-  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
+  def writePackages(packages: List[Package.Compiled], path: Path): IO[Unit] =
     IO.fromTry(ProtoConverter.packagesToProto(packages))
       .flatMap(write(_, path))
 

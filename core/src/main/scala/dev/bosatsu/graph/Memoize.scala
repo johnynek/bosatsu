@@ -7,6 +7,7 @@ import dev.bosatsu.Par
 import scala.collection.immutable.SortedMap
 
 object Memoize {
+  case class NotDagException(arg: Any) extends Exception(s"loop found while evaluating $arg")
 
   /** This memoizes using a sorted map (not a hashMap) in a non-threadsafe
     * manner returning None, means we cannot compute this function because it
@@ -51,7 +52,7 @@ object Memoize {
             cache = cache.updated(a, Some(b))
             b
           case Some(Some(b)) => b
-          case Some(None)    => sys.error(s"loop found evaluating $a")
+          case Some(None)    => throw NotDagException(a)
         }
     }
   }

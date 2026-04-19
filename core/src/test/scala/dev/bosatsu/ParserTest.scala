@@ -11,6 +11,7 @@ import org.typelevel.paiges.{Doc, Document}
 import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
 import Parser.{optionParse, unsafeParse, Indy}
+import scala.collection.immutable.SortedSet
 
 import Generators.{shrinkDecl, shrinkStmt, genCodePoints}
 
@@ -546,7 +547,8 @@ class ParserTest extends ParserTestBase {
       Some(
         Declaration.Matches(
           Declaration.Literal(Lit.fromChar('x')),
-          Pattern.Literal(Lit.fromInt(1))
+          Pattern.Literal(Lit.fromInt(1)),
+          None
         )
       )
     )
@@ -1672,6 +1674,180 @@ x"""
     1"""
     )
 
+    roundTrip(
+      Declaration.parser(""),
+      "xs matches [*_, x, *_] if pred(x)"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "xs matches [1, 2] if ready"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "xs matches [*_, x, *_] if pred(x) else other"
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      "xs matches [*_, x, *_] if pred(x) else other"
+    ) match {
+      case parsed @ Declaration.Ternary(
+            Declaration.Var(Identifier.Constructor("True")),
+            Declaration.Matches(
+              Declaration.Var(Identifier.Name("xs")),
+              _,
+              Some(guard)
+            ),
+            Declaration.Var(Identifier.Name("other"))
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("other"),
+            Identifier.Name("pred"),
+            Identifier.Name("xs")
+          )
+        )
+        assert(guard.freeVars(Identifier.Name("x")))
+        assert(guard.allNames(Identifier.Name("x")))
+      case other =>
+        fail(s"expected guarded matches ternary, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
+      """if foo matches Some(a):
+        |  fn(a)
+        |elif bar matches Some(b):
+        |  gn(b)
+        |else:
+        |  h""".stripMargin
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      """if foo matches Some(a):
+        |  fn(a)
+        |elif bar matches Some(b):
+        |  gn(b)
+        |else:
+        |  h""".stripMargin
+    ) match {
+      case parsed @ Declaration.IfElse(ifCases, _) =>
+        assertEquals(ifCases.length, 2)
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("foo"),
+            Identifier.Name("fn"),
+            Identifier.Name("bar"),
+            Identifier.Name("gn"),
+            Identifier.Name("h")
+          )
+        )
+        assert(parsed.allNames(Identifier.Name("a")))
+        assert(parsed.allNames(Identifier.Name("b")))
+      case other =>
+        fail(s"expected conditional matches if/elif, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
+      "f(a) if foo matches Some(a) else g"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "f(a) if (foo matches Some(a)) else g"
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      "f(a) if (foo matches Some(a)) else g"
+    ) match {
+      case parsed @ Declaration.Ternary(
+            _,
+            Declaration.Parens(Declaration.Matches(_, _, None)),
+            Declaration.Var(Identifier.Name("g"))
+          ) =>
+        assertEquals(
+          parsed.freeVars,
+          SortedSet[Identifier.Bindable](
+            Identifier.Name("f"),
+            Identifier.Name("foo"),
+            Identifier.Name("g")
+          )
+        )
+        assert(parsed.allNames(Identifier.Name("a")))
+      case other =>
+        fail(s"expected parenthesized conditional matches ternary, found: $other")
+    }
+
+    roundTrip(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg) else y"
+    )
+
+    roundTrip(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg else y)"
+    )
+
+    unsafeParse(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg) else y"
+    ) match {
+      case Declaration.Ternary(
+            Declaration.Var(Identifier.Constructor("True")),
+            Declaration.Matches(
+              Declaration.Var(Identifier.Name("x")),
+              _,
+              Some(Declaration.Parens(Declaration.Matches(_, _, Some(_))))
+            ),
+            Declaration.Var(Identifier.Name("y"))
+          ) =>
+        ()
+      case other =>
+        fail(s"expected parenthesized outer ternary grouping, found: $other")
+    }
+
+    unsafeParse(
+      Declaration.parser(""),
+      "x matches p if (gx matches gp if gg else y)"
+    ) match {
+      case Declaration.Matches(
+            Declaration.Var(Identifier.Name("x")),
+            _,
+            Some(
+              Declaration.Ternary(
+                Declaration.Var(Identifier.Constructor("True")),
+                Declaration.Matches(_, _, Some(_)),
+                Declaration.Var(Identifier.Name("y"))
+              )
+            )
+          ) =>
+        ()
+      case other =>
+        fail(s"expected parenthesized inner ternary grouping, found: $other")
+    }
+
+    val matchesNoSpaceBeforeIf = "xs matches [*_, x, *_]if pred(x)"
+    assert(
+      Declaration.parser("").parseAll(matchesNoSpaceBeforeIf).isLeft,
+      "`matches` guards require at least one space before `if`"
+    )
+
+    val missingMatchesGuardExpr = "xs matches [*_, x, *_] if"
+    Declaration.parser("").parse(missingMatchesGuardExpr) match {
+      case Left(err) =>
+        val guardIf = missingMatchesGuardExpr.indexOf("if")
+        assert(err.failedAtOffset >= guardIf)
+      case Right((rest, parsed)) =>
+        fail(s"expected parse failure, got rest=$rest parsed=$parsed")
+    }
+
     val noSpaceBeforeIf =
       """match x:
   case Foo(a)if a matches 0:
@@ -1872,6 +2048,15 @@ loop(12)"""
     prop
   }
 
+  test("composed ternaries require parentheses") {
+    assert(Declaration.parser("").parse("x if y else z if w else v").isLeft)
+    assert(Declaration.parser("").parse("x if y if z else v else w").isLeft)
+
+    roundTripExact(Declaration.parser(""), "x if y else (z if w else v)")
+    roundTripExact(Declaration.parser(""), "(x if y else z) if w else v")
+    roundTripExact(Declaration.parser(""), "x if (y if z else v) else w")
+  }
+
   test("we can parse any Statement") {
     val prop = forAll(Generators.genStatements(4, 10))(
       law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion))))
@@ -2020,6 +2205,11 @@ struct Monad[f](
   flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """
     )
+
+    roundTrip(Statement.parser, "type Foo = Bar[Int]")
+    roundTrip(Statement.parser, "type Baz[a] = List[a]")
+    roundTrip(Statement.parser, "type Baz[a: +*] = List[a]")
+    assert(Statement.parser.parseAll("type Foo =").isLeft)
 
     // we can put new-lines in defs
     roundTrip(
@@ -2208,6 +2398,60 @@ main = run(x)
     )
 
     forAll(Generators.packageGen(4))(law(pp))
+  }
+
+  test("we can parse exposes declarations") {
+    val inline = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes Dep/One, Dep/Two
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(
+      inline.exposes,
+      List(
+        List(
+          PackageName.parts("Dep", "One"),
+          PackageName.parts("Dep", "Two")
+        )
+      )
+    )
+
+    val multiline = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes (
+        |  Dep/One,
+        |  Dep/Two,
+        |)
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(
+      multiline.exposes,
+      List(
+        List(
+          PackageName.parts("Dep", "One"),
+          PackageName.parts("Dep", "Two")
+        )
+      )
+    )
+
+    val empty = Parser.unsafeParse(
+      Package.parser,
+      """package Foo
+        |export main
+        |exposes ()
+        |
+        |main = 1
+        |""".stripMargin
+    )
+    assertEquals(empty.exposes, List(List.empty[PackageName]))
   }
 
   test("parse errors point near where they occur") {

@@ -117,7 +117,7 @@ main = [thunk_let, thunk_share]
     }
   }
 
-  private def assertOpaqueCallsRemainSuspended(expr: TypedExpr[Declaration]): Unit = {
+  private def assertOpaqueCallsRemainSuspended[A](expr: TypedExpr[A]): Unit = {
     val (insideSuspension, outsideSuspension) =
       countOpaqueCalls(expr, inSuspension = false)
     assert(insideSuspension > 0, expr.reprString)
@@ -125,7 +125,7 @@ main = [thunk_let, thunk_share]
   }
 
   test("issue 2087: lazy thunks keep delayed opaque work inside Unit lambdas") {
-    var out: Option[Package.Inferred] = None
+    var out: Option[Package.Compiled] = None
     TestUtils.testInferred(
       List(lazyPack, reproPack),
       reproPackage.asString,
@@ -137,7 +137,7 @@ main = [thunk_let, thunk_share]
     val pack = out.getOrElse(
       fail(s"missing inferred package: ${reproPackage.asString}")
     )
-    def getLet(name: Bindable): TypedExpr[Declaration] =
+    def getLet(name: Bindable): TypedExpr[Region] =
       pack.lets.find(_._1 == name) match {
         case Some((_, _, te)) => te
         case None             =>

@@ -246,7 +246,7 @@ main = int_to_String(42) matches str
       val msg = sce.message(Map.empty, Colorize.None)
       assert(
         msg.contains(
-          "`matches` uses pattern matching and this pattern introduces bindings:"
+          "`matches` only allows pattern bindings when they are scoped to an `if` guard:"
         ),
         msg
       )
@@ -257,6 +257,99 @@ main = int_to_String(42) matches str
         msg
       )
       assert(msg.contains("use explicit equality"), msg)
+      ()
+    }
+  }
+
+  test("guarded matches bindings stay scoped to the guard") {
+    val source =
+      """package GuardScope
+        |
+        |main = [1] matches [x] if x matches 1 else x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("conditional matches bindings do not leak to later elif arms or else") {
+    val source =
+      """package ConditionalScope
+        |
+        |main = if opt matches Some(x):
+        |  x
+        |elif pred(x):
+        |  1
+        |else:
+        |  x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("conditional matches ternary bindings do not leak to the false branch") {
+    val source =
+      """package ConditionalTernaryScope
+        |
+        |main = int_to_String(x) if opt matches Some(x) else x
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(source :: Nil)
+    val rendered = errs.toList.map(_.message(sourceMap, Colorize.None)).mkString("\n")
+
+    assert(rendered.contains("Unknown name `x`."), rendered)
+  }
+
+  test("conditional matches preserve bad outer type annotations") {
+    val source =
+      """package ConditionalMatchAnnotation
+        |
+        |main = if ((((1, 2) matches (x, _)) : String)):
+        |  x
+        |else:
+        |  0
+        |""".stripMargin
+
+    val packs =
+      Map(
+        PackageName.parts("ConditionalMatchAnnotation") -> (
+          LocationMap(source),
+          "<test>"
+        )
+      )
+
+    evalFail(List(source)) { case te: PackageError.TypeErrorIn =>
+      val msg = te.message(packs, Colorize.None)
+      assert(msg.contains("expected type String"), msg)
+      assert(msg.contains("found type Bool"), msg)
+      ()
+    }
+  }
+
+  test("nested guarded matches in a guard require parentheses") {
+    evalFail(List("""
+package GuardAmbiguity
+
+main = [0] matches [1] if [0] matches [1] if True else True
+""")) { case sce @ PackageError.SourceConverterErrorsIn(_, _, _) =>
+      val msg = sce.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "`matches` guards cannot be another guarded `matches` without parentheses:"
+        ),
+        msg
+      )
+      assert(
+        msg.contains(
+          "add parentheses around the inner guarded `matches` to choose the grouping explicitly."
+        ),
+        msg
+      )
       ()
     }
   }
@@ -684,7 +777,7 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
         assert(
           te.message(Map.empty, Colorize.None).contains(
             "recur but no recursive call to fn"
@@ -842,13 +935,13 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       assertEquals(
         te.message(
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nrecur but no recursive call to fn\nFor non-recursive branching, replace `recur <expr>:` with `match <expr>:`.\n[25, 47)\n"
+        "in file: <unknown source>, package A\nrecur but no recursive call to fn.\nUse `match` for non-recursive branching.\n[25, 47)\n"
       )
       ()
     }
@@ -861,13 +954,33 @@ def fn(x):
     case y: 0
 
 main = fn
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       assertEquals(
         te.message(
           Map.empty,
           Colorize.None
         ),
-        "in file: <unknown source>, package A\nloop but no recursive call to fn\n[25, 46)\n"
+        "in file: <unknown source>, package A\nloop but no recursive call to fn.\nUse `match` if this code is not recursive.\n[25, 46)\n"
+      )
+      ()
+    }
+
+    evalFail(List("""
+package A
+
+def len(lst, acc):
+  recur lst:
+    case []: acc
+    case [_, *tail]: len(tail, acc)
+
+main = len
+""")) { case te @ PackageError.RecursionLint(_, _) =>
+      val msg = te.message(Map.empty, Colorize.None)
+      assert(
+        msg.contains(
+          "recursive calls to len are all tail-position; use `loop` to make the stack-safety guarantee explicit."
+        ),
+        msg
       )
       ()
     }
@@ -905,11 +1018,11 @@ def parse_loopTypo(x):
     case _: parse_loop(x)
 
 main = parse_loopTypo
-""")) { case te @ PackageError.RecursionError(_, _) =>
+""")) { case te @ PackageError.RecursionLint(_, _) =>
       val msg = te.message(Map.empty, Colorize.None)
       assert(
         msg.contains(
-          "For non-recursive branching, replace `recur <expr>:` with `match <expr>:`."
+          "Use `match` for non-recursive branching."
         )
       )
       assert(
@@ -3015,6 +3128,7 @@ x = 1.0 + 2.0
             .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
+      Map.empty,
       Map.empty
     )
     val err = PackageError.TypeErrorIn(
@@ -3047,6 +3161,7 @@ x = 1.0 + 2.0
             .Defined(pack, TypeName(Identifier.Constructor("Json")))
         )
       ),
+      Map.empty,
       Map.empty
     )
     val err = PackageError.TypeErrorIn(
@@ -3448,6 +3563,93 @@ main = S {}
       3
     )
     assertEquals(suggestions.map(_.value), List("local"))
+  }
+
+  test("exposes mismatch message shows declared source context and sections") {
+    val dep =
+      """package Dep/Api
+        |export Dep()
+        |
+        |struct Dep
+        |""".stripMargin
+
+    val bad =
+      """package App/Main
+        |from Dep/Api import Dep
+        |export Wrapped()
+        |exposes Dep/Wrong
+        |
+        |struct Wrapped(value: Dep)
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(dep, bad))
+    val mismatch =
+      errs.toList
+        .collectFirst { case e: PackageError.ExposesMismatch => e }
+        .getOrElse(fail(s"missing exposes mismatch error: $errs"))
+
+    val msg = mismatch.message(sourceMap, Colorize.None)
+    assert(
+      msg.contains("declared `exposes` does not match the exported API."),
+      msg
+    )
+    assert(msg.contains("declared here:\n"), msg)
+    assert(msg.contains("exposes Dep/Wrong"), msg)
+    assert(msg.contains("canonical fix:\n    exposes Dep/Api."), msg)
+    assert(msg.contains("missing declarations:\n"), msg)
+    assert(msg.contains("Dep/Api escapes via export `Wrapped()`"), msg)
+    assert(msg.contains("extra declarations:\n    Dep/Wrong"), msg)
+    assert(!msg.contains("\nactual:"), msg)
+    assert(!msg.contains("\ndeclared: "), msg)
+  }
+
+  test("exposes mismatch canonical fix uses parens for multiple packages") {
+    val pack = PackageName.parts("App", "Main")
+    val depOne = PackageName.parts("Dep", "One")
+    val depTwo = PackageName.parts("Dep", "Two")
+    val source =
+      """package App/Main
+        |export Wrapped()
+        |exposes Dep/One
+        |
+        |struct Wrapped
+        |""".stripMargin
+
+    val msg =
+      PackageError
+        .ExposesMismatch(
+          pack,
+          declared = depOne :: Nil,
+          actual = List(depOne, depTwo),
+          missingCauses = Map(depTwo -> NonEmptyList.one("Wrapped()"))
+        )
+        .message(Map(pack -> (LocationMap(source), "<test>")), Colorize.None)
+
+    assert(msg.contains("declared here:\n"), msg)
+    assert(msg.contains("exposes Dep/One"), msg)
+    assert(msg.contains("canonical fix:\n    exposes (Dep/One, Dep/Two)."), msg)
+  }
+
+  test("duplicate exposes message lists both declarations") {
+    val bad =
+      """package App/Main
+        |export main
+        |exposes Dep/One
+        |exposes ()
+        |
+        |main = 1
+        |""".stripMargin
+
+    val (errs, sourceMap) = compileErrors(List(bad))
+    val duplicate =
+      errs.toList
+        .collectFirst { case e: PackageError.DuplicateExposes => e }
+        .getOrElse(fail(s"missing duplicate exposes error: $errs"))
+
+    val msg = duplicate.message(sourceMap, Colorize.None)
+    assert(msg.contains("at most one `exposes` declaration is allowed"), msg)
+    assert(msg.contains("exposes Dep/One"), msg)
+    assert(!msg.contains("exposes ()"), msg)
   }
 
 }

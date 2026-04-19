@@ -3,7 +3,16 @@ package dev.bosatsu.codegen.python
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
-import dev.bosatsu.{PackageName, Identifier, InSetCompiler, Lit, Matchless, Par, Parser}
+import dev.bosatsu.{
+  Package,
+  PackageName,
+  Identifier,
+  InSetCompiler,
+  Lit,
+  Matchless,
+  Par,
+  Parser
+}
 import dev.bosatsu.codegen.{CompilationNamespace, CompilationSource, Idents}
 import dev.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
@@ -84,6 +93,7 @@ object PythonGen {
 
       case class EnvState(
           imports: Map[Module, Code.Ident],
+          helpers: Map[String, Code.Ident],
           bindings: Map[Bindable, BindState],
           tops: Set[Bindable],
           nextTmp: Long,
@@ -144,10 +154,23 @@ object PythonGen {
             case None        =>
               val impNumber = imports.size
               val alias = Code.Ident(
-                Idents.escape("___i", mod.last.name + impNumber.toString)
+                Idents.escape("bsts_i", mod.last.name + impNumber.toString)
               )
               (copy(imports = imports.updated(mod, alias)), alias)
           }
+
+        def helper(key: String): Option[Code.Ident] =
+          helpers.get(key)
+
+        def addHelper(
+            key: String,
+            ident: Code.Ident,
+            stmts: List[Statement]
+        ): EnvState =
+          copy(
+            helpers = helpers.updated(key, ident),
+            lifted = lifted ++ stmts
+          )
 
         def lift(stmt: Statement): EnvState =
           copy(lifted = lifted :+ stmt)
@@ -168,7 +191,7 @@ object PythonGen {
       }
 
       def emptyState: EnvState =
-        EnvState(Map.empty, Map.empty, Set.empty, 0L, Vector.empty)
+        EnvState(Map.empty, Map.empty, Map.empty, Set.empty, 0L, Vector.empty)
 
       case class EnvImpl[A](state: State[EnvState, A]) extends Env[A]
 
@@ -241,6 +264,19 @@ object PythonGen {
 
     def importLiteral(parts: NonEmptyList[Code.Ident]): Env[Code.Ident] =
       Impl.env(_.addImport(parts))
+
+    def ensureHelper(
+        key: String
+    )(build: Code.Ident => Env[List[Statement]]): Env[Code.Ident] =
+      Impl.read(_.helper(key)).flatMap {
+        case Some(ident) => Env.pure(ident)
+        case None        =>
+          for {
+            helperName <- newHoistedDefName
+            stmts <- build(helperName)
+            _ <- Impl.update(_.addHelper(key, helperName, stmts))
+          } yield helperName
+      }
 
     // top level names are imported across files so they have
     // to be consistently transformed
@@ -492,6 +528,64 @@ object PythonGen {
     }
   }
 
+  private def unitTestClass(
+      importedName: Code.Ident,
+      tmpVar: Code.Ident,
+      testValue: Code.Expression
+  ): Statement = {
+    import Impl._
+
+    val loopName = Code.Ident("test_loop")
+    val argName = Code.Ident("value")
+    val selfName = Code.Ident("self")
+
+    val isAssertion: Code.Expression =
+      argName.get(0) =:= 0
+
+    // Assertion(bool, msg)
+    val testAssertion: Code.Statement =
+      Code.Call(
+        Code.Apply(
+          selfName.dot(Code.Ident("assertTrue")),
+          argName.get(1) :: argName.get(2) :: Nil
+        )
+      )
+
+    // TestSuite(suiteName, tests)
+    val testSuite: Code.Statement =
+      Code.block(
+        tmpVar := argName.get(2), // get the test list
+        Code.While(
+          isNonEmpty(tmpVar),
+          Code.block(
+            Code.Call(Code.Apply(loopName, headList(tmpVar) :: Nil)),
+            tmpVar := tailList(tmpVar)
+          )
+        )
+      )
+
+    val loopBody: Code.Statement =
+      Code.IfStatement(
+        NonEmptyList.one((isAssertion, testAssertion)),
+        Some(testSuite)
+      )
+
+    val recTest =
+      Code.Def(loopName, argName :: Nil, loopBody)
+
+    val body =
+      Code.block(recTest, Code.Call(Code.Apply(loopName, testValue :: Nil)))
+
+    val defBody =
+      Code.Def(Code.Ident("test_all"), selfName :: Nil, body)
+
+    Code.ClassDef(
+      Code.Ident("BosatsuTests"),
+      List(importedName.dot(Code.Ident("TestCase"))),
+      defBody
+    )
+  }
+
   private def addUnitTest(name: Bindable): Env[Statement] =
     // we could inspect the Expr, but for now, we will just put
     // everything in a single test:
@@ -504,58 +598,19 @@ object PythonGen {
       Env.newAssignableVar,
       Env.topLevelName(name)
     )
-      .mapN { (importedName, tmpVar, testName) =>
-        import Impl._
+      .mapN(unitTestClass(_, _, _))
 
-        val loopName = Code.Ident("test_loop")
-        val argName = Code.Ident("value")
-        val selfName = Code.Ident("self")
-
-        val isAssertion: Code.Expression =
-          argName.get(0) =:= 0
-
-        // Assertion(bool, msg)
-        val testAssertion: Code.Statement =
-          Code.Call(
-            Code.Apply(
-              selfName.dot(Code.Ident("assertTrue")),
-              argName.get(1) :: argName.get(2) :: Nil
-            )
-          )
-
-        // TestSuite(suiteName, tests)
-        val testSuite: Code.Statement =
-          Code.block(
-            tmpVar := argName.get(2), // get the test list
-            Code.While(
-              isNonEmpty(tmpVar),
-              Code.block(
-                Code.Call(Code.Apply(loopName, headList(tmpVar) :: Nil)),
-                tmpVar := tailList(tmpVar)
-              )
-            )
-          )
-
-        val loopBody: Code.Statement =
-          Code.IfStatement(
-            NonEmptyList.one((isAssertion, testAssertion)),
-            Some(testSuite)
-          )
-
-        val recTest =
-          Code.Def(loopName, argName :: Nil, loopBody)
-
-        val body =
-          Code.block(recTest, Code.Call(Code.Apply(loopName, testName :: Nil)))
-
-        val defBody =
-          Code.Def(Code.Ident("test_all"), selfName :: Nil, body)
-
-        Code.ClassDef(
-          Code.Ident("BosatsuTests"),
-          List(importedName.dot(Code.Ident("TestCase"))),
-          defBody
-        )
+  private def addProgUnitTest(name: Bindable): Env[Statement] =
+    (
+      Env.importLiteral(NonEmptyList.one(Code.Ident("unittest"))),
+      Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt"))),
+      Env.newAssignableVar,
+      Env.topLevelName(name)
+    )
+      .mapN { (unittestName, progExtName, tmpVar, testName) =>
+        val testValue =
+          Code.Apply(progExtName.dot(Code.Ident("run_test")), testName :: Nil)
+        unitTestClass(unittestName, tmpVar, testValue)
       }
 
   private def addMainEval(
@@ -649,7 +704,8 @@ object PythonGen {
     val all = pm
       .transform { (k, pm) =>
         val testsK =
-          if (ns.isRoot(k)) ns.testValues else Map.empty[PackageName, Nothing]
+          if (ns.isRoot(k)) ns.testEntries
+          else Map.empty[PackageName, Either[Package.TestDiscoveryError, Package.TestEntry[Any]]]
         val evaluatorsK =
           if (ns.isRoot(k)) evaluators else Map.empty[PackageName, Nothing]
 
@@ -668,7 +724,14 @@ object PythonGen {
                 }
 
               val testStmt: Env[Option[Statement]] =
-                testsK.get(p).traverse(addUnitTest)
+                testsK.get(p) match {
+                  case Some(Right(Package.TestEntry.PlainTest(bindable, _, _))) =>
+                    addUnitTest(bindable).map(Some(_))
+                  case Some(Right(Package.TestEntry.ProgTest(bindable, _, _)))  =>
+                    addProgUnitTest(bindable).map(Some(_))
+                  case _ =>
+                    Env.pure(None)
+                }
 
               val stmts = (stmts0, testStmt, evalStmt)
                 .mapN { (s, optT, optM) =>
@@ -716,17 +779,91 @@ object PythonGen {
         PackageName.parts("Bosatsu", "Collection", "Array")
       private val float64Package: PackageName =
         PackageName.parts("Bosatsu", "Num", "Float64")
+      private val pyStringCmpHelperKey = "py_string_cmp_helper"
+
+      private def cmpExpr(
+          arg0: Code.Expression,
+          arg1: Code.Expression
+      ): Code.Expression =
+        Code
+          .Ternary(
+            0,
+            arg0 :< arg1,
+            Code.Ternary(1, arg0 =:= arg1, 2)
+          )
+          .simplify
 
       private val cmpFn: List[ValueLike] => Env[ValueLike] = { input =>
         Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-          Code
-            .Ternary(
-              0,
-              arg0 :< arg1,
-              Code.Ternary(1, arg0 =:= arg1, 2)
-            )
-            .simplify
+          cmpExpr(arg0, arg1)
         }
+      }
+
+      private def utf8Bytes(expr: Code.Expression): Code.Expression =
+        expr.dot(Code.Ident("encode"))(Code.PyString("utf-8"))
+
+      private def utf32Bytes(expr: Code.Expression): Code.Expression =
+        expr.dot(Code.Ident("encode"))(Code.PyString("utf-32-be"))
+
+      private def cmpEncodedFn(
+          encode: Code.Expression => Code.Expression
+      ): List[ValueLike] => Env[ValueLike] = { input =>
+        (Env.newAssignableVar, Env.newAssignableVar).mapN { (enc0, enc1) =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            Code
+              .block(
+                enc0 := encode(arg0),
+                enc1 := encode(arg1)
+              )
+              .withValue(cmpExpr(enc0, enc1))
+          }
+        }.flatten
+      }
+
+      private val cmpUtf32Fn: List[ValueLike] => Env[ValueLike] =
+        cmpEncodedFn(utf32Bytes)
+
+      private def buildPyStringCmpHelper(
+          helperName: Code.Ident
+      ): Env[List[Statement]] = {
+        val probeLeft = Code.PyString("\uE000")
+        val probeRight = Code.PyString(new String(Character.toChars(0x10000)))
+        val probe = probeLeft :< probeRight
+
+        for {
+          nativeName <- Env.newHoistedDefName
+          utf8Name <- Env.newHoistedDefName
+          arg0 <- Env.newAssignableVar
+          arg1 <- Env.newAssignableVar
+          utf8Arg0 <- Env.newAssignableVar
+          utf8Arg1 <- Env.newAssignableVar
+        } yield {
+          val args = NonEmptyList.of(arg0, arg1)
+          val nativeDef = Env.makeDef(nativeName, args, cmpExpr(arg0, arg1))
+          val utf8Def = Env.makeDef(
+            utf8Name,
+            args,
+            Code
+              .block(
+                utf8Arg0 := utf8Bytes(arg0),
+                utf8Arg1 := utf8Bytes(arg1)
+              )
+              .withValue(cmpExpr(utf8Arg0, utf8Arg1))
+          )
+          val helperAssign =
+            helperName := Code.Ternary(nativeName, probe, utf8Name).simplify
+
+          nativeDef :: utf8Def :: helperAssign :: Nil
+        }
+      }
+
+      private[Impl] val cmpStringFn: List[ValueLike] => Env[ValueLike] = { input =>
+        Env.ensureHelper(pyStringCmpHelperKey)(buildPyStringCmpHelper)
+          .flatMap { helperName =>
+            Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+              Code.Apply(helperName, arg0 :: arg1 :: Nil)
+            }
+          }
       }
 
       private def mathModule: Env[Code.Ident] =
@@ -734,6 +871,17 @@ object PythonGen {
 
       private def structModule: Env[Code.Ident] =
         Env.importLiteral(NonEmptyList.one(Code.Ident("struct")))
+
+      // Array intrinsics need concrete Int64 runtime helpers even when the
+      // surrounding package never mentions those globals in Bosatsu source.
+      private def progExtModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt")))
+
+      private def boxInt64(expr: Code.Expression): Env[Code.Expression] =
+        progExtModule.map(_.dot(Code.Ident("int_low_bits_to_Int64"))(expr))
+
+      private def unboxInt64(expr: Code.Expression): Env[Code.Expression] =
+        progExtModule.map(_.dot(Code.Ident("int64_to_Int"))(expr))
 
       private def unaryMath(name: String): List[ValueLike] => Env[ValueLike] = {
         input =>
@@ -840,6 +988,18 @@ object PythonGen {
                 Code.Ternary(2, bNaN, neitherNaN)
               )
               .simplify
+          }
+        }
+      }
+
+      private val eqFloatFn: List[ValueLike] => Env[ValueLike] = { input =>
+        mathModule.flatMap { math =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+            val bothNaN =
+              math.dot(Code.Ident("isnan"))(arg0).evalAnd(
+                math.dot(Code.Ident("isnan"))(arg1)
+              )
+            Code.Ternary(Code.Const.True, arg0 =:= arg1, bothNaN).simplify
           }
         }
       }
@@ -1113,6 +1273,8 @@ object PythonGen {
         )
       private val emptyArray: Expression =
         makeArray(Code.MakeList(Nil), Code.Const.Zero, Code.Const.Zero)
+      private val maxArrayLenExpr: Expression =
+        Code.PyInt(java.math.BigInteger.valueOf(Int.MaxValue.toLong))
 
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
@@ -1153,6 +1315,33 @@ object PythonGen {
                       0
                     )
                     .simplify
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("div_mod"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                  val divExpr =
+                    Code
+                      .Ternary(
+                        Code.Op(a, Code.Const.Div, b),
+                        b, // 0 is false in python
+                        0
+                      )
+                      .simplify
+                  val modExpr =
+                    Code
+                      .Ternary(
+                        Code.Op(a, Code.Const.Mod, b),
+                        b, // 0 is false in python
+                        a
+                      )
+                      .simplify
+                  Code.MakeTuple(divExpr :: modExpr :: Nil)
                 }
               },
               2
@@ -1219,7 +1408,20 @@ object PythonGen {
               2
             )
           ),
+          (Identifier.Name("cmp_Char"), (cmpUtf32Fn, 2)),
+          (
+            Identifier.Name("eq_Char"),
+            (
+              { input =>
+                Env.onLast2(input.head, input.tail.head)(
+                  _.eval(Code.Const.Eq, _)
+                )
+              },
+              2
+            )
+          ),
           (Identifier.Name("cmp_Float64"), (cmpFloatFn, 2)),
+          (Identifier.Name("eq_Float64"), (eqFloatFn, 2)),
           (
             Identifier.Name("shift_left_Int"),
             (
@@ -1421,15 +1623,16 @@ object PythonGen {
                 Env.onLast(input.head) { s =>
                   // int(s) if (s[0] == '-' and s[1:].isdigit()) or s.isdigit() else None
                   val isdigit = Code.Ident("isdigit")
-                  val isValid = Code.Op(
-                    (s.get(0) =:= Code.PyString("-")).evalAnd(
-                      Code
-                        .SelectRange(s, Some(Code.Const.One), None)
-                        .dot(isdigit)()
-                    ),
-                    Code.Const.Or,
-                    s.dot(isdigit)()
-                  )
+                  val hasLeadingMinus =
+                    (s =!= Code.PyString("")).evalAnd(
+                      (s.get(0) =:= Code.PyString("-")).evalAnd(
+                        Code
+                          .SelectRange(s, Some(Code.Const.One), None)
+                          .dot(isdigit)()
+                      )
+                    )
+                  val isValid =
+                    Code.Op(hasLeadingMinus, Code.Const.Or, s.dot(isdigit)())
 
                   Code.Ternary(
                     Code.MakeTuple(
@@ -1452,7 +1655,16 @@ object PythonGen {
             Identifier.Name("char_to_Int"),
             (
               { input =>
-                Env.onLast(input.head)(c => Code.Ident("ord")(c))
+                structModule.flatMap { struct =>
+                  Env.onLast(input.head) { c =>
+                    struct
+                      .dot(Code.Ident("unpack"))(
+                        Code.PyString(">I"),
+                        utf32Bytes(c)
+                      )
+                      .get(0)
+                  }
+                }
               },
               1
             )
@@ -1486,25 +1698,29 @@ object PythonGen {
             Identifier.Name("int_to_Char"),
             (
               { input =>
-                Env.onLast(input.head) { cp =>
-                  val nonNegative = !(cp :< Code.Const.Zero)
-                  val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
-                  val inSurrogateRange =
-                    (!(cp :< Code.fromInt(0xd800)))
-                      .evalAnd(cp :< Code.fromInt(0xe000))
-                  val valid =
-                    nonNegative
-                      .evalAnd(belowUnicodeLimit)
-                      .evalAnd(
-                        !inSurrogateRange
-                      )
-                  Code.Ternary(
-                    Code.MakeTuple(
-                      Code.Const.One :: Code.Ident("chr")(cp) :: Nil
-                    ),
-                    valid,
-                    Code.MakeTuple(Code.Const.Zero :: Nil)
-                  )
+                structModule.flatMap { struct =>
+                  Env.onLast(input.head) { cp =>
+                    val nonNegative = !(cp :< Code.Const.Zero)
+                    val belowUnicodeLimit = cp :< Code.fromInt(0x110000)
+                    val inSurrogateRange =
+                      (!(cp :< Code.fromInt(0xd800)))
+                        .evalAnd(cp :< Code.fromInt(0xe000))
+                    val valid =
+                      nonNegative
+                        .evalAnd(belowUnicodeLimit)
+                        .evalAnd(
+                          !inSurrogateRange
+                        )
+                    val ch =
+                      struct
+                        .dot(Code.Ident("pack"))(Code.PyString(">I"), cp)
+                        .dot(Code.Ident("decode"))(Code.PyString("utf-32-be"))
+                    Code.Ternary(
+                      Code.MakeTuple(Code.Const.One :: ch :: Nil),
+                      valid,
+                      Code.MakeTuple(Code.Const.Zero :: Nil)
+                    )
+                  }
                 }
               },
               1
@@ -1617,7 +1833,7 @@ object PythonGen {
               1
             )
           ),
-          (Identifier.Name("cmp_String"), (cmpFn, 2))
+          (Identifier.Name("cmp_String"), (cmpStringFn, 2))
         )
 
       val arrayResults
@@ -1631,37 +1847,51 @@ object PythonGen {
             Identifier.Name("tabulate_Array"),
             (
               { input =>
-                (Env.newAssignableVar, Env.newAssignableVar).tupled.flatMap {
-                  case (data, idx) =>
-                    Env.onLasts(input) {
-                      case n :: fn :: Nil =>
-                        val tabulated = Code
-                          .block(
-                            data := Code.MakeList(Code.Const.Zero :: Nil)
-                              .evalTimes(n),
-                            idx := Code.Const.Zero,
-                            Code.While(
-                              idx :< n,
-                              Code.block(
-                                selectItem(data, idx) := fn(idx),
-                                idx := idx + 1
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (size, data, idx) =>
+                  Env.onLastsM(input) {
+                    case n :: fn :: Nil =>
+                      unboxInt64(n).flatMap { n1 =>
+                        boxInt64(idx).map { idx64 =>
+                          val valid = (size :> Code.Const.Zero).evalAnd(
+                            !(size :> maxArrayLenExpr)
+                          )
+                          val tabulated = Code
+                            .block(
+                              data := Code.MakeList(Code.Const.Zero :: Nil)
+                                .evalTimes(size),
+                              idx := Code.Const.Zero,
+                              Code.While(
+                                idx :< size,
+                                Code.block(
+                                  selectItem(data, idx) := fn(idx64),
+                                  idx := idx + 1
+                                )
                               )
                             )
-                          )
-                          .withValue(
-                            makeArray(data, Code.Const.Zero, n)
-                          )
-                        Code.IfElse(
-                          NonEmptyList.one((n :> Code.Const.Zero, tabulated)),
-                          emptyArray
-                        )
-                      case other =>
-                        // $COVERAGE-OFF$
-                        throw new IllegalStateException(
-                          s"expected arity 2 got: $other"
-                        )
-                      // $COVERAGE-ON$
-                    }
+                            .withValue(
+                              makeArray(data, Code.Const.Zero, size)
+                            )
+                          Code
+                            .block(size := n1)
+                            .withValue(
+                              Code.IfElse(
+                                NonEmptyList.one((valid, tabulated)),
+                                emptyArray
+                              )
+                            )
+                        }
+                      }
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
                 }
               },
               2
@@ -1727,7 +1957,7 @@ object PythonGen {
             Identifier.Name("size_Array"),
             (
               { input =>
-                Env.onLast(input.head)(arrayLen)
+                Env.onLastM(input.head)(ary => boxInt64(arrayLen(ary)))
               },
               1
             )
@@ -1754,16 +1984,22 @@ object PythonGen {
             Identifier.Name("get_map_Array"),
             (
               { input =>
-                Env.onLasts(input) {
+                Env.onLastsM(input) {
                   case ary :: idx :: default :: fn :: Nil =>
-                    val valid =
-                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
-                    val item =
-                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
-                    Code.IfElse(
-                      NonEmptyList.one((valid, fn(item))),
-                      default(Code.Const.Unit)
-                    )
+                    unboxInt64(idx).map { idx1 =>
+                      val valid =
+                        (!(idx1 :< Code.Const.Zero))
+                          .evalAnd(idx1 :< arrayLen(ary))
+                      val item =
+                        selectItem(
+                          arrayData(ary),
+                          arrayOffset(ary).evalPlus(idx1)
+                        )
+                      Code.IfElse(
+                        NonEmptyList.one((valid, fn(item))),
+                        default(idx1)
+                      )
+                    }
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(
@@ -1779,22 +2015,75 @@ object PythonGen {
             Identifier.Name("get_or_Array"),
             (
               { input =>
-                Env.onLasts(input) {
+                Env.onLastsM(input) {
                   case ary :: idx :: default :: Nil =>
-                    val valid =
-                      (!(idx :< Code.Const.Zero)).evalAnd(idx :< arrayLen(ary))
-                    val item =
-                      selectItem(arrayData(ary), arrayOffset(ary).evalPlus(idx))
-                    Code.IfElse(
-                      NonEmptyList.one((valid, item)),
-                      default(Code.Const.Unit)
-                    )
+                    unboxInt64(idx).map { idx1 =>
+                      val valid =
+                        (!(idx1 :< Code.Const.Zero))
+                          .evalAnd(idx1 :< arrayLen(ary))
+                      val item =
+                        selectItem(
+                          arrayData(ary),
+                          arrayOffset(ary).evalPlus(idx1)
+                        )
+                      Code.IfElse(
+                        NonEmptyList.one((valid, item)),
+                        default(idx)
+                      )
+                    }
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(
                       s"expected arity 3 got: $other"
                     )
                   // $COVERAGE-ON$
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("foldl_with_index_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLastsM(input) {
+                    case ary :: init :: fn :: Nil =>
+                      boxInt64(idx).map { idx64 =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            idx := Code.Const.Zero,
+                            acc := init,
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                acc := fn(
+                                  acc,
+                                  selectItem(data, offset.evalPlus(idx)),
+                                  idx64
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(acc)
+                      }
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 3 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
                 }
               },
               3
@@ -1920,6 +2209,53 @@ object PythonGen {
                           )
                         )
                         .withValue(makeArray(out, Code.Const.Zero, size))
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(
+                        s"expected arity 2 got: $other"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              },
+              2
+            )
+          ),
+          (
+            Identifier.Name("map_with_index_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, out) =>
+                  Env.onLastsM(input) {
+                    case ary :: fn :: Nil =>
+                      boxInt64(idx).map { idx64 =>
+                        Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(size),
+                            idx := Code.Const.Zero,
+                            Code.While(
+                              idx :< size,
+                              Code.block(
+                                selectItem(out, idx) := fn(
+                                  selectItem(data, offset.evalPlus(idx)),
+                                  idx64
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(makeArray(out, Code.Const.Zero, size))
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -2083,6 +2419,368 @@ object PythonGen {
             )
           ),
           (
+            Identifier.Name("zip_map_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, out, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize,
+                            out := Code.MakeList(Code.Const.Zero :: Nil)
+                              .evalTimes(pairLen),
+                            idx := Code.Const.Zero,
+                            Code.While(
+                              idx :< pairLen,
+                              Code.block(
+                                selectItem(out, idx) := fn(
+                                  selectItem(leftData, leftOffset.evalPlus(idx)),
+                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(makeArray(out, Code.Const.Zero, pairLen))
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 3 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("zip_foldl_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: init :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize,
+                            idx := Code.Const.Zero,
+                            acc := init,
+                            Code.While(
+                              idx :< pairLen,
+                              Code.block(
+                                acc := fn(
+                                  acc,
+                                  selectItem(leftData, leftOffset.evalPlus(idx)),
+                                  selectItem(rightData, rightOffset.evalPlus(idx))
+                                ),
+                                idx := idx + 1
+                              )
+                            )
+                          )
+                          .withValue(acc)
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 4 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              4
+            )
+          ),
+          (
+            Identifier.Name("zip_sumf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: fn :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize
+                          )
+                          .withValue(
+                            Code.IfElse(
+                              NonEmptyList.one(
+                                (
+                                  pairLen :> Code.Const.Zero,
+                                  Code
+                                    .block(
+                                      idx := Code.Const.One,
+                                      acc := fn(
+                                        selectItem(leftData, leftOffset),
+                                        selectItem(rightData, rightOffset)
+                                      ),
+                                      Code.While(
+                                        idx :< pairLen,
+                                        Code.block(
+                                          acc := acc.evalPlus(
+                                            fn(
+                                              selectItem(
+                                                leftData,
+                                                leftOffset.evalPlus(idx)
+                                              ),
+                                              selectItem(
+                                                rightData,
+                                                rightOffset.evalPlus(idx)
+                                              )
+                                            )
+                                          ),
+                                          idx := idx + 1
+                                        )
+                                      )
+                                    )
+                                    .withValue(acc)
+                                )
+                              ),
+                              Code.PyFloat(0.0)
+                            )
+                          )
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 3 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              3
+            )
+          ),
+          (
+            Identifier.Name("sumf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc) =>
+                  Env.onLast(input.head) { ary =>
+                    Code
+                      .block(
+                        data := arrayData(ary),
+                        offset := arrayOffset(ary),
+                        size := arrayLen(ary)
+                      )
+                      .withValue(
+                        Code.IfElse(
+                          NonEmptyList.one(
+                            (
+                              size :> Code.Const.Zero,
+                              Code
+                                .block(
+                                  idx := Code.Const.One,
+                                  acc := selectItem(data, offset),
+                                  Code.While(
+                                    idx :< size,
+                                    Code.block(
+                                      acc := acc.evalPlus(
+                                        selectItem(data, offset.evalPlus(idx))
+                                      ),
+                                      idx := idx + 1
+                                    )
+                                  )
+                                )
+                                .withValue(acc)
+                            )
+                          ),
+                          Code.PyFloat(0.0)
+                        )
+                      )
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("sumsqf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap { case (data, offset, size, idx, acc, item) =>
+                  Env.onLast(input.head) { ary =>
+                    Code
+                      .block(
+                        data := arrayData(ary),
+                        offset := arrayOffset(ary),
+                        size := arrayLen(ary)
+                      )
+                      .withValue(
+                        Code.IfElse(
+                          NonEmptyList.one(
+                            (
+                              size :> Code.Const.Zero,
+                              Code
+                                .block(
+                                  item := selectItem(data, offset),
+                                  idx := Code.Const.One,
+                                  acc := item.evalTimes(item),
+                                  Code.While(
+                                    idx :< size,
+                                    Code.block(
+                                      item := selectItem(data, offset.evalPlus(idx)),
+                                      acc := acc.evalPlus(item.evalTimes(item)),
+                                      idx := idx + 1
+                                    )
+                                  )
+                                )
+                                .withValue(acc)
+                            )
+                          ),
+                          Code.PyFloat(0.0)
+                        )
+                      )
+                  }
+                }
+              },
+              1
+            )
+          ),
+          (
+            Identifier.Name("dotf_Array"),
+            (
+              { input =>
+                (
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar,
+                  Env.newAssignableVar
+                ).tupled.flatMap {
+                  case (leftData, leftOffset, rightData, rightOffset, pairLen, idx, acc, item, rightSize) =>
+                    Env.onLasts(input) {
+                      case left :: right :: Nil =>
+                        val leftSize = arrayLen(left)
+                        val minSize = Code.Ternary(leftSize, leftSize :< rightSize, rightSize)
+                        Code
+                          .block(
+                            leftData := arrayData(left),
+                            leftOffset := arrayOffset(left),
+                            rightData := arrayData(right),
+                            rightOffset := arrayOffset(right),
+                            rightSize := arrayLen(right),
+                            pairLen := minSize
+                          )
+                          .withValue(
+                            Code.IfElse(
+                              NonEmptyList.one(
+                                (
+                                  pairLen :> Code.Const.Zero,
+                                  Code
+                                    .block(
+                                      item := selectItem(leftData, leftOffset),
+                                      idx := Code.Const.One,
+                                      acc := item.evalTimes(
+                                        selectItem(rightData, rightOffset)
+                                      ),
+                                      Code.While(
+                                        idx :< pairLen,
+                                        Code.block(
+                                          item := selectItem(
+                                            leftData,
+                                            leftOffset.evalPlus(idx)
+                                          ),
+                                          acc := acc.evalPlus(
+                                            item.evalTimes(
+                                              selectItem(
+                                                rightData,
+                                                rightOffset.evalPlus(idx)
+                                              )
+                                            )
+                                          ),
+                                          idx := idx + 1
+                                        )
+                                      )
+                                    )
+                                    .withValue(acc)
+                                )
+                              ),
+                              Code.PyFloat(0.0)
+                            )
+                          )
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(
+                          s"expected arity 2 got: $other"
+                        )
+                      // $COVERAGE-ON$
+                    }
+                }
+              },
+              2
+            )
+          ),
+          (
             Identifier.Name("set_or_self_Array"),
             (
               { input =>
@@ -2092,29 +2790,29 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, copied) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: idx :: value :: Nil =>
-                      val valid =
-                        (!(idx :< Code.Const.Zero))
-                          .evalAnd(idx :< arrayLen(ary))
-                      val updated = Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          copied := Code.Ident("list")(
-                            Code.SelectRange(
-                              data,
-                              Some(offset),
-                              Some(offset.evalPlus(size))
-                            )
-                          ),
-                          selectItem(copied, idx) := value
-                        )
-                        .withValue(
-                          makeArray(copied, Code.Const.Zero, size)
-                        )
-                      Code.IfElse(NonEmptyList.one((valid, updated)), ary)
+                      unboxInt64(idx).map { idx1 =>
+                        val valid =
+                          (!(idx1 :< Code.Const.Zero))
+                            .evalAnd(idx1 :< arrayLen(ary))
+                        val updated = Code
+                          .block(
+                            data := arrayData(ary),
+                            offset := arrayOffset(ary),
+                            size := arrayLen(ary),
+                            copied := Code.Ident("list")(
+                              Code.SelectRange(
+                                data,
+                                Some(offset),
+                                Some(offset.evalPlus(size))
+                              )
+                            ),
+                            selectItem(copied, idx1) := value
+                          )
+                          .withValue(makeArray(copied, Code.Const.Zero, size))
+                        Code.IfElse(NonEmptyList.one((valid, updated)), ary)
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -2283,42 +2981,49 @@ object PythonGen {
                   Env.newAssignableVar,
                   Env.newAssignableVar
                 ).tupled.flatMap { case (data, offset, size, start1, end1) =>
-                  Env.onLasts(input) {
+                  Env.onLastsM(input) {
                     case ary :: start :: end :: Nil =>
-                      val nonNegStart = !(start1 :< Code.Const.Zero)
-                      val nonNegEnd = !(end1 :< Code.Const.Zero)
-                      val ordered = !(start1 :> end1)
-                      val endInRange = !(end1 :> size)
-                      val sliceLen = end1.evalMinus(start1)
-                      val valid = nonNegStart
-                        .evalAnd(nonNegEnd)
-                        .evalAnd(ordered)
-                        .evalAnd(endInRange)
-                        .evalAnd(sliceLen :> Code.Const.Zero)
+                      (unboxInt64(start), unboxInt64(end)).mapN {
+                        (startExpr, endExpr) =>
+                          val nonNegStart = !(start1 :< Code.Const.Zero)
+                          val nonNegEnd = !(end1 :< Code.Const.Zero)
+                          val ordered = !(start1 :> end1)
+                          val endInRange = !(end1 :> size)
+                          val sliceLen = end1.evalMinus(start1)
+                          val valid = nonNegStart
+                            .evalAnd(nonNegEnd)
+                            .evalAnd(ordered)
+                            .evalAnd(endInRange)
+                            .evalAnd(sliceLen :> Code.Const.Zero)
 
-                      val sliced = makeArray(
-                        data,
-                        offset.evalPlus(start1),
-                        sliceLen
-                      )
-                      Code
-                        .block(
-                          data := arrayData(ary),
-                          offset := arrayOffset(ary),
-                          size := arrayLen(ary),
-                          start1 := Code.Ternary(
-                            Code.Const.Zero,
-                            start :< Code.Const.Zero,
-                            start
-                          ),
-                          end1 := Code.Ternary(size, end :> size, end)
-                        )
-                        .withValue(
-                          Code.IfElse(
-                            NonEmptyList.one((valid, sliced)),
-                            emptyArray
+                          val sliced = makeArray(
+                            data,
+                            offset.evalPlus(start1),
+                            sliceLen
                           )
-                        )
+                          Code
+                            .block(
+                              data := arrayData(ary),
+                              offset := arrayOffset(ary),
+                              size := arrayLen(ary),
+                              start1 := Code.Ternary(
+                                Code.Const.Zero,
+                                startExpr :< Code.Const.Zero,
+                                startExpr
+                              ),
+                              end1 := Code.Ternary(
+                                size,
+                                endExpr :> size,
+                                endExpr
+                              )
+                            )
+                            .withValue(
+                              Code.IfElse(
+                                NonEmptyList.one((valid, sliced)),
+                                emptyArray
+                              )
+                            )
+                      }
                     case other =>
                       // $COVERAGE-OFF$
                       throw new IllegalStateException(
@@ -2460,6 +3165,47 @@ object PythonGen {
         ns: CompilationNamespace[K]
     ) {
       private type InlineSlots = Option[Vector[Expression]]
+      private val int64Package = PackageName.parts("Bosatsu", "Num", "Int64")
+
+      private def mathModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("math")))
+
+      private def progExtModule: Env[Code.Ident] =
+        Env.importLiteral(NonEmptyList.one(Code.Ident("ProgExt")))
+
+      // Prefer the package-level external remap so Jython tests and any
+      // alternate Int64 runtime shims stay in sync with normal codegen.
+      private def applyExternalFn(
+          value: ValueLike,
+          arg: Code.Expression
+      ): Env[Code.Expression] =
+        Env
+          .onLastM(value)(fn => Env.pure[Code.ValueLike](fn(arg)))
+          .map {
+            case expr: Code.Expression => expr
+            case other =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(
+                s"expected external application to stay expression-shaped, found: $other"
+              )
+            // $COVERAGE-ON$
+          }
+
+      private def boxInt64(expr: Code.Expression): Env[Code.Expression] =
+        remap(int64Package, Identifier.Name("int_low_bits_to_Int64")).flatMap {
+          case Some(vl) =>
+            applyExternalFn(vl, expr)
+          case None =>
+            progExtModule.map(_.dot(Code.Ident("_BosatsuInt64"))(expr))
+        }
+
+      private def unboxInt64(expr: Code.Expression): Env[Code.Expression] =
+        remap(int64Package, Identifier.Name("int64_to_Int")).flatMap {
+          case Some(vl) =>
+            applyExternalFn(vl, expr)
+          case None =>
+            progExtModule.map(_.dot(Code.Ident("int64_to_Int"))(expr))
+        }
 
       /*
        * enums with no fields are integers
@@ -2522,38 +3268,136 @@ object PythonGen {
           slotName: Option[Code.Ident],
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
-        ix match {
-          case EqualsLit(expr, lit: dev.bosatsu.Lit.Float64) =>
-            val literal = Code.litToExpr(lit)
-            if (java.lang.Double.isNaN(lit.toDouble)) {
-              Env.importLiteral(NonEmptyList.one(Code.Ident("math"))).flatMap {
-                math =>
-                  loop(expr, slotName, inlineSlots)
-                    .flatMap(
-                      Env.onLast(_)(ex => math.dot(Code.Ident("isnan"))(ex))
-                    )
-              }
-            } else {
-              loop(expr, slotName, inlineSlots)
-                .flatMap(Env.onLast(_)(ex => ex =:= literal))
-            }
-          case EqualsLit(expr, lit) =>
-            val literal = Code.litToExpr(lit)
-            loop(expr, slotName, inlineSlots)
-              .flatMap(Env.onLast(_)(ex => ex =:= literal))
-          case LtEqLit(expr, lit) =>
-            lit match {
-              case Lit.Integer(_) | Lit.Chr(_) =>
-                val literal = Code.litToExpr(lit)
-                loop(expr, slotName, inlineSlots)
-                  .flatMap(Env.onLast(_)(ex => !(literal :< ex)))
-              case _ =>
+        def compareRelExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Code.Expression =
+          rel match {
+            case Matchless.CompareRel.Eq  => left =:= right
+            case Matchless.CompareRel.Ne  => left =!= right
+            case Matchless.CompareRel.Lt  => left :< right
+            case Matchless.CompareRel.Lte => !(right :< left)
+            case Matchless.CompareRel.Gt  => left :> right
+            case Matchless.CompareRel.Gte => !(left :< right)
+          }
+
+        def compareCmpExpr(
+            cmp: Code.Expression,
+            rel: Matchless.CompareRel
+        ): Code.Expression =
+          rel match {
+            case Matchless.CompareRel.Eq  => cmp =:= 1
+            case Matchless.CompareRel.Ne  => cmp =!= 1
+            case Matchless.CompareRel.Lt  => cmp =:= 0
+            case Matchless.CompareRel.Lte => cmp =!= 2
+            case Matchless.CompareRel.Gt  => cmp =:= 2
+            case Matchless.CompareRel.Gte => cmp =!= 0
+          }
+
+        def floatCmpExpr(
+            left: Code.Expression,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          mathModule.map { math =>
+            val leftNaN = math.dot(Code.Ident("isnan"))(left)
+            val rightNaN = math.dot(Code.Ident("isnan"))(right)
+            val neitherNaN = Code
+              .Ternary(
+                0,
+                left :< right,
+                Code.Ternary(1, left =:= right, 2)
+              )
+              .simplify
+            Code
+              .Ternary(
+                Code.Ternary(1, rightNaN, 0),
+                leftNaN,
+                Code.Ternary(2, rightNaN, neitherNaN)
+              )
+              .simplify
+          }
+
+        def compareFloatExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          floatCmpExpr(left, right).map(compareCmpExpr(_, rel))
+
+        def compareStringExpr(
+            left: Code.Expression,
+            rel: Matchless.CompareRel,
+            right: Code.Expression
+        ): Env[Code.Expression] =
+          PredefExternal
+            .cmpStringFn(left :: right :: Nil)
+            .flatMap(Env.onLast(_)(compareCmpExpr(_, rel)))
+            .map {
+              case expr: Code.Expression => expr
+              case other =>
                 // $COVERAGE-OFF$
                 throw new IllegalStateException(
-                  s"LtEqLit only supports Int and Char literals, found: $lit"
+                  s"expected string comparison to stay expression-shaped, found: $other"
                 )
               // $COVERAGE-ON$
             }
+
+        ix match {
+          case CompareLit(expr, rel, lit: dev.bosatsu.Lit.Str) =>
+            val literal = Code.litToExpr(lit)
+            loop(expr, slotName, inlineSlots)
+              .flatMap(
+                Env.onLastM(_)(ex =>
+                  if (
+                    lit.toStr.isEmpty ||
+                    rel == Matchless.CompareRel.Eq ||
+                    rel == Matchless.CompareRel.Ne
+                  ) Env.pure(compareRelExpr(ex, rel, literal))
+                  else compareStringExpr(ex, rel, literal)
+                )
+              )
+          case CompareLit(expr, rel, lit: dev.bosatsu.Lit.Float64) =>
+            val literal = Code.litToExpr(lit)
+            loop(expr, slotName, inlineSlots)
+              .flatMap(Env.onLastM(_)(ex => compareFloatExpr(ex, rel, literal)))
+          case CompareLit(expr, rel, lit) =>
+            val literal = Code.litToExpr(lit)
+            loop(expr, slotName, inlineSlots)
+              .flatMap(Env.onLast(_)(ex => compareRelExpr(ex, rel, literal)))
+          case CompareInt(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN(Env.onLast2(_, _)(compareRelExpr(_, rel, _)))
+          case CompareInt64(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN { (leftValue, rightValue) =>
+                Env.onLastsM(leftValue :: rightValue :: Nil) {
+                  case leftExpr :: rightExpr :: Nil =>
+                    (unboxInt64(leftExpr), unboxInt64(rightExpr)).mapN {
+                      compareRelExpr(_, rel, _)
+                    }
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected two Int64 operands, found: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
+          case CompareFloat64(left, rel, right) =>
+            (loop(left, slotName, inlineSlots), loop(right, slotName, inlineSlots))
+              .flatMapN { (leftValue, rightValue) =>
+                Env.onLastsM(leftValue :: rightValue :: Nil) {
+                  case leftExpr :: rightExpr :: Nil =>
+                    compareFloatExpr(leftExpr, rel, rightExpr)
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(
+                      s"expected two Float64 operands, found: $other"
+                    )
+                  // $COVERAGE-ON$
+                }
+              }
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat, slotName, inlineSlots)
 
@@ -2636,6 +3480,14 @@ object PythonGen {
                   (ident := resx).withValue(Code.Const.True)
                 }
             }
+          case LetBool(n @ Left(LocalAnon(_)), v, in)
+              if !Matchless.BoolExpr.usesBinding(in, n) =>
+            (
+              loop(v, slotName, inlineSlots),
+              boolExpr(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
+            }
           case LetBool(n, v, in) =>
             doLet(
               n,
@@ -2649,36 +3501,35 @@ object PythonGen {
             boolExpr(in, slotName, inlineSlots)
         }
 
-      // InlineSlots holds resolved Python expressions, not the original
-      // Matchless Exprs. Locals/LocalAnon are immutable and already renamed
-      // to unique Python idents (shadowing-safe), and Globals are stable.
-      // Inlining these is safe because it captures the correct binding.
-      private def inlineableCapture(expr: Expr[K]): Boolean =
-        expr match {
-          case Local(_) | Global(_, _, _) | LocalAnon(_) => true
-          case _                                         => false
-        }
-
-      private def inlineCaptures(
-          captures: List[Expr[K]],
+      private def capturedLambdaValue(
+          expr: Lambda[K],
           slotName: Option[Code.Ident],
           inlineSlots: InlineSlots
-      ): Env[InlineSlots] = {
-        val allowInline =
-          captures.nonEmpty &&
-            slotName.isEmpty &&
-            inlineSlots.isEmpty &&
-            captures.forall(inlineableCapture)
+      ): Env[ValueLike] = {
+        val Lambda(captures, _, _, _) = expr
+        assert(captures.nonEmpty)
 
-        if (!allowInline) Env.pure(None)
-        else {
-          captures.traverse(loop(_, slotName, inlineSlots)).map { vs =>
-            vs.foldRight(Option(Vector.empty[Expression])) {
-              case (e: Expression, acc) => acc.map(e +: _)
-              case _                    => None
-            }
+        for {
+          factoryName <- Env.newHoistedDefName
+          captureParams <- captures.traverse(_ => Env.newAssignableVar)
+          capturedValue <- loop(
+            expr.copy(captures = Nil),
+            None,
+            Some(captureParams.map[Expression](identity).toVector)
+          )
+          captureVals <- captures.traverse(loop(_, slotName, inlineSlots))
+          value <- Env.onLasts(captureVals) { args =>
+            Code
+              .block(
+                Env.makeDef(
+                  factoryName,
+                  NonEmptyList.fromListUnsafe(captureParams),
+                  capturedValue
+                )
+              )
+              .withValue(Code.Apply(factoryName, args))
           }
-        }
+        } yield value
       }
 
       // if expr is a Lambda handle it
@@ -2689,57 +3540,19 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[Statement] =
         expr match {
-          case Lambda(captures, recName, args, body) =>
-            // If inlineCaptures succeeds, we don't allocate a slots tuple at all.
-            // This is safe to do even if we were passed inlineSlots, because
-            // inlineCaptures only returns Some when slotName/inlineSlots are empty.
-            // Otherwise, we must build the slots tuple via makeSlots.
-            inlineCaptures(captures, slotName, inlineSlots).flatMap {
-              case Some(inlined) =>
-                recName.traverse_(Env.bindTo(_, name)) *> args
-                  .traverse(Env.bind(_))
-                  .flatMap { as =>
-                    loop(body, None, Some(inlined))
-                      .map(Env.makeDef(name, as, _))
-                  } <* args.traverse_(Env.unbind(_)) <* recName.traverse_(
-                  Env.unbind(_)
-                )
-              case None =>
-                recName.traverse_(Env.bindTo(_, name)) *> (
-                  args.traverse(Env.bind(_)),
-                  // Reset inlineSlots for the new lambda: since we are creating
-                  // a slots tuple here, we could not inline all of its captures.
-                  makeSlots(captures, slotName, inlineSlots)(b =>
-                    loop(body, b, None)
-                  )
-                )
-                  .mapN { case (as, (slots, body)) =>
-                    Code.blockFromList(
-                      slots.toList :::
-                        Env.makeDef(name, as, body) ::
-                        Nil
-                    )
-                  } <* args.traverse_(Env.unbind(_)) <* recName.traverse_(
-                  Env.unbind(_)
-                )
-            }
-        }
-
-      def makeSlots[A](
-          captures: List[Expr[K]],
-          slotName: Option[Code.Ident],
-          inlineSlots: InlineSlots
-      )(
-          fn: Option[Code.Ident] => Env[A]
-      ): Env[(Option[Statement], A)] =
-        if (captures.isEmpty) fn(None).map((None, _))
-        else {
-          for {
-            slots <- Env.newAssignableVar
-            capVals <- captures.traverse(loop(_, slotName, inlineSlots))
-            resVal <- fn(Some(slots))
-            tup <- Env.onLasts(capVals)(Code.MakeTuple(_))
-          } yield (Some(slots := tup), resVal)
+          case Lambda(Nil, recName, args, body) =>
+            recName.traverse_(Env.bindTo(_, name)) *> args
+              .traverse(Env.bind(_))
+              .flatMap { as =>
+                loop(body, None, inlineSlots)
+                  .map(Env.makeDef(name, as, _))
+              } <* args.traverse_(Env.unbind(_)) <* recName.traverse_(
+              Env.unbind(_)
+            )
+          case lam =>
+            capturedLambdaValue(lam, slotName, inlineSlots)
+              .flatMap(Env.onLast(_)(value => (name := value).withValue(Code.Const.Unit)))
+              .map(Code.always)
         }
 
       def doLet(
@@ -2771,7 +3584,7 @@ object PythonGen {
           inlineSlots: InlineSlots
       ): Env[ValueLike] =
         expr match {
-          case Lambda(captures, recName, args, res) =>
+          case Lambda(Nil, recName, args, res) =>
             val defName = recName match {
               case None    => Env.newAssignableVar
               case Some(n) => Env.bind(n)
@@ -2793,34 +3606,21 @@ object PythonGen {
                   } yield block.withValue(defName)
               }
 
-            // If inlineCaptures succeeds, we don't allocate a slots tuple at all.
-            // This is safe to do even if we were passed inlineSlots, because
-            // inlineCaptures only returns Some when slotName/inlineSlots are empty.
-            // Otherwise, we must build the slots tuple via makeSlots.
-            inlineCaptures(captures, slotName, inlineSlots).flatMap {
-              case Some(inlined) =>
-                (
-                  args.traverse(Env.bind(_)),
-                  defName,
-                  loop(res, None, Some(inlined))
-                )
-                  .flatMapN { case (args, defName, body) =>
-                    buildLambdaValue(args, defName, None, body)
-                  } <* args.traverse_(Env.unbind(_))
-              case None =>
-                (
-                  args.traverse(Env.bind(_)),
-                  defName,
-                  // Reset inlineSlots for the new lambda: since we are creating
-                  // a slots tuple here, we could not inline all of its captures.
-                  makeSlots(captures, slotName, inlineSlots)(b =>
-                    loop(res, b, None)
-                  )
-                )
-                  .flatMapN { case (args, defName, (prefix, body)) =>
-                    buildLambdaValue(args, defName, prefix, body)
-                  } <* args.traverse_(Env.unbind(_))
-            }
+            (
+              args.traverse(Env.bind(_)),
+              defName,
+              loop(res, None, inlineSlots)
+            )
+              .flatMapN { case (args, defName, body) =>
+                buildLambdaValue(args, defName, None, body)
+              } <* args.traverse_(Env.unbind(_))
+          case lam: Lambda[K] =>
+            // Python closures capture locals by reference. When lambdas are
+            // allocated inside lowered loops, that late binding corrupts
+            // Bosatsu's by-value capture semantics. Route captured lambdas
+            // through a tiny factory scope so each allocation freezes its
+            // current capture values.
+            capturedLambdaValue(lam, slotName, inlineSlots)
 
           case WhileExpr(cond, effect, res) =>
             (
@@ -2942,6 +3742,14 @@ object PythonGen {
                     (v, inF).mapN(_.withValue(_))
                   }
             }
+          case Let(localOrBind @ Left(LocalAnon(_)), notFn, in)
+              if !Expr.usesBinding(in, localOrBind) =>
+            (
+              loop(notFn, slotName, inlineSlots),
+              loop(in, slotName, inlineSlots)
+            ).mapN { (value, result) =>
+              Code.always(value).withValue(result)
+            }
           case Let(localOrBind, notFn, in) =>
             // we know that notFn is not Lambda here
             doLet(
@@ -2956,6 +3764,8 @@ object PythonGen {
             // there is no need to
             loop(in, slotName, inlineSlots)
           case Literal(lit)         => Env.pure(Code.litToExpr(lit))
+          case LitInt64(value)      =>
+            boxInt64(Code.PyInt(java.math.BigInteger.valueOf(value)))
           case ifExpr @ If(_, _, _) =>
             val (ifs, last) = ifExpr.flatten
 

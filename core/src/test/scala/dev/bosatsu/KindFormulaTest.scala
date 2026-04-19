@@ -2,12 +2,14 @@ package dev.bosatsu
 
 import dev.bosatsu.rankn.TypeEnv
 class KindFormulaTest extends munit.FunSuite {
+  private val predefTypeEnv: TypeEnv[Kind.Arg] =
+    Package.interfaceOf(PackageMap.predefCompiled).exportedTypeEnv
 
   def makeTE(teStr: String): Either[Any, TypeEnv[Kind.Arg]] = {
     val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
     KindFormula
       .solveShapesAndKinds(
-        (),
+        predefTypeEnv,
         te.allDefinedTypes.reverse
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))
@@ -18,7 +20,7 @@ class KindFormulaTest extends munit.FunSuite {
     val te = TestUtils.predefParsedTypeEnv
     val eitherTE = KindFormula
       .solveShapesAndKinds(
-        (),
+        predefTypeEnv,
         te.allDefinedTypes.reverse
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))

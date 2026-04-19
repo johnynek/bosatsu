@@ -1,6 +1,6 @@
-# Debugging with `lib eval`
+# Debugging with `eval`
 
-`lib eval` is for inspecting values while iterating on Bosatsu code.
+`eval` is for inspecting values while iterating on Bosatsu code.
 
 It is intended for debugging and exploration (and future REPL-like workflows),
 not for machine parsing or stable serialization.
@@ -10,19 +10,19 @@ not for machine parsing or stable serialization.
 1. Typecheck while iterating:
 
 ```bash
-./bosatsuj lib check --name core_alpha
+./bosatsuj check --name core_alpha
 ```
 
 2. Evaluate a value:
 
 ```bash
-./bosatsuj lib eval --name core_alpha --main Bosatsu/Char::delete_char
+./bosatsuj eval --name core_alpha --main Bosatsu/Char::delete_char
 ```
 
 ## Command reference
 
 ```bash
-./bosatsuj lib eval [--repo_root <path>] [--name <lib_name>] [--cas_dir <path>] --main <valueIdent> [--color <color>]
+./bosatsuj eval [--repo_root <path>] [--name <lib_name>] [--cas_dir <path>] --main <valueIdent> [--color <color>]
 ```
 
 Common flags:
@@ -37,15 +37,15 @@ Passing args to `--run`:
 - This is required when a program arg starts with `-`.
 
 ```bash
-./bosatsuj lib eval --name core_alpha --main MyLib/Foo --run -- --compact
+./bosatsuj eval --name core_alpha --main MyLib/Foo --run -- --compact
 ```
 
 ## Finding values to inspect
 
-Use `lib show` to discover exported values in a package:
+Use `show` to discover exported values in a package:
 
 ```bash
-./bosatsuj lib show --name core_alpha --package Bosatsu/Collection/Array --color none
+./bosatsuj show --name core_alpha --package Bosatsu/Collection/Array --color none
 ```
 
 Then pass a package or package value to `--main`.
@@ -57,7 +57,7 @@ All examples below were run from this repository root.
 ### 1) Small scalar-like value (`Char`)
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::delete_char --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::delete_char --color none
 ```
 
 ```text
@@ -67,19 +67,19 @@ All examples below were run from this repository root.
 ### 2) Function values
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::char_to_Int --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::char_to_Int --color none
 ```
 
 ```text
 <fn arity=1>: Bosatsu/Predef::Char -> Bosatsu/Predef::Int
 ```
 
-`lib eval` shows function arity and type, not function body.
+`eval` shows function arity and type, not function body.
 
 ### 3) External `Array` values
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array::a5 --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array::a5 --color none
 ```
 
 ```text
@@ -89,7 +89,7 @@ All examples below were run from this repository root.
 ### 4) `Prog` values (opaque)
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Prog::unit --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Prog::unit --color none
 ```
 
 ```text
@@ -101,7 +101,7 @@ Prog(...): forall a: *, b: *. Bosatsu/Prog::Prog[a, b, ()]
 ### 5) Larger structured values
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --color none
 ```
 
 Excerpt:
@@ -118,7 +118,7 @@ Workflow {
 You can also evaluate package mains that are large test structures:
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Collection/Array --color none
 ```
 
 ## Common gotchas
@@ -128,7 +128,7 @@ You can also evaluate package mains that are large test structures:
 This fails:
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Bool::True --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Bool::True --color none
 ```
 
 With:
@@ -140,7 +140,7 @@ Bosatsu/Bool::True is a constructor or type name, not a value. A top-level value
 ### Missing values are reported directly
 
 ```bash
-./bosatsuj lib eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::missing --color none
+./bosatsuj eval --name core_alpha --repo_root /Users/oscar/code/bosatsu --main Bosatsu/Char::missing --color none
 ```
 
 ```text
@@ -151,13 +151,13 @@ value Bosatsu/Char::missing not found
 
 - It is intended for debugging readability.
 - It is not a stable parse/serialization format.
-- If you need JSON output for tooling, use `lib json`.
+- If you need JSON output for tooling, use `json`.
 
 ### Large values can be noisy
 
 Use shell tools for workflow:
 
 ```bash
-./bosatsuj lib eval ... --color none | less
-./bosatsuj lib eval ... --color none > /tmp/eval.txt
+./bosatsuj eval ... --color none | less
+./bosatsuj eval ... --color none > /tmp/eval.txt
 ```

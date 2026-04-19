@@ -144,6 +144,63 @@ object PackageError {
   private def quotedPackageName(pn: PackageName): Doc =
     Doc.char('`') + Doc.text(pn.asString) + Doc.char('`')
 
+  private def exposesSetDoc(packages: List[PackageName]): Doc =
+    packages match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        Doc
+          .intercalate(
+            Doc.text(",") + Doc.lineOrSpace,
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )
+          .grouped
+    }
+
+  private def groupedParensDoc(items: List[Doc]): Doc =
+    items match {
+      case Nil =>
+        Doc.text("()")
+      case nonEmpty =>
+        val body = Doc.intercalate(Doc.comma + Doc.line, nonEmpty)
+        (Doc.char('(') + (Doc.lineOrEmpty + body).nested(4) + Doc.lineOrEmpty + Doc
+          .char(')')).grouped
+    }
+
+  private def exposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil      => None
+      case nonEmpty => Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+    }
+
+  private def canonicalExposesLineDoc(packages: List[PackageName]): Option[Doc] =
+    packages match {
+      case Nil => None
+      case nonEmpty @ (_ :: Nil) =>
+        Some(Doc.text("exposes ") + exposesSetDoc(nonEmpty))
+      case nonEmpty =>
+        Some(
+          (Doc.text("exposes ") + groupedParensDoc(
+            nonEmpty.map(pn => Doc.text(pn.asString))
+          )).grouped
+        )
+    }
+
+  private def sectionDoc(title: String, body: Doc): Doc =
+    Doc.text(title) + (Doc.hardLine + body).nested(4)
+
+  private val exposesRegionParser =
+    (Package.headerPackageNameParser.void *>
+      Package.headerImportsParser.void *>
+      Package.headerExportsParser.void *>
+      Package.headerExposeRegionsParser) <* P.anyChar.rep0.void
+
+  private def declaredExposesRegion(source: String): Option[Region] =
+    Parser
+      .parse(exposesRegionParser, source)
+      .toOption
+      .flatMap(_._2.headOption)
+
   private def suggestedName(
       ident: Identifier,
       label: Option[String]
@@ -176,9 +233,17 @@ object PackageError {
   private def checkModeTodoHint(name: Identifier): Doc =
     name match {
       case b: Identifier.Bindable if b.sourceCodeRepr == "todo" =>
-        Doc.hardLine + Doc.text(
-          "hint: `todo` is only available in type-check mode (`tool check`/`lib check`) and is not available in emit commands (`show`/`build`/`transpile`/`test`)."
-        )
+        Doc.hardLine + (
+          Doc.text(
+            "hint: built-in `todo` is only available in relaxed `check` modes."
+          ) + Doc.lineOrSpace +
+            Doc.text(
+              "`check --warn` warns and `check --lax` allows it silently."
+            ) + Doc.lineOrSpace +
+            Doc.text(
+              "Strict `tool check`, strict `check`, and emit/run commands do not include `todo`."
+            )
+        ).grouped
       case _ =>
         Doc.empty
     }
@@ -235,6 +300,28 @@ object PackageError {
         case Some(found) => found
       }
   }
+
+  // These are the non-soundness diagnostics that `check` / `test`
+  // may demote to warnings (`--warn`) or silence (`--lax`) during local
+  // iteration. Everything else remains a hard correctness error.
+  def isPostponable(err: PackageError): Boolean =
+    err match {
+      case _: PackageError.UnusedImport           => true
+      case _: PackageError.UnusedLetError         => true
+      case _: PackageError.UnusedLets             => true
+      case _: PackageError.TodoUsage              => true
+      case _: PackageError.RecursionLint          => true
+      case _: PackageError.ExposesMismatch        => true
+      case _: PackageError.ShadowedBindingTypeError =>
+        true
+      case PackageError.TotalityCheckError(
+            _,
+            _: TotalityCheck.UnreachableBranches[?]
+          ) =>
+        true
+      case _ =>
+        false
+    }
 
   private val importWithRegionParser: P[
     (
@@ -1595,16 +1682,16 @@ object PackageError {
     }
   }
 
-  case class TotalityCheckError(
+  case class TotalityCheckError[A: HasRegion](
       pack: PackageName,
-      err: TotalityCheck.ExprError[Declaration]
+      err: TotalityCheck.ExprError[A]
   ) extends PackageError {
     def message(
         sourceMap: Map[PackageName, (LocationMap, String)],
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = err.matchExpr.tag.region
+      val region = HasRegion.region(err.matchExpr.tag)
       val context1 =
         lm.showRegion(region, 2, errColor)
           .getOrElse(Doc.str(region.show)) // we should highlight the whole region
@@ -1656,7 +1743,7 @@ object PackageError {
           given Document[Type] = Document.instance(showT)
 
           matchExpr.tag match {
-            case Declaration.Matches(_, pattern) =>
+            case Declaration.Matches(_, pattern, None) =>
               Doc.text("`matches` pattern covers all values of type ") +
                 Document[Type].document(scrutineeType) +
                 Doc.text(", so this expression is always `True`:") +
@@ -1753,6 +1840,56 @@ object PackageError {
       .render(80)
   }
 
+  private def todoUsageMessage(
+      pack: PackageName,
+      regions: NonEmptyList[Region],
+      sourceMap: Map[PackageName, (LocationMap, String)],
+      errColor: Colorize
+  ): String = {
+    val (lm, _) = sourceMap.getMapSrc(pack)
+    val sorted = regions.toList.distinct.sorted
+    val occurrenceDocs = sorted.map { region =>
+      val context = lm
+        .showRegion(region, 2, errColor)
+        .getOrElse(Doc.str(region.show))
+      Doc.text("temporary `todo` placeholder used here") +
+        Doc.hardLine +
+        context
+    }
+
+    val countDoc =
+      if (sorted.tail.isEmpty) None
+      else Some(Doc.text(s"found ${sorted.length} `todo` placeholders."))
+
+    val hintDoc =
+      Doc.text("How to resolve:") +
+        Doc.hardLine +
+        Doc.intercalate(
+          Doc.hardLine,
+          List(
+            Doc.text("- replace each `todo` with the real implementation"),
+            Doc.text(
+              "- keep using `check --warn` or `check --lax` only while iterating"
+            ),
+            Doc.text(
+              "- remove all `todo` calls before strict `tool check` / `check` or any emit/run command"
+            )
+          )
+        )
+
+    val line2 = Doc.hardLine + Doc.hardLine
+    val packDoc = sourceMap.headLine(pack, Some(sorted.head))
+    val intro =
+      Doc.text(
+        "`todo` is a temporary placeholder. It is only accepted during relaxed `check` runs."
+      )
+
+    (packDoc + (line2 + Doc.intercalate(
+      line2,
+      intro :: occurrenceDocs ::: List(countDoc, Some(hintDoc)).flatten
+    )).nested(2)).render(80)
+  }
+
   case class UnusedLetError(
       pack: PackageName,
       errs: NonEmptyList[(Identifier.Bindable, Region)]
@@ -1773,6 +1910,17 @@ object PackageError {
       )
   }
 
+  case class TodoUsage(
+      pack: PackageName,
+      regions: NonEmptyList[Region]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) =
+      todoUsageMessage(pack, regions, sourceMap, errColor)
+  }
+
   case class RecursionError(
       pack: PackageName,
       err: RecursionCheck.Error
@@ -1789,6 +1937,26 @@ object PackageError {
       // TODO use the sourceMap/regions in RecursionError (https://github.com/johnynek/bosatsu/issues/4)
       val packDoc = sourceMap.headLine(pack, Some(err.region))
       val doc = packDoc + Doc.hardLine + Doc.text(errMessage) +
+        Doc.hardLine + ctx + Doc.hardLine
+
+      doc.render(80)
+    }
+  }
+
+  case class RecursionLint(
+      pack: PackageName,
+      lint: RecursionCheck.Lint
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val ctx = lm
+        .showRegion(lint.region, 2, errColor)
+        .getOrElse(Doc.str(lint.region.show))
+      val packDoc = sourceMap.headLine(pack, Some(lint.region))
+      val doc = packDoc + Doc.hardLine + Doc.text(lint.message) +
         Doc.hardLine + ctx + Doc.hardLine
 
       doc.render(80)
@@ -1868,6 +2036,119 @@ object PackageError {
         }
 
       Doc.intercalate(Doc.line, dupMessages).render(80)
+    }
+  }
+
+  case class DuplicateExposes(
+      pack: PackageName,
+      declarations: NonEmptyList[List[PackageName]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val declCount = declarations.length
+      val renderedDecls =
+        declarations.toList.flatMap(exposesLineDoc)
+      val body =
+        Doc.text("at most one `exposes` declaration is allowed, but found ") +
+          Doc.text(declCount.toString) +
+          Doc.text(" declarations.") +
+          (
+            if (renderedDecls.isEmpty) Doc.empty
+            else
+              Doc.hardLine +
+                Doc.text("keep exactly one of:") +
+                Doc.hardLine +
+                Doc
+                  .intercalate(
+                    Doc.hardLine,
+                    renderedDecls
+                  )
+                  .nested(2)
+          )
+
+      (prefix + Doc.hardLine + body).render(80)
+    }
+  }
+
+  case class ExposesMismatch(
+      pack: PackageName,
+      declared: List[PackageName],
+      actual: List[PackageName],
+      missingCauses: Map[PackageName, NonEmptyList[String]]
+  ) extends PackageError {
+    def message(
+        sourceMap: Map[PackageName, (LocationMap, String)],
+        errColor: Colorize
+    ) = {
+      val prefix = sourceMap.headLine(pack, None)
+      val (lm, _) = sourceMap.getMapSrc(pack)
+      val missing = actual.filterNot(declared.toSet)
+      val extra = declared.filterNot(actual.toSet)
+      val declaredDoc =
+        declaredExposesRegion(lm.fromString)
+          .flatMap(lm.showRegion(_, 0, errColor))
+          .getOrElse {
+            exposesLineDoc(declared).getOrElse(
+              Doc.text("no `exposes` declaration found.")
+            )
+          }
+      val fixDoc =
+        if (actual.isEmpty)
+          Doc.text("omit `exposes` (equivalent to `exposes ()`).")
+        else
+          canonicalExposesLineDoc(actual).get + Doc.char('.')
+
+      val missingDoc =
+        NonEmptyList.fromList(missing).map { missingNel =>
+          val lines = missingNel.toList.flatMap { dep =>
+            missingCauses.get(dep).map { exports =>
+              val exportWord =
+                if (exports.tail.isEmpty) "export" else "exports"
+              val exportDocs =
+                exports.toList.map(name =>
+                  Doc.char('`') + Doc.text(name) + Doc.char('`')
+                )
+
+              Doc.text(dep.asString) + Doc.text(" escapes via ") +
+                Doc.text(exportWord) + Doc.space +
+                Doc
+                  .intercalate(Doc.text(",") + Doc.lineOrSpace, exportDocs)
+                  .grouped
+            }
+          }
+
+          sectionDoc(
+            "missing declarations:",
+            Doc.intercalate(Doc.hardLine, lines)
+          )
+        }
+
+      val extraDoc =
+        NonEmptyList
+          .fromList(extra)
+          .map(extraNel =>
+            sectionDoc("extra declarations:", exposesSetDoc(extraNel.toList))
+          )
+
+      val sections =
+        List(
+          Some(sectionDoc("declared here:", declaredDoc)),
+          Some(sectionDoc("canonical fix:", fixDoc)),
+          missingDoc,
+          extraDoc
+        ).flatten
+
+      val body =
+        Doc.intercalate(
+          Doc.hardLine + Doc.hardLine,
+          Doc.text("declared `exposes` does not match the exported API.") ::
+            sections
+        )
+
+      (prefix + Doc.hardLine + body).render(80)
     }
   }
 
@@ -1992,11 +2273,28 @@ object PackageError {
         errColor: Colorize
     ) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val region = regions(kindError.dt.toTypeConst)
+      val region = regions(kindError.typeDecl.toTypeConst)
       val ctx = lm
         .showRegion(region, 2, errColor)
         .getOrElse(Doc.str(region.show)) // we should highlight the whole region
       val prefix = sourceMap.headLine(pack, Some(region))
+      def typeDeclPrefix(td: rankn.TypeDecl[?], body: String): Doc = {
+        val tdoc = showTypes(pack, td.toTypeTyConst :: Nil)(td.toTypeTyConst)
+        val lead =
+          td match {
+            case _: rankn.TypeAlias[?] => Doc.text("in type alias ")
+            case _                     => Doc.text("in type ")
+          }
+        lead + tdoc + Doc.text(body)
+      }
+
+      def sourceDoc(source: Shape.Source): Doc =
+        source match {
+          case Shape.Source.ConstructorFn(cons) =>
+            Doc.text(s" in the constructor ${cons.name.sourceCodeRepr}")
+          case Shape.Source.AliasBody         =>
+            Doc.text(" in the alias body")
+        }
       val message = kindError match {
         case unsat @ KindFormula.Error.Unsatisfiable(_, _, _, _) =>
           val base = Doc.text("could not solve for valid variances")
@@ -2006,13 +2304,11 @@ object PackageError {
           }
         case KindFormula.Error.FromShapeError(se) =>
           se match {
-            case Shape.UnificationError(_, cons, left, right) =>
+            case Shape.UnificationError(_, source, left, right) =>
               Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc
                 .text(" and ") + Shape.shapeDoc(right) +
-                Doc.text(
-                  s" to match in the constructor ${cons.name.sourceCodeRepr}"
-                ) + Doc.hardLine
-            case Shape.ShapeMismatch(_, cons, outer, tyApp, right) =>
+                Doc.text(" to match") + sourceDoc(source) + Doc.hardLine
+            case Shape.ShapeMismatch(_, source, outer, tyApp, right) =>
               val tmap = showTypes(pack, outer :: tyApp :: Nil)
               val typeDoc =
                 if (outer != (tyApp: Type))
@@ -2020,52 +2316,34 @@ object PackageError {
                 else tmap(outer)
 
               Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc
-                .text(" -> ?") + Doc.text(" but found * ") +
-                Doc.text(
-                  s"in the constructor ${cons.name.sourceCodeRepr} inside type "
-                ) +
+                .text(" -> ?") + Doc.text(" but found *") +
+                sourceDoc(source) +
+                Doc.text(" inside type ") +
                 typeDoc +
                 Doc.hardLine
-            case Shape.FinishFailure(dt, left, right) =>
-              val tdoc =
-                showTypes(pack, dt.toTypeTyConst :: Nil)(dt.toTypeTyConst)
-              Doc.text("in type ") + tdoc + Doc.text(
-                " could not unify shapes: "
-              ) + Shape.shapeDoc(left) + Doc.text(" and ") +
+            case Shape.FinishFailure(td, left, right) =>
+              typeDeclPrefix(td, " could not unify shapes: ") +
+                Shape.shapeDoc(left) + Doc.text(" and ") +
                 Shape.shapeDoc(right)
-            case Shape.ShapeLoop(dt, tpe, _) =>
+            case Shape.ShapeLoop(td, tpe, _) =>
               val tpe2 = tpe match {
                 case Left(ap) => ap
                 case Right(v) => Type.TyVar(v)
               }
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
 
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) + Doc.text(
-                " cyclic dependency encountered in "
-              ) +
+              typeDeclPrefix(td, " cyclic dependency encountered in ") +
                 tdocs(tpe2)
-            case Shape.UnboundVar(dt, cfn, v) =>
+            case Shape.UnboundVar(td, source, v) =>
               val tpe2 = Type.TyVar(v)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unbound type variable ") + tdocs(tpe2) + cfnMsg
-            case Shape.UnknownConst(dt, cfn, c) =>
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unbound type variable ") + tdocs(tpe2) +
+                sourceDoc(source)
+            case Shape.UnknownConst(td, source, c) =>
               val tpe2 = Type.TyConst(c)
-              val tdocs = showTypes(pack, dt.toTypeTyConst :: tpe2 :: Nil)
-
-              val cfnMsg =
-                if (dt.isStruct) Doc.empty
-                else {
-                  Doc.text(s" in constructor ${cfn.name.sourceCodeRepr} ")
-                }
-              Doc.text("in type ") + tdocs(dt.toTypeTyConst) +
-                Doc.text(" unknown type ") + tdocs(tpe2) + cfnMsg
+              val tdocs = showTypes(pack, td.toTypeTyConst :: tpe2 :: Nil)
+              typeDeclPrefix(td, " unknown type ") + tdocs(tpe2) +
+                sourceDoc(source)
           }
       }
       (prefix + Doc.hardLine + message + Doc.hardLine + ctx).render(80)
@@ -2098,7 +2376,7 @@ object PackageError {
   case class UnusedLets(
       inPack: PackageName,
       unusedLets: NonEmptyList[
-        (Identifier.Bindable, RecursionKind, TypedExpr[Any], Region)
+        (Identifier.Bindable, RecursionKind, Region)
       ]
   ) extends PackageError {
     def message(
@@ -2107,7 +2385,7 @@ object PackageError {
     ) =
       unusedValueMessage(
         inPack,
-        unusedLets.map { case (b, _, _, r) => (b, r) },
+        unusedLets.map { case (b, _, r) => (b, r) },
         sourceMap,
         errColor,
         if (unusedLets.tail.isEmpty) {

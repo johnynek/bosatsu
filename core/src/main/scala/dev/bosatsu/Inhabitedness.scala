@@ -78,7 +78,7 @@ object Inhabitedness {
     import State._
 
     private val kinds: Map[Type.Const.Defined, Kind] =
-      Type.builtInKinds ++ env.toKindMap
+      env.toKindMap
 
     private val alwaysInhabited: Set[Type.Const.Defined] =
       Set(

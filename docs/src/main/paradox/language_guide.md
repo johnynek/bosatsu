@@ -56,7 +56,7 @@ test = Assertion(greet(Happy) matches "hello", "greet")
 Run tests from the repo root:
 
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
 ## Source files and packages
@@ -74,6 +74,7 @@ package Animals/Report
 
 from Animals/Favorites import mammals
 export most_fav
+exposes ()
 
 most_fav = match mammals:
   case [head, *tail]: head
@@ -85,6 +86,7 @@ should be able to answer:
 
 1. which packages this file depends on
 1. what values and types this package exposes
+1. which package dependencies its exported API exposes
 1. where each external name used below came from
 
 Bosatsu is stricter about names than about type annotations. If source
@@ -96,6 +98,22 @@ is required.
 `Bosatsu/Predef` is the standard exception: its names are available by default,
 though you can still import or rename predef names explicitly when that is
 clearer.
+
+If a package header includes `export`, it may also include one `exposes`
+declaration after the exports:
+
+```bosatsu
+package Animals/Public
+
+from Animals/Favorites import mammals
+export most_fav
+exposes Animals/Favorites
+
+most_fav = mammals
+```
+
+`exposes` is checked against the typed exported API. Omitting it is the same as
+writing `exposes ()`.
 
 ## Literals
 
@@ -400,7 +418,8 @@ def len(lst):
 ```
 
 `loop` enforces that all recursive self-calls are in tail position. `recur`
-keeps the same termination checks but allows valid non-tail recursion.
+keeps the same termination checks but allows valid non-tail recursion. Use
+`match` when the branch structure is not recursive at all.
 
 `recur` can also follow trusted delayed-value projections. If a branch binds
 `th: () -> T` or `l: Lazy[T]`, then `th()` and trusted
@@ -414,7 +433,7 @@ enum Stream[a]:
   More(next: () -> Stream[a])
 
 def consume(s: Stream[a]) -> Stream[a]:
-  recur s:
+  loop s:
     case End:
       End
     case More(th):
@@ -451,7 +470,8 @@ Most loops are either:
 1. explicit fuel recursion on a decreasing `Nat`.
 
 Choose `loop` when you want the compiler to require tail recursion. Choose
-`recur` when the algorithm is terminating but not tail-recursive.
+`recur` when the algorithm is terminating but not tail-recursive. Use `match`
+when there is no recursive self-call.
 
 See [Recursion in Bosatsu](recursion.html) for detailed examples from
 `test_workspace`.
@@ -520,8 +540,39 @@ long = match ["foo", "bar"]:
 
 short = ["foo", "bar"] matches ["foo", *_]
 ```
-The caveat is that you cannot have any bindings in the pattern when used
-as a matches expression.
+`matches` can also take a guard:
+```
+is_even = x -> x.mod_Int(2).eq_Int(0)
+contains_even = [1, 2, 3] matches [*_, x, *_] if is_even(x)
+```
+Any names bound by the pattern are only in scope inside that guard. They are
+not available after the `matches` expression itself.
+
+This also works with ternary syntax without extra parentheses:
+```
+result = xs matches [*_, x, *_] if pred(x) else fallback
+```
+This is equivalent to `True if (xs matches [*_, x, *_] if pred(x)) else fallback`,
+so names from the pattern are available in `pred(x)` but not in `fallback`.
+If the guard itself is another guarded `matches`, add parentheses around the
+inner expression to make the grouping explicit.
+
+`matches` can also appear directly as the condition of `if`, `elif`, and
+ternary expressions:
+```
+if foo matches Some(a):
+  use(a)
+elif bar matches Some(b):
+  use_other(b)
+else:
+  fallback
+
+result = use(a) if foo matches Some(a) else fallback
+```
+These forms behave the same as writing the equivalent explicit `match`, so any
+names bound by the pattern are available in the `matches` guard and the
+corresponding true arm only. They are not available in later `elif` branches,
+the `else` branch, or after the whole conditional.
 
 Patterns can bind the matched value with `as`:
 ```
@@ -982,10 +1033,12 @@ def big_hard_function(a: Arg1, b: Arg2) -> Result:
 This is useful for an "always-be-compiling" workflow: keep moving from one
 typechecking state to the next, then remove placeholders incrementally.
 
-`todo` is intentionally unsound, so it is only available in check-only commands
-(`tool check` and `lib check`). Commands that emit or execute outputs
-(`show`/`json`/`eval`/`build`/`transpile`/`test`) do not include `todo`, so
-those commands fail until all `todo` calls are removed.
+`todo` is intentionally unsound, so strict `tool check` and strict `check`
+reject it. For a relaxed edit loop, `check --warn` accepts built-in `todo`
+and reports each use as a warning, while `check --lax` accepts it without
+running that warning pass. Commands that emit or execute outputs
+(`show`/`json`/`eval`/`build`/`transpile`/`test`) still do not include `todo`,
+so those commands fail until all `todo` calls are removed.
 
 ## Testing
 Bosatsu supports two test entrypoint styles:
@@ -1025,7 +1078,7 @@ tests = TestSuite("all tests", [
 
 1. `ProgTest(test_fn: List[String] -> forall e. Prog[e, Test])`
 
-Test discovery rules (`tool test` and `lib test`) are:
+Test discovery rules (`tool test` and `test`) are:
 
 1. If no `ProgTest` exists, run the final top-level `Test` value in source
    order.
@@ -1038,13 +1091,13 @@ Current argument behavior: runners pass `[]` into `ProgTest.test_fn`.
 
 From the repo root, run tests with:
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
 
 When iterating, you can run only matching package tests with a regular
 expression filter:
 ```sh
-./bosatsu lib test --filter "MyLib/.*"
+./bosatsu test --filter "MyLib/.*"
 ```
 
 `--filter` matches package names and can be provided more than once.

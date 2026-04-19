@@ -7,7 +7,7 @@ class Issue1654Test extends munit.FunSuite with ParTest {
 package Repro/PolyTestDrop3
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
+  loop xs:
     case []: True
     case [h, *t] if fn(h):
       for_all(t, fn)
@@ -29,8 +29,8 @@ tests = TestSuite("all", [
   private val stringTestsName = Identifier.Name("string_tests")
   private val testsName = Identifier.Name("tests")
 
-  private lazy val reproInferred: (PackageMap.Inferred, Package.Inferred) = {
-    var out: Option[(PackageMap.Inferred, Package.Inferred)] = None
+  private lazy val reproInferred: (PackageMap.Compiled, Package.Compiled) = {
+    var out: Option[(PackageMap.Compiled, Package.Compiled)] = None
     TestUtils.testInferred(
       List(reproSource),
       reproPackage.asString,
@@ -49,7 +49,7 @@ tests = TestSuite("all", [
   }
 
   private def withRepro[A](
-      fn: (PackageMap.Inferred, Package.Inferred) => A
+      fn: (PackageMap.Compiled, Package.Compiled) => A
   ): A = {
     val (pm, pack) = reproInferred
     fn(pm, pack)

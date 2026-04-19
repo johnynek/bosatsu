@@ -69,10 +69,9 @@ main = Main(0)
     )
   }
 
-  test("lib build uses explicit package names from source") {
+  test("build uses explicit package names from source") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",
@@ -92,7 +91,6 @@ main = Main(0)
   test("invalid main package suggests nearest package name") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",
@@ -122,7 +120,6 @@ main = Main(0)
   test("invalid main package with no close match avoids known package dump") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",
@@ -152,10 +149,9 @@ main = Main(0)
     }
   }
 
-  test("lib build allows -o without --outdir") {
+  test("build allows -o without --outdir") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",
@@ -175,10 +171,9 @@ main = Main(0)
     }
   }
 
-  test("lib build allows -e without --outdir or -o") {
+  test("build allows -e without --outdir or -o") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",
@@ -195,9 +190,9 @@ main = Main(0)
     }
   }
 
-  test("lib build requires --outdir, -o, or -e") {
+  test("build requires --outdir, -o, or -e") {
     val cmd =
-      List("lib", "build", "--repo_root", "repo", "-m", "MyLib/Fib")
+      List("build", "--repo_root", "repo", "-m", "MyLib/Fib")
 
     module.run(cmd) match {
       case Left(help) =>
@@ -210,10 +205,9 @@ main = Main(0)
     }
   }
 
-  test("lib build -o is relative to cwd, not outdir") {
+  test("build -o is relative to cwd, not outdir") {
     val cmd =
       List(
-        "lib",
         "build",
         "--repo_root",
         "repo",

@@ -31,12 +31,11 @@ chmod +x "$FAKE_ARTIFACT"
   cd "$TEST_REPO"
   ./bosatsu \
     --artifact "$FAKE_ARTIFACT" \
-    lib eval --main Zafu/Tool/JsonFormat::main --run -- --compact
+    eval --main Zafu/Tool/JsonFormat::main --run -- --compact
 )
 
 EXPECTED="$WORKDIR/expected.txt"
 cat > "$EXPECTED" <<'EOF'
-lib
 eval
 --main
 Zafu/Tool/JsonFormat::main

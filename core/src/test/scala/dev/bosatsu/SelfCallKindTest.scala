@@ -25,7 +25,7 @@ enum List[a]: E, NE(head: a, tail: List[a])
 enum N: Z, S(prev: N)
 
 def list_len(list, acc):
-  recur list:
+  loop list:
     case E: acc
     case NE(_, t): list_len(t, S(acc))
 """)(te => assertEquals(selfCallKind(Name("list_len"), te), NoCall))
@@ -57,7 +57,7 @@ enum List[a]: E, NE(head: a, tail: List[a])
 enum B: T, F
 
 def for_all(xs: List[a], fn: a -> B) -> B:
-  recur xs:
+  loop xs:
     case E: T
     case NE(head, tail):
       match fn(head):

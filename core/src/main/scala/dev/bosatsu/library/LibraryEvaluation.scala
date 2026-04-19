@@ -4,12 +4,14 @@ import cats.Eval
 import cats.Functor
 import cats.Order
 import cats.implicits._
+import dev.bosatsu.graph.Toposort
 import dev.bosatsu.hashing.Algo
 import dev.bosatsu.rankn.{DefinedType, Type}
 import dev.bosatsu.{
   Externals,
   Identifier,
   Matchless,
+  MatchlessGlobalInlining,
   MatchlessFromTypedExpr,
   MatchlessToValue,
   Package,
@@ -36,10 +38,37 @@ case class LibraryEvaluation[K] private (
 )(implicit keyOrder: Ordering[K], ec: Par.EC) {
   given Order[K] = Order.fromOrdering(using keyOrder)
 
-  private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
-    scopes.transform { case (scope, data) =>
-      MatchlessFromTypedExpr.compile(scope, data.packages)
+  private lazy val topoSort: Toposort.Result[(K, PackageName)] = {
+    val allPackages = for {
+      (scope, data) <- scopes
+      pack <- data.packages.toMap.keySet
+    } yield (scope, pack)
+    val allPackageSet = allPackages.toSet
+
+    Toposort.sort(allPackages) { case (scope, pack) =>
+      for {
+        data <- scopes.get(scope).toList
+        thisPack <- data.packages.toMap.get(pack).toList
+        depPack <- thisPack.allImportPacks
+        depScope <- data.depForPackage(depPack).toList
+        // Interfaces can resolve to a scope even when that scope does not ship
+        // an implementation body for this package; only implementation nodes
+        // participate in Matchless compilation.
+        depNode = (depScope, depPack)
+        if allPackageSet(depNode)
+      } yield depNode
     }
+  }
+
+  private lazy val compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]] =
+    MatchlessGlobalInlining.optimize(
+      scopes.transform { case (scope, data) =>
+        MatchlessFromTypedExpr.compileRaw(scope, data.packages)
+      },
+      topoSort,
+      depFor,
+      Matchless.LocalPassOptions.Default
+    )
 
   private lazy val envCache
       : MMap[(K, PackageName), Map[Identifier, Eval[Value]]] =
@@ -310,15 +339,58 @@ case class LibraryEvaluation[K] private (
   def valueToDoc: ValueToDoc =
     valueToDocFor(rootScope)
 
-  def packagesForShowEither(
+  private def packagesForValidationFrom(
+      roots: List[(K, Package.Typed[Any])]
+  ): List[Package.Typed[Any]] = {
+    @annotation.tailrec
+    def loop(
+        todo: List[(K, PackageName)],
+        seen: Set[(K, PackageName)],
+        acc: List[Package.Typed[Any]]
+    ): List[Package.Typed[Any]] =
+      todo match {
+        case Nil => acc
+        case (scope, pn) :: rest =>
+          val node = (scope, pn)
+          if (seen(node)) loop(rest, seen, acc)
+          else
+            packageInScope(scope, pn) match {
+              case None =>
+                loop(rest, seen + node, acc)
+              case Some(pack) =>
+                val deps =
+                  pack.allImportPacks.flatMap { depPn =>
+                    val depScope = depFor(scope, depPn)
+                    packageInScope(depScope, depPn).map(_ => (depScope, depPn))
+                  }
+                loop(deps ::: rest, seen + node, pack :: acc)
+            }
+      }
+
+    loop(
+      roots.map { case (scope, pack) => (scope, pack.name) },
+      Set.empty,
+      Nil
+    ).reverse
+  }
+
+  def packagesForValidationOf(
+      scope: K,
+      pack: Package.Typed[Any]
+  ): List[Package.Typed[Any]] =
+    packagesForValidationFrom((scope, pack) :: Nil)
+
+  def packagesForShowScopedEither(
       requested: List[PackageName]
-  ): Either[LookupError, List[Package.Typed[Any]]] =
+  ): Either[LookupError, List[(K, Package.Typed[Any])]] =
     scopes
       .get(rootScope)
       .toRight(LookupError.Internal("missing root scope"))
       .flatMap { rootData =>
         if (requested.isEmpty)
-          Right(rootData.packages.toMap.values.toList.sortBy(_.name))
+          Right(
+            rootData.packages.toMap.values.toList.sortBy(_.name).map(rootScope -> _)
+          )
         else
           requested.traverse { pn =>
             for {
@@ -326,9 +398,14 @@ case class LibraryEvaluation[K] private (
               pack <- packageInScope(scope, pn).toRight(
                 LookupError.PackageUnavailableInScope(pn, renderScope(scope))
               )
-            } yield pack
+            } yield (scope, pack)
           }
       }
+
+  def packagesForShowEither(
+      requested: List[PackageName]
+  ): Either[LookupError, List[Package.Typed[Any]]] =
+    packagesForShowScopedEither(requested).map(_.map(_._2))
 
   def packagesForShow(
       requested: List[PackageName]

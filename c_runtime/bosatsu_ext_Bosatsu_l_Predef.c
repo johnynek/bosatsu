@@ -25,6 +25,17 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_char__to__Int(BValue a) {
   return bsts_integer_from_int(codepoint);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Char(BValue a, BValue b) {
+  int left = bsts_char_code_point_from_value(a);
+  int right = bsts_char_code_point_from_value(b);
+  int result = (left < right) ? -1 : ((left > right) ? 1 : 0);
+  return alloc_enum0(result + 1);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Char(BValue a, BValue b) {
+  return bsts_string_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
+}
+
 // a is a List[Char]
 BValue ___bsts_g_Bosatsu_l_Predef_l_char__List__to__String(BValue a) {
   BValue amut = a;
@@ -68,6 +79,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Int(BValue a, BValue b) {
 BValue ___bsts_g_Bosatsu_l_Predef_l_cmp__Float64(BValue a, BValue b) {
   int result = bsts_float64_cmp_total(a, b);
   return alloc_enum0(result + 1);
+}
+
+BValue ___bsts_g_Bosatsu_l_Predef_l_eq__Float64(BValue a, BValue b) {
+  return bsts_float64_equals(a, b) ? alloc_enum0(1) : alloc_enum0(0);
 }
 
 // a is a List[String]
@@ -120,6 +135,10 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_div(BValue a, BValue b) {
   return get_struct_index(divmod, 0);
 }
 
+BValue ___bsts_g_Bosatsu_l_Predef_l_div__mod(BValue a, BValue b) {
+  return bsts_integer_div_mod(a, b);
+}
+
 BValue ___bsts_g_Bosatsu_l_Predef_l_divf(BValue a, BValue b) {
   return bsts_float64_from_double(bsts_float64_to_double(a) / bsts_float64_to_double(b));
 }
@@ -168,8 +187,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_mod__Int(BValue a, BValue b) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_not__Int(BValue a) {
-  // ~x = (-1 - x)
-  return bsts_integer_negate(bsts_integer_add(a, bsts_integer_from_int(1)));
+  return bsts_integer_not(a);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_popcount__Int(BValue a) {
@@ -262,7 +280,7 @@ BValue ___bsts_g_Bosatsu_l_Predef_l_string__to__Int(BValue a) {
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_sub(BValue a, BValue b) {
-  return ___bsts_g_Bosatsu_l_Predef_l_add(a, bsts_integer_negate(b));
+  return bsts_integer_sub(a, b);
 }
 
 BValue ___bsts_g_Bosatsu_l_Predef_l_subf(BValue a, BValue b) {

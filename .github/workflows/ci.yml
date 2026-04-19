@@ -135,7 +135,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "run coreJS tests"
         run: |
-          sbt "coreJS/testOnly * -- --log=failure; jsapiJS/compile"
+          sbt "coreJS/testOnly * -- --log=failure; jsapiJS/testOnly * -- --log=failure"
           sbt "jsuiJS/testOnly * -- --log=failure"
       - name: "verify jsui browser bundle"
         run: |
@@ -206,6 +206,11 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "install sbt"
         uses: "sbt/setup-sbt@v1"
+      - name: "verify graalvm native image pin"
+        run: |
+          sbt -Dsbt.log.noformat=true "show cli / nativeImageJvm" "show cli / nativeImageVersion" | tee native-image-toolchain.txt
+          grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
+          grep -q "\[info\] 23.0.2" native-image-toolchain.txt
       - name: "build native image"
         run: |
           sbt "cli/nativeImage"
@@ -246,27 +251,29 @@ jobs:
       - name: "run bosatsu tests"
         run: |
           ./bosatsu_node tool test --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt-get install -y libgc1 libgc-dev"
       - name: "install c runtime"
         run: |
-          make -C c_runtime install VERSION=$(git rev-parse HEAD)
-      - name: "run lib test"
+          export SHA=$(git rev-parse HEAD)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          ./bosatsu_node c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
+      - name: "run test"
         run: |
-          ./bosatsu_node lib fetch
-          lib_eval_out=$(./bosatsu_node lib eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
+          ./bosatsu_node fetch
+          lib_eval_out=$(./bosatsu_node eval --repo_root . --name core_alpha --main Bosatsu/IO/CreateModeMain --run)
           echo "$lib_eval_out"
           echo "$lib_eval_out" | grep -q "create_mode_test:ok"
           tool_eval_out=$(./bosatsu_node tool eval --run --main Bosatsu/IO/CreateModeMain --input_all_subdir test_workspace)
           echo "$tool_eval_out"
           echo "$tool_eval_out" | grep -q "create_mode_test:ok"
           mkdir node_out_lib
-          ./bosatsu_node lib test --outdir node_out_lib
+          ./bosatsu_node test --outdir node_out_lib
           echo "now test without a given outdir"
-          ./bosatsu_node lib test
-      - name: "run lib build"
+          ./bosatsu_node test
+      - name: "run build"
         run: |
-          ./bosatsu_node lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsu_node build --main_pack Bosatsu/FibBench --exe_out fib_bench_node --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_node 10
     strategy:
       matrix:
@@ -290,20 +297,25 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
+      - name: "install vendored c runtime"
+        run: |
+          export SHA=$(./bosatsuj version -g)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
+          export SHA=$(./bosatsuj version -g)
+          eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
           cd c_runtime
           rm -f test_exe
-          make PROFILE=debug && git diff --quiet || { git diff; false; }
-          make boehm_example PROFILE=release
-          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
+          CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g" && git diff --quiet || { git diff; false; }
+          CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g"
           ./test_exe && ./boehm_example
-          make bench_exe PROFILE=release
+          CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g"
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
-          export SHA=$(./bosatsuj version -g)
           python3 - <<'PY'
           import json
           import os
@@ -332,19 +344,19 @@ jobs:
           issue1642_repro/out/test_exe | tee issue1642_repro/output.txt
           grep -Eq '^Foo: [0-9]+\.[0-9]{3}s$' issue1642_repro/output.txt
           grep -Eq '^    passed: .*1' issue1642_repro/output.txt
-      - name: "run lib test"
+      - name: "run test"
         run: |
-          ./bosatsuj lib fetch
+          ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
-      - name: "run lib build"
+          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   testC-sanitizers:
@@ -365,8 +377,6 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config"
       - name: "run c sanitizer checks"
         run: "./scripts/test_c_sanitizers.sh"
     timeout-minutes: 60
@@ -389,7 +399,7 @@ jobs:
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
       - name: "install c toolchain and valgrind"
-        run: "sudo apt-get update && sudo apt install -y libgc1 libgc-dev pkg-config valgrind"
+        run: "sudo apt-get update && sudo apt install -y valgrind"
       - name: "run c valgrind checks"
         run: "./scripts/test_c_valgrind.sh"
     timeout-minutes: 90
@@ -411,20 +421,25 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "install boehm"
-        run: "brew install bdw-gc pkg-config"
+      - name: "install vendored c runtime"
+        run: |
+          export SHA=$(./bosatsuj version -g)
+          export C_RUNTIME_ARCHIVE="${RUNNER_TEMP}/bosatsu-c-runtime-${SHA}.tar.gz"
+          rm -f "$C_RUNTIME_ARCHIVE"
+          tar -czf "$C_RUNTIME_ARCHIVE" c_runtime
+          CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1" ./bosatsuj c-runtime install --repo_root . --archive "$C_RUNTIME_ARCHIVE" --git_sha "$SHA" --profile release
       - name: "test runtime code"
         run: |
+          export SHA=$(./bosatsuj version -g)
+          eval "$(python3 scripts/c_runtime_ci_env.py --sha "$SHA")"
           cd c_runtime
           rm -f test_exe
-          make PROFILE=debug && git diff --quiet || { git diff; false; }
-          make boehm_example PROFILE=release
-          make install PROFILE=release CFLAGS="-O1 -g" CPPFLAGS="-DBSTS_CI=1"
+          CC="$C_RUNTIME_CC" make PROFILE=debug VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g" && git diff --quiet || { git diff; false; }
+          CC="$C_RUNTIME_CC" make boehm_example PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g"
           ./test_exe && ./boehm_example
-          make bench_exe PROFILE=release
+          CC="$C_RUNTIME_CC" make bench_exe PROFILE=release VENDORED_DEPS=1 CPPFLAGS="$C_RUNTIME_CPPFLAGS" LIBS="$C_RUNTIME_LIBS" CFLAGS="-O1 -g"
           ./bench_exe 1000000 | tee bench_ci.txt
           cd ..
-          export SHA=$(./bosatsuj version -g)
           python3 - <<'PY'
           import json
           import os
@@ -441,19 +456,19 @@ jobs:
         run: "./bosatsuj tool transpile --input_dir test_workspace/ --input test_workspace/Bosatsu/IO/Error.bosatsu --input test_workspace/Bosatsu/Collection/Array.bosatsu --input test_workspace/Bosatsu/IO/Core.bosatsu --input test_workspace/Bosatsu/IO/Bytes.bosatsu --input test_workspace/Bosatsu/IO/Std.bosatsu c --outdir c_out --test --exe_out test_exe --cc_flag=-O0 --cc_lib=-lm"
       - name: "run generated c code"
         run: ./c_out/test_exe
-      - name: "run lib test"
+      - name: "run test"
         run: |
-          ./bosatsuj lib fetch
+          ./bosatsuj fetch
           mkdir c_out_lib
-          ./bosatsuj lib test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj test --outdir c_out_lib --cc_flag=-O0 --cc_lib=-lm
           echo "now test without a given outdir"
-          ./bosatsuj lib test --cc_flag=-O0 --cc_lib=-lm
-      - name: "run lib build"
+          ./bosatsuj test --cc_flag=-O0 --cc_lib=-lm
+      - name: "run build"
         run: |
           mkdir c_out_build
-          ./bosatsuj lib build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --outdir c_out_build --main_pack Bosatsu/FibBench --exe_out fib_bench --cc_flag=-O0 --cc_lib=-lm
           ./c_out_build/fib_bench 10
-          ./bosatsuj lib build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
+          ./bosatsuj build --main_pack Bosatsu/FibBench --exe_out fib_bench_no_outdir --cc_flag=-O0 --cc_lib=-lm
           ./fib_bench_no_outdir 10
     timeout-minutes: 30
   libPublishDryRun:
@@ -481,7 +496,7 @@ jobs:
         uses: "sbt/setup-sbt@v1"
       - name: "build assembly"
         run: 'sbt "cli/assembly"'
-      - name: "dry run bosatsu lib publish"
+      - name: "dry run bosatsu publish"
         env:
           REPO_ROOT: ${{ github.workspace }}
           OUTDIR: ${{ runner.temp }}/bosatsu_lib_publish

@@ -1,5 +1,10 @@
 #include "bosatsu_runtime.h"
+#include "bosatsu_array_internal.h"
+#include <limits.h>
+#include "bosatsu_ext_Bosatsu_l_Collection_l_Array.h"
+#include "bosatsu_ext_Bosatsu_l_Predef.h"
 #include "bosatsu_ext_Bosatsu_l_Num_l_Float64.h"
+#include "bosatsu_ext_Bosatsu_l_Num_l_Int64.h"
 #include "bosatsu_ext_Bosatsu_l_Prog.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -67,15 +72,27 @@ void assert_u64_equals(uint64_t got, uint64_t expected, const char* message) {
   }
 }
 
+void assert_int64_bits(BValue value, uint64_t expected, const char* message) {
+  assert_u64_equals(bsts_int64_to_bits(value), expected, message);
+}
+
+void assert_option_int64_bits(BValue opt, uint64_t expected, const char* message) {
+  if (get_variant(opt) != 1) {
+    printf("%s\nexpected: Some(Int64)\n", message);
+    exit(1);
+  }
+  assert_int64_bits(get_enum_index(opt, 0), expected, message);
+}
+
 void assert_is_small_int(BValue value, const char* message) {
-  if ((value & (BValue)0x3) != (BValue)0x1) {
+  if ((value & (BValue)0x1) != (BValue)0x1) {
     printf("%s\nexpected small-int immediate\n", message);
     exit(1);
   }
 }
 
 void assert_is_big_int(BValue value, const char* message) {
-  if ((value & (BValue)0x3) != (BValue)0x0) {
+  if ((value & (BValue)0x1) != (BValue)0x0) {
     printf("%s\nexpected heap-backed integer\n", message);
     exit(1);
   }
@@ -148,6 +165,97 @@ void assert_option_float_bits(BValue opt, uint64_t expected, const char* message
   assert_u64_equals(bsts_float64_to_bits(v), expected, message);
 }
 
+static BSTS_Array* test_array_unbox(BValue array) {
+  return BSTS_PTR(BSTS_Array, array);
+}
+
+static BValue test_array_from_values(size_t len, const BValue* values) {
+  BValue* data = NULL;
+  if (len > 0) {
+    data = (BValue*)GC_malloc(sizeof(BValue) * len);
+    if (data == NULL) {
+      perror("GC_malloc failure in test_array_from_values data");
+      exit(1);
+    }
+    memcpy(data, values, sizeof(BValue) * len);
+  }
+
+  BSTS_Array* arr = (BSTS_Array*)GC_malloc(sizeof(BSTS_Array));
+  if (arr == NULL) {
+    perror("GC_malloc failure in test_array_from_values array");
+    exit(1);
+  }
+
+  arr->data = data;
+  arr->offset = 0;
+  arr->len = (int)len;
+  return BSTS_VALUE_FROM_PTR(arr);
+}
+
+static void assert_int_array_equals(BValue array, const int* expected, size_t expected_len, const char* message) {
+  BSTS_Array* arr = test_array_unbox(array);
+  if ((size_t)arr->len != expected_len) {
+    printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
+    exit(1);
+  }
+
+  for (size_t idx = 0; idx < expected_len; idx++) {
+    BValue got = arr->data[arr->offset + (int)idx];
+    if (bsts_integer_cmp(got, bsts_integer_from_int(expected[idx])) != 0) {
+      printf("%s\nmismatch at index %zu\n", message, idx);
+      exit(1);
+    }
+  }
+}
+
+static void assert_int64_array_bits(BValue array, const uint64_t* expected, size_t expected_len, const char* message) {
+  BSTS_Array* arr = test_array_unbox(array);
+  if ((size_t)arr->len != expected_len) {
+    printf("%s\nexpected len: %zu\ngot len: %d\n", message, expected_len, arr->len);
+    exit(1);
+  }
+
+  for (size_t idx = 0; idx < expected_len; idx++) {
+    assert_u64_equals(
+        bsts_int64_to_bits(arr->data[arr->offset + (int)idx]),
+        expected[idx],
+        message);
+  }
+}
+
+static BValue array_identity_i64_fn(BValue arg) {
+  return arg;
+}
+
+static BValue array_echo_i64_fn(BValue arg) {
+  return arg;
+}
+
+static BValue array_fold_index_sum_fn(BValue acc, BValue item, BValue idx) {
+  int64_t idx_i64 = (int64_t)bsts_int64_to_bits(idx);
+  return bsts_integer_add(
+      acc,
+      bsts_integer_add(item, bsts_integer_from_int64(idx_i64)));
+}
+
+static BValue array_map_index_sum_fn(BValue item, BValue idx) {
+  int64_t idx_i64 = (int64_t)bsts_int64_to_bits(idx);
+  return bsts_integer_add(item, bsts_integer_from_int64(idx_i64));
+}
+
+static BValue array_zip_add_fn(BValue left, BValue right) {
+  return bsts_integer_add(left, right);
+}
+
+static BValue array_zip_accum_add_fn(BValue acc, BValue left, BValue right) {
+  return bsts_integer_add(acc, bsts_integer_add(left, right));
+}
+
+static BValue array_float_mul_fn(BValue left, BValue right) {
+  return bsts_float64_from_double(
+      bsts_float64_to_double(left) * bsts_float64_to_double(right));
+}
+
 void test_runtime_enum_struct() {
   BValue s1 = alloc_struct2(alloc_enum0(0), alloc_enum0(1));
   assert(get_variant(get_struct_index(s1, 0)) == 0, "index0 == alloc_enum0");
@@ -173,6 +281,8 @@ void test_integer() {
   BValue i64_neg = bsts_integer_from_words_copy(0, 2, i64_words);
   BValue i61_max = bsts_integer_from_int64((INT64_C(1) << 61) - 1);
   BValue i61_min = bsts_integer_from_int64(-(INT64_C(1) << 61));
+  BValue i62_max = bsts_integer_from_int64((INT64_C(1) << 62) - 1);
+  BValue i62_min = bsts_integer_from_int64(-(INT64_C(1) << 62));
 
   uint32_t i61_max_mag_words[2] = { 0xffffffff, 0x1fffffff };
   uint32_t i61_min_mag_words[2] = { 0x00000000, 0x20000000 };
@@ -181,13 +291,50 @@ void test_integer() {
   BValue i61_min_from_words = bsts_integer_from_words_copy(0, 2, i61_min_mag_words);
   BValue i61_over = bsts_integer_from_words_copy(1, 2, i61_min_mag_words);
   BValue i61_under = bsts_integer_from_words_copy(0, 2, i61_under_mag_words);
+  uint32_t i62_max_mag_words[2] = { 0xffffffff, 0x3fffffff };
+  uint32_t i62_min_mag_words[2] = { 0x00000000, 0x40000000 };
+  uint32_t i62_under_mag_words[2] = { 0x00000001, 0x40000000 };
+  BValue i62_max_from_words = bsts_integer_from_words_copy(1, 2, i62_max_mag_words);
+  BValue i62_min_from_words = bsts_integer_from_words_copy(0, 2, i62_min_mag_words);
+  BValue i62_over = bsts_integer_from_words_copy(1, 2, i62_min_mag_words);
+  BValue i62_under = bsts_integer_from_words_copy(0, 2, i62_under_mag_words);
   BValue s62_pos = bsts_integer_from_int64((INT64_C(1) << 40) + 1234);
   BValue s62_neg = bsts_integer_from_int64(-((INT64_C(1) << 40) + 1234));
   BValue pow40 = bsts_integer_from_int64(INT64_C(1) << 40);
+  BValue pow2_32 = bsts_integer_from_int(32);
+  BValue pow2_neg_32 = bsts_integer_from_int(-32);
 
   uint32_t i128_words[4] = { 0x9abcdef0, 0x12345678, 0x9abcdef0, 0x12345678 };
   BValue i128_pos = bsts_integer_from_words_copy(1, 4, i128_words);
   BValue i128_neg = bsts_integer_from_words_copy(0, 4, i128_words);
+  uint32_t and_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xaaaaaaaa };
+  uint32_t and_small_right_words[4] = { 0xffffffff, 0x00000000, 0x55555555, 0x55555555 };
+  uint32_t xor_small_left_words[4] = { 0x12345678, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
+  uint32_t xor_small_right_words[4] = { 0x9abcdef0, 0x00000000, 0xaaaaaaaa, 0xbbbbbbbb };
+  BValue and_small_left = bsts_integer_from_words_copy(1, 4, and_small_left_words);
+  BValue and_small_right = bsts_integer_from_words_copy(1, 4, and_small_right_words);
+  BValue xor_small_left = bsts_integer_from_words_copy(1, 4, xor_small_left_words);
+  BValue xor_small_right = bsts_integer_from_words_copy(1, 4, xor_small_right_words);
+  uint32_t pos_mismatch_left_words[16] = {
+      123456789U, 0U, 0U, 2147483648U, 0U, 0U, 0U, 0U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 0U, 1U
+  };
+  uint32_t pos_mismatch_right_words[15] = {
+      987654321U, 0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U,
+      0U, 0U, 0U, 0U, 0U, 0U, 2147483648U
+  };
+  uint32_t pos_mismatch_or_words[16] = {
+      1071639989U, 0U, 2147483648U, 2147483648U, 0U, 0U, 0U, 2147483648U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U, 1U
+  };
+  uint32_t pos_mismatch_xor_words[16] = {
+      1032168868U, 0U, 2147483648U, 2147483648U, 0U, 0U, 0U, 2147483648U,
+      0U, 2147483648U, 0U, 0U, 0U, 0U, 2147483648U, 1U
+  };
+  BValue pos_mismatch_left = bsts_integer_from_words_copy(1, 16, pos_mismatch_left_words);
+  BValue pos_mismatch_right = bsts_integer_from_words_copy(1, 15, pos_mismatch_right_words);
+  BValue pos_mismatch_or_expected = bsts_integer_from_words_copy(1, 16, pos_mismatch_or_words);
+  BValue pos_mismatch_xor_expected = bsts_integer_from_words_copy(1, 16, pos_mismatch_xor_words);
 
   uint32_t neg_small_words[1] = { 123 };
   BValue neg_small_big = bsts_integer_from_words_copy(0, 1, neg_small_words);
@@ -200,8 +347,12 @@ void test_integer() {
   assert_int_string(i64_neg, "-1311768467463790320", "i64_neg to_string");
   assert_int_string(i61_max, "2305843009213693951", "i61_max to_string");
   assert_int_string(i61_min, "-2305843009213693952", "i61_min to_string");
+  assert_int_string(i62_max, "4611686018427387903", "i62_max to_string");
+  assert_int_string(i62_min, "-4611686018427387904", "i62_min to_string");
   assert_int_string(i61_over, "2305843009213693952", "i61_over to_string");
   assert_int_string(i61_under, "-2305843009213693953", "i61_under to_string");
+  assert_int_string(i62_over, "4611686018427387904", "i62_over to_string");
+  assert_int_string(i62_under, "-4611686018427387905", "i62_under to_string");
   assert_int_string(s62_pos, "1099511629010", "s62_pos to_string");
   assert_int_string(s62_neg, "-1099511629010", "s62_neg to_string");
   assert_int_string(i128_pos, "24197857203266734864793317670504947440", "i128_pos to_string");
@@ -211,12 +362,18 @@ void test_integer() {
   assert_is_small_int(i64_neg, "i64_neg should be immediate");
   assert_is_small_int(i61_max, "i61_max should be immediate");
   assert_is_small_int(i61_min, "i61_min should be immediate");
+  assert_is_small_int(i62_max, "i62_max should be immediate");
+  assert_is_small_int(i62_min, "i62_min should be immediate");
   assert_is_small_int(i61_max_from_words, "i61_max_from_words should canonicalize to immediate");
   assert_is_small_int(i61_min_from_words, "i61_min_from_words should canonicalize to immediate");
+  assert_is_small_int(i62_max_from_words, "i62_max_from_words should canonicalize to immediate");
+  assert_is_small_int(i62_min_from_words, "i62_min_from_words should canonicalize to immediate");
+  assert_is_small_int(i61_over, "i61_over should now be immediate");
+  assert_is_small_int(i61_under, "i61_under should now be immediate");
   assert_is_small_int(s62_pos, "s62_pos should be immediate");
   assert_is_small_int(s62_neg, "s62_neg should be immediate");
-  assert_is_big_int(i61_over, "i61_over should spill to big-int");
-  assert_is_big_int(i61_under, "i61_under should spill to big-int");
+  assert_is_big_int(i62_over, "i62_over should spill to big-int");
+  assert_is_big_int(i62_under, "i62_under should spill to big-int");
 
   assert(bsts_integer_equals(i32_pos, i32_pos), "i32_pos equals self");
   assert(bsts_integer_equals(i32_pos, i32_pos_big), "i32_pos equals big");
@@ -236,12 +393,21 @@ void test_integer() {
   BValue add_i61_over = bsts_integer_add(i61_max, bsts_integer_from_int(1));
   BValue sub_i61_under = bsts_integer_add(i61_min, bsts_integer_from_int(-1));
   BValue neg_i61_min = bsts_integer_negate(i61_min);
+  BValue add_i62_over = bsts_integer_add(i62_max, bsts_integer_from_int(1));
+  BValue sub_i62_under = bsts_integer_add(i62_min, bsts_integer_from_int(-1));
+  BValue neg_i62_min = bsts_integer_negate(i62_min);
   assert_int_string(add_i61_over, "2305843009213693952", "add i61_max 1");
   assert_int_string(sub_i61_under, "-2305843009213693953", "sub i61_min 1");
   assert_int_string(neg_i61_min, "2305843009213693952", "negate i61_min");
-  assert_is_big_int(add_i61_over, "add i61_max 1 should spill to big-int");
-  assert_is_big_int(sub_i61_under, "sub i61_min 1 should spill to big-int");
-  assert_is_big_int(neg_i61_min, "negate i61_min should spill to big-int");
+  assert_int_string(add_i62_over, "4611686018427387904", "add i62_max 1");
+  assert_int_string(sub_i62_under, "-4611686018427387905", "sub i62_min 1");
+  assert_int_string(neg_i62_min, "4611686018427387904", "negate i62_min");
+  assert_is_small_int(add_i61_over, "add i61_max 1 should stay immediate");
+  assert_is_small_int(sub_i61_under, "sub i61_min 1 should stay immediate");
+  assert_is_small_int(neg_i61_min, "negate i61_min should stay immediate");
+  assert_is_big_int(add_i62_over, "add i62_max 1 should spill to big-int");
+  assert_is_big_int(sub_i62_under, "sub i62_min 1 should spill to big-int");
+  assert_is_big_int(neg_i62_min, "negate i62_min should spill to big-int");
 
   assert(bsts_integer_to_int32(i32_pos) == 305419896, "to_int32 i32_pos");
   assert(bsts_integer_to_int32(i32_neg) == -305419896, "to_int32 i32_neg");
@@ -267,6 +433,8 @@ void test_integer() {
     { "mul i32_pos i32_neg", i32_pos, i32_neg, "-93281312872650816" },
     { "mul i64_pos i32_pos", i64_pos, i32_pos, "400640188908870223300206720" },
     { "mul i128_pos i32_neg", i128_pos, i32_neg, "-7390507030444577022664749144420583314610266240" },
+    { "mul i128_pos 32", i128_pos, pow2_32, "774331430504535515673386165456158318080" },
+    { "mul i128_pos -32", i128_pos, pow2_neg_32, "-774331430504535515673386165456158318080" },
     { "mul i64_neg i64_neg", i64_neg, i64_neg, "1720736512232301123366780340925702400" },
   };
   for (size_t i = 0; i < sizeof(mul_cases) / sizeof(mul_cases[0]); i++) {
@@ -314,15 +482,48 @@ void test_integer() {
     assert_int_string(bsts_integer_xor(xor_cases[i].a, xor_cases[i].b), xor_cases[i].expected, xor_cases[i].name);
   }
 
+  BValue and_small_result = bsts_integer_and(and_small_left, and_small_right);
+  BValue xor_small_result = bsts_integer_xor(xor_small_left, xor_small_right);
+  BValue and_zero_result = bsts_integer_and(i128_pos, bsts_integer_from_int(0));
+  BValue and_neg1_result = bsts_integer_and(i128_pos, bsts_integer_from_int(-1));
+  BValue or_zero_result = bsts_integer_or(i128_pos, bsts_integer_from_int(0));
+  BValue or_neg1_result = bsts_integer_or(i128_pos, bsts_integer_from_int(-1));
+  BValue xor_zero_result = bsts_integer_xor(i128_pos, bsts_integer_from_int(0));
+  BValue xor_neg1_result = bsts_integer_xor(i128_pos, bsts_integer_from_int(-1));
+  assert_int_string(and_small_result, "305419896", "and big big small result");
+  assert_int_string(xor_small_result, "2290649224", "xor big big small result");
+  assert_int_string(and_zero_result, "0", "and big zero");
+  assert_int_string(and_neg1_result, "24197857203266734864793317670504947440", "and big neg1");
+  assert_int_string(or_zero_result, "24197857203266734864793317670504947440", "or big zero");
+  assert_int_string(or_neg1_result, "-1", "or big neg1");
+  assert_int_string(xor_zero_result, "24197857203266734864793317670504947440", "xor big zero");
+  assert(bsts_integer_equals(xor_neg1_result, bsts_integer_not(i128_pos)), "xor big neg1 equals not");
+  assert(bsts_integer_equals(
+      bsts_integer_or(pos_mismatch_left, pos_mismatch_right),
+      pos_mismatch_or_expected),
+      "or positive mismatched lengths");
+  assert(bsts_integer_equals(
+      bsts_integer_xor(pos_mismatch_left, pos_mismatch_right),
+      pos_mismatch_xor_expected),
+      "xor positive mismatched lengths");
+  assert_is_small_int(and_small_result, "and big big small should canonicalize to immediate");
+  assert_is_small_int(xor_small_result, "xor big big small should canonicalize to immediate");
+  assert_is_small_int(and_zero_result, "and big zero should be immediate");
+  assert_is_small_int(or_neg1_result, "or big neg1 should be immediate");
+
   struct IntShiftCase { const char* name; BValue value; int shift; const char* expected; };
   struct IntShiftCase shift_cases[] = {
     { "shift i32_pos << 5", i32_pos, 5, "9773436672" },
+    { "shift i32_neg << 1", i32_neg, 1, "-610839792" },
+    { "shift i32_pos >> 1", i32_pos, -1, "152709948" },
     { "shift i32_neg >> 5", i32_neg, -5, "-9544372" },
     { "shift i64_pos << 17", i64_pos, 17, "171936116567413924823040" },
+    { "shift pow40 >> 32", pow40, -32, "256" },
     { "shift i64_neg >> 17", i64_neg, -17, "-10007999171935" },
     { "shift pow40 << 5", pow40, 5, "35184372088832" },
     { "shift pow40 << 30", pow40, 30, "1180591620717411303424" },
     { "shift i128_pos << 33", i128_pos, 33, "207858010642617301217980562388315306121997844480" },
+    { "shift i128_pos >> 33", i128_pos, -33, "2817001333840509744453397308" },
     { "shift i128_neg >> 33", i128_neg, -33, "-2817001333840509744453397309" },
   };
   for (size_t i = 0; i < sizeof(shift_cases) / sizeof(shift_cases[0]); i++) {
@@ -331,9 +532,21 @@ void test_integer() {
   }
 
   BValue shift_twos_small = bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(40));
+  BValue shift_small_left1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(1));
+  BValue shift_small_right1 = bsts_integer_shift_left(i32_pos, bsts_integer_from_int(-1));
+  BValue shift_big_right64_small = bsts_integer_shift_left(i128_pos, bsts_integer_from_int(-64));
+  BValue shift_big_right96_small = bsts_integer_shift_left(i128_pos, bsts_integer_from_int(-96));
   BValue shift_twos_big = bsts_integer_shift_left(pow40, bsts_integer_from_int(30));
   assert_int_string(shift_twos_small, "1099511627776", "shift twos small canonicalization");
+  assert_int_string(shift_small_left1, "610839792", "shift small left1 canonicalization");
+  assert_int_string(shift_small_right1, "152709948", "shift small right1 canonicalization");
+  assert_int_string(shift_big_right64_small, "1311768467463790320", "shift big right64 canonicalization");
+  assert_int_string(shift_big_right96_small, "305419896", "shift big right96 canonicalization");
   assert_is_small_int(shift_twos_small, "shift twos small should stay immediate");
+  assert_is_small_int(shift_small_left1, "shift small left1 should stay immediate");
+  assert_is_small_int(shift_small_right1, "shift small right1 should stay immediate");
+  assert_is_small_int(shift_big_right64_small, "shift big right64 should canonicalize to immediate");
+  assert_is_small_int(shift_big_right96_small, "shift big right96 should canonicalize to immediate");
   assert_is_big_int(shift_twos_big, "shift pow40 << 30 should spill to big-int");
 
   struct IntCmpCase { const char* name; BValue a; BValue b; int expected; };
@@ -362,6 +575,13 @@ void test_integer() {
     { "divmod i61_max 7", i61_max, bsts_integer_from_int(7), "329406144173384850", "1" },
     { "divmod i61_min 7", i61_min, bsts_integer_from_int(7), "-329406144173384851", "5" },
     { "divmod i128_neg i64_pos", i128_neg, i64_pos, "-18446744073709551617", "0" },
+    { "divmod i128_pos 32", i128_pos, bsts_integer_from_int(32), "756183037602085464524791177203279607", "16" },
+    { "divmod i128_neg 32", i128_neg, bsts_integer_from_int(32), "-756183037602085464524791177203279608", "16" },
+    { "divmod i128_pos -32", i128_pos, bsts_integer_from_int(-32), "-756183037602085464524791177203279608", "-16" },
+    { "divmod i128_neg -32", i128_neg, bsts_integer_from_int(-32), "756183037602085464524791177203279607", "-16" },
+    { "divmod i128_pos 2^65", i128_pos, bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65)), "655884233731895160", "1311768467463790320" },
+    { "divmod i128_neg 2^65", i128_neg, bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65)), "-655884233731895161", "35581719679955312912" },
+    { "divmod i128_pos -2^65", i128_pos, bsts_integer_negate(bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65))), "-655884233731895161", "-35581719679955312912" },
     { "divmod i64_pos 0", i64_pos, bsts_integer_from_int(0), "0", "1311768467463790320" },
   };
   for (size_t i = 0; i < sizeof(div_cases) / sizeof(div_cases[0]); i++) {
@@ -371,6 +591,13 @@ void test_integer() {
     assert_int_string(div, div_cases[i].div, div_cases[i].name);
     assert_int_string(mod, div_cases[i].mod, div_cases[i].name);
   }
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Predef_l_gcd__Int(
+          i128_pos,
+          bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(65))),
+      "16",
+      "gcd i128_pos 2^65");
 
   struct StrToIntCase { const char* name; const char* text; const char* expected; };
   struct StrToIntCase str_cases[] = {
@@ -486,6 +713,21 @@ void test_runtime_strings() {
   }
 
   {
+    BValue u_e000 = bsts_char_from_code_point(0xE000);
+    BValue u_ffff = bsts_char_from_code_point(0xFFFF);
+    BValue u_10000 = bsts_char_from_code_point(0x10000);
+    BValue a_u_e000 = bsts_string_from_utf8_bytes_static(4, "a\xEE\x80\x80");
+    BValue a_u_10000 = bsts_string_from_utf8_bytes_static(5, "a\xF0\x90\x80\x80");
+
+    assert(bsts_string_cmp(u_e000, u_10000) == -1, "cmp U+E000 < U+10000");
+    assert(bsts_string_cmp(u_ffff, u_10000) == -1, "cmp U+FFFF < U+10000");
+    assert(bsts_string_cmp(a_u_e000, a_u_10000) == -1, "cmp a+U+E000 < a+U+10000");
+    assert(___bsts_g_Bosatsu_l_Predef_l_cmp__Char(u_e000, u_10000) == alloc_enum0(0), "cmp_Char U+E000 < U+10000");
+    assert(___bsts_g_Bosatsu_l_Predef_l_eq__Char(u_e000, u_e000) == alloc_enum0(1), "eq_Char same");
+    assert(___bsts_g_Bosatsu_l_Predef_l_eq__Char(u_e000, u_10000) == alloc_enum0(0), "eq_Char different");
+  }
+
+  {
     BValue long_s = bsts_string_from_utf8_bytes_static(10, "0123456789");
     BValue mid = bsts_string_substring(long_s, 3, 7);
     BValue tail = bsts_string_substring_tail(long_s, 8);
@@ -577,6 +819,12 @@ void test_float64() {
   assert(bsts_float64_cmp_total(one, two) < 0, "1.0 < 2.0");
   assert(bsts_float64_equals(neg_zero, pos_zero) == 1, "float equality treats signed zeros as equal");
   assert(bsts_float64_equals(nan1, nan2) == 1, "float equality matches all nan values");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(neg_zero, pos_zero)) == 1,
+      "predef eq_Float64 treats signed zeros as equal");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(nan1, nan2)) == 1,
+      "predef eq_Float64 treats all nan values as equal");
+  assert(get_variant_value(___bsts_g_Bosatsu_l_Predef_l_eq__Float64(one, two)) == 0,
+      "predef eq_Float64 is false for different finite values");
 
   for (size_t i = 0; i < sizeof(bits_cases) / sizeof(bits_cases[0]); i++) {
     BValue f = bsts_float64_from_bits(bits_cases[i]);
@@ -617,6 +865,447 @@ void test_float64() {
     BValue parsed = ___bsts_g_Bosatsu_l_Num_l_Float64_l_string__to__Float64(bad);
     assert(get_variant(parsed) == 0, "invalid float string returns None");
   }
+}
+
+void test_int64() {
+  uint64_t bits_cases[] = {
+    UINT64_C(0x0000000000000000),
+    UINT64_C(0x0000000000000001),
+    UINT64_C(0xffffffffffffffff),
+    UINT64_C(0x7fffffffffffffff),
+    UINT64_C(0x8000000000000000),
+    UINT64_C(0x1234567890abcdef)
+  };
+
+  for (size_t i = 0; i < sizeof(bits_cases) / sizeof(bits_cases[0]); i++) {
+    BValue v = bsts_int64_from_bits(bits_cases[i]);
+    assert_u64_equals(bsts_int64_to_bits(v), bits_cases[i], "int64 bits roundtrip");
+  }
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_min__i64(),
+      UINT64_C(0x8000000000000000),
+      "min_i64 bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_max__i64(),
+      UINT64_C(0x7fffffffffffffff),
+      "max_i64 bits");
+
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(bsts_integer_from_int64(INT64_MIN)),
+      UINT64_C(0x8000000000000000),
+      "safe int64 min conversion");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(bsts_integer_from_int64(INT64_MAX)),
+      UINT64_C(0x7fffffffffffffff),
+      "safe int64 max conversion");
+  {
+    BValue too_big = bsts_integer_add(
+        bsts_integer_from_int64(INT64_MAX),
+        bsts_integer_from_int(1));
+    BValue too_small = bsts_integer_add(
+        bsts_integer_from_int64(INT64_MIN),
+        bsts_integer_from_int(-1));
+    assert_option_none(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(too_big),
+        "safe int64 rejects max + 1");
+    assert_option_none(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64(too_small),
+        "safe int64 rejects min - 1");
+  }
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64(bsts_integer_from_int(-1)),
+      UINT64_C(0xffffffffffffffff),
+      "low bits conversion keeps two's complement");
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_int64__to__Int(bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),
+      "-1",
+      "int64_to_Int decodes signed payload");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_add__Int64(
+          bsts_int64_from_int64(INT64_MAX),
+          bsts_int64_from_int64(1)),
+      UINT64_C(0x8000000000000000),
+      "add wraps to min_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_sub__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(1)),
+      UINT64_C(0x7fffffffffffffff),
+      "sub wraps to max_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mul__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(-1)),
+      UINT64_C(0x8000000000000000),
+      "mul wraps min_i64 * -1");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(-5),
+          bsts_int64_from_int64(3)),
+      UINT64_C(0xfffffffffffffffe),
+      "division uses floor semantics");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(INT64_MIN),
+          bsts_int64_from_int64(-1)),
+      UINT64_C(0x8000000000000000),
+      "division overflow wraps to min_i64");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_div__Int64(
+          bsts_int64_from_int64(1234),
+          bsts_int64_from_int64(0)),
+      UINT64_C(0x0000000000000000),
+      "division by zero returns zero");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(5),
+          bsts_int64_from_int64(-3)),
+      UINT64_C(0xffffffffffffffff),
+      "mod_Int64 keeps the divisor sign");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_mod__Int64(
+          bsts_int64_from_int64(1234),
+          bsts_int64_from_int64(0)),
+      UINT64_C(0x00000000000004d2),
+      "mod_Int64 by zero returns the left value");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_and__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffff0000ffff0000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0x0f0f00000f0f0000),
+      "bitwise and keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_or__Int64(
+          bsts_int64_from_bits(UINT64_C(0xf0f00000f0f00000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0xffff0f0fffff0f0f),
+      "bitwise or keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_xor__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffff0000ffff0000)),
+          bsts_int64_from_bits(UINT64_C(0x0f0f0f0f0f0f0f0f))),
+      UINT64_C(0xf0f00f0ff0f00f0f),
+      "bitwise xor keeps low bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_not__Int64(bsts_int64_from_int64(0)),
+      UINT64_C(0xffffffffffffffff),
+      "bitwise not flips all bits");
+
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(63)),
+      UINT64_C(0x8000000000000000),
+      "left shift keeps low 64 bits");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(64)),
+      UINT64_C(0x0000000000000000),
+      "left shift by >= 64 clears the value");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-1)),
+      UINT64_C(0x0000000000000000),
+      "negative left shift becomes arithmetic right shift");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+          bsts_int64_from_int64(-1),
+          bsts_integer_from_int(100)),
+      UINT64_C(0xffffffffffffffff),
+      "right shift keeps sign for large positive counts");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-63)),
+      UINT64_C(0x8000000000000000),
+      "negative right shift becomes wrapped left shift");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+          bsts_integer_from_int(1)),
+      UINT64_C(0x7fffffffffffffff),
+      "unsigned right shift clears the sign bit");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+          bsts_int64_from_int64(1),
+          bsts_integer_from_int(-63)),
+      UINT64_C(0x8000000000000000),
+      "negative unsigned right shift becomes wrapped left shift");
+  {
+    BValue huge_shift =
+        bsts_integer_shift_left(bsts_integer_from_int(1), bsts_integer_from_int(70));
+    BValue huge_neg_shift = bsts_integer_negate(huge_shift);
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(1),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge left shift clears the value");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__left__Int64(
+            bsts_int64_from_int64(-1),
+            huge_neg_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge negative left shift sign-fills");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__Int64(
+            bsts_int64_from_int64(-1),
+            huge_shift),
+        UINT64_C(0xffffffffffffffff),
+        "boxed huge right shift keeps the sign bit");
+    assert_int64_bits(
+        ___bsts_g_Bosatsu_l_Num_l_Int64_l_shift__right__unsigned__Int64(
+            bsts_int64_from_bits(UINT64_C(0xffffffffffffffff)),
+            huge_shift),
+        UINT64_C(0x0000000000000000),
+        "boxed huge unsigned right shift clears the value");
+  }
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_popcount__Int64(
+          bsts_int64_from_bits(UINT64_C(0xffffffffffffffff))),
+      "64",
+      "popcount_Int64 counts raw bits");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(7))) == 1,
+      "eq_Int64 true");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_eq__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(8))) == 0,
+      "eq_Int64 false");
+
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_cmp__Int64(
+              bsts_int64_from_int64(-1),
+              bsts_int64_from_int64(1))) == 0,
+      "cmp_Int64 sorts signed values");
+  assert(
+      get_variant(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_cmp__Int64(
+              bsts_int64_from_int64(7),
+              bsts_int64_from_int64(7))) == 1,
+      "cmp_Int64 eq");
+
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(1.5)),
+      UINT64_C(0x0000000000000002),
+      "float64_to_Int64 rounds ties to even");
+  assert_u64_equals(
+      bsts_float64_to_bits(bsts_float64_from_double(bsts_round_ties_even(0.5))),
+      UINT64_C(0x0000000000000000),
+      "round_ties_even rounds +0.5 to +0.0");
+  assert_u64_equals(
+      bsts_float64_to_bits(bsts_float64_from_double(bsts_round_ties_even(-0.5))),
+      UINT64_C(0x8000000000000000),
+      "round_ties_even rounds -0.5 to -0.0");
+  assert_u64_equals(
+      bsts_float64_to_bits(bsts_float64_from_double(bsts_round_ties_even(2.5))),
+      UINT64_C(0x4000000000000000),
+      "round_ties_even keeps even integer ties");
+  assert_u64_equals(
+      bsts_float64_to_bits(bsts_float64_from_double(bsts_round_ties_even(-1.5))),
+      UINT64_C(0xc000000000000000),
+      "round_ties_even handles negative half steps");
+  assert_u64_equals(
+      bsts_float64_to_bits(bsts_float64_from_double(bsts_round_ties_even(4503599627370496.0))),
+      UINT64_C(0x4330000000000000),
+      "round_ties_even leaves large integral values unchanged");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(2.5)),
+      UINT64_C(0x0000000000000002),
+      "float64_to_Int64 keeps even ties");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(-0.5)),
+      UINT64_C(0x0000000000000000),
+      "float64_to_Int64 handles negative ties");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(NAN)),
+      "float64_to_Int64 rejects NaN");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(INFINITY)),
+      "float64_to_Int64 rejects infinity");
+  assert_option_none(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(ldexp(1.0, 63))),
+      "float64_to_Int64 rejects 2^63");
+  assert_option_int64_bits(
+      ___bsts_g_Bosatsu_l_Num_l_Int64_l_float64__to__Int64(
+          bsts_float64_from_double(-ldexp(1.0, 63))),
+      UINT64_C(0x8000000000000000),
+      "float64_to_Int64 accepts -2^63");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Num_l_Int64_l_int64__to__Float64(
+              bsts_int64_from_int64(INT64_MIN))) == -ldexp(1.0, 63),
+      "int64_to_Float64 matches Int conversion semantics");
+}
+
+void test_array_int64() {
+  BValue tabulate_fn = alloc_boxed_pure_fn1(array_identity_i64_fn);
+  BValue default_fn = alloc_boxed_pure_fn1(array_echo_i64_fn);
+  BValue fold_index_fn = alloc_boxed_pure_fn3(array_fold_index_sum_fn);
+  BValue map_index_fn = alloc_boxed_pure_fn2(array_map_index_sum_fn);
+  BValue zip_add_fn = alloc_boxed_pure_fn2(array_zip_add_fn);
+  BValue zip_accum_add_fn = alloc_boxed_pure_fn3(array_zip_accum_add_fn);
+  BValue float_mul_fn = alloc_boxed_pure_fn2(array_float_mul_fn);
+
+  BValue tabulated =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64(3),
+          tabulate_fn);
+  uint64_t tabulated_bits[] = { 0, 1, 2 };
+  assert_int64_array_bits(
+      tabulated,
+      tabulated_bits,
+      3,
+      "tabulate_Array uses visible Int64 indices");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_size__Array(tabulated),
+      3,
+      "size_Array returns Int64");
+
+  BValue tabulated_empty =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64(-1),
+          tabulate_fn);
+  assert(test_array_unbox(tabulated_empty)->len == 0, "tabulate_Array rejects negative sizes");
+
+  BValue tabulated_oversized =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_tabulate__Array(
+          bsts_int64_from_int64((int64_t)INT_MAX + 1),
+          tabulate_fn);
+  assert(test_array_unbox(tabulated_oversized)->len == 0, "tabulate_Array rejects oversized sizes");
+
+  const BValue ints[] = {
+    bsts_integer_from_int(0),
+    bsts_integer_from_int(1),
+    bsts_integer_from_int(2),
+    bsts_integer_from_int(3),
+    bsts_integer_from_int(4),
+  };
+  BValue base_ints = test_array_from_values(5, ints);
+  BValue sliced =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_slice__Array(
+          base_ints,
+          bsts_int64_from_int64(2),
+          bsts_int64_from_int64(5));
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(
+          sliced,
+          bsts_int64_from_int64(0),
+          default_fn),
+      "2",
+      "get_or_Array uses slice-relative visible indices");
+  assert_int64_bits(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_get__or__Array(
+          sliced,
+          bsts_int64_from_int64(9),
+          default_fn),
+      9,
+      "get_or_Array forwards the original miss index");
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_foldl__with__index__Array(
+          sliced,
+          bsts_integer_from_int(0),
+          fold_index_fn),
+      "12",
+      "foldl_with_index_Array uses visible slice indices");
+
+  BValue mapped =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_map__with__index__Array(
+          sliced,
+          map_index_fn);
+  const int mapped_expected[] = { 2, 4, 6 };
+  assert_int_array_equals(mapped, mapped_expected, 3, "map_with_index_Array uses visible indices");
+
+  const BValue right_ints[] = {
+    bsts_integer_from_int(10),
+    bsts_integer_from_int(11),
+    bsts_integer_from_int(12),
+  };
+  BValue right_prefix = test_array_from_values(3, right_ints);
+  BValue zipped =
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__map__Array(
+          base_ints,
+          right_prefix,
+          zip_add_fn);
+  const int zipped_expected[] = { 10, 12, 14 };
+  assert_int_array_equals(zipped, zipped_expected, 3, "zip_map_Array truncates to the shorter input");
+
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(
+          base_ints,
+          right_prefix,
+          bsts_integer_from_int(0),
+          zip_accum_add_fn),
+      "36",
+      "zip_foldl_Array truncates to the shorter input");
+  assert_int_string(
+      ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__foldl__Array(
+          test_array_from_values(0, NULL),
+          base_ints,
+          bsts_integer_from_int(99),
+          zip_accum_add_fn),
+      "99",
+      "zip_foldl_Array keeps the initial accumulator on empty prefixes");
+
+  const BValue neg_zero_items[] = { bsts_float64_from_double(-0.0) };
+  BValue neg_zero_array = test_array_from_values(1, neg_zero_items);
+  assert_u64_equals(
+      bsts_float64_to_bits(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(neg_zero_array)),
+      UINT64_C(0x8000000000000000),
+      "sumf_Array preserves negative zero");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumf__Array(
+              test_array_from_values(0, NULL))) == 0.0,
+      "sumf_Array returns 0.0 on empty arrays");
+  assert(
+      bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_sumsqf__Array(
+              test_array_from_values(0, NULL))) == 0.0,
+      "sumsqf_Array returns 0.0 on empty arrays");
+
+  const BValue left_float_items[] = { bsts_float64_from_double(INFINITY) };
+  const BValue right_float_items[] = {
+    bsts_float64_from_double(1.0),
+    bsts_float64_from_double(NAN),
+  };
+  BValue left_float_array = test_array_from_values(1, left_float_items);
+  BValue right_float_array = test_array_from_values(2, right_float_items);
+
+  assert(
+      isinf(bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_dotf__Array(
+              left_float_array,
+              right_float_array))),
+      "dotf_Array truncates before reading past the shorter input");
+  assert(
+      isinf(bsts_float64_to_double(
+          ___bsts_g_Bosatsu_l_Collection_l_Array_l_zip__sumf__Array(
+              left_float_array,
+              right_float_array,
+              float_mul_fn))),
+      "zip_sumf_Array truncates before reading past the shorter input");
 }
 
 void test_prog_assoc() {
@@ -666,6 +1355,8 @@ int main(int argc, char** argv) {
   test_runtime_strings();
   test_integer();
   test_float64();
+  test_int64();
+  test_array_int64();
   test_prog_assoc();
   printf("success\n");
   return 0;

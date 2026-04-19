@@ -3,7 +3,7 @@ package dev.bosatsu
 import cats.{Eval, Functor, Applicative}
 import cats.data.NonEmptyList
 import cats.evidence.Is
-import java.math.BigInteger
+import cats.syntax.all.*
 import scala.collection.immutable.LongMap
 import dev.bosatsu.BosatsuInt as BInt
 
@@ -245,71 +245,99 @@ object MatchlessToValue {
     }
 
     class Env[F](resolve: (F, PackageName, Identifier) => Eval[Value]) {
-      private def valueEquals(left: Any, right: Any): Boolean =
+      private def compareIntValues(
+          left: Any,
+          rel: CompareRel,
+          right: Any
+      ): Boolean =
         (left, right) match {
-          case (BInt(li), ri: BigInteger) =>
-            li.toBigInteger == ri
-          case (li: BigInteger, BInt(ri)) =>
-            li == ri.toBigInteger
+          case (BInt(lhs), BInt(rhs)) =>
+            Matchless.compareRelHolds(rel, lhs.compare(rhs))
           case _ =>
-            java.util.Objects.equals(
-              left.asInstanceOf[AnyRef],
-              right.asInstanceOf[AnyRef]
-            )
+            false
         }
 
-      private def valueToCodePoint(value: Any): Option[Int] =
-        value match {
-          case s: String if s.nonEmpty => Some(s.codePointAt(0))
-          case _                       => None
+      private def compareInt64Values(
+          left: Any,
+          rel: CompareRel,
+          right: Any
+      ): Boolean =
+        (left, right) match {
+          case (lhs: java.lang.Long, rhs: java.lang.Long) =>
+            Matchless.compareRelHolds(
+              rel,
+              java.lang.Long.compare(lhs.longValue, rhs.longValue)
+            )
+          case _ =>
+            false
+        }
+
+      private def compareLiteralValue(
+          left: Any,
+          rel: CompareRel,
+          right: Lit
+      ): Boolean =
+        right match {
+          case Lit.Integer(value) =>
+            compareIntValues(left, rel, BInt.fromBigInteger(value))
+          case rhs: Lit.Chr =>
+            left match {
+              case s: String if s.codePointCount(0, s.length) == 1 =>
+                Matchless.compareRelHolds(
+                  rel,
+                  Integer.compare(s.codePointAt(0), rhs.toCodePoint)
+                )
+              case _ =>
+                false
+            }
+          case rhs: Lit.StringMatchResult =>
+            left match {
+              case s: String =>
+                Matchless.compareRelHolds(rel, StringUtil.codePointCompare(s, rhs.asStr))
+              case _ =>
+                false
+            }
+          case rhs: Lit.Float64 =>
+            left match {
+              case d: java.lang.Double =>
+                Matchless.compareFloat64Values(d.doubleValue, rel, rhs.toDouble)
+              case _ =>
+                false
+            }
         }
 
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr[F]): Scoped[Boolean] =
         ix match {
-          case EqualsLit(expr, lit) =>
+          case CompareLit(expr, rel, lit) =>
             loop(expr).map { e =>
-              val external = e.asExternal.toAny
-              lit match {
-                case lf: Lit.Float64 =>
-                  external match {
-                    case d: java.lang.Double =>
-                      val left = lf.toDouble
-                      val right = d.doubleValue
-                      // Float literal matching follows numeric equality:
-                      // -0.0 == 0.0 and NaN matches NaN.
-                      (left == right) || (java.lang.Double.isNaN(
-                        left
-                      ) && java.lang.Double.isNaN(right))
-                    case _ =>
-                      // $COVERAGE-OFF$
-                      false
-                    // $COVERAGE-ON$
-                  }
+              compareLiteralValue(e.asExternal.toAny, rel, lit)
+            }
+          case CompareInt(left, rel, right) =>
+            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+              compareIntValues(lhs.asExternal.toAny, rel, rhs.asExternal.toAny)
+            }
+          case CompareInt64(left, rel, right) =>
+            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+              compareInt64Values(
+                lhs.asExternal.toAny,
+                rel,
+                rhs.asExternal.toAny
+              )
+            }
+          case CompareFloat64(left, rel, right) =>
+            (loop(left), loop(right)).mapN { (lhs, rhs) =>
+              (lhs.asExternal.toAny, rhs.asExternal.toAny) match {
+                case (ld: java.lang.Double, rd: java.lang.Double) =>
+                  Matchless.compareFloat64Values(
+                    ld.doubleValue,
+                    rel,
+                    rd.doubleValue
+                  )
                 case _ =>
-                  valueEquals(external, lit.unboxToAny)
+                  false
               }
             }
-
-          case LtEqLit(expr, Lit.Integer(i)) =>
-            val rhs = BInt.fromBigInteger(i)
-            loop(expr).map { e =>
-              e.asExternal.toAny match {
-                case BInt(lhs) => lhs.compare(rhs) <= 0
-                case _         => false
-              }
-            }
-          case LtEqLit(expr, c: Lit.Chr) =>
-            val rhsCodePoint = c.toCodePoint
-            loop(expr).map { e =>
-              valueToCodePoint(e.asExternal.toAny).exists(_ <= rhsCodePoint)
-            }
-          case LtEqLit(_, lit) =>
-            // $COVERAGE-OFF$
-            throw new IllegalStateException(
-              s"unexpected LtEqLit literal: $lit"
-            )
-          // $COVERAGE-ON$
 
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
@@ -484,6 +512,8 @@ object MatchlessToValue {
             }
           case Literal(lit) =>
             Static(Value.fromLit(lit))
+          case LitInt64(value) =>
+            Static(ExternalValue(PredefImpl.Int64Value(value)))
           case If(cond, thenExpr, elseExpr) =>
             val condF = boolExpr(cond)
             // compile each branch at most once, and only if needed
