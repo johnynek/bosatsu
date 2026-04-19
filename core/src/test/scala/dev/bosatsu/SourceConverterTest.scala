@@ -129,6 +129,28 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
         fail(s"expected BoolGuard local $expected, got: $other")
     }
 
+  private def assertMatchGuardLocal(
+      branch: Expr.Branch[Declaration],
+      expectedArg: String,
+      expectedBound: String,
+      expectCheckExpr: Boolean
+  ): Unit =
+    branch.guardNode match {
+      case Some(guard @ Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)) =>
+        assertEquals(localName(arg), expectedArg)
+        assertEquals(
+          pattern.names,
+          Parser.unsafeParse(Identifier.bindableParser, expectedBound) :: Nil
+        )
+        assertEquals(guardOpt, None)
+        assertEquals(checkExpr.isDefined, expectCheckExpr)
+        assertEquals(localName(branch.expr), expectedBound)
+        assertEquals(branch.isEffectivelyUnguarded, pattern.definitelyTotal)
+        val _ = guard.patternRegion
+      case other =>
+        fail(s"expected MatchGuard local $expectedArg/$expectedBound, got: $other")
+    }
+
   private def genericBinders(
       expr: Expr[Declaration]
   ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
@@ -437,6 +459,40 @@ else:
 
     assertEquals(branchList.length, 2)
     assertBoolGuardLocal(branchList.head, "cond")
+    assertEquals(branchList.last.guardNode, None)
+  }
+
+  test(
+    "top-level conditional match branch guards lower as MatchGuard and preserve annotations"
+  ) {
+    val branchList = mainBranches(
+      """main = match foo:
+        |  case x if ((x matches (even_x, _)) : Int):
+        |    even_x
+        |  case y if cond:
+        |    y
+        |  case z if z matches matched_z:
+        |    matched_z
+        |  case _:
+        |    miss
+        |""".stripMargin
+    ).toList
+
+    assertEquals(branchList.length, 4)
+    assertMatchGuardLocal(
+      branchList.head,
+      expectedArg = "x",
+      expectedBound = "even_x",
+      expectCheckExpr = true
+    )
+    assertBoolGuardLocal(branchList(1), "cond")
+    assertMatchGuardLocal(
+      branchList(2),
+      expectedArg = "z",
+      expectedBound = "matched_z",
+      expectCheckExpr = false
+    )
+    assert(branchList(2).isEffectivelyUnguarded)
     assertEquals(branchList.last.guardNode, None)
   }
 

@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `4`
-- Completed steps: `1`
+- Pending steps: `3`
+- Completed steps: `2`
 - Total steps: `5`
 
 ## Summary
@@ -18,11 +18,11 @@ Implement scoped match-branch guards so `case p_outer if expr matches p_inner:` 
 
 ## Current State
 
-`Expr.Branch` and `TypedExpr.Branch` on this branch now carry explicit `Option[...BranchGuard]` nodes with `BoolGuard` for ordinary boolean guards, and shared guard-expression helpers are wired through the main branch walkers in `Expr.scala`, `TypedExpr.scala`, `TypedExprNormalization.scala`, `TypedExprLoopRecurLowering.scala`, `TypedExprRecursionCheck.scala`, `SelfCallKind.scala`, `TypeValidator.scala`, and `TotalityCheck.scala`. `SourceConverter` boolean guards and `if`/`elif` false branches now reach the IR through that explicit bool-guard path, and the plain bool-guard proto/EDN surfaces round-trip via dedicated encodings. `coreJVM/test:compile`, focused `SourceConverterTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest`, and `scripts/test_basic.sh` all passed after the refactor. The branch still has no `MatchGuard` node yet, `Declaration` still only extends scope for conditional matches in `if`/`elif`/ternary forms, and the typed/backend pipeline still treats every branch guard as a plain Bool-producing expression.
+`Declaration.freeVars`, `allNames`, and `substitute` now treat a whole match-branch guard classified by `Declaration.ConditionalMatch.unapply` like the existing `if`/ternary conditional-match forms: the guard itself stays in the outer branch-pattern scope, while the same branch body sees both the outer pattern binders and the inner guard-pattern binders. Untyped `Expr.Branch.guardNode` on this branch can now carry `Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)` in addition to `BoolGuard`, and `SourceConverter` classifies top-level conditional-match branch guards into that richer node, preserves whole-guard annotation validation through the stored `checkExpr`, canonicalizes inner `if True` guards to `None`, and keeps non-classified branch guards on the plain `BoolGuard` path. Added focused `DeclarationTest`, `ParserTest`, and `SourceConverterTest` coverage for source-level scoping/classification, then reran `coreJVM/test:compile`, the focused suites, and the repo gate `scripts/test_basic.sh`, all of which passed. The branch still lacks typed `MatchGuard` support, so inference, diagnostics, totality, Matchless lowering, and typed serialization/tooling continue to treat branch guards as Bool-only.
 
 ## Problem
 
-That structural refactor removes the boolean-only `Option[Expr]` convention, but #2331 is still semantically incomplete. Top-level `expr matches pattern` guards on match branches still do not extend branch-body scope, inference and diagnostics still only understand outer-pattern plus boolean-guard staging, and Matchless/lowering still lack the single-evaluation scoped guard form needed for the actual feature.
+#2331 is still semantically incomplete after source conversion. Branch-guard conditional matches now preserve their binder information in untyped `Expr`, but the typed/compiler back half still assumes branch guards are Bool-only. That means programs using guard-introduced binders still cannot typecheck and lower end to end, and the existing diagnostic, totality, backend, proto, and EDN surfaces do not yet understand the richer guard form.
 
 ## Steps
 
@@ -50,9 +50,9 @@ Introduce explicit branch-guard ADTs in `Expr` and `TypedExpr`, with `BoolGuard`
 
 `Expr.Branch` and `TypedExpr.Branch` now store explicit `BranchGuard` nodes, `BoolGuard` is the live boolean variant, the shared guard-expression helpers drive the updated branch walkers and serialization surfaces, and verification passed with `coreJVM/test:compile`, focused `SourceConverterTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest`, plus `scripts/test_basic.sh`.
 
-2. [ ] `extend-declaration-and-source-conversion` Extend Source-Level Scope and Guard Classification
+2. [x] `extend-declaration-and-source-conversion` Extend Source-Level Scope and Guard Classification
 
-Keep `Declaration.MatchBranch.guard` as source syntax, but teach `Declaration.freeVars`, `allNames`, and `substitute` to recognize a whole-guard `ConditionalMatch` on match branches and extend only that branch body scope with the inner guard-pattern names. In `SourceConverter`, classify branch guards with `Declaration.ConditionalMatch.unapply`, preserve outer annotation wrappers, canonicalize effectively-trivial inner guards, and emit `Expr.MatchGuard` instead of flattening every branch guard to a boolean expression.
+Keep `Declaration.MatchBranch.guard` as source syntax, but teach `Declaration.freeVars`, `allNames`, and `substitute` to recognize a whole-guard `ConditionalMatch` on match branches and extend only that branch body scope with the inner guard-pattern names. In `SourceConverter`, classify branch guards with `Declaration.ConditionalMatch.unapply`, preserve whole-guard annotation validation via a stored check expression, canonicalize effectively-trivial inner guards, and emit `Expr.MatchGuard` instead of flattening every branch guard to a boolean expression.
 
 #### Invariants
 
@@ -73,9 +73,13 @@ Keep `Declaration.MatchBranch.guard` as source syntax, but teach `Declaration.fr
 - Add a `ParserTest` negative classification case where `matches` is nested inside a larger boolean guard and therefore must not open branch-body scope.
 - Add `SourceConverterTest` coverage that a top-level conditional-match branch guard lowers to `MatchGuard`, an ordinary boolean guard stays `BoolGuard`, the effectively-trivial case is recognized, and guard-level annotations are preserved for later type errors.
 
+#### Completion Notes
+
+`Declaration.freeVars`, `allNames`, and `substitute` now treat top-level conditional-match branch guards like the existing scoped conditional-match source forms: the guard itself is still traversed under the outer branch-pattern names only, while the same branch body gains the inner guard-pattern binders. `SourceConverter` now classifies those whole-guard branch forms into `Expr.MatchGuard`, stores the later Bool-position annotation check on the guard node, canonicalizes inner `if True` to `None`, and keeps ordinary branch guards on `BoolGuard`. Added focused `DeclarationTest`, `ParserTest`, and `SourceConverterTest` coverage, then reran `coreJVM/test:compile`, the focused suites, and `scripts/test_basic.sh`.
+
 3. [ ] `typecheck-matchguard-and-reuse-diagnostics` Typecheck Scoped Match Guards and Reuse Existing Diagnostics
 
-Update `rankn/Infer.scala` so branch checking runs in three stages: outer pattern, guard, then body. `BoolGuard` still checks as `Bool` under the outer bindings; `MatchGuard` must infer the guard scrutinee, instantiate it the same way match scrutinees are instantiated for pattern checking, typecheck the guard pattern, extend the environment with guard bindings for the optional inner guard and branch body, and then revalidate the reconstructed whole guard as a `Bool` position. In the same slice, update `TypeValidator.scala`, `UnusedLetCheck.scala`, `ShadowedBindingTypeCheck.scala`, and `TotalityCheck.scala` to understand the two-layer binder scope and effectively-unguarded detection.
+Update `rankn/Infer.scala` so branch checking runs in three stages: outer pattern, guard, then body. `BoolGuard` still checks as `Bool` under the outer bindings; `Expr.MatchGuard` must infer the guard scrutinee, instantiate it the same way match scrutinees are instantiated for pattern checking, typecheck the guard pattern, extend the environment with guard bindings for the optional inner guard and branch body, and then revalidate the stored whole-guard Bool-position check expression when present. In the same slice, update `TypeValidator.scala`, `UnusedLetCheck.scala`, `ShadowedBindingTypeCheck.scala`, and `TotalityCheck.scala` to understand the two-layer binder scope and effectively-unguarded detection.
 
 #### Invariants
 

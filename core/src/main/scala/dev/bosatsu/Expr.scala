@@ -61,13 +61,27 @@ sealed abstract class Expr[T] derives CanEqual {
         val argFree = arg.freeVarsDup
 
         val branchFrees = branches.toList.map { branch =>
-          // these are not free variables in this branch
-          val newBinds = branch.pattern.names.toSet
-          val bfree = branch.foldGuardExpr(Nil: List[Bindable]) {
-            case (acc, guardExpr) => acc ::: guardExpr.freeVarsDup
-          } ::: branch.expr.freeVarsDup
-          if (newBinds.isEmpty) bfree
-          else ListUtil.filterNot(bfree)(newBinds)
+          val outerBinds = branch.pattern.names.toSet
+          val bodyBinds = branch.allBindings.toSet
+          branch.guardNode match {
+            case None =>
+              ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+            case Some(BoolGuard(guardExpr)) =>
+              val guardFree = ListUtil.filterNot(guardExpr.freeVarsDup)(outerBinds)
+              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              guardFree ::: bodyFree
+            case Some(MatchGuard(argExpr, pattern, guardOpt, _)) =>
+              val innerBinds = pattern.names.toSet
+              val argFree = ListUtil.filterNot(argExpr.freeVarsDup)(outerBinds)
+              val innerGuardFree =
+                guardOpt.fold(Nil: List[Bindable]) { innerGuard =>
+                  ListUtil.filterNot(innerGuard.freeVarsDup)(
+                    outerBinds | innerBinds
+                  )
+                }
+              val bodyFree = ListUtil.filterNot(branch.expr.freeVarsDup)(bodyBinds)
+              argFree ::: innerGuardFree ::: bodyFree
+          }
         }
         // we can only take one branch, so count the max on each branch:
         val branchFreeMax = branchFrees.zipWithIndex
@@ -239,30 +253,116 @@ object Expr {
     def foldExpr[T, A](guard: BranchGuard[T], init: A)(
         fn: (A, Expr[T]) => A
     ): A =
+      foldScopedExpr(guard, init)(fn, fn)
+
+    def foldScopedExpr[T, A](guard: BranchGuard[T], init: A)(
+        outerFn: (A, Expr[T]) => A,
+        innerFn: (A, Expr[T]) => A
+    ): A =
       guard match {
-        case BoolGuard(expr) => fn(init, expr)
+        case BoolGuard(expr) =>
+          outerFn(init, expr)
+        case MatchGuard(arg, _, guardOpt, checkExpr) =>
+          val withArg = outerFn(init, arg)
+          val withGuard = guardOpt.fold(withArg)(innerFn(withArg, _))
+          checkExpr.fold(withGuard)(outerFn(withGuard, _))
       }
 
     def iterator[T](guard: BranchGuard[T]): Iterator[Expr[T]] =
       guard match {
-        case BoolGuard(expr) => Iterator.single(expr)
+        case BoolGuard(expr) =>
+          Iterator.single(expr)
+        case MatchGuard(arg, _, guardOpt, _) =>
+          Iterator.single(arg) ++ guardOpt.iterator
       }
 
     def mapExpr[T, U](
         guard: BranchGuard[T]
     )(fn: Expr[T] => Expr[U]): BranchGuard[U] =
+      mapExprScoped(guard)(fn, fn)
+
+    def mapExprScoped[T, U](
+        guard: BranchGuard[T]
+    )(
+        outerFn: Expr[T] => Expr[U],
+        innerFn: Expr[T] => Expr[U]
+    ): BranchGuard[U] =
       guard match {
-        case BoolGuard(expr) => BoolGuard(fn(expr))
+        case BoolGuard(expr) =>
+          BoolGuard(outerFn(expr))
+        case guard @ MatchGuard(arg, pattern, guardOpt, checkExpr) =>
+          MatchGuard(
+            outerFn(arg),
+            pattern,
+            guardOpt.map(innerFn),
+            checkExpr.map(outerFn)
+          )(using guard.patternRegion)
       }
 
     def traverseExpr[T, U, F[_]: Applicative](
         guard: BranchGuard[T]
     )(fn: Expr[T] => F[Expr[U]]): F[BranchGuard[U]] =
+      traverseExprScoped(guard)(fn, fn)
+
+    def traverseExprScoped[T, U, F[_]: Applicative](
+        guard: BranchGuard[T]
+    )(
+        outerFn: Expr[T] => F[Expr[U]],
+        innerFn: Expr[T] => F[Expr[U]]
+    ): F[BranchGuard[U]] =
       guard match {
-        case BoolGuard(expr) => fn(expr).map(BoolGuard(_))
+        case BoolGuard(expr) =>
+          outerFn(expr).map(BoolGuard(_))
+        case guard @ MatchGuard(arg, pattern, guardOpt, checkExpr) =>
+          (
+            outerFn(arg),
+            guardOpt.traverse(innerFn),
+            checkExpr.traverse(outerFn)
+          ).mapN { (arg1, guard1, check1) =>
+            MatchGuard(arg1, pattern, guard1, check1)(using guard.patternRegion)
+          }
+      }
+
+    def bindNames[T](guard: BranchGuard[T]): List[Bindable] =
+      guard match {
+        case BoolGuard(_)                => Nil
+        case MatchGuard(_, pattern, _, _) => pattern.names
+      }
+
+    def isEffectivelyUnguarded[T](guard: BranchGuard[T]): Boolean =
+      guard match {
+        case BoolGuard(_) => false
+        case MatchGuard(_, pattern, guardOpt, _) =>
+          pattern.definitelyTotal && guardOpt.isEmpty
+      }
+
+    def toExpr[T](guard: BranchGuard[T]): Expr[T] =
+      guard match {
+        case BoolGuard(expr) =>
+          expr
+        case matchGuard @ MatchGuard(arg, pattern, guardOpt, _) =>
+          Match(
+            arg,
+            NonEmptyList.of(
+              Branch(pattern, guardOpt, boolConstExpr(true, arg.tag))(using
+                matchGuard.patternRegion
+              ),
+              Branch(Pattern.WildCard, None, boolConstExpr(false, arg.tag))(using
+                matchGuard.patternRegion
+              )
+            ),
+            arg.tag
+          )
       }
   }
   final case class BoolGuard[T](expr: Expr[T]) extends BranchGuard[T]
+  final case class MatchGuard[T](
+      arg: Expr[T],
+      pattern: Pattern[(PackageName, Constructor), Type],
+      guard: Option[Expr[T]],
+      checkExpr: Option[Expr[T]]
+  )(using val patternRegion: Region)
+      extends BranchGuard[T]
 
   final case class Branch[T] private (
       pattern: Pattern[(PackageName, Constructor), Type],
@@ -270,7 +370,7 @@ object Expr {
       expr: Expr[T]
   )(using val patternRegion: Region) {
     def guard: Option[Expr[T]] =
-      guardNode.collect { case BoolGuard(guardExpr) => guardExpr }
+      guardNode.map(BranchGuard.toExpr(_))
 
     def foldGuardExpr[A](init: A)(fn: (A, Expr[T]) => A): A =
       guardNode match {
@@ -281,21 +381,36 @@ object Expr {
     def mapGuardNodeExpr[U](
         fn: Expr[T] => Expr[U]
     ): Option[BranchGuard[U]] =
-      guardNode match {
-        case Some(BoolGuard(guardExpr)) =>
-          val guardExpr1 = fn(guardExpr)
-          Some(BoolGuard(guardExpr1))
-        case None                      =>
-          None
-      }
+      mapGuardNodeExprScoped(fn, fn)
+
+    def mapGuardNodeExprScoped[U](
+        outerFn: Expr[T] => Expr[U],
+        innerFn: Expr[T] => Expr[U]
+    ): Option[BranchGuard[U]] =
+      guardNode.map(BranchGuard.mapExprScoped(_)(outerFn, innerFn))
 
     def traverseGuardNodeExpr[U, F[_]: Applicative](
         fn: Expr[T] => F[Expr[U]]
     ): F[Option[BranchGuard[U]]] =
-      guardNode.traverse(BranchGuard.traverseExpr(_)(fn))
+      traverseGuardNodeExprScoped(fn, fn)
+
+    def traverseGuardNodeExprScoped[U, F[_]: Applicative](
+        outerFn: Expr[T] => F[Expr[U]],
+        innerFn: Expr[T] => F[Expr[U]]
+    ): F[Option[BranchGuard[U]]] =
+      guardNode.traverse(BranchGuard.traverseExprScoped(_)(outerFn, innerFn))
 
     def guardExprIterator: Iterator[Expr[T]] =
       guardNode.iterator.flatMap(BranchGuard.iterator(_))
+
+    def guardBindings: List[Bindable] =
+      guardNode.toList.flatMap(BranchGuard.bindNames(_))
+
+    def allBindings: List[Bindable] =
+      pattern.names ::: guardBindings
+
+    def isEffectivelyUnguarded: Boolean =
+      guardNode.forall(BranchGuard.isEffectivelyUnguarded(_))
   }
   object Branch {
     @scala.annotation.targetName("applyExprGuard")
@@ -429,9 +544,17 @@ object Expr {
       case Literal(_, _)            => SortedSet.empty
       case Match(exp, branches, _)  =>
         allNames(exp) | branches.foldMap { branch =>
-          val b = allNames(branch.expr) ++ branch.pattern.names
-          branch.foldGuardExpr(b) { case (acc, guardExpr) =>
-            acc | allNames(guardExpr)
+          val bodyNames = allNames(branch.expr) ++ branch.allBindings
+          branch.guardNode match {
+            case None =>
+              bodyNames
+            case Some(BoolGuard(guardExpr)) =>
+              bodyNames | allNames(guardExpr)
+            case Some(MatchGuard(arg, pattern, guardOpt, checkExpr)) =>
+              bodyNames ++ pattern.names |
+                allNames(arg) |
+                guardOpt.fold(SortedSet.empty[Bindable])(allNames) |
+                checkExpr.fold(SortedSet.empty[Bindable])(allNames)
           }
         }
     }
@@ -448,6 +571,13 @@ object Expr {
     Pattern.PositionalStruct(
       (PackageName.PredefName, Constructor("False")),
       Nil
+    )
+
+  private def boolConstExpr[T](value: Boolean, tag: T): Expr[T] =
+    Global(
+      PackageName.PredefName,
+      Constructor(if (value) "True" else "False"),
+      tag
     )
 
   /** build a Match expression that is equivalent to if/else using Predef::True

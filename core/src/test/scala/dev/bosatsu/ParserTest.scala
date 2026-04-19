@@ -1912,6 +1912,58 @@ loop(12)"""
     }
   }
 
+  test("match branch guard conditional matches classify only at the whole guard") {
+    val conditionalForms =
+      List(
+        """match foo:
+          |  case (x, y) if as_even(x) matches Some(even_x):
+          |    even_x
+          |  case _:
+          |    0""".stripMargin,
+        """match foo:
+          |  case (x, y) if (as_even(x) matches Some(even_x)):
+          |    even_x
+          |  case _:
+          |    0""".stripMargin,
+        """match foo:
+          |  case (x, y) if ((as_even(x) matches Some(even_x)) : Bool):
+          |    even_x
+          |  case _:
+          |    0""".stripMargin
+      )
+
+    conditionalForms.foreach { src =>
+      roundTrip(Declaration.parser(""), src)
+      val decl = unsafeParse(Declaration.parser(""), src)
+      val branch = decl match {
+        case Declaration.Match(_, _, cases) => cases.get.head
+        case other                          => fail(s"expected match declaration, got: $other")
+      }
+      assert(
+        branch.guard.flatMap(Declaration.ConditionalMatch.unapply(_)).nonEmpty,
+        s"expected conditional guard classification for:\n$src"
+      )
+    }
+
+    val nested =
+      unsafeParse(
+        Declaration.parser(""),
+        """match foo:
+          |  case x if not(x matches Some(even_x)):
+          |    x
+          |  case _:
+          |    0""".stripMargin
+      )
+    val nestedBranch = nested match {
+      case Declaration.Match(_, _, cases) => cases.get.head
+      case other                          => fail(s"expected match declaration, got: $other")
+    }
+    assertEquals(
+      nestedBranch.guard.flatMap(Declaration.ConditionalMatch.unapply(_)),
+      None
+    )
+  }
+
   test("we allow extra indentation on elif and else for better alignment") {
 
     roundTrip(
