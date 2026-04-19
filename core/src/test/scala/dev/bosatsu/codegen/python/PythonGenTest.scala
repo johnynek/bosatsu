@@ -9,11 +9,13 @@ import dev.bosatsu.{
   Lit,
   LocationMap,
   Matchless,
+  MatchlessFromTypedExpr,
   Package,
   PackageMap,
   PackageName,
   Par,
   Parser,
+  Predef,
   TestUtils
 }
 import dev.bosatsu.codegen.CompilationNamespace
@@ -27,6 +29,10 @@ class PythonGenTest extends munit.ScalaCheckSuite {
   // PropertyCheckConfiguration(minSuccessful = 500)
 
   val PythonName = "[_A-Za-z][_A-Za-z0-9]*".r.pattern
+  private val float64Pack =
+    Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
 
   private def normalizeGeneratedTemps(code: String): String = {
     val tempName = "___[A-Za-z]\\d+".r
@@ -41,20 +47,69 @@ class PythonGenTest extends munit.ScalaCheckSuite {
             next = next + 1
             nm
           }
-        )
+      )
     )
   }
 
-  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
-    val parsed =
-      srcs.zipWithIndex.map { case (src, idx) =>
-        val pack = Parser.unsafeParse(Package.parser, src)
-        ((s"test_$idx", LocationMap(src)), pack)
-      }
-    val nel = NonEmptyList.fromList(parsed).getOrElse(fail("expected sources"))
+  private def extractPythonDef(code: String, name: String): String = {
+    val start = code.indexOf(s"def $name(")
+    assert(start >= 0, code)
+    val end = code.indexOf("\n\n", start)
+    if (end >= 0) code.slice(start, end) else code.drop(start)
+  }
+
+  private def deadPythonTemps(code: String): Set[String] = {
+    val assignRe = raw"^\s*(___v\d+)\s*=".r
+    val names =
+      code.linesIterator
+        .flatMap(line => assignRe.findFirstMatchIn(line).map(_.group(1).nn))
+        .toSet
+
+    def lineReads(name: String, line: String): Boolean = {
+      val trimmed = line.trim
+      if (trimmed.startsWith(s"$name =")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else line.contains(name)
+    }
+
+    names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
+  }
+
+  private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser, src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap
-        .typeCheckParsed(nel, Nil, "<test>", CompileOptions.Default)
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
+  private def typeCheckPackage(
+      src: String,
+      ifaces: List[Package.Interface]
+  ): PackageMap.Typed[Any] = {
+    val pack = Parser.unsafeParse(Package.parser, src)
+    val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, ifaces, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
+  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
+    val parsed = srcs.zipWithIndex.map { case (src, idx) =>
+      val pack = Parser.unsafeParse(Package.parser, src)
+      ((s"test$idx", LocationMap(src)), pack)
+    }
+    val nel = NonEmptyList.fromListUnsafe(parsed)
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }
@@ -102,7 +157,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
          |
          |def count_chars(s):
          |  def loop(s, acc: Nat):
-         |    recur s:
+         |    loop s:
          |      case "": acc
          |      case "$.{_}${tail}": loop(tail, Succ(acc))
          |
@@ -123,7 +178,7 @@ class PythonGenTest extends munit.ScalaCheckSuite {
     ___a1 = 1
     ___t1 = True
     while ___t1:
-        if ___a4 == "":
+        if ___a4 == u"":
             ___a1 = 0
             ___a2 = ___a6
         else:
@@ -136,6 +191,452 @@ class PythonGenTest extends munit.ScalaCheckSuite {
           normalizeGeneratedTemps(expected)
         )
       }
+    }
+  }
+
+  test("guarded middle list search lowers to a scan loop in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+main = has_two
+""")
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val hasTwo = normalizeGeneratedTemps(extractPythonDef(code, "has_two"))
+      assert(hasTwo.contains("while ___v4:"), hasTwo)
+      assert(hasTwo.contains("if ___v2[1] == 2:"), hasTwo)
+      assert(hasTwo.contains("elif ___v3[0] == 1:"), hasTwo)
+      assert(hasTwo.contains("___v3 = ___v3[2]"), hasTwo)
+
+      val whileIdx = hasTwo.indexOf("while ___v4:")
+      val guardIdx = hasTwo.indexOf("if ___v2[1] == 2:")
+      val advanceIdx = hasTwo.indexOf("___v3 = ___v3[2]")
+
+      assert(whileIdx >= 0, hasTwo)
+      assert(guardIdx > whileIdx, hasTwo)
+      assert(advanceIdx > guardIdx, hasTwo)
+      assertEquals(deadPythonTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("numeric comparison observations lower to direct Python comparisons") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import eq_Int64, cmp_Int64
+          |
+          |def lte_zero(x):
+          |  cmp_Int(x, 0) matches LT | EQ
+          |
+          |def gte(x, y):
+          |  cmp_Int(x, y) matches GT | EQ
+          |
+          |def neq(x, y):
+          |  match cmp_Int(x, y):
+          |    case LT: True
+          |    case GT: True
+          |    case _: False
+          |
+          |def same_float(x, y):
+          |  1 if eq_Float64(x, y) else 0
+          |
+          |def neq_float(x, y):
+          |  cmp_Float64(x, y) matches LT | GT
+          |
+          |def same_i64(x, y):
+          |  1 if eq_Int64(x, y) else 0
+          |
+          |def gte_i64(x, y):
+          |  cmp_Int64(x, y) matches GT | EQ
+          |
+          |main = (
+          |  lte_zero,
+          |  gte,
+          |  neq,
+          |  same_float,
+          |  neq_float,
+          |  same_i64,
+          |  gte_i64,
+          |)
+          |""".stripMargin
+      )
+    )
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parse("Test").get)._2
+      val code = doc.render(120)
+
+      val lteZero = normalizeGeneratedTemps(extractPythonDef(code, "lte_zero"))
+      assert(
+        lteZero.contains("return not (0 < ___") || lteZero.contains(" <= 0"),
+        lteZero
+      )
+      assert(!lteZero.contains("cmp_Int"), lteZero)
+
+      val gte = normalizeGeneratedTemps(extractPythonDef(code, "gte"))
+      assert(
+        gte.contains("return not (___") || gte.contains(" >= ___"),
+        gte
+      )
+      assert(!gte.contains("cmp_Int"), gte)
+
+      val neq = normalizeGeneratedTemps(extractPythonDef(code, "neq"))
+      assert(
+        neq.contains(" != ___") || neq.contains("return not (___"),
+        neq
+      )
+      assert(!neq.contains("cmp_Int"), neq)
+
+      val sameFloat =
+        normalizeGeneratedTemps(extractPythonDef(code, "same_float"))
+      assert(sameFloat.contains("isnan"), sameFloat)
+      assert(sameFloat.contains("== 1") || sameFloat.contains(" else "), sameFloat)
+      assert(!sameFloat.contains("eq_Float64"), sameFloat)
+      assert(!sameFloat.contains("cmp_Float64"), sameFloat)
+
+      val neqFloat =
+        normalizeGeneratedTemps(extractPythonDef(code, "neq_float"))
+      assert(neqFloat.contains("isnan"), neqFloat)
+      assert(!neqFloat.contains("cmp_Float64"), neqFloat)
+
+      val sameI64 = normalizeGeneratedTemps(extractPythonDef(code, "same_i64"))
+      assert(sameI64.contains("int64_to_Int"), sameI64)
+      assert(sameI64.contains("=="), sameI64)
+      assert(!sameI64.contains("eq_Int64"), sameI64)
+
+      val gteI64 = normalizeGeneratedTemps(extractPythonDef(code, "gte_i64"))
+      assert(gteI64.contains("int64_to_Int"), gteI64)
+      assert(
+        gteI64.contains(">=") || gteI64.contains("return not ("),
+        gteI64
+      )
+      assert(!gteI64.contains("cmp_Int64"), gteI64)
+    }
+  }
+
+  test("loop-created closures freeze captures through a factory in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def mk():
+  [_ -> i for i in range(3)]
+
+main = mk
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val mk = normalizeGeneratedTemps(extractPythonDef(code, "mk"))
+      val helperDefs = "def ___v\\d+\\(___v\\d+\\):".r.findAllMatchIn(mk).length
+
+      assert(mk.contains("while ___v"), mk)
+      assertEquals(helperDefs, 1, mk)
+      assert(mk.contains("return lambda ___"), mk)
+      assert(mk.contains("___v6(___b__bsts__inline__let__00)"), mk)
+    }
+  }
+
+  test("ProgTest exports generate unittest wrappers in Python") {
+    val predefIface = Package.interfaceOf(PackageMap.predefCompiled)
+
+    val progPm = typeCheckPackage(
+      """package Bosatsu/Prog
+        |
+        |export Prog(), ProgTest(), pure
+        |
+        |enum Prog[e, a]:
+        |  Pure(get: a)
+        |
+        |def pure[a](a: a) -> forall e. Prog[e, a]:
+        |  Pure(a)
+        |
+        |struct ProgTest(test_fn: List[String] -> Prog[String, Test])
+        |""".stripMargin,
+      predefIface :: Nil
+    )
+    val progIface =
+      Package.interfaceOf(progPm.toMap(PackageName.parts("Bosatsu", "Prog")))
+
+    val rootPm = typeCheckPackage(
+      """package Root/Main
+        |
+        |from Bosatsu/Prog import ProgTest, pure
+        |
+        |tests = ProgTest(_ -> pure(Assertion(True, "ok")))
+        |""".stripMargin,
+      predefIface :: progIface :: Nil
+    )
+
+    val pm =
+      (PackageMap.empty + PackageMap.predefInferred) ++
+        progPm.toMap.values ++
+        rootPm.toMap.values
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Root", "Main"))._2
+      val code = doc.render(120)
+
+      assert(code.contains("class BosatsuTests("), code)
+      assert(code.contains(".TestCase):"), code)
+      assert(code.contains("def test_all(self):"), code)
+      assert(code.contains("run_test(tests)"), code)
+    }
+  }
+
+  test("Array Int64 helpers lower to direct Python loops") {
+    val int64Pm = typeCheckPackage(
+      """package Bosatsu/Num/Int64
+        |
+        |export Int64
+        |
+        |external struct Int64
+        |""".stripMargin
+    )
+    val int64Iface =
+      Package.interfaceOf(int64Pm.toMap(PackageName.parts("Bosatsu", "Num", "Int64")))
+
+    val arrayPm = typeCheckPackage(
+      """package Bosatsu/Collection/Array
+        |
+        |from Bosatsu/Num/Int64 import Int64
+        |
+        |export Array, dotf_Array, foldl_with_index_Array, get_or_Array, map_with_index_Array, size_Array, sumf_Array, tabulate_Array, zip_sumf_Array
+        |exposes Bosatsu/Num/Int64
+        |
+        |external struct Array[a: +*]
+        |external def dotf_Array(left: Array[Float64], right: Array[Float64]) -> Float64
+        |external def foldl_with_index_Array[a, b](ary: Array[a], init: b, fn: (b, a, Int64) -> b) -> b
+        |external def get_or_Array[a](ary: Array[a], idx: Int64, default: Int64 -> a) -> a
+        |external def map_with_index_Array[a, b](ary: Array[a], fn: (a, Int64) -> b) -> Array[b]
+        |external def size_Array[a](ary: Array[a]) -> Int64
+        |external def sumf_Array(ary: Array[Float64]) -> Float64
+        |external def tabulate_Array[a](n: Int64, fn: Int64 -> a) -> Array[a]
+        |external def zip_sumf_Array[a, b](left: Array[a], right: Array[b], fn: (a, b) -> Float64) -> Float64
+        |""".stripMargin,
+      int64Iface :: Nil
+    )
+    val arrayIface =
+      Package.interfaceOf(
+        arrayPm.toMap(PackageName.parts("Bosatsu", "Collection", "Array"))
+      )
+
+    val rootPm = typeCheckPackage(
+      """package Test
+        |
+        |from Bosatsu/Collection/Array import (
+        |  Array,
+        |  dotf_Array,
+        |  foldl_with_index_Array,
+        |  get_or_Array,
+        |  map_with_index_Array,
+        |  size_Array,
+        |  sumf_Array,
+        |  tabulate_Array,
+        |  zip_sumf_Array,
+        |)
+        |from Bosatsu/Num/Int64 import Int64
+        |
+        |def build(n: Int64):
+        |  tabulate_Array(n, _ -> 0)
+        |
+        |def miss(xs: Array[Int], idx: Int64):
+        |  get_or_Array(xs, idx, _ -> 0)
+        |
+        |def size_only(xs: Array[Int]):
+        |  size_Array(xs)
+        |
+        |def indexed(xs: Array[Int]):
+        |  foldl_with_index_Array(xs, 0, (acc, _, _) -> acc)
+        |
+        |def mapped(xs: Array[Int]):
+        |  map_with_index_Array(xs, (x, _) -> x)
+        |
+        |def float_ops(xs: Array[Float64], ys: Array[Float64]):
+        |  (sumf_Array(xs), dotf_Array(xs, ys), zip_sumf_Array(xs, ys, (_, _) -> 0.0))
+        |
+        |main = (build, miss, size_only, indexed, mapped, float_ops)
+        |""".stripMargin,
+      List(arrayIface, int64Iface)
+    )
+
+    val pm =
+      (PackageMap.empty + PackageMap.predefInferred) ++
+        int64Pm.toMap.values ++
+        arrayPm.toMap.values ++
+        rootPm.toMap.values
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(PackageName.parts("Test"))._2
+      val code = doc.render(120)
+
+      val build = normalizeGeneratedTemps(extractPythonDef(code, "build"))
+      val miss = normalizeGeneratedTemps(extractPythonDef(code, "miss"))
+      val normalizedCode = normalizeGeneratedTemps(code)
+      val indexed = normalizeGeneratedTemps(extractPythonDef(code, "indexed"))
+      val mapped = normalizeGeneratedTemps(extractPythonDef(code, "mapped"))
+      val floatOps = normalizeGeneratedTemps(extractPythonDef(code, "float_ops"))
+
+      assert(build.contains("2147483647"), build)
+      assert(build.contains("while ___v"), build)
+      assert(normalizedCode.contains("int64_to_Int"), normalizedCode)
+      assert(normalizedCode.contains("int_low_bits_to_Int64"), normalizedCode)
+      assert(indexed.contains("___bxs1[2]"), indexed)
+      assert(indexed.contains("while ___v"), indexed)
+      assert(mapped.contains("tuple(___v"), mapped)
+      assert(miss.contains("return (lambda"), miss)
+      assert(miss.contains("(___bidx0)"), miss)
+      assert(
+        floatOps.contains("___v13 = ___v13 + (___v11 * ___v8[___v9 + ___v12])"),
+        floatOps
+      )
+      assert(floatOps.contains("return (___v5, ___v14, ___v18)"), floatOps)
+      assertEquals(deadPythonTemps(build), Set.empty, build)
+      assertEquals(deadPythonTemps(indexed), Set.empty, indexed)
+      assertEquals(deadPythonTemps(mapped), Set.empty, mapped)
+      assertEquals(deadPythonTemps(floatOps), Set.empty, floatOps)
+    }
+  }
+
+  test("segmented end-anchored list search lowers to one suffix-positioning loop in Python") {
+    val pm = typeCheckPackage("""package Test
+
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+
+main = find_before_one
+""")
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val doc = rendered(())(TestUtils.testPackage)._2
+      val code = doc.render(120)
+      val findBeforeOne = normalizeGeneratedTemps(extractPythonDef(code, "find_before_one"))
+      val whileCount = "while ___v".r.findAllMatchIn(findBeforeOne).length
+
+      assertEquals(whileCount, 2, findBeforeOne)
+      assert(findBeforeOne.contains("___v6 = ___v6[2]"), findBeforeOne)
+      assert(findBeforeOne.contains("___v5 = ___v5[2]"), findBeforeOne)
+      assert(findBeforeOne.contains("(___v5[1] == 1) and (___v5[2][0] == 0)"), findBeforeOne)
+      assertEquals(deadPythonTemps(findBeforeOne), Set.empty, findBeforeOne)
+    }
+  }
+
+  test("segmented string search lowers cleanly in Python") {
+    val hasFooPm = typeCheckPackage("""package Test
+
+def has_foo(s):
+  s matches "${_}foo${_}"
+
+main = has_foo
+""")
+    val fooBeforeBarPm = typeCheckPackage("""package Test
+
+def foo_before_bar(s):
+  s matches "${_}foo${_}bar"
+
+main = foo_before_bar
+    """)
+    Par.withEC {
+      val hasFooRendered = PythonGen.renderSource(hasFooPm, Map.empty, Map.empty)
+      val fooBeforeBarRendered =
+        PythonGen.renderSource(fooBeforeBarPm, Map.empty, Map.empty)
+      val hasFooCode =
+        hasFooRendered(())(TestUtils.testPackage)
+          ._2
+          .render(120)
+      val fooBeforeBarCode =
+        fooBeforeBarRendered(())(TestUtils.testPackage)
+          ._2
+          .render(120)
+      val hasFoo = normalizeGeneratedTemps(extractPythonDef(hasFooCode, "has_foo"))
+      val fooBeforeBar =
+        normalizeGeneratedTemps(extractPythonDef(fooBeforeBarCode, "foo_before_bar"))
+
+      assertEquals("while ___v".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
+      assert(hasFoo.contains("""partition(u"foo")"""), hasFoo)
+      assertEquals(deadPythonTemps(hasFoo), Set.empty, hasFoo)
+
+      assertEquals("while ___v".r.findAllMatchIn(fooBeforeBar).length >= 2, true, fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"foo")"""), fooBeforeBar)
+      assert(fooBeforeBar.contains("""partition(u"bar")"""), fooBeforeBar)
+      assertEquals(deadPythonTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+    }
+  }
+
+  test("cmp_String emits one semantic-probe helper per Python module") {
+    val pm = typeCheckPackage("""package Test
+from Bosatsu/Predef import cmp_String
+
+def compare_three(a, b, c):
+  (cmp_String(a, b), cmp_String(b, c), cmp_String(a, c))
+
+main = compare_three
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val compareThree =
+        normalizeGeneratedTemps(extractPythonDef(code, "compare_three"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assertEquals(
+        """encode\(u"utf-8"\)""".r.findAllMatchIn(code).length,
+        2,
+        code
+      )
+      assert(!compareThree.contains("""encode(u"utf-8")"""), compareThree)
+    }
+  }
+
+  test("CompareLit string predicates keep the Python string helper") {
+    val astral = new String(Character.toChars(0x10000))
+    val pm = typeCheckPackage(s"""package Test
+from Bosatsu/Predef import cmp_String
+
+def before_astral(s):
+  cmp_String(s, "$astral") matches LT
+
+main = before_astral
+""")
+
+    Par.withEC {
+      val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
+      val code = rendered(())(TestUtils.testPackage)
+        ._2
+        .render(120)
+      val beforeAstral =
+        normalizeGeneratedTemps(extractPythonDef(code, "before_astral"))
+
+      assertEquals(
+        "u\"\\\\ue000\" < u\"\\\\U00010000\"".r.findAllMatchIn(code).length,
+        1,
+        code
+      )
+      assert(!beforeAstral.contains("< u\"\\U00010000\""), beforeAstral)
+      assert(!beforeAstral.contains("""cmp_String"""), beforeAstral)
+      assert(
+        beforeAstral.contains("== 0") || beforeAstral.contains("0 =="),
+        beforeAstral
+      )
     }
   }
 
@@ -204,6 +705,13 @@ class PythonGenTest extends munit.ScalaCheckSuite {
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
+        Unit
+      ]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =
@@ -325,6 +833,13 @@ main = classify_char
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
+        Unit
+      ]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =
@@ -397,12 +912,14 @@ main = classify_char
       val rendered = PythonGen.renderSource(pm, Map.empty, Map.empty)
       val doc = rendered(())(PackageName.parts("Test"))._2
       val code = doc.render(120)
+      def containsFmtCall(kind: String, fmt: String): Boolean =
+        code.contains(s".$kind(u\"$fmt\"") || code.contains(s".$kind(\"$fmt\"")
 
       assert(code.contains("import struct as"), code)
-      assert(code.contains(".pack(\">I\""), code)
-      assert(code.contains(".pack(\">f\""), code)
-      assert(code.contains(".unpack(\">I\""), code)
-      assert(code.contains(".unpack(\">f\""), code)
+      assert(containsFmtCall("pack", ">I"), code)
+      assert(containsFmtCall("pack", ">f"), code)
+      assert(containsFmtCall("unpack", ">I"), code)
+      assert(containsFmtCall("unpack", ">f"), code)
     }
   }
 

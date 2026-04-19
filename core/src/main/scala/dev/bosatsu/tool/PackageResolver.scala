@@ -47,13 +47,14 @@ sealed abstract class PackageResolver[IO[_], Path] {
                 path,
                 source
               ).map {
-                case (lm, (packageName, imports, exports)) =>
+                case (lm, (packageName, imports, exports, exposes)) =>
                   PackageResolver.SourceFile(
                     path = path,
                     locationMap = lm,
                     packageName = packageName,
                     imports = imports,
                     exports = exports,
+                    exposes = exposes,
                     sourceHash = rawHash,
                     loadParsed =
                       // On a cache miss we need the full parse; defer that
@@ -105,6 +106,7 @@ object PackageResolver {
       packageName: PackageName,
       imports: List[Import[PackageName, Unit]],
       exports: List[ExportedName[Unit]],
+      exposes: List[List[PackageName]],
       sourceHash: HashValue[Algo.Blake3],
       loadParsed: IO[ValidatedNel[PathParseError[Path], Package.Parsed]]
   ) {
@@ -118,6 +120,7 @@ object PackageResolver {
         packageName = packageName,
         imports = imports,
         exports = exports,
+        exposes = exposes,
         sourceHash = sourceHash,
         loadParsed = loadParsedF
       )

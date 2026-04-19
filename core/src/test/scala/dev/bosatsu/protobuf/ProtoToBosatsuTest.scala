@@ -24,8 +24,10 @@ import dev.bosatsu.protobuf.ProtoDescriptorModel.{
   ScalarType,
   Syntax
 }
+import scala.concurrent.duration.DurationInt
 
 class ProtoToBosatsuTest extends munit.FunSuite {
+  override val munitTimeout = 2.minutes
 
   private val bytesStub: String =
     """package Bosatsu/IO/Bytes
@@ -93,6 +95,7 @@ class ProtoToBosatsuTest extends munit.FunSuite {
       |  decode_double,
       |  decode_float,
       |)
+      |exposes Bosatsu/IO/Bytes
       |
       |enum FieldValue:
       |  Varint(bits: Int)

@@ -28,7 +28,8 @@ sealed abstract class ExportedName[+T] { self: Product =>
     */
   private def toReferants[A](
       letValue: Option[rankn.Type],
-      definedType: Option[rankn.DefinedType[A]]
+      definedType: Option[rankn.DefinedType[A]],
+      typeAlias: Option[rankn.TypeAlias[A]]
   ): Option[NonEmptyList[ExportedName[Referant[A]]]] =
     this match {
       case ExportedName.Binding(n, _) =>
@@ -36,9 +37,15 @@ sealed abstract class ExportedName[+T] { self: Product =>
           NonEmptyList.one(ExportedName.Binding(n, Referant.Value(tpe)))
         }
       case ExportedName.TypeName(nm, _) =>
-        definedType.map { dt =>
-          NonEmptyList.one(ExportedName.TypeName(nm, Referant.DefinedT(dt)))
-        }
+        definedType
+          .map { dt =>
+            NonEmptyList.one(ExportedName.TypeName(nm, Referant.DefinedT(dt)))
+          }
+          .orElse(
+            typeAlias.map { ta =>
+              NonEmptyList.one(ExportedName.TypeName(nm, Referant.TypeAliasT(ta)))
+            }
+          )
       case ExportedName.Constructor(nm, _) =>
         // export the type and all constructors
         definedType.map { dt =>
@@ -117,8 +124,13 @@ object ExportedName {
           .flatMap { cn =>
             typeEnv.getType(nm, dev.bosatsu.TypeName(cn))
           }
+      val optAlias =
+        name.toConstructor
+          .flatMap { cn =>
+            typeEnv.getTypeAlias(nm, dev.bosatsu.TypeName(cn))
+          }
 
-      ename.toReferants(letValue, optDT)
+      ename.toReferants(letValue, optDT, optAlias)
     }
 
     def expName1[A](

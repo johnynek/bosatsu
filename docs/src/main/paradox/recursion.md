@@ -46,6 +46,10 @@ def len(lst: List[a]) -> Int:
     case [_, *tail]: len(tail).add(1)
 ```
 
+Use `recur` only when the recursive algorithm is genuinely non-tail. If every
+valid self-call is tail-position, Bosatsu warns and asks for `loop`. If there
+is no self-call at all, use `match` instead.
+
 At a high level:
 
 1. `recur` matches a parameter name, or a tuple of parameter names, of the
@@ -110,7 +114,7 @@ enum Stream[a]:
   More(next: () -> Stream[a])
 
 def consume(s: Stream[a]) -> Stream[a]:
-  recur s:
+  loop s:
     case End:
       End
     case More(th):
@@ -146,21 +150,19 @@ checker/compiler. Use `recur` when recursion is terminating but intentionally
 non-tail (for example, `Succ(len(tail))` style code).
 
 ## Pattern 1: Structural Recursion On Lists
-This is the most common pattern. Recur directly on the list and call the same
-function on a tail.
+This is the most common pattern. Recur directly on the list when the result is
+built after the recursive call.
 
 In terminology above, this is structural/well-founded recursion where list
 shape gives the decreasing measure for free.
 
-From `List.bosatsu`:
+Simple example:
 
 ```bosatsu
-def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
-    case []: True
-    case [head, *tail]:
-      if fn(head): for_all(tail, fn)
-      else: False
+def size(list: List[a]) -> Nat:
+  recur list:
+    case []: Zero
+    case [_, *tail]: Succ(size(tail))
 ```
 
 Other examples:
@@ -244,7 +246,7 @@ From `BinNat.bosatsu`:
 ```bosatsu
 def fib(b: BinNat) -> BinNat:
   def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
-    recur n:
+    loop n:
       case NatZero: cur
       case NatSucc(n):
         sum = add_BinNat(cur, next)
@@ -303,7 +305,7 @@ From `BinNat.bosatsu`:
 ```bosatsu
 def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
-    recur cnt_Nat:
+    loop cnt_Nat:
       case NatZero: init
       case NatSucc(prev_nat):
         cnt = prev(cnt)
@@ -338,7 +340,7 @@ to `Nat`, and recurse on that `Nat` as the parse budget.
 Sketch:
 
 1. `len = to_Nat(length_String(input))`
-1. `loop(len, input)` with `recur len`
+1. `loop(len, input)` with `loop len`
 1. consume string as you go, and always recurse with the predecessor fuel
 
 This is the same fuel pattern as Pattern 4, but with a string-derived bound.
@@ -378,7 +380,7 @@ proof idea as sorting: derive a bound, decrease it, recurse.
 ## Int Loops
 Bosatsu supports direct recursion on `Int` when the checker can prove the next
 recursive argument is non-negative and strictly smaller on the recursive path.
-The standard library `int_loop` is implemented in Bosatsu using these checks.
+A helper like `int_loop` can be implemented in Bosatsu using these checks.
 
 ## Relation To Fuel And Bove-Capretta
 The design request for this page is tracked at
@@ -405,6 +407,7 @@ How that maps to Bosatsu practice:
 1. Prefer `loop` whenever the algorithm can be tail-recursive, so stack
    exhaustion is impossible by construction. Use `recur` only when non-tail
    recursion is required.
+1. Use `match` for non-recursive branching instead of `recur` or `loop`.
 
 1. For parsing-like string scans, either recurse on string tail directly or use
    length-derived fuel.

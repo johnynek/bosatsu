@@ -7,6 +7,7 @@ export (
   config_payload,
   config_payload_bytes,
 )
+exposes Bosatsu/IO/Bytes
 
 # Example payload: field 1 (varint) set to the value 3.
 config_payload: Bytes = field_varint(1, encode_uint32(3))

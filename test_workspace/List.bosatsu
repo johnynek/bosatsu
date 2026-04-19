@@ -1,17 +1,17 @@
 package Bosatsu/List
 
-from Bosatsu/Bool import not
 from Bosatsu/Num/Nat import Nat, Zero, Succ
 export any, eq_List, exists, get_List, head, for_all, set_List, size, sum, sort, uncons, zip
+exposes Bosatsu/Num/Nat
 
 def any(as: List[Bool]) -> Bool:
-    recur as:
+    loop as:
         case []: False
         case [True, *_]: True
         case [_, *tail]: any(tail)
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
-  recur xs:
+  loop xs:
     case []: True
     case [head, *tail] if fn(head):
       for_all(tail, fn)
@@ -22,7 +22,7 @@ def sum(as: List[Int]) -> Int:
   as.foldl_List(0, add)
 
 def exists(xs: List[a], fn: a -> Bool) -> Bool:
-    recur xs:
+    loop xs:
         case []: False
         case [head, *_] if fn(head):
             True
@@ -44,7 +44,7 @@ def get_List[a](xs: List[a], idx: Int) -> Option[a]:
         None
     else:
         def loop(ys, i):
-            recur ys:
+            loop ys:
                 case []: None
                 case [h, *t]:
                     if i.eq_Int(0):
@@ -58,13 +58,13 @@ def set_List[a](xs: List[a], idx: Int, value: a) -> Option[List[a]]:
         None
     else:
         def prepend_reversed(rev_prefix, suffix):
-            recur rev_prefix:
+            loop rev_prefix:
                 case []: suffix
                 case [h, *t]:
                     prepend_reversed(t, [h, *suffix])
 
         def loop(ys, i, rev_prefix):
-            recur ys:
+            loop ys:
                 case []: None
                 case [h, *t]:
                     if i.eq_Int(0):
@@ -74,20 +74,23 @@ def set_List[a](xs: List[a], idx: Int, value: a) -> Option[List[a]]:
         loop(xs, idx, [])
 
 def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
-  recur (a, b):
-    case ([ah, *at], [bh, *bt]) if fn(ah, bh): eq_List(fn)(at, bt)
-    case ([], []): True
-    case _: False
+  def loop_eq(left: List[a], right: List[a]) -> Bool:
+    loop (left, right):
+      case ([ah, *at], [bh, *bt]) if fn(ah, bh): loop_eq(at, bt)
+      case ([], []): True
+      case _: False
+
+  loop_eq(a, b)
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     def prepend_reversed_pairs(rev_prefix, suffix):
-        recur rev_prefix:
+        loop rev_prefix:
             case []: suffix
             case [h, *t]:
                 prepend_reversed_pairs(t, [h, *suffix])
 
     def loop(ls, rs, rev_prefix):
-        recur (ls, rs):
+        loop (ls, rs):
             case ([], _): prepend_reversed_pairs(rev_prefix, [])
             case (_, []): prepend_reversed_pairs(rev_prefix, [])
             case ([lh, *lt], [rh, *rt]):
@@ -96,7 +99,7 @@ def zip(left: List[a], right: List[b]) -> List[(a, b)]:
 
 # tail recursive size implementation
 def size1(list, acc):
-    recur list:
+    loop list:
         case []: acc
         case [_, *t]: size1(t, Succ(acc))
 

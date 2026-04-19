@@ -10,6 +10,7 @@ from Bosatsu/Predef import (add as add_Int,)
 
 export (BinInt(), binNat_to_BinInt, int_to_BinInt, binInt_to_Int,
   negate, abs, add, not, cmp, eq, sub,)
+exposes Bosatsu/Num/BinNat
 
 # BWNot(x) == -x - 1
 enum BinInt:

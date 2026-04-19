@@ -474,7 +474,7 @@ object Generators {
       import Declaration._
       def protect(d: NonBinding): NonBinding =
         d match {
-          case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
+          case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _, _) => d
           case _ => Parens(d)(using emptyRegion)
         }
       ApplyOp(protect(l), op, protect(r))
@@ -560,7 +560,7 @@ object Generators {
       case lam @ Lambda(_, _)      => Parens(lam)(using emptyRegion)
       case ife @ IfElse(_, _)      => Parens(ife)(using emptyRegion)
       case tern @ Ternary(_, _, _) => Parens(tern)(using emptyRegion)
-      case matches @ Matches(_, _) => Parens(matches)(using emptyRegion)
+      case matches @ Matches(_, _, _) => Parens(matches)(using emptyRegion)
       case m @ Match(_, _, _)      => Parens(m)(using emptyRegion)
       case not                     => not
     }
@@ -837,17 +837,37 @@ object Generators {
   }
 
   def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
-    Gen.zip(argGen0, genPattern(3)).map { case (a, p) =>
+    Gen.zip(
+      argGen0,
+      genPattern(3),
+      Gen.frequency((3, Gen.const(None)), (1, argGen0.map(Some(_))))
+    ).map { case (a, p, guard) =>
       import Declaration._
+
+      @annotation.tailrec
+      def guardedMatchesNeedsParens(g: NonBinding): Boolean =
+        g match {
+          case Annotation(of, _) => guardedMatchesNeedsParens(of)
+          case Matches(_, _, Some(_)) =>
+            true
+          case _ =>
+            false
+        }
 
       val fixa = a match {
         // matches binds tighter than all these
         case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) |
-            Ternary(_, _, _) =>
+            Matches(_, _, Some(_)) | Ternary(_, _, _) =>
           Parens(a)(using emptyRegion)
         case _ => a
       }
-      Matches(fixa, p)(using emptyRegion)
+      val fixGuard = guard.map {
+        case g if guardedMatchesNeedsParens(g) =>
+          Parens(g)(using emptyRegion)
+        case g =>
+          g
+      }
+      Matches(fixa, p, fixGuard)(using emptyRegion)
     }
 
   val genLit: Gen[Lit] = {
@@ -1078,8 +1098,8 @@ object Generators {
                 shrinkDecl.shrink(body)
               ))
           }
-        case Matches(a, _) =>
-          a #:: LazyList.from(shrinkDecl.shrink(a))
+        case Matches(a, _, guard) =>
+          a #:: guard.to(LazyList) #::: LazyList.from(shrinkDecl.shrink(a))
         // the rest can't be shrunk
         case Comment(c)      => c.on.padded #:: LazyList.empty
         case CommentNB(c)    => c.on.padded #:: LazyList.empty
@@ -1773,6 +1793,7 @@ object Generators {
       i.items.toList.flatMap { in =>
         in.tag.toList.flatMap {
           case Referant.DefinedT(dt)       => dt.toTypeConst :: Nil
+          case Referant.TypeAliasT(ta)     => ta.toTypeConst :: Nil
           case Referant.Constructor(dt, _) => dt.toTypeConst :: Nil
           case Referant.Value(_)           => Nil
         }

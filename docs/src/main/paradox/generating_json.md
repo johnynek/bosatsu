@@ -1,34 +1,34 @@
 # Generating JSON from Bosatsu Values
 
 Bosatsu can be used as a typed configuration language and then rendered to JSON
-with `lib json`.
+with `json`.
 
-This page focuses on `lib json` (not `tool json`).
+This page focuses on `json` (not `tool json`).
 
 ## Quick start
 
 1. Typecheck as you iterate:
 
 ```bash
-./bosatsuj lib check --name core_alpha
+./bosatsuj check --name core_alpha
 ```
 
 2. Generate JSON for a value:
 
 ```bash
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
 ```
 
 3. Generate YAML output for the same value (optional):
 
 ```bash
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow --yaml
 ```
 
 ## Command reference
 
 ```bash
-./bosatsuj lib json write [--repo_root <path>] [--name <lib_name>] --main <valueIdent> [--yaml] [--output <path>]
+./bosatsuj json write [--repo_root <path>] [--name <lib_name>] --main <valueIdent> [--yaml] [--output <path>]
 ```
 
 Common flags:
@@ -38,11 +38,11 @@ Common flags:
 - `--yaml`: emit YAML output (default remains JSON)
 - `--output`: write JSON/YAML to a file instead of stdout
 
-When `--yaml` is not set, `lib json` still emits JSON exactly as before.
+When `--yaml` is not set, `json` still emits JSON exactly as before.
 
 ## Encoding shape
 
-`lib json` uses type-directed encoding:
+`json` uses type-directed encoding:
 
 - `Int` -> JSON number
 - `Float64` -> JSON number
@@ -112,11 +112,11 @@ without rewriting every call site.
 
 ## Practical gotchas
 
-- Keep running `lib check` while editing models; it catches most mistakes before JSON generation.
+- Keep running `check` while editing models; it catches most mistakes before JSON generation.
 - JSON field names come from your Bosatsu field names exactly.
 - `Float64` JSON encoding requires finite values; `.NaN`, `∞`, and `-∞` are not valid JSON numbers.
 - If your consumer treats absent and `null` differently, model that intentionally and test it.
-- `lib json write` requires a serializable value. Function-typed mains are rejected.
+- `json write` requires a serializable value. Function-typed mains are rejected.
 
 ## Full commands used in this workflow example
 
@@ -124,8 +124,8 @@ These are the exact commands used to generate the four workflow values modeled i
 this example:
 
 ```bash
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
-./bosatsuj lib json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Ci::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/CodecovMain::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/DeployWeb::workflow
+./bosatsuj json write --name core_alpha --main Bosatsu/Example/Json/Github/Workflows/Release::workflow
 ```

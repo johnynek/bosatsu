@@ -14,7 +14,7 @@ class TestBench {
   private def prepPackages(
       packages: List[String],
       mainPackS: String
-  ): (PackageMap.Inferred, PackageName) = {
+  ): (PackageMap.Compiled, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -61,7 +61,7 @@ gauss$n = range($n).foldLeft(0, add)
     "Gauss"
   )
 
-  val compiled0: (PackageMap.Inferred, PackageName) =
+  val compiled0: (PackageMap.Compiled, PackageName) =
     gauss(10)
 
   @Benchmark def bench0(): Unit = {
@@ -72,7 +72,7 @@ gauss$n = range($n).foldLeft(0, add)
     ()
   }
 
-  val compiled1: (PackageMap.Inferred, PackageName) =
+  val compiled1: (PackageMap.Compiled, PackageName) =
     gauss(20)
 
   @Benchmark def bench1(): Unit = {
@@ -94,6 +94,20 @@ def operator >(a, b):
     case _ : False
 
 operator - = sub
+
+def int_loop(i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+  loop i:
+    case _ if cmp_Int(i, 0) matches GT:
+      (next_i, next_state) = fn(i, state)
+      if cmp_Int(next_i, 0) matches GT:
+        if cmp_Int(next_i, i) matches LT:
+          int_loop(next_i, next_state, fn)
+        else:
+          next_state
+      else:
+        next_state
+    case _:
+      state
 
 # given a maximum value, and a function to Option[Int], return
 # the maximum value of the function for inputs greater than 0

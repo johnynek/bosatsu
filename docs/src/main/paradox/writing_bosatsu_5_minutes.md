@@ -38,7 +38,7 @@ Top-order bits:
 
 1. Everything is immutable. You can shadow names, but not mutate values.
 2. Blocks are expressions: the last line is the return value.
-3. No `while`/mutation loops; use `recur`, `int_loop`, folds, or comprehensions.
+3. No `while`/mutation loops; use `match` for non-recursive branching, `loop` for tail recursion, `recur` only when non-tail recursion is required, plus direct recursion on `Int`, folds, or comprehensions.
 4. No exceptions as control flow in normal code. Model errors in types.
 5. Side effects are explicit `Prog[...]` values, not implicit execution.
 
@@ -61,13 +61,26 @@ main = (
 4. Use `matches` for concise checks in tests and conditionals.
 5. Keep package APIs intentional with `export` and `Type()` (export constructors).
 
-## 4) Always-be-compiling with `lib check` + `todo`
+## 4) Always-be-compiling with `check` + `todo`
 
 Run typecheck continuously while editing:
 
 ```sh
-./bosatsu lib check
+./bosatsu check
 ```
+
+If you want a looser edit loop while sketching code, use:
+
+```sh
+./bosatsu check --warn
+./bosatsu check --lax
+```
+
+`--warn` keeps going on unused values/imports, shadowed-binding type changes,
+unreachable branches, and recursion-form lints (`recur`/`loop` used in the
+wrong source form), but still prints them. `--lax` suppresses that same lint
+set entirely. Non-total matches, recursion soundness errors, import/type
+failures, and other hard errors still stop the run in every mode.
 
 When you know types but not implementation, use `todo` to keep moving:
 
@@ -78,25 +91,32 @@ def hard_part(a: String, b: Int) -> Bool:
 
 Rules:
 
-1. `todo` is only available in check-only commands (`tool check` / `lib check`).
-2. Commands that emit or run code (`lib test`, `lib build`, `tool eval`, etc.)
+1. Strict `tool check` and strict `check` reject built-in `todo`.
+2. `check --warn` accepts built-in `todo` and prints a warning for each use.
+3. `check --lax` accepts built-in `todo` without that warning pass.
+4. Commands that emit or run code (`test`, `build`, `tool eval`, etc.)
    fail until `todo` is removed.
-3. Keep `todo` arguments meaningful (usually tuple all planned inputs) so you do
+5. Keep `todo` arguments meaningful (usually tuple all planned inputs) so you do
    not lose type information during refactors.
 
 Once placeholders are removed, run:
 
 ```sh
-./bosatsu lib test
+./bosatsu test
 ```
+
+`test` accepts the same `--warn` and `--lax` flags, which is useful when
+you want to keep running tests while postponing non-fatal lint cleanup.
 
 ## 5) Practical 5-minute loop
 
 1. Create one package with one exported function.
 2. Add a tiny `tests` value immediately.
-3. Iterate with `lib check`, using `todo` for unfinished branches.
+3. Iterate with `check`, `check --warn`, or `check --lax`,
+   using `todo` for unfinished branches.
 4. Replace `todo` incrementally.
-5. Finish with `lib test`.
+5. Finish with `test` (or `test --warn` if you are still cleaning up
+   unused definitions/imports or recursion-form lints).
 
 That loop matches how most code in `test_workspace` evolves: explicit data
 models, explicit imports/exports, and constant typechecked feedback.

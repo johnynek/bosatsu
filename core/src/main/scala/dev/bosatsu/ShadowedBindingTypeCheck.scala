@@ -91,72 +91,65 @@ object ShadowedBindingTypeCheck {
     fromPattern.collect { case (b: Bindable, tpe) => (b, tpe) }
   }
 
-  private def directLambdaParamName(
-      pattern: Pattern.Parsed
-  ): Option[Bindable] =
-    pattern match {
-      case Pattern.Var(name)            => Some(name)
-      case Pattern.Annotation(inner, _) => directLambdaParamName(inner)
-      case _                            => None
-    }
-
-  private def checkExpr(
-      expr: TypedExpr[Declaration],
+  private def checkExpr[A](
+      expr: TypedExpr[A],
       env: Env,
-      tctx: TypeContext
+      tctx: TypeContext,
+      regionOf: A => Region
   ): Res[Unit] =
     expr match {
       case TypedExpr.Generic(quant, in) =>
-        checkExpr(in, env, tctx.pushQuantification(quant))
+        checkExpr(in, env, tctx.pushQuantification(quant), regionOf)
       case TypedExpr.Annotation(term, _, _) =>
-        checkExpr(term, env, tctx)
+        checkExpr(term, env, tctx, regionOf)
       case TypedExpr.AnnotatedLambda(args, body, tag) =>
         // Lambda/def boundaries start a fresh local scope for this lint.
         // Parameters are tracked inside the function body so local let/match/loop
         // rebinding is still checked against argument types.
-        // This allows parameter (and pattern-arg desugaring) shadowing while still
-        // enforcing let/match/loop consistency within each function body.
-        val sourceArgs = TypedExpr.sourceLambdaArgs(expr)
+        // Pattern-argument lowering introduces synthetic binders, so the
+        // non-synthetic arguments are the user-facing lambda parameters even
+        // on region-only compiled artifacts.
         val checkableArgs: List[(Bindable, Type)] =
-          args.toList.zip(sourceArgs).collect {
-            case ((name, tpe), sourceArg)
-                if directLambdaParamName(sourceArg).contains(name) => (name, tpe)
-          }
+          args.toList.filterNot { case (name, _) => Identifier.isSynthetic(name) }
         val (argCheck, lambdaEnv) =
           checkableArgs.foldLeft((unitValid, Map.empty[Bindable, BoundInfo])) {
             case ((acc, envAcc), (name, tpe)) =>
               val current = BoundInfo(
                 tpe = tpe,
                 canonicalTpe = tctx.canonicalize(tpe),
-                region = tag.region,
+                region = regionOf(tag),
                 site = BindingSite.LambdaArg
               )
               val nextAcc = acc *> checkBinding(envAcc, name, current)
               (nextAcc, addBinding(envAcc, name, current))
           }
-        argCheck *> checkExpr(body, lambdaEnv, tctx)
+        argCheck *> checkExpr(body, lambdaEnv, tctx, regionOf)
       case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
           TypedExpr.Literal(_, _, _) =>
         unitValid
       case TypedExpr.App(fn, args, _, _) =>
-        checkExpr(fn, env, tctx) *> args.traverse_(checkExpr(_, env, tctx))
+        checkExpr(fn, env, tctx, regionOf) *> args.traverse_(
+          checkExpr(_, env, tctx, regionOf)
+        )
       case TypedExpr.Let(arg, rhs, body, recursive, tag) =>
         val tpe = rhs.getType
         val current = BoundInfo(
           tpe = tpe,
           canonicalTpe = tctx.canonicalize(tpe),
-          region = tag.region,
+          region = regionOf(tag),
           site = BindingSite.LetBinding
         )
         val bindCheck = checkBinding(env, arg, current)
         val rhsEnv =
           if (recursive.isRecursive) addBinding(env, arg, current)
           else env
-        val rhsCheck = checkExpr(rhs, rhsEnv, tctx)
-        val bodyCheck = checkExpr(body, addBinding(env, arg, current), tctx)
+        val rhsCheck = checkExpr(rhs, rhsEnv, tctx, regionOf)
+        val bodyCheck =
+          checkExpr(body, addBinding(env, arg, current), tctx, regionOf)
         bindCheck *> rhsCheck *> bodyCheck
       case TypedExpr.Loop(args, body, tag) =>
-        val argChecks = args.traverse_ { case (_, init) => checkExpr(init, env, tctx) }
+        val argChecks =
+          args.traverse_ { case (_, init) => checkExpr(init, env, tctx, regionOf) }
         val loopBinds = args.toList.map { case (name, init) =>
           val tpe = init.getType
           (
@@ -164,7 +157,7 @@ object ShadowedBindingTypeCheck {
             BoundInfo(
               tpe = tpe,
               canonicalTpe = tctx.canonicalize(tpe),
-              region = tag.region,
+              region = regionOf(tag),
               site = BindingSite.LoopBinding
             )
           )
@@ -177,13 +170,13 @@ object ShadowedBindingTypeCheck {
           loopBinds.foldLeft(env) { case (acc, (name, current)) =>
             addBinding(acc, name, current)
           }
-        argChecks *> bindCheck *> checkExpr(body, bodyEnv, tctx)
+        argChecks *> bindCheck *> checkExpr(body, bodyEnv, tctx, regionOf)
       case TypedExpr.Recur(args, _, _) =>
-        args.traverse_(checkExpr(_, env, tctx))
+        args.traverse_(checkExpr(_, env, tctx, regionOf))
       case TypedExpr.Match(arg, branches, _) =>
-        val argCheck = checkExpr(arg, env, tctx)
+        val argCheck = checkExpr(arg, env, tctx, regionOf)
         val branchCheck = branches.traverse_ { branch =>
-          val bindRegion = branch.expr.tag.region
+          val bindRegion = branch.patternRegion
           val patternBinds =
             patternEnv(branch.pattern).toList.sortBy(_._1.sourceCodeRepr)
           val currentBinds = patternBinds.map { case (name, tpe) =>
@@ -204,16 +197,17 @@ object ShadowedBindingTypeCheck {
             currentBinds.foldLeft(env) { case (acc, (name, current)) =>
               addBinding(acc, name, current)
             }
-          val guardCheck = branch.guard.traverse_(checkExpr(_, branchEnv, tctx))
-          val bodyCheck = checkExpr(branch.expr, branchEnv, tctx)
+          val guardCheck =
+            branch.guard.traverse_(checkExpr(_, branchEnv, tctx, regionOf))
+          val bodyCheck = checkExpr(branch.expr, branchEnv, tctx, regionOf)
           bindCheck *> guardCheck *> bodyCheck
         }
         argCheck *> branchCheck
     }
 
-  def checkLets(
+  def checkLets[A: HasRegion](
       pack: PackageName,
-      lets: List[(Bindable, RecursionKind, TypedExpr[Declaration])]
+      lets: List[(Bindable, RecursionKind, TypedExpr[A])]
   ): Res[Unit] = {
     val _ = pack
     lets.traverse_ { case (name, recursive, expr) =>
@@ -223,12 +217,12 @@ object ShadowedBindingTypeCheck {
           val top = BoundInfo(
             tpe = tpe,
             canonicalTpe = TypeContext.empty.canonicalize(tpe),
-            region = expr.tag.region,
+            region = HasRegion.region(expr.tag),
             site = BindingSite.TopLevel
           )
           addBinding(Map.empty, name, top)
         } else Map.empty[Bindable, BoundInfo]
-      checkExpr(expr, recursiveEnv, TypeContext.empty)
+      checkExpr(expr, recursiveEnv, TypeContext.empty, HasRegion.region[A])
     }
   }
 }

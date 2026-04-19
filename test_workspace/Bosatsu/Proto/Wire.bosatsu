@@ -56,6 +56,7 @@ export (
   decode_double,
   decode_float,
 )
+exposes Bosatsu/IO/Bytes
 
 enum FieldValue:
   Varint(bits: Int)
@@ -142,7 +143,7 @@ def take_ints(values: List[Int], count: Int) -> Option[(List[Int], List[Int])]:
 
 def decode_varint_list(values: List[Int]) -> Option[(Int, List[Int])]:
   def loop(rest, shift, acc, count):
-    recur rest:
+    loop rest:
       case []:
         None
       case [head, *tail]:
@@ -213,7 +214,7 @@ def encode_varint_u64(value: Int) -> Bytes:
   max_steps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
   def loop(rem, rev_bytes, steps):
-    recur steps:
+    loop steps:
       case []:
         from_List_Int([rem, *rev_bytes].reverse())
       case [_, *tail]:
@@ -279,7 +280,7 @@ def decode_fields(bytes: Bytes) -> Option[List[(Int, FieldValue)]]:
   initial = to_List_Int(bytes)
 
   def loop(step_fuel, rest, rev_items):
-    recur step_fuel:
+    loop step_fuel:
       case []:
         if rest matches []:
           Some(rev_items.reverse())
@@ -290,39 +291,55 @@ def decode_fields(bytes: Bytes) -> Option[List[(Int, FieldValue)]]:
           case []:
             Some(rev_items.reverse())
           case _:
-            key_part <- decode_varint_list(rest).if_Some()
-            (key, after_key) = key_part
-            field_number = shift_right_Int(key, 3)
-            wire_type = and_Int(key, 7)
+            match decode_varint_list(rest):
+              case None:
+                None
+              case Some((key, after_key)):
+                field_number = shift_right_Int(key, 3)
+                wire_type = and_Int(key, 7)
 
-            if lte_Int(field_number, 0):
-              None
-            elif wire_type matches 0:
-              value_part <- decode_varint_list(after_key).if_Some()
-              (bits, next_rest) = value_part
-              loop(tail_fuel, next_rest, [(field_number, Varint(bits)), *rev_items])
-            elif wire_type matches 1:
-              value_part <- decode_fixed64_list(after_key).if_Some()
-              (bits, next_rest) = value_part
-              loop(tail_fuel, next_rest, [(field_number, Fixed64(bits)), *rev_items])
-            elif wire_type matches 2:
-              len_part <- decode_varint_list(after_key).if_Some()
-              (raw_len, after_len) = len_part
-              if lt_Int(raw_len, 0):
-                None
-              elif gt_Int(raw_len, list_size(after_len)):
-                None
-              else:
-                split <- take_ints(after_len, raw_len).if_Some()
-                (payload_list, next_rest) = split
-                payload = from_List_Int(payload_list)
-                loop(tail_fuel, next_rest, [(field_number, LengthDelimited(payload)), *rev_items])
-            elif wire_type matches 5:
-              value_part <- decode_fixed32_list(after_key).if_Some()
-              (bits, next_rest) = value_part
-              loop(tail_fuel, next_rest, [(field_number, Fixed32(bits)), *rev_items])
-            else:
-              None
+                if lte_Int(field_number, 0):
+                  None
+                elif wire_type matches 0:
+                  match decode_varint_list(after_key):
+                    case None:
+                      None
+                    case Some((bits, next_rest)):
+                      loop(tail_fuel, next_rest, [(field_number, Varint(bits)), *rev_items])
+                elif wire_type matches 1:
+                  match decode_fixed64_list(after_key):
+                    case None:
+                      None
+                    case Some((bits, next_rest)):
+                      loop(tail_fuel, next_rest, [(field_number, Fixed64(bits)), *rev_items])
+                elif wire_type matches 2:
+                  match decode_varint_list(after_key):
+                    case None:
+                      None
+                    case Some((raw_len, after_len)):
+                      if lt_Int(raw_len, 0):
+                        None
+                      elif gt_Int(raw_len, list_size(after_len)):
+                        None
+                      else:
+                        match take_ints(after_len, raw_len):
+                          case None:
+                            None
+                          case Some((payload_list, next_rest)):
+                            payload = from_List_Int(payload_list)
+                            loop(
+                              tail_fuel,
+                              next_rest,
+                              [(field_number, LengthDelimited(payload)), *rev_items]
+                            )
+                elif wire_type matches 5:
+                  match decode_fixed32_list(after_key):
+                    case None:
+                      None
+                    case Some((bits, next_rest)):
+                      loop(tail_fuel, next_rest, [(field_number, Fixed32(bits)), *rev_items])
+                else:
+                  None
 
   loop(initial, initial, [])
 
@@ -330,7 +347,7 @@ def decode_packed_varints(bytes: Bytes) -> Option[List[Int]]:
   initial = to_List_Int(bytes)
 
   def loop(step_fuel, rest, rev_items):
-    recur step_fuel:
+    loop step_fuel:
       case []:
         if rest matches []:
           Some(rev_items.reverse())
@@ -341,9 +358,11 @@ def decode_packed_varints(bytes: Bytes) -> Option[List[Int]]:
           case []:
             Some(rev_items.reverse())
           case _:
-            value_part <- decode_varint_list(rest).if_Some()
-            (bits, next_rest) = value_part
-            loop(tail_fuel, next_rest, [bits, *rev_items])
+            match decode_varint_list(rest):
+              case None:
+                None
+              case Some((bits, next_rest)):
+                loop(tail_fuel, next_rest, [bits, *rev_items])
 
   loop(initial, initial, [])
 
@@ -351,7 +370,7 @@ def decode_packed_fixed32(bytes: Bytes) -> Option[List[Int]]:
   initial = to_List_Int(bytes)
 
   def loop(step_fuel, rest, rev_items):
-    recur step_fuel:
+    loop step_fuel:
       case []:
         if rest matches []:
           Some(rev_items.reverse())
@@ -362,9 +381,11 @@ def decode_packed_fixed32(bytes: Bytes) -> Option[List[Int]]:
           case []:
             Some(rev_items.reverse())
           case _:
-            value_part <- decode_fixed32_list(rest).if_Some()
-            (bits, next_rest) = value_part
-            loop(tail_fuel, next_rest, [bits, *rev_items])
+            match decode_fixed32_list(rest):
+              case None:
+                None
+              case Some((bits, next_rest)):
+                loop(tail_fuel, next_rest, [bits, *rev_items])
 
   loop(initial, initial, [])
 
@@ -372,7 +393,7 @@ def decode_packed_fixed64(bytes: Bytes) -> Option[List[Int]]:
   initial = to_List_Int(bytes)
 
   def loop(step_fuel, rest, rev_items):
-    recur step_fuel:
+    loop step_fuel:
       case []:
         if rest matches []:
           Some(rev_items.reverse())
@@ -383,9 +404,11 @@ def decode_packed_fixed64(bytes: Bytes) -> Option[List[Int]]:
           case []:
             Some(rev_items.reverse())
           case _:
-            value_part <- decode_fixed64_list(rest).if_Some()
-            (bits, next_rest) = value_part
-            loop(tail_fuel, next_rest, [bits, *rev_items])
+            match decode_fixed64_list(rest):
+              case None:
+                None
+              case Some((bits, next_rest)):
+                loop(tail_fuel, next_rest, [bits, *rev_items])
 
   loop(initial, initial, [])
 

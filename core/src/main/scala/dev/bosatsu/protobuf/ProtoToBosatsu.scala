@@ -180,13 +180,18 @@ object ProtoToBosatsu {
         crossPackageImports.map { case (pack, items) =>
           importOf(pack, items.toVector.sorted)
         }
+    val exposes =
+      Option.when(bytesImports.nonEmpty) {
+        List(PackageName.parts("Bosatsu", "IO", "Bytes"))
+      }.toList
 
     val parsedPack =
       Package(
         fileModel.bosatsuPackage,
         imports.toList,
         exports.toList.map(exportedNameOf),
-        statements
+        statements,
+        exposes
       )
     val rendered = Document[Package.Parsed].document(parsedPack).render(80).trim + "\n"
 
@@ -578,7 +583,8 @@ object ProtoToBosatsu {
   ): Declaration.NonBinding =
     Declaration.Matches(
       call("cmp_Int", varRef(valueName), intLit(compareTo)),
-      constructorPattern("EQ", Nil)
+      constructorPattern("EQ", Nil),
+      None
     )(using generatedRegion)
 
   private def renderEnumCodecStatements(
@@ -1072,7 +1078,7 @@ object ProtoToBosatsu {
       )
 
     matchExpr(
-      Declaration.MatchKind.Recur,
+      Declaration.MatchKind.Loop,
       varRef(loopTarget),
       List(
         Pattern.ListPat(Nil) -> emptyBody,
@@ -1117,7 +1123,13 @@ object ProtoToBosatsu {
               )
 
             ifElseExpr(
-              List(Declaration.Matches(varRef(valueName), Pattern.ListPat(Nil))(using generatedRegion) -> emptyListExpr),
+              List(
+                Declaration.Matches(
+                  varRef(valueName),
+                  Pattern.ListPat(Nil),
+                  None
+                )(using generatedRegion) -> emptyListExpr
+              ),
               listLiteral(
                 List(
                   call("field_length_delimited", intLit(fieldModel.number), payload)
@@ -1170,7 +1182,7 @@ object ProtoToBosatsu {
             val defaultPat = defaultPatternForType(fieldModel.fieldType, ctx)
             ifElseExpr(
               List(
-                Declaration.Matches(varRef(valueName), defaultPat)(using generatedRegion) -> emptyListExpr
+                Declaration.Matches(varRef(valueName), defaultPat, None)(using generatedRegion) -> emptyListExpr
               ),
               listLiteral(List(encodedField))
             )
@@ -1581,7 +1593,8 @@ object ProtoToBosatsu {
   ): Declaration.NonBinding =
     Declaration.Matches(
       call("cmp_Int", left, intLit(rightInt)),
-      constructorPattern("EQ", Nil)
+      constructorPattern("EQ", Nil),
+      None
     )(using generatedRegion)
 
   private def tuplePattern(items: List[Pattern.Parsed]): Pattern.Parsed =

@@ -27,14 +27,15 @@ BValue alloc_struct{size}({arg_params}) {{
         perror("GC_malloc failure in alloc_struct{size}");
         abort();
     }}
+    {keeps}
     {assigns}
     return BSTS_VALUE_FROM_PTR(rc);
 }}"""
   arg_decls = "".join("BValue _{i};".format(i = i) for i in range(size))
   arg_params = ", ".join("BValue b{i}".format(i = i) for i in range(size))
-  releases = "\n    ".join("release_value(s->_{i});".format(i = i) for i in range(size))
+  keeps = "\n    ".join("GC_reachable_here(b{i});".format(i = i) for i in range(size))
   assigns = "\n    ".join("rc->_{i} = b{i};".format(i = i) for i in range(size))
-  return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, releases = releases, assigns = assigns)
+  return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, keeps = keeps, assigns = assigns)
 
 def enum_impl(size):
   template = """DEFINE_BSTS_ENUM(Enum{size},{arg_decls});
@@ -46,14 +47,15 @@ BValue alloc_enum{size}(ENUM_TAG tag, {arg_params}) {{
         abort();
     }}
     rc->tag = tag;
+    {keeps}
     {assigns}
     return BSTS_VALUE_FROM_PTR(rc);
 }}"""
   arg_decls = "".join("BValue _{i};".format(i = i) for i in range(size))
   arg_params = ", ".join("BValue b{i}".format(i = i) for i in range(size))
-  releases = "\n    ".join("release_value(s->_{i});".format(i = i) for i in range(size))
+  keeps = "\n    ".join("GC_reachable_here(b{i});".format(i = i) for i in range(size))
   assigns = "\n    ".join("rc->_{i} = b{i};".format(i = i) for i in range(size))
-  return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, releases = releases, assigns = assigns)
+  return template.format(size = size, arg_decls = arg_decls, arg_params = arg_params, keeps = keeps, assigns = assigns)
 
 def function_impl(size):
   define_c = "" if size == 1 else "DEFINE_BSTS_OBJ(Closure{size}Data, BClosure{size} fn; size_t slot_len;);\n".format(size = size)

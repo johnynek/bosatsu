@@ -16,7 +16,7 @@ def quick_sort0(cmp, left, right):
 def quick_sort(list, cmp): quick_sort0(cmp, list, list)
 
 def eq_List(as, bs):
-    recur (as, bs):
+    loop (as, bs):
         case ([a, *atail], [b, *btail]) if eq_Int(a, b): eq_List(atail, btail)
         case ([], []): True
         case _: False
