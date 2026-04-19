@@ -6,6 +6,7 @@ import dev.bosatsu.{
   Generators,
   ImportMap,
   Json,
+  Lit,
   LocationMap,
   Matchless,
   MatchlessFromTypedExpr,
@@ -85,6 +86,51 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
       case Right(value) => value
       case Left(err)    => fail(err)
     }
+
+  test("typedExpr codec round trips explicit BoolGuard branches") {
+    val intType = Type.IntType
+    val boolType = Type.BoolType
+    val value = Identifier.Name("value")
+    val valueExpr = TypedExpr.Local(value, intType, ())
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      ()
+    )
+    val guardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(valueExpr, TypedExpr.Literal(Lit.fromInt(1), intType, ())),
+      boolType,
+      ()
+    )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          Some(guardExpr),
+          TypedExpr.Literal(Lit.fromInt(7), intType, ())
+        ),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, ())
+        )
+      ),
+      ()
+    )
+
+    val rendered = ShowEdn.typedExprCodec.render(expr, 120)
+    assert(rendered.contains("bool-guard"))
+
+    val parsed = ShowEdn.typedExprCodec.parse(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typedExpr EDN: $err")
+    }
+
+    assertEquals(parsed, expr)
+  }
 
   private def sampleMatchlessShowValue(): Output.ShowValue.Matchless = {
     val source =

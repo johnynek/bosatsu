@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `5`
-- Completed steps: `0`
+- Pending steps: `4`
+- Completed steps: `1`
 - Total steps: `5`
 
 ## Summary
@@ -18,15 +18,15 @@ Implement scoped match-branch guards so `case p_outer if expr matches p_inner:` 
 
 ## Current State
 
-`main` already parses branch guards such as `case (x, y) if as_even(x) matches Some(even_x): ...`, and issue #2309 support already exists for top-level conditional `matches` in `if`/`elif`/ternary conditions. On `main`, however, `Declaration` only extends scope for those conditional forms, `SourceConverter` lowers match-branch guards as flat optional boolean expressions, `Expr.Branch` and `TypedExpr.Branch` still store `guard: Option[...]`, totality uses `branch.guard.isEmpty`, and Matchless/proto/EDN tooling all assume a boolean-only guard model. The language guide still says names bound by `matches` stay inside the guard itself.
+`Expr.Branch` and `TypedExpr.Branch` on this branch now carry explicit `Option[...BranchGuard]` nodes with `BoolGuard` for ordinary boolean guards, and shared guard-expression helpers are wired through the main branch walkers in `Expr.scala`, `TypedExpr.scala`, `TypedExprNormalization.scala`, `TypedExprLoopRecurLowering.scala`, `TypedExprRecursionCheck.scala`, `SelfCallKind.scala`, `TypeValidator.scala`, and `TotalityCheck.scala`. `SourceConverter` boolean guards and `if`/`elif` false branches now reach the IR through that explicit bool-guard path, and the plain bool-guard proto/EDN surfaces round-trip via dedicated encodings. `coreJVM/test:compile`, focused `SourceConverterTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest`, and `scripts/test_basic.sh` all passed after the refactor. The branch still has no `MatchGuard` node yet, `Declaration` still only extends scope for conditional matches in `if`/`elif`/ternary forms, and the typed/backend pipeline still treats every branch guard as a plain Bool-producing expression.
 
 ## Problem
 
-That pipeline cannot satisfy #2331. Names introduced by a top-level `matches` inside a branch guard are not in scope for the branch body today, and an early desugaring to a nested `match` would either lose the fact that the outer branch is still guarded or duplicate the continuation and guard-scrutinee evaluation. The change therefore needs a first-class scoped guard model that survives source conversion through inference, diagnostics, totality, lowering, and serialization so right-most shadowing, postponable unused/shadowed-binding checks, effectively-trivial guard coverage, and single evaluation all remain correct.
+That structural refactor removes the boolean-only `Option[Expr]` convention, but #2331 is still semantically incomplete. Top-level `expr matches pattern` guards on match branches still do not extend branch-body scope, inference and diagnostics still only understand outer-pattern plus boolean-guard staging, and Matchless/lowering still lack the single-evaluation scoped guard form needed for the actual feature.
 
 ## Steps
 
-1. [ ] `refactor-branch-guard-adt` Refactor Branch Guards Into Explicit IR Nodes
+1. [x] `refactor-branch-guard-adt` Refactor Branch Guards Into Explicit IR Nodes
 
 Introduce explicit branch-guard ADTs in `Expr` and `TypedExpr`, with `BoolGuard` as the no-behavior-change starting point, and add shared guard-aware map/fold/traverse helpers that all branch walkers must use. This is the explicit refactor step for the issue: replace the current ad hoc `branch.guard.foreach/map` logic across `Expr.scala`, `TypedExpr.scala`, `TypedExprNormalization.scala`, `TypedExprLoopRecurLowering.scala`, `TypedExprRecursionCheck.scala`, `SelfCallKind.scala`, validator checks, and the plain bool-guard serialization surfaces before adding new semantics.
 
@@ -45,6 +45,10 @@ Introduce explicit branch-guard ADTs in `Expr` and `TypedExpr`, with `BoolGuard`
 - Add a `SourceConverterTest` regression that ordinary boolean branch guards and `if`/`elif` false-branch guards lower as `BoolGuard`, while guardless branches remain unwrapped.
 - Add a `ProtoConverterTest` round-trip for a typed match branch carrying a plain `BoolGuard` after the IR shape change.
 - Add a `ShowEdnRoundTripTest` regression that the explicit bool-guard encoding decodes back to the same typed branch shape.
+
+#### Completion Notes
+
+`Expr.Branch` and `TypedExpr.Branch` now store explicit `BranchGuard` nodes, `BoolGuard` is the live boolean variant, the shared guard-expression helpers drive the updated branch walkers and serialization surfaces, and verification passed with `coreJVM/test:compile`, focused `SourceConverterTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest`, plus `scripts/test_basic.sh`.
 
 2. [ ] `extend-declaration-and-source-conversion` Extend Source-Level Scope and Guard Classification
 
@@ -93,7 +97,7 @@ Update `rankn/Infer.scala` so branch checking runs in three stages: outer patter
 
 4. [ ] `lower-matchguard-through-backend-and-tooling` Lower MatchGuard Without Backend Schema Growth
 
-Teach the remaining typed pipeline to carry `TypedExpr.MatchGuard` end to end. `Matchless.scala` should lower it into the existing row structure by evaluating the guard scrutinee once, compiling the inner guard pattern with the existing pattern-matrix helpers, appending guard binders after outer binders before lowering the RHS, and emitting only the necessary boolean test. Update `TypedAst.proto`, `ProtoConverter.scala`, and `ShowEdn.scala` so branch guards encode an explicit bool-vs-match distinction and round-trip without collapsing the new variant.
+Teach the remaining typed pipeline to carry `TypedExpr.MatchGuard` end to end. `Matchless.scala` should lower it into the existing row structure by evaluating the guard scrutinee once, compiling the inner guard pattern with the existing pattern-matrix helpers, appending guard binders after outer binders before lowering the RHS, and emitting only the necessary boolean test. Extend `TypedAst.proto`, `ProtoConverter.scala`, and `ShowEdn.scala` with the `MatchGuard` variant alongside the already-landed explicit `BoolGuard` encoding so the richer guard shape still round-trips without backend schema growth.
 
 #### Invariants
 

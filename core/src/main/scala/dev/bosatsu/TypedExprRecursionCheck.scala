@@ -991,7 +991,7 @@ object TypedExprRecursionCheck {
         case TypedExpr.Match(arg, branches, _) =>
           nestedBindingLints(syntax, currentPackage, arg) ::: branches.toList.flatMap {
             branch =>
-              branch.guard.toList.flatMap(
+              branch.guardExprIterator.toList.flatMap(
                 nestedBindingLints(syntax, currentPackage, _)
               ) ::: nestedBindingLints(syntax, currentPackage, branch.expr)
           }
@@ -1035,8 +1035,10 @@ object TypedExprRecursionCheck {
             )
             .orElse(
               branches.toList.collectFirstSome { branch =>
-                branch.guard.flatMap(findRecursiveHeader(syntax, currentPackage, _))
-                  .orElse(findRecursiveHeader(syntax, currentPackage, branch.expr))
+                branch.foldGuardExpr(None: Option[LintHeader[A]]) {
+                  (acc, guardExpr) =>
+                    acc.orElse(findRecursiveHeader(syntax, currentPackage, guardExpr))
+                }.orElse(findRecursiveHeader(syntax, currentPackage, branch.expr))
               }
             )
         case TypedExpr.Local(_, _, _) | TypedExpr.Global(_, _, _, _) |
@@ -1050,10 +1052,10 @@ object TypedExprRecursionCheck {
     ): Map[Bindable, Int] =
       branches.foldLeft(Map.empty[Bindable, Int]) { (acc, branch) =>
         val blocked = branch.pattern.names.toSet
-        val guardCalls =
-          branch.guard.fold(Map.empty[Bindable, Int])(
-            calledNamesInExpr(currentPackage, _, blocked)
-          )
+        val guardCalls = branch.foldGuardExpr(Map.empty[Bindable, Int]) {
+          case (calls, guardExpr) =>
+            calls |+| calledNamesInExpr(currentPackage, guardExpr, blocked)
+        }
         acc |+| guardCalls |+| calledNamesInExpr(currentPackage, branch.expr, blocked)
       }
 
@@ -1563,9 +1565,11 @@ object TypedExprRecursionCheck {
     ): (Option[SmtExpr.BoolExpr], SmtBranchState) = {
       val (patOpt, state1) = lowerPatternCondition(argExpr, branch.pattern, state)
       val (guardOpt, state2) =
-        branch.guard match {
-          case Some(guard) => lowerBoolExpr(guard, state1)
-          case None        => (Some(SmtExpr.BoolConst.True), state1)
+        branch.guardNode match {
+          case Some(TypedExpr.BoolGuard(guard)) =>
+            lowerBoolExpr(guard, state1)
+          case None                            =>
+            (Some(SmtExpr.BoolConst.True), state1)
         }
       (
         (patOpt, guardOpt).mapN((pat, guard) =>
@@ -2172,8 +2176,8 @@ object TypedExprRecursionCheck {
       // If a previous branch pattern fully covers the current pattern, falling
       // through implies that prior guard was false.
       priorBranches.foldLeft(state) { (st, priorBranch) =>
-        priorBranch.guard match {
-          case Some(guardExpr)
+        priorBranch.guardNode match {
+          case Some(TypedExpr.BoolGuard(guardExpr))
               if patternSubsumes(priorBranch.pattern, currentPattern, st) =>
             val alignedGuards =
               alignSubsumedGuardExprAlternatives(
@@ -3567,23 +3571,22 @@ object TypedExprRecursionCheck {
                 branchFacts.zipWithIndex.parTraverse_ {
                   case ((branch, fallthroughFact), idx) =>
                     val priorBranches = branchFacts.take(idx).map(_._1)
-                    val branchExprCheck =
-                      branch.guard match {
-                        case Some(guardExpr) =>
-                          checkExpr(currentPackage, guardExpr, wrappers) *>
-                            {
-                              val bodyCheck =
-                                checkExpr(currentPackage, branch.expr, wrappers)
-                              withTemporaryRecurBranchSmtState(
-                                bodyCheck,
-                                _ => bodyCheck
-                              ) { smtState =>
-                                addGuardPathFact(guardExpr, smtState)
-                              }
+                    val branchExprCheck = branch.guardNode match {
+                      case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                        checkExpr(currentPackage, guardExpr, wrappers) *>
+                          {
+                            val bodyCheck =
+                              checkExpr(currentPackage, branch.expr, wrappers)
+                            withTemporaryRecurBranchSmtState(
+                              bodyCheck,
+                              _ => bodyCheck
+                            ) { smtState =>
+                              addGuardPathFact(guardExpr, smtState)
                             }
-                        case None            =>
-                          checkExpr(currentPackage, branch.expr, wrappers)
-                      }
+                          }
+                      case None                            =>
+                        checkExpr(currentPackage, branch.expr, wrappers)
+                    }
                     val withFallthroughContext =
                       withTemporaryRecurBranchSmtState(
                         branchExprCheck,
@@ -3714,11 +3717,11 @@ object TypedExprRecursionCheck {
                               fallthroughFact,
                               priorBranches
                             )
-                            _ <- branch.guard.parTraverse_(
+                            _ <- branch.guardExprIterator.toList.parTraverse_(
                               checkExpr(currentPackage, _, wrappers)
                             )
-                            _ <- (branch.guard match {
-                              case Some(guardExpr) =>
+                            _ <- (branch.guardNode match {
+                              case Some(TypedExpr.BoolGuard(guardExpr)) =>
                                 getSt.flatMap {
                                   case InRecurBranch(
                                         inrec,
@@ -3739,7 +3742,7 @@ object TypedExprRecursionCheck {
                                   case _ =>
                                     checkExpr(currentPackage, branch.expr, wrappers)
                                 }
-                              case None =>
+                              case None                            =>
                                 checkExpr(currentPackage, branch.expr, wrappers)
                             })
                             _ <- endBranch

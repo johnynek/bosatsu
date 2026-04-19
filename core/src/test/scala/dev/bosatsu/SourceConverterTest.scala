@@ -118,6 +118,17 @@ class SourceConverterTest extends munit.ScalaCheckSuite {
       .getOrElse(fail("expected a `main` binding"))
       ._2
 
+  private def assertBoolGuardLocal(
+      branch: Expr.Branch[Declaration],
+      expected: String
+  ): Unit =
+    branch.guardNode match {
+      case Some(Expr.BoolGuard(expr)) =>
+        assertEquals(localName(expr), expected)
+      case other =>
+        fail(s"expected BoolGuard local $expected, got: $other")
+    }
+
   private def genericBinders(
       expr: Expr[Declaration]
   ): List[NonEmptyList[(rankn.Type.Var.Bound, Kind)]] =
@@ -401,15 +412,32 @@ else:
 
     assertEquals(branchList(1).pattern, falsePat)
     assertEquals(branchList(1).guard.map(localName), Some("c2"))
+    assertBoolGuardLocal(branchList(1), "c2")
     assertEquals(localName(branchList(1).expr), "t2")
 
     assertEquals(branchList(2).pattern, falsePat)
     assertEquals(branchList(2).guard.map(localName), Some("c3"))
+    assertBoolGuardLocal(branchList(2), "c3")
     assertEquals(localName(branchList(2).expr), "t3")
 
     assertEquals(branchList(3).pattern, falsePat)
     assertEquals(branchList(3).guard, None)
     assertEquals(localName(branchList(3).expr), "e")
+  }
+
+  test("plain boolean match guards lower as BoolGuard while unguarded branches stay empty") {
+    val branchList = mainBranches(
+      """main = match foo:
+        |  case x if cond:
+        |    yes
+        |  case _:
+        |    no
+        |""".stripMargin
+    ).toList
+
+    assertEquals(branchList.length, 2)
+    assertBoolGuardLocal(branchList.head, "cond")
+    assertEquals(branchList.last.guardNode, None)
   }
 
   test("conditional matches in if/elif desugar to nested matches") {

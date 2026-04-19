@@ -739,7 +739,7 @@ object ShowEdn {
             sym(m.matchKind.keyword),
             encodeTypedExpr(arg, quotePackageNames),
             EVector(branches.toList.map { branch =>
-              branch.guard match {
+              branch.guardNode match {
                 case None =>
                   EList(
                     List(
@@ -753,7 +753,7 @@ object ShowEdn {
                     List(
                       sym("branch"),
                       encodePattern(branch.pattern, quotePackageNames),
-                      encodeTypedExpr(g, quotePackageNames),
+                      encodeBranchGuard(g, quotePackageNames),
                       encodeTypedExpr(branch.expr, quotePackageNames)
                     )
                   )
@@ -761,6 +761,24 @@ object ShowEdn {
             })
           )
         )
+    }
+
+  private def encodeBranchGuard(
+      guard: TypedExpr.BranchGuard[Unit],
+      quotePackageNames: Boolean
+  ): Edn =
+    guard match {
+      case TypedExpr.BoolGuard(expr) =>
+        EList(List(sym("bool-guard"), encodeTypedExpr(expr, quotePackageNames)))
+    }
+
+  private def decodeBranchGuard(edn: Edn): ErrorOr[TypedExpr.BranchGuard[Unit]] =
+    edn match {
+      case EList(ESymbol("bool-guard") :: exprEdn :: Nil) =>
+        decodeTypedExpr(exprEdn).map(TypedExpr.BoolGuard(_))
+      case other =>
+        // Backward-compatible decoder for older serialized branch shapes.
+        decodeTypedExpr(other).map(TypedExpr.BoolGuard(_))
     }
 
   private def decodeTypedExpr(edn: Edn): ErrorOr[TypedExpr[Unit]] =
@@ -856,10 +874,13 @@ object ShowEdn {
             case EList(
                   ESymbol("branch") :: patEdn :: guardEdn :: exprEdn :: Nil
                 ) =>
-              (decodePattern(patEdn), decodeTypedExpr(guardEdn), decodeTypedExpr(exprEdn))
-                .mapN { (pat, guard, expr) =>
-                  TypedExpr.Branch(pat, Some(guard), expr)
-                }
+              (
+                decodePattern(patEdn),
+                decodeBranchGuard(guardEdn),
+                decodeTypedExpr(exprEdn)
+              ).mapN { (pat, guard, expr) =>
+                TypedExpr.Branch.fromGuardNode(pat, Some(guard), expr)
+              }
             case other =>
               err[TypedExpr.Branch[Unit]](s"invalid branch: ${rendered(other)}")
           }

@@ -335,10 +335,20 @@ message Region {
   int32 end = 2;
 }
 
+message BoolGuard {
+  int32 expr = 1;
+}
+
+message BranchGuard {
+  oneof value {
+    BoolGuard boolGuard = 1;
+  }
+}
+
 message Branch {
   int32 pattern = 1;
   int32 resultExpr = 2;
-  int32 guardExpr = 3;
+  BranchGuard guard = 3;
   Region patternRegion = 4;
 }
 

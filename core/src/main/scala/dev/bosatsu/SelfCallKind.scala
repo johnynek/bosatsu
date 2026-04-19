@@ -137,10 +137,11 @@ object SelfCallKind {
                 val branchCalls =
                   if (branch.pattern.names.contains(n)) SelfCallKind.NoCall
                   else {
-                    val guardCalls = branch.guard
-                      .fold(SelfCallKind.NoCall: SelfCallKind)(
-                        applyWithMode(n, _, loweredLoopRecur, loopDepth).callNotTail
-                      )
+                    val guardCalls = branch.foldGuardExpr(
+                      SelfCallKind.NoCall: SelfCallKind
+                    ) { case (_, guardExpr) =>
+                      applyWithMode(n, guardExpr, loweredLoopRecur, loopDepth).callNotTail
+                    }
                     guardCalls.merge(
                       applyWithMode(
                         n,
