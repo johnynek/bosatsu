@@ -3572,43 +3572,42 @@ object TypedExpr {
         case Recur(args, tpe, tag) =>
           args.traverse(loop(table, _)).map(Recur(_, tpe, tag))
         case m @ Match(arg, branches, tag) =>
+          def substitutionFreeSet(
+              table0: Map[Bindable, Local[A] => TypedExpr[A]],
+              dummyTpe: Type
+          ): Set[Bindable] =
+            table0.iterator
+              .map { case (n, v) =>
+                freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
+              }
+              .foldLeft(table0.keySet)(_ | _)
+
           // Maintain the order we encounter things:
           val arg1 = loop(table, arg)
           val b1 = branches.traverse { in =>
-            val p = in.pattern
-            // these are not free variables in this branch
-            val ns = p.names
-
-            val (table1, branch1) =
-              if (ns.isEmpty) (table, in)
-              else {
-                // the args here can shadow, so we have to remove any
-                // items from subMap that have the same Ident
-                val argsSet = ns.toSet
-                val nonShadowed =
-                  if (argsSet.isEmpty) table
-                  else table.filterNot { case (i, _) => argsSet(i) }
-
-                // if subFrees is empty, unshadow is a no-op.
-                // but that is efficiently handled by unshadow
-                val subFrees = nonShadowed.iterator
-                  .map { case (n, v) =>
-                    // TODO this isn't great but we just need to get the free vars from the function
-                    // this assumes the replacement free variables is constant over the type
-                    // which it should be otherwise we can make ill-typed TypedExpr
-                    val dummyTpe = in.expr.getType
-                    freeVarsSet(v(Local(n, tpe = dummyTpe, tag)) :: Nil)
-                  }
-                  .foldLeft(nonShadowed.keySet)(_ | _)
-
-                (nonShadowed, unshadowBranch[A](subFrees, in))
-              }
-            // now we know that none of args1 shadow anything in subFrees
-            // so we can just directly substitute nonShadowed on res1
-            // put another way: unshadow make substitute "commute" with lambda.
+            val outerShadowed = in.pattern.names.toSet
+            val bodyShadowed = in.allBindings.toSet
+            val outerTable =
+              if (outerShadowed.isEmpty) table
+              else table.filterNot { case (i, _) => outerShadowed(i) }
+            val bodyTable =
+              if (bodyShadowed == outerShadowed) outerTable
+              else table.filterNot { case (i, _) => bodyShadowed(i) }
+            val dummyTpe = in.expr.getType
+            val branch1 =
+              unshadowBranch[A](
+                substitutionFreeSet(outerTable, dummyTpe),
+                substitutionFreeSet(bodyTable, dummyTpe),
+                in
+              )
+            // `branch1` no longer captures any active substitutions in either
+            // the outer guard scope or the combined guard/body scope.
             (
-              branch1.traverseGuardNodeExpr(loop(table1, _)),
-              loop(table1, branch1.expr)
+              branch1.traverseGuardNodeExprScoped(
+                loop(outerTable, _),
+                loop(bodyTable, _)
+              ),
+              loop(bodyTable, branch1.expr)
             ).mapN { (guard, expr) =>
               branch1.copyNode(guardNode = guard, expr = expr)
             }
@@ -3620,69 +3619,111 @@ object TypedExpr {
   }
 
   private def unshadowBranch[A](
-      freeSet: Set[Bindable],
+      outerFreeSet: Set[Bindable],
+      innerFreeSet: Set[Bindable],
       branch: Branch[A]
   ): Branch[A] = {
-    // we only get in here when p has some names
-    val p = branch.pattern
-    val b = branch.expr
-    val args = NonEmptyList.fromList(p.names) match {
-      case None          => return branch
-      case Some(argsNel) => argsNel
-    }
+    type I = Bindable
 
-    val clashIdent =
-      if (freeSet.isEmpty) Set.empty[Bindable]
-      else args.iterator.filter(freeSet).toSet
+    def inc(n: I, idx: Int): I =
+      n match {
+        case Identifier.Name(nm) => Identifier.Name(nm + idx.toString)
+        case _                   => Identifier.Name("a" + idx.toString)
+      }
 
-    if (clashIdent.isEmpty) branch
-    else {
-      // we have to allocate new variables
-      type I = Bindable
-      def inc(n: I, idx: Int): I =
-        n match {
-          case Identifier.Name(n) => Identifier.Name(n + idx.toString)
-          case _                  => Identifier.Name("a" + idx.toString)
-        }
-
-      def alloc(ident: I, tail: List[I], avoid: Set[I]): NonEmptyList[I] = {
+    def alloc(
+        args: NonEmptyList[I],
+        avoid: Set[I],
+        clashes: Set[I]
+    ): NonEmptyList[I] = {
+      def loop(ident: I, tail: List[I], seen: Set[I]): NonEmptyList[I] = {
         val ident1 =
-          if (clashIdent(ident)) {
-            // the following iterator is infinite and distinct, and the avoid
-            // set is finite, so the get here must terminate in at most avoid.size
-            // steps
+          if (clashes(ident)) {
             Iterator
               .from(0)
               .map(i => inc(ident, i))
-              .collectFirst { case n if !avoid(n) => n }
+              .collectFirst { case n if !seen(n) => n }
               .get
-
           } else ident
 
         tail match {
           case Nil    => NonEmptyList.one(ident1)
           case h :: t =>
-            ident1 :: alloc(h, t, avoid + ident1)
+            ident1 :: loop(h, t, seen + ident1)
         }
       }
 
-      val avoids = freeSet | freeVarsSet(b :: branch.guardExprIterator.toList)
-      val newArgs = alloc(args.head, args.tail, avoids)
-      val resSub = args.iterator
-        .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
-          Local(n1, loc.tpe, loc.tag)
-        })
-        .toMap
-
-      // calling .get is safe when enterLambda = true
-      val b1 = substituteAll(resSub, b, enterLambda = true).get
-      val g1 = branch.mapGuardNodeExpr(
-        substituteAll(resSub, _, enterLambda = true).get
-      )
-      val p1 = p.substitute(args.iterator.zip(newArgs.iterator).toMap)
-
-      branch.copyNode(pattern = p1, guardNode = g1, expr = b1)
+      loop(args.head, args.tail, avoid)
     }
+
+    def renameOuter(branch0: Branch[A]): Branch[A] =
+      NonEmptyList.fromList(branch0.pattern.names) match {
+        case None       => branch0
+        case Some(args) =>
+          val clashes =
+            if (outerFreeSet.isEmpty) Set.empty[Bindable]
+            else args.iterator.filter(outerFreeSet).toSet
+
+          if (clashes.isEmpty) branch0
+          else {
+            val avoids =
+              outerFreeSet | freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
+            val newArgs = alloc(args, avoids, clashes)
+            val resSub = args.iterator
+              .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
+                Local(n1, loc.tpe, loc.tag)
+              })
+              .toMap
+
+            val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
+            val guard1 = branch0.mapGuardNodeExpr(
+              substituteAll(resSub, _, enterLambda = true).get
+            )
+            val pattern1 = branch0.pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
+
+            branch0.copyNode(pattern = pattern1, guardNode = guard1, expr = body1)
+          }
+      }
+
+    def renameInner(branch0: Branch[A]): Branch[A] =
+      branch0.guardNode match {
+        case Some(guard @ MatchGuard(argExpr, pattern, guardOpt)) =>
+          NonEmptyList.fromList(pattern.names) match {
+            case None       => branch0
+            case Some(args) =>
+              val clashes =
+                if (innerFreeSet.isEmpty) Set.empty[Bindable]
+                else args.iterator.filter(innerFreeSet).toSet
+
+              if (clashes.isEmpty) branch0
+              else {
+                val avoids =
+                  innerFreeSet |
+                    branch0.pattern.names.toSet |
+                    freeVarsSet(branch0.expr :: branch0.guardExprIterator.toList)
+                val newArgs = alloc(args, avoids, clashes)
+                val resSub = args.iterator
+                  .zip(newArgs.iterator.map { n1 => (loc: Local[A]) =>
+                    Local(n1, loc.tpe, loc.tag)
+                  })
+                  .toMap
+
+                val body1 = substituteAll(resSub, branch0.expr, enterLambda = true).get
+                val guardOpt1 =
+                  guardOpt.map(substituteAll(resSub, _, enterLambda = true).get)
+                val pattern1 =
+                  pattern.substitute(args.iterator.zip(newArgs.iterator).toMap)
+                val guard1 =
+                  MatchGuard(argExpr, pattern1, guardOpt1)(using guard.patternRegion)
+
+                branch0.copyNode(guardNode = Some(guard1), expr = body1)
+              }
+          }
+        case _                                     =>
+          branch0
+      }
+
+    renameInner(renameOuter(branch))
   }
 
   def substituteTypeVar[A](
@@ -3867,8 +3908,13 @@ object TypedExpr {
           branches.map { branch =>
             if (branch.pattern.names.contains(name)) branch
             else {
-              val g1 = branch.mapGuardNodeExpr(recur)
-              branch.copyNode(guardNode = g1, expr = recur(branch.expr))
+              val recurInner: TypedExpr[A] => TypedExpr[A] =
+                if (branch.guardBindings.contains(name)) identity
+                else recur
+              val g1 = branch.mapGuardNodeExprScoped(recur, recurInner)
+              val expr1 = recurInner(branch.expr)
+              if (g1.eq(branch.guardNode) && (expr1 eq branch.expr)) branch
+              else branch.copyNode(guardNode = g1, expr = expr1)
             }
           },
           tag
