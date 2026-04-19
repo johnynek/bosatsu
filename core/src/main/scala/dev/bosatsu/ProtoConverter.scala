@@ -822,6 +822,22 @@ object ProtoConverter {
                   branchGuard.value match {
                     case proto.BranchGuard.Value.BoolGuard(proto.BoolGuard(exprId, _)) =>
                       exprOf(exprId).map(expr => Some(TypedExpr.BoolGuard(expr)))
+                    case proto.BranchGuard.Value.MatchGuard(protoMatchGuard) =>
+                      (
+                        exprOf(protoMatchGuard.argExpr),
+                        ds.tryPattern(
+                          protoMatchGuard.pattern - 1,
+                          s"invalid guard pattern in $ex"
+                        ),
+                        protoMatchGuard.guardExpr.traverse(exprOf),
+                        regionFromProto(protoMatchGuard.patternRegion)
+                      ).mapN { (argExpr, pattern, guardExpr, patternRegion) =>
+                        Some(
+                          TypedExpr.MatchGuard(argExpr, pattern, guardExpr)(using
+                            patternRegion
+                          )
+                        )
+                      }
                     case _ =>
                       Success(None)
                   }
@@ -1331,6 +1347,23 @@ object ProtoConverter {
                       proto.BranchGuard(
                         proto.BranchGuard.Value.BoolGuard(
                           proto.BoolGuard(exprId)
+                        )
+                      )
+                    }
+                  case guard @ TypedExpr.MatchGuard(argExpr, pattern, guardExpr) =>
+                    (
+                      recurse(argExpr),
+                      patternToProto(pattern),
+                      guardExpr.traverse(recurse)
+                    ).mapN { (argExprId, patternId, guardExprId) =>
+                      proto.BranchGuard(
+                        proto.BranchGuard.Value.MatchGuard(
+                          proto.MatchGuard(
+                            argExpr = argExprId,
+                            pattern = patternId,
+                            guardExpr = guardExprId,
+                            patternRegion = Some(regionToProto(guard.patternRegion))
+                          )
                         )
                       )
                     }

@@ -2767,6 +2767,47 @@ object Infer {
     /*
      * we require resT in weak prenex form because we call checkRho with it
      */
+    def typeCheckBranchGuard[A: HasRegion](
+        branch: Expr.Branch[A],
+        outerBindings: List[(Bindable, Type)]
+    ): Infer[(Option[TypedExpr.BranchGuard[A]], List[(Bindable, Type)])] = {
+      branch.guardNode match {
+        case None =>
+          pure((None, Nil))
+        case Some(Expr.BoolGuard(guardExpr)) =>
+          extendEnvList(outerBindings)(checkRho(guardExpr, Type.BoolType))
+            .map(guard => (Some(TypedExpr.BoolGuard(guard)), Nil))
+        case Some(guard @ Expr.MatchGuard(argExpr, pattern, guardOpt, checkExpr)) =>
+          extendEnvList(outerBindings) {
+            inferSigma(argExpr).flatMap { targ =>
+              skolemizeExistsOnly(targ.getType).flatMap { case (_, scrutineeType) =>
+                typeCheckPattern(
+                  pattern,
+                  Expected.Check((scrutineeType, region(argExpr))),
+                  guard.patternRegion
+                ).flatMap { case (typedPattern, guardBindings) =>
+                  val branchBindings = outerBindings ++ guardBindings
+                  for {
+                    typedInnerGuard <- extendEnvList(branchBindings)(
+                      guardOpt.traverse(checkRho(_, Type.BoolType))
+                    )
+                    _ <- extendEnvList(branchBindings)(
+                      checkExpr.traverse(checkRho(_, Type.BoolType)).void
+                    )
+                  } yield {
+                    val typedGuard =
+                      TypedExpr.MatchGuard(targ, typedPattern, typedInnerGuard)(using
+                        guard.patternRegion
+                      )
+                    (Some(typedGuard), guardBindings)
+                  }
+                }
+              }
+          }
+      }
+    }
+    }
+
     def checkBranch[A: HasRegion](
         branch: Expr.Branch[A],
         sigma: Expected.Check[(Type, Region)],
@@ -2778,16 +2819,15 @@ object Infer {
           sigma,
           branch.patternRegion
         )
-        tguard <- branch.guard.traverse(g =>
-          extendEnvList(bindings)(checkRho(g, Type.BoolType))
-        )
-        inferredResType <- extendEnvList(bindings)(
+        (tguard, guardBindings) <- typeCheckBranchGuard(branch, bindings)
+        branchBindings = bindings ++ guardBindings
+        inferredResType <- extendEnvList(branchBindings)(
           inferRho(branch.expr).peek.map {
             case Right((_, inferred)) => Some(inferred: Type)
             case Left(_)              => None
           }
         )
-        tres <- extendEnvList(bindings)(
+        tres <- extendEnvList(branchBindings)(
           checkRho(branch.expr, resT)
             .mapError { err =>
               contextualTypeError(
@@ -2801,7 +2841,9 @@ object Infer {
               )(err)
             }
         )
-      } yield TypedExpr.Branch(pattern, tguard, tres)(using branch.patternRegion)
+      } yield TypedExpr.Branch.fromGuardNode(pattern, tguard, tres)(using
+        branch.patternRegion
+      )
     }
 
     def inferBranch[A: HasRegion](
@@ -2811,13 +2853,13 @@ object Infer {
       for {
         patBind <- typeCheckPattern(branch.pattern, sigma, branch.patternRegion)
         (pattern, bindings) = patBind
-        tguard <- branch.guard.traverse(g =>
-          extendEnvList(bindings)(checkRho(g, Type.BoolType))
-        )
+        (tguard, guardBindings) <- typeCheckBranchGuard(branch, bindings)
         // inferRho returns a TypedExpr.Rho (which is only an alias)
-        res <- extendEnvList(bindings)(inferRho(branch.expr))
+        res <- extendEnvList(bindings ++ guardBindings)(inferRho(branch.expr))
       } yield (
-        TypedExpr.Branch(pattern, tguard, res._1)(using branch.patternRegion),
+        TypedExpr.Branch.fromGuardNode(pattern, tguard, res._1)(using
+          branch.patternRegion
+        ),
         res._2
       )
     }

@@ -1764,11 +1764,13 @@ object TypedExprNormalization {
         val branchNorms =
           branches.map { branch =>
             val p = branch.pattern
-            val shadowed = p.names.toSet
-            val branchScope = scope -- shadowed
+            val outerShadowed = p.names.toSet
+            val innerShadowed = branch.guardBindings.toSet
+            val branchScope = scope -- outerShadowed
 
-            val guardNorm0 = branch.mapGuardNodeExpr(
-              normalize1(None, _, branchScope, typeEnv).get
+            val guardNorm0 = branch.mapGuardNodeExprScoped(
+              normalize1(None, _, branchScope, typeEnv).get,
+              normalize1(None, _, branchScope -- innerShadowed, typeEnv).get
             )
             val (guardChanged, guard1, dropped) =
               guardNorm0 match {
@@ -1784,6 +1786,9 @@ object TypedExprNormalization {
                       val changed = if (guardNorm0.eq(branch.guardNode)) 0 else 1
                       (changed, guardNorm0, false)
                   }
+                case Some(_: TypedExpr.MatchGuard[?]) =>
+                  val changed = if (guardNorm0.eq(branch.guardNode)) 0 else 1
+                  (changed, guardNorm0, false)
                 case None =>
                   (0, None, false)
               }
@@ -1791,7 +1796,7 @@ object TypedExprNormalization {
             if (dropped)
               BranchNorm(guardChanged, branch.copyNode(guardNode = guard1), true)
             else {
-              val (exprChanged, expr1) = ncount(shadowed, branch.expr)
+              val (exprChanged, expr1) = ncount(outerShadowed | innerShadowed, branch.expr)
               val freeGuard =
                 guard1.fold(Set.empty[Bindable]) { guardNode =>
                   TypedExpr.BranchGuard.foldExpr(guardNode, Set.empty[Bindable]) {

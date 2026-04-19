@@ -23,6 +23,15 @@ object UnusedLetCheck {
   }
 
   private sealed trait Work[A]
+  private sealed trait BranchGuardState
+  private object BranchGuardState {
+    case object NoGuard extends BranchGuardState
+    case object BoolGuard extends BranchGuardState
+    final case class MatchGuard(
+        innerNames: List[Bindable],
+        hasInnerGuard: Boolean
+    ) extends BranchGuardState
+  }
   private final case class VisitExpr[A](expr: Expr[A]) extends Work[A]
   private final case class FinishLambda[A](
       args: List[Bindable],
@@ -39,9 +48,9 @@ object UnusedLetCheck {
       region: Region
   ) extends Work[A]
   private final case class FinishBranch[A](
-      names: List[Bindable],
+      outerNames: List[Bindable],
       region: Region,
-      hasGuard: Boolean
+      guardState: BranchGuardState
   ) extends Work[A]
   private final case class FinishMatch[A](branchCount: Int) extends Work[A]
 
@@ -52,6 +61,15 @@ object UnusedLetCheck {
   ): LoopState =
     if (in.free(arg)) in.copy(free = in.free - arg)
     else in.copy(unused = in.unused ++ Chain.one((arg, reg)))
+
+  private def checkArgs(
+      args: List[Bindable],
+      reg: Region,
+      in: LoopState
+  ): LoopState =
+    args.reverseIterator.foldLeft(in) { (state, arg) =>
+      checkArg(arg, reg, state)
+    }
 
   private def loop[A: HasRegion](root: Expr[A]): LoopState = {
     var work: List[Work[A]] = VisitExpr(root) :: Nil
@@ -190,39 +208,74 @@ object UnusedLetCheck {
 
         case VisitBranch(branch, region) =>
           work = work.tail
-          val names = branch.pattern.names
-          work =
-            branch.guard match {
-              case Some(g) =>
-                VisitExpr(g) :: VisitExpr(branch.expr) :: FinishBranch(
-                  names,
-                  region,
-                  hasGuard = true
-                ) :: work
-              case None    =>
-                VisitExpr(branch.expr) :: FinishBranch(
-                  names,
-                  region,
-                  hasGuard = false
-                ) :: work
-            }
+          val outerNames = branch.pattern.names
+          work = branch.guardNode match {
+            case Some(Expr.BoolGuard(g)) =>
+              VisitExpr(g) :: VisitExpr(branch.expr) :: FinishBranch(
+                outerNames,
+                region,
+                BranchGuardState.BoolGuard
+              ) :: work
+            case Some(Expr.MatchGuard(argExpr, pattern, guardOpt, _)) =>
+              val guardWork =
+                guardOpt.fold(List.empty[Work[A]])(g => VisitExpr(g) :: Nil)
+              VisitExpr(argExpr) :: (guardWork ::: VisitExpr(branch.expr) :: FinishBranch(
+                outerNames,
+                region,
+                BranchGuardState.MatchGuard(pattern.names, guardOpt.nonEmpty)
+              ) :: work)
+            case None =>
+              VisitExpr(branch.expr) :: FinishBranch(
+                outerNames,
+                region,
+                BranchGuardState.NoGuard
+              ) :: work
+          }
 
-        case FinishBranch(names, region, hasGuard) =>
+        case FinishBranch(outerNames, region, guardState) =>
           work = work.tail
-          val exprState = popValue()
-          val guardState =
-            if (hasGuard) popValue() else LoopState.empty
-
-          val free0 = guardState.free ++ exprState.free
-          val nextFrees = free0 -- names
-          val unusedNames = names.filterNot(free0)
-          val unusedFromPattern = Chain.fromSeq(unusedNames.map((_, region)))
-          pushValue(
-            LoopState(
-              nextFrees,
-              guardState.unused ++ exprState.unused ++ unusedFromPattern
-            )
-          )
+          guardState match {
+            case _: BranchGuardState.NoGuard.type =>
+              val exprState = popValue()
+              pushValue(checkArgs(outerNames, region, exprState))
+            case _: BranchGuardState.BoolGuard.type =>
+              val exprState = popValue()
+              val boolGuardState = popValue()
+              pushValue(
+                checkArgs(
+                  outerNames,
+                  region,
+                  LoopState(
+                    boolGuardState.free ++ exprState.free,
+                    boolGuardState.unused ++ exprState.unused
+                  )
+                )
+              )
+            case BranchGuardState.MatchGuard(innerNames, hasInnerGuard) =>
+              val exprState = popValue()
+              val innerGuardState =
+                if (hasInnerGuard) popValue() else LoopState.empty
+              val argState = popValue()
+              val innerChecked =
+                checkArgs(
+                  innerNames,
+                  region,
+                  LoopState(
+                    innerGuardState.free ++ exprState.free,
+                    innerGuardState.unused ++ exprState.unused
+                  )
+                )
+              pushValue(
+                checkArgs(
+                  outerNames,
+                  region,
+                  LoopState(
+                    argState.free ++ innerChecked.free,
+                    argState.unused ++ innerChecked.unused
+                  )
+                )
+              )
+          }
 
         case FinishMatch(branchCount) =>
           work = work.tail

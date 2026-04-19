@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `3`
-- Completed steps: `2`
+- Pending steps: `2`
+- Completed steps: `3`
 - Total steps: `5`
 
 ## Summary
@@ -18,11 +18,11 @@ Implement scoped match-branch guards so `case p_outer if expr matches p_inner:` 
 
 ## Current State
 
-`Declaration.freeVars`, `allNames`, and `substitute` now treat a whole match-branch guard classified by `Declaration.ConditionalMatch.unapply` like the existing `if`/ternary conditional-match forms: the guard itself stays in the outer branch-pattern scope, while the same branch body sees both the outer pattern binders and the inner guard-pattern binders. Untyped `Expr.Branch.guardNode` on this branch can now carry `Expr.MatchGuard(arg, pattern, guardOpt, checkExpr)` in addition to `BoolGuard`, and `SourceConverter` classifies top-level conditional-match branch guards into that richer node, preserves whole-guard annotation validation through the stored `checkExpr`, canonicalizes inner `if True` guards to `None`, and keeps non-classified branch guards on the plain `BoolGuard` path. Added focused `DeclarationTest`, `ParserTest`, and `SourceConverterTest` coverage for source-level scoping/classification, then reran `coreJVM/test:compile`, the focused suites, and the repo gate `scripts/test_basic.sh`, all of which passed. The branch still lacks typed `MatchGuard` support, so inference, diagnostics, totality, Matchless lowering, and typed serialization/tooling continue to treat branch guards as Bool-only.
+`TypedExpr.MatchGuard` now typechecks through `Infer.scala`, `NameCheck`, and `TypeValidator`, branch-body scope now includes guard-pattern binders only for the same branch and optional inner guard, `UnusedLetCheck` and `ShadowedBindingTypeCheck` reuse the existing shadowed/unused-binding diagnostics across the two-layer binder scope, and `TotalityCheck` treats only effectively-trivial match guards as unguarded. Directly coupled typed-visitor updates in `TypedExpr.scala`, `TypedExprNormalization.scala`, and `TypedExprRecursionCheck.scala`, plus proto encoding support in `TypedAst.proto` and `ProtoConverter.scala`, were absorbed so the branch stayed coherent and the required gate remained shippable. Added focused `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, `TypedTotalityTest`, and `TypedExprRecursionCheckTest` coverage, then reran `coreJVM/test:compile`, the focused suites, and `scripts/test_basic.sh`, all of which passed. `Matchless.scala`, evaluation regressions for single-evaluation semantics, and `ShowEdn`/EDN round-tripping still do not carry `MatchGuard` end to end, so the feature is not yet fully shipped.
 
 ## Problem
 
-#2331 is still semantically incomplete after source conversion. Branch-guard conditional matches now preserve their binder information in untyped `Expr`, but the typed/compiler back half still assumes branch guards are Bool-only. That means programs using guard-introduced binders still cannot typecheck and lower end to end, and the existing diagnostic, totality, backend, proto, and EDN surfaces do not yet understand the richer guard form.
+#2331 no longer stops at source conversion or typed scoping, but the backend and remaining tooling path is still incomplete. `TypedExpr.MatchGuard` now survives inference, validation, diagnostics, and totality, yet Matchless lowering, evaluation-style regressions, and EDN/show round-tripping still need to preserve the same single-evaluation and right-most-wins semantics. Until those remaining surfaces are updated, branch-guard `matches` is not fully end to end across compiler outputs and tooling.
 
 ## Steps
 
@@ -77,7 +77,7 @@ Keep `Declaration.MatchBranch.guard` as source syntax, but teach `Declaration.fr
 
 `Declaration.freeVars`, `allNames`, and `substitute` now treat top-level conditional-match branch guards like the existing scoped conditional-match source forms: the guard itself is still traversed under the outer branch-pattern names only, while the same branch body gains the inner guard-pattern binders. `SourceConverter` now classifies those whole-guard branch forms into `Expr.MatchGuard`, stores the later Bool-position annotation check on the guard node, canonicalizes inner `if True` to `None`, and keeps ordinary branch guards on `BoolGuard`. Added focused `DeclarationTest`, `ParserTest`, and `SourceConverterTest` coverage, then reran `coreJVM/test:compile`, the focused suites, and `scripts/test_basic.sh`.
 
-3. [ ] `typecheck-matchguard-and-reuse-diagnostics` Typecheck Scoped Match Guards and Reuse Existing Diagnostics
+3. [x] `typecheck-matchguard-and-reuse-diagnostics` Typecheck Scoped Match Guards and Reuse Existing Diagnostics
 
 Update `rankn/Infer.scala` so branch checking runs in three stages: outer pattern, guard, then body. `BoolGuard` still checks as `Bool` under the outer bindings; `Expr.MatchGuard` must infer the guard scrutinee, instantiate it the same way match scrutinees are instantiated for pattern checking, typecheck the guard pattern, extend the environment with guard bindings for the optional inner guard and branch body, and then revalidate the stored whole-guard Bool-position check expression when present. In the same slice, update `TypeValidator.scala`, `UnusedLetCheck.scala`, `ShadowedBindingTypeCheck.scala`, and `TotalityCheck.scala` to understand the two-layer binder scope and effectively-unguarded detection.
 
@@ -99,16 +99,20 @@ Update `rankn/Infer.scala` so branch checking runs in three stages: outer patter
 - Add an `ErrorMessageTest` or equivalent compile-diagnostic regression that a fully shadowed outer branch binder can still surface through the existing unused-binding diagnostic path rather than a new source-converter failure.
 - Add `TypedTotalityTest` coverage that nontrivial `MatchGuard` branches stay guarded, effectively-trivial `MatchGuard` branches participate like unguarded ones, and no new synthetic unreachable-branch behavior appears.
 
-4. [ ] `lower-matchguard-through-backend-and-tooling` Lower MatchGuard Without Backend Schema Growth
+#### Completion Notes
 
-Teach the remaining typed pipeline to carry `TypedExpr.MatchGuard` end to end. `Matchless.scala` should lower it into the existing row structure by evaluating the guard scrutinee once, compiling the inner guard pattern with the existing pattern-matrix helpers, appending guard binders after outer binders before lowering the RHS, and emitting only the necessary boolean test. Extend `TypedAst.proto`, `ProtoConverter.scala`, and `ShowEdn.scala` with the `MatchGuard` variant alongside the already-landed explicit `BoolGuard` encoding so the richer guard shape still round-trips without backend schema growth.
+`Infer.scala` now checks match branches in outer-pattern -> guard -> body order, with `Expr.MatchGuard` inferring the guard scrutinee under outer bindings, typechecking the inner pattern against the instantiated scrutinee type, extending scope with guard-pattern bindings for the optional inner guard and same-branch body, and revalidating the stored whole-guard Bool-position expression. `NameCheck`, `TypeValidator`, `UnusedLetCheck`, `ShadowedBindingTypeCheck`, and `TotalityCheck` now understand the two-layer binder scope and effectively-unguarded case, and directly coupled updates in `TypedExpr.scala`, `TypedExprNormalization.scala`, `TypedExprRecursionCheck.scala`, `TypedAst.proto`, and `ProtoConverter.scala` were absorbed so the typed pipeline and required gate stayed coherent. Added focused `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, and `TypedTotalityTest` regressions, reran `coreJVM/test:compile`, `coreJVM/testOnly dev.bosatsu.ErrorMessageTest dev.bosatsu.ShadowedBindingTypeCheckTest dev.bosatsu.TypedTotalityTest dev.bosatsu.TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`, all of which passed.
+
+4. [ ] `lower-matchguard-through-backend-and-tooling` Lower MatchGuard Through Matchless and Remaining Tooling
+
+Teach the remaining backend/tooling pipeline to carry `TypedExpr.MatchGuard` end to end. `Matchless.scala` should lower it into the existing row structure by evaluating the guard scrutinee once, compiling the inner guard pattern with the existing pattern-matrix helpers, appending guard binders after outer binders before lowering the RHS, and emitting only the necessary boolean test. Keep the already-landed proto encoding and add focused round-trip coverage, then extend `ShowEdn.scala` so the richer guard shape still round-trips across the remaining typed IR tooling without backend schema growth.
 
 #### Invariants
 
 - No new Matchless AST or backend-visible node is introduced; the existing row shape of pattern, optional boolean guard, RHS, and accumulated binds remains sufficient.
 - The guard scrutinee is evaluated exactly once per attempted branch, even when the inner guard pattern fails or the branch falls through.
 - Backend name resolution preserves the same right-most-wins shadowing order as the typed branch body by appending guard binders after outer branch binders.
-- Typed AST and EDN decoders preserve guard kind explicitly and must not silently collapse a match-style guard into a plain boolean guard or drop it.
+- Proto and EDN decoders preserve guard kind explicitly and must not silently collapse a match-style guard into a plain boolean guard or drop it.
 
 #### Property Tests
 
@@ -118,12 +122,13 @@ Teach the remaining typed pipeline to carry `TypedExpr.MatchGuard` end to end. `
 
 - Add `EvaluationTest` cases comparing `case ... if expr matches pattern:` against an equivalent explicit nested `match` for success, guard-pattern failure, branch fallthrough, and inner-guard success/failure.
 - Add an `EvaluationTest` single-evaluation regression using a counter/ref-style helper so the guard scrutinee is observed to run once per attempted branch.
-- Add a `ProtoConverterTest` round-trip for a typed branch carrying `MatchGuard`, proving the new proto encoding preserves the variant.
+- Add a `ProtoConverterTest` round-trip for a typed branch carrying `MatchGuard`, proving the proto encoding preserves the variant.
 - Add a `ShowEdnRoundTripTest` regression that the EDN/show encoding round-trips the new guard variant without collapsing it to `BoolGuard`.
+- completion_notes_markdown
 
-5. [ ] `document-and-clear-required-gate` Document the New Scope Rule and Clear the Repo Gate
+5. [ ] `document-and-clear-required-gate` Document the Scope Rule and Refresh Final Coverage
 
-Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics match the implementation: top-level conditional `matches` in branch guards bind into the same branch body, nested boolean uses do not, and guarded totality remains conservative except for effectively-trivial guards. Finish by running the focused suites for the changed surfaces and then the repo-required gate `scripts/test_basic.sh` so the implementation is reviewable as one end-to-end slice.
+Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics match the implementation: top-level conditional `matches` in branch guards bind into the same branch body, nested boolean uses do not, and guarded totality remains conservative except for effectively-trivial guards. Refresh the focused suites for the changed surfaces, including the remaining evaluation/serialization regressions, and rerun `scripts/test_basic.sh` on the final end-to-end slice.
 
 #### Invariants
 
@@ -137,5 +142,5 @@ Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics ma
 
 #### Assertion Tests
 
-- Run focused suites: `DeclarationTest`, `ParserTest`, `SourceConverterTest`, `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, `EvaluationTest`, `TypedTotalityTest`, `ProtoConverterTest`, and `ShowEdnRoundTripTest`.
+- Run focused suites: `DeclarationTest`, `ParserTest`, `SourceConverterTest`, `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, `EvaluationTest`, `TypedTotalityTest`, `TypedExprRecursionCheckTest`, `ProtoConverterTest`, and `ShowEdnRoundTripTest`.
 - Run the repo-required gate: `scripts/test_basic.sh`.

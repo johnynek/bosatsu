@@ -770,6 +770,8 @@ object ShowEdn {
     guard match {
       case TypedExpr.BoolGuard(expr) =>
         EList(List(sym("bool-guard"), encodeTypedExpr(expr, quotePackageNames)))
+      case TypedExpr.MatchGuard(_, _, _) =>
+        sys.error("TypedExpr.MatchGuard EDN encoding is not implemented yet")
     }
 
   private def decodeBranchGuard(edn: Edn): ErrorOr[TypedExpr.BranchGuard[Unit]] =
