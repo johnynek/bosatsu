@@ -12,17 +12,19 @@ object ToolCommand {
   ): Opts[F[Output[Path]]] = {
     val commonOpts = new CommonOpts(platformIO)
 
+    // Decline help preserves the left-to-right construction order, so keep
+    // this list aligned with the intended tool workflow surface.
     MonoidK[Opts].combineAllK(
       CheckCommand.opts(platformIO, commonOpts) ::
-        DocCommand.opts(platformIO, commonOpts) ::
         TestCommand.opts(platformIO, commonOpts) ::
-        EvalCommand.opts(platformIO, commonOpts, evalPassthroughArgs) ::
-        JsonCommand.opts(platformIO, commonOpts) ::
         TranspileCommand.opts(platformIO, commonOpts) ::
-        ShowCommand.opts(platformIO, commonOpts) ::
+        JsonCommand.opts(platformIO, commonOpts) ::
+        DocCommand.opts(platformIO, commonOpts) ::
+        EvalCommand.opts(platformIO, commonOpts, evalPassthroughArgs) ::
         DepsCommand.opts(platformIO, commonOpts) ::
-        ExtractIfaceCommand.opts(platformIO) ::
+        ShowCommand.opts(platformIO, commonOpts) ::
         AssembleCommand.opts(platformIO) ::
+        ExtractIfaceCommand.opts(platformIO) ::
         Nil
     )
   }

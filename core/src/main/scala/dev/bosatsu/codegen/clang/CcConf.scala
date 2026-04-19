@@ -3,12 +3,12 @@ package dev.bosatsu.codegen.clang
 import dev.bosatsu.{Json, PlatformIO}
 
 case class CcConf(
-    ccPath: String,
+    cc_path: String,
     flags: List[String],
-    iFlags: List[String],
+    iflags: List[String],
     libs: List[String],
     os: String
-) {
+) derives Json.Reader, Json.Writer {
   def compile[F[_], Path](
       src: Path,
       to: Path,
@@ -22,35 +22,17 @@ case class CcConf(
 
     args ++= flags
     args ++= extraFlags
-    args ++= iFlags
+    args ++= iflags
     args += "-o"
     args += platformIO.pathToString(to)
     args += platformIO.pathToString(src)
     args ++= linkArgs
 
-    platformIO.system(ccPath, args.result())
+    platformIO.system(cc_path, args.result())
   }
 }
 
 object CcConf {
-
-  implicit val ccConfJsonReader: Json.Reader[CcConf] =
-    new Json.Reader.Obj[CcConf] {
-      def describe = "CcConf"
-      def readObj(
-          from: Json.Reader.FromObj
-      ): Either[(String, Json, Json.Path), CcConf] = {
-        import from.field
-        for {
-          ccPath <- field[String]("cc_path")
-          flags <- field[List[String]]("flags")
-          iFlags <- field[List[String]]("iflags")
-          libs <- field[List[String]]("libs")
-          os <- field[String]("os")
-        } yield CcConf(ccPath, flags, iFlags, libs, os)
-      }
-    }
-
   def parse(j: Json): Either[(String, Json, Json.Path), CcConf] =
-    ccConfJsonReader.read(Json.Path.Root, j)
+    Json.Reader[CcConf].read(Json.Path.Root, j)
 }

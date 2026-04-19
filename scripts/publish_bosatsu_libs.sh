@@ -26,7 +26,7 @@ fi
 
 mkdir -p "$OUTDIR"
 
-echo "bosatsuj lib publish:"
+echo "bosatsuj publish:"
 echo "  repo_root = $REPO_ROOT"
 echo "  outdir    = $OUTDIR"
 echo "  git_sha   = $GIT_SHA"
@@ -36,7 +36,7 @@ echo "  dry-run   = $PUBLISH_DRY_RUN"
 cd "$REPO_ROOT"
 
 # Pre-populate CAS so publish can validate semver against previous versions.
-echo "bosatsuj lib fetch:"
+echo "bosatsuj fetch:"
 LIB_NAMES=()
 LIBS_JSON="$REPO_ROOT/bosatsu_libs.json"
 if [[ -f "$LIBS_JSON" ]]; then
@@ -68,17 +68,17 @@ fi
 if [[ ${#LIB_NAMES[@]} -gt 0 ]]; then
   for name in "${LIB_NAMES[@]}"; do
     echo "  name = $name"
-    ./bosatsuj lib fetch \
+    ./bosatsuj fetch \
       --repo_root "$REPO_ROOT" \
       --name "$name"
   done
 else
-  ./bosatsuj lib fetch \
+  ./bosatsuj fetch \
     --repo_root "$REPO_ROOT"
 fi
 
 # Add --cas_dir/--color here if you want to override defaults
-./bosatsuj lib publish \
+./bosatsuj publish \
   --repo_root "$REPO_ROOT" \
   --outdir "$OUTDIR" \
   --git_sha "$GIT_SHA" \

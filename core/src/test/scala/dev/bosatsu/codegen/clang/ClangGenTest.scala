@@ -10,11 +10,13 @@ import dev.bosatsu.{
   Lit,
   LocationMap,
   Matchless,
+  MatchlessFromTypedExpr,
   Package,
   PackageMap,
   Par,
   Parser,
   Platform,
+  Predef,
   PredefImpl,
   PackageName,
   TestUtils,
@@ -31,8 +33,13 @@ class ClangGenTest extends munit.ScalaCheckSuite {
       .withMinSuccessfulTests(if (Platform.isScalaJvm) 250000 else 1000)
       .withMaxDiscardRatio(10)
 
+  private val float64Pack =
+    Predef.loadFileInCompile("test_workspace/Float64.bosatsu")
+  private val int64Pack =
+    Predef.loadFileInCompile("test_workspace/Int64.bosatsu")
+
   private def typeCheckPackage(src: String): PackageMap.Typed[Any] = {
-    val pack = Parser.unsafeParse(Package.parser(None), src)
+    val pack = Parser.unsafeParse(Package.parser, src)
     val nel = NonEmptyList.one((("test", LocationMap(src)), pack))
     Par.noParallelism {
       PackageMap
@@ -40,6 +47,94 @@ class ClangGenTest extends munit.ScalaCheckSuite {
         .strictToValidated
         .fold(errs => fail(errs.toList.mkString("\n")), identity)
     }
+  }
+
+  private def typeCheckPackages(srcs: List[String]): PackageMap.Typed[Any] = {
+    val parsed = srcs.zipWithIndex.map { case (src, idx) =>
+      val pack = Parser.unsafeParse(Package.parser, src)
+      ((s"test$idx", LocationMap(src)), pack)
+    }
+    val nel = NonEmptyList.fromListUnsafe(parsed)
+    Par.noParallelism {
+      PackageMap
+        .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(errs => fail(errs.toList.mkString("\n")), identity)
+    }
+  }
+
+  private def extractCFunction(code: String, mangledNameFragment: String): String = {
+    val start = code.indexOf(mangledNameFragment)
+    assert(start >= 0, code)
+    val headerStart = code.lastIndexOf("BValue ", start)
+    assert(headerStart >= 0, code)
+    val nextFn = code.indexOf("\n\nBValue ", start)
+    val nextMain = code.indexOf("\n\nint main(", start)
+    val end =
+      List(nextFn, nextMain)
+        .filter(_ > headerStart)
+        .sorted
+        .headOption
+        .getOrElse(code.length)
+    code.slice(headerStart, end)
+  }
+
+  private def deadCTemps(code: String): Set[String] = {
+    val tempRe = raw"__bsts_(?:a_\d+|l_branch__res\d+|l_cond\d+)".r
+    val names = tempRe.findAllIn(code).toSet
+
+    def lineReads(name: String, line: String): Boolean = {
+      val trimmed = line.trim
+      if (trimmed.startsWith(s"BValue $name") || trimmed.startsWith(s"_Bool $name")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else if (trimmed.startsWith(s"$name =")) {
+        val eqIdx = line.indexOf('=')
+        (eqIdx >= 0) && line.substring(eqIdx + 1).contains(name)
+      } else line.contains(name)
+    }
+
+    names.filterNot(name => code.linesIterator.exists(lineReads(name, _)))
+  }
+
+  private def canonicalizeGeneratedLocals(code: String): String = {
+    def canonicalizeFamily(
+        input: String,
+        pattern: scala.util.matching.Regex,
+        prefix: String
+    ): String = {
+      val mapping = scala.collection.mutable.Map.empty[String, String]
+      var next = 0
+
+      pattern.replaceAllIn(
+        input,
+        mat => {
+          val matched = mat.matched.nn
+          mapping.getOrElseUpdate(
+            matched,
+            {
+              val renamed = s"$prefix$next"
+              next += 1
+              renamed
+            }
+          )
+        }
+      )
+    }
+
+    val normalizedTemps =
+      canonicalizeFamily(code, raw"__bsts_a_\d+".r, "__bsts_a_")
+    val normalizedConds =
+      canonicalizeFamily(
+        normalizedTemps,
+        raw"__bsts_l_cond\d+".r,
+        "__bsts_l_cond"
+      )
+    canonicalizeFamily(
+      normalizedConds,
+      raw"__bsts_l_branch__res\d+".r,
+      "__bsts_l_branch__res"
+    )
   }
 
   def assertPredefFns(
@@ -64,8 +159,9 @@ x = 1
 
       res match {
         case Right(d) =>
-          val rendered = d.render(80)
-          assertEquals(rendered, matches)
+          val rendered = canonicalizeGeneratedLocals(d.render(80))
+          val expected = canonicalizeGeneratedLocals(matches)
+          assertEquals(rendered, expected)
         case Left(e) => fail(e.toString)
       }
     }
@@ -107,13 +203,13 @@ int main(int argc, char** argv) {
 
 BValue __bsts_t_lambda__loop0(BValue __bsts_b___a0,
     BValue __bsts_b___b0,
-    BValue __bsts_b_list0) {
-    if (get_variant(__bsts_b_list0) == 0) {
+    BValue __bsts_b_list00) {
+    if (get_variant(__bsts_b_list00) == 0) {
         return __bsts_b___a0;
     }
     else {
-        BValue __bsts_a_0 = get_enum_index(__bsts_b_list0, 0);
-        BValue __bsts_a_1 = get_enum_index(__bsts_b_list0, 1);
+        BValue __bsts_a_0 = get_enum_index(__bsts_b_list00, 0);
+        BValue __bsts_a_1 = get_enum_index(__bsts_b_list00, 1);
         BValue __bsts_b_h0 = __bsts_a_0;
         BValue __bsts_b_t0 = __bsts_a_1;
         return call_fn2(__bsts_b___b0,
@@ -177,6 +273,134 @@ main = foldr_local
     }
   }
 
+  test("guarded middle list search lowers to a scan loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def has_two(xs):
+  xs matches [*_, x, *_] if x matches 2
+
+main = has_two
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_two"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val hasTwo = extractCFunction(rendered, "_l_has__two(BValue")
+
+        val loopPattern =
+          """(?s)while \(__bsts_l_cond\d+\) \{\s*BValue __bsts_b_x\d+ = get_enum_index\(__bsts_a_\d+, 0\);\s*if \(bsts_integer_equals\(__bsts_b_x\d+,\s*bsts_integer_from_int\(2\)\)\) \{\s*__bsts_a_\d+ = alloc_enum0\(0\);\s*__bsts_a_\d+ = alloc_enum0\(1\);\s*\}\s*else if \(get_variant\(__bsts_a_\d+\) == 1\) \{\s*__bsts_a_\d+ = __bsts_a_\d+;\s*__bsts_a_\d+ = get_enum_index\(__bsts_a_\d+, 1\);""".r
+
+        assert(loopPattern.findFirstIn(hasTwo).nonEmpty, hasTwo)
+        assertEquals(deadCTemps(hasTwo), Set.empty, hasTwo)
+    }
+  }
+
+  test("segmented end-anchored list search lowers to one suffix-positioning loop in C") {
+    val pm = typeCheckPackage("""package Test
+
+def find_before_one(xs):
+  match xs:
+    case [*_, x, *_, 1]: x
+    case _: 0
+
+main = find_before_one
+""")
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("find_before_one"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val findBeforeOne = extractCFunction(rendered, "_l_find__before__one(BValue")
+        val whileCount = "while \\(".r.findAllMatchIn(findBeforeOne).length
+        val selfAdvancingTemps =
+          """(__bsts_a_\d+) = get_enum_index\(\1, 1\);""".r
+            .findAllMatchIn(findBeforeOne)
+            .map(_.group(1))
+            .toSet
+        val trailingOnePattern =
+          """(?s)bsts_integer_equals\(__bsts_a_\d+,\s*bsts_integer_from_int\(1\)\) && \(get_variant\(__bsts_a_\d+\) == 0\);""".r
+
+        assertEquals(whileCount, 2, findBeforeOne)
+        assert(
+          selfAdvancingTemps.size == 2,
+          findBeforeOne
+        )
+        assert(
+          trailingOnePattern.findFirstIn(findBeforeOne).nonEmpty,
+          findBeforeOne
+        )
+        assertEquals(deadCTemps(findBeforeOne), Set.empty, findBeforeOne)
+    }
+  }
+
+  test("segmented string search lowers cleanly in C") {
+    val hasFooPm = typeCheckPackage("""package Test
+
+def has_foo(s):
+  s matches "${_}foo${_}"
+
+main = has_foo
+""")
+    val fooBeforeBarPm = typeCheckPackage("""package Test
+
+def foo_before_bar(s):
+  s matches "${_}foo${_}bar"
+
+main = foo_before_bar
+""")
+    val hasFooRenderedE = Par.withEC {
+      ClangGen(hasFooPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("has_foo"),
+        Code.Ident("run_main")
+      )
+    }
+    val fooBeforeBarRenderedE = Par.withEC {
+      ClangGen(fooBeforeBarPm).renderMain(
+        TestUtils.testPackage,
+        Identifier.Name("foo_before_bar"),
+        Code.Ident("run_main")
+      )
+    }
+
+    (hasFooRenderedE, fooBeforeBarRenderedE) match {
+      case (Right(hasFooDoc), Right(fooBeforeBarDoc)) =>
+        val hasFoo = extractCFunction(hasFooDoc.render(120), "_l_has__foo(BValue")
+        val fooBeforeBar =
+          extractCFunction(fooBeforeBarDoc.render(120), "_l_foo__before__bar(BValue")
+
+        assertEquals("while \\(".r.findAllMatchIn(hasFoo).length, 0, hasFoo)
+        assert(hasFoo.contains("foo"), hasFoo)
+        assertEquals(deadCTemps(hasFoo), Set.empty, hasFoo)
+
+        assertEquals("while \\(".r.findAllMatchIn(fooBeforeBar).length, 2, fooBeforeBar)
+        assert(fooBeforeBar.contains("foo"), fooBeforeBar)
+        assert(fooBeforeBar.contains("bar"), fooBeforeBar)
+        assertEquals(deadCTemps(fooBeforeBar), Set.empty, fooBeforeBar)
+      case (Left(err), _) =>
+        fail(err.toString)
+      case (_, Left(err)) =>
+        fail(err.toString)
+    }
+  }
+
   test("top-level unit-arg function compiles to direct C function") {
     TestUtils.checkPackageMap("""
 enum Nat:
@@ -184,7 +408,7 @@ enum Nat:
   S(prev: Nat)
 
 def source(n):
-  recur n:
+  loop n:
     case Z: 0
     case S(prev): source(prev)
 
@@ -226,6 +450,96 @@ main = set_in_range_ok
     }
   }
 
+  test("top-level captured lambda stays a cached closure value in C") {
+    TestUtils.checkPackageMap("""
+def choose(eq):
+  (left, right) -> eq(left, right)
+
+eq_int_alias = choose(eq_Int)
+
+def use(_):
+  eq_int_alias(1, 2)
+
+main = use
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("use"),
+          Code.Ident("run_main")
+        )
+      }
+
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(100)
+          assert(
+            "static _Atomic BValue ___bsts_s_.*eq__int__alias".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "read_or_build\\(&___bsts_s_.*eq__int__alias".r
+              .findFirstIn(rendered)
+              .nonEmpty
+          )
+          assert(
+            "BValue ___bsts_g_.*eq__int__alias\\(BValue ".r
+              .findFirstIn(rendered)
+              .isEmpty
+          )
+      }
+    }
+  }
+
+  test("top-level function alias chains stay direct calls in C") {
+    val pm = typeCheckPackages(
+      List(
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import (
+          |  Int64,
+          |  add_Int64,
+          |  int_low_bits_to_Int64 as i64,
+          |)
+          |
+          |add_alias = add_Int64
+          |add_alias2 = add_alias
+          |
+          |def add1(x: Int64) -> Int64:
+          |  add_alias2(x, i64(1))
+          |
+          |main = add1
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("add1"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        val add1Fn = extractCFunction(rendered, "_l_add1(BValue")
+        assert(
+          add1Fn.contains("___bsts_g_Bosatsu_l_Num_l_Int64_l_add__Int64"),
+          add1Fn
+        )
+        assert(!add1Fn.contains("call_fn2("), add1Fn)
+        assert(!add1Fn.contains("___bsts_g_Test_l_add__alias2"), add1Fn)
+      }
+    }
+
   test(
     "top-level unit-arg function remains direct when nested matches share False branches"
   ) {
@@ -251,7 +565,7 @@ enum MaybeL:
   None
 
 def mk(n):
-  recur n:
+  loop n:
     case Z: Some(N(D0, N(D1, N(D2, N(D3, N(D4, E))))))
     case S(prev): mk(prev)
 
@@ -336,15 +650,19 @@ main = pick
             if (mainStart > pickStart) rendered.slice(pickStart, mainStart)
             else rendered.drop(pickStart)
 
-          val firstIf = pickFn.indexOf("if (")
-          assert(firstIf >= 0, pickFn)
+          val firstDiscriminatingCheck =
+            "bsts_integer_equals\\(__bsts_a_\\d+".r
+              .findFirstMatchIn(pickFn)
+              .map(_.start)
+              .getOrElse(-1)
+          assert(firstDiscriminatingCheck >= 0, pickFn)
           val firstWideProj =
             "get_struct_index\\([^\\n]*, 2\\)".r
               .findFirstMatchIn(pickFn)
               .map(_.start)
               .getOrElse(-1)
           assert(firstWideProj >= 0, pickFn)
-          assert(firstWideProj > firstIf, pickFn)
+          assert(firstWideProj > firstDiscriminatingCheck, pickFn)
       }
     }
   }
@@ -414,6 +732,13 @@ main = pick
       val compiled = scala.collection.immutable.SortedMap(
         () -> Map(pn -> List((Identifier.Name("main"), mainExpr)))
       )
+      def compiledWithMatchlessOptions(
+          localPassOptions: Matchless.LocalPassOptions,
+          enableGlobalInlining: Boolean
+      ): scala.collection.immutable.SortedMap[Unit, MatchlessFromTypedExpr.Compiled[
+        Unit
+      ]] =
+        compiled
       def exportedValues(
           packageName: PackageName
       ): Option[Map[Identifier.Bindable, dev.bosatsu.rankn.Type]] =
@@ -568,6 +893,20 @@ main = pick
         |operator - = sub
         |operator * = mul
         |
+        |def int_loop(i: Int, state: a, fn: (Int, a) -> (Int, a)) -> a:
+        |  loop i:
+        |    case _ if cmp_Int(i, 0) matches GT:
+        |      (next_i, next_state) = fn(i, state)
+        |      if cmp_Int(next_i, 0) matches GT:
+        |        if cmp_Int(next_i, i) matches LT:
+        |          int_loop(next_i, next_state, fn)
+        |        else:
+        |          next_state
+        |      else:
+        |        next_state
+        |    case _:
+        |      state
+        |
         |def sum(fn, n):
         |  int_loop(n, 0, (i, r) ->
         |    i = i - 1
@@ -599,13 +938,13 @@ main = pick
         )
         assert(
           rendered.contains(
-            "___bsts_g_Bosatsu_l_Predef_l_int__loop(__bsts_b_n0,"
+            "___bsts_g_Euler_l_P6_l_int__loop(__bsts_b_n0,"
           )
         )
         val boxedLambda = "alloc_boxed_pure_fn2\\(__bsts_t_lambda\\d+\\)".r
         assert(boxedLambda.findFirstIn(rendered).nonEmpty)
         assert(
-          !rendered.contains("call_fn2(___bsts_g_Bosatsu_l_Predef_l_int__loop")
+          !rendered.contains("call_fn2(___bsts_g_Euler_l_P6_l_int__loop")
         )
     }
   }
@@ -833,8 +1172,63 @@ main = a
             }
           )
         }
-      }
     }
+  }
+
+  test("Int64 literal conversions lower directly to raw Int64 constants") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import (
+          |  int_to_Int64,
+          |  int_low_bits_to_Int64,
+          |)
+          |
+          |safe_in = int_to_Int64(-9223372036854775808)
+          |safe_out = int_to_Int64(9223372036854775808)
+          |low_bits = int_low_bits_to_Int64(18446744073709551615)
+          |main = (safe_in, safe_out, low_bits)
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+        assert(
+          rendered.contains("alloc_enum1(1, bsts_int64_from_int64(INT64_MIN))"),
+          rendered
+        )
+        assert(rendered.contains("alloc_enum0(0)"), rendered)
+        assert(rendered.contains("bsts_int64_from_int64(-1)"), rendered)
+        assert(
+          !rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Int64_l_int__to__Int64"
+          ),
+          rendered
+        )
+        assert(
+          !rendered.contains(
+            "___bsts_g_Bosatsu_l_Num_l_Int64_l_int__low__bits__to__Int64"
+          ),
+          rendered
+        )
+        assert(!rendered.contains("bsts_integer_from_words_copy"), rendered)
+    }
+  }
 
   test("float literals with sign bit use unsigned bit literals") {
     TestUtils.checkPackageMap("""
@@ -880,6 +1274,135 @@ main = is_one
           val rendered = doc.render(80)
           assert(rendered.contains("bsts_float64_equals"))
       }
+    }
+  }
+
+  test("eq_Float64 applications lower to the direct float equality helper") {
+    TestUtils.checkPackageMap("""
+def same(a, b):
+  1 if eq_Float64(a, b) else 0
+
+main = same
+""") { pm =>
+      val renderedE = Par.withEC {
+        ClangGen(pm).renderMain(
+          TestUtils.testPackage,
+          Identifier.Name("same"),
+          Code.Ident("run_main")
+        )
+      }
+      renderedE match {
+        case Left(err) =>
+          fail(err.toString)
+        case Right(doc) =>
+          val rendered = doc.render(120)
+          val same = extractCFunction(rendered, "_l_same(BValue")
+          assert(same.contains("bsts_float64_equals"), same)
+          assert(!same.contains("get_variant("), same)
+      }
+    }
+  }
+
+  test("numeric comparison observations avoid Comparison tag inspection in C") {
+    val pm = typeCheckPackages(
+      List(
+        float64Pack,
+        int64Pack,
+        """package Test
+          |
+          |from Bosatsu/Num/Int64 import eq_Int64, cmp_Int64
+          |
+          |def lte_zero(x):
+          |  cmp_Int(x, 0) matches LT | EQ
+          |
+          |def gte(x, y):
+          |  cmp_Int(x, y) matches GT | EQ
+          |
+          |def neq(x, y):
+          |  match cmp_Int(x, y):
+          |    case LT: True
+          |    case GT: True
+          |    case _: False
+          |
+          |def same_float(x, y):
+          |  1 if eq_Float64(x, y) else 0
+          |
+          |def neq_float(x, y):
+          |  cmp_Float64(x, y) matches LT | GT
+          |
+          |def same_i64(x, y):
+          |  1 if eq_Int64(x, y) else 0
+          |
+          |def gte_i64(x, y):
+          |  cmp_Int64(x, y) matches GT | EQ
+          |
+          |main = (
+          |  lte_zero,
+          |  gte,
+          |  neq,
+          |  same_float,
+          |  neq_float,
+          |  same_i64,
+          |  gte_i64,
+          |)
+          |""".stripMargin
+      )
+    )
+
+    val renderedE = Par.withEC {
+      ClangGen(pm).renderMain(
+        PackageName.parse("Test").get,
+        Identifier.Name("main"),
+        Code.Ident("run_main")
+      )
+    }
+
+    renderedE match {
+      case Left(err) =>
+        fail(err.toString)
+      case Right(doc) =>
+        val rendered = doc.render(120)
+
+        val lteZero = extractCFunction(rendered, "_l_lte__zero(BValue")
+        assert(lteZero.contains("bsts_integer_cmp_zero"), lteZero)
+        assert(!lteZero.contains("get_variant("), lteZero)
+
+        val gte = extractCFunction(rendered, "_l_gte(BValue")
+        assert(gte.contains("bsts_integer_cmp"), gte)
+        assert(gte.contains(">= 0"), gte)
+        assert(!gte.contains("get_variant("), gte)
+
+        val neq = extractCFunction(rendered, "_l_neq(BValue")
+        assert(
+          neq.contains("bsts_integer_equals") || neq.contains("bsts_integer_cmp"),
+          neq
+        )
+        assert(!neq.contains("get_variant("), neq)
+
+        val sameFloat = extractCFunction(rendered, "_l_same__float(BValue")
+        assert(sameFloat.contains("bsts_float64_equals"), sameFloat)
+        assert(!sameFloat.contains("get_variant("), sameFloat)
+
+        val neqFloat = extractCFunction(rendered, "_l_neq__float(BValue")
+        assert(neqFloat.contains("bsts_float64_equals"), neqFloat)
+        assert(
+          neqFloat.contains("!") || neqFloat.contains("== 0"),
+          neqFloat
+        )
+        assert(!neqFloat.contains("get_variant("), neqFloat)
+
+        val sameI64 = extractCFunction(rendered, "_l_same__i64(BValue")
+        assert(sameI64.contains("bsts_int64_to_int64"), sameI64)
+        assert(
+          sameI64.contains("==") || sameI64.contains("!bsts_int64_to_int64"),
+          sameI64
+        )
+        assert(!sameI64.contains("get_variant("), sameI64)
+
+        val gteI64 = extractCFunction(rendered, "_l_gte__i64(BValue")
+        assert(gteI64.contains("bsts_int64_to_int64"), gteI64)
+        assert(gteI64.contains(">="), gteI64)
+        assert(!gteI64.contains("get_variant("), gteI64)
     }
   }
 

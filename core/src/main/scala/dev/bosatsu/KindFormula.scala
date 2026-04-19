@@ -10,12 +10,14 @@ import cats.data.{
   ValidatedNec
 }
 import dev.bosatsu.rankn.{
-  ConstructorFn,
   Ref,
   RefSpace,
   Type => RankNType,
   TypeEnv,
-  DefinedType
+  DefinedType,
+  ParsedTypeEnv,
+  TypeAlias,
+  TypeDecl
 }
 import dev.bosatsu.graph.Dag
 import dev.bosatsu.Shape.KnownShape
@@ -29,6 +31,9 @@ sealed abstract class KindFormula derives CanEqual
 object KindFormula {
   given cats.Eq[KindFormula] = cats.Eq.fromUniversalEquals
 
+  type Source = Shape.Source
+  val Source: Shape.Source.type = Shape.Source
+
   case class Var(id: Long)
   object Var {
     given cats.Eq[Var] = cats.Eq.fromUniversalEquals
@@ -40,20 +45,21 @@ object KindFormula {
   case class Cons(arg: Arg, result: KindFormula) extends KindFormula
 
   sealed abstract class Error {
-    def dt: DefinedType[Option[Kind.Arg]]
+    def typeDecl: TypeDecl[Option[Kind.Arg]]
   }
   object Error {
     case class Unsatisfiable(
-        dte: DefinedType[Either[KnownShape, Kind.Arg]],
+        dte: TypeDecl[Either[KnownShape, Kind.Arg]],
         constraints: LongMap[NonEmptyList[Constraint]],
         existing: LongMap[Variance],
         unknowns: SortedSet[Long]
     ) extends Error {
-      def dt: DefinedType[Option[Kind.Arg]] = dte.map(_.toOption)
+      def typeDecl: TypeDecl[Option[Kind.Arg]] =
+        dte.mapAnnotations(_.toOption)
     }
 
     case class FromShapeError(shapeError: Shape.Error) extends Error {
-      def dt = shapeError.dt
+      def typeDecl = shapeError.typeDecl
     }
   }
 
@@ -85,7 +91,7 @@ object KindFormula {
     }
 
     case class DeclaredType(
-        cfn: ConstructorFn[?],
+        source: Source,
         constructorIdx: Int,
         quantified: rankn.Type,
         bound: rankn.Type.Var.Bound,
@@ -97,7 +103,7 @@ object KindFormula {
     }
 
     case class ImportedConst(
-        cfn: ConstructorFn[?],
+        source: Source,
         constructorIdx: Int,
         const: rankn.Type.Const,
         kind: Kind,
@@ -109,13 +115,13 @@ object KindFormula {
     }
 
     // arg idx of a given constructor function
-    case class Accessor(cfn: ConstructorFn[?], idx: Int) extends Constraint {
+    case class Accessor(source: Source, idx: Int) extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co || value == Variance.in)
     }
 
-    case class RecursiveView(cfn: ConstructorFn[?], idx: Int)
+    case class RecursiveView(source: Source, idx: Int)
         extends Constraint {
       def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
@@ -123,7 +129,7 @@ object KindFormula {
     }
 
     case class HasView(
-        cfn: ConstructorFn[?],
+        source: Source,
         idx: Int,
         bound: rankn.Type.Var.Bound,
         view: Var
@@ -138,7 +144,7 @@ object KindFormula {
     }
 
     case class UnifyVariance(
-        cfn: ConstructorFn[?],
+        source: Source,
         idx: Int,
         inType: rankn.Type,
         variance: Variance
@@ -149,7 +155,7 @@ object KindFormula {
     }
 
     case class UnifyVar(
-        cfn: ConstructorFn[?],
+        source: Source,
         idx: Int,
         inType: rankn.Type,
         variance: Var
@@ -164,7 +170,7 @@ object KindFormula {
 
     // if constrainted by this v + variance == v
     case class VarSubsumes(
-        cfn: ConstructorFn[?],
+        source: Source,
         idx: Int,
         inType: rankn.Type,
         variance: Var
@@ -193,15 +199,12 @@ object KindFormula {
   }
 
   trait IsTypeEnv[E] {
-    def getDefinedType(
-        env: E,
-        tc: rankn.Type.Const
-    ): Option[DefinedType[Kind.Arg]]
+    def getKind(env: E, tc: rankn.Type.Const): Option[Kind]
 
     final def toShapeEnv: Shape.IsShapeEnv[E] =
       new Shape.IsShapeEnv[E] {
         def getShape(e: E, tc: rankn.Type.Const): Option[Shape.KnownShape] =
-          getDefinedType(e, tc).map(Shape.ShapeOf(_))
+          getKind(e, tc).map(Shape.shapeOf)
       }
   }
 
@@ -210,47 +213,60 @@ object KindFormula {
 
     implicit val typeEnvIsTypeEnv: IsTypeEnv[TypeEnv[Kind.Arg]] =
       new IsTypeEnv[TypeEnv[Kind.Arg]] {
-        def getDefinedType(
+        def getKind(
             env: TypeEnv[Kind.Arg],
             tc: rankn.Type.Const
-        ): Option[DefinedType[Kind.Arg]] =
-          env.toDefinedType(tc)
+        ): Option[Kind] =
+          env
+            .toDefinedType(tc)
+            .map(_.kindOf)
+            .orElse(env.toTypeAlias(tc).map(_.kindOf))
       }
 
     implicit def tuple2TypeEnv[A: IsTypeEnv, B: IsTypeEnv]: IsTypeEnv[(A, B)] =
       new IsTypeEnv[(A, B)] {
-        def getDefinedType(
+        def getKind(
             env: (A, B),
             tc: rankn.Type.Const
-        ): Option[DefinedType[Kind.Arg]] =
+        ): Option[Kind] =
           IsTypeEnv[A]
-            .getDefinedType(env._1, tc)
-            .orElse(IsTypeEnv[B].getDefinedType(env._2, tc))
+            .getKind(env._1, tc)
+            .orElse(IsTypeEnv[B].getKind(env._2, tc))
       }
 
     implicit val singleTypeEnv: IsTypeEnv[DefinedType[Kind.Arg]] =
       new IsTypeEnv[DefinedType[Kind.Arg]] {
-        def getDefinedType(
+        def getKind(
             dt: DefinedType[Kind.Arg],
             tc: rankn.Type.Const
-        ) =
-          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt)
+        ): Option[Kind] =
+          if ((dt.toTypeConst: rankn.Type.Const) == tc) Some(dt.kindOf)
+          else None
+      }
+
+    implicit val singleAliasTypeEnv: IsTypeEnv[TypeAlias[Kind.Arg]] =
+      new IsTypeEnv[TypeAlias[Kind.Arg]] {
+        def getKind(
+            ta: TypeAlias[Kind.Arg],
+            tc: rankn.Type.Const
+        ): Option[Kind] =
+          if ((ta.toTypeConst: rankn.Type.Const) == tc) Some(ta.kindOf)
           else None
       }
 
     implicit def foldableTypeEnv[F[_]: Foldable, E: IsTypeEnv]
         : IsTypeEnv[F[E]] =
       new IsTypeEnv[F[E]] {
-        def getDefinedType(env: F[E], tc: rankn.Type.Const) =
-          env.collectFirstSomeM[cats.Id, DefinedType[Kind.Arg]](
-            IsTypeEnv[E].getDefinedType(_, tc)
+        def getKind(env: F[E], tc: rankn.Type.Const) =
+          env.collectFirstSomeM[cats.Id, Kind](
+            IsTypeEnv[E].getKind(_, tc)
           )
       }
 
     implicit val emptyTypeEnv: IsTypeEnv[Unit] =
       new IsTypeEnv[Unit] {
-        def getDefinedType(env: Unit, tc: rankn.Type.Const) =
-          Option.empty[DefinedType[Kind.Arg]]
+        def getKind(env: Unit, tc: rankn.Type.Const) =
+          Option.empty[Kind]
       }
   }
 
@@ -263,6 +279,172 @@ object KindFormula {
       .solveAll(imports, dts)
       .leftMap(_.map(Error.FromShapeError(_)))
       .flatMap(solveAll(imports, _))
+  }
+
+  def solveAliasShapes[E: IsTypeEnv](
+      imports: E,
+      alias: TypeAlias[Option[Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Either[KnownShape, Kind.Arg]]] = {
+    implicit val shapeEnv: Shape.IsShapeEnv[E] = IsTypeEnv[E].toShapeEnv
+    Shape.solveAlias(imports, alias).leftMap(_.map(Error.FromShapeError(_)))
+  }
+
+  def solveAliasKinds[E: IsTypeEnv](
+      imports: E,
+      alias: TypeAlias[Either[KnownShape, Kind.Arg]]
+  ): ValidatedNec[Error, TypeAlias[Kind.Arg]] = {
+    import Impl._
+
+    (for {
+      state <- Impl.newState(imports, alias, allowSelfReference = false)
+      params <- alias.annotatedTypeParams.zipWithIndex.traverse {
+        case ((v, Left(ks)), _)    =>
+          state.shapeToArg(Direction.PhantomUp, ks).map(v -> _)
+        case ((v, Right(ka)), idx) =>
+          state.kindArgToArg(ka)(Constraint.DeclaredParam(idx, _)).map(v -> _)
+      }
+      aliasFormula = alias.copy(annotatedTypeParams = params)
+      kindMap = aliasFormula.annotatedTypeParams.iterator.map { case (k, v) =>
+        (k, Impl.BoundState.IsArg(v))
+      }.toMap
+      thisKind = aliasFormula.annotatedTypeParams.foldRight(Type: KindFormula) {
+        case ((_, a), t) => Cons(a, t)
+      }
+      view <- state.nextVar(Direction.PhantomUp)
+      _ <- state.addCons(
+        view,
+        Constraint.UnifyVariance(Source.AliasBody, 0, alias.rhs, Variance.co)
+      )
+      _ <- state.addTypeConstraints(
+        Direction.PhantomUp,
+        thisKind,
+        Source.AliasBody,
+        0,
+        view,
+        alias.rhs,
+        Type,
+        kindMap
+      )
+      constraints <- state.getConstraints
+      dirs <- state.getDirections
+      varCount <- state.nextId
+      topo = Impl.combineTopo(varCount, constraints)
+      maybeRes = Impl.go(alias, constraints, dirs, topo).map { vars =>
+        aliasFormula.copy(
+          annotatedTypeParams =
+            aliasFormula.annotatedTypeParams.map { case (tv, arg) =>
+              (tv, Impl.unformula(arg, vars))
+            }
+        )
+      }
+    } yield maybeRes).run.value
+  }
+
+  def solveShapesAndKinds[E: IsTypeEnv](
+      imports: E,
+      parsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]]
+  ): IorNec[Error, ParsedTypeEnv[Kind.Arg]] = {
+    implicit val shapeEnv: Shape.IsShapeEnv[E] = IsTypeEnv[E].toShapeEnv
+
+    def stmtTyConst(
+        stmt: ParsedTypeEnv.TypeStatement[?]
+    ): RankNType.TyConst =
+      RankNType.TyConst(stmt.toTypeConst)
+
+    def stmtDependsOn(
+        stmt: ParsedTypeEnv.TypeStatement[?]
+    ): List[RankNType.TyConst] =
+      stmt match {
+        case ParsedTypeEnv.TypeStatement.Defined(dt) => dt.dependsOn
+        case ParsedTypeEnv.TypeStatement.Alias(ta)   => ta.dependsOn
+      }
+
+    def solvedStmt(
+        stmt: ParsedTypeEnv.TypeStatement[?],
+        res: ValidatedNec[Error, ParsedTypeEnv.TypeStatement[Kind.Arg]],
+        dtsAcc: List[DefinedType[Kind.Arg]],
+        aliasAcc: List[TypeAlias[Kind.Arg]],
+        orderedAcc: List[ParsedTypeEnv.TypeStatement[Kind.Arg]],
+        failed: Set[RankNType.TyConst]
+    ): IorNec[
+      Error,
+      (
+          List[DefinedType[Kind.Arg]],
+          List[TypeAlias[Kind.Arg]],
+          List[ParsedTypeEnv.TypeStatement[Kind.Arg]],
+          Set[RankNType.TyConst]
+      )
+    ] =
+      res match {
+        case Validated.Valid(good) =>
+          good match {
+            case d @ ParsedTypeEnv.TypeStatement.Defined(dt) =>
+              Ior.Right((dt :: dtsAcc, aliasAcc, d :: orderedAcc, failed))
+            case a @ ParsedTypeEnv.TypeStatement.Alias(ta) =>
+              Ior.Right((dtsAcc, ta :: aliasAcc, a :: orderedAcc, failed))
+          }
+        case Validated.Invalid(errs) =>
+          Ior.Both(
+            errs,
+            (
+              dtsAcc,
+              aliasAcc,
+              orderedAcc,
+              failed + stmtTyConst(stmt)
+            )
+          )
+      }
+
+    parsedTypeEnv.orderedTypes.reverse
+      .foldM((List.empty[DefinedType[Kind.Arg]], List.empty[TypeAlias[Kind.Arg]], List.empty[
+        ParsedTypeEnv.TypeStatement[Kind.Arg]
+      ], Set.empty[RankNType.TyConst])) {
+        case ((dtsAcc, aliasAcc, orderedAcc, failed), stmt) =>
+          val priorEnv = ((imports, dtsAcc), aliasAcc)
+          if (failed.nonEmpty && stmtDependsOn(stmt).exists(failed)) {
+            // Skip solving statements that depend on previously failed items.
+            // This preserves the old behavior for non-alias code and avoids
+            // follow-on "unknown type" noise for local names that already failed.
+            Ior.Right((dtsAcc, aliasAcc, orderedAcc, failed + stmtTyConst(stmt)))
+          } else {
+            stmt match {
+              case ParsedTypeEnv.TypeStatement.Defined(dt) =>
+                solvedStmt(
+                  stmt,
+                  Shape
+                    .solveShape(priorEnv, dt)
+                    .leftMap(_.map(Error.FromShapeError(_)))
+                    .andThen(solveKind(priorEnv, _))
+                    .map(ParsedTypeEnv.TypeStatement.Defined(_)),
+                  dtsAcc,
+                  aliasAcc,
+                  orderedAcc,
+                  failed
+                )
+              case ParsedTypeEnv.TypeStatement.Alias(alias) =>
+                solvedStmt(
+                  stmt,
+                  Shape
+                    .solveAlias(priorEnv, alias)
+                    .leftMap(_.map(Error.FromShapeError(_)))
+                    .andThen(solveAliasKinds(priorEnv, _))
+                    .map(ParsedTypeEnv.TypeStatement.Alias(_)),
+                  dtsAcc,
+                  aliasAcc,
+                  orderedAcc,
+                  failed
+                )
+            }
+          }
+      }
+      .map { case (dts, aliases, ordered, _) =>
+        ParsedTypeEnv(
+          allDefinedTypes = dts.reverse,
+          typeAliases = aliases.reverse,
+          orderedTypes = ordered.reverse,
+          externalDefs = parsedTypeEnv.externalDefs
+        )
+      }
   }
 
   def solveAll[E: IsTypeEnv](
@@ -296,7 +478,7 @@ object KindFormula {
     import Impl._
 
     (for {
-      state <- Impl.newState(imports, dt)
+      state <- Impl.newState(imports, dt, allowSelfReference = true)
       dtFormula <- dt.zipWithIndex.traverse {
         case (Left(ks), _)    => state.shapeToArg(Direction.PhantomUp, ks)
         case (Right(ka), idx) =>
@@ -314,7 +496,12 @@ object KindFormula {
         val localKindMap = kindMap ++ cfn.exists.iterator.map { case (k, v) =>
           (k, Impl.BoundState.IsArg(v))
         }
-        state.addConstraints(thisKind, cfn, localKindMap)
+        state.addConstraints(
+          thisKind,
+          Source.ConstructorFn(cfn),
+          cfn.args.map(_.tpe),
+          localKindMap
+        )
       }
       constraints <- state.getConstraints
       dirs <- state.getDirections
@@ -384,7 +571,7 @@ object KindFormula {
     // invariant: all subgraph values must be valid keys in the result
     // we can process the subgraph list in parallel. Those are all the indepentent next values
     def allSolutionChunk(
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
+        typeDecl: TypeDecl[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
@@ -445,25 +632,25 @@ object KindFormula {
           case Some(nel) => Validated.valid(nel)
           case None      =>
             Validated.invalidNec(
-              Error.Unsatisfiable(dt, cons, existing, subgraph)
+              Error.Unsatisfiable(typeDecl, cons, existing, subgraph)
             )
         }
       }
 
     def allSolutions(
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
+        typeDecl: TypeDecl[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         existing: LongMap[Variance],
         directions: LongMap[Direction],
         subgraph: NonEmptyList[SortedSet[Long]]
     ): EitherNec[Error, NonEmptyLazyList[LongMap[Variance]]] =
       subgraph
-        .traverse(allSolutionChunk(dt, cons, existing, directions, _))
+        .traverse(allSolutionChunk(typeDecl, cons, existing, directions, _))
         .map(KindFormula.mergeCrossProduct(_))
         .toEither
 
     def go[F[_]: Foldable](
-        dt: DefinedType[Either[Shape.KnownShape, Kind.Arg]],
+        typeDecl: TypeDecl[Either[Shape.KnownShape, Kind.Arg]],
         cons: Cons,
         directions: LongMap[Direction],
         topo: F[NonEmptyList[SortedSet[Long]]]
@@ -471,7 +658,8 @@ object KindFormula {
       topo.foldM(NonEmptyLazyList(LongMap.empty[Variance])) {
         (sols, subgraph) =>
           // if there is at least one good solution, we can keep going
-          val next = sols.map(allSolutions(dt, cons, _, directions, subgraph))
+          val next =
+            sols.map(allSolutions(typeDecl, cons, _, directions, subgraph))
           val nextPaths: LazyList[LongMap[Variance]] =
             next.toLazyList.flatMap {
               case Right(ll) => ll.toLazyList
@@ -492,7 +680,8 @@ object KindFormula {
 
     def newState[E: IsTypeEnv](
         imports: E,
-        dt: DefinedType[Either[KnownShape, Kind.Arg]]
+        typeDecl: TypeDecl[Either[KnownShape, Kind.Arg]],
+        allowSelfReference: Boolean
     ): RefSpace[State[E]] =
       (
         RefSpace.allocCounter,
@@ -501,7 +690,15 @@ object KindFormula {
         RefSpace.newRef(LongMap.empty[Direction])
       )
         .mapN { (longCnt, cons, consts, dirs) =>
-          new State(imports, dt, longCnt, cons, consts, dirs)
+          new State(
+            imports,
+            typeDecl,
+            allowSelfReference,
+            longCnt,
+            cons,
+            consts,
+            dirs
+          )
         }
 
     private def unformulaKind(k: KindFormula, vars: LongMap[Variance]): Kind =
@@ -515,7 +712,8 @@ object KindFormula {
 
     class State[E: IsTypeEnv](
         imports: E,
-        dt: DefinedType[Either[KnownShape, Kind.Arg]],
+        typeDecl: TypeDecl[Either[KnownShape, Kind.Arg]],
+        allowSelfReference: Boolean,
         val nextId: RefSpace[Long],
         cons: Ref[Cons],
         constFormulas: Ref[Map[rankn.Type.Const, KindFormula]],
@@ -586,8 +784,8 @@ object KindFormula {
         } yield Arg(v, form)
 
       def unifyKind(
-          cfn: ConstructorFn[?],
-          cfnIdx: Int,
+          source: Source,
+          sourceIdx: Int,
           tpe: rankn.Type,
           kind: Kind,
           kf: KindFormula
@@ -595,20 +793,20 @@ object KindFormula {
         (kind, kf) match {
           case (Kind.Type, Type) => RefSpace.unit
           case (Kind.Cons(Kind.Arg(v, i), r), Cons(Arg(vf, inf), rf)) =>
-            addCons(vf, Constraint.UnifyVariance(cfn, cfnIdx, tpe, v)) *>
-              unifyKind(cfn, cfnIdx, tpe, i, inf) *>
-              unifyKind(cfn, cfnIdx, tpe, r, rf)
+            addCons(vf, Constraint.UnifyVariance(source, sourceIdx, tpe, v)) *>
+              unifyKind(source, sourceIdx, tpe, i, inf) *>
+              unifyKind(source, sourceIdx, tpe, r, rf)
           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
           case _ =>
             sys.error(
-              s"invariant violation: $cfn, idx = $cfnIdx, tpe=$tpe shape violation: left = $kind right = $kf"
+              s"invariant violation: $source, idx = $sourceIdx, tpe=$tpe shape violation: left = $kind right = $kf"
             )
           // $COVERAGE-ON$
         }
 
       def unifyKindFormula(
-          cfn: ConstructorFn[?],
-          cfnIdx: Int,
+          source: Source,
+          sourceIdx: Int,
           tpe: rankn.Type,
           left: KindFormula,
           right: KindFormula
@@ -617,24 +815,24 @@ object KindFormula {
           case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             val vs = if (vl =!= vr) {
-              addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
-                addCons(vr, Constraint.UnifyVar(cfn, cfnIdx, tpe, vl))
+              addCons(vl, Constraint.UnifyVar(source, sourceIdx, tpe, vr)) *>
+                addCons(vr, Constraint.UnifyVar(source, sourceIdx, tpe, vl))
             } else RefSpace.unit
 
             vs *>
-              unifyKindFormula(cfn, cfnIdx, tpe, il, ir) *>
-              unifyKindFormula(cfn, cfnIdx, tpe, rl, rr)
+              unifyKindFormula(source, sourceIdx, tpe, il, ir) *>
+              unifyKindFormula(source, sourceIdx, tpe, rl, rr)
           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
           case _ =>
             sys.error(
-              s"invariant violation: $cfn, idx = $cfnIdx, tpe=$tpe shape violation: left = $left right = $right"
+              s"invariant violation: $source, idx = $sourceIdx, tpe=$tpe shape violation: left = $left right = $right"
             )
           // $COVERAGE-ON$
         }
 
       def leftSubsumesRightKindFormula(
-          cfn: ConstructorFn[?],
-          cfnIdx: Int,
+          source: Source,
+          sourceIdx: Int,
           tpe: rankn.Type,
           left: KindFormula,
           right: KindFormula
@@ -645,13 +843,13 @@ object KindFormula {
             // we know vl + vr == vl
             val vs =
               if (vl =!= vr)
-                addCons(vl, Constraint.VarSubsumes(cfn, cfnIdx, tpe, vr))
+                addCons(vl, Constraint.VarSubsumes(source, sourceIdx, tpe, vr))
               else RefSpace.unit
 
             vs *>
               // we switch the order here
-              leftSubsumesRightKindFormula(cfn, cfnIdx, tpe, ir, il) *>
-              leftSubsumesRightKindFormula(cfn, cfnIdx, tpe, rl, rr)
+              leftSubsumesRightKindFormula(source, sourceIdx, tpe, ir, il) *>
+              leftSubsumesRightKindFormula(source, sourceIdx, tpe, rl, rr)
           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
           case _ =>
             sys.error(
@@ -663,7 +861,7 @@ object KindFormula {
       def kindOfType(
           direction: Direction,
           thisKind: KindFormula,
-          cfn: ConstructorFn[?],
+          source: Source,
           idx: Int,
           tpe: rankn.Type,
           kinds: Map[rankn.Type.Var.Bound, BoundState]
@@ -673,53 +871,49 @@ object KindFormula {
             val newKindMap = kinds ++ vars.toList.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, fa, b)
             }
-            kindOfType(direction, thisKind, cfn, idx, in, newKindMap)
+            kindOfType(direction, thisKind, source, idx, in, newKindMap)
           case ex @ rankn.Type.Exists(vars, in) =>
             val newKindMap = kinds ++ vars.toList.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, ex, b)
             }
-            kindOfType(direction, thisKind, cfn, idx, in, newKindMap)
+            kindOfType(direction, thisKind, source, idx, in, newKindMap)
 
           case rankn.Type.TyApply(on, _) =>
             // we don't need to unify here,
             // (k1 -> k2)[k1] == k2
-            kindOfType(direction.reverse, thisKind, cfn, idx, on, kinds).map {
+            kindOfType(direction.reverse, thisKind, source, idx, on, kinds).map {
               case Cons(_, result) => result
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case Type =>
                 sys.error(
-                  s"invariant violation: shape violation found * expected k1 -> k2 in dt=$dt, cfn=$cfn, tpe=$tpe"
+                  s"invariant violation: shape violation found * expected k1 -> k2 in typeDecl=$typeDecl, source=$source, tpe=$tpe"
                 )
               // $COVERAGE-ON$
             }
           case rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) == dt.toTypeTyConst) RefSpace.pure(thisKind)
+            if (allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst))
+              RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
               constFormulas.get.flatMap { consts =>
                 consts.get(c) match {
                   case Some(kf) => RefSpace.pure(kf)
                   case None     =>
-                    val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
-                      case Some(thisDt) => thisDt.kindOf
-                      case None         =>
-                        // some test code relies on syntax but doesn't import predef
-                        // TODO remove the built ins here
-                        rankn.Type.builtInKinds.get(c.toDefined) match {
-                          case Some(kind) => kind
-                          // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
-                          case None =>
-                            sys.error(
-                              s"invariant violation (line 674): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
-                            )
-                        }
+                    val kind = IsTypeEnv[E]
+                      .getKind(imports, c) match {
+                      case Some(kind) => kind
+                      // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
+                      case None =>
+                        sys.error(
+                          s"invariant violation (line 674): unknown const $c in typeDecl=$typeDecl, source=$source, tpe=$tpe"
+                        )
                       // $COVERAGE-ON$
                     }
                     // we reset direct direction for a constant type
                     for {
                       kf <- kindToFormula(kind)(
                         Constraint.ImportedConst(
-                          cfn,
+                          source,
                           idx,
                           c,
                           kind,
@@ -737,12 +931,12 @@ object KindFormula {
               case Some(BoundState.IsFormula(f))     => RefSpace.pure(f)
               case Some(BoundState.IsKind(k, fa, b)) =>
                 kindToFormula(k)(
-                  Constraint.DeclaredType(cfn, idx, fa, b, _)
+                  Constraint.DeclaredType(source, idx, fa, b, _)
                 )
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case None =>
                 sys.error(
-                  s"invariant violation: shape violation unbound var: $b dt=$dt, cfn=$cfn idx=$idx"
+                  s"invariant violation: shape violation unbound var: $b typeDecl=$typeDecl source=$source idx=$idx"
                 )
               // $COVERAGE-ON$
             }
@@ -757,14 +951,14 @@ object KindFormula {
       def addTypeConstraints(
           dir: Direction,
           thisKind: KindFormula,
-          cfn: ConstructorFn[?],
+          source: Source,
           idx: Int,
           view: Var,
           tpe: rankn.Type,
           tpeKind: KindFormula,
           kinds: Map[rankn.Type.Var.Bound, BoundState]
       ): RefSpace[Unit] = {
-        // println(s"addTypeConstraints(\ndir=$dir\nthisKind=$thisKind\ncfn=$cfn\nidx=$idx\nview=$view\ntpe=$tpe\ntpeKind=$tpeKind\nkinds=$kinds\n)")
+        // println(s"addTypeConstraints(\ndir=$dir\nthisKind=$thisKind\nsource=$source\nidx=$idx\nview=$view\ntpe=$tpe\ntpeKind=$tpeKind\nkinds=$kinds\n)")
         tpe match {
           case fa @ rankn.Type.ForAll(vars, in) =>
             val newKindMap = kinds ++ vars.iterator.map { case (b, k) =>
@@ -773,7 +967,7 @@ object KindFormula {
             addTypeConstraints(
               dir,
               thisKind,
-              cfn,
+              source,
               idx,
               view,
               in,
@@ -787,7 +981,7 @@ object KindFormula {
             addTypeConstraints(
               dir,
               thisKind,
-              cfn,
+              source,
               idx,
               view,
               in,
@@ -798,15 +992,15 @@ object KindFormula {
             // on must have kind k -> tpeKind
             // arg must have kind k
             // an invariant is that shapes match
-            kindOfType(dir.reverse, thisKind, cfn, idx, on, kinds).flatMap {
+            kindOfType(dir.reverse, thisKind, source, idx, on, kinds).flatMap {
               case onKind @ Cons(Arg(v, leftKf), res) =>
                 for {
-                  argKf <- kindOfType(dir, thisKind, cfn, idx, arg, kinds)
+                  argKf <- kindOfType(dir, thisKind, source, idx, arg, kinds)
                   // views are never unconstrained
                   newView <- nextVar(Direction.PhantomUp)
                   _ <- addCons(newView, Constraint.IsProduct(view, v, ta))
                   _ <- leftSubsumesRightKindFormula(
-                    cfn,
+                    source,
                     idx,
                     tpe,
                     leftKf,
@@ -815,7 +1009,7 @@ object KindFormula {
                   _ <- addTypeConstraints(
                     dir,
                     thisKind,
-                    cfn,
+                    source,
                     idx,
                     newView,
                     arg,
@@ -825,56 +1019,54 @@ object KindFormula {
                   _ <- addTypeConstraints(
                     dir.reverse,
                     thisKind,
-                    cfn,
+                    source,
                     idx,
                     view,
                     on,
                     onKind,
                     kinds
                   )
-                  _ <- leftSubsumesRightKindFormula(cfn, idx, tpe, res, tpeKind)
+                  _ <- leftSubsumesRightKindFormula(source, idx, tpe, res, tpeKind)
                 } yield ()
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case Type =>
                 sys.error(
-                  s"invariant violation: shape violation found * expected k1 -> k2 in dt=$dt, cfn=$cfn, tpe=$tpe"
+                  s"invariant violation: shape violation found * expected k1 -> k2 in typeDecl=$typeDecl, source=$source, tpe=$tpe"
                 )
               // $COVERAGE-ON$
             }
           case tpe @ rankn.Type.TyConst(c) =>
-            if ((tpe: rankn.Type) == dt.toTypeTyConst) {
-              addCons(view, Constraint.RecursiveView(cfn, idx)) *>
-                unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
+            if (allowSelfReference && ((tpe: rankn.Type) == typeDecl.toTypeTyConst)) {
+              addCons(view, Constraint.RecursiveView(source, idx)) *>
+                unifyKindFormula(source, idx, tpe, thisKind, tpeKind)
             } else {
               // Has to be in the imports
               val kind = IsTypeEnv[E]
-                .getDefinedType(imports, c)
-                .map(_.kindOf)
-                .orElse(rankn.Type.builtInKinds.get(c.toDefined)) match {
+                .getKind(imports, c) match {
                 case Some(k) => k
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                 case None =>
                   sys.error(
-                    s"invariant violation (line 805): unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                    s"invariant violation (line 805): unknown const $c in typeDecl=$typeDecl, source=$source, tpe=$tpe"
                   )
                 // $COVERAGE-ON$
               }
-              unifyKind(cfn, idx, tpe, kind, tpeKind)
+              unifyKind(source, idx, tpe, kind, tpeKind)
             }
           case rankn.Type.TyVar(b @ rankn.Type.Var.Bound(_)) =>
             kinds.get(b) match {
               case Some(BoundState.IsArg(Arg(v, k))) =>
                 // update the view constraints on arg
-                addCons(v, Constraint.HasView(cfn, idx, b, view)) *>
-                  unifyKindFormula(cfn, idx, tpe, k, tpeKind)
+                addCons(v, Constraint.HasView(source, idx, b, view)) *>
+                  unifyKindFormula(source, idx, tpe, k, tpeKind)
               case Some(BoundState.IsFormula(kind)) =>
-                unifyKindFormula(cfn, idx, tpe, kind, tpeKind)
+                unifyKindFormula(source, idx, tpe, kind, tpeKind)
               case Some(BoundState.IsKind(kind, _, _)) =>
-                unifyKind(cfn, idx, tpe, kind, tpeKind)
+                unifyKind(source, idx, tpe, kind, tpeKind)
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case None =>
                 sys.error(
-                  s"invariant violation: unbound variable $b in dt=$dt, cfn=$cfn, idx = $idx"
+                  s"invariant violation: unbound variable $b in typeDecl=$typeDecl, source=$source, idx = $idx"
                 )
               // $COVERAGE-ON$
             }
@@ -889,20 +1081,21 @@ object KindFormula {
 
       def addConstraints(
           thisKind: KindFormula,
-          cfn: ConstructorFn[?],
+          source: Source,
+          tpes: List[rankn.Type],
           kinds: Map[rankn.Type.Var.Bound, BoundState]
       ): RefSpace[Unit] =
-        cfn.args.zipWithIndex.traverse_ { case (param, idx) =>
+        tpes.zipWithIndex.traverse_ { case (tpe, idx) =>
           for {
             v <- nextVar(Direction.PhantomUp)
-            _ <- addCons(v, Constraint.Accessor(cfn, idx))
+            _ <- addCons(v, Constraint.Accessor(source, idx))
             _ <- addTypeConstraints(
               Direction.PhantomUp,
               thisKind,
-              cfn,
+              source,
               idx,
               v,
-              param.tpe,
+              tpe,
               Type,
               kinds
             )

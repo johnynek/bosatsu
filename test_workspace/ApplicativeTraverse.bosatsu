@@ -75,7 +75,7 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
   Applicative { pure, map, product, ... } = app
 
   def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:
-    recur lst:
+    loop lst:
       case []: ftail
       case [h, *t]: loop(t, map(((h, t)) -> [h, *t], product(fn(h), ftail)))
 

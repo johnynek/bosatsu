@@ -45,13 +45,28 @@ class LibConfigTest extends munit.FunSuite {
     )
   }
 
-  private def typeCheckOne(src: String): PackageMap.Inferred =
+  private def typeCheckOne(src: String): PackageMap.Compiled =
     Par.noParallelism {
-      val pack = dev.bosatsu.Parser.unsafeParse(Package.parser(None), src)
+      val pack = dev.bosatsu.Parser.unsafeParse(Package.parser, src)
       val nel =
         cats.data.NonEmptyList.one((("test", LocationMap(src)), pack))
       PackageMap
         .typeCheckParsed(nel, Nil, "<predef>", CompileOptions.Default)
+        .strictToValidated
+        .fold(
+          errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
+          identity
+        )
+    }
+
+  private def typeCheckAll(srcs: List[String]): PackageMap.Compiled =
+    Par.noParallelism {
+      val parsed = cats.data.NonEmptyList.fromList(srcs.zipWithIndex.map { case (src, idx) =>
+        ((idx.toString, LocationMap(src)), dev.bosatsu.Parser.unsafeParse(Package.parser, src))
+      }).getOrElse(fail("expected at least one source"))
+
+      PackageMap
+        .typeCheckParsed(parsed, Nil, "<predef>", CompileOptions.Default)
         .strictToValidated
         .fold(
           errs => fail(errs.toList.mkString("typecheck failed: ", "\n", "")),
@@ -71,7 +86,6 @@ class LibConfigTest extends munit.FunSuite {
         fail(show"failed to decode config json: $msg, got=$got at $jp")
     }
   }
-
   test("duplicate package reports dependency paths") {
     val v = Version(1, 0, 0)
 
@@ -91,14 +105,14 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = v,
+      repo_uri = "repo",
+      next_version = v,
       previous = None,
-      exportedPackages = Nil,
-      allPackages = Nil,
-      publicDeps = depA :: Nil,
-      privateDeps = depB :: Nil,
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = Nil,
+      public_deps = depA :: Nil,
+      private_deps = depB :: Nil,
+      default_main = None
     )
 
     val res = conf.validatePacks(
@@ -148,14 +162,14 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = Nil,
-      allPackages = Nil,
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None
+      exported_packages = Nil,
+      all_packages = Nil,
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
     )
 
     val res = conf.validatePacks(
@@ -179,7 +193,7 @@ class LibConfigTest extends munit.FunSuite {
     assertEquals(names, List(helloPack.name))
   }
 
-  test("lib init defaults all_packages to .*") {
+  test("init defaults all_packages to .*") {
     val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
     assertEquals(conf.allPackages.map(_.asString), List(".*"))
   }
@@ -195,12 +209,49 @@ class LibConfigTest extends munit.FunSuite {
   test("lib config doc_base_url json round-trips") {
     val conf = LibConfig
       .init(Name("root"), "repo", Version(0, 0, 1))
-      .copy(docBaseUrl = Some("https://docs.example.com/root/"))
+      .copy(doc_base_url = Some("https://docs.example.com/root/"))
 
     val encoded = Json.Writer.write(conf).render
     assert(encoded.contains("doc_base_url"), encoded)
     val decoded = decodeConfig(encoded)
     assertEquals(decoded.docBaseUrl, conf.docBaseUrl)
+  }
+
+  test("lib config default_main json round-trips via PackageName companion codecs") {
+    val conf = LibConfig
+      .init(Name("root"), "repo", Version(0, 0, 1))
+      .copy(default_main = Some(PackageName.parts("My", "Main")))
+
+    val decoded = decodeConfig(Json.Writer.write(conf).render)
+    assertEquals(decoded.defaultMain, conf.defaultMain)
+  }
+
+  test("lib config dep lists omit empty fields and decode missing fields as nil") {
+    val conf = LibConfig.init(Name("root"), "repo", Version(0, 0, 1))
+    val encoded = Json.Writer.write(conf).render
+
+    assert(!encoded.contains("public_deps"), encoded)
+    assert(!encoded.contains("private_deps"), encoded)
+
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.publicDeps, Nil)
+    assertEquals(decoded.privateDeps, Nil)
+  }
+
+  test("lib config dep list serde omits nil fields but preserves non-empty deps") {
+    val privateDep = Library.dep("dep-lib", Version(1, 2, 3))
+    val conf = LibConfig
+      .init(Name("root"), "repo", Version(0, 0, 1))
+      .copy(private_deps = privateDep :: Nil)
+
+    val encoded = Json.Writer.write(conf).render
+
+    assert(!encoded.contains("public_deps"), encoded)
+    assert(encoded.contains("private_deps"), encoded)
+
+    val decoded = decodeConfig(encoded)
+    assertEquals(decoded.publicDeps, Nil)
+    assertEquals(decoded.privateDeps, privateDep :: Nil)
   }
 
   test("assemble writes doc_base_url into library metadata") {
@@ -216,15 +267,15 @@ class LibConfigTest extends munit.FunSuite {
 
     val conf = LibConfig(
       name = Name("root"),
-      repoUri = "repo",
-      nextVersion = Version(0, 0, 1),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
       previous = None,
-      exportedPackages = List(LibConfig.PackageFilter.Name(pack.name)),
-      allPackages = List(LibConfig.PackageFilter.Name(pack.name)),
-      publicDeps = Nil,
-      privateDeps = Nil,
-      defaultMain = None,
-      docBaseUrl = Some("https://docs.example.com/root")
+      exported_packages = List(LibConfig.PackageFilter.Name(pack.name)),
+      all_packages = List(LibConfig.PackageFilter.Name(pack.name)),
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None,
+      doc_base_url = Some("https://docs.example.com/root")
     )
 
     val assembled = conf.unvalidatedAssemble(
@@ -238,5 +289,63 @@ class LibConfigTest extends munit.FunSuite {
     }
 
     assertEquals(assembled.docBaseUrl, conf.docBaseUrl)
+  }
+
+  test("validatePacks rejects exposed private same-library packages") {
+    val compiled = typeCheckAll(
+      List(
+        """package Same/Base
+          |export Shared()
+          |
+          |struct Shared
+          |""".stripMargin,
+        """package Same/User
+          |from Same/Base import Shared
+          |export wrap
+          |exposes Same/Base
+          |
+          |def wrap(value: Shared) -> Shared:
+          |  value
+          |""".stripMargin
+      )
+    )
+
+    val basePack = compiled.toMap(PackageName.parts("Same", "Base"))
+    val userPack = compiled.toMap(PackageName.parts("Same", "User"))
+
+    val conf = LibConfig(
+      name = Name("root"),
+      repo_uri = "repo",
+      next_version = Version(0, 0, 1),
+      previous = None,
+      exported_packages = List(LibConfig.PackageFilter.Name(userPack.name)),
+      all_packages = List(
+        LibConfig.PackageFilter.Name(basePack.name),
+        LibConfig.PackageFilter.Name(userPack.name)
+      ),
+      public_deps = Nil,
+      private_deps = Nil,
+      default_main = None
+    )
+
+    val res = conf.validatePacks(
+      previous = None,
+      packs = List(basePack, userPack),
+      deps = Nil,
+      publicDepClosureLibs = Nil,
+      prevPublicDepLibs = Nil
+    )
+
+    val err =
+      res match {
+        case cats.data.Validated.Invalid(nec) =>
+          nec.toList
+            .collectFirst { case e: LibConfig.Error.IllegalVisibleDep => e }
+            .getOrElse(fail("missing IllegalVisibleDep error"))
+        case cats.data.Validated.Valid(_) =>
+          fail("expected IllegalVisibleDep error")
+      }
+
+    assertEquals(err.invalid, basePack.name)
   }
 }

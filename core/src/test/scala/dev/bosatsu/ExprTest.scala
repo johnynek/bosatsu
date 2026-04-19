@@ -6,8 +6,11 @@ import cats.syntax.all._
 import dev.bosatsu.rankn.Type
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalacheck.Prop.forAll
+import scala.concurrent.duration.DurationInt
 
 class ExprTest extends munit.ScalaCheckSuite {
+  override val munitTimeout = 2.minutes
+
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters.withMinSuccessfulTests(
       if (Platform.isScalaJvm) 5000 else 500

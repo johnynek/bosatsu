@@ -6,6 +6,7 @@ export (
   Eval, done, from_Lazy, lazy_Eval, always, map, flat_map, eval, unit_Eval,
   defer, true_Eval, false_Eval, zero_Eval, one_Eval
 )
+exposes Bosatsu/Lazy
 # port of cats.Eval to bosatsu
 
 enum Leaf[a: +*]:

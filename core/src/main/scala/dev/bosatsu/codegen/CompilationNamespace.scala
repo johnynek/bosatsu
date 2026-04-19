@@ -2,7 +2,13 @@ package dev.bosatsu.codegen
 
 import cats.Show
 import cats.data.NonEmptyList
-import dev.bosatsu.{Package, PackageName, Identifier, MatchlessFromTypedExpr}
+import dev.bosatsu.{
+  Identifier,
+  Matchless,
+  MatchlessFromTypedExpr,
+  Package,
+  PackageName
+}
 import dev.bosatsu.rankn.Type
 import dev.bosatsu.graph.Toposort
 import scala.collection.immutable.{SortedMap, SortedSet}
@@ -22,6 +28,10 @@ trait CompilationNamespace[K] {
 
   def topoSort: Toposort.Result[(K, PackageName)]
   def compiled: SortedMap[K, MatchlessFromTypedExpr.Compiled[K]]
+  def compiledWithMatchlessOptions(
+      localPassOptions: Matchless.LocalPassOptions,
+      enableGlobalInlining: Boolean
+  ): SortedMap[K, MatchlessFromTypedExpr.Compiled[K]]
   def exportedValues(
       packageName: PackageName
   ): Option[Map[Identifier.Bindable, Type]]

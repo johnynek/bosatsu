@@ -19,7 +19,7 @@ find_repo_root() {
 
   local dir="$PWD"
   while [ "$dir" != "/" ]; do
-    if [ -d "$dir/.git" ]; then
+    if [ -e "$dir/.git" ]; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -29,7 +29,7 @@ find_repo_root() {
   return 1
 }
 
-repo_root="$(find_repo_root)" || fail "could not find repo root (.git not found)"
+repo_root="$(find_repo_root)" || fail "could not find repo root (.git entry not found)"
 
 version_file="${repo_root}/.bosatsu_version"
 platform_file="${repo_root}/.bosatsu_platform"
@@ -145,7 +145,7 @@ if [ ! -f "$artifact_path" ]; then
 fi
 
 # `./bosatsu --fetch` is used as a setup step; auto-install c runtime so
-# subsequent `lib test` commands don't fail on missing cc_conf.
+# subsequent `test` commands don't fail on missing cc_conf.
 if [ "$fetch" -eq 1 ] && [ "${#args[@]}" -eq 0 ]; then
   args=("c-runtime" "install")
 fi

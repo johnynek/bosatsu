@@ -26,7 +26,7 @@ object CheckCommand {
       errColor: LocationMap.Colorize
   )(implicit
       ec: Par.EC
-  ): F[PackageMap.Inferred] = {
+  ): F[PackageMap.Compiled] = {
     import platformIO.moduleIOMonad
 
     def inNel: F[NonEmptyList[Path]] =
@@ -53,7 +53,7 @@ object CheckCommand {
         interfaces ::: CommandSupport.dependencyInterfaces(dependencies),
         errColor,
         packageResolver,
-        CompileOptions.TypeCheckOnly,
+        CompileOptions.NoOptimize,
         compileCacheDirOpt
       )
     } yield packPath._1
@@ -69,7 +69,7 @@ object CheckCommand {
     val checkOpt = (
       commonOpts.sourcePathOpts,
       commonOpts.interfacePathOpts,
-      commonOpts.noSearchPackageResolverOpts,
+      commonOpts.packageResolverOpts,
       commonOpts.publicDependencyOpts,
       commonOpts.privateDependencyOpts,
       commonOpts.compileCacheDirOpt,

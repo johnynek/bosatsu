@@ -46,6 +46,9 @@ enum
   BSTS_IOERR_Other = 20
 };
 
+#define BSTS_POSIX_MODE_MASK 07777
+#define BSTS_OWNER_WRITE_EXECUTE_MASK 0300
+
 typedef enum
 {
   BSTS_HANDLE_STDIN = 0,
@@ -595,7 +598,66 @@ static int bsts_cmp_cstr(const void *left, const void *right)
   return strcmp(l, r);
 }
 
-static int bsts_mkdirs(const char *path)
+static int bsts_posix_mode_arg(BValue value, int *out)
+{
+  BValue zero = bsts_integer_from_int(0);
+  if (bsts_integer_cmp(value, zero) < 0)
+  {
+    return 0;
+  }
+
+  BValue max_mode = bsts_integer_from_int(BSTS_POSIX_MODE_MASK);
+  if (bsts_integer_cmp(value, max_mode) > 0)
+  {
+    return 0;
+  }
+
+  *out = (int)bsts_integer_to_int32(value);
+  return 1;
+}
+
+static int bsts_existing_directory(const char *path, int leaf)
+{
+  struct stat st;
+  /* mkdir -p should accept symlinked directory components while walking. */
+  if (stat(path, &st) != 0)
+  {
+    return -1;
+  }
+
+  if (S_ISDIR(st.st_mode))
+  {
+    return 0;
+  }
+
+  errno = leaf ? EEXIST : ENOTDIR;
+  return -1;
+}
+
+static int bsts_set_mode_bits(const char *path, int mode_bits)
+{
+  return chmod(path, (mode_t)(mode_bits & BSTS_POSIX_MODE_MASK));
+}
+
+static int bsts_repair_parent_mode(const char *path)
+{
+  struct stat st;
+  if (lstat(path, &st) != 0)
+  {
+    return -1;
+  }
+
+  int current_bits = (int)(st.st_mode & BSTS_POSIX_MODE_MASK);
+  int repaired_bits = current_bits | BSTS_OWNER_WRITE_EXECUTE_MASK;
+  if (repaired_bits == current_bits)
+  {
+    return 0;
+  }
+
+  return bsts_set_mode_bits(path, repaired_bits);
+}
+
+static int bsts_mkdirs_with_mode(const char *path, int leaf_mode_bits, int apply_mode)
 {
   char *copy = strdup(path);
   if (!copy)
@@ -623,8 +685,17 @@ static int bsts_mkdirs(const char *path)
       *p = '\0';
       if (strlen(copy) > 0)
       {
-        if (mkdir(copy, 0777) != 0 && errno != EEXIST)
+        if (mkdir(copy, 0777) != 0)
         {
+          if (errno != EEXIST || bsts_existing_directory(copy, 0) != 0)
+          {
+            free(copy);
+            return -1;
+          }
+        }
+        else if (apply_mode && bsts_repair_parent_mode(copy) != 0)
+        {
+          /* Keep newly created parents traversable after umask masking. */
           free(copy);
           return -1;
         }
@@ -633,7 +704,15 @@ static int bsts_mkdirs(const char *path)
     }
   }
 
-  if (mkdir(copy, 0777) != 0 && errno != EEXIST)
+  if (mkdir(copy, apply_mode ? leaf_mode_bits : 0777) != 0)
+  {
+    if (errno != EEXIST || bsts_existing_directory(copy, 1) != 0)
+    {
+      free(copy);
+      return -1;
+    }
+  }
+  else if (apply_mode && bsts_set_mode_bits(copy, leaf_mode_bits) != 0)
   {
     free(copy);
     return -1;
@@ -1772,8 +1851,10 @@ static BValue bsts_core_stat_effect(BValue path_value)
   BValue billion = bsts_integer_from_int(1000000000);
   BValue nsec_i = bsts_integer_from_int((int32_t)nsec);
   BValue mtime = bsts_integer_add(bsts_integer_times(sec_i, billion), nsec_i);
+  BValue posix_mode = bsts_option_some(
+      bsts_integer_from_int((int32_t)(st.st_mode & BSTS_POSIX_MODE_MASK)));
 
-  BValue stat_value = alloc_struct3(kind, size_bytes, mtime);
+  BValue stat_value = alloc_struct4(kind, size_bytes, mtime, posix_mode);
   return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_option_some(stat_value));
 }
 
@@ -1791,10 +1872,59 @@ static BValue bsts_core_mkdir_effect(BValue pair)
 
   int recursive = (get_variant(recursive_value) == 1);
   errno = 0;
-  int status = recursive ? bsts_mkdirs(path) : mkdir(path, 0777);
+  int status = recursive ? bsts_mkdirs_with_mode(path, 0, 0) : mkdir(path, 0777);
   if (status != 0)
   {
     BValue err = bsts_ioerror_from_errno_default(errno, "creating directory");
+    free(path);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
+  }
+
+  free(path);
+  return ___bsts_g_Bosatsu_l_Prog_l_pure(bsts_unit_value());
+}
+
+static BValue bsts_core_mkdir_with_mode_effect(BValue args)
+{
+  BValue path_value = get_struct_index(args, 0);
+  BValue recursive_value = get_struct_index(args, 1);
+  BValue mode_value = get_struct_index(args, 2);
+
+  char *path = bsts_path_to_cstr(path_value);
+  if (!path)
+  {
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_from_errno_default(errno, "creating directory with mode"));
+  }
+
+  int mode_bits = 0;
+  if (!bsts_posix_mode_arg(mode_value, &mode_bits))
+  {
+    free(path);
+    return ___bsts_g_Bosatsu_l_Prog_l_raise__error(
+        bsts_ioerror_invalid_argument("invalid PosixMode for mkdir_with_mode"));
+  }
+
+  int recursive = (get_variant(recursive_value) == 1);
+  errno = 0;
+  int status = -1;
+  if (recursive)
+  {
+    status = bsts_mkdirs_with_mode(path, mode_bits, 1);
+  }
+  else
+  {
+    status = mkdir(path, (mode_t)mode_bits);
+    if (status == 0)
+    {
+      status = bsts_set_mode_bits(path, mode_bits);
+    }
+  }
+
+  if (status != 0)
+  {
+    BValue err =
+        bsts_ioerror_from_errno_default(errno, "creating directory with mode");
     free(path);
     return ___bsts_g_Bosatsu_l_Prog_l_raise__error(err);
   }
@@ -2072,6 +2202,11 @@ BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_stat(BValue path)
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir(BValue path, BValue recursive)
 {
   return bsts_prog_effect2(path, recursive, bsts_core_mkdir_effect);
+}
+
+BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_mkdir__with__mode(BValue path, BValue recursive, BValue mode)
+{
+  return bsts_prog_effect3(path, recursive, mode, bsts_core_mkdir_with_mode_effect);
 }
 
 BValue ___bsts_g_Bosatsu_l_IO_l_Core_l_remove(BValue path, BValue recursive)
