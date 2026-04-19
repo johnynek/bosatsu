@@ -8,21 +8,21 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `0`
+- Pending steps: `1`
 - Completed steps: `7`
-- Total steps: `7`
+- Total steps: `8`
 
 ## Summary
 
-Finish scoped match-branch guards so every compiler phase and typed IR tool honors the same binder model for `case p_outer if expr matches p_inner:`: match the outer pattern first, evaluate the guard scrutinee once, check the inner guard pattern and optional inner guard, then run the branch body in `outerBindings ++ guardBindings`. Preserve right-most-wins shadowing through typed substitution, recursion analysis, loop/recur lowering, Matchless lowering, and proto/EDN tooling, keep totality conservative except for effectively-trivial guards, and fail closed on invalid guard encodings without backend schema growth.
+Finish scoped match-branch guards so every compiler phase and typed IR tool, including `TypedExprNormalization`, honors the same binder model for `case p_outer if expr matches p_inner:`: match the outer pattern first, evaluate the guard scrutinee once, check the inner guard pattern and optional inner guard, then run the branch body in `outerBindings ++ guardBindings`. Preserve right-most-wins shadowing through normalization, typed substitution, recursion analysis, loop/recur lowering, Matchless lowering, and proto/EDN tooling, keep totality conservative except for effectively-trivial guards, and fail closed on invalid guard encodings without backend schema growth.
 
 ## Current State
 
-The branch now carries scoped `MatchGuard` binders through typed substitution, alpha-renaming, `coerceFn`-driven type replacement, grouped loop/recur lowering, self-call classification, recursion-check branch analysis, and typed proto decoding. `ProtoConverter.decodeGuard` now fails closed on present-but-unset `BranchGuard` payloads instead of silently decoding them as `None`, and the new `ProtoConverterTest` regression covers that malformed typed-IR case. Verification passed with `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.ProtoConverterTest dev.bosatsu.TypedExprTest dev.bosatsu.TypedExprRecursionCheckTest"` and `scripts/test_basic.sh` on the post-review revision.
+The branch already lands the explicit branch-guard ADT, source/typechecker support, Matchless lowering, docs, recursive-consumer follow-through, and fail-fast proto decoding for `MatchGuard`. However, the current plan has no pending step for the remaining pre-PR blocker: review of the authoritative candidate patch found that `TypedExprNormalization` still has approval-blocking scope holes where some rewrites and hoist/rename helpers use the synthetic `branch.guard` view or only `branch.pattern.names`, so normalization can still drop or capture guard-local binders. The prior focused suites and `scripts/test_basic.sh` were green on the post-review revision, but they did not pin these normalization-specific binder cases.
 
 ## Problem
 
-The original insufficiency on this branch was that malformed or forward-incompatible typed proto input could silently decode a present guard as if the branch were unguarded. This round closed that `F3` gap with fail-fast decoding and regression coverage, so no issue-local implementation work remains on the current branch state.
+Blocking review finding `F1` shows that normalization is still not semantics-preserving for scoped branch guards. In `TypedExprNormalization.scala`, `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, the constructor/literal `chooseBranch` fast paths, `shareImmutableValues`, and `unshadowInlineBranch` can move, select, hoist, or rename `branch.expr` after looking only at the synthetic boolean guard or the outer branch-pattern binders. A branch like `case _ if opt matches Some(x): x` can therefore normalize into an expression where `x` is free, captured, or otherwise no longer scoped only to that branch's inner guard/body path. Until normalization becomes `guardNode`/`guardBindings` aware and gains regressions that exercise inner-guard/body uses of guard-local binders, the branch is not ready for another review round.
 
 ## Steps
 
@@ -153,7 +153,7 @@ Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics ma
 
 6. [x] `close-typed-matchguard-binder-followthrough` Finish Binder-Aware Typed Transforms and Recursive Consumers
 
-Close review findings `F1` and `F2` as one binder-scope follow-up. In `TypedExpr.scala`, thread `branch.guardBindings` and `branch.allBindings` through `substituteAll`, `replaceVarType`, and `unshadowBranch` so typed substitution and alpha-renaming treat `MatchGuard` binders as real binders and preserve the right-most-wins contract. In `TypedExprLoopRecurLowering.scala`, `SelfCallKind.scala`, and `TypedExprRecursionCheck.scala`, use the same branch binder split for self-call classification, loop/recur legality, and grouped rewrites, and rebuild guard nodes with the scoped guard-node helpers so rewrites keep `MatchGuard` structure instead of flattening it to `BoolGuard`.
+Carry `MatchGuard` binder scope through typed substitution, type replacement, loop/recur lowering, self-call classification, and recursion checking. In `TypedExpr.scala`, thread `branch.guardBindings` and `branch.allBindings` through `substituteAll`, `replaceVarType`, and `unshadowBranch` so typed substitution and alpha-renaming treat `MatchGuard` binders as real binders and preserve the right-most-wins contract. In `TypedExprLoopRecurLowering.scala`, `SelfCallKind.scala`, and `TypedExprRecursionCheck.scala`, use the same branch binder split for self-call classification, loop/recur legality, and grouped rewrites, and rebuild guard nodes with the scoped guard-node helpers so rewrites keep `MatchGuard` structure instead of flattening it to `BoolGuard`.
 
 #### Invariants
 
@@ -174,7 +174,7 @@ Close review findings `F1` and `F2` as one binder-scope follow-up. In `TypedExpr
 
 #### Completion Notes
 
-`TypedExpr.substituteAll` now filters substitutions separately for outer-pattern scope versus `MatchGuard` body scope, and `unshadowBranch` alpha-renames outer and guard-pattern binders independently so capture avoidance preserves right-most-wins semantics. `replaceVarType` now rewrites the guard scrutinee under outer bindings only, leaving guard-bound locals untouched in the optional inner guard and branch body. `TypedExprLoopRecurLowering` now keeps `MatchGuard` nodes intact during grouped rewrites and tail-call lowering while honoring the guard binder split, `SelfCallKind` no longer counts guard-shadowed branch bodies or inner guards as recursive self calls, and `TypedExprRecursionCheck` now checks the guard scrutinee before introducing guard-pattern binders for the inner guard/body path. Added focused `TypedExprTest`, `SelfCallKindTest`, and `TypedExprRecursionCheckTest` regressions, then reran `coreJVM/test:compile`, `coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.SelfCallKindTest dev.bosatsu.TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`.
+`TypedExpr.substituteAll` now filters substitutions separately for outer-pattern scope versus `MatchGuard` body scope, and `unshadowBranch` alpha-renames outer and guard-pattern binders independently so capture avoidance preserves right-most-wins semantics. `replaceVarType` now rewrites the guard scrutinee under outer bindings only, leaving guard-bound locals untouched in the optional inner guard and branch body. `TypedExprLoopRecurLowering` now keeps `MatchGuard` nodes intact during grouped rewrites and tail-call lowering while honoring the guard binder split, `SelfCallKind` no longer counts guard-shadowed branch bodies or inner guards as recursive self calls, and `TypedExprRecursionCheck` now checks the guard scrutinee before introducing guard-pattern binders for the inner guard/body path. Added focused `TypedExprTest`, `SelfCallKindTest`, and `TypedExprRecursionCheckTest` regressions, then reran `coreJVM/test:compile`, `coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.SelfCallKindTest dev.bosatsu.TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`. A later pre-PR review still found normalization-specific scope bugs in `TypedExprNormalization`; that remaining work is tracked below.
 
 7. [x] `harden-branch-guard-proto-decoding` Fail Fast on Invalid Typed BranchGuard Payloads
 
@@ -198,3 +198,26 @@ Close review finding `F3` by tightening `ProtoConverter.decodeGuard` so a presen
 #### Completion Notes
 
 `ProtoConverter.decodeGuard` now treats a present `BranchGuard` whose `oneof` is unset as invalid typed-AST input and returns failure instead of `None`, so malformed or forward-incompatible payloads cannot erase guarded branches during decode. Added a `ProtoConverterTest` regression that mutates an encoded match branch to carry `Some(proto.BranchGuard())` and asserts decode failure, then reran `sbt "coreJVM/test:compile" "coreJVM/testOnly dev.bosatsu.ProtoConverterTest dev.bosatsu.TypedExprTest dev.bosatsu.TypedExprRecursionCheckTest"` and `scripts/test_basic.sh`, all of which passed.
+
+8. [ ] `fix-typedexprnormalization-matchguard-scope` Make TypedExprNormalization Preserve MatchGuard Scope
+
+Close blocking review finding `F1` by making `TypedExprNormalization.scala` `guardNode`/`guardBindings` aware end to end. `rewriteLeadingWildcardGuard`, `rewriteTrailingGuardPair`, and the constructor/literal `chooseBranch` fast paths must either preserve `MatchGuard` binders when they rebuild or select branch bodies, or explicitly skip the rewrite for `MatchGuard` instead of routing through the synthetic `branch.guard` view. In the same slice, update `shareImmutableValues` and `unshadowInlineBranch` to use outer-pattern binders for the guard-scrutinee scope and `branch.allBindings` for the optional inner guard plus branch body, so hoisting and alpha-renaming cannot move, duplicate, or capture guard-local names.
+
+#### Invariants
+
+- After normalization, `MatchGuard` binders remain in scope for the optional inner guard and same branch body only; no rewrite may materialize a body that refers to those names outside that combined scope.
+- Guard-scrutinee transforms run under outer branch-pattern binders only, while hoisting, alpha-renaming, and branch-body rewrites treat `branch.allBindings` as the live blocker set for the optional inner guard and branch body.
+- Bool-only normalization fast paths remain available for `BoolGuard` branches, but `MatchGuard` branches may only take those paths when the transformed result explicitly preserves the same binder scope and single-evaluation behavior.
+- When a scope-preserving rewrite is not local or obvious, the normalizer may leave a `MatchGuard` branch unchanged rather than collapsing it through the synthetic boolean view.
+
+#### Property Tests
+
+- Add a targeted `TypedExprTest` property that normalizing a `MatchGuard` branch with distinct outer and inner binder names keeps those binders non-free in the normalized root when the optional inner guard and branch body both reference them.
+
+#### Assertion Tests
+
+- Add a `TypedExprTest` regression for the leading-wildcard rewrite on `case _ if opt matches Some(x): x`, asserting normalization either preserves the `MatchGuard` or rebuilds an equivalent nested match whose successful arm still binds `x`.
+- Add a `TypedExprTest` regression for the trailing-guard-pair rewrite where the guarded branch body uses the inner `MatchGuard` binder, asserting the rewrite does not drop the binder or evaluate the guard scrutinee twice.
+- Add `TypedExprTest` regressions for the constructor and literal `chooseBranch` fast paths, proving constant-folded branch selection keeps `MatchGuard` binders in scope for the selected body.
+- Add a `TypedExprTest` regression that `shareImmutableValues` and `unshadowInlineBinders` do not hoist or capture expressions across a `MatchGuard` inner binder used in the inner guard and branch body.
+- Run `sbt "coreJVM/test:compile"`, focused `coreJVM/testOnly dev.bosatsu.TypedExprTest dev.bosatsu.EvaluationTest`, then rerun `scripts/test_basic.sh` on the post-fix branch state.
