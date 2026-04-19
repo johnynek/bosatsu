@@ -230,6 +230,8 @@ jobs:
           grep -q "\[info\] graalvm-java23" native-image-toolchain.txt
           grep -q "\[info\] 23.0.2" native-image-toolchain.txt
       - name: "build native image"
+        env:
+          BOSATSU_NATIVE_IMAGE_THREADS: "2"
         run: |
           sbt "cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu

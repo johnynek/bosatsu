@@ -330,6 +330,12 @@ lazy val cli = (project in file("cli"))
                 "-H:-DeadlockWatchdogExitOnTimeout"
             }
             .toList
+      val nativeImageThreadOpts =
+        sys.env
+          .get("BOSATSU_NATIVE_IMAGE_THREADS")
+          .filter(_.nonEmpty)
+          .toList
+          .map(threads => s"-H:NumberOfThreads=$threads")
       val staticOpt =
         if (sys.env.get("BOSATSU_STATIC_NATIVE_IMAGE").exists(_.nonEmpty))
           List("--static")
@@ -360,7 +366,7 @@ lazy val cli = (project in file("cli"))
         "-H:+RemoveUnusedSymbols",
         "-H:CompilationExpirationPeriod=0",
         "-H:CompilationNoProgressPeriod=0"
-      ) ++ watchdogOpts ++ staticOpt ++ muslOpt ++ clibPaths
+      ) ++ watchdogOpts ++ nativeImageThreadOpts ++ staticOpt ++ muslOpt ++ clibPaths
     },
     nativeImageJvm := "graalvm-java23",
     nativeImageVersion := "23.0.2"

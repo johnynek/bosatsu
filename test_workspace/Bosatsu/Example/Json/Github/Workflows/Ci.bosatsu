@@ -332,6 +332,7 @@ workflow =
               "cp cli/target/native-image/bosatsu-cli bosatsu",
               "",
             ])),
+            env: Set(StepEnv { `BOSATSU_NATIVE_IMAGE_THREADS`: Set("2") }),
           },
           run_bosatsu_tests_step,
         ],
