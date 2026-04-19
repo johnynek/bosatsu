@@ -3291,6 +3291,65 @@ test = TestSuite("conditional matches", [
     )
   }
 
+  test("match branch MatchGuards evaluate like explicit nested matches") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+def split_even(i: Int) -> (Int, Int):
+  (i, i.mod_Int(2))
+
+def guarded(pair):
+  match pair:
+    case (x, y) if split_even(x) matches (even_x, 0):
+      add(even_x, y)
+    case (_, 0):
+      99
+    case (_, y):
+      y
+
+def explicit(pair):
+  match pair:
+    case (x, y):
+      match split_even(x):
+        case (even_x, 0):
+          add(even_x, y)
+        case _:
+          match pair:
+            case (_, 0):
+              99
+            case (_, y):
+              y
+
+def guarded_with_inner(pair):
+  match pair:
+    case (x, y) if split_even(x) matches (even_x, 0) if y.mod_Int(2) matches 1:
+      add(even_x, y)
+    case (_, y):
+      y
+
+def explicit_with_inner(pair):
+  match pair:
+    case (x, y):
+      match split_even(x):
+        case (even_x, 0) if y.mod_Int(2) matches 1:
+          add(even_x, y)
+        case _:
+          y
+
+test = TestSuite("match branch MatchGuards", [
+  Assertion(guarded((4, 2)).eq_Int(explicit((4, 2))), "success"),
+  Assertion(guarded((3, 0)).eq_Int(explicit((3, 0))), "guard pattern failure reaches later branch"),
+  Assertion(guarded((3, 2)).eq_Int(explicit((3, 2))), "guard pattern failure reaches fallback"),
+  Assertion(guarded_with_inner((4, 1)).eq_Int(explicit_with_inner((4, 1))), "inner guard success"),
+  Assertion(guarded_with_inner((4, 2)).eq_Int(explicit_with_inner((4, 2))), "inner guard failure")
+])
+"""),
+      "Foo",
+      5
+    )
+  }
+
   test("array externals evaluate") {
     runBosatsuTest(
       List(

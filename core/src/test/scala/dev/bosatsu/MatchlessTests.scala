@@ -5106,6 +5106,51 @@ def seg_final_literal_char(s):
     )
   }
 
+  test("MatchGuard lowering evaluates the guard scrutinee once") {
+    val x = Identifier.Name("x")
+    val y = Identifier.Name("y")
+    val evenX = Identifier.Name("even_x")
+    val probeName = Identifier.Name("probe")
+    val out = Identifier.Name("match_guard_single_eval")
+    val intType = rankn.Type.IntType
+    val probeType = rankn.Type.Fun(NonEmptyList.one(intType), issue1732PairType)
+    val outerPattern =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.Var(x) :: Pattern.Var(y) :: Nil
+      )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (issue1732Package, issue1732Pair),
+        Pattern.Var(evenX) :: Pattern.Literal(Lit.fromInt(0)) :: Nil
+      )
+    val probeCall = TypedExpr.App(
+      TypedExpr.Global(TestUtils.testPackage, probeName, probeType, ()),
+      NonEmptyList.one(TypedExpr.Local(x, intType, ())),
+      issue1732PairType,
+      ()
+    )
+    val expr = TypedExpr.Match(
+      pairCall(intLit(1), intType, intLit(2), intType),
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          outerPattern,
+          Some(
+            TypedExpr.MatchGuard(probeCall, guardPattern, None)(using Region.empty)
+          ),
+          TypedExpr.Local(evenX, intType, ())
+        ),
+        TypedExpr.Branch(Pattern.WildCard, None, intLit(0))
+      ),
+      ()
+    )
+
+    val lowered =
+      Matchless.fromLet((), out, RecursionKind.NonRecursive, expr)(issue1732Fn)
+
+    assertEquals(countGlobalCalls(lowered, TestUtils.testPackage, probeName), 1)
+  }
+
   test("multiple whole-root bind branches can still avoid reconstruction") {
     val flag = Identifier.Name("flag")
     val left = Identifier.Name("left")

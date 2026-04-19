@@ -1155,7 +1155,15 @@ object TypedExpr {
           else Some(BoolGuard(guardExpr1))
         case Some(guard @ MatchGuard(argExpr, pattern, guardExpr)) =>
           val argExpr1 = outerFn(argExpr)
-          val guardExpr1 = guardExpr.map(innerFn)
+          val guardExpr1 =
+            guardExpr match {
+              case Some(innerGuard) =>
+                val innerGuard1 = innerFn(innerGuard)
+                if (innerGuard1 eq innerGuard) guardExpr
+                else Some(innerGuard1)
+              case None             =>
+                None
+            }
           if ((argExpr1 eq argExpr) &&
               (guardExpr1.asInstanceOf[AnyRef] eq guardExpr.asInstanceOf[AnyRef]))
             guardNode

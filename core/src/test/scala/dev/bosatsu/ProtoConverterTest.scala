@@ -604,6 +604,75 @@ bar = 1
     assertEquals(decodedBranches.map(_.patternRegion), originalBranches.map(_.patternRegion))
   }
 
+  test("TypedExpr proto roundtrip preserves MatchGuard branches") {
+    val intType = rankn.Type.IntType
+    val boolType = rankn.Type.BoolType
+    val pairPack = PackageName.parts("Proto", "MatchGuard")
+    val pairCtor = Constructor("Pair")
+    val pairType =
+      Type.TyConst(Type.Const.Defined(pairPack, TypeName(pairCtor)))
+    val value = Identifier.Name("value")
+    val even = Identifier.Name("even")
+    val valueExpr = TypedExpr.Local(value, pairType, Region(1, 2))
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      Region(2, 3)
+    )
+    val innerGuardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        TypedExpr.Local(even, intType, Region(3, 4)),
+        TypedExpr.Literal(Lit.fromInt(4), intType, Region(4, 5))
+      ),
+      boolType,
+      Region(5, 6)
+    )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (pairPack, pairCtor),
+        Pattern.Var(even) :: Pattern.WildCard :: Nil
+      )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(using
+              Region(6, 7)
+            )
+          ),
+          TypedExpr.Local(even, intType, Region(7, 8))
+        )(using Region(8, 9)),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, Region(9, 10))
+        )(using Region(10, 11))
+      ),
+      Region(11, 12)
+    )
+
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Region])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          decodedExpr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- decodedExpr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
+    }
+
+    testFn(expr)
+  }
+
   test("packagesFromProto accepts interface/package name overlap") {
     forAll(Generators.genPackage(genRegion, 5)) { packMap =>
       val packs = packMap.values.toList

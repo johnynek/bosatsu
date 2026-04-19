@@ -6294,11 +6294,26 @@ object Matchless {
           (
             loop(arg, slots.unname),
             branches.traverse { branch =>
-              (
-                branch.guard.traverse(loop(_, slots.unname)),
-                loop(branch.expr, slots.unname)
-              ).mapN { (guard, te) =>
-                MatchBranch(branch.pattern, guard, te)
+              val loweredGuardF =
+                branch.guardNode match {
+                  case None =>
+                    Monad[F].pure(None)
+                  case Some(TypedExpr.BoolGuard(guardExpr)) =>
+                    loop(guardExpr, slots.unname).map(guard =>
+                      Some(BoolMatchBranchGuard(guard))
+                    )
+                  case Some(TypedExpr.MatchGuard(argExpr, pattern, guardOpt)) =>
+                    (
+                      loop(argExpr, slots.unname),
+                      guardOpt.traverse(loop(_, slots.unname))
+                    ).mapN { (argExpr1, guardOpt1) =>
+                      Some(ScopedMatchBranchGuard(argExpr1, pattern, guardOpt1))
+                    }
+                }
+
+              (loweredGuardF, loop(branch.expr, slots.unname)).mapN {
+                (guard, te) =>
+                  MatchBranch(branch.pattern, guard, te)
               }
             }
           ).tupled
@@ -7350,11 +7365,28 @@ object Matchless {
         Always(SetMut(l, e), r)
       }
 
+    sealed trait MatchBranchGuard
+    final case class BoolMatchBranchGuard(expr: Expr[B]) extends MatchBranchGuard
+    final case class ScopedMatchBranchGuard(
+        arg: Expr[B],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guard: Option[Expr[B]]
+    ) extends MatchBranchGuard
+
     case class MatchBranch(
         pattern: Pattern[(PackageName, Constructor), Type],
-        guard: Option[Expr[B]],
+        guard: Option[MatchBranchGuard],
         rhs: Expr[B]
-    )
+    ) {
+      def boolGuard: Option[Expr[B]] =
+        guard.collect { case BoolMatchBranchGuard(expr) => expr }
+
+      def hasScopedGuard: Boolean =
+        guard.exists {
+          case _: ScopedMatchBranchGuard => true
+          case _                         => false
+        }
+    }
 
     // A row in the pattern matrix: patterns for each occurrence,
     // a right-hand side, and the bindings accumulated so far.
@@ -7377,7 +7409,7 @@ object Matchless {
     }
     object MatchRow {
       def fromBranch(branch: MatchBranch): MatchRow =
-        MatchRow(branch.pattern :: Nil, branch.guard, branch.rhs, Nil)
+        MatchRow(branch.pattern :: Nil, branch.boolGuard, branch.rhs, Nil)
     }
 
     // Head signatures represent refutable "shapes" we can branch on.
@@ -7996,6 +8028,97 @@ object Matchless {
           }
       }
 
+    final case class ScopedGuardSetup(
+        candidateGuard: CandidateGuard,
+        extraPreLets: List[LocalAnonMut],
+        extraBinds: List[(Bindable, Expr[B])]
+    )
+
+    def scopedGuardUnionMatchToExpr(
+        matches: UnionMatch,
+        binderMutByName: Map[Bindable, LocalAnonMut],
+        innerGuardBool: Option[BoolExpr[B]]
+    ): Expr[B] = {
+      def onSuccess(innerBinds: List[(Bindable, Expr[B])]): Expr[B] = {
+        val bindUpdates =
+          innerBinds.flatMap { case (name, expr) =>
+            binderMutByName.get(name).map(_ -> expr)
+          }
+        val successExpr =
+          innerGuardBool match {
+            case Some(guardCond) =>
+              If(guardCond, TrueExpr, FalseExpr)
+            case None            =>
+              TrueExpr
+          }
+        setAll(bindUpdates, successExpr)
+      }
+
+      def loopMatches(
+          items: List[(List[LocalAnonMut], BoolExpr[B], List[(Bindable, Expr[B])])]
+      ): Expr[B] =
+        items match {
+          case Nil =>
+            FalseExpr
+          case (preLets, cond, innerBinds) :: tail =>
+            letMutAll(preLets, If(cond, onSuccess(innerBinds), loopMatches(tail)))
+        }
+
+      loopMatches(matches.toList)
+    }
+
+    def buildScopedGuardSetup(
+        argExpr: Expr[B],
+        pattern: Pattern[(PackageName, Constructor), Type],
+        guardExpr: Option[Expr[B]]
+    ): F[ScopedGuardSetup] = {
+      val binderNames = pattern.names
+      (
+        makeAnon.map(LocalAnonMut(_)),
+        binderNames.traverse(name => makeAnon.map(LocalAnonMut(_)).map(name -> _))
+      ).tupled.map { case (argMut, binderMuts) =>
+        val binderMutByName = binderMuts.toMap
+        val extraPreLets = argMut :: binderMuts.map(_._2)
+        val extraBinds =
+          binderMuts.map { case (name, mut) => (name, mut: Expr[B]) }
+
+        val candidateGuard: CandidateGuard =
+          (outerBinds: List[(Bindable, Expr[B])]) => {
+            val scopedArg =
+              lets(retainReferencedBinds(argExpr, outerBinds), argExpr)
+            val innerGuardBoolF =
+              guardExpr.traverse { innerGuardExpr =>
+                guardToBoolExpr(
+                  lets(
+                    retainReferencedBinds(
+                      innerGuardExpr,
+                      outerBinds ::: extraBinds
+                    ),
+                    innerGuardExpr
+                  )
+                )
+              }
+
+            innerGuardBoolF.flatMap { innerGuardBool =>
+              doesMatch(argMut, pattern, false, None, None).flatMap { innerMatches =>
+                val guardExpr =
+                  setAll(
+                    (argMut, scopedArg) :: Nil,
+                    scopedGuardUnionMatchToExpr(
+                      innerMatches,
+                      binderMutByName,
+                      innerGuardBool
+                    )
+                  )
+                guardToBoolExpr(guardExpr)
+              }
+            }
+          }
+
+        ScopedGuardSetup(candidateGuard, extraPreLets, extraBinds)
+      }
+    }
+
     // Legacy ordered compiler: compile each pattern into a BoolExpr and chain
     // Ifs. This preserves the semantics of non-orthogonal patterns.
     def matchExprOrderedCheap(
@@ -8011,10 +8134,34 @@ object Matchless {
         // Normalize to simplify list/string patterns while preserving
         // ordered semantics for non-orthogonal matches.
         val head1 = head.copy(pattern = normalizePattern(head.pattern))
-        val candidateGuard =
-          head1.guard.map { guard =>
-            (binds: List[(Bindable, Expr[B])]) =>
-              guardToBoolExpr(lets(retainReferencedBinds(guard, binds), guard))
+        val guardSetupF =
+          head1.guard match {
+            case None =>
+              Monad[F].pure((Option.empty[CandidateGuard], identity[UnionMatch]))
+            case Some(BoolMatchBranchGuard(guardExpr)) =>
+              Monad[F].pure(
+                (
+                  Some((binds: List[(Bindable, Expr[B])]) =>
+                    guardToBoolExpr(
+                      lets(retainReferencedBinds(guardExpr, binds), guardExpr)
+                    )
+                  ),
+                  identity[UnionMatch]
+                )
+              )
+            case Some(ScopedMatchBranchGuard(argExpr, pattern, guardExpr)) =>
+              buildScopedGuardSetup(argExpr, pattern, guardExpr).map { setup =>
+                val appendScopedBinds: UnionMatch => UnionMatch =
+                  _.map { case (preLets, cond, binds) =>
+                    (
+                      preLets ::: setup.extraPreLets,
+                      cond,
+                      binds ::: setup.extraBinds
+                    )
+                  }
+
+                (Some(setup.candidateGuard), appendScopedBinds)
+              }
           }
 
         def loop(
@@ -8053,13 +8200,17 @@ object Matchless {
           }
 
         val mustMatchPattern = branches.tail.isEmpty && head1.guard.isEmpty
-        doesMatch(
-          arg,
-          head1.pattern,
-          mustMatchPattern,
-          rootInlined,
-          candidateGuard
-        ).flatMap(loop)
+        guardSetupF.flatMap { case (candidateGuard, appendScopedBinds) =>
+          doesMatch(
+            arg,
+            head1.pattern,
+            mustMatchPattern,
+            rootInlined,
+            candidateGuard
+          )
+            .map(appendScopedBinds)
+            .flatMap(loop)
+        }
       }
 
       recur(arg, branches)
@@ -8959,7 +9110,9 @@ object Matchless {
           branches: NonEmptyList[MatchBranch],
           rootInlined: Option[InlinedStructRoot]
       ): F[Expr[B]] =
-        if (shouldPreferOrderedTerminalFallback(branches))
+        if (branches.exists(_.hasScopedGuard) || shouldPreferOrderedTerminalFallback(
+            branches
+          ))
           matchExprOrderedCheap(arg, branches, rootInlined)
         else
           matchExprMatrixCheap(arg, branches, rootInlined)

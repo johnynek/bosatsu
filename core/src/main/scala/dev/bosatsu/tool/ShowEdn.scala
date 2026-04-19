@@ -28,6 +28,7 @@ import dev.bosatsu.{
   Lit,
   Package,
   PackageName,
+  Region,
   Pattern,
   RecursionKind,
   Referant,
@@ -770,14 +771,34 @@ object ShowEdn {
     guard match {
       case TypedExpr.BoolGuard(expr) =>
         EList(List(sym("bool-guard"), encodeTypedExpr(expr, quotePackageNames)))
-      case TypedExpr.MatchGuard(_, _, _) =>
-        sys.error("TypedExpr.MatchGuard EDN encoding is not implemented yet")
+      case TypedExpr.MatchGuard(argExpr, pattern, guardExpr) =>
+        val suffix = guardExpr.toList.map(encodeTypedExpr(_, quotePackageNames))
+        EList(
+          sym("match-guard") ::
+            encodeTypedExpr(argExpr, quotePackageNames) ::
+            encodePattern(pattern, quotePackageNames) ::
+            suffix
+        )
     }
 
   private def decodeBranchGuard(edn: Edn): ErrorOr[TypedExpr.BranchGuard[Unit]] =
     edn match {
       case EList(ESymbol("bool-guard") :: exprEdn :: Nil) =>
         decodeTypedExpr(exprEdn).map(TypedExpr.BoolGuard(_))
+      case EList(ESymbol("match-guard") :: argEdn :: patternEdn :: Nil) =>
+        (decodeTypedExpr(argEdn), decodePattern(patternEdn)).mapN { (argExpr, pattern) =>
+          TypedExpr.MatchGuard(argExpr, pattern, None)(using Region.empty)
+        }
+      case EList(
+            ESymbol("match-guard") :: argEdn :: patternEdn :: guardEdn :: Nil
+          ) =>
+        (
+          decodeTypedExpr(argEdn),
+          decodePattern(patternEdn),
+          decodeTypedExpr(guardEdn)
+        ).mapN { (argExpr, pattern, guardExpr) =>
+          TypedExpr.MatchGuard(argExpr, pattern, Some(guardExpr))(using Region.empty)
+        }
       case other =>
         // Backward-compatible decoder for older serialized branch shapes.
         decodeTypedExpr(other).map(TypedExpr.BoolGuard(_))

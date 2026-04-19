@@ -26,6 +26,7 @@ import dev.bosatsu.{
   Program,
   RecursionKind,
   Referant,
+  Region,
   TypeName,
   TypedExpr
 }
@@ -123,6 +124,68 @@ class ShowEdnRoundTripTest extends munit.ScalaCheckSuite {
 
     val rendered = ShowEdn.typedExprCodec.render(expr, 120)
     assert(rendered.contains("bool-guard"))
+
+    val parsed = ShowEdn.typedExprCodec.parse(rendered) match {
+      case Right(value) => value
+      case Left(err)    => fail(s"failed to parse typedExpr EDN: $err")
+    }
+
+    assertEquals(parsed, expr)
+  }
+
+  test("typedExpr codec round trips MatchGuard branches") {
+    val intType = Type.IntType
+    val boolType = Type.BoolType
+    val pairPack = PackageName.parts("ShowEdn", "MatchGuard")
+    val pairCtor = Identifier.Constructor("Pair")
+    val pairType =
+      Type.TyConst(Type.Const.Defined(pairPack, TypeName(pairCtor)))
+    val value = Identifier.Name("value")
+    val even = Identifier.Name("even")
+    val valueExpr = TypedExpr.Local(value, pairType, ())
+    val eqInt = TypedExpr.Global(
+      PackageName.PredefName,
+      Identifier.Name("eq_Int"),
+      Type.Fun(NonEmptyList.of(intType, intType), boolType),
+      ()
+    )
+    val innerGuardExpr = TypedExpr.App(
+      eqInt,
+      NonEmptyList.of(
+        TypedExpr.Local(even, intType, ()),
+        TypedExpr.Literal(Lit.fromInt(4), intType, ())
+      ),
+      boolType,
+      ()
+    )
+    val guardPattern =
+      Pattern.PositionalStruct(
+        (pairPack, pairCtor),
+        Pattern.Var(even) :: Pattern.WildCard :: Nil
+      )
+    val expr = TypedExpr.Match(
+      valueExpr,
+      NonEmptyList.of(
+        TypedExpr.Branch.fromGuardNode(
+          Pattern.WildCard,
+          Some(
+            TypedExpr.MatchGuard(valueExpr, guardPattern, Some(innerGuardExpr))(using
+              Region.empty
+            )
+          ),
+          TypedExpr.Local(even, intType, ())
+        ),
+        TypedExpr.Branch(
+          Pattern.WildCard,
+          None,
+          TypedExpr.Literal(Lit.fromInt(0), intType, ())
+        )
+      ),
+      ()
+    )
+
+    val rendered = ShowEdn.typedExprCodec.render(expr, 120)
+    assert(rendered.contains("match-guard"))
 
     val parsed = ShowEdn.typedExprCodec.parse(rendered) match {
       case Right(value) => value

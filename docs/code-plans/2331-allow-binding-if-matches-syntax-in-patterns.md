@@ -8,8 +8,8 @@
 - Flow: `implementation`
 - Issue: `#2331` Allow binding if matches syntax in patterns.
 - Source design doc: `docs/design/2331-allow-binding-if-matches-syntax-in-patterns.md`
-- Pending steps: `2`
-- Completed steps: `3`
+- Pending steps: `1`
+- Completed steps: `4`
 - Total steps: `5`
 
 ## Summary
@@ -18,11 +18,11 @@ Implement scoped match-branch guards so `case p_outer if expr matches p_inner:` 
 
 ## Current State
 
-`TypedExpr.MatchGuard` now typechecks through `Infer.scala`, `NameCheck`, and `TypeValidator`, branch-body scope now includes guard-pattern binders only for the same branch and optional inner guard, `UnusedLetCheck` and `ShadowedBindingTypeCheck` reuse the existing shadowed/unused-binding diagnostics across the two-layer binder scope, and `TotalityCheck` treats only effectively-trivial match guards as unguarded. Directly coupled typed-visitor updates in `TypedExpr.scala`, `TypedExprNormalization.scala`, and `TypedExprRecursionCheck.scala`, plus proto encoding support in `TypedAst.proto` and `ProtoConverter.scala`, were absorbed so the branch stayed coherent and the required gate remained shippable. Added focused `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, `TypedTotalityTest`, and `TypedExprRecursionCheckTest` coverage, then reran `coreJVM/test:compile`, the focused suites, and `scripts/test_basic.sh`, all of which passed. `Matchless.scala`, evaluation regressions for single-evaluation semantics, and `ShowEdn`/EDN round-tripping still do not carry `MatchGuard` end to end, so the feature is not yet fully shipped.
+`TypedExpr.MatchGuard` now lowers end to end through `Matchless.scala`, `ShowEdn.scala`, and the already-landed proto encoding without backend schema growth. Matchless lowering evaluates the guard scrutinee once per attempted branch, carries guard-pattern binders into the branch RHS in right-most-wins order, and a directly coupled `TypedExpr.Branch.mapGuardNodeExprScoped` fix keeps inner-guard normalization from looping. Added focused `EvaluationTest`, `MatchlessTest`, `ProtoConverterTest`, and `ShowEdnRoundTripTest` regressions, then reran `scripts/test_basic.sh`, which passed. The remaining work is to document the user-facing scope rule in the language guide.
 
 ## Problem
 
-#2331 no longer stops at source conversion or typed scoping, but the backend and remaining tooling path is still incomplete. `TypedExpr.MatchGuard` now survives inference, validation, diagnostics, and totality, yet Matchless lowering, evaluation-style regressions, and EDN/show round-tripping still need to preserve the same single-evaluation and right-most-wins semantics. Until those remaining surfaces are updated, branch-guard `matches` is not fully end to end across compiler outputs and tooling.
+The compiler and tooling path for branch-guard `matches` is now implemented, but the repo still lacks the user-facing language-guide update that explains the exact scope boundary and guarded-totality rule. Until that documentation lands, the behavior is correct and tested but not fully described for users and reviewers.
 
 ## Steps
 
@@ -103,7 +103,7 @@ Update `rankn/Infer.scala` so branch checking runs in three stages: outer patter
 
 `Infer.scala` now checks match branches in outer-pattern -> guard -> body order, with `Expr.MatchGuard` inferring the guard scrutinee under outer bindings, typechecking the inner pattern against the instantiated scrutinee type, extending scope with guard-pattern bindings for the optional inner guard and same-branch body, and revalidating the stored whole-guard Bool-position expression. `NameCheck`, `TypeValidator`, `UnusedLetCheck`, `ShadowedBindingTypeCheck`, and `TotalityCheck` now understand the two-layer binder scope and effectively-unguarded case, and directly coupled updates in `TypedExpr.scala`, `TypedExprNormalization.scala`, `TypedExprRecursionCheck.scala`, `TypedAst.proto`, and `ProtoConverter.scala` were absorbed so the typed pipeline and required gate stayed coherent. Added focused `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, and `TypedTotalityTest` regressions, reran `coreJVM/test:compile`, `coreJVM/testOnly dev.bosatsu.ErrorMessageTest dev.bosatsu.ShadowedBindingTypeCheckTest dev.bosatsu.TypedTotalityTest dev.bosatsu.TypedExprRecursionCheckTest`, and `scripts/test_basic.sh`, all of which passed.
 
-4. [ ] `lower-matchguard-through-backend-and-tooling` Lower MatchGuard Through Matchless and Remaining Tooling
+4. [x] `lower-matchguard-through-backend-and-tooling` Lower MatchGuard Through Matchless and Remaining Tooling
 
 Teach the remaining backend/tooling pipeline to carry `TypedExpr.MatchGuard` end to end. `Matchless.scala` should lower it into the existing row structure by evaluating the guard scrutinee once, compiling the inner guard pattern with the existing pattern-matrix helpers, appending guard binders after outer binders before lowering the RHS, and emitting only the necessary boolean test. Keep the already-landed proto encoding and add focused round-trip coverage, then extend `ShowEdn.scala` so the richer guard shape still round-trips across the remaining typed IR tooling without backend schema growth.
 
@@ -124,17 +124,20 @@ Teach the remaining backend/tooling pipeline to carry `TypedExpr.MatchGuard` end
 - Add an `EvaluationTest` single-evaluation regression using a counter/ref-style helper so the guard scrutinee is observed to run once per attempted branch.
 - Add a `ProtoConverterTest` round-trip for a typed branch carrying `MatchGuard`, proving the proto encoding preserves the variant.
 - Add a `ShowEdnRoundTripTest` regression that the EDN/show encoding round-trips the new guard variant without collapsing it to `BoolGuard`.
-- completion_notes_markdown
 
-5. [ ] `document-and-clear-required-gate` Document the Scope Rule and Refresh Final Coverage
+#### Completion Notes
 
-Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics match the implementation: top-level conditional `matches` in branch guards bind into the same branch body, nested boolean uses do not, and guarded totality remains conservative except for effectively-trivial guards. Refresh the focused suites for the changed surfaces, including the remaining evaluation/serialization regressions, and rerun `scripts/test_basic.sh` on the final end-to-end slice.
+`Matchless.scala` now carries `TypedExpr.MatchGuard` through lowering by preserving a scoped guard shape until Matchless compilation, evaluating the guard scrutinee once, compiling the inner guard pattern with the existing `doesMatch` helper, appending guard binders after outer binders before lowering the RHS, and emitting only the needed boolean test. `ShowEdn.scala` now round-trips `match-guard`, focused `EvaluationTest`/`MatchlessTest`/`ProtoConverterTest`/`ShowEdnRoundTripTest` regressions were added, and a directly coupled `TypedExpr.Branch.mapGuardNodeExprScoped` identity fix stopped `MatchGuard` inner-guard normalization from looping. Verification passed with `coreJVM/testOnly dev.bosatsu.EvaluationTest dev.bosatsu.MatchlessTest dev.bosatsu.ProtoConverterTest dev.bosatsu.tool.ShowEdnRoundTripTest` and `scripts/test_basic.sh`.
+
+5. [ ] `document-and-clear-required-gate` Document the Scope Rule and Reconfirm the Gate
+
+Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics match the shipped implementation: top-level conditional `matches` in branch guards bind into the same branch body, nested boolean uses do not, and guarded totality remains conservative except for effectively-trivial guards. If this branch changes again while documenting, rerun `scripts/test_basic.sh` before PR handoff.
 
 #### Invariants
 
-- The language guide states the exact scoping boundary: whole-guard conditional `matches` on a branch body-scope the inner binders only for that branch body and optional inner guard.
-- Focused test coverage spans scope bookkeeping, source conversion, diagnostics, evaluation, totality, and serialization before the full repo gate runs.
-- The branch is not ready for PR handoff until `scripts/test_basic.sh` passes.
+- The language guide states the exact scoping boundary: only a whole-guard conditional `matches` extends scope, and only for that branch body plus the optional inner guard.
+- The language guide notes that guarded totality remains conservative except for effectively-trivial `MatchGuard`s.
+- The branch is not ready for PR handoff unless `scripts/test_basic.sh` is green on the final branch state.
 
 #### Property Tests
 
@@ -142,5 +145,4 @@ Update `docs/src/main/paradox/language_guide.md` so the user-facing semantics ma
 
 #### Assertion Tests
 
-- Run focused suites: `DeclarationTest`, `ParserTest`, `SourceConverterTest`, `ErrorMessageTest`, `ShadowedBindingTypeCheckTest`, `EvaluationTest`, `TypedTotalityTest`, `TypedExprRecursionCheckTest`, `ProtoConverterTest`, and `ShowEdnRoundTripTest`.
 - Run the repo-required gate: `scripts/test_basic.sh`.
